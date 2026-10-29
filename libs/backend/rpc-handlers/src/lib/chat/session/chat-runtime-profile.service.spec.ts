@@ -187,6 +187,20 @@ describe('ChatRuntimeProfileService', () => {
     expect(h.workspaceProvider.getWorkspaceRoot).not.toHaveBeenCalled();
   });
 
+  it('passes the start consumer and defaults an absent consumer to chat', async () => {
+    const h = harness();
+    await h.service.prepare({
+      workspaceId: workspace,
+      model: 'gpt-5',
+      consumer: 'gateway',
+    });
+    await h.service.prepare({ workspaceId: workspace, model: 'gpt-5' });
+    expect(h.resolveExecutionProfile.mock.calls.map((call) => call[0].consumer)).toEqual([
+      'gateway',
+      'chat',
+    ]);
+  });
+
   it('marks a stored model so only the Claude branch checks it', async () => {
     const h = harness();
     await h.service.prepare({ model: 'gpt-5' }, identity, true);

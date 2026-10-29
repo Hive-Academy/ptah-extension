@@ -131,7 +131,7 @@ export class ChatRuntimeProfileService {
       requestedModel: config.model ?? 'default',
       requestedModelIsStored: modelIsStored,
       existingIdentity: identity,
-      consumer: 'chat',
+      consumer: config.consumer ?? 'chat',
       hostCapabilities: this.hostCapabilities,
     });
     if (resolved.runtime === 'claude-sdk') return resolved;

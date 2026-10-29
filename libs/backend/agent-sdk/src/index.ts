@@ -113,6 +113,10 @@ export type {
   PermissionPromptLifecycleListener,
 } from './lib/sdk-permission-handler';
 export {
+  UNROUTABLE_PERMISSION_TIMEOUT_MS,
+  buildSystemAbortPermissionMessage,
+} from './lib/system-abort-permission-message';
+export {
   UnattendedSessionPolicyRegistry,
   type UnattendedSessionPolicy,
 } from './lib/permission/unattended-session-policy.registry';

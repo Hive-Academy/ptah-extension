@@ -3,7 +3,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
-import { PTAH_UI_HINT_CODEX, type SessionApprovalRouter } from '@ptah-extension/agent-sdk';
+import {
+  PTAH_UI_HINT_CODEX,
+  UNROUTABLE_PERMISSION_TIMEOUT_MS,
+  buildSystemAbortPermissionMessage,
+  type PermissionPromptLifecycleEvent,
+  type SessionApprovalRouter,
+} from '@ptah-extension/agent-sdk';
 import type { ResolvedExecutionProfile } from '@ptah-extension/auth-providers';
 import {
   buildCodexMcpConfigOverrides,
@@ -29,16 +35,23 @@ import {
 import { CodexChatOptionError } from './codex-chat-profile-options';
 import { ChatRuntimeProfileService } from '../session/chat-runtime-profile.service';
 
-jest.mock('@ptah-extension/agent-sdk', () => ({
-  presentCodexApproval: jest.requireActual<
-    typeof import('../../../../../agent-sdk/src/lib/codex-app-server/codex-tool-presentation')
-  >('../../../../../agent-sdk/src/lib/codex-app-server/codex-tool-presentation').presentCodexApproval,
-  PTAH_UI_HINT_CODEX: jest.requireActual<
-    typeof import('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint')
-  >('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint').PTAH_UI_HINT_CODEX,
-  SDK_TOKENS: { RUNTIME_HOST_CAPABILITIES: Symbol.for('caps') },
-  PTAH_MCP_PORT: 51820,
-}));
+jest.mock('@ptah-extension/agent-sdk', () => {
+  const systemAbort = jest.requireActual<
+    typeof import('../../../../../agent-sdk/src/lib/system-abort-permission-message')
+  >('../../../../../agent-sdk/src/lib/system-abort-permission-message');
+  return {
+    presentCodexApproval: jest.requireActual<
+      typeof import('../../../../../agent-sdk/src/lib/codex-app-server/codex-tool-presentation')
+    >('../../../../../agent-sdk/src/lib/codex-app-server/codex-tool-presentation').presentCodexApproval,
+    PTAH_UI_HINT_CODEX: jest.requireActual<
+      typeof import('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint')
+    >('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint').PTAH_UI_HINT_CODEX,
+    SDK_TOKENS: { RUNTIME_HOST_CAPABILITIES: Symbol.for('caps') },
+    PTAH_MCP_PORT: 51820,
+    UNROUTABLE_PERMISSION_TIMEOUT_MS: systemAbort.UNROUTABLE_PERMISSION_TIMEOUT_MS,
+    buildSystemAbortPermissionMessage: systemAbort.buildSystemAbortPermissionMessage,
+  };
+});
 jest.mock('@ptah-extension/auth-providers', () => ({
   AUTH_PROVIDERS_TOKENS: {
     SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER: Symbol.for('profiles'),
@@ -54,6 +67,7 @@ describe('Codex chat host ports', () => {
     await rm(workspace, { recursive: true, force: true });
   });
   const id = SessionId.from('22222222-2222-4222-8222-222222222222');
+  const chatTab = '33333333-3333-4333-8333-333333333333';
   function harness() {
     const execution: ResolvedExecutionProfile = {
       runtime: 'codex-app-server',
@@ -74,6 +88,7 @@ describe('Codex chat host ports', () => {
     const resolveExecutionProfile = jest.fn().mockResolvedValue(execution);
     const broadcastMessage = jest.fn().mockResolvedValue(undefined);
     const resolveAttention = jest.fn<void, [string, number]>();
+    const publish = jest.fn<void, [PermissionPromptLifecycleEvent]>();
     const { Logger } = jest.createMockFromModule<
       typeof import('@ptah-extension/vscode-core')
     >('@ptah-extension/vscode-core');
@@ -148,7 +163,8 @@ describe('Codex chat host ports', () => {
       readResumeIdentity,
       readSavedPermissionLevel,
       broadcaster: { streamEventsToWebview },
-      tabId: () => 'tab',
+      tabId: () => chatTab,
+      promptLifecycle: { publish },
     };
     return {
       deps,
@@ -162,6 +178,7 @@ describe('Codex chat host ports', () => {
       respond,
       drained,
       streamEventsToWebview,
+      publish,
     };
   }
   const config = () => ({
@@ -726,7 +743,7 @@ describe('Codex chat host ports', () => {
       (call) => call[0] === MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
     );
   }
-  function request(): CodexApprovalRequest {
+  function request(expiresAt: number | 'absent' = 1_900_000_000_000): CodexApprovalRequest {
     return {
       contextId: 'context',
       processGeneration: 2,
@@ -734,7 +751,7 @@ describe('Codex chat host ports', () => {
       turnId: 'turn',
       requestId: 5,
       toolId: 'native-item-5',
-      expiresAt: 1_900_000_000_000,
+      ...(expiresAt === 'absent' ? {} : { expiresAt }),
       kind: 'command',
       normalizedHome: workspace,
       workspaceId: workspace,
@@ -1070,6 +1087,384 @@ describe('Codex chat host ports', () => {
     })();
     await h.ports.publish(id, stream);
     expect(h.drained).toEqual([event]);
-    expect(h.streamEventsToWebview).toHaveBeenCalledWith(id, stream, 'tab');
+    expect(h.streamEventsToWebview).toHaveBeenCalledWith(id, stream, chatTab);
+  });
+
+  it('defaults the execution-profile consumer to chat', async () => {
+    const { profile } = await harness().ports.profile(config());
+    expect(profile.consumer).toBe('chat');
+  });
+
+  it('carries a gateway consumer and the ptah MCP server on the gw- routing id', async () => {
+    const h = harness();
+    const routingId = 'gw-conversation';
+    const { profile } = await h.ports.profile({
+      ...config(),
+      consumer: 'gateway',
+      tabId: routingId,
+      mcpServerRunning: true,
+    });
+    expect(profile.consumer).toBe('gateway');
+    expect(profile.mcpServers).toEqual([
+      {
+        name: 'ptah',
+        transport: 'http',
+        url: `http://localhost:51820/session/${routingId}/workspace/${encodeURIComponent(profile.cwd)}`,
+        headerReferences: {},
+        toolTimeoutSec: 960,
+      },
+    ]);
+    expect(h.resolveExecutionProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ consumer: 'gateway' }),
+    );
+  });
+
+  it('does not reject the gateway consumer as a Codex thread option', () => {
+    const h = harness();
+    expect(() =>
+      h.ports.checkOptions({ ...config(), consumer: 'gateway', prompt: 'hello' }),
+    ).not.toThrow();
+  });
+
+  describe('unroutable prompts', () => {
+    const gatewayTab = 'gw-conversation';
+    const now = 1_700_000_000_000;
+    const choices = [
+      'deny',
+      'allowOnce',
+      'allowWithInput',
+      'alwaysAllow',
+    ] as const;
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    function systemAbort(toolName: string, timeoutMs: number): string {
+      return buildSystemAbortPermissionMessage(
+        toolName,
+        `Permission request timed out after ${timeoutMs}ms with no answer from the UI — denying to prevent a permanent hang.`,
+      );
+    }
+
+    function presentGateway(expiresAt?: number) {
+      jest.useFakeTimers({ now });
+      const h = harness();
+      h.deps.tabId = () => gatewayTab;
+      const approval = request(expiresAt ?? 'absent');
+      h.ports.presentation.present(id, approval, [...choices]);
+      const payload: {
+        id: string;
+        timeoutAt: number;
+        timestamp: number;
+        description: string;
+      } = h.broadcastMessage.mock.calls[0][1];
+      return { h, approval, payload };
+    }
+
+    it('keeps a UUID tab on today\'s card with no timer and no lifecycle', () => {
+      jest.useFakeTimers({ now });
+      const h = harness();
+      const approval = request();
+      h.ports.presentation.present(id, approval, [...choices]);
+      const payload = h.broadcastMessage.mock.calls[0][1];
+      expect(payload).toMatchObject({
+        sessionId: id,
+        tabId: chatTab,
+        timeoutAt: approval.expiresAt,
+      });
+      jest.advanceTimersByTime(120_000);
+      expect(h.respond).not.toHaveBeenCalled();
+      expect(h.publish).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['absent', undefined, 60_000],
+      ['shorter than 60s', 15_000, 15_000],
+      ['longer than 60s', 120_000, 60_000],
+    ] as const)(
+      'presents Claude\'s unroutable card when the bridge expiry is %s',
+      (_label, offset, timeoutMs) => {
+        const { h, payload } = presentGateway(
+          offset === undefined ? undefined : now + offset,
+        );
+        expect(parsePermissionRequest(payload)).not.toBeNull();
+        expect(payload).toMatchObject({
+          toolName: 'Bash',
+          toolInput: { command: 'pwd' },
+          toolUseId: 'native-item-5',
+          timestamp: now,
+          timeoutAt: now + timeoutMs,
+          description: expect.stringContaining('pwd'),
+        });
+        expect(payload).not.toHaveProperty('sessionId');
+        expect(payload).not.toHaveProperty('tabId');
+        expect(h.publish).toHaveBeenCalledTimes(1);
+        expect(h.publish).toHaveBeenCalledWith({
+          phase: 'requested',
+          requestId: payload.id,
+          routingHint: gatewayTab,
+          toolName: 'Bash',
+          description: payload.description,
+          routable: false,
+          timeoutMs,
+        });
+        jest.advanceTimersByTime(timeoutMs - 1);
+        expect(h.respond).not.toHaveBeenCalled();
+        jest.advanceTimersByTime(1);
+        expect(h.respond).toHaveBeenCalledTimes(1);
+        expect(h.respond).toHaveBeenCalledWith(
+          { sessionId: id, threadId: id, requestId: '5' },
+          expect.objectContaining({
+            kind: 'codex',
+            response: expect.objectContaining({
+              decision: 'decline',
+              reason: systemAbort('Bash', timeoutMs),
+            }),
+          }),
+        );
+        expect(systemAbort('Bash', timeoutMs).startsWith(
+          'SYSTEM ABORT — this was NOT a user decision.',
+        )).toBe(true);
+        expect(h.publish).toHaveBeenLastCalledWith({
+          phase: 'resolved',
+          requestId: payload.id,
+          routingHint: gatewayTab,
+          toolName: 'Bash',
+          outcome: 'timed-out',
+        });
+        jest.advanceTimersByTime(60_000);
+        expect(h.respond).toHaveBeenCalledTimes(1);
+        expect(h.publish).toHaveBeenCalledTimes(2);
+      },
+    );
+
+    it.each([
+      ['allow', 'allowed'],
+      ['always_allow', 'allowed'],
+      ['deny', 'denied'],
+      ['deny_with_message', 'denied'],
+    ] as const)(
+      'answers %s on the wire id and does not decline when the window ends',
+      (decision, outcome) => {
+        const { h, payload } = presentGateway();
+        expect(
+          h.ports.handlePermissionResponse({
+            id: payload.id,
+            decision,
+            ...(decision === 'deny_with_message' ? { reason: 'stop' } : {}),
+          }),
+        ).toBe(true);
+        jest.advanceTimersByTime(60_000);
+        expect(h.respond).toHaveBeenCalledTimes(1);
+        expect(h.publish).toHaveBeenLastCalledWith(
+          expect.objectContaining({ phase: 'resolved', outcome, routingHint: gatewayTab }),
+        );
+        expect(h.ports.handlePermissionResponse({ id: payload.id, decision: 'allow' })).toBe(
+          false,
+        );
+      },
+    );
+
+    it('clears the deny window when the turn ends first', () => {
+      const { h, payload } = presentGateway();
+      h.ports.presentation.cancelPrompt({
+        sessionId: id,
+        requestId: '5',
+        reason: 'turn-ended',
+      });
+      jest.advanceTimersByTime(60_000);
+      expect(h.respond).not.toHaveBeenCalled();
+      expect(h.publish).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          phase: 'resolved',
+          requestId: payload.id,
+          outcome: 'aborted',
+          routingHint: gatewayTab,
+        }),
+      );
+    });
+
+    it('clears the deny window when the prompt is dismissed without an answer', () => {
+      const { h, approval, payload } = presentGateway();
+      h.ports.presentation.dismiss(id, approval);
+      h.ports.presentation.dismiss(id, approval);
+      jest.advanceTimersByTime(60_000);
+      expect(h.respond).not.toHaveBeenCalled();
+      expect(h.publish).toHaveBeenCalledTimes(2);
+      expect(h.publish).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          phase: 'resolved',
+          requestId: payload.id,
+          outcome: 'aborted',
+          routingHint: gatewayTab,
+        }),
+      );
+    });
+
+    it('clears the deny window when delivery fails and does not time out afterwards', async () => {
+      jest.useFakeTimers({ now });
+      const h = harness();
+      h.deps.tabId = () => gatewayTab;
+      h.broadcastMessage.mockRejectedValueOnce(new Error('window closed'));
+      h.ports.presentation.present(id, request('absent'), [...choices]);
+      const delivered: { id: string } = h.broadcastMessage.mock.calls[0][1];
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(h.respond).toHaveBeenCalledTimes(1);
+      expect(h.respond.mock.calls[0][1].response).not.toHaveProperty('reason');
+      expect(h.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          phase: 'resolved',
+          requestId: delivered.id,
+          outcome: 'denied',
+          routingHint: gatewayTab,
+        }),
+      );
+      jest.advanceTimersByTime(60_000);
+      expect(h.respond).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops the previous deny window when the same approval is presented again', () => {
+      const { h } = presentGateway();
+      h.ports.presentation.present(id, request('absent'), [...choices]);
+      jest.advanceTimersByTime(60_000);
+      expect(h.respond).toHaveBeenCalledTimes(1);
+      expect(h.publish).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ phase: 'resolved', outcome: 'aborted' }),
+      );
+      expect(h.publish).toHaveBeenLastCalledWith(
+        expect.objectContaining({ phase: 'resolved', outcome: 'timed-out' }),
+      );
+    });
+
+    it('still declines once when the lifecycle publisher throws', () => {
+      jest.useFakeTimers({ now });
+      const h = harness();
+      h.deps.tabId = () => gatewayTab;
+      const sequence: string[] = [];
+      h.respond.mockImplementation(() => {
+        sequence.push('native');
+        return true;
+      });
+      h.publish.mockImplementation((event: PermissionPromptLifecycleEvent) => {
+        sequence.push(event.phase);
+        throw new Error('publisher failed');
+      });
+      h.ports.presentation.present(id, request('absent'), [...choices]);
+      expect(h.broadcastMessage).toHaveBeenCalledWith(
+        MESSAGE_TYPES.PERMISSION_REQUEST,
+        expect.objectContaining({ toolName: 'Bash', timeoutAt: now + UNROUTABLE_PERMISSION_TIMEOUT_MS }),
+      );
+      expect(h.respond).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(UNROUTABLE_PERMISSION_TIMEOUT_MS);
+      expect(sequence).toEqual(['requested', 'native', 'resolved']);
+      expect(h.respond).toHaveBeenCalledTimes(1);
+      expect(h.respond).toHaveBeenCalledWith(
+        { sessionId: id, threadId: id, requestId: '5' },
+        expect.objectContaining({
+          kind: 'codex',
+          response: expect.objectContaining({
+            decision: 'decline',
+            reason: systemAbort('Bash', UNROUTABLE_PERMISSION_TIMEOUT_MS),
+          }),
+        }),
+      );
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        'Codex prompt lifecycle listener threw.',
+        expect.objectContaining({ code: 'prompt-lifecycle-listener-threw' }),
+      );
+      jest.advanceTimersByTime(UNROUTABLE_PERMISSION_TIMEOUT_MS);
+      expect(h.respond).toHaveBeenCalledTimes(1);
+      expect(sequence).toEqual(['requested', 'native', 'resolved']);
+    });
+
+    it('answers once when publication resolves the prompt reentrantly', () => {
+      jest.useFakeTimers({ now });
+      const h = harness();
+      h.deps.tabId = () => gatewayTab;
+      h.publish.mockImplementation((event: PermissionPromptLifecycleEvent) => {
+        h.ports.handlePermissionResponse({
+          id: event.requestId,
+          decision: 'allow',
+        });
+      });
+      h.ports.presentation.present(id, request('absent'), [...choices]);
+      expect(h.respond).toHaveBeenCalledTimes(1);
+      expect(h.respond.mock.calls[0][1].response.decision).toBe('accept');
+      const resolved = h.publish.mock.calls.filter(
+        (call) => call[0].phase === 'resolved',
+      );
+      expect(resolved).toHaveLength(1);
+      const settledId = resolved[0]?.[0].requestId;
+      expect(
+        h.broadcastMessage.mock.calls.filter(
+          (call) =>
+            call[0] === MESSAGE_TYPES.PERMISSION_REQUEST &&
+            call[1].id === settledId,
+        ),
+      ).toHaveLength(0);
+      expect(resolved[0]?.[0]).toEqual({
+        phase: 'resolved',
+        requestId: expect.any(String),
+        routingHint: gatewayTab,
+        toolName: 'Bash',
+        outcome: 'allowed',
+      });
+      jest.advanceTimersByTime(UNROUTABLE_PERMISSION_TIMEOUT_MS);
+      expect(h.respond).toHaveBeenCalledTimes(1);
+      expect(
+        h.publish.mock.calls.filter((call) => call[0].phase === 'resolved'),
+      ).toHaveLength(1);
+      expect(
+        h.broadcastMessage.mock.calls.filter(
+          (call) =>
+            call[0] === MESSAGE_TYPES.PERMISSION_REQUEST &&
+            call[1].id === settledId,
+        ),
+      ).toHaveLength(0);
+    });
+
+    it('does not time out after session teardown dismisses a pending prompt', () => {
+      const { h, approval } = presentGateway();
+      expect(h.publish).toHaveBeenCalledTimes(1);
+      h.ports.presentation.cancelPrompt({
+        sessionId: id,
+        requestId: '5',
+        reason: 'disposed',
+      });
+      h.ports.presentation.dismiss(id, approval);
+      expect(h.respond).not.toHaveBeenCalled();
+      expect(h.publish).toHaveBeenCalledTimes(2);
+      expect(h.publish).toHaveBeenLastCalledWith(
+        expect.objectContaining({ phase: 'resolved', outcome: 'aborted' }),
+      );
+      jest.advanceTimersByTime(UNROUTABLE_PERMISSION_TIMEOUT_MS + 5_000);
+      expect(h.respond).not.toHaveBeenCalled();
+      expect(h.publish).toHaveBeenCalledTimes(2);
+    });
+
+    it('still declines on the deny window when no lifecycle publisher is bound', () => {
+      jest.useFakeTimers({ now });
+      const h = harness();
+      const ports = createCodexChatHostPorts({
+        ...h.deps,
+        promptLifecycle: undefined,
+        tabId: () => gatewayTab,
+      });
+      ports.presentation.present(id, request('absent'), [...choices]);
+      jest.advanceTimersByTime(60_000);
+      expect(h.respond).toHaveBeenCalledWith(
+        { sessionId: id, threadId: id, requestId: '5' },
+        expect.objectContaining({
+          kind: 'codex',
+          response: expect.objectContaining({
+            decision: 'decline',
+            reason: systemAbort('Bash', 60_000),
+          }),
+        }),
+      );
+    });
   });
 });

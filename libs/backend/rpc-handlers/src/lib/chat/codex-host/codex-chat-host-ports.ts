@@ -4,11 +4,14 @@ import { resolve } from 'node:path';
 import {
   PTAH_MCP_PORT,
   PTAH_UI_HINT_CODEX,
+  UNROUTABLE_PERMISSION_TIMEOUT_MS,
+  buildSystemAbortPermissionMessage,
   presentCodexApproval,
 } from '@ptah-extension/agent-sdk';
 import type {
   CodexChatAdapterPorts,
   HostAttentionCoordinator,
+  PermissionPromptLifecycleEvent,
   RuntimeAdmissionPort,
 } from '@ptah-extension/agent-sdk';
 import type { WorkspaceProviderProfileResolver } from '@ptah-extension/auth-providers';
@@ -28,6 +31,7 @@ import type {
 } from '@ptah-extension/platform-core';
 import {
   MESSAGE_TYPES,
+  TabId,
   attentionRequestKey,
   type McpHttpServerOverride,
   type PermissionRequest,
@@ -76,6 +80,13 @@ export interface CodexChatHostPortsDeps
   tabId(sessionId: SessionId): string;
   /** Releases the host notice the webview attention observer raised for a request. */
   hostAttention?: Pick<HostAttentionCoordinator, 'resolve'>;
+  /**
+   * Gateway notices. Optional until Electron binds `SdkPermissionHandler.publishPromptLifecycle`
+   * (batch 9b-6). Unpublished events still settle locally.
+   */
+  promptLifecycle?: {
+    publish(event: PermissionPromptLifecycleEvent): void;
+  };
 }
 
 export interface CodexChatHostPorts extends CodexChatAdapterPorts {
@@ -117,6 +128,26 @@ export class CodexChatMcpServerUrlError extends Error {
     );
     this.name = 'CodexChatMcpServerUrlError';
   }
+}
+
+/**
+ * Claude's system-abort text, with the unroutable timer's internal reason.
+ * Decline carries it; cancel does not.
+ */
+function unroutableSystemAbortReason(toolName: string, timeoutMs: number): string {
+  return buildSystemAbortPermissionMessage(
+    toolName,
+    `Permission request timed out after ${timeoutMs}ms with no answer from the UI — denying to prevent a permanent hang.`,
+  );
+}
+
+/** `consumer` selects the gate. It is not a Codex thread option, so classification must not reject it. */
+function withoutRuntimeConsumer<T extends { readonly consumer?: 'chat' | 'gateway' }>(
+  config: T,
+): Omit<T, 'consumer'> {
+  if (config.consumer === undefined) return config;
+  const { consumer: _consumer, ...options } = config;
+  return options;
 }
 
 type CodexHttpMcpServer = Extract<CodexMcpServer, { readonly transport: 'http' | 'sse' }>;
@@ -210,15 +241,20 @@ export function createCodexChatHostPorts(
   deps: CodexChatHostPortsDeps,
 ): CodexChatHostPorts {
   const service = profiles(deps);
-  const pending = new Map<
-    string,
-    {
-      sessionId: SessionId;
-      request: CodexApprovalRequest;
-      timestamp: number;
-      correlationKey: string;
-    }
-  >();
+  type PromptOutcome = 'allowed' | 'denied' | 'timed-out' | 'aborted';
+  interface PendingPrompt {
+    sessionId: SessionId;
+    request: CodexApprovalRequest;
+    timestamp: number;
+    correlationKey: string;
+    promptTimer?: ReturnType<typeof setTimeout>;
+    unroutable?: {
+      readonly routingHint: string;
+      readonly toolName: string;
+      readonly timeoutMs: number;
+    };
+  }
+  const pending = new Map<string, PendingPrompt>();
   const wireIds = new Map<string, string>();
   const failed = (reason: unknown) => {
     deps.logger.error(
@@ -236,12 +272,77 @@ export function createCodexChatHostPorts(
       attentionRequestKey('permission', id),
       timestamp,
     );
-  const settle = (id: string) => {
+  const clearPromptTimer = (entry: PendingPrompt) => {
+    if (entry.promptTimer === undefined) return;
+    clearTimeout(entry.promptTimer);
+    entry.promptTimer = undefined;
+  };
+  // A publisher is an external listener. Its throw must not skip the native
+  // reply or the timer, matching SdkPermissionHandler.emitLifecycle.
+  const publishLifecycle = (event: PermissionPromptLifecycleEvent): void => {
+    try {
+      deps.promptLifecycle?.publish(event);
+    } catch (error: unknown) {
+      deps.logger.warn('Codex prompt lifecycle listener threw.', {
+        code: 'prompt-lifecycle-listener-threw',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  const publishResolved = (
+    id: string,
+    entry: PendingPrompt,
+    outcome: PromptOutcome,
+  ) => {
+    if (!entry.unroutable) return;
+    publishLifecycle({
+      phase: 'resolved',
+      requestId: id,
+      routingHint: entry.unroutable.routingHint,
+      toolName: entry.unroutable.toolName,
+      outcome,
+    });
+  };
+  // Remove the pending entry and clear its timer before any native reply or
+  // `resolved` event, so a reentrant publisher cannot answer twice.
+  const takePrompt = (id: string): PendingPrompt | undefined => {
     const entry = pending.get(id);
-    if (!entry) return;
+    if (!entry) return undefined;
+    clearPromptTimer(entry);
     pending.delete(id);
     wireIds.delete(entry.correlationKey);
     release(id, entry.timestamp);
+    return entry;
+  };
+  const declineApproval = (entry: PendingPrompt, reason?: string) => {
+    const { sessionId, request } = entry;
+    try {
+      deps.approvals.respond(
+        {
+          sessionId,
+          threadId: request.threadId,
+          requestId: String(request.requestId),
+        },
+        {
+          kind: 'codex',
+          response: {
+            sessionId,
+            contextId: request.contextId,
+            processGeneration: request.processGeneration,
+            threadId: request.threadId,
+            turnId: request.turnId,
+            requestId: request.requestId,
+            decision: 'decline',
+            ...(reason === undefined ? {} : { reason }),
+          },
+        },
+      );
+    } catch {
+      // degradation-audit: reported - coded warning omits request contents.
+      deps.logger.warn('Codex approval delivery decline failed.', {
+        code: 'approval-delivery-decline-failed',
+      });
+    }
   };
   // Keep native correlation separate from the renderer's UUID wire identity.
   const key = (sessionId: SessionId, request: CodexApprovalRequest) =>
@@ -262,13 +363,16 @@ export function createCodexChatHostPorts(
     approvals: deps.approvals,
     callbacks: (id, turn) => deps.callbacks(id, turn),
     checkOptions(config) {
-      const { rejected } = classifyCodexChatOptions(config);
+      const { rejected } = classifyCodexChatOptions(withoutRuntimeConsumer(config));
       if (rejected.length > 0) throw new CodexChatOptionError(rejected[0]);
       // Classification strips ambient inputs; active turns consume only the prompt.
       // Profile notices belong to session preparation and must not repeat per turn.
     },
     async profile(input, sessionId) {
-      const { supported: config, rejected, stripped } = classifyCodexChatOptions(input);
+      const consumer = input.consumer ?? 'chat';
+      const { supported: config, rejected, stripped } = classifyCodexChatOptions(
+        withoutRuntimeConsumer(input),
+      );
       const attachPtahMcp = input.mcpServerRunning === true;
       if (stripped.includes('thinking')) {
         deps.logger.info('Thinking is not applied to Codex chat; Codex uses native effort.', {
@@ -319,7 +423,10 @@ export function createCodexChatHostPorts(
               codex: { normalizedHome: resume.normalizedHome },
             }
           : undefined;
-      const execution = await service.prepare(config, identity);
+      const execution = await service.prepare(
+        input.consumer === undefined ? config : { ...config, consumer },
+        identity,
+      );
       if (execution.runtime !== 'codex-app-server')
         throw new Error('Native provider required');
       const { seed, cwd, workspacePath } = execution;
@@ -385,7 +492,7 @@ export function createCodexChatHostPorts(
         },
         session: {
           contextId: resume?.contextId ?? randomUUID(),
-          consumer: 'chat',
+          consumer,
           normalizedHome: seed.home,
           providerId: seed.providerId,
           workspaceId: workspacePath,
@@ -438,54 +545,103 @@ export function createCodexChatHostPorts(
       present(sessionId, request) {
         const correlationKey = key(sessionId, request);
         const previousId = wireIds.get(correlationKey);
-        if (previousId) settle(previousId);
+        if (previousId) {
+          const previous = takePrompt(previousId);
+          if (previous) publishResolved(previousId, previous, 'aborted');
+        }
         const id = randomUUID();
         const timestamp = Date.now();
-        pending.set(id, { sessionId, request, timestamp, correlationKey });
-        wireIds.set(correlationKey, id);
         const tabId = deps.tabId(sessionId);
-        const payload: PermissionRequest = {
-          id,
+        const routable = TabId.safeParse(tabId) !== null;
+        const presented = presentCodexApproval(request);
+        const windowEnd = timestamp + UNROUTABLE_PERMISSION_TIMEOUT_MS;
+        const boundedAt =
+          request.expiresAt === undefined
+            ? windowEnd
+            : Math.min(request.expiresAt, windowEnd);
+        const timeoutMs = Math.max(0, boundedAt - timestamp);
+        const entry: PendingPrompt = {
           sessionId,
-          ...(tabId === sessionId ? {} : { tabId }),
-          ...presentCodexApproval(request),
-          toolUseId: request.toolId,
+          request,
           timestamp,
-          timeoutAt: request.expiresAt ?? 0,
+          correlationKey,
+          ...(routable
+            ? {}
+            : {
+                unroutable: {
+                  routingHint: tabId,
+                  toolName: presented.toolName,
+                  timeoutMs,
+                },
+              }),
         };
+        pending.set(id, entry);
+        wireIds.set(correlationKey, id);
+        const payload: PermissionRequest = routable
+          ? {
+              id,
+              sessionId,
+              ...(tabId === sessionId ? {} : { tabId }),
+              ...presented,
+              toolUseId: request.toolId,
+              timestamp,
+              timeoutAt: request.expiresAt ?? 0,
+            }
+          : {
+              id,
+              ...presented,
+              toolUseId: request.toolId,
+              timestamp,
+              timeoutAt: boundedAt,
+            };
+        if (!routable) {
+          publishLifecycle({
+            phase: 'requested',
+            requestId: id,
+            routingHint: tabId,
+            toolName: presented.toolName,
+            description: presented.description,
+            routable: false,
+            timeoutMs,
+          });
+          // A publisher that answered inside `requested` already took the entry.
+          // Skip the card; the wire id is already settled and cannot be answered.
+          if (!pending.has(id)) return;
+          entry.promptTimer = setTimeout(() => {
+            const current = takePrompt(id);
+            if (!current?.unroutable) return;
+            const reason = unroutableSystemAbortReason(
+              current.unroutable.toolName,
+              current.unroutable.timeoutMs,
+            );
+            declineApproval(current, reason);
+            publishResolved(id, current, 'timed-out');
+          }, timeoutMs);
+        }
         // Direct manager call: its attention observer raises the host notice.
         void deps.webviewManager
           .broadcastMessage(MESSAGE_TYPES.PERMISSION_REQUEST, payload)
           .catch((error: unknown) => {
             failed(error);
-            if (pending.get(id)?.request !== request) return;
-            try {
-              deps.approvals.respond(
-                { sessionId, threadId: request.threadId, requestId: String(request.requestId) },
-                { kind: 'codex', response: {
-                  sessionId, contextId: request.contextId,
-                  processGeneration: request.processGeneration,
-                  threadId: request.threadId, turnId: request.turnId,
-                  requestId: request.requestId, decision: 'decline',
-                } },
-              );
-            } catch {
-              // degradation-audit: reported - coded warning omits request contents.
-              deps.logger.warn('Codex approval delivery decline failed.', { code: 'approval-delivery-decline-failed' });
-            } finally {
-              settle(id);
-            }
+            const current = pending.get(id);
+            if (current?.request !== request) return;
+            const taken = takePrompt(id);
+            if (!taken) return;
+            declineApproval(taken);
+            publishResolved(id, taken, 'denied');
           });
       },
       dismiss(sessionId, request) {
         const id = wireIds.get(key(sessionId, request));
         if (!id) return;
-        settle(id);
+        const entry = takePrompt(id);
+        if (!entry) return;
         send(MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED, {
           id,
           sessionId,
           toolName: request.toolName ?? request.kind,
         });
+        publishResolved(id, entry, 'aborted');
       },
       cancelPrompt(payload) {
         for (const [id, entry] of [...pending]) {
@@ -493,11 +649,13 @@ export function createCodexChatHostPorts(
             entry.sessionId === payload.sessionId &&
             String(entry.request.requestId) === payload.requestId
           ) {
-            settle(id);
+            const taken = takePrompt(id);
+            if (!taken) continue;
             send(MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED, {
               ...payload,
               requestId: id,
             });
+            publishResolved(id, taken, 'aborted');
           }
         }
       },
@@ -505,7 +663,13 @@ export function createCodexChatHostPorts(
     handlePermissionResponse(response) {
       const entry = pending.get(response.id);
       if (!entry) return false;
-      const { sessionId, request } = entry;
+      const outcome: PromptOutcome =
+        response.decision === 'allow' || response.decision === 'always_allow'
+          ? 'allowed'
+          : 'denied';
+      const taken = takePrompt(response.id);
+      if (!taken) return false;
+      const { sessionId, request } = taken;
       const decision = {
         allow: 'accept',
         always_allow: 'acceptForSession',
@@ -516,7 +680,6 @@ export function createCodexChatHostPorts(
       // Allow rule clears, never for the request the user just answered
       // (sdk-permission-handler.ts handleResponse). The sink's respond
       // dismisses this same prompt, so the wire id is dropped first.
-      settle(response.id);
       try {
         const accepted = deps.approvals.respond(
           {
@@ -539,7 +702,10 @@ export function createCodexChatHostPorts(
             },
           },
         );
-        if (accepted) return true;
+        if (accepted) {
+          publishResolved(response.id, taken, outcome);
+          return true;
+        }
         deps.logger.warn('Codex approval response rejected.', {
           code: 'approval-response-rejected',
         });
@@ -557,6 +723,7 @@ export function createCodexChatHostPorts(
         sessionId,
         toolName: request.toolName ?? request.kind,
       });
+      publishResolved(response.id, taken, outcome);
       return true;
     },
     replacement: {
