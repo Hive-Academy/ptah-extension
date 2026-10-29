@@ -71,7 +71,7 @@ const SIGNED_IN_WORD = 'Signed in';
         <p class="flex min-w-0 items-center text-xs text-base-content-muted">
           @if (model().checking) {
             <span
-              class="mr-1.5 inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-base-content-muted border-t-base-content motion-reduce:animate-none"
+              class="mr-1.5 inline-block h-3 w-3 shrink-0 loading loading-spinner text-base-content-muted motion-reduce:animate-none"
               aria-hidden="true"
               data-testid="ambient-spinner"
             ></span>
