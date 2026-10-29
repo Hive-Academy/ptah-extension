@@ -49,6 +49,7 @@ import {
   CODEX_RUNTIME_TOKENS,
   CodexAccountUsageClient,
   CodexParityGate,
+  codexDevRouteCovers,
   readCodexDevRouteOverride,
   registerCodexRuntime,
   type ApprovalSink,
@@ -79,7 +80,10 @@ export function createElectronCodexRouting(input: ElectronCodexRoutingInput): El
   const capabilities = Object.freeze({
     nativeCodex:
       new CodexParityGate().isEnabled('chat', input.platform) ||
-      devRoute?.consumer === 'chat',
+      codexDevRouteCovers(devRoute, 'chat'),
+    nativeCodexGateway:
+      new CodexParityGate().isEnabled('gateway', input.platform) ||
+      codexDevRouteCovers(devRoute, 'gateway'),
   });
   return Object.freeze({ devRoute, capabilities });
 }

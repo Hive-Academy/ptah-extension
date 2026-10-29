@@ -21,6 +21,7 @@ import { ELECTRON_CODEX_BOUND_TOKENS } from './expected-resolvable';
 import { container } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
+  CodexParityGate,
   findCodexExecutablePin,
   buildCodexExecutionProfile,
   resolveGatedCodexRuntime,
@@ -163,7 +164,10 @@ describe('Electron Codex runtime infrastructure', () => {
   it('keeps the default capability disabled', () => {
     expect(
       createElectronCodexRouting({ platform, isPackaged: false, env: {} }),
-    ).toEqual({ devRoute: null, capabilities: { nativeCodex: false } });
+    ).toEqual({
+      devRoute: null,
+      capabilities: { nativeCodex: false, nativeCodexGateway: false },
+    });
   });
 
   it('ignores the development switch in packaged Electron', () => {
@@ -173,26 +177,41 @@ describe('Electron Codex runtime infrastructure', () => {
         isPackaged: true,
         env: { PTAH_CODEX_RUNTIME_DEV: '1' },
       }),
-    ).toEqual({ devRoute: null, capabilities: { nativeCodex: false } });
+    ).toEqual({
+      devRoute: null,
+      capabilities: { nativeCodex: false, nativeCodexGateway: false },
+    });
   });
 
-  it('enables development chat only and leaves gateway and lane gated', async () => {
+  it('uses parity gate values for both consumers without the development switch', () => {
+    const gate = new CodexParityGate();
+    expect(
+      createElectronCodexRouting({ platform, isPackaged: false, env: {} }).capabilities,
+    ).toEqual({
+      nativeCodex: gate.isEnabled('chat', platform),
+      nativeCodexGateway: gate.isEnabled('gateway', platform),
+    });
+  });
+
+  it('enables development chat and gateway while leaving lane gated', async () => {
     const { input, parent } = setup(false, { PTAH_CODEX_RUNTIME_DEV: '1' });
     const scope = createElectronCodexScopeFactory(input)({
       request: async () => 'decline',
     });
     try {
-      expect(createElectronCodexRouting(input).capabilities.nativeCodex).toBe(
-        true,
-      );
+      expect(createElectronCodexRouting(input).capabilities).toEqual({
+        nativeCodex: true,
+        nativeCodexGateway: true,
+      });
       expect(resolveGatedCodexRuntime(scope.container, 'chat', platform)).toBe(
         resolveGatedCodexRuntime(scope.container, 'chat', platform),
       );
-      for (const consumer of ['gateway', 'lane'] as const) {
-        expect(() =>
-          resolveGatedCodexRuntime(scope.container, consumer, platform),
-        ).toThrow('parity gate');
-      }
+      expect(resolveGatedCodexRuntime(scope.container, 'gateway', platform)).toBe(
+        resolveGatedCodexRuntime(scope.container, 'chat', platform),
+      );
+      expect(() =>
+        resolveGatedCodexRuntime(scope.container, 'lane', platform),
+      ).toThrow('parity gate');
       expect(parent.isRegistered(CODEX_RUNTIME_TOKENS.Runtime)).toBe(false);
       expect(input.ports.spawner.spawnProcess).not.toHaveBeenCalled();
     } finally {
@@ -465,6 +484,7 @@ describe('Electron complete Codex binding', () => {
           expect(parent.resolve(token)).toBe(value);
         }
         expect(binding.capabilities.nativeCodex).toBe(enabled);
+        expect(binding.capabilities.nativeCodexGateway).toBe(enabled);
         if (!enabled) expect(binding.devRoute).toBeNull();
         await expect(
           parent.resolve<IAgentAdapter>(TOKENS.AGENT_ADAPTER).initialize(),

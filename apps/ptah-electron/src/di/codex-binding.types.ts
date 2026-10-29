@@ -29,7 +29,10 @@ export interface ElectronCodexRoutingInput {
 
 export interface ElectronCodexRouting {
   readonly devRoute: CodexRuntimeRegistrationPorts['devRoute'];
-  readonly capabilities: Readonly<{ nativeCodex: boolean }>;
+  readonly capabilities: Readonly<{
+    nativeCodex: boolean;
+    nativeCodexGateway: boolean;
+  }>;
 }
 
 export interface ElectronCodexBindingInput extends ElectronCodexRoutingInput {

@@ -2,7 +2,7 @@ import { instanceCachingFactory, type DependencyContainer } from 'tsyringe';
 import { normalizeCodexHomeKey } from '../codex-home-path';
 import { CodexAccountUsageClient } from '../codex-account-usage-client';
 import { CodexAppServerProcess } from '../codex-app-server-process';
-import type { CodexDevRouteOverride } from '../codex-dev-route';
+import { codexDevRouteCovers, type CodexDevRouteOverride } from '../codex-dev-route';
 import type { CodexHomeAuthReader } from '../codex-home-auth-reader';
 import {
   CodexParityGate,
@@ -16,7 +16,7 @@ import type { CodexExecutionProfile } from '../codex-runtime.types';
 import { CODEX_RUNTIME_TOKENS } from './tokens';
 
 export interface CodexRuntimeRegistrationPorts extends CodexRuntimeOptions {
-  /** Development-only chat routing; omission keeps every consumer gated. */
+  /** Development-only chat and gateway routing; omission keeps every consumer gated. */
   readonly devRoute?: CodexDevRouteOverride | null;
   /** Null explicitly omits account usage support for this host. */
   readonly usage: {
@@ -103,7 +103,7 @@ export function registerCodexRuntime(
   });
 }
 
-const devRouteWarnedContainers = new WeakSet<DependencyContainer>();
+const devRouteWarnedConsumers = new WeakMap<DependencyContainer, Set<CodexParityConsumer>>();
 
 /** Routing boundary: the raw Runtime token is for lifecycle ownership and tests only. */
 export function resolveGatedCodexRuntime(
@@ -115,20 +115,22 @@ export function resolveGatedCodexRuntime(
     CODEX_RUNTIME_TOKENS.ParityGate,
   );
   if (!gate.isEnabled(consumer, platform)) {
-    const devRoute =
-      consumer === 'chat'
-        ? container.resolve<CodexDevRouteOverride | null>(
-            CODEX_RUNTIME_TOKENS.DevRouteOverride,
-          )
-        : null;
-    if (devRoute?.consumer !== 'chat') {
+    const devRoute = container.resolve<CodexDevRouteOverride | null>(
+      CODEX_RUNTIME_TOKENS.DevRouteOverride,
+    );
+    if (!codexDevRouteCovers(devRoute, consumer)) {
       throw new Error('Codex production routing disabled by parity gate');
     }
-    if (!devRouteWarnedContainers.has(container)) {
+    let warnedConsumers = devRouteWarnedConsumers.get(container);
+    if (!warnedConsumers) {
+      warnedConsumers = new Set<CodexParityConsumer>();
+      devRouteWarnedConsumers.set(container, warnedConsumers);
+    }
+    if (!warnedConsumers.has(consumer)) {
       container.resolve<CodexRuntimeLogger>(CODEX_RUNTIME_TOKENS.Logger).warn(
-        'PTAH_CODEX_RUNTIME_DEV enables development-only Codex chat routing; production parity gate remains disabled',
+        `PTAH_CODEX_RUNTIME_DEV enables development-only Codex ${consumer} routing; production parity gate remains disabled`,
       );
-      devRouteWarnedContainers.add(container);
+      warnedConsumers.add(consumer);
     }
   }
   return container.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);

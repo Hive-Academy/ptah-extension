@@ -1,17 +1,22 @@
-import { readCodexDevRouteOverride } from './codex-dev-route';
+import { codexDevRouteCovers, readCodexDevRouteOverride } from './codex-dev-route';
 
 describe('readCodexDevRouteOverride', () => {
-  it('enables only chat with a frozen override in an unpackaged host', () => {
+  it('covers chat and gateway with a frozen override in an unpackaged host', () => {
     const override = readCodexDevRouteOverride({
       isPackaged: false,
       env: { PTAH_CODEX_RUNTIME_DEV: '1' },
     });
 
     expect(override).toEqual({
-      consumer: 'chat',
+      consumers: ['chat', 'gateway'],
       source: 'PTAH_CODEX_RUNTIME_DEV',
     });
     expect(Object.isFrozen(override)).toBe(true);
+    expect(Object.isFrozen(override?.consumers)).toBe(true);
+    expect(codexDevRouteCovers(override, 'chat')).toBe(true);
+    expect(codexDevRouteCovers(override, 'gateway')).toBe(true);
+    expect(codexDevRouteCovers(override, 'lane')).toBe(false);
+    expect(codexDevRouteCovers(null, 'gateway')).toBe(false);
   });
 
   it.each(['1', 'true', '0', ' 1', '1 ', '', undefined])(

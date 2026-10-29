@@ -38,6 +38,7 @@ import {
   type ApprovalSink,
   type CodexClock,
   type CodexContext,
+  type CodexDevRouteOverride,
   type CodexExecutionProfile,
   type CodexRuntimeEvent,
 } from '@ptah-extension/codex-runtime';
@@ -379,7 +380,9 @@ function codexHarness() {
     useValue: new CodexParityGate(),
   });
   scope.register(CODEX_RUNTIME_TOKENS.DevRouteOverride, {
-    useFactory: () => ({ consumer: 'chat' }),
+    useFactory: (): CodexDevRouteOverride => ({
+      consumers: ['chat', 'gateway'], source: 'PTAH_CODEX_RUNTIME_DEV',
+    }),
   });
   scope.register(CODEX_RUNTIME_TOKENS.Logger, {
     useValue: { warn: jest.fn() },

@@ -45,6 +45,7 @@ export type {
 } from './lib/codex-home-auth-reader';
 export { CODEX_RUNTIME_TOKENS } from './lib/di/tokens';
 export {
+  codexDevRouteCovers,
   readCodexDevRouteOverride,
   type CodexDevRouteOverride,
 } from './lib/codex-dev-route';
