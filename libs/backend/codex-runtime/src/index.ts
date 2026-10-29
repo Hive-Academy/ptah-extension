@@ -79,6 +79,10 @@ export {
   buildCodexMcpConfigOverrides,
   CodexMcpConfigError,
 } from './lib/codex-mcp-config';
+export {
+  CODEX_PTAH_TOOL_TIMEOUT_SEC,
+  ptahMcpSessionUrl,
+} from './lib/codex-ptah-mcp';
 // CodexExecutableManifestRow (ports above) is the canonical public pin; the
 // process and validator remain implementation details.
 export type { CodexBinaryIdentity } from './lib/codex-protocol-manifest';

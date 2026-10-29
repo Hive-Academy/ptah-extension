@@ -39,15 +39,6 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
   SDK_TOKENS: { RUNTIME_HOST_CAPABILITIES: Symbol.for('caps') },
   PTAH_MCP_PORT: 51820,
 }));
-// Only the two leaf modules the host ports use; the full barrel wires DI services.
-jest.mock('@ptah-extension/cli-agent-runtime', () => ({
-  ptahMcpSessionUrl: jest.requireActual<
-    typeof import('../../../../../cli-agent-runtime/src/lib/cli-agents/cli-adapters/ptah-mcp-url')
-  >('../../../../../cli-agent-runtime/src/lib/cli-agents/cli-adapters/ptah-mcp-url').ptahMcpSessionUrl,
-  CODEX_PTAH_TOOL_TIMEOUT_SEC: jest.requireActual<
-    typeof import('../../../../../cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-lane-config.builder')
-  >('../../../../../cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-lane-config.builder').CODEX_PTAH_TOOL_TIMEOUT_SEC,
-}));
 jest.mock('@ptah-extension/auth-providers', () => ({
   AUTH_PROVIDERS_TOKENS: {
     SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER: Symbol.for('profiles'),

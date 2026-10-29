@@ -11,7 +11,6 @@
 
 import {
   buildCodexLaneConfig,
-  CODEX_PTAH_TOOL_TIMEOUT_SEC,
   CODEX_RESUME_RESENDS_ROLE,
   CODEX_VERIFIED_VERSIONS,
   type CodexLaneConfigInput,
@@ -40,7 +39,6 @@ describe('constants', () => {
   it('ships the S1a values', () => {
     expect(CODEX_RESUME_RESENDS_ROLE).toBe(true);
     expect(CODEX_VERIFIED_VERSIONS).toEqual(['0.155', '0.160', '0.165']);
-    expect(CODEX_PTAH_TOOL_TIMEOUT_SEC).toBe(960);
   });
 });
 

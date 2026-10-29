@@ -6,10 +6,6 @@ import {
   PTAH_UI_HINT_CODEX,
   presentCodexApproval,
 } from '@ptah-extension/agent-sdk';
-import {
-  CODEX_PTAH_TOOL_TIMEOUT_SEC,
-  ptahMcpSessionUrl,
-} from '@ptah-extension/cli-agent-runtime';
 import type {
   CodexChatAdapterPorts,
   HostAttentionCoordinator,
@@ -18,7 +14,9 @@ import type {
 import type { WorkspaceProviderProfileResolver } from '@ptah-extension/auth-providers';
 import {
   buildCodexExecutionProfile,
+  CODEX_PTAH_TOOL_TIMEOUT_SEC,
   normalizeCodexWorkspaceKey,
+  ptahMcpSessionUrl,
   type CodexExecutionProfileInput,
   type CodexMcpServer,
   type CodexThreadIdentity,

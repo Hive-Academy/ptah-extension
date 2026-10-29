@@ -32,6 +32,7 @@
  * `codex-user-mcp-servers.ts` and passed in.
  */
 
+import { CODEX_PTAH_TOOL_TIMEOUT_SEC } from '@ptah-extension/codex-runtime';
 import { ptahMcpServerUrl } from '../ptah-mcp-url';
 
 /**
@@ -43,12 +44,6 @@ export const CODEX_RESUME_RESENDS_ROLE = true;
 
 /** Codex versions (major.minor prefixes) whose config keys were verified. */
 export const CODEX_VERIFIED_VERSIONS: readonly string[] = ['0.155', '0.160', '0.165'];
-
-/**
- * Per-call timeout for Ptah's MCP tools, in seconds. Long enough for a
- * blocking wait on another lane (R9.2).
- */
-export const CODEX_PTAH_TOOL_TIMEOUT_SEC = 960;
 
 /** Ptah's own MCP server key; never disabled by the user-server entry. */
 const PTAH_SERVER_NAME = 'ptah';

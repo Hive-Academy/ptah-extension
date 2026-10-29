@@ -12,8 +12,10 @@
  * SDK sessions send, and is parsed beside it in `vscode-lm-tools`'
  * `http-server.handler.ts`. The file-writer twin — for the persistent entries
  * in `.mcp.json` and the rival CLIs' config files — is `ptahMcpUrl` in
- * `vscode-lm-tools/.../mcp-http/ptah-mcp-slots.ts`. The two must produce the
- * same grammar; each names the other so a change to one finds both.
+ * `vscode-lm-tools/.../mcp-http/ptah-mcp-slots.ts`. The session-segment
+ * builder is `ptahMcpSessionUrl` in `@ptah-extension/codex-runtime`
+ * (`src/lib/codex-ptah-mcp.ts`). The three must produce the same workspace
+ * grammar; each names the others so a change to one finds all three.
  *
  * `encodeURIComponent`, never hand-rolled escaping: a Windows root carries a
  * colon and backslashes, and the encoding turns every `/` in the directory
@@ -53,37 +55,6 @@ export function ptahMcpServerUrl(
     agentId === undefined || agentId === ''
       ? base
       : `${base}/agent/${encodeURIComponent(agentId)}`;
-  if (workingDirectory === '') return scoped;
-  return `${scoped}/workspace/${encodeURIComponent(workingDirectory)}`;
-}
-
-/**
- * The URL a Ptah main-chat session calls Ptah's MCP server on:
- *
- *   http://localhost:PORT/session/{routingId}/workspace/{root}
- *
- * The session segment LEADS and the workspace segment stays TERMINAL — the
- * closed grammar `vscode-lm-tools`' `http-server.handler.ts` parses (see
- * `ptahMcpServerUrl` above for the agent-segment twin). The routing id is the
- * chat tab id when one exists, else the session id — the same preference
- * Claude main chat applies in `sdk-query-options-builder.ts`.
- *
- * A main-chat caller without a routing id is refused rather than sent the
- * bare URL: the server could not route approvals or reports back to the
- * session, so the caller must fail visibly instead of attaching anonymously.
- * An empty working directory omits the workspace segment.
- */
-export function ptahMcpSessionUrl(
-  port: number,
-  routingId: string,
-  workingDirectory: string,
-): string {
-  if (routingId.trim() === '') {
-    throw new Error(
-      'Ptah MCP session URL requires a routing id (tab id or session id); none was provided.',
-    );
-  }
-  const scoped = `http://localhost:${port}/session/${encodeURIComponent(routingId)}`;
   if (workingDirectory === '') return scoped;
   return `${scoped}/workspace/${encodeURIComponent(workingDirectory)}`;
 }

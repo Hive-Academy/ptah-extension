@@ -62,17 +62,6 @@ import {
 } from './codex-chat-host-ports';
 import { ChatStreamBroadcaster } from '../streaming/chat-stream-broadcaster.service';
 
-// Only the two leaf modules the host ports use; the full barrel reaches
-// workspace-intelligence's ESM-only wasm loader (host-ports spec precedent).
-jest.mock('@ptah-extension/cli-agent-runtime', () => ({
-  ptahMcpSessionUrl: jest.requireActual<
-    typeof import('../../../../../cli-agent-runtime/src/lib/cli-agents/cli-adapters/ptah-mcp-url')
-  >('../../../../../cli-agent-runtime/src/lib/cli-agents/cli-adapters/ptah-mcp-url').ptahMcpSessionUrl,
-  CODEX_PTAH_TOOL_TIMEOUT_SEC: jest.requireActual<
-    typeof import('../../../../../cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-lane-config.builder')
-  >('../../../../../cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-lane-config.builder').CODEX_PTAH_TOOL_TIMEOUT_SEC,
-}));
-
 // Internal classes the barrels do not export; loaded from source so the spec
 // drives the same modules production composes (host-ports spec precedent).
 const { CodexEventTranslator } = jest.requireActual<
