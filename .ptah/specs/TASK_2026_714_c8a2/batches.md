@@ -3427,7 +3427,7 @@ Edge cases:
   Electron first); no git; do not edit batches.md or task.md; never strip, revert or comment out
   MCP; report every touched absolute path.
 
-## Batch 9b-1: Consumer contract (shared, auth-providers) — PENDING
+## Batch 9b-1: Consumer contract (shared, auth-providers) — COMPLETE (commit: the "batch 9b-1" commit on this branch; review code-logic-review-9b-1.md APPROVE 8/10; verify PASS except known local-only Windows noise: auth-providers lint @nx/dependency-checks, translation-proxy.sdk.integration EPERM teardown x4; 9b-2..9b-7 ON HOLD for the p8j round)
 
 - Recommended executor: CLI lane codex (gpt-6-sol) | Execution mode: sequential | Depends on: none
 - Subagent reason: N/A | Review family: Claude (different) | Phase: P9
@@ -3438,12 +3438,12 @@ Edge cases:
   W/libs/backend/auth-providers/src/lib/auth/workspace-provider-profile-resolver.ts,
   W/libs/backend/auth-providers/src/lib/auth/workspace-provider-profile-resolver.spec.ts
 
-### Task 9b-1.1: `consumer?: 'chat' | 'gateway'` on start and resume configs — PENDING
+### Task 9b-1.1: `consumer?: 'chat' | 'gateway'` on start and resume configs — COMPLETE
 - agent-adapter.types.ts:177 (`AgentSessionStartConfig`, next to `runtime?` :179) and :229
   (`AgentSessionResumeConfig`); JSDoc: absent = chat; Claude adapters ignore it.
-### Task 9b-1.2: `nativeCodexGateway?: boolean` on `RuntimeHostCapabilities` — PENDING
+### Task 9b-1.2: `nativeCodexGateway?: boolean` on `RuntimeHostCapabilities` — COMPLETE
 - session-runtime.types.ts:37-39; absent = false; `nativeCodex` keeps meaning "chat".
-### Task 9b-1.3: consumer-aware `shouldStartNativeCodex` — PENDING
+### Task 9b-1.3: consumer-aware `shouldStartNativeCodex` — COMPLETE
 - workspace-provider-profile-resolver.ts:282-288: chat -> `nativeCodex`; gateway ->
   `nativeCodexGateway === true`; lane -> false. Specs: gateway on/off x provider codex/claude;
   chat unchanged; lane never native; Claude branch result identical to today for gateway when off.
@@ -3499,6 +3499,9 @@ Edge cases:
 - routing-agent-adapter.ts:87-115: the capability is `nativeCodexGateway` when
   `config.consumer === 'gateway'`, else `nativeCodex`, for both the prepared-runtime check and
   admission. Resume/end/etc. keep routing by stored identity (:215-229). Specs: edge cases above.
+  Review carry-over (code-logic-review-9b-1.md, Moderate 2): today the adapter gates on
+  `nativeCodex` only (routing-agent-adapter.ts:94, :100, :112); all three sites must read the
+  consumer.
 ### Task 9b-4.2: CodexChatAdapter consumer — PENDING
 - codex-chat-adapter.ts: expected consumer = `config.consumer ?? 'chat'`; `prepareProfile`
   (:316-327) requires `prepared.profile.consumer` to equal it; `openContext` (:347-357) gates with
@@ -3550,6 +3553,17 @@ Edge cases:
 ### Task 9b-6.3: Electron binds `promptLifecycle` — PENDING
 - codex-runtime-composition.ts host deps (the `permissionHandler` resolve near :406): pass
   `{ publish: (e) => permissionHandler.publishPromptLifecycle(e) }`. Spec.
+### Review carry-over before 9b-6 (code-logic-review-9b-1.md)
+- Moderate 1: the resume guard in auth-providers workspace-provider-profile-resolver.ts:192
+  refuses a native resume unless `hostCapabilities.nativeCodex`, for every consumer, so a gateway
+  thread on a host with only `nativeCodexGateway` would be refused. Resolve before 9b-6 by making
+  the guard consumer-aware (chat -> nativeCodex, gateway -> nativeCodexGateway, lane -> refuse)
+  plus a gateway resume spec. That is an auth-providers change, so it goes in a small extra batch
+  9b-5a (auth-providers only, verify `-p @ptah-extension/auth-providers`) rather than widening
+  9b-6 to a third project. Rejected alternative: forcing `nativeCodexGateway` to imply
+  `nativeCodex` in `createElectronCodexRouting` (couples the two gates).
+- Minor: `ExecutionProfileRequest.consumer` stays required (:122); callers that read the optional
+  config field add an explicit `?? 'chat'` at the boundary (9b-5.1 already does).
 
 ## Batch 9b-7: Gateway bridge consumer, resume and cleanup (gateway-chat-bridge) — PENDING
 

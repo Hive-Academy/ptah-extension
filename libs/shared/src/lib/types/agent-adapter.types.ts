@@ -19,6 +19,7 @@ import type { PermissionLevel } from './model-autopilot.types';
 import type { ProviderProfile } from './provider-profile.types';
 import type { ProviderAccountSelection } from './provider-account.types';
 import type { SessionBudgetState } from './session-budget.types';
+import type { RuntimeConsumer } from './session-runtime.types';
 
 /**
  * Callback signatures — mirrored from agent-sdk's SdkAgentAdapter public API.
@@ -175,6 +176,12 @@ export type AgentPermissionLevel =
  * that SdkAgentAdapter's concrete implementation already accepts.
  */
 export interface AgentSessionStartConfig extends AISessionConfig {
+  /**
+   * Ptah surface that opened the session. Absent means 'chat'; selects the
+   * native Codex gate and execution profile for that consumer. Claude adapters
+   * ignore this field.
+   */
+  consumer?: Extract<RuntimeConsumer, 'chat' | 'gateway'>;
   /** Runtime selected by chat preparation; admission must agree when present. */
   runtime?: 'claude-sdk' | 'codex-app-server';
   /** Requested route only; admission supplies the binding in providerProfile. */
@@ -227,6 +234,12 @@ export interface AgentSessionStartConfig extends AISessionConfig {
  * Extended session config used by resumeSession.
  */
 export interface AgentSessionResumeConfig extends AISessionConfig {
+  /**
+   * Ptah surface that opened the session. Absent means 'chat'; selects the
+   * native Codex gate and execution profile for that consumer. Claude adapters
+   * ignore this field.
+   */
+  consumer?: Extract<RuntimeConsumer, 'chat' | 'gateway'>;
   /** Cannot override a persisted binding; absence preserves legacy routing. */
   accountSelection?: ProviderAccountSelection;
   mcpServerRunning?: boolean;

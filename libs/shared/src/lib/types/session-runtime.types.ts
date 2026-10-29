@@ -36,6 +36,12 @@ export function sessionRuntimeIdentityMismatch(
 
 export interface RuntimeHostCapabilities {
   readonly nativeCodex: boolean;
+  /**
+   * Native Codex for messaging-gateway turns. Absent means false; the host
+   * computes this from the gateway parity gate or the dev override.
+   * `nativeCodex` continues to gate main chat.
+   */
+  readonly nativeCodexGateway?: boolean;
 }
 
 export type RuntimeConsumer = 'chat' | 'gateway' | 'lane';

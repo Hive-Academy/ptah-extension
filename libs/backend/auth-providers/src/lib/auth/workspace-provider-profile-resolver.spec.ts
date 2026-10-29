@@ -844,7 +844,7 @@ describe('resolveExecutionProfile', () => {
     });
   }
 
-  it.each(['chat', 'gateway', 'lane'] as const)(
+  it.each(['chat'] as const)(
     'returns a credential-free %s seed without materialization',
     async (consumer) => {
       const h = nativeHarness();
@@ -871,6 +871,93 @@ describe('resolveExecutionProfile', () => {
       expect(h.configureAuthentication).not.toHaveBeenCalled();
       expect(h.globalAuthEnv).toEqual(before);
       expect(process.env).toEqual(processBefore);
+    },
+  );
+
+  it(
+    'selects native Codex for a gateway turn with the gateway capability and Codex provider',
+    async () => {
+      const { resolver } = nativeHarness();
+      await expect(
+        resolver.resolveExecutionProfile({
+          ...input,
+          consumer: 'gateway',
+          hostCapabilities: { nativeCodex: false, nativeCodexGateway: true },
+        }),
+      ).resolves.toEqual({
+        runtime: 'codex-app-server',
+        seed: {
+          providerId: 'openai-codex',
+          consumer: 'gateway',
+          workspacePath: WORKSPACE,
+          home,
+          normalizedHome: identity.codex?.normalizedHome,
+          model: input.requestedModel,
+          existingIdentity: undefined,
+        },
+      });
+    },
+  );
+
+  it.each([
+    {
+      name:
+        'keeps a gateway turn on Claude when only the chat capability is enabled',
+      consumer: 'gateway' as const,
+      hostCapabilities: { nativeCodex: true },
+      providerId: 'openai-codex',
+      readsActiveProvider: false,
+    },
+    {
+      name:
+        'keeps a chat turn on Claude when only the gateway capability is enabled',
+      consumer: 'chat' as const,
+      hostCapabilities: { nativeCodex: false, nativeCodexGateway: true },
+      providerId: 'openai-codex',
+      readsActiveProvider: false,
+    },
+    {
+      name: 'keeps a lane turn on Claude when both native capabilities are enabled',
+      consumer: 'lane' as const,
+      hostCapabilities: { nativeCodex: true, nativeCodexGateway: true },
+      providerId: 'openai-codex',
+      readsActiveProvider: false,
+    },
+    {
+      name: 'keeps a gateway turn on Claude when the provider is not Codex',
+      consumer: 'gateway' as const,
+      hostCapabilities: { nativeCodex: true, nativeCodexGateway: true },
+      providerId: 'kimi-code',
+      readsActiveProvider: true,
+    },
+  ])(
+    '$name',
+    async ({ consumer, hostCapabilities, providerId, readsActiveProvider }) => {
+      const h = nativeHarness(providerId);
+      const active = jest.spyOn(
+        h.activeProviderResolver,
+        'resolveActiveAuthForPath',
+      );
+      const legacy = jest
+        .spyOn(h.resolver, 'resolveProviderProfileForWorkspace')
+        .mockResolvedValue(undefined);
+      await expect(
+        h.resolver.resolveExecutionProfile({
+          ...input,
+          consumer,
+          hostCapabilities,
+        }),
+      ).resolves.toEqual({
+        runtime: 'claude-sdk',
+        model: input.requestedModel,
+        providerProfile: undefined,
+      });
+      expect(legacy).toHaveBeenCalledWith(WORKSPACE, input.requestedModel);
+      if (readsActiveProvider) {
+        expect(active).toHaveBeenCalledWith(WORKSPACE);
+      } else {
+        expect(active).not.toHaveBeenCalled();
+      }
     },
   );
 

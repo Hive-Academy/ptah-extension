@@ -280,8 +280,24 @@ export class WorkspaceProviderProfileResolver {
   }
 
   private shouldStartNativeCodex(input: ExecutionProfileRequest): boolean {
+    let capability: boolean;
+    switch (input.consumer) {
+      case 'chat':
+        capability = input.hostCapabilities.nativeCodex;
+        break;
+      case 'gateway':
+        capability = input.hostCapabilities.nativeCodexGateway === true;
+        break;
+      case 'lane':
+        capability = false;
+        break;
+      default: {
+        const consumer: never = input.consumer;
+        return consumer;
+      }
+    }
     return (
-      input.hostCapabilities.nativeCodex &&
+      capability &&
       this.activeProviderResolver.resolveActiveAuthForPath(input.workspacePath)
         .providerId === 'openai-codex'
     );
