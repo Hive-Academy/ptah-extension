@@ -132,7 +132,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
       turn: turn(id, status),
     });
   }
-  approval(id = 'approval'): void {
+  approval(id = 'approval', command = 'echo hello'): void {
     this.send({
       id,
       method: 'item/commandExecution/requestApproval',
@@ -141,7 +141,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
         turnId: `turn-${this.turnNumber}`,
         itemId: 'command',
         startedAtMs: 1,
-        command: 'echo hello',
+        command,
         cwd: '/work',
       },
     });
@@ -1630,35 +1630,102 @@ describe('CodexRuntime', () => {
     expect(inactive).toHaveBeenLastCalledWith(original);
   });
 
-  it('holds the level of a notification-started turn until it completes', async () => {
+  it('uses the opening plan policy for an idle notification before the next ask turn', async () => {
     runtime = new CodexRuntime({
       ...options,
       sink: { request: jest.fn(async () => 'accept' as const) },
     });
-    const context = await runtime.open(profile);
-    await context.updateNextTurn({ permissionLevel: 'plan' });
+    const planPolicy = resolveCodexLevelPolicy('chat', 'plan', '/work');
+    const context = await runtime.open({
+      ...profile,
+      permissionLevel: 'plan',
+      ...planPolicy,
+      profileFingerprint: codexProfileFingerprint({
+        permissionLevel: 'plan',
+        ...planPolicy,
+      }),
+    });
+    await context.updateNextTurn({ permissionLevel: 'ask' });
+    expect(context.turnPermissionLevel).toBe('ask');
     children[0].turnNumber = 1;
     children[0].notify('turn/started', {
       threadId: 'thread-1',
       turn: turn('turn-1'),
     });
     expect(context.turnPermissionLevel).toBe('plan');
-    await context.updateNextTurn({ permissionLevel: 'ask' });
+    children[0].approval('plan-read', 'Get-Content /work/file');
+    await flush();
+    expect(children[0].frames.find((frame) => frame['id'] === 'plan-read'))
+      .toMatchObject({ result: { decision: 'decline' } });
+    children[0].complete();
+    expect(context.turnPermissionLevel).toBe('ask');
+    await context.startTurn({ text: 'next' });
+    expect(children[0].frames.find((frame) => frame['method'] === 'turn/start')?.['params'])
+      .toMatchObject({
+        approvalPolicy: 'untrusted',
+        sandboxPolicy: { type: 'workspaceWrite', writableRoots: ['/work'] },
+      });
+    expect(context.turnPermissionLevel).toBe('ask');
+  });
+
+  it('uses the last sent ask policy for an idle notification after staging plan', async () => {
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'first' });
+    children[0].complete();
+    await context.updateNextTurn({ permissionLevel: 'plan' });
     expect(context.turnPermissionLevel).toBe('plan');
+    children[0].turnNumber = 2;
+    children[0].notify('turn/started', {
+      threadId: 'thread-1',
+      turn: turn('turn-2'),
+    });
+    expect(context.turnPermissionLevel).toBe('ask');
+  });
+
+  it('keeps the last sent level after a rejected turn/start', async () => {
+    const context = await runtime.open(profile);
+    await context.updateNextTurn({ permissionLevel: 'plan' });
+    children[0].failMethod = 'turn/start';
+    await expect(context.startTurn({ text: 'rejected' })).rejects.toMatchObject({
+      code: 'codexRequestRejected',
+    });
+    expect(context.turnPermissionLevel).toBe('plan');
+    children[0].turnNumber = 1;
+    children[0].notify('turn/started', {
+      threadId: 'thread-1',
+      turn: turn('turn-1'),
+    });
+    expect(context.turnPermissionLevel).toBe('ask');
+  });
+
+  it('holds the level of a notification-started turn until it completes', async () => {
+    runtime = new CodexRuntime({
+      ...options,
+      sink: { request: jest.fn(async () => 'accept' as const) },
+    });
+    const context = await runtime.open(profile);
+    children[0].turnNumber = 1;
+    children[0].notify('turn/started', {
+      threadId: 'thread-1',
+      turn: turn('turn-1'),
+    });
+    expect(context.turnPermissionLevel).toBe('ask');
+    await context.updateNextTurn({ permissionLevel: 'plan' });
+    expect(context.turnPermissionLevel).toBe('ask');
     children[0].approval('notification-turn');
     await flush();
     expect(
       children[0].frames.find((frame) => frame['id'] === 'notification-turn'),
-    ).toMatchObject({ result: { decision: 'decline' } });
+    ).toMatchObject({ result: { decision: 'accept' } });
     children[0].complete();
-    expect(context.turnPermissionLevel).toBe('ask');
+    expect(context.turnPermissionLevel).toBe('plan');
     await context.startTurn({ text: 'next' });
-    expect(context.turnPermissionLevel).toBe('ask');
+    expect(context.turnPermissionLevel).toBe('plan');
     children[0].approval('next-turn');
     await flush();
     expect(
       children[0].frames.find((frame) => frame['id'] === 'next-turn'),
-    ).toMatchObject({ result: { decision: 'accept' } });
+    ).toMatchObject({ result: { decision: 'decline' } });
   });
 
   it('coalesces compaction and reserves admission until its completion event', async () => {

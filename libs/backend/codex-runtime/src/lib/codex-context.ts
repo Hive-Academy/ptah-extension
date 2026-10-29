@@ -87,6 +87,7 @@ class RuntimeContext implements CodexContext {
     CodexExecutionProfile,
     'approvalPolicy' | 'sandboxPolicy'
   >;
+  private wirePermissionLevel: CodexPermissionLevel;
   private activeTurnPermissionLevel?: CodexPermissionLevel;
   private operation: Promise<unknown> = Promise.resolve();
   private closing?: Promise<void>;
@@ -120,6 +121,7 @@ class RuntimeContext implements CodexContext {
       approvalPolicy: profile.approvalPolicy,
       sandboxPolicy: profile.sandboxPolicy,
     };
+    this.wirePermissionLevel = profile.permissionLevel;
     this.translator = new CodexEventTranslator(profile.contextId, generation);
     const spawner: IProcessSpawner = {
       spawnProcess: (request) => {
@@ -399,8 +401,7 @@ class RuntimeContext implements CodexContext {
         !this.terminalTurns.has(parsed.turn.id)
       ) {
         if (this.state === 'idle')
-          this.activeTurnPermissionLevel =
-            this.settings.permissionLevel ?? this.profile.permissionLevel;
+          this.activeTurnPermissionLevel = this.wirePermissionLevel;
         this.activeTurn = parsed.turn.id;
         this.state = 'running';
       }
@@ -520,11 +521,13 @@ class RuntimeContext implements CodexContext {
             }
           : { type: 'readOnly', networkAccess: false },
     });
+    const previousWirePermissionLevel = this.wirePermissionLevel;
     this.activeTurnPermissionLevel = level;
     this.state = 'running';
     this.turnController = new AbortController();
     this.turnRevision = this.revision;
     try {
+      this.wirePermissionLevel = level;
       const result = await this.process.request('turn/start', params);
       const turnId = result.turn.id;
       this.sentInitialInput = true;
@@ -546,6 +549,7 @@ class RuntimeContext implements CodexContext {
     } catch (error) {
       if (error instanceof CodexRequestRejectedError) {
         if (!this.activeTurn) {
+          this.wirePermissionLevel = previousWirePermissionLevel;
           this.state = 'idle';
           this.activeTurnPermissionLevel = undefined;
         }

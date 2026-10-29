@@ -4168,7 +4168,7 @@ data). Depends on: 8p-1, 8p-3 committed.
 - code-logic-review-8p-3 M2 (optional): note in code that `normalizedHome` is the account
   boundary now that `accountId`/`consumer` left the digest.
 
-## Round 8q: p8j gaps (read grammar, saved permission level, live mode change) — IN_PROGRESS (Wave 1 started; D1-D4 accepted by the coordinator)
+## Round 8q: p8j gaps (read grammar, saved permission level, live mode change) — COMPLETE (all batches committed; round code-logic review fixed; gate PASS; see "Round 8q close" at the end of this section)
 
 Sources: research-p8j-gaps.md (8ea186c34), live-test-p8j.md. Backend only: no frontend Codex
 special case, no second proxy, NEVER touch MCP, Claude behaviour unchanged. Decisions in force:
@@ -4436,3 +4436,24 @@ both fields (8q-3a spec).
 ### Task 8q-3c.1: setPermission on an open thread — PENDING
 - A different level: apply, save, chip value; a save failure rolls back by applying the old
   level and the old policy. Last 8q batch -> round code-logic review.
+
+### Round 8q close (session 26)
+
+- Round code-logic review (code-logic-review-8q.md, grok): REVISE 6/10.
+  - Finding 1 (serious) FIXED in the "8q wire level" commit (codex lane,
+    batch-8q-fix-wire-level-report.md): an idle `turn/started` (compaction) snapshotted the
+    next-turn level instead of the level whose policy is on the wire. `wirePermissionLevel` is now
+    set from the profile at construction and in `start()` before `turn/start`, restored on a
+    rejected `turn/start`, and used by the idle notification path. review-8q-fix-wire-level.md
+    (grok) APPROVE 8/10, finding 1 CLOSED.
+  - Finding 2 (moderate) ACCEPTED, not fixed: a process exit after the identity persist and
+    before the autopilot chip save leaves the new fingerprint stored and the old chip; the next
+    open gives the D14a refusal. In-process save failures still roll back.
+- Open minor (next session, optional): no spec covers "a user turn sends level X, then stage Y,
+  then an idle notification turn" (removing the `start()` wire assignment at codex-context.ts:530
+  does not fail a spec). Add one spec in codex-runtime.spec.ts.
+- Merge of main (b13acd7bd): `chat:continue` returns `enqueued: true` on the live-send path;
+  three branch specs updated. This fixed the CI failure at 0bd8beee4 (test shard 3/4).
+- Gate: verify codex-runtime, cli-agent-runtime, gateway-chat-bridge, agent-sdk, rpc-handlers,
+  ptah-electron 24/24 PASS; degradation-audit PASS; di-lint PASS; typecheck ptah-electron,
+  ptah-extension-vscode, ptah-cli, ptah-tui 4/4 PASS.
