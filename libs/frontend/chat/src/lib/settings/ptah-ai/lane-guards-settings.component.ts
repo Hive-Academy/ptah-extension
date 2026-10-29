@@ -10,7 +10,6 @@ import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
 import type { AgentOrchestrationConfig } from '@ptah-extension/shared';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
-import { SurfaceSectionComponent } from '@ptah-extension/ui';
 import {
   LANE_GUARD_DEFAULTS,
   LANE_GUARD_FIELDS,
@@ -47,14 +46,11 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
 @Component({
   selector: 'ptah-lane-guards-settings',
   standalone: true,
-  imports: [SettingsBusyDisabledDirective, SurfaceSectionComponent],
+  imports: [SettingsBusyDisabledDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ptah-surface-section
-      tone="subtle"
-      padding="md"
-      glassSurface="chrome"
-      class="text-sm text-base-content"
+    <section
+      class="flex flex-col gap-3 text-sm text-base-content"
       aria-labelledby="lane-guards-heading"
       data-testid="settings-section-lane-guards"
     >
@@ -155,7 +151,7 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
         }
       }
 
-    </ptah-surface-section>
+    </section>
   `,
 })
 export class LaneGuardsSettingsComponent implements OnInit {

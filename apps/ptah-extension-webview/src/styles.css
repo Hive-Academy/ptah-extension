@@ -3532,10 +3532,17 @@ END OF ANUBIS DESIGN SYSTEM
   box-shadow: var(--glass-rim), 0 0 0 1px rgb(36 44 72 / 0.08), 0 2px 6px -2px rgb(36 44 72 / 0.16), 0 12px 28px -12px rgb(36 44 72 / 0.36);
 }
 /* Tool-call rows and agent tiles in the transcript are list rows, not raised
-   cards: they keep the tile fill but drop the elev-1 drop shadow and rim, as
-   they have no shadow with glass off. */
+   cards: they drop the elev-1 drop shadow and rim, as they have no shadow
+   with glass off. */
 :root[data-theme][data-glass='on'] :is(ptah-tool-call-item > [data-glass-surface='tile'], ptah-execution-node [data-glass-surface='tile']:has(> ptah-subagent-tile)) {
   box-shadow: none;
+}
+/* A tool-call row has no fill with glass off either: it sits clear on the
+   transcript scrim, so each tool does not read as its own dark plate. The
+   border stays 1px wide (transparent) so the row does not shift. */
+:root[data-theme][data-glass='on'] ptah-tool-call-item > [data-glass-surface='tile'] {
+  background: transparent;
+  border-color: transparent;
 }
 /* The docked Stats pane (chrome) shows the scene like the git dock: the
    inspector's solid surface blocks (plan-limit cards, the selected agent row)

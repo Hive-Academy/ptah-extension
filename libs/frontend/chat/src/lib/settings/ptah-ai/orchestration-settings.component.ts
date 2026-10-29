@@ -34,14 +34,13 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
   ],
   template: `
     <!-- Same box and rhythm as the Providers page: the Settings shell sets the width, centring and side padding. -->
-    <div class="flex flex-col gap-4 py-3 font-sans text-sm text-base-content">
+    <div class="flex flex-col gap-8 py-3 font-sans text-sm text-base-content">
       <!-- Subagent prompt-cache TTL (TASK_2026_597 N1): its own chunk, loaded when scrolled into view. -->
       @defer (on viewport) {
         <ptah-subagent-cache-ttl-setting />
       } @placeholder {
         <div
-          class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
-          data-glass-surface="tile"
+          class="min-h-[2.75rem] border-b border-base-content/10"
           aria-busy="true"
           data-testid="subagent-cache-ttl-placeholder"
         ></div>
@@ -53,8 +52,7 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
         <ptah-session-budget-settings />
       } @placeholder {
         <div
-          class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
-          data-glass-surface="tile"
+          class="min-h-[2.75rem] border-b border-base-content/10"
           data-testid="session-budget-placeholder"
         ></div>
       }
@@ -70,8 +68,7 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
         <ptah-advanced-settings-group groupId="background-queries" />
       } @placeholder {
         <div
-          class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
-          data-glass-surface="tile"
+          class="min-h-[2.75rem] border-b border-base-content/10"
           data-testid="orchestration-advanced-placeholder"
         ></div>
       }

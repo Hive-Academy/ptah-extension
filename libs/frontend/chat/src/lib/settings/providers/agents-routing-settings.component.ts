@@ -14,7 +14,6 @@ import {
   AppStateManager,
   ProvidersSettingsStateService,
 } from '@ptah-extension/core';
-import { SurfaceSectionComponent } from '@ptah-extension/ui';
 import { CliOrchestrationMatrixComponent } from '../ptah-ai/cli-orchestration-matrix.component';
 import { ProviderConsumerAssignmentsComponent } from './provider-consumer-assignments.component';
 import {
@@ -56,17 +55,15 @@ const FOCUS =
     LucideAngularModule,
     CliOrchestrationMatrixComponent,
     ProviderConsumerAssignmentsComponent,
-    SurfaceSectionComponent,
   ],
   template: `
-    <div class="flex flex-col gap-4 font-sans text-sm text-base-content">
+    <div class="flex flex-col gap-8 font-sans text-sm text-base-content">
       <!-- Deferred (own chunk; the eager bundle is at its budget) behind a same-footprint placeholder. -->
       @defer (on immediate) {
         <ptah-cli-orchestration-matrix #cliMatrix />
       } @placeholder {
         <div
-          class="min-h-[22rem] rounded-xl border border-base-300 bg-base-200/40"
-          data-glass-surface="tile"
+          class="min-h-[22rem] border-b border-base-content/10"
           aria-busy="true"
           data-testid="cli-matrix-placeholder"
         ></div>
@@ -76,8 +73,7 @@ const FOCUS =
         @if (section.state.status === 'error') {
           <div
             role="alert"
-            class="rounded-lg border border-base-content-muted bg-base-100 p-4 space-y-2"
-            data-glass-surface="tile"
+            class="rounded-lg border border-base-content/10 p-4 space-y-2"
             [attr.data-read-error]="section.id"
           >
             <p>
@@ -103,7 +99,7 @@ const FOCUS =
       }
 
       <!-- Closed by default; the background-role deep links open it (focusTarget). -->
-      <ptah-surface-section tone="subtle" padding="md" glassSurface="chrome">
+      <section class="border-t border-base-content/10 pt-6">
         <details class="group" data-testid="background-roles-details">
           <summary
             [class]="
@@ -156,7 +152,7 @@ const FOCUS =
             />
           </section>
         </details>
-      </ptah-surface-section>
+      </section>
     </div>
   `,
 })

@@ -79,7 +79,7 @@ const LOAD_ERROR = 'Could not read the go vet setting for this workspace.';
     @if (visible()) {
       <!-- P2 section card (pattern map V26-V29). -->
       <section
-        class="card bg-base-200 border border-base-300 p-3"
+        class="border-b border-base-content/10 pb-7"
         aria-labelledby="go-vet-consent-title"
         data-testid="go-vet-consent-card"
       >

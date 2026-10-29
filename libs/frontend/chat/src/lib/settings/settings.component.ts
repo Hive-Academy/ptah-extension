@@ -132,23 +132,12 @@ const isAgentsRoutingSection = (
     :host-context([data-glass='on']) .settings-page {
       background-color: transparent;
     }
-    :host-context([data-glass='on']) .settings-header {
-      padding: 0.5rem 0.75rem 0.625rem;
-    }
-    :host-context([data-glass='on']) .settings-plate {
-      padding: 0.25rem 0.625rem;
-    }
-    :host-context([data-glass='on']) .settings-tab.tab-active,
-    :host-context([data-glass='on']) .settings-tab:not(.tab-active):hover {
-      background: var(--glass-hover);
-    }
     .settings-tabs {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.375rem;
+      gap: 0;
     }
     .settings-tab:not(.tab-active):hover {
-      background: var(--surface-3);
       color: oklch(var(--bc));
     }
     /* One row from 36rem: the Electron page beside its sidebar (~42rem) keeps one row of four tabs. */
