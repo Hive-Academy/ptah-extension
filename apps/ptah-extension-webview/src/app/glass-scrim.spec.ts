@@ -211,6 +211,9 @@ describe('glass scene tint', () => {
       expect(on?.body).toContain('box-shadow: inset 0 1px 0 var(--glass-glint);');
       if (target.includes('.chat-bubble')) expect(specificity(on!.selector)).toBeGreaterThan(specificity(glassRaise));
     }
+    // The lane row hover adds its lift to the inset edge in both modes.
+    expect(rule('ptah-lane-event article:hover')?.body).toContain('inset 0 1px 0 var(--surface-highlight), 0 1px 3px');
+    expect(rule(":root[data-glass='on'] ptah-lane-event article:hover")?.body).toContain('inset 0 1px 0 var(--glass-glint), 0 1px 3px');
     const user = readFileSync(join(__dirname, '../../../..', 'libs/frontend/chat/src/lib/components/organisms/message-bubble.component.css'), 'utf8');
     expect(user).toMatch(/\.cs-own-user-bubble\s*\{[^}]*background: oklch\(var\(--p\) \/ 0\.1\);[^}]*box-shadow: none;/);
     expect(css).toMatch(/:root\[data-glass='on'\] ptah-message-bubble \.cs-own-user-bubble \{[^}]*background: oklch\(var\(--p\) \/ 0\.1\);[^}]*box-shadow: none;/);

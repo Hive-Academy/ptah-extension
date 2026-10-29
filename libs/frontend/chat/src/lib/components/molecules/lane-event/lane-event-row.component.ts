@@ -3,9 +3,7 @@ import { MarkdownModule } from 'ngx-markdown';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import { AgentAvatarComponent } from '@ptah-extension/chat-ui';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
-import { ArrowUpRight, ChevronRight, GitBranch, Image, LucideAngularModule, Undo2 } from 'lucide-angular';
-import { SESSION_CARD_ACTIONS } from '../../../tokens/session-context.token';
-import { laneKey } from '../compact-session/compact-lane-rows';
+import { ChevronRight, GitBranch, Image, LucideAngularModule, Undo2 } from 'lucide-angular';
 import { toUserMessageMarkdown } from '../../../utils/user-message-markdown.utils';
 import type { LaneEventRow } from './lane-event-row.types';
 import { deriveLaneEventPresentation, laneEventTime, parseLaneCompletion, type LaneEventMetrics, type LaneEventTone } from './lane-event-row.presentation';
@@ -36,10 +34,8 @@ export class LaneEventRowComponent {
   readonly branchRequested = output<string>();
   readonly rewindRequested = output<string>();
   protected readonly surfaceActive = inject(SURFACE_ACTIVE);
-  protected readonly actions = inject(SESSION_CARD_ACTIONS, { optional: true });
   protected readonly expanded = signal(false);
   protected readonly ChevronRightIcon = ChevronRight;
-  protected readonly OpenIcon = ArrowUpRight;
   protected readonly ImageIcon = Image;
   protected readonly BranchIcon = GitBranch;
   protected readonly RewindIcon = Undo2;
@@ -68,8 +64,5 @@ export class LaneEventRowComponent {
   protected markdown(body: string): string { return toUserMessageMarkdown(body); }
   protected completionFor(body: string) { return parseLaneCompletion(body); }
   protected fileName(path: string): string { return path.split(/[/\\]/).at(-1) || path; }
-  protected readonly canOpenLane = computed(() =>
-    this.actions?.canOpenLane?.(laneKey('cli', this.row().agentId)) ?? true);
-  protected openLane(): void { this.actions?.openLane(laneKey('cli', this.row().agentId)); }
   protected requestRewind(): void { if (this.isSessionActive()) this.rewindRequested.emit(this.lastMessageId()); }
 }

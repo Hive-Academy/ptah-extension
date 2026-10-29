@@ -1,5 +1,5 @@
 <article data-testid="lane-event"
-  class="lane-card group my-2 ml-auto w-4/5 min-w-[min(100%,20rem)] rounded-md border border-base-content/10 px-3 py-2 text-[13px] leading-5 border-l-2 transition-shadow duration-200 hover:shadow-sm motion-reduce:transition-none"
+  class="lane-card group my-2 ml-auto w-4/5 min-w-[min(100%,20rem)] rounded-md border border-base-content/10 px-3 py-2 text-[13px] leading-5 border-l-2 transition-shadow duration-200 motion-reduce:transition-none"
   [attr.data-tone]="tone()"
   [class.border-l-state-run]="tone() === 'run'" [class.border-l-state-done]="tone() === 'done'"
   [class.border-l-state-need]="tone() === 'need'" [class.border-l-state-err]="tone() === 'err'"
@@ -24,7 +24,7 @@
         [attr.title]="chip().title ?? null"
         [class.text-state-run]="chip().tone === 'run'" [class.text-state-done]="chip().tone === 'done'"
         [class.text-state-need]="chip().tone === 'need'" [class.text-state-err]="chip().tone === 'err'">
-        <lucide-angular [img]="chip().icon" class="h-3 w-3 motion-reduce:animate-none" aria-hidden="true" />{{ chip().label }}
+        <lucide-angular [img]="chip().icon" class="h-3 w-3 motion-reduce:animate-none" aria-hidden="true" /><span data-testid="lane-event-chip-label" class="text-base-content">{{ chip().label }}</span>
       </span>
       <time class="ml-auto shrink-0 text-xs text-base-content-muted tabular-nums" [attr.datetime]="iso(latest().timestamp)">{{ time(latest().timestamp) }}</time>
     </button>
@@ -41,16 +41,9 @@
         data-testid="lane-event-rewind" (click)="requestRewind()">
         <lucide-angular [img]="RewindIcon" class="h-3.5 w-3.5" aria-hidden="true" />
       </button>
-      @if (actions && row().cli !== 'ptah-session' && canOpenLane()) {
-        <button type="button" data-testid="lane-event-open"
-          class="btn btn-ghost btn-xs gap-1 text-base-content-muted hover:bg-base-content/10 hover:text-base-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          [attr.aria-label]="'Open ' + row().agent + ' agent lane'" (click)="openLane()">
-          <lucide-angular [img]="OpenIcon" class="h-3 w-3" aria-hidden="true" /><span class="max-[420px]:hidden">Open lane</span>
-        </button>
-      }
     </div>
   </div>
-  <div data-testid="lane-event-second-line" class="mt-1.5 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap pl-[38px] text-xs leading-5 text-base-content-muted">
+  <div data-testid="lane-event-second-line" class="mt-1.5 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap pl-[50px] text-xs leading-5 text-base-content-muted">
     <span data-testid="lane-event-summary" class="min-w-0 flex-1 truncate" [title]="summary()">{{ summary() }}</span>
     @if (compactStats()) {
       <span data-testid="lane-event-stats" class="min-w-0 max-w-[38%] shrink truncate text-right tabular-nums"
@@ -60,7 +53,7 @@
       title="Sent from another session — the sender name is self-reported and unverified.">· self-reported</span>
     <span class="sr-only">Sent from another session — the sender name is self-reported and unverified.</span>
   </div>
-  <div [id]="bodyId()" data-testid="lane-event-body" [hidden]="!expanded()" class="mt-2 pl-[38px]">
+  <div [id]="bodyId()" data-testid="lane-event-body" [hidden]="!expanded()" class="mt-2 pl-[50px]">
     @if (expanded()) {
       @for (event of row().events; track event.messageId; let first = $first) {
         <section [class.border-t]="!first" class="mt-2 border-base-content/10 pt-2">

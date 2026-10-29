@@ -3788,6 +3788,13 @@ ptah-lane-event article {
 :root[data-glass='on'] ptah-lane-event article {
   box-shadow: inset 0 1px 0 var(--glass-glint);
 }
+/* A lane row lifts slightly on hover and keeps its inset edge. */
+ptah-lane-event article:hover {
+  box-shadow: inset 0 1px 0 var(--surface-highlight), 0 1px 3px oklch(var(--bc) / 0.12);
+}
+:root[data-glass='on'] ptah-lane-event article:hover {
+  box-shadow: inset 0 1px 0 var(--glass-glint), 0 1px 3px oklch(var(--bc) / 0.12);
+}
 :root[data-glass='on'] ptah-message-bubble .cs-own-user-bubble {
   background: oklch(var(--p) / 0.1);
   border-color: oklch(var(--p) / 0.2);

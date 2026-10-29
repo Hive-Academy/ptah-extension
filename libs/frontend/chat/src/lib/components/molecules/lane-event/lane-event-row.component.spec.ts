@@ -77,7 +77,13 @@ describe('LaneEventRowComponent', () => {
     const chip = element.querySelector('[data-testid="lane-event-chip"]');
     expect(chip?.classList.contains('rounded-full')).toBe(true);
     expect(chip?.classList.contains('border-current')).toBe(false);
+    // The label keeps body-text contrast; the status color stays on the icon and pill.
+    expect(chip?.querySelector('[data-testid="lane-event-chip-label"]')?.classList.contains('text-base-content')).toBe(true);
+    expect(card.className).not.toContain('hover:shadow');
     const second = element.querySelector('[data-testid="lane-event-second-line"]')!;
+    // Line 2 starts under the agent name: chevron 14 + gap 6 + avatar 24 + gap 6.
+    expect(second.classList.contains('pl-[50px]')).toBe(true);
+    expect(element.querySelector('[data-testid="lane-event-body"]')?.classList.contains('pl-[50px]')).toBe(true);
     expect(second.className).toContain('text-xs');
     expect(second.className).toContain('leading-5');
     expect(second.className).toContain('overflow-hidden');
@@ -105,7 +111,7 @@ describe('LaneEventRowComponent', () => {
     expect(element.querySelector('[role="status"]')?.textContent).toContain('lane completed');
   });
 
-  it('opens cli lane and sends the final envelope id for Branch and active Rewind', () => {
+  it('sends the final envelope id for Branch and active Rewind', () => {
     const fixture = TestBed.createComponent(LaneEventRowComponent);
     fixture.componentRef.setInput('row', row);
     fixture.componentRef.setInput('isSessionActive', true);
@@ -114,10 +120,8 @@ describe('LaneEventRowComponent', () => {
     fixture.componentInstance.rewindRequested.subscribe(rewind);
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
-    element.querySelector<HTMLButtonElement>('[data-testid="lane-event-open"]')!.click();
     element.querySelector<HTMLButtonElement>('[data-testid="lane-event-branch"]')!.click();
     element.querySelector<HTMLButtonElement>('[data-testid="lane-event-rewind"]')!.click();
-    expect(openLane).toHaveBeenCalledWith('cli:agent-1');
     expect(branch).toHaveBeenCalledWith('m3');
     expect(rewind).toHaveBeenCalledWith('m3');
     fixture.componentRef.setInput('isSessionActive', false); fixture.detectChanges();
@@ -157,27 +161,14 @@ describe('LaneEventRowComponent', () => {
     expect(toggle.querySelector(':scope > lucide-angular')).toBeNull();
   });
 
-  it('hides Open lane when the host cannot open the lane', () => {
-    TestBed.resetTestingModule();
-    TestBed.configureTestingModule({ imports: [LaneEventRowComponent], providers: [
-      provideMarkdown(),
-      { provide: SURFACE_ACTIVE, useValue: signal(false) },
-      { provide: SESSION_CARD_ACTIONS, useValue: { openLane, canOpenLane: () => false } },
-    ] });
+  it('has no Open lane action even when the host can open lanes', () => {
     const fixture = TestBed.createComponent(LaneEventRowComponent);
     fixture.componentRef.setInput('row', row);
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('[data-testid="lane-event-open"]')).toBeNull();
+    expect(element.textContent).not.toContain('Open lane');
     expect(element.querySelector('[data-testid="lane-event-branch"]')).not.toBeNull();
-  });
-
-  it('hides Open lane when no session actions are provided', () => {
-    TestBed.resetTestingModule();
-    TestBed.configureTestingModule({ imports: [LaneEventRowComponent], providers: [provideMarkdown(), { provide: SURFACE_ACTIVE, useValue: signal(false) }] });
-    const fixture = TestBed.createComponent(LaneEventRowComponent);
-    fixture.componentRef.setInput('row', row);
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="lane-event-open"]')).toBeNull();
+    expect(openLane).not.toHaveBeenCalled();
   });
 });

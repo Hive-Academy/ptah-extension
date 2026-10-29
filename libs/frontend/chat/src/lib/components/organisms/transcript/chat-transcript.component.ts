@@ -915,8 +915,7 @@ export class ChatTranscriptComponent {
 
   /**
    * The Electron display dock has no agent-card view, so a CLI lane has no
-   * surface in a single chat view there: its chip and "Open lane" button
-   * show status only. The canvas Rail provides its own actions and opens it.
+   * surface in a single chat view there: its turn chip shows status only. The canvas Rail provides its own actions and opens it.
    */
   private canOpenLaneHere(key: string): boolean {
     return parseLaneKey(key)?.kind !== 'cli' || this.displayDock === null;
