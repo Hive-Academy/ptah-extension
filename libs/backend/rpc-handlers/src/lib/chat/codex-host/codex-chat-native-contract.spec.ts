@@ -250,6 +250,7 @@ class ScriptedAppServer {
     const events = this.events.bind(this);
     return {
       identity,
+      turnPermissionLevel: profile.permissionLevel,
       listModels: async () => [],
       events,
       startTurn: async () => {

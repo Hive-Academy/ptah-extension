@@ -43,6 +43,7 @@ const terminal: CodexRuntimeEvent = {
 async function setup(events: CodexRuntimeEvent[] = [terminal]) {
   const context: jest.Mocked<CodexContext> = {
     identity,
+    turnPermissionLevel: 'ask',
     events: jest.fn().mockImplementation(() =>
       (async function* () {
         yield* events.map((event, sequence) => ({ ...event, sequence }));

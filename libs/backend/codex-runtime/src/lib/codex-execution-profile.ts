@@ -6,6 +6,7 @@ import type {
   CodexApprovalPolicy,
   CodexExecutionProfile,
   CodexJsonValue,
+  CodexSandboxPolicy,
 } from './codex-runtime.types';
 
 const text = z
@@ -162,6 +163,30 @@ function resolveApprovalPolicy(
   return 'on-request';
 }
 
+/** Resolve the policy for a single level using the existing consumer mapping. */
+export function resolveCodexLevelPolicy(
+  consumer: CodexExecutionProfile['consumer'],
+  permissionLevel: CodexProfileSettings['permissionLevel'],
+  cwd: string,
+): {
+  approvalPolicy: CodexApprovalPolicy;
+  sandboxPolicy: CodexSandboxPolicy;
+} {
+  const chat = consumer === 'chat';
+  const writable =
+    permissionLevel === 'auto-edit' ||
+    permissionLevel === 'yolo' ||
+    (chat && permissionLevel === 'ask');
+  return {
+    approvalPolicy: resolveApprovalPolicy(chat, permissionLevel),
+    sandboxPolicy: {
+      mode: writable ? 'workspace-write' : 'read-only',
+      networkAccess: false,
+      writableRoots: writable ? [cwd] : [],
+    },
+  };
+}
+
 function canonical(value: CodexJsonValue): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value !== null && typeof value === 'object') {
@@ -171,6 +196,17 @@ function canonical(value: CodexJsonValue): string {
       .join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+/** Fingerprint only the validated execution policy, with the original canonical encoding. */
+export function codexProfileFingerprint(identity: Pick<
+  CodexExecutionProfile,
+  'permissionLevel' | 'sandboxPolicy' | 'approvalPolicy'
+>): string {
+  const fingerprint = createHash('sha256')
+    .update(canonical(parse(z.json(), JSON.parse(JSON.stringify(identity)))))
+    .digest('hex');
+  return `sha256:${fingerprint}`;
 }
 
 /** Pure snapshot builder: no filesystem, environment, auth, process or routing access. */
@@ -252,12 +288,11 @@ export function buildCodexExecutionProfile(
   // evidence-harness policy(); Ptah auto-accepts auto-edit file changes.
   // Lane, gateway and usage keep the pre-8m-1 mapping: ask is granular and
   // read-only; auto-edit is on-request with workspace-write.
-  const chat = selected.consumer === 'chat';
-  const writable =
-    selected.permissionLevel === 'auto-edit' ||
-    selected.permissionLevel === 'yolo' ||
-    (chat && selected.permissionLevel === 'ask');
-  const approvalPolicy = resolveApprovalPolicy(chat, selected.permissionLevel);
+  const levelPolicy = resolveCodexLevelPolicy(
+    selected.consumer,
+    selected.permissionLevel,
+    cwd,
+  );
   const profile: Omit<BuiltCodexExecutionProfile, 'profileFingerprint'> = {
     ...selected,
     normalizedHome,
@@ -267,12 +302,7 @@ export function buildCodexExecutionProfile(
         ? { ...attachment, path: normalize(attachment.path) }
         : attachment,
     ),
-    approvalPolicy,
-    sandboxPolicy: {
-      mode: writable ? 'workspace-write' : 'read-only',
-      networkAccess: false,
-      writableRoots: writable ? [cwd] : [],
-    },
+    ...levelPolicy,
     approvalsReviewer: 'user',
     fullAccessStatus: 'unproved-disabled',
   };
@@ -289,8 +319,8 @@ export function buildCodexExecutionProfile(
   };
   // Only validated execution policy enters the digest. No secret resolver is
   // available here. JSON parsing removes absent optional fields.
-  const fingerprint = createHash('sha256')
-    .update(canonical(parse(z.json(), JSON.parse(JSON.stringify(identity)))))
-    .digest('hex');
-  return freeze({ ...profile, profileFingerprint: `sha256:${fingerprint}` });
+  return freeze({
+    ...profile,
+    profileFingerprint: codexProfileFingerprint(identity),
+  });
 }

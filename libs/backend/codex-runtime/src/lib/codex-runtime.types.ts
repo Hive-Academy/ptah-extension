@@ -291,6 +291,7 @@ export interface CodexModelInfo {
 }
 export interface CodexContext {
   readonly identity: CodexThreadIdentity;
+  readonly turnPermissionLevel: CodexPermissionLevel;
   listModels(): Promise<readonly CodexModelInfo[]>;
   events(signal: AbortSignal): AsyncIterable<CodexRuntimeEvent>;
   startTurn(input: CodexTurnInput): Promise<CodexTurnReceipt>;

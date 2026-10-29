@@ -1,6 +1,8 @@
 import { policy } from '../../tools/evidence-harness';
 import {
   buildCodexExecutionProfile,
+  codexProfileFingerprint,
+  resolveCodexLevelPolicy,
   type CodexExecutionProfileInput,
   type CodexProfileSettings,
 } from './codex-execution-profile';
@@ -31,6 +33,58 @@ function input(): CodexExecutionProfileInput {
 }
 
 describe('buildCodexExecutionProfile', () => {
+  it.each(
+    (['chat', 'lane'] as const).flatMap((consumer) =>
+      (['ask', 'plan', 'auto-edit', 'yolo'] as const).map(
+        (permissionLevel) => [consumer, permissionLevel] as const,
+      ),
+    ),
+  )(
+    'resolves %s %s policy and preserves its fingerprint',
+    (consumer, permissionLevel) => {
+      const source = input();
+      const profile = buildCodexExecutionProfile({
+        ...source,
+        session: { ...source.session, consumer, permissionLevel },
+      });
+      const resolved = resolveCodexLevelPolicy(
+        consumer,
+        permissionLevel,
+        '/real/work',
+      );
+      const writable =
+        permissionLevel === 'auto-edit' ||
+        permissionLevel === 'yolo' ||
+        (consumer === 'chat' && permissionLevel === 'ask');
+      const granularAsk = consumer === 'lane' && permissionLevel === 'ask';
+      expect(resolved.approvalPolicy).toEqual(
+        granularAsk
+          ? {
+              granular: {
+                sandbox_approval: true,
+                rules: true,
+                skill_approval: true,
+                request_permissions: true,
+                mcp_elicitations: true,
+              },
+            }
+          : consumer === 'chat' &&
+              (permissionLevel === 'ask' || permissionLevel === 'auto-edit')
+            ? 'untrusted'
+            : 'on-request',
+      );
+      expect(resolved.sandboxPolicy).toEqual({
+        mode: writable ? 'workspace-write' : 'read-only',
+        networkAccess: false,
+        writableRoots: writable ? ['/real/work'] : [],
+      });
+      expect(profile).toMatchObject(resolved);
+      expect(profile.profileFingerprint).toBe(
+        codexProfileFingerprint({ permissionLevel, ...resolved }),
+      );
+    },
+  );
+
   it.each(['ask', 'plan', 'auto-edit', 'yolo'] as const)(
     'matches observed harness policy for %s',
     (permissionLevel) => {

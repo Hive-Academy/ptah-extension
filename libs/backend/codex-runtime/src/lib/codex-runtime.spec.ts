@@ -10,6 +10,10 @@ import {
 import { CodexProtocolError } from './codex-protocol-validator';
 import { CodexMcpConfigError } from './codex-mcp-config';
 import { CodexRuntime } from './codex-runtime';
+import {
+  codexProfileFingerprint,
+  resolveCodexLevelPolicy,
+} from './codex-execution-profile';
 import type { CodexRuntimeOptions } from './codex-context';
 import {
   CodexResumeProfileChangedError,
@@ -20,6 +24,7 @@ import {
 import type {
   CodexExecutionProfile,
   CodexMcpServer,
+  CodexPermissionLevel,
   CodexThreadIdentity,
 } from './codex-runtime.types';
 import {
@@ -1436,7 +1441,7 @@ describe('CodexRuntime', () => {
     expect((await iterator.next()).done).toBe(true);
   });
 
-  it('stages revisioned model/effort settings, clears effort, and rejects unsupported permissions', async () => {
+  it('stages revisioned model/effort settings and validates permission levels', async () => {
     const context = await runtime.open({ ...profile, effort: 'high' });
     await context.startTurn({ text: 'go' });
     expect(
@@ -1444,8 +1449,10 @@ describe('CodexRuntime', () => {
     ).toEqual({ timing: 'nextTurn', revision: 1 });
     expect((await context.steer({ text: 'current' })).revision).toBe(0);
     await expect(
-      context.updateNextTurn({ permissionLevel: 'yolo' }),
-    ).rejects.toThrow('verified reconfiguration');
+      context.updateNextTurn({
+        permissionLevel: 'invalid' as CodexPermissionLevel,
+      }),
+    ).rejects.toThrow('Invalid Codex turn settings');
     await expect(context.updateNextTurn({ model: '' })).rejects.toThrow(
       'Invalid',
     );
@@ -1456,6 +1463,202 @@ describe('CodexRuntime', () => {
         'params'
       ],
     ).toMatchObject({ model: 'next', effort: null });
+  });
+
+  it.each(['ask', 'plan', 'auto-edit', 'yolo'] as const)(
+    'sends the %s policy after changing the next turn level',
+    async (level) => {
+      const initialLevel: CodexPermissionLevel =
+        level === 'ask' ? 'plan' : 'ask';
+      const initialPolicy = resolveCodexLevelPolicy(
+        'chat',
+        initialLevel,
+        '/work',
+      );
+      const initialProfile: CodexExecutionProfile = {
+        ...profile,
+        permissionLevel: initialLevel,
+        ...initialPolicy,
+        profileFingerprint: codexProfileFingerprint({
+          permissionLevel: initialLevel,
+          ...initialPolicy,
+        }),
+      };
+      const context = await runtime.open(initialProfile);
+      const original = context.identity;
+      const nextPolicy = resolveCodexLevelPolicy('chat', level, '/work');
+      await expect(
+        context.updateNextTurn({ permissionLevel: level }),
+      ).resolves.toEqual({ timing: 'nextTurn', revision: 1 });
+      expect(context.turnPermissionLevel).toBe(level);
+      expect(context.identity).toEqual({
+        ...original,
+        profileFingerprint: codexProfileFingerprint({
+          permissionLevel: level,
+          ...nextPolicy,
+        }),
+      });
+      expect(persist).toHaveBeenLastCalledWith(context.identity);
+      expect(persist).toHaveBeenCalledTimes(2);
+      await context.startTurn({ text: 'next' });
+      expect(
+        children[0].frames.find((frame) => frame['method'] === 'turn/start')?.[
+          'params'
+        ],
+      ).toMatchObject({
+          approvalPolicy: nextPolicy.approvalPolicy,
+          sandboxPolicy:
+            level === 'plan'
+              ? { type: 'readOnly', networkAccess: false }
+              : {
+                  type: 'workspaceWrite',
+                  networkAccess: false,
+                  writableRoots: ['/work'],
+                },
+      });
+    },
+  );
+
+  it('holds the active turn level for the bridge and restores the original policy on rollback', async () => {
+    runtime = new CodexRuntime({
+      ...options,
+      sink: { request: jest.fn(async () => 'accept' as const) },
+    });
+    const initialFingerprint = codexProfileFingerprint({
+      permissionLevel: 'ask',
+      approvalPolicy: profile.approvalPolicy,
+      sandboxPolicy: profile.sandboxPolicy,
+    });
+    const context = await runtime.open({
+      ...profile,
+      profileFingerprint: initialFingerprint,
+    });
+    const original = context.identity;
+    await context.startTurn({ text: 'first' });
+    await context.updateNextTurn({ permissionLevel: 'plan' });
+    expect(context.turnPermissionLevel).toBe('ask');
+    children[0].approval('before-next-turn');
+    await flush();
+    expect(
+      children[0].frames.find((frame) => frame['id'] === 'before-next-turn'),
+    ).toMatchObject({ result: { decision: 'accept' } });
+    children[0].complete();
+    expect(context.turnPermissionLevel).toBe('plan');
+    await context.startTurn({ text: 'second' });
+    expect(
+      children[0].frames.filter((frame) => frame['method'] === 'turn/start')[1][
+        'params'
+      ],
+    ).toMatchObject({
+      approvalPolicy: 'on-request',
+      sandboxPolicy: { type: 'readOnly' },
+    });
+    children[0].approval('after-next-turn');
+    await flush();
+    expect(
+      children[0].frames.find((frame) => frame['id'] === 'after-next-turn'),
+    ).toMatchObject({ result: { decision: 'decline' } });
+    await context.updateNextTurn({ permissionLevel: 'ask' });
+    expect(context.turnPermissionLevel).toBe('plan');
+    expect(context.identity).toEqual(original);
+    children[0].complete();
+    await context.startTurn({ text: 'third' });
+    expect(
+      children[0].frames.filter((frame) => frame['method'] === 'turn/start')[2][
+        'params'
+      ],
+    ).toMatchObject({
+      approvalPolicy: 'untrusted',
+      sandboxPolicy: { type: 'workspaceWrite', writableRoots: ['/work'] },
+    });
+  });
+
+  it('keeps level, fingerprint, model and next frame unchanged when re-persist fails', async () => {
+    const context = await runtime.open(profile);
+    const original = context.identity;
+    persist.mockRejectedValueOnce(new Error('store unavailable'));
+    await expect(
+      context.updateNextTurn({ permissionLevel: 'plan', model: 'changed' }),
+    ).rejects.toThrow('store unavailable');
+    expect(context.turnPermissionLevel).toBe('ask');
+    expect(context.identity).toBe(original);
+    await context.startTurn({ text: 'still ask' });
+    expect(
+      children[0].frames.find((frame) => frame['method'] === 'turn/start')?.[
+        'params'
+      ],
+    ).toMatchObject({
+      model: 'model',
+      approvalPolicy: 'untrusted',
+      sandboxPolicy: { type: 'workspaceWrite', writableRoots: ['/work'] },
+    });
+  });
+
+  it('rejects a pending level update on close and deactivates the last committed identity', async () => {
+    const context = await runtime.open(profile);
+    const original = context.identity;
+    let finishPersist: () => void = () => undefined;
+    persist.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishPersist = resolve;
+        }),
+    );
+    const update = context.updateNextTurn({
+      permissionLevel: 'plan',
+      model: 'changed',
+    });
+    await flush();
+    expect(persist).toHaveBeenCalledTimes(2);
+    const pendingIdentity = persist.mock.calls[1][0];
+    expect(pendingIdentity).not.toEqual(original);
+    const closing = context.close();
+    expect(inactive).not.toHaveBeenCalled();
+    finishPersist();
+    await expect(update).rejects.toThrow('Codex context closed');
+    await closing;
+    expect(context.turnPermissionLevel).toBe('ask');
+    expect(context.identity).toBe(original);
+    expect(context).toMatchObject({
+      levelPolicy: {
+        approvalPolicy: profile.approvalPolicy,
+        sandboxPolicy: profile.sandboxPolicy,
+      },
+      settings: { model: profile.model, permissionLevel: 'ask' },
+    });
+    expect(inactive).toHaveBeenNthCalledWith(1, pendingIdentity);
+    expect(inactive).toHaveBeenLastCalledWith(original);
+  });
+
+  it('holds the level of a notification-started turn until it completes', async () => {
+    runtime = new CodexRuntime({
+      ...options,
+      sink: { request: jest.fn(async () => 'accept' as const) },
+    });
+    const context = await runtime.open(profile);
+    await context.updateNextTurn({ permissionLevel: 'plan' });
+    children[0].turnNumber = 1;
+    children[0].notify('turn/started', {
+      threadId: 'thread-1',
+      turn: turn('turn-1'),
+    });
+    expect(context.turnPermissionLevel).toBe('plan');
+    await context.updateNextTurn({ permissionLevel: 'ask' });
+    expect(context.turnPermissionLevel).toBe('plan');
+    children[0].approval('notification-turn');
+    await flush();
+    expect(
+      children[0].frames.find((frame) => frame['id'] === 'notification-turn'),
+    ).toMatchObject({ result: { decision: 'decline' } });
+    children[0].complete();
+    expect(context.turnPermissionLevel).toBe('ask');
+    await context.startTurn({ text: 'next' });
+    expect(context.turnPermissionLevel).toBe('ask');
+    children[0].approval('next-turn');
+    await flush();
+    expect(
+      children[0].frames.find((frame) => frame['id'] === 'next-turn'),
+    ).toMatchObject({ result: { decision: 'accept' } });
   });
 
   it('coalesces compaction and reserves admission until its completion event', async () => {

@@ -11,6 +11,10 @@ import {
   type CodexApprovalBridgeOptions,
 } from './codex-approval-bridge';
 import { CodexEventTranslator } from './codex-event-translator';
+import {
+  codexProfileFingerprint,
+  resolveCodexLevelPolicy,
+} from './codex-execution-profile';
 import type {
   CodexPermissionRuleStore,
   CodexPermissionRuleTarget,
@@ -35,6 +39,7 @@ import type {
   CodexApprovalRequest,
   CodexModelInfo,
   CodexExecutionProfile,
+  CodexPermissionLevel,
   CodexJsonValue,
   CodexRuntimeEvent,
   CodexThreadIdentity,
@@ -78,6 +83,11 @@ class RuntimeContext implements CodexContext {
   private turnRevision = 0;
   private sentInitialInput = false;
   private settings: CodexTurnSettings;
+  private levelPolicy: Pick<
+    CodexExecutionProfile,
+    'approvalPolicy' | 'sandboxPolicy'
+  >;
+  private activeTurnPermissionLevel?: CodexPermissionLevel;
   private operation: Promise<unknown> = Promise.resolve();
   private closing?: Promise<void>;
   private persistence?: Promise<void>;
@@ -105,6 +115,10 @@ class RuntimeContext implements CodexContext {
       model: profile.model,
       effort: profile.effort,
       permissionLevel: profile.permissionLevel,
+    };
+    this.levelPolicy = {
+      approvalPolicy: profile.approvalPolicy,
+      sandboxPolicy: profile.sandboxPolicy,
     };
     this.translator = new CodexEventTranslator(profile.contextId, generation);
     const spawner: IProcessSpawner = {
@@ -190,6 +204,16 @@ class RuntimeContext implements CodexContext {
     return this.committedIdentity;
   }
 
+  get turnPermissionLevel(): CodexPermissionLevel {
+    if (this.state === 'running' || this.state === 'interrupting')
+      return (
+        this.activeTurnPermissionLevel ??
+        this.settings.permissionLevel ??
+        this.profile.permissionLevel
+      );
+    return this.settings.permissionLevel ?? this.profile.permissionLevel;
+  }
+
   async open(resume?: CodexThreadIdentity): Promise<void> {
     await this.process.start();
     if (this.process.verifiedCodexHome !== this.profile.normalizedHome)
@@ -246,7 +270,7 @@ class RuntimeContext implements CodexContext {
       sink: this.options.sink,
       rules: this.rules,
       clock: this.options.clock,
-      permissionLevel: () => this.profile.permissionLevel,
+      permissionLevel: () => this.turnPermissionLevel,
       isCurrent: (correlation) =>
         this.state === 'running' &&
         correlation.turnId === this.activeTurn &&
@@ -374,6 +398,9 @@ class RuntimeContext implements CodexContext {
         parsed.threadId === this.identity.threadId &&
         !this.terminalTurns.has(parsed.turn.id)
       ) {
+        if (this.state === 'idle')
+          this.activeTurnPermissionLevel =
+            this.settings.permissionLevel ?? this.profile.permissionLevel;
         this.activeTurn = parsed.turn.id;
         this.state = 'running';
       }
@@ -389,6 +416,7 @@ class RuntimeContext implements CodexContext {
         if (event.turnId === this.activeTurn) {
           this.asyncQuestionItems.clear();
           this.activeTurn = undefined;
+          this.activeTurnPermissionLevel = undefined;
           this.targets.clear();
           this.turnController.abort();
           this.releaseTurnSignal?.();
@@ -473,23 +501,26 @@ class RuntimeContext implements CodexContext {
 
   private async start(input: CodexTurnInput): Promise<CodexTurnReceipt> {
     if (this.state !== 'idle') throw new Error('Codex turn is already active');
+    const level = this.settings.permissionLevel ?? this.profile.permissionLevel;
+    const levelPolicy = this.levelPolicy;
     const params = codexRequestSchemas['turn/start'].params.parse({
       threadId: this.identity.threadId,
       input: this.wireInput(input, !this.sentInitialInput),
       model: this.settings.model,
       effort: this.settings.effort ?? null,
-      approvalPolicy: this.profile.approvalPolicy,
+      approvalPolicy: levelPolicy.approvalPolicy,
       approvalsReviewer: 'user',
       cwd: this.profile.cwd,
       sandboxPolicy:
-        this.profile.sandboxPolicy.mode === 'workspace-write'
+        levelPolicy.sandboxPolicy.mode === 'workspace-write'
           ? {
               type: 'workspaceWrite',
-              networkAccess: this.profile.sandboxPolicy.networkAccess,
-              writableRoots: [...this.profile.sandboxPolicy.writableRoots],
+              networkAccess: levelPolicy.sandboxPolicy.networkAccess,
+              writableRoots: [...levelPolicy.sandboxPolicy.writableRoots],
             }
           : { type: 'readOnly', networkAccess: false },
     });
+    this.activeTurnPermissionLevel = level;
     this.state = 'running';
     this.turnController = new AbortController();
     this.turnRevision = this.revision;
@@ -514,7 +545,10 @@ class RuntimeContext implements CodexContext {
       };
     } catch (error) {
       if (error instanceof CodexRequestRejectedError) {
-        if (!this.activeTurn) this.state = 'idle';
+        if (!this.activeTurn) {
+          this.state = 'idle';
+          this.activeTurnPermissionLevel = undefined;
+        }
         throw error;
       }
       this.onFailure();
@@ -753,20 +787,56 @@ class RuntimeContext implements CodexContext {
         })
         .safeParse(patch);
       if (!parsed.success) throw new Error('Invalid Codex turn settings');
-      if (
-        patch.permissionLevel !== undefined &&
-        patch.permissionLevel !== this.profile.permissionLevel
-      )
-        throw new Error(
-          'Codex permission transition requires verified reconfiguration',
+      const level = parsed.data.permissionLevel;
+      let nextPolicy = this.levelPolicy;
+      if (level !== undefined && level !== this.settings.permissionLevel) {
+        nextPolicy = resolveCodexLevelPolicy(
+          this.profile.consumer,
+          level,
+          this.profile.cwd,
         );
-      this.settings = {
-        ...this.settings,
-        ...(parsed.data.model !== undefined
-          ? { model: parsed.data.model }
-          : {}),
-        ...('effort' in patch ? { effort: parsed.data.effort } : {}),
-      };
+        const nextIdentity: CodexThreadIdentity = Object.freeze({
+          ...this.identity,
+          profileFingerprint: codexProfileFingerprint({
+            permissionLevel: level,
+            ...nextPolicy,
+          }),
+        });
+        const nextSettings: CodexTurnSettings = {
+          ...this.settings,
+          ...(parsed.data.model !== undefined
+            ? { model: parsed.data.model }
+            : {}),
+          ...('effort' in patch ? { effort: parsed.data.effort } : {}),
+          permissionLevel: level,
+        };
+        this.persistence = this.options.store.persist(nextIdentity).then(async () => {
+          if (this.isClosed()) {
+            try {
+              await this.options.store.markInactive(nextIdentity);
+            } catch {
+              this.options.logger.error(
+                'Codex identity could not be marked inactive',
+              );
+            }
+            throw new Error('Codex context closed');
+          }
+          this.committedIdentity = nextIdentity;
+          this.settings = nextSettings;
+          this.levelPolicy = nextPolicy;
+        });
+        await this.persistence;
+        if (this.isClosed()) throw new Error('Codex context closed');
+      } else {
+        this.settings = {
+          ...this.settings,
+          ...(parsed.data.model !== undefined
+            ? { model: parsed.data.model }
+            : {}),
+          ...('effort' in patch ? { effort: parsed.data.effort } : {}),
+          ...(level !== undefined ? { permissionLevel: level } : {}),
+        };
+      }
       return { timing: 'nextTurn', revision: ++this.revision };
     });
   }
@@ -879,6 +949,7 @@ class RuntimeContext implements CodexContext {
       });
     }
     this.activeTurn = undefined;
+    this.activeTurnPermissionLevel = undefined;
     this.translator.dispose();
     this.targets.clear();
     for (const subscriber of this.subscribers) subscriber.release();

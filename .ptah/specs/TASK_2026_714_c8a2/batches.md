@@ -4330,7 +4330,7 @@ both fields (8q-3a spec).
   `CODEX_RUNTIME_FAILED` with `CODEX_RESUME_PROFILE_CHANGED_MESSAGE` (the p8j D14a scenario).
 ### Task 8q-2b.3: Electron binding — PENDING
 
-## Batch 8q-3a: Live level change in the runtime (codex-runtime) — IN_PROGRESS
+## Batch 8q-3a: Live level change in the runtime (codex-runtime) — COMPLETE (commit: the "batch 8q-3a" commit; security-review-8q-3a.md APPROVE 8/10, M1/M2 fixed, security-review-8q-3a-fix.md APPROVE 9/10 by grok; Wave 1 verify PASS for codex-runtime, cli-agent-runtime, gateway-chat-bridge, agent-sdk, rpc-handlers)
 
 - Recommended executor: CLI lane codex (gpt-6-sol) | sequential | Depends on: none
 - Review: Claude security review on 8q-3a + 8q-3b before either commit
@@ -4373,6 +4373,11 @@ both fields (8q-3a spec).
   sink/bridge disagreement (8q-3b adds them).
 - Deviation from the Waves section: 8q-3a got its own security review (not combined with 8q-3b),
   so it can commit in Wave 1; 8q-3b gets its own security review.
+- Fix round 8q-3a-fix (codex lane; batch-8q-3a-fix-report.md): M1 and M2 CLOSED
+  (security-review-8q-3a-fix.md, grok, APPROVE 9/10). The coordinator fixed one spec type error
+  (`finishPersist` typed `() => void`, codex-runtime.spec.ts:1600). Minor recorded, not fixed: if
+  `markInactive(nextIdentity)` fails during a close, the new-fingerprint row stays `active`
+  (codex-context.ts:815-822, :971-973); the context is closed, and the flag is not liveness.
 
 ## Batch 8q-3b: Adapter and identity store follow the live level (agent-sdk) — PENDING
 

@@ -64,6 +64,7 @@ function setup(override = true) {
       { id: 'catalog-gpt', model: 'gpt', displayName: 'GPT', isDefault: true },
     ]),
     identity,
+    turnPermissionLevel: profile.permissionLevel,
     events: jest.fn<
       ReturnType<CodexContext['events']>,
       Parameters<CodexContext['events']>
