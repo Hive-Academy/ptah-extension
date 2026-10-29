@@ -16,6 +16,16 @@ import { deriveLaneEventPresentation, laneEventTime, parseLaneCompletion, type L
   imports: [LucideAngularModule, MarkdownModule, SurfaceMarkdownPipe, AgentAvatarComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './lane-event-row.component.html',
+  // The card takes a faint wash of its status color and the chip a soft pill
+  // of its own text color, so the tone reads without heavy borders.
+  styles: `
+    .lane-card { --lane-tone: oklch(var(--bc)); background: color-mix(in srgb, var(--lane-tone) 5%, oklch(var(--b2) / 0.4)); }
+    .lane-card[data-tone='run'] { --lane-tone: var(--state-ink-run, oklch(var(--in))); }
+    .lane-card[data-tone='done'] { --lane-tone: var(--state-ink-done, oklch(var(--su))); }
+    .lane-card[data-tone='need'] { --lane-tone: var(--state-ink-need, oklch(var(--wa))); }
+    .lane-card[data-tone='err'] { --lane-tone: var(--state-ink-err, oklch(var(--er))); }
+    .lane-chip { background: color-mix(in srgb, currentColor 12%, transparent); }
+  `,
 })
 export class LaneEventRowComponent {
   readonly row = input.required<LaneEventRow>();

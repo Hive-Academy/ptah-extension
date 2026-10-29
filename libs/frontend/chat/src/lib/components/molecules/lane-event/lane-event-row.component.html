@@ -1,5 +1,6 @@
 <article data-testid="lane-event"
-  class="group my-2 w-4/5 min-w-[min(100%,20rem)] rounded-lg border border-base-content/10 bg-base-200/40 px-4 py-3 text-sm leading-5 border-l-[3px]"
+  class="lane-card group my-2 ml-auto w-4/5 min-w-[min(100%,20rem)] rounded-md border border-base-content/10 px-3 py-2 text-[13px] leading-5 border-l-2 transition-shadow duration-200 hover:shadow-sm motion-reduce:transition-none"
+  [attr.data-tone]="tone()"
   [class.border-l-state-run]="tone() === 'run'" [class.border-l-state-done]="tone() === 'done'"
   [class.border-l-state-need]="tone() === 'need'" [class.border-l-state-err]="tone() === 'err'"
   [attr.aria-label]="row().agent + ' lane, ' + chip().label"
@@ -19,13 +20,13 @@
       <ptah-agent-avatar kind="cli" [cliId]="row().cli" [status]="avatarStatus()" [size]="24" />
       <span class="min-w-0 truncate font-semibold" [title]="row().agent">{{ row().agent }}</span>
       <span data-testid="lane-event-chip"
-        class="inline-flex shrink-0 items-center gap-1 rounded border border-current px-1.5 text-xs leading-5"
+        class="lane-chip inline-flex shrink-0 items-center gap-1 rounded-full px-2 text-[11px] font-medium leading-5"
         [attr.title]="chip().title ?? null"
         [class.text-state-run]="chip().tone === 'run'" [class.text-state-done]="chip().tone === 'done'"
         [class.text-state-need]="chip().tone === 'need'" [class.text-state-err]="chip().tone === 'err'">
         <lucide-angular [img]="chip().icon" class="h-3 w-3 motion-reduce:animate-none" aria-hidden="true" />{{ chip().label }}
       </span>
-      <time class="ml-auto shrink-0 text-base-content-muted tabular-nums" [attr.datetime]="iso(latest().timestamp)">{{ time(latest().timestamp) }}</time>
+      <time class="ml-auto shrink-0 text-xs text-base-content-muted tabular-nums" [attr.datetime]="iso(latest().timestamp)">{{ time(latest().timestamp) }}</time>
     </button>
     <div data-testid="lane-event-actions" class="pointer-events-none flex shrink-0 items-center gap-0.5 rounded bg-base-200 opacity-0 shadow-none transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 motion-reduce:transition-none">
       <button type="button" class="btn btn-ghost btn-xs focus-visible:ring-2 focus-visible:ring-primary"

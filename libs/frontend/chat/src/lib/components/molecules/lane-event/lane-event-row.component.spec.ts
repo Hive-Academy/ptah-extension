@@ -54,20 +54,29 @@ describe('LaneEventRowComponent', () => {
     expect(element.textContent).not.toContain('file.txt');
   });
 
-  it('left aligns an 80-percent lane card with a narrow-pane minimum and two-line spacing', () => {
+  it('right aligns an 80-percent lane card at chat text size with a narrow-pane minimum', () => {
     const fixture = TestBed.createComponent(LaneEventRowComponent);
     fixture.componentRef.setInput('row', row);
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
     const card = element.querySelector('article')!;
     expect(card.classList.contains('mx-auto')).toBe(false);
+    expect(card.classList.contains('ml-auto')).toBe(true);
     expect(card.classList.contains('w-4/5')).toBe(true);
     expect(card.classList.contains('min-w-[min(100%,20rem)]')).toBe(true);
     expect(card.classList.contains('w-full')).toBe(false);
     expect(card.className).not.toContain('max-w-[min(640px');
-    expect(card.classList.contains('px-4')).toBe(true);
-    expect(card.classList.contains('py-3')).toBe(true);
-    expect(card.classList.contains('text-sm')).toBe(true);
+    expect(card.classList.contains('px-3')).toBe(true);
+    expect(card.classList.contains('py-2')).toBe(true);
+    expect(card.classList.contains('text-[13px]')).toBe(true);
+    expect(card.classList.contains('text-sm')).toBe(false);
+    expect(card.classList.contains('border-l-2')).toBe(true);
+    const tone = card.getAttribute('data-tone');
+    expect(['run', 'done', 'need', 'err', 'neutral']).toContain(tone);
+    if (tone !== 'neutral') expect(card.classList.contains(`border-l-state-${tone}`)).toBe(true);
+    const chip = element.querySelector('[data-testid="lane-event-chip"]');
+    expect(chip?.classList.contains('rounded-full')).toBe(true);
+    expect(chip?.classList.contains('border-current')).toBe(false);
     const second = element.querySelector('[data-testid="lane-event-second-line"]')!;
     expect(second.className).toContain('text-xs');
     expect(second.className).toContain('leading-5');
