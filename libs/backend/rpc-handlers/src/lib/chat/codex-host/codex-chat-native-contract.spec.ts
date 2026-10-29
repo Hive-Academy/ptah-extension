@@ -61,6 +61,8 @@ import {
   type CodexChatHostPorts,
 } from './codex-chat-host-ports';
 import { ChatStreamBroadcaster } from '../streaming/chat-stream-broadcaster.service';
+import type { ISettingsStore } from '@ptah-extension/settings-core';
+import { createNativeSessionControls } from './native-session-controls';
 
 // Internal classes the barrels do not export; loaded from source so the spec
 // drives the same modules production composes (host-ports spec precedent).
@@ -248,9 +250,13 @@ class ScriptedAppServer {
 
   context(): CodexContext {
     const events = this.events.bind(this);
+    // Idle threads report the stored next-turn level. A running turn is not modeled here.
+    let turnPermissionLevel = profile.permissionLevel;
     return {
       identity,
-      turnPermissionLevel: profile.permissionLevel,
+      get turnPermissionLevel() {
+        return turnPermissionLevel;
+      },
       listModels: async () => [],
       events,
       startTurn: async () => {
@@ -259,7 +265,12 @@ class ScriptedAppServer {
       },
       steer: async () => ({ threadId: THREAD, turnId: TURN, revision: 2 }),
       interrupt: this.interrupt,
-      updateNextTurn: async () => ({ timing: 'nextTurn', revision: 2 }),
+      updateNextTurn: async (patch) => {
+        if (patch.permissionLevel !== undefined) {
+          turnPermissionLevel = patch.permissionLevel;
+        }
+        return { timing: 'nextTurn', revision: 2 };
+      },
       compact: async () => undefined,
       close: this.close,
     };
@@ -1266,6 +1277,55 @@ describe('Native Codex chat sessions across turns', () => {
       expect(registry.size).toBe(0);
     } finally {
       bridge.dispose();
+    }
+  });
+
+  it('sets a different permission level on an open thread for the next turn', async () => {
+    const h = codexHarness();
+    h.scriptTurn(TURN, 'Hello');
+    const data = new Map<string, unknown>();
+    const store: ISettingsStore = {
+      readGlobal: <T>(key: string) => data.get(key) as T | undefined,
+      writeGlobal: jest.fn(async (key: string, value: unknown) => {
+        if (value === undefined) data.delete(key);
+        else data.set(key, value);
+      }),
+      readSecret: jest.fn(),
+      writeSecret: jest.fn(),
+      deleteSecret: jest.fn(),
+      watchGlobal: jest.fn(),
+      watchSecret: jest.fn(),
+      flushSync: jest.fn(),
+    };
+    try {
+      await h.start();
+      expect(h.adapter.isSessionActive(THREAD)).toBe(true);
+      const opened = h.open.mock.results[0];
+      if (opened?.type !== 'return') throw new Error('thread was not opened');
+      const context = await opened.value;
+      expect(context.turnPermissionLevel).toBe('ask');
+      const controls = createNativeSessionControls({
+        store,
+        adapter: h.adapter,
+        appScope: 'app.electron',
+        settings: () => ({
+          workspacePath: '/workspace',
+          authKey: 'thirdParty.openai-codex',
+          model: 'gpt-5',
+          permissionLevel: 'ask',
+        }),
+        broadcaster: { streamEventsToWebview: jest.fn() },
+        tabId: () => 'tab',
+      });
+      await expect(controls.setPermission(THREAD, 'plan')).resolves.toEqual({
+        timing: 'nextTurn',
+        revision: 1,
+      });
+      expect(context.turnPermissionLevel).toBe('plan');
+      expect(data.get('app.electron.autopilot.permissionLevel')).toBe('plan');
+      expect(data.get('app.electron.autopilot.enabled')).toBe(true);
+    } finally {
+      h.dispose();
     }
   });
 });

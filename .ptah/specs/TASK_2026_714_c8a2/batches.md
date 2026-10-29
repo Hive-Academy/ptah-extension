@@ -4424,7 +4424,7 @@ both fields (8q-3a spec).
   close the getter still returns the last level (bridge and sink are disposed, so no reachable
   grant); the adapter spec moves the mock level by hand instead of a real runtime turn.
 
-## Batch 8q-3c: Controls contract with a live level change (rpc-handlers specs) — PENDING
+## Batch 8q-3c: Controls contract with a live level change (rpc-handlers specs) — COMPLETE (commit: the "batch 8q-3c" commit; grok lane, batch-8q-3c-report.md, no production gap found; verify rpc-handlers PASS; covered by the round code-logic review)
 
 - Recommended executor: CLI lane grok | sequential | Depends on: 8q-3b, 8q-2b
 - Verify: `npm run verify -- -p @ptah-extension/rpc-handlers`

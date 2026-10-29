@@ -80,6 +80,37 @@ describe('native session controls', () => {
       [id, 'medium'],
     ]);
   });
+  it('applies a different permission level on an open thread and saves the autopilot chip', async () => {
+    const h = harness();
+    await expect(h.controls.setPermission(id, 'plan')).resolves.toEqual({
+      timing: 'nextTurn',
+      revision: 1,
+    });
+    expect(h.adapter.setSessionPermissionLevel.mock.calls).toEqual([
+      [id, 'plan'],
+    ]);
+    expect(h.writeGlobal.mock.calls).toEqual([
+      ['app.electron.autopilot.enabled', true],
+      ['app.electron.autopilot.permissionLevel', 'plan'],
+    ]);
+    expect(h.data.get('app.electron.autopilot.permissionLevel')).toBe('plan');
+    expect(h.data.get('app.electron.autopilot.enabled')).toBe(true);
+  });
+  it('rolls a failed permission save back to the previous open-thread level', async () => {
+    const h = harness();
+    await h.controls.setPermission(id, 'plan');
+    h.writeGlobal.mockRejectedValueOnce(new Error('disk'));
+    await expect(h.controls.setPermission(id, 'auto-edit')).rejects.toThrow(
+      'disk',
+    );
+    expect(h.adapter.setSessionPermissionLevel.mock.calls).toEqual([
+      [id, 'plan'],
+      [id, 'auto-edit'],
+      [id, 'plan'],
+    ]);
+    expect(h.data.get('app.electron.autopilot.permissionLevel')).toBe('plan');
+    expect(h.data.get('app.electron.autopilot.enabled')).toBe(true);
+  });
   it('restores absent permission keys instead of writing inherited values explicitly', async () => {
     const h = harness();
     h.data.set('autopilot.enabled', false);
