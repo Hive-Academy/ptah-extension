@@ -2,6 +2,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { SessionId } from '@ptah-extension/shared';
 import { z } from 'zod';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { realpath } from 'node:fs/promises';
 import type {
   ApprovalSink,
@@ -89,6 +90,7 @@ export class CodexChatApprovalSink implements ApprovalSink {
     private readonly platform: string = process.platform,
     private readonly threadCwd: string | undefined = undefined,
     private readonly resolvePath: (value: string) => Promise<string> = realpath,
+    private readonly systemRoot: string | undefined = process.env['SystemRoot'] ?? process.env['windir'],
   ) {}
 
   request(
@@ -105,19 +107,32 @@ export class CodexChatApprovalSink implements ApprovalSink {
       return Promise.resolve('decline');
     this.seen.add(key);
     const details = request.details;
+    let cwd = details['cwd'];
+    if (typeof cwd === 'string' && cwd.startsWith('file:')) {
+      try {
+        cwd = fileURLToPath(cwd, { windows: this.platform === 'win32' });
+      } catch {
+        // degradation-audit: optional-capability - an invalid cwd URI cannot prove containment; show the card.
+        return this.presentRequest(request, signal, key);
+      }
+    }
+    // A proposed exec-policy amendment is ignored: this gate only returns plain accept for this request.
     const classified = this.permissionLevel() === 'ask' && request.kind === 'command' &&
       (details['kind'] === undefined || details['kind'] === 'command') &&
       details['networkApprovalContext'] == null &&
       details['environmentId'] == null &&
-      details['proposedExecpolicyAmendment'] == null &&
       details['proposedNetworkPolicyAmendments'] == null
-      ? classifyReadOnlyCommand(details['command'], details['cwd'], this.threadCwd, this.platform)
+      ? classifyReadOnlyCommand(details['command'], cwd, this.threadCwd, this.platform, { systemRoot: this.systemRoot })
       : undefined;
-    if (classified && typeof details['cwd'] === 'string' && this.threadCwd)
-      return this.acceptIfRealPathsStayInside(classified, details['cwd'], signal)
+    if (classified && typeof cwd === 'string' && this.threadCwd)
+      return this.acceptIfRealPathsStayInside(classified, cwd, signal)
         .then((accepted): Outcome | Promise<Outcome> => {
-          if (this.disposed || signal.aborted) return 'decline';
+          if (this.disposed || signal.aborted) {
+            this.seen.delete(key);
+            return 'decline';
+          }
           if (accepted) {
+            this.seen.delete(key);
             this.logger.info('[CodexChatApprovalSink] accepted read-only command.', {
               commands: classified.names,
             });
@@ -237,15 +252,14 @@ export class CodexChatApprovalSink implements ApprovalSink {
       if (text?.trim()) {
         const editedText = text;
         // Resolve the decline first. The owner chooses steer/new turn at delivery time.
-        void Promise.resolve()
-          .then(() =>
-            this.followUp.post(
+        setImmediate(() => {
+          void (async () => {
+            await this.followUp.post(
               editedText,
               this.followUp.isTurnActive(reply.threadId) ? 'steer' : 'newTurn',
               pending.request,
-            ),
-          )
-          .catch((error) => {
+            );
+          })().catch((error) => {
             this.logger.error(
               '[CodexChatApprovalSink] runtime-failed: follow-up.',
               error instanceof Error ? error : new Error(String(error)),
@@ -259,6 +273,7 @@ export class CodexChatApprovalSink implements ApprovalSink {
               );
             }
           });
+        });
       }
       return true;
     }

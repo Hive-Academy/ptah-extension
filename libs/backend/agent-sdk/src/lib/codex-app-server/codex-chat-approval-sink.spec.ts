@@ -38,6 +38,7 @@ function setup(
   permissionLevel: () => string | undefined = () => undefined,
   resolvePath: (value: string) => Promise<string> = async (value) => value,
   threadCwd: string | undefined = 'C:\\repo',
+  systemRoot: string | undefined = 'C:\\Windows',
 ) {
   const logger = mockLogger();
   const presentation = {
@@ -70,6 +71,7 @@ function setup(
       'win32',
       threadCwd,
       resolvePath,
+      systemRoot,
     ),
   };
 }
@@ -99,6 +101,46 @@ describe('CodexChatApprovalSink', () => {
     expect(sink.respond(reply)).toBe(false);
   });
 
+  it('accepts the live Windows request with an ignored proposed exec-policy amendment', async () => {
+    const { sink, presentation, logger } = setup(() => 'ask', async (value) => value, 'C:\\ws');
+    const read = {
+      ...request,
+      details: {
+        command: '"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command \'Get-Content -LiteralPath README.md\'',
+        cwd: 'C:\\ws',
+        proposedExecpolicyAmendment: [{ command: 'Get-Content' }],
+      },
+    };
+    await expect(sink.request(read, new AbortController().signal)).resolves.toBe('accept');
+    await expect(sink.request(read, new AbortController().signal)).resolves.toBe('accept');
+    expect(presentation.present).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledTimes(2);
+    expect(logger.info).toHaveBeenCalledWith(
+      '[CodexChatApprovalSink] accepted read-only command.',
+      { commands: ['Get-Content'] },
+    );
+    expect(JSON.stringify(jest.mocked(logger.info).mock.calls)).not.toContain('README.md');
+    expect(JSON.stringify(jest.mocked(logger.info).mock.calls)).not.toContain('proposedExecpolicyAmendment');
+  });
+
+  it('converts a Windows file URI cwd before classification and realpath checks', async () => {
+    const resolvePath = jest.fn(async (value: string) => value);
+    const { sink, presentation } = setup(() => 'ask', resolvePath, 'C:\\Users\\x\\ws');
+    const read = { ...request, details: { command: 'Get-Content README.md', cwd: 'file:///C:/Users/x/ws' } };
+    await expect(sink.request(read, new AbortController().signal)).resolves.toBe('accept');
+    expect(resolvePath).toHaveBeenCalledWith('C:\\Users\\x\\ws');
+    expect(resolvePath).toHaveBeenCalledWith('C:\\Users\\x\\ws\\README.md');
+    expect(presentation.present).not.toHaveBeenCalled();
+  });
+
+  it('shows the card for an invalid file URI cwd', async () => {
+    const { sink, presentation } = setup(() => 'ask');
+    const pending = sink.request({ ...request, details: { command: 'Get-Content README.md', cwd: 'file://%ZZ/bad' } }, new AbortController().signal);
+    expect(presentation.present).toHaveBeenCalledTimes(1);
+    sink.dispose();
+    await expect(pending).resolves.toBe('decline');
+  });
+
   it.each(['auto-edit', 'plan', 'yolo'])(
     'keeps the approval card for %s read requests', (level) => {
       const { sink, presentation } = setup(() => level);
@@ -117,6 +159,8 @@ describe('CodexChatApprovalSink', () => {
     ['MCP elicitation', { command: 'Get-Content file.txt', cwd: 'C:\\repo' }, 'mcpElicitation'],
     ['user input', { command: 'Get-Content file.txt', cwd: 'C:\\repo' }, 'userInput'],
     ['network approval', { command: 'rg TODO .', cwd: 'C:\\repo', networkApprovalContext: {} }, 'command'],
+    ['network amendment', { command: 'rg TODO .', cwd: 'C:\\repo', proposedNetworkPolicyAmendments: [] }, 'command'],
+    ['environment', { command: 'rg TODO .', cwd: 'C:\\repo', environmentId: 'other' }, 'command'],
     ['stdin approval', { command: 'rg TODO .', cwd: 'C:\\repo', kind: 'writeStdin' }, 'command'],
   ] as const)('shows the card for %s', (_case, details, kind) => {
     const { sink, presentation } = setup(() => 'ask');
@@ -341,6 +385,8 @@ describe('CodexChatApprovalSink', () => {
       expect(followUp.validateReplacement).toHaveBeenCalledWith(request, {
         command: 'safe',
       });
+      expect(followUp.post).not.toHaveBeenCalled();
+      await jest.runOnlyPendingTimersAsync();
       expect(followUp.post).toHaveBeenCalledWith(
         'edited',
         active ? 'steer' : 'newTurn',
@@ -471,8 +517,7 @@ describe('CodexChatApprovalSink', () => {
       decision: 'decline',
       editNotSupported: true,
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await jest.runOnlyPendingTimersAsync();
     expect(followUp.failed).toHaveBeenCalledTimes(1);
     expect(logger.error).toHaveBeenCalledWith(
       '[CodexChatApprovalSink] runtime-failed: follow-up.',

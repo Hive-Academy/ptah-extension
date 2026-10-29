@@ -10,6 +10,9 @@ const readOnlyCommandNames = (command: unknown, cwd: unknown, platform: string) 
 
 const win = 'C:\\repo\\work';
 const posix = '/repo/work';
+const systemRoot = { systemRoot: 'C:\\Windows' };
+const liveExecutable = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+const liveBody = 'Get-Content -LiteralPath README.md';
 
 describe('read-only Codex command classifier', () => {
   it.each([
@@ -37,6 +40,7 @@ describe('read-only Codex command classifier', () => {
     ['cat README.md | rg TODO', posix, 'linux'],
     ['powershell.exe -NoProfile -Command "Get-Content README.md"', win, 'win32'],
     ["pwsh -NoProfile -NoLogo -c 'rg TODO .'", win, 'win32'],
+    ["powershell -Command 'Get-Content README.md'", win, 'win32'],
     ["rg 'a|b' .", posix, 'linux'],
   ])('accepts quoted, piped or supported wrapper form %s', (command, cwd, platform) => {
     expect(isReadOnlyCommand(command, cwd, platform)).toBe(true);
@@ -45,6 +49,49 @@ describe('read-only Codex command classifier', () => {
   it('returns only command names for safe logging', () => {
     expect(readOnlyCommandNames('cat secret.txt | rg password', posix, 'linux'))
       .toEqual(['cat', 'rg']);
+  });
+
+  it.each([
+    `"${liveExecutable}" -Command '${liveBody}'`,
+    `'${liveExecutable}' -Command '${liveBody}'`,
+    `${liveExecutable} -Command '${liveBody}'`,
+    `"${liveExecutable.replace(/\\/g, '\\\\')}" -Command '${liveBody}'`,
+    `"${liveExecutable.toLowerCase()}" -command '${liveBody}'`,
+    `"${liveExecutable.toUpperCase()}" -COMMAND '${liveBody}'`,
+    `"${liveExecutable}" -NoProfile -Command '${liveBody}'`,
+    `"${liveExecutable}" -NoProfile -NoLogo -c "${liveBody}"`,
+    `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\..\\v1.0\\powershell.exe" -Command '${liveBody}'`,
+  ])('accepts trusted Windows PowerShell wrapper %s', (command) => {
+    expect(classify(command, win, win, 'win32', systemRoot)).toBe(true);
+    expect(commandNames(command, win, win, 'win32', systemRoot)).toEqual(['Get-Content']);
+  });
+
+  it.each([
+    `"${liveExecutable}" -Command 'Get-Item -LiteralPath README.md | Select-Object FullName,Length; Get-Content -LiteralPath README.md -Raw'`,
+    `"${liveExecutable}" -Command 'if (Test-Path README.md) {Get-Content README.md}'`,
+    `"D:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '${liveBody}'`,
+    `"C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe" -Command '${liveBody}'`,
+    `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershel1.exe" -Command '${liveBody}'`,
+    `"C:\\Windows\\System32\\WINDOW~1\\v1.0\\powershell.exe" -Command '${liveBody}'`,
+    `"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '${liveBody}'`,
+    `"${liveExecutable}" -EncodedCommand abc`,
+    `"${liveExecutable}" -ExecutionPolicy Bypass -Command '${liveBody}'`,
+    `"${liveExecutable}" -File read.ps1`,
+    `"${liveExecutable}" -NonInteractive -Command '${liveBody}'`,
+    `"${liveExecutable}" -NoLogo -Command '${liveBody}'`,
+    `"${liveExecutable}" -Command`,
+    `"${liveExecutable}" -Command ${liveBody}`,
+    `"${liveExecutable}" -Command '${liveBody}' 'Get-Content other.txt'`,
+    `"${liveExecutable}" -Command 'Get-Content C:\\private\\secret.txt'`,
+  ])('rejects unsafe Windows PowerShell wrapper %s', (command) => {
+    expect(classify(command, win, win, 'win32', systemRoot)).toBe(false);
+  });
+
+  it('rejects a full PowerShell path without a validated system root', () => {
+    expect(classify(`"${liveExecutable}" -Command '${liveBody}'`, win, win, 'win32')).toBe(false);
+    expect(classify(`"${liveExecutable}" -Command '${liveBody}'`, win, win, 'win32', { systemRoot: '' })).toBe(false);
+    expect(classify(`"${liveExecutable}" -Command '${liveBody}'`, win, win, 'win32', { systemRoot: 'Windows' })).toBe(false);
+    expect(classify(`powershell -Command '${liveBody}'`, win, win, 'win32')).toBe(true);
   });
 
   it.each([
@@ -145,7 +192,6 @@ describe('read-only Codex command classifier', () => {
   it.each([
     'powershell.exe -EncodedCommand abc',
     'powershell.exe -File read.ps1',
-    'powershell.exe -Command "Get-Content README.md"',
     'cmd.exe /c cat README.md',
     'powershell.exe -NoProfile -Command "Get-Content \\"README.md\\""',
   ])('rejects unsupported wrapper %s', (command) => {

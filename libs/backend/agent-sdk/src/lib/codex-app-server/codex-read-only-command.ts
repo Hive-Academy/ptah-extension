@@ -11,12 +11,27 @@ const powerShellCommands = new Set([
 const portableCommands = new Set(['rg', 'ls', 'cat']);
 const forbidden = /[^\x20-\x7e]|[;&<>`$@{}()#%^!]/;
 
-function unwrap(command: string, platform: Platform): string | undefined {
+export interface ReadOnlyCommandOptions {
+  readonly systemRoot?: string;
+}
+
+function unwrap(command: string, platform: Platform, options: ReadOnlyCommandOptions): string | undefined {
   if (platform !== 'win32') return command;
-  const match = /^(?:powershell|pwsh)(?:\.exe)?\s+-NoProfile(?:\s+-NoLogo)?\s+-(?:Command|c)\s+(["'])([\s\S]*)\1$/i.exec(command.trim());
-  if (!match) return /^(?:powershell|pwsh)(?:\.exe)?(?:\s|$)/i.test(command.trim())
-    ? undefined
-    : command;
+  const trimmed = command.trim();
+  const invocation = /^("[^"]+"|'[^']+'|[^\s"']+)(?: +([\s\S]*))?$/.exec(trimmed);
+  if (!invocation) return /(?:powershell|pwsh)(?:\.exe)?/i.test(trimmed) ? undefined : command;
+  const executable = invocation[1].replace(/^(["'])(.*)\1$/, '$2');
+  const bare = /^(?:powershell|pwsh)(?:\.exe)?$/i.test(executable);
+  const shellPath = /(?:^|[\\/])(?:powershell|pwsh)(?:\.exe)?$/i.test(executable);
+  if (!bare && !shellPath) return command;
+  const systemRoot = options.systemRoot;
+  const trustedPath = systemRoot && /^[a-z]:[\\/]/i.test(systemRoot) &&
+    path.win32.isAbsolute(systemRoot) &&
+    path.win32.normalize(executable).toLowerCase() ===
+      path.win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe').toLowerCase();
+  if (!bare && !trustedPath) return undefined;
+  const match = /^(?:-NoProfile(?: +-NoLogo)? +)?-(?:Command|c) +(["'])([\s\S]*)\1$/i.exec(invocation[2] ?? '');
+  if (!match) return undefined;
   const body = match[2];
   // Nested shell quoting is ambiguous in this string form. Ask the user.
   if (!body || body.includes(match[1])) return undefined;
@@ -137,13 +152,14 @@ export function classifyReadOnlyCommand(
   cwd: unknown,
   threadCwd: unknown,
   platform: Platform,
+  options: ReadOnlyCommandOptions = {},
 ): ReadOnlyCommand | undefined {
   if (typeof command !== 'string' || typeof cwd !== 'string' || typeof threadCwd !== 'string' ||
       !['win32', 'linux', 'darwin', 'freebsd'].includes(platform) ||
       !cwd || !threadCwd ||
       (platform === 'win32' && [cwd, threadCwd].some((value) => value.startsWith('\\\\') || value.startsWith('//'))) ||
       !pathWithin(cwd, threadCwd, platform)) return undefined;
-  const body = unwrap(command, platform);
+  const body = unwrap(command, platform, options);
   const tokens = body === undefined ? undefined : tokenize(body, platform);
   if (!tokens || tokens[0]?.value === '|' || tokens.at(-1)?.value === '|') return undefined;
   const stages: string[][] = [[]];
@@ -163,8 +179,8 @@ export function classifyReadOnlyCommand(
 }
 
 /** Returns only command names so callers can log an approval without arguments. */
-export function readOnlyCommandNames(command: unknown, cwd: unknown, threadCwd: unknown, platform: Platform): readonly string[] | undefined {
-  return classifyReadOnlyCommand(command, cwd, threadCwd, platform)?.names;
+export function readOnlyCommandNames(command: unknown, cwd: unknown, threadCwd: unknown, platform: Platform, options: ReadOnlyCommandOptions = {}): readonly string[] | undefined {
+  return classifyReadOnlyCommand(command, cwd, threadCwd, platform, options)?.names;
 }
 
 export function isReadOnlyCommand(
@@ -172,6 +188,7 @@ export function isReadOnlyCommand(
   cwd: unknown,
   threadCwd: unknown,
   platform: Platform,
+  options: ReadOnlyCommandOptions = {},
 ): boolean {
-  return readOnlyCommandNames(command, cwd, threadCwd, platform) !== undefined;
+  return readOnlyCommandNames(command, cwd, threadCwd, platform, options) !== undefined;
 }
