@@ -14,6 +14,7 @@ import {
 } from './codex-approval-bridge';
 import { CodexEventTranslator } from './codex-event-translator';
 import { buildCodexMcpConfigOverrides } from './codex-mcp-config';
+import { CodexResumeProfileChangedError } from './codex-resume-profile-error';
 import {
   CodexPermissionRuleStore,
   type CodexPermissionRuleTarget,
@@ -58,18 +59,6 @@ export interface CodexRuntimeOptions {
   readonly clock: Clock;
   readonly logger: CodexRuntimeLogger;
   readonly requestUserInput?: CodexApprovalBridgeOptions['requestUserInput'];
-}
-
-/** A stored thread must not silently adopt a different execution policy. */
-export class CodexResumeProfileChangedError extends Error {
-  readonly code = 'resume-profile-changed';
-
-  constructor() {
-    super(
-      'Codex cannot resume this chat because its execution profile has changed. Start a new chat to use the current permission policy.',
-    );
-    this.name = 'CodexResumeProfileChangedError';
-  }
 }
 
 /** Host-owned instance; contexts share only the scoped, in-memory permission rules. */
@@ -278,14 +267,15 @@ class RuntimeContext implements CodexContext {
             (this.state !== 'running' && this.state !== 'interrupting')
           )
             throw new Error('Codex approval has no live turn');
+          const approvalTurnId = this.activeTurn;
           const result = await this.bridge.handle(
             frame,
-            this.activeTurn,
+            approvalTurnId,
             AbortSignal.any([signal, this.turnController.signal]),
           );
           if (result.followUpMessage !== undefined) {
             const text = result.followUpMessage;
-            const turnId = this.activeTurn;
+            const turnId = approvalTurnId;
             // dispatchApproval writes the returned response in its promise continuation.
             // The next event-loop check phase is strictly after that microtask writer.
             const handle = setImmediate(() => {
@@ -293,20 +283,7 @@ class RuntimeContext implements CodexContext {
               if (this.state === 'closed' || signal.aborted) return;
               void this.steer({ text }).catch((error: unknown) => {
                 if (error instanceof CodexRequestRejectedError) {
-                  // The turn already ended; a late rejection must not follow its terminal.
-                  if (turnId !== undefined && this.terminalTurns.has(turnId))
-                    return;
-                  this.emit({
-                    ...this.identity,
-                    turnId,
-                    sequence: 0,
-                    type: 'error',
-                    error: {
-                      code: 'codexFollowUpRejected',
-                      message: 'Codex rejected the follow-up instruction.',
-                      retryable: true,
-                    },
-                  });
+                  this.emitFollowUpRejected(turnId);
                 } else this.onFailure();
               });
             });
@@ -679,7 +656,25 @@ class RuntimeContext implements CodexContext {
     }
   }
 
-  /** After a decline is written. Does not start a new turn and does not close the context. */
+  /** Report a refused live follow-up once to the event stream. */
+  private emitFollowUpRejected(turnId: string): void {
+    // A late rejection must not follow the turn's terminal event.
+    if (this.state === 'closed' || this.terminalTurns.has(turnId))
+      return;
+    this.emit({
+      ...this.identity,
+      turnId,
+      sequence: 0,
+      type: 'error',
+      error: {
+        code: 'codexFollowUpRejected',
+        message: 'Codex rejected the follow-up instruction.',
+        retryable: true,
+      },
+    });
+  }
+
+  /** Deliver denial feedback or a question answer to the same live turn. */
   private deliverDenialFeedback(
     text: string,
     turnId: string,
@@ -700,14 +695,21 @@ class RuntimeContext implements CodexContext {
           expectedTurnId: turnId,
           input: this.wireInput({ text }),
         });
-        if (steered.turnId !== turnId) this.warnDenialFeedback('failed', kind);
+        if (steered.turnId !== turnId) {
+          this.warnDenialFeedback('failed', kind);
+          if (kind === 'user-input') this.emitFollowUpRejected(turnId);
+        }
       } catch (error) {
+        // degradation-audit: reported - A failed steer is logged without exposing the user's text.
         this.warnDenialFeedback(
           error instanceof CodexRequestRejectedError ? 'refused' : 'failed',
           kind,
         );
+        if (kind === 'user-input' && error instanceof CodexRequestRejectedError)
+          this.emitFollowUpRejected(turnId);
       }
     }).catch(() => {
+      // degradation-audit: reported - A closed context cannot receive feedback; report the delivery failure.
       this.warnDenialFeedback('failed', kind);
     });
   }

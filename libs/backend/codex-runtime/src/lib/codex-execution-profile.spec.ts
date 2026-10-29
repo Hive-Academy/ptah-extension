@@ -316,7 +316,7 @@ describe('buildCodexExecutionProfile', () => {
     }
   });
 
-  it('fingerprints thread policy and instructions, ignoring per-open MCP servers', () => {
+  it('fingerprints execution policy, ignoring per-open MCP servers', () => {
     const source = input();
     const fingerprint = (session: Partial<CodexProfileSettings> = {}): string =>
       buildCodexExecutionProfile({
@@ -365,7 +365,8 @@ describe('buildCodexExecutionProfile', () => {
       session: { ...source.session, contextId: 'chat-2' },
     });
     expect(original.normalizedHome).toBe(other.normalizedHome);
-    expect(original.profileFingerprint).not.toBe(other.profileFingerprint);
+    expect(original.profileFingerprint).toBe(other.profileFingerprint);
+    expect(buildCodexExecutionProfile(source).profileFingerprint).toBe(original.profileFingerprint);
     expect(original.profileFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
@@ -442,14 +443,15 @@ describe('buildCodexExecutionProfile', () => {
     }
   });
 
-  it('changes identity when thread policy or instructions change', () => {
+  it('keeps the fingerprint across instructions and turn settings', () => {
     const source = input();
     const original = buildCodexExecutionProfile(source);
     for (const patch of [
-      { permissionLevel: 'auto-edit' as const },
       { systemPrompt: 'new system instruction' },
       { developerPrompt: 'new developer instruction' },
       { outputStyle: 'brief' },
+      { model: 'another model' },
+      { effort: 'high' },
       {
         instructionSources: [
           { kind: 'inline' as const, name: 'role', content: 'new role' },
@@ -461,8 +463,55 @@ describe('buildCodexExecutionProfile', () => {
           ...source,
           session: { ...source.session, ...patch },
         }).profileFingerprint,
-      ).not.toBe(original.profileFingerprint);
+      ).toBe(original.profileFingerprint);
     }
+  });
+
+  it('changes the fingerprint for permission, sandbox, or approval policy', () => {
+    const source = input();
+    const ask = buildCodexExecutionProfile(source);
+    const autoEdit = buildCodexExecutionProfile({
+      ...source,
+      session: { ...source.session, permissionLevel: 'auto-edit' },
+    });
+    expect(autoEdit.sandboxPolicy).toEqual(ask.sandboxPolicy);
+    expect(autoEdit.approvalPolicy).toEqual(ask.approvalPolicy);
+    expect(autoEdit.profileFingerprint).not.toBe(ask.profileFingerprint);
+
+    const yolo = buildCodexExecutionProfile({
+      ...source,
+      session: { ...source.session, permissionLevel: 'yolo' },
+    });
+    expect(yolo.profileFingerprint).not.toBe(ask.profileFingerprint);
+
+    const otherWorkspace = buildCodexExecutionProfile({
+      ...source,
+      session: { ...source.session, cwd: '/other' },
+      paths: {
+        ...source.paths,
+        entries: {
+          ...source.paths.entries,
+          '/other': { kind: 'directory', realpath: '/real/other' },
+        },
+      },
+    });
+    expect(otherWorkspace.permissionLevel).toBe(ask.permissionLevel);
+    expect(otherWorkspace.approvalPolicy).toEqual(ask.approvalPolicy);
+    expect(otherWorkspace.sandboxPolicy).not.toEqual(ask.sandboxPolicy);
+    expect(otherWorkspace.profileFingerprint).not.toBe(ask.profileFingerprint);
+
+    const gateway = buildCodexExecutionProfile({
+      ...source,
+      session: {
+        ...source.session,
+        consumer: 'gateway',
+        permissionLevel: 'auto-edit',
+      },
+    });
+    expect(gateway.permissionLevel).toBe(autoEdit.permissionLevel);
+    expect(gateway.sandboxPolicy).toEqual(autoEdit.sandboxPolicy);
+    expect(gateway.approvalPolicy).not.toEqual(autoEdit.approvalPolicy);
+    expect(gateway.profileFingerprint).not.toBe(autoEdit.profileFingerprint);
   });
 
   it('rejects malformed input and credential-bearing URLs with sanitized errors', () => {

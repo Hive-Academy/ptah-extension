@@ -49,6 +49,12 @@ export {
   type CodexDevRouteOverride,
 } from './lib/codex-dev-route';
 export { CodexRuntime, type CodexRuntimeOptions } from './lib/codex-runtime';
+export {
+  CodexResumeProfileChangedError,
+  isCodexResumeProfileChangedError,
+  CODEX_RESUME_PROFILE_CHANGED_CODE,
+  CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+} from './lib/codex-resume-profile-error';
 export { CodexAccountUsageClient } from './lib/codex-account-usage-client';
 export {
   CodexParityGate,

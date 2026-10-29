@@ -11,9 +11,14 @@ import { CodexProtocolError } from './codex-protocol-validator';
 import { CodexMcpConfigError } from './codex-mcp-config';
 import {
   CodexRuntime,
-  CodexResumeProfileChangedError,
   type CodexRuntimeOptions,
 } from './codex-runtime';
+import {
+  CodexResumeProfileChangedError,
+  CODEX_RESUME_PROFILE_CHANGED_CODE,
+  CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+  isCodexResumeProfileChangedError,
+} from './codex-resume-profile-error';
 import type {
   CodexExecutionProfile,
   CodexMcpServer,
@@ -84,6 +89,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
   exitCode: number | null = null;
   failMethod?: string;
   holdMethod?: string;
+  steerResultTurnId?: string;
   modelPages: unknown[] = [{ data: [catalogModel] }];
   completeBeforeReply = false;
   turnNumber = 0;
@@ -203,7 +209,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
         break;
       }
       case 'turn/steer':
-        result = { turnId: `turn-${this.turnNumber}` };
+        result = { turnId: this.steerResultTurnId ?? `turn-${this.turnNumber}` };
         break;
       default:
         result = {};
@@ -700,10 +706,12 @@ describe('CodexRuntime', () => {
         .open({ ...profile, permissionLevel }, identity)
         .catch((error: unknown) => error);
       expect(failure).toBeInstanceOf(CodexResumeProfileChangedError);
+      expect(isCodexResumeProfileChangedError(failure)).toBe(true);
+      expect(isCodexResumeProfileChangedError(new Error('wrapper', { cause: failure }))).toBe(false);
       expect(failure).toMatchObject({
         name: 'CodexResumeProfileChangedError',
-        code: 'resume-profile-changed',
-        message: 'Codex cannot resume this chat because its execution profile has changed. Start a new chat to use the current permission policy.',
+        code: CODEX_RESUME_PROFILE_CHANGED_CODE,
+        message: CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
       });
       expect(options.logger.error).toHaveBeenCalledTimes(1);
       expect(options.logger.error).toHaveBeenCalledWith(
@@ -1026,6 +1034,77 @@ describe('CodexRuntime', () => {
       .toHaveLength(0);
   });
 
+  it.each(['refused', 'different-turn'] as const)(
+    'emits one error when an answered async question steer is %s on a live turn',
+    async (outcome) => {
+      const ask = jest.fn(async () => ({ 'question:0': { answers: ['Yes'] } }));
+      runtime = new CodexRuntime({ ...options, requestUserInput: ask });
+      const context = await runtime.open(profile);
+      await context.startTurn({ text: 'go' });
+      const events = context.events(new AbortController().signal);
+      if (outcome === 'refused') children[0].failMethod = 'turn/steer';
+      else children[0].steerResultTurnId = 'turn-other';
+      children[0].notify('item/completed', {
+        threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
+        item: { type: 'agentMessage', id: 'question', text: 'Choose one',
+          delivery: 'async', questions: [{ title: 'Which?' }] },
+      });
+      await flush();
+      await flush();
+      expect(options.logger.warn).toHaveBeenCalledWith(
+        'Codex user answer was not delivered.',
+        { code: 'codex-user-input-undelivered', cause: outcome === 'refused' ? 'refused' : 'failed' },
+      );
+      children[0].complete();
+      await context.close();
+      const received = [];
+      for await (const event of events) received.push(event);
+      expect(received.filter((event) => event.type === 'error')).toEqual([
+        expect.objectContaining({
+          contextId: profile.contextId,
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          sequence: expect.any(Number),
+          error: {
+            code: 'codexFollowUpRejected',
+            message: 'Codex rejected the follow-up instruction.',
+            retryable: true,
+          },
+        }),
+      ]);
+    },
+  );
+
+  it('does not emit a follow-up error when the answer steer is refused after terminal', async () => {
+    const ask = jest.fn(async () => ({ 'question:0': { answers: ['Yes'] } }));
+    runtime = new CodexRuntime({ ...options, requestUserInput: ask });
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    const events = context.events(new AbortController().signal);
+    children[0].holdMethod = 'turn/steer';
+    children[0].notify('item/completed', {
+      threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
+      item: { type: 'agentMessage', id: 'question', text: 'Choose one',
+        delivery: 'async', questions: [{ title: 'Which?' }] },
+    });
+    await flush();
+    await flush();
+    const steer = children[0].frames.find((frame) => frame['method'] === 'turn/steer');
+    expect(steer).toBeDefined();
+    children[0].complete();
+    await flush();
+    children[0].send({ id: steer?.['id'], error: { code: -1, message: 'refused' } });
+    await flush();
+    expect(options.logger.warn).toHaveBeenCalledWith(
+      'Codex user answer was not delivered.',
+      { code: 'codex-user-input-undelivered', cause: 'refused' },
+    );
+    await context.close();
+    const received = [];
+    for await (const event of events) received.push(event);
+    expect(received.filter((event) => event.type === 'error')).toHaveLength(0);
+  });
+
   it('cancels an async card on terminal and never steers a late answer or starts a turn', async () => {
     let answer: (value: { 'question:0': { answers: string[] } }) => void = () => undefined;
     const ask = jest.fn((_request: unknown, signal: AbortSignal) => new Promise<{ 'question:0': { answers: string[] } }>((resolve) => {
@@ -1126,6 +1205,7 @@ describe('CodexRuntime', () => {
     });
     const context = await runtime.open(profile);
     await context.startTurn({ text: 'go' });
+    const events = context.events(new AbortController().signal);
     children[0].failMethod = 'turn/steer';
     children[0].approval();
     await flush();
@@ -1151,6 +1231,10 @@ describe('CodexRuntime', () => {
       turnId: 'turn-1',
     });
     children[0].complete();
+    await context.close();
+    const received = [];
+    for await (const event of events) received.push(event);
+    expect(received.filter((event) => event.type === 'error')).toHaveLength(0);
   });
 
   it('logs a coded warning and does not steer when the turn already ended', async () => {
@@ -1549,6 +1633,8 @@ describe('CodexRuntime', () => {
     const context = await runtime.open({
       ...profile,
       mcpServers: [ptahServer],
+      systemPrompt: 'Base instructions',
+      developerPrompt: 'Developer instructions',
     });
     const identity = context.identity;
     await context.close();
@@ -1563,7 +1649,12 @@ describe('CodexRuntime', () => {
       },
     });
     await resumedRuntime.open(
-      { ...profile, mcpServers: [ptahServer] },
+      {
+        ...profile,
+        mcpServers: [ptahServer],
+        systemPrompt: 'Base instructions',
+        developerPrompt: 'Developer instructions',
+      },
       identity,
     );
     const resumedParams = children[1].frames.find(
@@ -1572,6 +1663,8 @@ describe('CodexRuntime', () => {
     expect(resumedParams).toEqual(
       expect.objectContaining({
         threadId: identity.threadId,
+        baseInstructions: 'Base instructions',
+        developerInstructions: 'Developer instructions',
         config: {
           'mcp_servers.ptah': { url: ptahUrl, tool_timeout_sec: 960 },
         },

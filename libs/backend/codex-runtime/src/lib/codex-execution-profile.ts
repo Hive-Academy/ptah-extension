@@ -276,30 +276,16 @@ export function buildCodexExecutionProfile(
     approvalsReviewer: 'user',
     fullAccessStatus: 'unproved-disabled',
   };
-  // Thread identity covers thread policy and instructions; it excludes the
-  // next-turn model, effort, prompt and attachments. MCP servers and their
-  // references are re-applied natively on every open, start and resume, so
-  // they are not part of identity and a changed tab id or added user server
-  // never makes a session unresumable.
+  // Resume fingerprint covers only the security-relevant execution policy.
+  // RuntimeContext.open re-sends instructions on thread/resume; stable context,
+  // home, provider and workspace identity is checked separately on resume.
+  // MCP servers and their references are also re-applied per open.
   const identity = {
-    contextId: profile.contextId,
-    consumer: profile.consumer,
-    accountId: profile.accountId,
-    providerId: profile.providerId,
-    workspaceId: profile.workspaceId,
-    normalizedHome,
-    cwd,
     permissionLevel: profile.permissionLevel,
     sandboxPolicy: profile.sandboxPolicy,
     approvalPolicy: profile.approvalPolicy,
-    systemPrompt: profile.systemPrompt,
-    developerPrompt: profile.developerPrompt,
-    outputStyle: profile.outputStyle,
-    instructionSources: profile.instructionSources,
-    lane: profile.lane,
   };
-  // Only validated thread policy and instructions enter this digest; MCP
-  // servers and their references are applied per open. No secret resolver is
+  // Only validated execution policy enters the digest. No secret resolver is
   // available here. JSON parsing removes absent optional fields.
   const fingerprint = createHash('sha256')
     .update(canonical(parse(z.json(), JSON.parse(JSON.stringify(identity)))))
