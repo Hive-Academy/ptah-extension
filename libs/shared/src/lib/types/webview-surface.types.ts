@@ -40,9 +40,15 @@
  * the list stays one list, but its route refuses to match outside Electron
  * and the `**` fallback lands the user on `chat` instead.
  * `command-center` is Electron-only via the route guard, with the same fallback.
+ *
+ * `onboarding` (TASK_2026_ONBOARDING) is the first-run and setup surface. It
+ * is routable on every host; only the automatic first-run redirect onto it is
+ * Electron-only (the chat route's guard). It will replace `setup-wizard`,
+ * `setup-hub` and `harness-builder`, which stay routable until the cut-over.
  */
 export type ViewType =
   | 'chat'
+  | 'onboarding'
   | 'analytics'
   | 'settings'
   | 'setup-wizard'
@@ -66,6 +72,7 @@ export type ViewType =
  */
 export const SURFACE_ROUTE_IDS: readonly ViewType[] = [
   'chat',
+  'onboarding',
   'setup-wizard',
   'settings',
   'analytics',

@@ -75,6 +75,10 @@ export class SurfaceRoutePersistence {
         .root.children[PRIMARY_OUTLET]?.segments.map(
           (segment) => segment.path,
         ) ?? [];
+    // Onboarding is never a restore target: the first-run guard on chat
+    // redirects there once, and restoring it would reopen it on every boot.
+    // Skipping keeps the last route, so the next boot lands on chat.
+    if (segments[0] === 'onboarding') return;
     if (segments[0] === 'setup-wizard' && segments[1] === 'generation') {
       const binding = generationRouteBinding(segments);
       if (

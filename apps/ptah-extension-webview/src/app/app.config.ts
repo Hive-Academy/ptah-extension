@@ -103,6 +103,7 @@ import {
 } from '@ptah-extension/setup-wizard/app';
 import { provideHarnessBuilderFocusRouter } from '@ptah-extension/harness-builder/services';
 import { provideAppsFocusRouter } from '@ptah-extension/mcp-apps-page/focus';
+import { provideOnboardingFirstRun } from '@ptah-extension/onboarding/services';
 import {
   FileContentChangesService,
   GitBranchesService,
@@ -267,6 +268,10 @@ export const appConfig: ApplicationConfig = {
     // it (TASK_2026_524 Batch 4c). One `NavigationEnd` subscription and one
     // root effect; `TabManagerService` stays the owner of the active tab.
     provideAppInitializer(() => inject(ChatTabRouteSync).start()),
+    // First-run onboarding (TASK_2026_ONBOARDING): one `Router.events`
+    // subscription that commits `shownAt` only when the chat guard's redirect
+    // actually lands on `/onboarding`. A superseded boot leaves it unset.
+    provideOnboardingFirstRun(),
     // The ONE `surface:updated` intake for every host (TASK_2026_494, plan
     // D3). Eager on purpose: a lazy consumer claims its routing id before
     // `chat:start`, so nothing can arrive unclaimed, and the zod-free inbox

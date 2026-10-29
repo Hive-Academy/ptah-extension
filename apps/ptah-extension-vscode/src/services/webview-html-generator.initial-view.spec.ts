@@ -107,6 +107,12 @@ describe('WebviewHtmlGenerator initialView validation', () => {
     );
   });
 
+  it('accepts onboarding, the first-run surface (TASK_2026_ONBOARDING)', () => {
+    expect(generateAndCaptureError('onboarding')).not.toContain(
+      'Invalid initialView',
+    );
+  });
+
   it.each([
     // Removed from the union: no render branch anywhere in the app.
     'command-builder',

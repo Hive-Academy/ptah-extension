@@ -6,6 +6,7 @@ import {
 } from '@ptah-extension/core';
 import { SettingsComponent } from '@ptah-extension/chat';
 import { DashboardGridComponent } from '@ptah-extension/dashboard';
+import { onboardingFirstRunGuard } from '@ptah-extension/onboarding/services';
 import {
   GenerationWorkflowShellComponent,
   WizardViewComponent,
@@ -52,7 +53,12 @@ import { electronOnlySurface } from './electron-only-surface.guard';
  * `SURFACE_ACTIVE` edges first (TASK_2026_524 implementation plan, L3).
  *
  * Eagerness is chosen per surface, not by default:
- * - `chat` — no component to load.
+ * - `chat` — no component to load. `canActivate: [onboardingFirstRunGuard]`
+ *   sends the first Electron boot to `/onboarding` once (TASK_2026_ONBOARDING);
+ *   every other path to chat passes straight through.
+ * - `onboarding` — `loadChildren`. Only the narrow
+ *   `@ptah-extension/onboarding/services` entry (the guard, flag and tracker)
+ *   is eager; the pages load with `ONBOARDING_ROUTES`.
  * - `setup-wizard` — EAGER. `ptah.setupAgents` opens a dedicated panel
  *   hardcoded to `initialView: 'setup-wizard'`, so it is a launch surface with
  *   a user already waiting; a module hop would be added to that wait for
@@ -88,6 +94,10 @@ export const appRoutes: Routes = [
     // (`/chat/<tabId>`). It renders nothing either: `TabManagerService` owns the
     // active tab and `ChatTabRouteSync` keeps this segment in step with it.
     path: 'chat',
+    // First run only: an Electron boot with no `shownAt` in the onboarding
+    // flag is redirected to `/onboarding`. Deep links to other surfaces never
+    // reach this guard.
+    canActivate: [onboardingFirstRunGuard],
     providers: [
       { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('chat') },
     ],
@@ -95,6 +105,14 @@ export const appRoutes: Routes = [
       { path: '', children: [] },
       { path: ':tabId', children: [] },
     ],
+  },
+  {
+    path: 'onboarding',
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('onboarding') },
+    ],
+    loadChildren: () =>
+      import('@ptah-extension/onboarding').then((m) => m.ONBOARDING_ROUTES),
   },
   {
     path: 'setup-wizard/generation/:workflow/:tabId',

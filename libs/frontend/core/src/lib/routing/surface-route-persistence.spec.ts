@@ -164,6 +164,19 @@ describe('SurfaceRoutePersistence', () => {
     expect(parseWebviewRouteState(api.state)?.route).toBe('/chat/tab-2');
   });
 
+  it('keeps the last route when the Router settles on onboarding', async () => {
+    const api = new FakeVsCodeApi();
+    const { persistence, surfaceRouter } = setup(api);
+    persistence.start(null);
+
+    await surfaceRouter.navigateToUrl('/chat/tab-1');
+    await surfaceRouter.navigateToSurface('onboarding');
+
+    expect(TestBed.inject(Router).url).toBe('/onboarding');
+    expect(api.writes).toHaveLength(1);
+    expect(parseWebviewRouteState(api.state)?.route).toBe('/chat/tab-1');
+  });
+
   it('writes nothing for a navigation that does not settle', async () => {
     jest.spyOn(console, 'warn').mockImplementation();
     const api = new FakeVsCodeApi();

@@ -208,6 +208,12 @@
       "@ptah-extension/harness-builder/services": [
         "./libs/frontend/harness-builder/src/services.ts"
       ],
+      "@ptah-extension/onboarding": [
+        "./libs/frontend/onboarding/src/index.ts"
+      ],
+      "@ptah-extension/onboarding/services": [
+        "./libs/frontend/onboarding/src/services.ts"
+      ],
       "@ptah-extension/declarative-dashboard": [
         "./libs/frontend/declarative-dashboard/src/index.ts"
       ],

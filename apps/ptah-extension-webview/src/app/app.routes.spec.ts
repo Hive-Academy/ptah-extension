@@ -18,6 +18,8 @@ import {
   parseWebviewRouteState,
 } from '@ptah-extension/shared';
 
+import { onboardingFirstRunGuard } from '@ptah-extension/onboarding/services';
+
 import { appRoutes } from './app.routes';
 
 function routeFor(path: string): Route {
@@ -126,5 +128,46 @@ describe('harness builder route', () => {
 
     expect(rowClasses?.split(' ')).toContain('min-h-0');
     expect(hostClasses?.split(' ')).toContain('min-h-0');
+  });
+});
+
+describe('onboarding route (TASK_2026_ONBOARDING)', () => {
+  it('guards only the chat route with the first-run guard', () => {
+    const guarded = appRoutes
+      .filter((route) => route.canActivate !== undefined)
+      .map((route) => route.path);
+
+    expect(guarded).toEqual(['chat']);
+    expect(routeFor('chat').canActivate).toEqual([onboardingFirstRunGuard]);
+  });
+
+  it('lazily loads ONBOARDING_ROUTES with its own SURFACE_ACTIVE provider', async () => {
+    const route = routeFor('onboarding');
+    const module = await import('@ptah-extension/onboarding');
+
+    expect(route.component).toBeUndefined();
+    expect(route.loadComponent).toBeUndefined();
+    expect(route.canMatch).toBeUndefined();
+    expect(route.providers).toEqual([
+      expect.objectContaining({ provide: SURFACE_ACTIVE }),
+    ]);
+    expect(await route.loadChildren?.()).toBe(module.ONBOARDING_ROUTES);
+  });
+
+  it('declares onboarding right after chat', () => {
+    const order = appRoutes.map((route) => route.path);
+    expect(order.indexOf('onboarding')).toBe(order.indexOf('chat') + 1);
+  });
+
+  it('keeps the legacy setup surfaces routed until the cut-over', () => {
+    for (const path of ['setup-wizard', 'harness-builder', 'setup-hub']) {
+      expect(routeFor(path)).toBeDefined();
+    }
+  });
+
+  it('imports onboarding eagerly only through its narrow services entry', () => {
+    const source = readFileSync(join(__dirname, 'app.routes.ts'), 'utf-8');
+    expect(source).toContain("from '@ptah-extension/onboarding/services'");
+    expect(source).not.toMatch(/from '@ptah-extension\/onboarding'/);
   });
 });

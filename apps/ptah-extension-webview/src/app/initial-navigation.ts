@@ -118,7 +118,13 @@ export function injectInitialNavigation(): () => Promise<SurfaceNavigationResult
     // (`/thoth` to `/thoth/memory`) is the restore; the wildcard sending a
     // stale `/settings/obsolete` to `/chat` is not.
     const settledSegment = firstSegmentPath(router, router.url);
-    if (settledSegment === firstSegmentPath(router, plan.route)) return result;
+    const plannedSegment = firstSegmentPath(router, plan.route);
+    if (settledSegment === plannedSegment) return result;
+    // A restore that settles on onboarding went through the first-run guard
+    // (its only producer), whether `/chat` was restored or a stale route fell
+    // through the wildcard to chat. The guard already spent the one-time
+    // showing; falling back here would navigate to chat again and hide it.
+    if (settledSegment === 'onboarding') return result;
     console.warn(
       `[App] Restored route ${plan.route} settled on ${router.url}; falling back to the host view.`,
     );

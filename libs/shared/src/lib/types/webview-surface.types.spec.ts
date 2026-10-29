@@ -23,6 +23,7 @@ describe('webview surface ids', () => {
   it('lists every routable surface exactly once', () => {
     expect([...SURFACE_ROUTE_IDS]).toEqual([
       'chat',
+      'onboarding',
       'setup-wizard',
       'settings',
       'analytics',
@@ -48,6 +49,13 @@ describe('webview surface ids', () => {
       'setup-wizard',
     ]);
     expect(surfaceRoutePath('setup-wizard')).toBe('/setup-wizard');
+  });
+
+  it('routes onboarding and accepts it as an initialView', () => {
+    expect(isSurfaceRouteId('onboarding')).toBe(true);
+    expect(isAcceptedInitialView('onboarding')).toBe(true);
+    expect(surfaceRoutePath('onboarding')).toBe('/onboarding');
+    expect(surfaceIdFromSegment('onboarding')).toBe('onboarding');
   });
 
   it('accepts every route id plus every legacy alias as an initialView', () => {

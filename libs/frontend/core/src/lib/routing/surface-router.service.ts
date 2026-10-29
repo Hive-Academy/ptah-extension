@@ -133,11 +133,20 @@ export class SurfaceRouterService {
    *
    * `extras.replaceUrl` replaces the current history entry instead of pushing
    * one (D6: tab switches replace, surface changes push).
+   *
+   * `extras.queryParams` is the complete query of the target URL (onboarding
+   * carries its hidden `tab`/`run` identity there). It is serialised by the
+   * Router, so `already-there` still holds when the current URL carries the
+   * same path and query. Like `subPath`, it is dropped when `id` has no route
+   * and the call falls back to the default surface.
    */
   async navigateToSurface(
     id: ViewType,
     subPath: readonly string[] = [],
-    extras: { readonly replaceUrl?: boolean } = {},
+    extras: {
+      readonly replaceUrl?: boolean;
+      readonly queryParams?: Readonly<Record<string, string>>;
+    } = {},
   ): Promise<SurfaceNavigationResult> {
     const target = isSurfaceRouteId(id) ? id : DEFAULT_SURFACE_ID;
     if (target !== id) {
@@ -152,11 +161,11 @@ export class SurfaceRouterService {
     // synchronously on commands it cannot resolve, and that must become
     // `failed`, not a rejection.
     try {
-      const targetTree = this.router.createUrlTree([
-        '/',
-        target,
-        ...(target === id ? subPath : []),
-      ]);
+      const queryParams = target === id ? extras.queryParams : undefined;
+      const targetTree = this.router.createUrlTree(
+        ['/', target, ...(target === id ? subPath : [])],
+        queryParams ? { queryParams: { ...queryParams } } : undefined,
+      );
       return await this.navigateToTree(targetTree, extras.replaceUrl === true);
     } catch (error: unknown) {
       return this.reportFailure(target, error);

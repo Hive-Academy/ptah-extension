@@ -32,6 +32,7 @@ import { PlatformLocation } from '@angular/common';
 import { ErrorHandler } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
+  NavigationStart,
   PartialMatchRouteSnapshot,
   Route,
   Router,
@@ -56,6 +57,10 @@ import {
 } from '@ptah-extension/core';
 import { settleSurfaceNavigation as settle } from '@ptah-extension/core/testing';
 import { MESSAGE_TYPES, WEBVIEW_ROUTE_STATE_KEY } from '@ptah-extension/shared';
+import {
+  ONBOARDING_FLAG_KEY,
+  provideOnboardingFirstRun,
+} from '@ptah-extension/onboarding/services';
 
 import { appRoutes } from './app.routes';
 import { electronOnlySurface } from './electron-only-surface.guard';
@@ -615,6 +620,137 @@ describe('webview routing composition', () => {
   });
 
   /**
+   * TASK_2026_ONBOARDING B1: the chat route's first-run guard, against the real
+   * table and the real boot. `provideOnboardingFirstRun()` is added here as
+   * `app.config.ts` registers it, so the tracker watches the boot navigation.
+   */
+  describe('onboarding first run (chat guard)', () => {
+    function configureFirstRun(): void {
+      TestBed.configureTestingModule({
+        providers: [provideOnboardingFirstRun()],
+      });
+    }
+
+    function storedFlag(): Record<string, unknown> | null {
+      const raw = localStorage.getItem(ONBOARDING_FLAG_KEY);
+      return raw === null ? null : (JSON.parse(raw) as Record<string, unknown>);
+    }
+
+    beforeEach(() => configureFirstRun());
+
+    it('lands an Electron boot to the host default chat on /onboarding, once', async () => {
+      installHost({}, 'chat');
+      hostIsElectron(true);
+      const setItem = jest.spyOn(Storage.prototype, 'setItem');
+
+      await bootWithInitialView('chat');
+
+      expect(TestBed.inject(Router).url).toBe('/onboarding');
+      expect(storedFlag()).toEqual({ shownAt: expect.any(String) });
+      expect(
+        setItem.mock.calls.filter(([key]) => key === ONBOARDING_FLAG_KEY),
+      ).toHaveLength(1);
+
+      // A second boot reads the written flag and stays on chat.
+      TestBed.resetTestingModule();
+      configure();
+      configureFirstRun();
+      installHost({}, 'chat');
+      hostIsElectron(true);
+
+      await bootWithInitialView('chat');
+
+      expect(TestBed.inject(Router).url).toBe('/chat');
+    });
+
+    it('accepts a restored /chat that the guard sends to onboarding', async () => {
+      const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+      installHost(savedRoute('/chat', 'chat'), 'chat');
+      hostIsElectron(true);
+
+      expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+
+      expect(TestBed.inject(Router).url).toBe('/onboarding');
+      expect(storedFlag()).toEqual({ shownAt: expect.any(String) });
+      expect(consoleWarn).not.toHaveBeenCalledWith(
+        expect.stringContaining('[App] Restored route'),
+      );
+    });
+
+    it('stays on onboarding when a stale restored route falls through to chat', async () => {
+      const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+      installHost(savedRoute('/settings/obsolete', 'chat'), 'chat');
+      hostIsElectron(true);
+
+      expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+
+      expect(TestBed.inject(Router).url).toBe('/onboarding');
+      expect(storedFlag()).toEqual({ shownAt: expect.any(String) });
+      expect(consoleWarn).not.toHaveBeenCalledWith(
+        expect.stringContaining('[App] Restored route'),
+      );
+    });
+
+    it('leaves shownAt unset when SWITCH_VIEW supersedes the redirect', async () => {
+      installHost({}, 'chat');
+      hostIsElectron(true);
+      TestBed.inject(MessageRouterService);
+      TestBed.inject(AppStateManager);
+      const router = TestBed.inject(Router);
+      let switched = false;
+      const subscription = router.events.subscribe((event) => {
+        if (
+          !switched &&
+          event instanceof NavigationStart &&
+          event.url.startsWith('/onboarding')
+        ) {
+          switched = true;
+          post('settings');
+        }
+      });
+
+      await runBoot();
+      await settle();
+      subscription.unsubscribe();
+
+      expect(switched).toBe(true);
+      expect(router.url).toBe('/settings');
+      expect(storedFlag()).toBeNull();
+    });
+
+    it('never redirects on VS Code', async () => {
+      installHost({}, 'chat');
+      hostIsElectron(false);
+
+      await bootWithInitialView('chat');
+
+      expect(TestBed.inject(Router).url).toBe('/chat');
+      expect(storedFlag()).toBeNull();
+    });
+
+    it('does not redirect when the stored record is unreadable', async () => {
+      localStorage.setItem(ONBOARDING_FLAG_KEY, '{not json');
+      installHost({}, 'chat');
+      hostIsElectron(true);
+
+      await bootWithInitialView('chat');
+
+      expect(TestBed.inject(Router).url).toBe('/chat');
+      expect(localStorage.getItem(ONBOARDING_FLAG_KEY)).toBe('{not json');
+    });
+
+    it('never runs on a deep link to another surface', async () => {
+      installHost({}, 'settings');
+      hostIsElectron(true);
+
+      await bootWithInitialView('settings');
+
+      expect(TestBed.inject(Router).url).toBe('/settings');
+      expect(storedFlag()).toBeNull();
+    });
+  });
+
+  /**
    * TASK_2026_524 Batch 4e2: `/thoth` is the real `THOTH_ROUTES` tree, loaded
    * through `loadChildren`. No outlet is rendered here, so the shell is never
    * constructed — what is pinned is where the real table settles.
@@ -1042,6 +1178,11 @@ describe('app.routes', () => {
  */
 describe('app.config routing wiring', () => {
   const source = readFileSync(join(__dirname, 'app.config.ts'), 'utf-8');
+
+  it('starts the onboarding first-run tracker at bootstrap', () => {
+    // The chat guard's redirect commits `shownAt` only through the tracker.
+    expect(source).toContain('provideOnboardingFirstRun()');
+  });
 
   it('binds PlatformLocation to MemoryPlatformLocation', () => {
     // Without this the Router reaches `history.pushState`, which the Electron
