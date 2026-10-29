@@ -412,6 +412,7 @@ const RETIREMENT_TICK = Symbol('retirement-tick');
 async function* withRetirementWake(
   source: AsyncIterable<SDKMessage>,
   subscribe?: (wake: () => void) => () => void,
+  onCloseError?: (error: unknown) => void,
 ): AsyncGenerator<SDKMessage | typeof RETIREMENT_TICK> {
   const iterator = source[Symbol.asyncIterator]();
   let resolveWake: (() => void) | null = null;
@@ -442,8 +443,8 @@ async function* withRetirementWake(
     if (pending === null) {
       await closing;
     } else {
-      // degradation-audit: optional-capability - A parked read can keep the source's return queued indefinitely.
-      void closing?.catch(() => undefined);
+      // A parked read can keep the source's return queued indefinitely, so report a late failure.
+      void closing?.catch((error: unknown) => onCloseError?.(error));
     }
   }
 }
@@ -589,7 +590,11 @@ export class StreamTransformer {
         activityWatchdog?.start();
 
         try {
-          for await (const sdkMessage of withRetirementWake(sdkQuery, turnIdentity?.subscribeRetirement)) {
+          for await (const sdkMessage of withRetirementWake(
+            sdkQuery,
+            turnIdentity?.subscribeRetirement,
+            (error) => logger.warn('[StreamTransformer] SDK iterator return failed:', error),
+          )) {
             let displacedId = turnIdentity?.takeDisplacedRetirement?.() ?? null;
             while (displacedId !== null) {
               yieldedEventCount++;
