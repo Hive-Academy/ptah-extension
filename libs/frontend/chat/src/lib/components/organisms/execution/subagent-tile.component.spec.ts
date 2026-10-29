@@ -12,6 +12,9 @@ import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
 import { SESSION_CARD_ACTIONS } from '../../../tokens/session-context.token';
 import { buildLaneSummary } from '../../molecules/compact-session/compact-lane-rows';
 import { SubagentTileComponent } from './subagent-tile.component';
+import { BackgroundAgentStore } from '@ptah-extension/chat-streaming';
+import { SessionHistoryReplayer } from '../../../services/chat-store/session-history-replayer.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
 
 const makeNode = (overrides: Partial<ExecutionNode> = {}): ExecutionNode => ({
   id: 'agent:task-1',
@@ -43,11 +46,13 @@ describe('SubagentTileComponent', () => {
   const entries = signal<ReadonlyMap<string, SubagentExecutionEntry>>(
     new Map(),
   );
+  const replayingTabIds = signal<ReadonlySet<string>>(new Set());
 
   beforeEach(() => {
     openLane.mockClear();
     records.set(new Map());
     tree.set([]);
+    replayingTabIds.set(new Set());
     TestBed.configureTestingModule({
       imports: [SubagentTileComponent],
       providers: [
@@ -56,6 +61,9 @@ describe('SubagentTileComponent', () => {
           useValue: { openLane, openSession: jest.fn() },
         },
         { provide: AgentMonitorStore, useValue: { subagents: records } },
+        { provide: BackgroundAgentStore, useValue: { isBackgroundAgent: () => false } },
+        { provide: SessionHistoryReplayer, useValue: { replayingTabIds } },
+        { provide: TabManagerService, useValue: { activeTabId: () => 'tab-1' } },
         {
           provide: SubagentExecutionStore,
           useValue: {
@@ -66,6 +74,29 @@ describe('SubagentTileComponent', () => {
         },
       ],
     });
+  });
+
+  it('keeps a background placeholder running until its record becomes terminal', () => {
+    records.set(new Map([['task-1', { parentToolUseId: 'task-1', status: 'running' } as SubagentRecord]]));
+    const fixture = TestBed.createComponent(SubagentTileComponent);
+    fixture.componentRef.setInput('node', makeNode({ status: 'complete', isBackground: true }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="subagent-status"]').textContent).toBe('In background');
+    records.set(new Map([['task-1', { parentToolUseId: 'task-1', status: 'completed' } as SubagentRecord]]));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="subagent-status"]').textContent).toBe('Completed');
+  });
+
+  it('shows Loading during replay for a nonterminal record without a spinner', () => {
+    replayingTabIds.set(new Set(['tab-1']));
+    const fixture = TestBed.createComponent(SubagentTileComponent);
+    fixture.componentRef.setInput('node', makeNode({ isBackground: true }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="subagent-status"]').textContent).toBe('Loading');
+    expect(fixture.nativeElement.querySelector('.lucide-loader-circle')).toBeNull();
+    records.set(new Map([['task-1', { parentToolUseId: 'task-1', status: 'completed' } as SubagentRecord]]));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="subagent-status"]').textContent).toBe('Completed');
   });
 
   it('uses store tool count and latest activity, then falls back to the record', () => {
@@ -222,7 +253,7 @@ describe('SubagentTileComponent', () => {
     },
   );
 
-  it('shows a node error as failed without a spinner', () => {
+  it('keeps a background node in progress until its record settles even if its placeholder errors', () => {
     const fixture = TestBed.createComponent(SubagentTileComponent);
     fixture.componentRef.setInput(
       'node',
@@ -232,10 +263,7 @@ describe('SubagentTileComponent', () => {
     expect(
       fixture.nativeElement.querySelector('[data-testid="subagent-status"]')
         .textContent,
-    ).toBe('Failed');
-    expect(
-      fixture.nativeElement.querySelector('.lucide-loader-circle'),
-    ).toBeNull();
+    ).toBe('In background');
   });
 
   it('shows descendant permission and ignores an expired permission action', () => {
@@ -293,6 +321,8 @@ describe('SubagentTileComponent', () => {
       imports: [SubagentTileComponent],
       providers: [
         { provide: AgentMonitorStore, useValue: { subagents: records } },
+        { provide: SessionHistoryReplayer, useValue: { replayingTabIds } },
+        { provide: TabManagerService, useValue: { activeTabId: () => 'tab-1' } },
         {
           provide: SubagentExecutionStore,
           useValue: {

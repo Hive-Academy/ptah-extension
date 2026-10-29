@@ -50,7 +50,7 @@ import { DecisionModelRowComponent } from './decision-model-row.component';
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
-const ACTION = `btn btn-ghost btn-xs h-6 min-h-6 px-1.5 text-[11px] font-medium text-base-content underline underline-offset-2 ${FOCUS}`;
+const ACTION = `btn btn-ghost btn-sm px-2 text-xs font-medium text-base-content underline underline-offset-2 ${FOCUS}`;
 /** Reassignment cell: an own provider shows as a value with a chevron, "Follows main agent →" as a link-styled chip. */
 const CELL = `flex w-full min-w-0 items-center gap-1 whitespace-nowrap rounded px-1 text-left text-xs text-base-content hover:bg-base-200 hover:underline ${FOCUS}`;
 /** Background roles are settings for every Ptah app (`supportedTargets: ['global']`). */
@@ -121,7 +121,7 @@ const TIMEOUT_DEFAULT_SEC = 120;
             <div class="flex min-w-0 items-start justify-between gap-2">
               <div class="min-w-0">
                 <h3
-                  class="text-xs font-bold text-base-content"
+                  class="text-sm font-medium text-base-content"
                   [attr.data-testid]="'consumer-name-' + row.id"
                 >
                   {{ row.name }}
@@ -137,7 +137,7 @@ const TIMEOUT_DEFAULT_SEC = 120;
                 }
               </div>
               <span
-                class="badge badge-xs shrink-0 whitespace-nowrap border-base-300 bg-base-300 text-[9px] text-base-content"
+                class="badge badge-sm shrink-0 whitespace-nowrap border-base-300 bg-base-300 text-xs text-base-content"
                 [attr.data-testid]="'consumer-tier-' + row.id"
                 >{{ row.tierLabel }}</span
               >
@@ -231,7 +231,7 @@ const TIMEOUT_DEFAULT_SEC = 120;
                       <button
                         type="button"
                         [class]="
-                          'btn btn-ghost btn-xs btn-square absolute right-3 top-3 z-10 min-h-6 ' +
+                          'btn btn-ghost btn-sm btn-square absolute right-3 top-3 z-10 ' +
                           focusRing
                         "
                         aria-label="Close"
@@ -387,7 +387,7 @@ const TIMEOUT_DEFAULT_SEC = 120;
                   >Maximum time allowed for one enhancement attempt.</span
                 >
                 <span
-                  class="badge badge-outline badge-xs whitespace-nowrap border-warning/30 bg-warning/10 font-mono text-base-content"
+                  class="badge badge-outline badge-sm whitespace-nowrap border-warning/30 bg-warning/10 font-mono text-base-content"
                   data-testid="timeout-effective-display"
                   >Time limit: {{ timeoutEffectiveSec() }} seconds</span
                 >
@@ -423,7 +423,7 @@ const TIMEOUT_DEFAULT_SEC = 120;
                       id="enhance-timeout-input"
                       type="number"
                       [class]="
-                        'input input-bordered input-xs h-7 w-24 border-base-content-muted bg-base-100 text-base-content ' +
+                        'input input-bordered input-sm w-24 border-base-content-muted bg-base-100 text-sm text-base-content ' +
                         focusRing
                       "
                       [min]="timeoutMinSec()"
@@ -437,7 +437,7 @@ const TIMEOUT_DEFAULT_SEC = 120;
                     <button
                       type="button"
                       [class]="
-                        'btn btn-primary btn-xs h-7 min-h-7 px-2 ' + focusRing
+                        'btn btn-primary btn-sm px-2 ' + focusRing
                       "
                       [ptahBusyDisabled]="isTimeoutSaveDisabled()"
                       aria-label="Save Enhancement time limit"

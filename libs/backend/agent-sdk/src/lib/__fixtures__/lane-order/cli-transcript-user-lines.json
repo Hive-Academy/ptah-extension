@@ -1,0 +1,48 @@
+[
+ {
+  "type": "user",
+  "uuid": "5f8c5e05-e601-450d-9d13-3fdfb4083465",
+  "timestamp": "2026-10-28T02:57:47.373Z",
+  "origin": {
+   "kind": "human"
+  },
+  "turnOrigin": "human",
+  "promptSource": "sdk",
+  "userType": "external",
+  "entrypoint": "sdk-ts",
+  "content": "This is a UI test. Follow these steps exactly, in order, without asking questions:\n1. Call the MCP tool ptah_agent_spawn with ptahCliId \"pc-355b645d-35af-4974-84cf-9cf961ea0164\" and task: \"Count the .md files in the workspace root. Call ptah_agent_report once "
+ },
+ {
+  "type": "user",
+  "uuid": "11d28bff-5729-459c-b8d2-d6f9b40ebeb8",
+  "timestamp": "2026-10-28T03:00:08.935Z",
+  "turnOrigin": "sdk",
+  "promptSource": "sdk",
+  "userType": "external",
+  "entrypoint": "sdk-ts",
+  "content": "<agent-report agent-id=\"2aaf5bfd-cbf1-4c4c-8c6a-a38a9b98b5a3\" agent=\"Glm\" cli=\"ptah-cli\">\nWorkspace root contains 3 .md files\n\nCounted the .md files in the workspace root (D:\\scratch\\lane-order-live): 3 files — alpha.md, beta.md, gamma.md. No files were writte"
+ },
+ {
+  "type": "user",
+  "uuid": "45f1f8cc-81ed-4446-a2d7-d308466e7738",
+  "timestamp": "2026-10-28T03:00:12.761Z",
+  "turnOrigin": "sdk",
+  "promptSource": "sdk",
+  "userType": "external",
+  "entrypoint": "sdk-ts",
+  "content": "<agent-lane-completed agent-id=\"2aaf5bfd-cbf1-4c4c-8c6a-a38a9b98b5a3\" agent=\"Glm\" cli=\"ptah-cli\" status=\"completed\" verdict=\"unverified\">\nLane Glm finished: completed (exit code 0) after 11s.\nTask: Count the .md files in the workspace root. Call ptah_agent_rep"
+ },
+ {
+  "type": "user",
+  "uuid": "e40d14e1-6713-4ad3-a6f9-f717a808933f",
+  "timestamp": "2026-10-28T03:00:15.494Z",
+  "origin": {
+   "kind": "human"
+  },
+  "turnOrigin": "human",
+  "promptSource": "sdk",
+  "userType": "external",
+  "entrypoint": "sdk-ts",
+  "content": "MIDTURN PROMPT: please also tell me the word BANANA when you reply to this."
+ }
+]

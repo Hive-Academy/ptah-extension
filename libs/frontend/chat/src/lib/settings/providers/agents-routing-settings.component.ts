@@ -31,12 +31,12 @@ export type AgentsRoutingFocusTarget =
   'background-models' | 'cli-agents' | ProviderConsumerId;
 
 const CONTROL =
-  'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+  'btn btn-outline btn-sm border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
 /**
- * Agents routing on the Providers tab, below the Routing Map + Connections card: the CLI matrix (with the read
+ * Agents routing on the Providers tab, below the Main agent and Connections sections: the CLI matrix (with the read
  * states of its three sources), then the background model roles in a `<details>` that is closed by default and
  * opened by the background-role deep links. The `cli-agents` deep link focuses the matrix table
  * (`[data-testid="cli-matrix"]`).
@@ -66,6 +66,7 @@ const FOCUS =
       } @placeholder {
         <div
           class="min-h-[22rem] rounded-xl border border-base-300 bg-base-200/40"
+          data-glass-surface="tile"
           aria-busy="true"
           data-testid="cli-matrix-placeholder"
         ></div>
@@ -75,7 +76,8 @@ const FOCUS =
         @if (section.state.status === 'error') {
           <div
             role="alert"
-            class="rounded-md border border-base-content-muted bg-base-100 p-3 space-y-2"
+            class="rounded-lg border border-base-content-muted bg-base-100 p-4 space-y-2"
+            data-glass-surface="tile"
             [attr.data-read-error]="section.id"
           >
             <p>
@@ -101,11 +103,11 @@ const FOCUS =
       }
 
       <!-- Closed by default; the background-role deep links open it (focusTarget). -->
-      <ptah-surface-section tone="subtle" padding="md">
+      <ptah-surface-section tone="subtle" padding="md" glassSurface="chrome">
         <details class="group" data-testid="background-roles-details">
           <summary
             [class]="
-              'flex cursor-pointer list-none items-center gap-2 scroll-mt-2 rounded-lg py-0 select-none [&::-webkit-details-marker]:hidden ' +
+              'flex cursor-pointer list-none items-center gap-2 scroll-mt-2 rounded-lg py-1 select-none [&::-webkit-details-marker]:hidden ' +
               focusRing
             "
             data-testid="background-roles-summary"
@@ -119,16 +121,16 @@ const FOCUS =
             >
               <lucide-angular
                 [img]="ChevronIcon"
-                class="block h-3.5 w-3.5 text-info"
+                class="block h-4 w-4 text-info"
                 aria-hidden="true"
               />
             </span>
             <span
-              class="text-xs font-bold uppercase tracking-wider text-base-content"
+              class="text-sm font-semibold text-base-content"
               >Background Model Roles</span
             >
             <span
-              class="badge badge-outline badge-xs whitespace-nowrap border-info/30 bg-info/10 font-medium text-base-content"
+              class="badge badge-outline badge-sm whitespace-nowrap border-info/30 bg-info/10 text-xs font-medium text-base-content"
               >{{ roleCount }} roles</span
             >
             <!-- Secondary helper text uses the theme's contrast-tested muted-content token. -->

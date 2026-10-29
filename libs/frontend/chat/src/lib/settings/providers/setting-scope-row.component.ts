@@ -48,7 +48,7 @@ export interface BadgeView {
 const LAYER_ORDER: readonly SettingScope[] = ['global', 'app', 'workspace'];
 
 const BADGE_BASE =
-  'badge badge-sm h-auto min-h-6 gap-1 px-2 py-0.5 font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+  'badge badge-sm h-auto min-h-6 gap-1 px-2 py-0.5 text-xs font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
 /**
  * A scope badge's colour and icon per layer: App info + chip, Workspace secondary + folder, Global and Mixed neutral.

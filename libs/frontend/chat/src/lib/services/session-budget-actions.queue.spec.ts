@@ -213,7 +213,10 @@ describe('SessionBudgetActionsService with the real queue', () => {
           },
         },
         { provide: SessionLoaderService, useValue: {} },
-        { provide: MessageFinalizationService, useValue: {} },
+        { provide: MessageFinalizationService, useValue: {
+          clearPendingPrompts: jest.fn(),
+          clearPendingPromptsForSession: jest.fn(),
+        } },
         {
           provide: ChatStore,
           useFactory: (d: MessageDispatchService) => ({

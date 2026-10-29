@@ -53,18 +53,21 @@ const LABELS: Readonly<Record<SubagentPromptCacheTtlSetting, string>> = {
     <ptah-surface-section
       tone="subtle"
       padding="md"
-      class="text-xs text-base-content"
+      glassSurface="chrome"
+      class="text-sm text-base-content"
       aria-label="Subagent prompt cache"
       data-testid="subagent-cache-ttl-setting"
     >
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <label for="subagent-cache-ttl" class="text-xs font-bold"
+      <div class="flex min-h-12 flex-wrap items-center justify-between gap-3">
+        <label
+          for="subagent-cache-ttl"
+          class="text-sm font-medium text-base-content"
           >Subagent prompt-cache TTL</label
         >
         <select
           id="subagent-cache-ttl"
           [class]="
-            'select select-bordered select-xs min-h-7 w-full sm:w-72 ' +
+            'select select-bordered select-sm w-full text-sm sm:w-80 ' +
             focusRing
           "
           [value]="shown() ?? ''"
@@ -116,7 +119,7 @@ const LABELS: Readonly<Record<SubagentPromptCacheTtlSetting, string>> = {
         <button
           type="button"
           [class]="
-            'btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ' +
+            'btn btn-outline btn-sm border-base-content-muted text-base-content ' +
             focusRing
           "
           [ptahBusyDisabled]="saving()"

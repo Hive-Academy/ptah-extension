@@ -33,12 +33,12 @@ const MODALITY: Readonly<Record<string, string>> = {
 /** Model select value that swaps the select for an inline model-ID field (#35). */
 const MANUAL = '__manual__';
 const PROVIDER_SAVED = 'Main agent provider saved.';
-const SELECT = 'select select-bordered select-sm min-h-8 w-full border-base-content-muted bg-base-100 text-xs text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+const SELECT = 'select select-bordered select-sm w-full border-base-content-muted bg-base-100 text-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 /** The disabled Save keeps a visible shape and a muted, readable label (native `disabled` semantics unchanged). */
 const SAVE_DISABLED = 'disabled:border-base-content-muted disabled:bg-base-200 disabled:text-base-content-muted';
 /** Every field's label: one style, always above its control. */
-const LABEL = 'block text-[11px] font-semibold text-base-content-muted';
+const LABEL = 'block text-xs font-semibold text-base-content-muted';
 
 interface ModelCatalogue {
   readonly status: 'loading' | 'ready' | 'error';
@@ -60,7 +60,7 @@ interface AccountIntent {
 
 /**
  * Main Agent popover (plan :596-609, design-spec §2.1, prototype `#popoverMainAgent`), opened from the
- * routing map's Main Agent node or a `main-*` deep link. It is the one place the main agent is changed (the card's
+ * Main agent section's "Reassign" or a `main-*` deep link. It is the one place the main agent is changed (the card's
  * "Use for main agent" was removed at Gate V 28, as in the prototype). One column, every label above its control:
  * header, Provider connection, Model selection, Reasoning effort, Save to, then a Save / Cancel footer.
  *
@@ -97,24 +97,24 @@ interface AccountIntent {
            Save / Cancel footer stay visible in every state, the provider-change confirm included (Gate V 28). In a
            window too short for that chrome the body keeps 4rem and the whole panel scrolls instead. Header,
            body and footer share one horizontal padding (px-3), so every row starts on the same left edge. -->
-      <div content role="dialog" aria-labelledby="main-agent-popover-title" class="flex w-[19rem] max-w-[calc(100vw-2rem)] flex-col overflow-y-auto text-xs"
+      <div content role="dialog" aria-labelledby="main-agent-popover-title" class="flex w-[21rem] max-w-[calc(100vw-2rem)] flex-col overflow-y-auto text-xs"
         [style.max-height.px]="maxHeight()" data-testid="main-agent-popover">
-        <!-- min-w-0 throughout so the header shrinks at narrow widths (245 px): the title and the Check label truncate,
-             and Close (flex-none) always stays in view. -->
-        <div class="flex min-w-0 shrink-0 items-center justify-between gap-2 border-b border-base-300 px-3 py-2">
-          <h2 id="main-agent-popover-title" class="min-w-0 flex-1 truncate text-xs font-bold text-base-content" title="Reassign main agent">Reassign main agent</h2>
-          <div class="-mr-1 flex min-w-0 items-center gap-1">
-            <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 min-w-0 flex-nowrap px-1.5 font-medium text-base-content underline ' + focusRing"
+        <!-- 21rem holds the whole title beside Check connection and Close on one row. Where the panel is narrower
+             (max-w), the actions wrap under the title instead of truncating it; Close (flex-none) always stays in view. -->
+        <div class="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-2 border-b border-base-300 px-3 py-1">
+          <h2 id="main-agent-popover-title" class="whitespace-nowrap text-sm font-semibold text-base-content">Reassign main agent</h2>
+          <div class="-mr-1 ml-auto flex min-w-0 items-center gap-1">
+            <button type="button" [class]="'btn btn-ghost btn-sm min-w-0 flex-nowrap px-2 text-xs font-medium text-base-content underline ' + focusRing"
               [ptahBusyDisabled]="state.route().status === 'loading'" (click)="state.checkConnection()" data-testid="main-agent-check">
               <span class="truncate">{{ state.route().status === 'loading' ? 'Checking…' : 'Check connection' }}</span>
             </button>
-            <button type="button" [class]="'btn btn-ghost btn-xs btn-square min-h-6 flex-none ' + focusRing" aria-label="Close" (click)="cancel()">
+            <button type="button" [class]="'btn btn-ghost btn-sm btn-square flex-none ' + focusRing" aria-label="Close" (click)="cancel()">
               <lucide-angular [img]="CloseIcon" class="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
         </div>
 
-        <div class="grid min-h-16 grid-cols-1 gap-3 overflow-y-auto px-3 py-3" data-testid="main-agent-popover-body">
+        <div class="grid min-h-16 grid-cols-1 gap-2 overflow-y-auto px-3 py-2" data-testid="main-agent-popover-body">
           <div class="grid gap-1">
             <label for="main-agent-provider" [class]="label">Provider connection</label>
             <select id="main-agent-provider" [class]="select" data-focus="main-agent" [disabled]="busy()"
@@ -125,7 +125,7 @@ interface AccountIntent {
               }
             </select>
             @if (rescopeOffer(); as scope) {
-              <button type="button" [class]="'btn btn-link btn-xs h-auto min-h-6 justify-self-start px-0 text-base-content ' + focusRing"
+              <button type="button" [class]="'btn btn-link btn-sm justify-self-start px-0 text-xs text-base-content ' + focusRing"
                 [disabled]="busy()" (click)="requestRescope()" data-testid="main-agent-provider-rescope">Save provider to {{ scope }}…</button>
             }
             @if (pendingProvider(); as pending) {
@@ -141,10 +141,10 @@ interface AccountIntent {
                 }
                 <div class="flex flex-wrap gap-1.5">
                   @if (!providerConfirmed()) {
-                    <button type="button" [class]="'btn btn-primary btn-xs min-h-6 ' + focusRing" [ptahBusyDisabled]="busy() || !pending.writable"
+                    <button type="button" [class]="'btn btn-primary btn-sm ' + focusRing" [ptahBusyDisabled]="busy() || !pending.writable"
                       (click)="confirmProvider()">Use for main agent</button>
                   }
-                  <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 text-base-content ' + focusRing" [disabled]="busy()" (click)="resetProvider()">Cancel provider change</button>
+                  <button type="button" [class]="'btn btn-ghost btn-sm text-base-content ' + focusRing" [disabled]="busy()" (click)="resetProvider()">Cancel provider change</button>
                 </div>
               </div>
             }
@@ -158,7 +158,7 @@ interface AccountIntent {
               @if (account.stored.kind === 'signed-out') {
                 <div class="flex items-center justify-between gap-2">
                   <label for="main-agent-account" [class]="label">Account</label>
-                  <button type="button" [class]="'btn btn-link btn-xs h-auto min-h-6 px-0 text-[11px] text-base-content ' + focusRing"
+                  <button type="button" [class]="'btn btn-link btn-sm px-0 text-xs text-base-content ' + focusRing"
                     [attr.aria-label]="copy.signInSavedAccount" (click)="accountSignInRequested.emit()"
                     data-testid="main-agent-account-sign-in">Sign in</button>
                 </div>
@@ -182,12 +182,12 @@ interface AccountIntent {
             <label for="main-agent-model" [class]="label">Model selection</label>
             @if (manual()) {
               <div class="flex items-center gap-1.5">
-                <input id="main-agent-model" type="text" [class]="'input input-bordered input-sm min-h-8 min-w-0 flex-1 font-mono text-xs ' + focusRing"
+                <input id="main-agent-model" type="text" [class]="'input input-bordered input-sm min-w-0 flex-1 font-mono text-xs ' + focusRing"
                   placeholder="Model ID, e.g. vendor/model-name" [value]="manualDraft()" (input)="manualDraft.set(value($event))"
                   aria-label="Main agent model ID" data-testid="main-agent-model-manual" />
-                <button type="button" [class]="'btn btn-outline btn-xs min-h-8 text-base-content ' + focusRing" [ptahBusyDisabled]="busy() || !targetReady() || !manualDraft().trim()"
+                <button type="button" [class]="'btn btn-outline btn-sm text-base-content ' + focusRing" [ptahBusyDisabled]="busy() || !targetReady() || !manualDraft().trim()"
                   (click)="applyManual()">Use</button>
-                <button type="button" [class]="'btn btn-ghost btn-xs min-h-8 text-base-content ' + focusRing" (click)="closeManual()">Cancel</button>
+                <button type="button" [class]="'btn btn-ghost btn-sm text-base-content ' + focusRing" (click)="closeManual()">Cancel</button>
               </div>
             } @else {
               <!-- Batch 28b: the compact searchable model control (ui barrel), filtering the popover's own options. Its list
@@ -200,7 +200,7 @@ interface AccountIntent {
             @if (catalogue().status === 'error') {
               <p role="alert" class="flex items-center gap-1.5 text-base-content" data-testid="main-agent-model-error">
                 Could not load the model list.
-                <button type="button" [class]="'btn btn-link btn-xs h-auto min-h-6 px-0 text-base-content ' + focusRing" (click)="loadModels()">Retry</button>
+                <button type="button" [class]="'btn btn-link btn-sm px-0 text-xs text-base-content ' + focusRing" (click)="loadModels()">Retry</button>
               </p>
             }
           </div>
@@ -230,7 +230,7 @@ interface AccountIntent {
           @if (state.mainSources().status === 'error') {
             <p role="alert" class="flex flex-wrap items-center gap-1.5 text-base-content" data-testid="main-agent-sources-error">
               Where the model and effort are saved could not be loaded. Nothing was changed.
-              <button type="button" [class]="'btn btn-link btn-xs h-auto min-h-6 px-0 text-base-content ' + focusRing"
+              <button type="button" [class]="'btn btn-link btn-sm px-0 text-xs text-base-content ' + focusRing"
                 (click)="state.refreshMainSources()">Retry model and effort sources</button>
             </p>
           } @else if (!targetReady()) {
@@ -240,17 +240,17 @@ interface AccountIntent {
 
         <!-- The model-ID field has its own Use / Cancel; the popover's Save / Cancel return once it closes. -->
         @if (!manual()) {
-          <div class="grid shrink-0 gap-1.5 border-t border-base-300 px-3 py-2.5" data-testid="main-agent-footer">
+          <div class="grid shrink-0 gap-1.5 border-t border-base-300 px-3 py-2" data-testid="main-agent-footer">
             @if (awaitingConfirm()) {
               <p id="main-agent-save-hint" role="status" class="text-base-content-muted" data-testid="main-agent-save-hint">
                 Confirm or cancel the provider change to save.</p>
             }
             <div class="flex items-center justify-end gap-2">
-              <button type="button" [class]="'btn btn-ghost btn-sm min-h-8 text-base-content ' + focusRing" (click)="cancel()"
+              <button type="button" [class]="'btn btn-ghost btn-sm text-base-content ' + focusRing" (click)="cancel()"
                 data-testid="main-agent-cancel">Cancel</button>
               <!-- Natively disabled while nothing can be saved; the disabled: utilities keep its outline and label legible in
                    both themes (daisyUI's own disabled button nearly vanishes on the popover's base-100). -->
-              <button type="button" [class]="'btn btn-primary btn-sm min-h-8 ' + saveDisabledLook + ' ' + focusRing" [disabled]="!saveReady()"
+              <button type="button" [class]="'btn btn-primary btn-sm ' + saveDisabledLook + ' ' + focusRing" [disabled]="!saveReady()"
                 [ptahBusyDisabled]="busy()" [attr.aria-describedby]="awaitingConfirm() ? 'main-agent-save-hint' : null"
                 (click)="save()" data-testid="main-agent-save">{{ saving() ? 'Saving…' : 'Save' }}</button>
             </div>
@@ -510,7 +510,7 @@ export class MainAgentReassignPopoverComponent {
   protected scopeLabel(scope: SettingScope): string { return this.scopeLabels[scope]; }
   protected effortClass(value: EffortLevel | ''): string {
     const selected = this.selectedEffort() === value;
-    return `btn btn-xs min-h-7 w-full px-1 text-[11px] font-medium ${selected ? 'btn-primary' : 'btn-outline border-base-content-muted text-base-content'} ${FOCUS}`;
+    return `btn btn-sm w-full px-1 text-xs font-medium ${selected ? 'btn-primary' : 'btn-outline border-base-content-muted text-base-content'} ${FOCUS}`;
   }
 
   async loadModels(): Promise<void> {

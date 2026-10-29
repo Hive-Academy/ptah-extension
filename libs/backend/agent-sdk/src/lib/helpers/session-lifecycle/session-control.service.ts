@@ -104,6 +104,9 @@ export class SessionControl {
     this.logger.info(
       `[SessionLifecycle] Interrupting current turn for session: ${sessionId}`,
     );
+    const wasTurnInFlight = rec.turnInFlight;
+    const interruptedId = rec.currentTurnClientMessageId;
+    const resultCountBefore = rec.resultCount ?? 0;
 
     try {
       let timedOut = false;
@@ -123,7 +126,21 @@ export class SessionControl {
         // No turn identifier exists on SDK hooks. Retire this query rather than
         // allowing late A hooks to acquire operation ownership during turn B.
         this.retireInterruptedRecord(rec);
-      } else if (this.registry.find(sessionId as string) === rec) {
+      } else if (
+        this.registry.find(sessionId as string) === rec &&
+        wasTurnInFlight &&
+        (rec.resultCount ?? 0) === resultCountBefore &&
+        rec.turnInFlight
+      ) {
+        // Keep the interrupted turn's identity after Q is yielded so only a
+        // result positively naming P can be suppressed.
+        rec.interruptAwaitingResultYieldSequence = rec.yieldSequence ?? 0;
+        rec.interruptedTurnUserMessageUuid = rec.currentTurnUserMessageUuid ?? null;
+        if (interruptedId !== null && rec.currentTurnClientMessageId === interruptedId) {
+          rec.interruptRetirement = interruptedId;
+          rec.currentTurnClientMessageId = null;
+          rec.retirementWake?.();
+        }
         if (this.onTurnTerminal) {
           this.onTurnTerminal(sessionId);
         } else {

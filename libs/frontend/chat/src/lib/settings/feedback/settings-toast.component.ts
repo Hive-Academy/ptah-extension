@@ -77,7 +77,7 @@ const ANNOUNCE_DELAY_MS = 50;
 
     <ng-template #body let-toast>
       <div
-        class="flex items-center gap-3 rounded-lg border bg-base-300 px-4 py-2.5 text-[13px] text-base-content"
+        class="flex items-center gap-3 rounded-lg border bg-base-300 px-4 py-2.5 text-sm text-base-content"
         [class.shadow-lg]="!inline()"
         [class.border-base-content/15]="toast.tone === 'status'"
         [class.border-error/40]="toast.tone === 'alert'"
@@ -87,7 +87,7 @@ const ANNOUNCE_DELAY_MS = 50;
         @if (toast.canUndo) {
           <button
             type="button"
-            class="btn btn-xs btn-warning font-bold"
+            class="btn btn-sm btn-warning font-bold"
             [ptahBusyDisabled]="feedback.saving()"
             (click)="feedback.undo()"
             [attr.data-testid]="testId('settings-toast-undo')"
@@ -97,7 +97,7 @@ const ANNOUNCE_DELAY_MS = 50;
         }
         <button
           type="button"
-          class="btn btn-ghost btn-xs btn-square h-5 w-5 min-h-0"
+          class="btn btn-ghost btn-sm btn-square"
           (click)="feedback.dismiss()"
           aria-label="Dismiss notification"
           [attr.data-testid]="testId('settings-toast-dismiss')"

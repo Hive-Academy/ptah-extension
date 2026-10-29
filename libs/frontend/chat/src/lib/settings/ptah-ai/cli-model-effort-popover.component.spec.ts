@@ -16,11 +16,9 @@ import {
   SAVE_REFUSED_MESSAGE,
   SettingsSaveFeedbackService,
 } from '../feedback/settings-save-feedback.service';
-import {
-  CliModelEffortPopoverComponent,
-  type CliMatrixCellField,
-} from './cli-model-effort-popover.component';
+import { CliModelEffortPopoverComponent } from './cli-model-effort-popover.component';
 import type {
+  CliMatrixCellField,
   CliMatrixRow,
   InstanceCliMatrixRow,
   SystemCliMatrixRow,

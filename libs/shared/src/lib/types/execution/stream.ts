@@ -94,6 +94,8 @@ export interface FlatStreamEvent {
  * Message start event - creates message node
  */
 export interface MessageStartEvent extends FlatStreamEvent {
+  /** Opaque client id of the prompt bubble acknowledged by this echo. */
+  readonly clientMessageId?: string;
   readonly eventType: 'message_start';
   readonly role: 'user' | 'assistant';
   readonly parentToolUseId?: string; // For sub-agent messages
@@ -109,7 +111,11 @@ export interface MessageStartEvent extends FlatStreamEvent {
    * self-reported NAME, which any same-user process can choose, so it must
    * never be treated as an identity or used to authorize anything.
    */
-  readonly inboundPeer?: { readonly label: string };
+  readonly inboundPeer?: {
+    readonly label: string;
+    /** Ordering hint only, never an identity or authorization input. */
+    readonly beforeClientMessageId?: string;
+  };
 }
 
 /**

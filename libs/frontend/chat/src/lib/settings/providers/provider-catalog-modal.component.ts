@@ -31,7 +31,7 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
         <h2 id="provider-catalog-title" class="sr-only">Connect a provider</h2>
         <lucide-angular [img]="SearchIcon" class="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
         <!-- First focusable control in the dialog: showModal() focuses it (asserted in Gate G RUX-3). -->
-        <input type="search" [class]="'input input-xs min-h-8 flex-1 border-none bg-transparent text-xs text-base-content ' + focusRing"
+        <input type="search" [class]="'input input-sm flex-1 border-none bg-transparent text-sm text-base-content ' + focusRing"
           [placeholder]="'Type provider name (' + providers().length + ' in catalog)…'" aria-label="Search providers"
           [value]="query()" (input)="query.set(value($event))" data-testid="provider-catalog-search" />
         <kbd class="kbd kbd-xs" aria-hidden="true">ESC</kbd>
@@ -42,7 +42,7 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
           @case ('error') {
             <div role="alert" class="space-y-2 px-2" data-testid="provider-catalog-error">
               <p class="text-base-content">Custom providers could not be loaded. Your saved settings have not changed.</p>
-              <button type="button" [class]="'btn btn-outline btn-xs min-h-6 text-base-content ' + focusRing" (click)="retryRequested.emit()">Retry</button>
+              <button type="button" [class]="'btn btn-outline btn-sm text-base-content ' + focusRing" (click)="retryRequested.emit()">Retry</button>
             </div>
           }
           @case ('loading') {
@@ -52,26 +52,26 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
             </div>
           }
           @default {
-            <span class="block px-2 text-[10px] font-bold uppercase tracking-wider text-base-content-muted">
+            <span class="block px-2 text-xs font-semibold uppercase tracking-wide text-base-content-muted">
               Available in catalog ({{ providers().length }} unconfigured)
             </span>
             @if (rows().length) {
               <ul class="space-y-1" aria-label="Providers in the catalog">
                 @for (row of rows(); track row.id) {
-                  <li class="flex items-center justify-between gap-2 rounded p-2 hover:bg-base-200" [attr.data-provider]="row.id">
+                  <li class="flex items-center justify-between gap-2 rounded p-2.5 hover:bg-base-200" [attr.data-provider]="row.id">
                     <div class="flex min-w-0 items-center gap-2">
                       <span [class]="row.avatar" aria-hidden="true">{{ row.initials }}</span>
                       <div class="min-w-0">
-                        <span class="block break-words font-bold text-base-content">{{ row.name }}</span>
-                        <span class="block break-words text-[10px] text-base-content-muted">{{ row.detail }}</span>
+                        <span class="block break-words text-sm font-semibold text-base-content">{{ row.name }}</span>
+                        <span class="block break-words text-xs text-base-content-muted">{{ row.detail }}</span>
                       </div>
                     </div>
                     <div class="flex shrink-0 items-center gap-1.5">
                       @if (row.signIn) {
-                        <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 text-base-content underline ' + focusRing"
+                        <button type="button" [class]="'btn btn-ghost btn-sm text-base-content underline ' + focusRing"
                           [attr.aria-label]="'Sign in to ' + row.name" (click)="signInRequested.emit(row.id)">Sign in</button>
                       }
-                      <button type="button" [class]="'btn btn-outline btn-xs min-h-6 border-primary text-base-content ' + focusRing" [disabled]="!canSetUp()"
+                      <button type="button" [class]="'btn btn-outline btn-sm border-primary text-base-content ' + focusRing" [disabled]="!canSetUp()"
                         [attr.aria-label]="'Connect ' + row.name" (click)="providerChosen.emit(row.id)">Connect</button>
                     </div>
                   </li>
@@ -80,22 +80,22 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
             } @else {
               <div class="space-y-2 px-2" data-testid="provider-catalog-empty">
                 <p class="text-base-content">No matching providers.</p>
-                <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 text-base-content underline ' + focusRing" (click)="query.set('')">Clear search</button>
+                <button type="button" [class]="'btn btn-ghost btn-sm text-base-content underline ' + focusRing" (click)="query.set('')">Clear search</button>
               </div>
             }
           }
         }
 
         <div class="border-t border-base-300 px-0 pt-2">
-          <div class="flex items-center justify-between gap-2 rounded bg-base-200 p-2" data-testid="provider-catalog-custom">
+          <div class="flex items-center justify-between gap-2 rounded bg-base-200 p-2.5" data-testid="provider-catalog-custom">
             <div class="flex min-w-0 items-center gap-2">
               <lucide-angular [img]="CustomIcon" class="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
               <div class="min-w-0">
-                <span class="block font-bold text-base-content">Custom endpoint gateway</span>
-                <span class="block text-[10px] text-base-content-muted">OpenAI- or Anthropic-compatible self-hosted endpoint</span>
+                <span class="block text-sm font-semibold text-base-content">Custom endpoint gateway</span>
+                <span class="block text-xs text-base-content-muted">OpenAI- or Anthropic-compatible self-hosted endpoint</span>
               </div>
             </div>
-            <button type="button" [class]="'btn btn-outline btn-xs min-h-6 text-base-content ' + focusRing" [disabled]="!canSetUp()"
+            <button type="button" [class]="'btn btn-outline btn-sm text-base-content ' + focusRing" [disabled]="!canSetUp()"
               aria-label="Configure a custom endpoint" (click)="customChosen.emit()">Configure</button>
           </div>
         </div>
@@ -130,7 +130,7 @@ export class ProviderCatalogModalComponent {
       .map((entry) => ({
         id: entry.id, name: entry.name,
         initials: connectionInitials(entry.name),
-        avatar: `flex h-6 w-6 shrink-0 items-center justify-center rounded border text-[10px] font-bold text-base-content ${connectionAvatarTone(entry.id)}`,
+        avatar: `flex h-6 w-6 shrink-0 items-center justify-center rounded border text-xs font-bold text-base-content ${connectionAvatarTone(entry.id)}`,
         detail: [MODALITY[entry.authMode] ?? entry.authMode, getAnthropicProvider(entry.id)?.description,
           entry.defaultsResolvable ? 'Default models available' : ''].filter(Boolean).join(' · '),
         signIn: entry.authMode === 'oauth' || entry.authMode === 'cli',

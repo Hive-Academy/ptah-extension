@@ -23,7 +23,10 @@
  *
  */
 
-import type { FlatStreamEventUnion } from '@ptah-extension/shared';
+import type {
+  AgentCompletedEvent,
+  FlatStreamEventUnion,
+} from '@ptah-extension/shared';
 import {
   calculateMessageCost,
   isAgentDispatchTool,
@@ -53,6 +56,57 @@ import {
 export interface HistoryReplayCollector {
   blockOwners: Map<FlatStreamEventUnion, string>;
   syntheticToolResults: Set<FlatStreamEventUnion>;
+}
+
+interface TaskNotification {
+  taskId: string;
+  toolUseId?: string;
+  status: AgentCompletedEvent['status'];
+  summary: string;
+  outputFile: string;
+}
+
+/** Extract only the small, known fields of an untrusted CLI notification. */
+function parseTaskNotification(text: string): TaskNotification | null {
+  const root = '<task-notification>';
+  const endRoot = '</task-notification>';
+  const head = text.slice(0, 65_536).trimStart();
+  if (!head.startsWith(root)) return null;
+  const bodyStart = root.length;
+  const bodyEnd = head.indexOf(endRoot, bodyStart);
+  const body = head.slice(bodyStart, bodyEnd < 0 ? undefined : bodyEnd);
+  const field = (tag: string, limit: number, allowTruncated = false): string | null => {
+    const startTag = `<${tag}>`;
+    const endTag = `</${tag}>`;
+    const start = body.indexOf(startTag);
+    if (start < 0) return null;
+    const valueStart = start + startTag.length;
+    const end = body.indexOf(endTag, valueStart);
+    if ((end < 0 && !allowTruncated) || (!allowTruncated && end - valueStart > limit)) return null;
+    return body.slice(valueStart, Math.min(end < 0 ? body.length : end, valueStart + limit)).trim();
+  };
+  const taskId = field('task-id', 128);
+  const toolUseId = field('tool-use-id', 128);
+  const statusText = field('status', 32);
+  if (!taskId || !/^[A-Za-z0-9_-]+$/.test(taskId)) return null;
+  if (toolUseId !== null && !/^[A-Za-z0-9_-]+$/.test(toolUseId))
+    return null;
+  const status =
+    statusText === 'completed'
+      ? 'completed'
+      : statusText === 'failed' || statusText === 'error'
+        ? 'failed'
+        : statusText === 'killed' || statusText === 'stopped'
+          ? 'stopped'
+          : null;
+  if (!status) return null;
+  return {
+    taskId,
+    toolUseId: toolUseId || undefined,
+    status,
+    summary: field('summary', 240, true) ?? '',
+    outputFile: field('output-file', 2048, true) ?? '',
+  };
 }
 
 /**
@@ -122,6 +176,8 @@ export class SessionReplayService {
       taskToolUses,
       agentDataMap,
     );
+    const emittedAgentStarts = new Map<string, { agentId?: string }>();
+    const completedTaskIds = new Set<string>();
     const allToolResults =
       this.correlationService.extractAllToolResults(effectiveMessages);
     let currentMessageId: string | null = null;
@@ -159,7 +215,46 @@ export class SessionReplayService {
           continue;
         }
         const rawText = this.eventFactory.extractTextContent(contentRaw);
-        if (rawText && rawText.trimStart().startsWith('<task-notification>')) {
+        if (rawText && rawText.slice(0, 1024).trimStart().startsWith('<task-notification>')) {
+          // A typed user message may contain an XML-looking example.
+          if (msg.origin?.kind === 'human' || msg.turnOrigin === 'human')
+            continue;
+          const notification = parseTaskNotification(rawText);
+          if (notification) {
+            const correlatedToolUseId = notification.toolUseId
+              ? undefined
+              : [...taskToAgentMap].find(
+                  ([, agentFileId]) =>
+                    agentFileId === `agent-${notification.taskId}` ||
+                    agentFileId === notification.taskId,
+                )?.[0];
+            const toolUseId = notification.toolUseId ?? correlatedToolUseId;
+            const started = toolUseId
+              ? emittedAgentStarts.get(toolUseId)
+              : undefined;
+            if (toolUseId && started && !completedTaskIds.has(notification.taskId)) {
+              completedTaskIds.add(notification.taskId);
+              const parsedTimestamp = Date.parse(msg.timestamp ?? '');
+              const event: AgentCompletedEvent = {
+                id: `history-task-${msg.uuid ?? `${notification.taskId}-${eventIndex}`}`,
+                eventType: 'agent_completed',
+                timestamp: Number.isFinite(parsedTimestamp)
+                  ? parsedTimestamp
+                  : Date.now(),
+                sessionId,
+                source: 'history',
+                messageId: `task_${notification.taskId}`,
+                parentToolUseId: toolUseId,
+                taskId: notification.taskId,
+                status: notification.status,
+                summary: notification.summary,
+                outputFile: notification.outputFile,
+                agentId: started.agentId,
+              };
+              events.push(event);
+              eventIndex++;
+            }
+          }
           continue;
         }
         if (isInterruptSentinelText(rawText)) {
@@ -363,6 +458,10 @@ export class SessionReplayService {
                 const agentId = correlatedAgentFileId
                   ? correlatedAgentFileId.replace(/^agent-/, '')
                   : null;
+
+                emittedAgentStarts.set(toolCallId, {
+                  agentId: agentId ?? undefined,
+                });
 
                 events.push(
                   this.eventFactory.createAgentStart(

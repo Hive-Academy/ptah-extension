@@ -83,6 +83,8 @@ export type AIMessageOrigin =
  * AI Message Options
  */
 export interface AIMessageOptions {
+  /** Opaque client id of the prompt bubble. */
+  readonly clientMessageId?: string;
   readonly model?: string;
   readonly temperature?: number;
   readonly maxTokens?: number;

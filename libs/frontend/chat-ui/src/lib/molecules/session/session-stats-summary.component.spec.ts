@@ -850,7 +850,9 @@ describe('SessionStatsSummaryComponent limits', () => {
   it('stacks the summary line, plan-limit rows and lane rows in one card', () => {
     const root = render(limitsFor(40), { sessionId: 'session-1' });
     click(root, '[data-testid="stats-expand"]');
-    const card = root.querySelector('[data-testid="stats-card"]') as HTMLElement;
+    const card = root.querySelector(
+      '[data-testid="stats-card"]',
+    ) as HTMLElement;
 
     expect(
       Array.from(card.children).map((child) =>
@@ -869,14 +871,17 @@ describe('SessionStatsSummaryComponent limits', () => {
       'stats-agents',
       'stats-models-toggle',
     ]);
-    expect(sectionRows(root, 'stats-plan-section')).toEqual(['plan-limit-tile']);
+    expect(sectionRows(root, 'stats-plan-section')).toEqual([
+      'plan-limit-tile',
+    ]);
     expect(sectionRows(root, 'stats-lanes-section')).toEqual([
       'lane-usage-tile',
       'lane-subtotal-tile',
     ]);
     // Every row starts closed.
     for (const button of Array.from(card.querySelectorAll('[aria-expanded]'))) {
-      if (button.getAttribute('data-testid') === 'stats-models-toggle') continue;
+      if (button.getAttribute('data-testid') === 'stats-models-toggle')
+        continue;
       expect(button.getAttribute('aria-expanded')).toBe('false');
     }
   });
@@ -892,9 +897,9 @@ describe('SessionStatsSummaryComponent limits', () => {
     ) as HTMLElement;
 
     expect(
-      plan.querySelector('[data-testid="plan-limits-caption"]')?.getAttribute(
-        'title',
-      ),
+      plan
+        .querySelector('[data-testid="plan-limits-caption"]')
+        ?.getAttribute('title'),
     ).toContain('Claude account');
     expect(
       plan.querySelectorAll('[data-testid="plan-limits-source"]').length,
@@ -1044,6 +1049,9 @@ describe('SessionStatsSummaryComponent limits', () => {
     );
 
     expect(collapse?.closest('.stats-card-header')).not.toBeNull();
+    expect(root.querySelector('.stats-card-header')?.textContent?.trim()).toBe(
+      '',
+    );
     expect(collapse?.closest('[data-testid="stats-summary-line"]')).toBeNull();
     collapse?.click();
     fixture.detectChanges();

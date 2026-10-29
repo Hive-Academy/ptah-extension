@@ -63,6 +63,8 @@ export const SESSION_STOP_HANDLER = new InjectionToken<SessionStopHandler>(
 export interface SessionCardActions {
   openLane(laneKey: string): void;
   openSession(): void;
+  /** False when this host has no surface for the lane; absent means true. */
+  canOpenLane?(laneKey: string): boolean;
 }
 
 export const SESSION_CARD_ACTIONS = new InjectionToken<SessionCardActions>(

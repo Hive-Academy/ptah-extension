@@ -43,7 +43,7 @@ import {
   type WizardCommitState,
 } from './provider-setup-wizard.component';
 import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
-import { RoutingMapComponent } from './routing-map.component';
+import { MainAgentSectionComponent } from './main-agent-section.component';
 import {
   MainAgentReassignPopoverComponent,
   type MainAgentFocus,
@@ -86,7 +86,7 @@ export interface ProvidersSettingsDrawerRequest {
 }
 
 const CONTROL =
-  'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+  'btn btn-outline btn-sm border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
 /**
  * Providers tab composition. All host access and persistence belong to the injected state owner;
@@ -102,7 +102,7 @@ const CONTROL =
     ProviderConnectionCardComponent,
     ProviderSetupWizardComponent,
     ConnectionDetailDrawerComponent,
-    RoutingMapComponent,
+    MainAgentSectionComponent,
     MainAgentReassignPopoverComponent,
     ProviderCatalogModalComponent,
     KimiCodeLoginProgressComponent,
@@ -110,32 +110,25 @@ const CONTROL =
   ],
   template: `
     <div
-      class="h-full overflow-y-auto bg-base-100 font-sans text-sm text-base-content"
+      class="providers-page h-full overflow-y-auto font-sans text-sm text-base-content"
     >
+      <!-- No plane of its own: the Settings shell's page plane (settings.component.html, surface-0 = base-100) paints
+           light and dark and clears in glass, so the scene shows between the section cards on every tab. -->
       <!-- No width or side padding of its own: the Settings shell (settings.component.html) already sets
            max-w-screen-2xl and the page padding, which used to be applied twice (Batch 24, card grid width). -->
-      <!-- Prototype order (plan :580-583): routing map, then Connections (header, grid, tile), then the catalog hint,
-           in one card. Settings renders the CLI matrix and the background roles after this page.
+      <!-- Order: the Main agent section, then Connections (header, catalog caption, list). Settings renders the CLI
+           matrix and the background roles after this page, so the page repeats neither.
            No page title, no Refresh: the tab names the page, and every region retries its own read. -->
       <div class="py-3 space-y-4">
-        <!-- Routing Map and Connections share one card: which model does what, and the connections it draws on. -->
-        <ptah-surface-section
-          tone="subtle"
-          padding="md"
-          data-testid="providers-routing-connections-card"
-        >
-          <!-- Main-agent region. Loading shows as the nodes' skeletons (aria-busy here keeps captures waiting). -->
-          <div
-            class="space-y-2"
-            [attr.aria-busy]="mainReadsLoading()"
-            data-testid="main-agent-region"
-          >
-            <!-- The Main Agent node holds the D16 badges and opens the Main Agent popover (provider, model, effort).
-               Deferred with the popover (eager route at its bundle budget) behind a same-footprint placeholder. -->
+        <!-- One card: the Main agent block, a hairline, then Connections (the divider pattern of the CLI matrix card
+             between the system lanes and the Ptah CLI instances). -->
+        <ptah-surface-section tone="subtle" padding="md" glassSurface="chrome" data-testid="providers-main-connections-card">
+          <!-- Main-agent region. Loading shows as the section's skeleton (aria-busy here keeps captures waiting). -->
+          <div [attr.aria-busy]="mainReadsLoading()" data-testid="main-agent-region">
+            <!-- The Main agent section holds the D16 badges and opens the Main Agent popover (provider, model, effort).
+                 Deferred with the popover (eager route at its bundle budget) behind a same-footprint placeholder. -->
             @defer (on immediate) {
-              <ptah-routing-map
-                (nodeActivated)="$event === 'main-agent' && openMainPopover()"
-              >
+              <ptah-main-agent-section (reassignRequested)="openMainPopover()">
                 <ptah-main-agent-reassign-popover
                   main-agent-popover
                   [open]="mainPopover() !== null"
@@ -155,87 +148,92 @@ const CONTROL =
                     (clearRequested)="reviewClear($event.key, $event.target)"
                   />
                 </div>
-              </ptah-routing-map>
+                <!-- The route's own failure is shown (with Retry) in the block; its other reads and the clear-override
+                     review follow under it, in the same section. -->
+                @for (section of mainReadErrors(); track section.id) {
+                  <div
+                    role="alert"
+                    [class]="readError"
+                    [attr.data-read-error]="section.id"
+                  >
+                    <p class="min-w-0">
+                      {{ section.title }} could not be loaded. Your saved settings
+                      have not changed.
+                    </p>
+                    <button
+                      type="button"
+                      [class]="retryControl"
+                      (click)="section.retry()"
+                    >
+                      Retry {{ section.label }}
+                    </button>
+                  </div>
+                }
+                @if (clearKey(); as key) {
+                  <section
+                    class="rounded-lg border border-base-content-muted p-4 space-y-3"
+                    data-glass-surface="tile"
+                    aria-label="Review clear override"
+                  >
+                    @if (clearTarget() === 'all-above-global') {
+                      <p>
+                        Use the global {{ settingLabel(key) }} value. Removes the
+                        workspace and App overrides above Global. Removing the App
+                        override also affects its other workspaces.
+                      </p>
+                    } @else {
+                      <p>
+                        Clear {{ settingLabel(key) }} override. The host will resolve
+                        the next stored source.
+                      </p>
+                      <p>
+                        Next source:
+                        {{
+                          state.scopeEntry(key)?.fallbackPreview?.scope ??
+                            'App default'
+                        }}.
+                      </p>
+                    }
+                    @if (clearEndsSessions(key)) {
+                      <p data-testid="clear-ends-sessions">
+                        Clearing this override ends running chat sessions. It cannot
+                        be undone from here.
+                      </p>
+                    }
+                    <button
+                      type="button"
+                      [class]="control"
+                      (click)="clearOverride()"
+                      [ptahBusyDisabled]="saving()"
+                    >
+                      Confirm clear override
+                    </button>
+                    <button
+                      type="button"
+                      [class]="control"
+                      (click)="clearKey.set(null)"
+                      [disabled]="saving()"
+                    >
+                      Cancel clear
+                    </button>
+                  </section>
+                }
+              </ptah-main-agent-section>
             } @placeholder {
               <div
-                class="min-h-[178px] rounded-xl border border-base-300 bg-base-200/40 p-3"
+                class="min-h-[150px] rounded-xl border border-base-300 bg-base-200/40 p-3"
+                data-glass-surface="tile"
                 aria-busy="true"
-                data-testid="routing-map-placeholder"
+                data-testid="main-agent-placeholder"
               ></div>
-            }
-            <!-- The route's own failure is shown (with Retry) inside the Main Agent node; these are its other reads. -->
-            @for (section of mainReadErrors(); track section.id) {
-              <div
-                role="alert"
-                [class]="readError"
-                [attr.data-read-error]="section.id"
-              >
-                <p class="min-w-0">
-                  {{ section.title }} could not be loaded. Your saved settings
-                  have not changed.
-                </p>
-                <button
-                  type="button"
-                  [class]="retryControl"
-                  (click)="section.retry()"
-                >
-                  Retry {{ section.label }}
-                </button>
-              </div>
-            }
-            @if (clearKey(); as key) {
-              <section
-                class="rounded-md border border-base-content-muted p-3 space-y-3"
-                aria-label="Review clear override"
-              >
-                @if (clearTarget() === 'all-above-global') {
-                  <p>
-                    Use the global {{ settingLabel(key) }} value. Removes the
-                    workspace and App overrides above Global. Removing the App
-                    override also affects its other workspaces.
-                  </p>
-                } @else {
-                  <p>
-                    Clear {{ settingLabel(key) }} override. The host will resolve
-                    the next stored source.
-                  </p>
-                  <p>
-                    Next source:
-                    {{
-                      state.scopeEntry(key)?.fallbackPreview?.scope ??
-                        'App default'
-                    }}.
-                  </p>
-                }
-                @if (clearEndsSessions(key)) {
-                  <p data-testid="clear-ends-sessions">
-                    Clearing this override ends running chat sessions. It cannot
-                    be undone from here.
-                  </p>
-                }
-                <button
-                  type="button"
-                  [class]="control"
-                  (click)="clearOverride()"
-                  [ptahBusyDisabled]="saving()"
-                >
-                  Confirm clear override
-                </button>
-                <button
-                  type="button"
-                  [class]="control"
-                  (click)="clearKey.set(null)"
-                  [disabled]="saving()"
-                >
-                  Cancel clear
-                </button>
-              </section>
             }
           </div>
 
+          <!-- Connections: under the Main agent, on the same card. -->
           <section
             aria-labelledby="providers-connections-heading"
-            class="space-y-3"
+            class="space-y-3 border-t border-base-content/15 pt-4"
+            data-testid="providers-connections-card"
             [attr.aria-busy]="state.connections().status === 'loading'"
           >
             <!-- Header (prototype): title + count pill left; filter and the primary "Connect provider" right. -->
@@ -245,13 +243,13 @@ const CONTROL =
                   id="providers-connections-heading"
                   data-focus="connections"
                   tabindex="-1"
-                  class="text-sm font-semibold scroll-mt-4"
+                  class="text-base font-semibold scroll-mt-4"
                 >
                   Connections
                 </h2>
                 @if (state.connections().status === 'ready') {
                   <span
-                    class="rounded-full border border-base-300 bg-base-200 px-2 py-0.5 text-[11px] text-base-content"
+                    class="badge badge-sm border-base-300 bg-base-200 text-xs text-base-content"
                     data-testid="connections-count"
                   >
                     {{ connections().length }} configured ·
@@ -263,7 +261,7 @@ const CONTROL =
                 <input
                   type="search"
                   [class]="
-                    'input input-bordered input-sm h-9 min-h-9 w-44 border-base-content-muted bg-base-100 text-xs text-base-content ' +
+                    'input input-bordered input-sm w-52 border-base-content-muted bg-base-100 text-sm text-base-content ' +
                     focusRing
                   "
                   placeholder="Filter connections…"
@@ -274,11 +272,12 @@ const CONTROL =
                 />
                 <button
                   type="button"
-                  [class]="'btn btn-primary btn-sm min-h-9 gap-1 ' + focusRing"
+                  [class]="'btn btn-primary btn-sm gap-1.5 ' + focusRing"
                   (click)="openCatalog()"
                   data-testid="connect-provider"
+                  data-focus="more-providers"
                 >
-                  <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" class="h-4 w-4" aria-hidden="true">
                     <path
                       d="M8 3v10M3 8h10"
                       stroke="currentColor"
@@ -289,6 +288,21 @@ const CONTROL =
                   >Connect provider
                 </button>
               </div>
+            </div>
+            <!-- Catalog caption, directly under the header: one passive line, the names truncate (full list in the
+                 title). "Connect provider" above is the one way into the catalog. -->
+            <div
+              class="flex min-w-0 text-xs text-base-content-muted"
+              data-testid="catalog-hint"
+            >
+              <p
+                class="min-w-0 flex-1 truncate"
+                [attr.title]="catalogHint().names || null"
+                data-testid="catalog-hint-text"
+              >
+                <span class="font-medium">{{ catalogHint().lead }}</span>
+                {{ catalogHint().names }}
+              </p>
             </div>
             @if (state.connections().status === 'error') {
               <div role="alert" [class]="readError" data-read-error="connections">
@@ -308,15 +322,21 @@ const CONTROL =
             @if (
               state.connections().status === 'ready' && connections().length === 0
             ) {
-              <p>No connections configured. Connect a provider to get started.</p>
+              <p class="text-sm text-base-content-muted">
+                No connections configured. Connect a provider to get started.
+              </p>
             }
             @if (filter() && connections().length && !shownConnections().length) {
-              <p role="status" data-testid="connections-filter-empty">
+              <p
+                role="status"
+                class="text-sm text-base-content-muted"
+                data-testid="connections-filter-empty"
+              >
                 No connections match “{{ filter() }}”.
                 <button
                   type="button"
                   [class]="
-                    'btn btn-ghost btn-xs min-h-6 text-base-content underline ' +
+                    'btn btn-ghost btn-sm px-2 text-base-content underline ' +
                     focusRing
                   "
                   (click)="filter.set('')"
@@ -326,9 +346,9 @@ const CONTROL =
               </p>
             }
             <!-- Compact cards (≤ 80 px): the whole card opens the drawer, which holds every per-state action but one.
-                 Columns come from the CONTAINER width (Q-extra-1): 3 in VS Code at 1024 px, 2 in the narrower Electron page. -->
+                 Rows come from the CONTAINER width: one 22 rem list column in the narrow Electron page, two at 1440 px. -->
             <div
-              class="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3"
+              class="grid grid-cols-[repeat(auto-fill,minmax(22rem,1fr))] gap-2"
               data-testid="connections-grid"
             >
               @for (connection of shownConnections(); track connection.id) {
@@ -350,6 +370,7 @@ const CONTROL =
                       ? (usage().byProvider[connection.id]?.length ?? 0)
                       : null
                   "
+                  [usedByLabels]="usedByLabels()[connection.id] ?? noLabels"
                   [keyUnreadable]="connection.keyUnreadable === true"
                   [connectedAccounts]="
                     isClaudeCli(connection) ? connectedAccounts() : null
@@ -367,50 +388,6 @@ const CONTROL =
                   (checkConnectionRequested)="checkFromCard(connection.id)"
                 />
               }
-              <!-- Prototype tile: the catalog modal from inside the grid. -->
-              <button
-                type="button"
-                [class]="
-                  'flex min-h-[80px] items-center justify-center gap-2 rounded-xl border border-dashed border-base-300 p-3 text-xs font-medium text-base-content hover:border-primary ' +
-                  focusRing
-                "
-                (click)="openCatalog()"
-                data-testid="connect-another-provider"
-              >
-                <span
-                  class="h-2 w-2 rounded-full bg-primary"
-                  aria-hidden="true"
-                ></span>
-                + Connect another provider
-              </button>
-            </div>
-            <!-- Catalog hint strip, directly under the grid (prototype): one row, the names truncate (full list in the
-                 title), "Browse catalog →" right-aligned. -->
-            <div
-              class="flex items-center gap-3 rounded-lg border border-base-300 bg-base-200 px-3 py-2 text-xs text-base-content-muted"
-              data-testid="catalog-hint"
-            >
-              <p
-                class="min-w-0 flex-1 truncate"
-                [attr.title]="catalogHint().names || null"
-                data-testid="catalog-hint-text"
-              >
-                <span class="font-semibold text-base-content">{{
-                  catalogHint().lead
-                }}</span>
-                {{ catalogHint().names }}
-              </p>
-              <button
-                type="button"
-                data-focus="more-providers"
-                [class]="
-                  'btn btn-ghost btn-xs ml-auto min-h-6 shrink-0 font-semibold text-base-content underline ' +
-                  focusRing
-                "
-                (click)="openCatalog()"
-              >
-                Browse catalog →
-              </button>
             </div>
           </section>
         </ptah-surface-section>
@@ -430,7 +407,7 @@ const CONTROL =
         }
 
         @if (state.externalAuth().data?.message; as message) {
-          <p role="status" class="break-words">{{ message }}</p>
+          <p role="status" class="break-words text-sm">{{ message }}</p>
         }
         @if (pageKimiLogin(); as login) {
           <div class="space-y-2" data-testid="providers-kimi-login">
@@ -450,10 +427,10 @@ const CONTROL =
           </div>
         }
         @if (state.externalAuth().status === 'loading') {
-          <p role="status">Waiting for external sign-in…</p>
+          <p role="status" class="text-sm">Waiting for external sign-in…</p>
         }
         @if (state.externalAuth().status === 'error') {
-          <p role="alert">
+          <p role="alert" class="text-sm">
             Sign-in could not be checked. Retry the named provider action.
           </p>
         }
@@ -764,7 +741,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     return commitToast(this.state.commit())?.message ?? '';
   });
   private returnFocus: HTMLElement | null = null;
-  /** What opened the catalog modal ("Connect provider", the tile, "Browse catalog →"). */
+  /** What opened the catalog modal (the "Connect provider" button, or a deep link). */
   private catalogOpener: HTMLElement | null = null;
   /** Deep-linked provider handed to the open wizard and not yet accepted by it. */
   private deepLinkAwaitingAcceptance: string | null = null;
@@ -922,6 +899,18 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       systemClis: clis.status === 'ready' ? clis.data : null,
     });
   });
+  /** Read-only view of `usage()` for the cards: the consumer names behind "Used by N", once usage is complete. */
+  protected readonly usedByLabels = computed<Readonly<Record<string, readonly string[]>>>(() => {
+    const usage = this.usage();
+    if (!usage.complete) return {};
+    return Object.fromEntries(
+      Object.entries(usage.byProvider).map(([id, users]) => [
+        id,
+        users.map((user) => user.label),
+      ]),
+    );
+  });
+  protected readonly noLabels: readonly string[] = [];
   protected readonly usageError = computed(() =>
     [
       this.state.route(),
@@ -962,7 +951,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       retry: () => this.state.refreshEffort(),
     },
   ]);
-  /** Failed reads of the Main Agent region, each with its own "Retry {label}" right under the routing map. */
+  /** Failed reads of the Main Agent region, each with its own "Retry {label}" right under the Main agent block. */
   protected readonly mainReadErrors = computed(() =>
     this.mainReads().filter((read) => read.state.status === 'error'),
   );
@@ -973,9 +962,9 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     ),
   );
   protected readonly readError =
-    'flex flex-wrap items-center gap-2 rounded-md border border-base-content-muted bg-base-100 px-3 py-2 text-xs';
+    'flex flex-wrap items-center gap-2 rounded-md border border-base-content-muted bg-base-100 px-3 py-2 text-sm';
   protected readonly retryControl =
-    'btn btn-outline btn-xs min-h-6 border-base-content-muted text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+    'btn btn-outline btn-sm border-base-content-muted text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
   /** The Connections header filter: matches the connection name or id, case-insensitive. */
   protected readonly filter = signal('');
   protected readonly shownConnections = computed(() => {
@@ -1074,7 +1063,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
         untracked(() => this.openMainPopover(target));
         return;
       }
-      // `more-providers` lands on the catalog modal; focus returns to "Browse catalog →" when it closes.
+      // `more-providers` lands on the catalog modal; focus returns to "Connect provider" when it closes.
       if (target === 'more-providers') {
         this.element.nativeElement
           .querySelector<HTMLElement>('[data-focus="more-providers"]')

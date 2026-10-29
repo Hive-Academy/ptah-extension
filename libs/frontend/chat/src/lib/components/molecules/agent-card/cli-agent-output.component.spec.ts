@@ -310,6 +310,19 @@ describe('unified CLI agent output', () => {
     expect(fixture.nativeElement.querySelector('script')).toBeNull();
   });
 
+  it('renders no Raw stdout disclosure beside a structured tree', () => {
+    const fixture = renderCard(
+      agent({
+        segments: [{ type: 'text', content: 'Working' }],
+        stdout: 'Duplicate raw line',
+      }),
+    );
+    const root: HTMLElement = fixture.nativeElement;
+    expect(root.querySelector('ptah-cli-agent-output details')).toBeNull();
+    expect(root.textContent).not.toContain('Raw stdout');
+    expect(root.textContent).not.toContain('Duplicate raw line');
+  });
+
   it('keeps no-segment raw stdout and stderr visible through the fallback renderer', async () => {
     const fixture = renderCard(
       agent({

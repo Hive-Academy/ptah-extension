@@ -334,6 +334,9 @@ function mount(
       {
         provide: AgentMonitorStore,
         useValue: {
+          pendingHistoryCandidates: signal<
+            ReturnType<AgentMonitorStore['pendingHistoryCandidates']>
+          >([]).asReadonly(),
           agents: agents.asReadonly(),
           agentsForSession: (): MonitoredAgent[] => agents(),
           agentsOwnedBySession: (sid: string): MonitoredAgent[] =>
@@ -558,6 +561,15 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
       await settle();
       expect(dockEl()).toBeNull();
       expect(native().querySelector('ptah-agent-monitor-panel')).not.toBeNull();
+    });
+
+    it('opens the embedded Agents panel for a main-chat transcript request', async () => {
+      h = mount({ electron: false });
+      const panel = h.fixture.debugElement.query(By.directive(StubAgentMonitorPanelComponent))
+        .componentInstance as StubAgentMonitorPanelComponent;
+      h.panelOpenRequest.set({ seq: 1, tabId: null });
+      await settle();
+      expect(panel.embeddedOpen()).toBe(true);
     });
 
     it('HIDE_AGENT_SIDEBAR still hides the VS Code sidebar', async () => {

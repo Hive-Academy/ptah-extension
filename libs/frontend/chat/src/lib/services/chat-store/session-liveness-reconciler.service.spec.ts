@@ -1,11 +1,15 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { ClaudeRpcService, LoggingService, VSCodeService } from '@ptah-extension/core';
 import {
   TabManagerService,
   SessionLivenessRegistry,
 } from '@ptah-extension/chat-state';
-import { TurnStateApplier } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  TurnStateApplier,
+} from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
 import {
   SessionId,
@@ -50,12 +54,17 @@ function makeTurnState(
 describe('SessionLivenessReconcilerService', () => {
   let service: SessionLivenessReconcilerService;
   let tabs: TabState[];
+  const tabsRevision = signal(0);
   let activeWorkspacePath: string | null;
   let callMock: jest.Mock;
   let markStreamingLiveness: jest.Mock;
   let markIdleLiveness: jest.Mock;
   let applyMock: jest.Mock;
-  let warn: jest.SpyInstance;
+  const candidates = signal<
+    readonly { sessionId: string; generation: number }[]
+  >([]);
+  const applyEvidence = jest.fn();
+  const warnMock = jest.fn();
 
   function rpcResult(data: SessionStatusResponse) {
     return { success: true, data, isSuccess: () => true };
@@ -69,7 +78,10 @@ describe('SessionLivenessReconcilerService', () => {
     // No `markStreaming` / `markTabStreaming` on the mock: the reconciler
     // must not write tab status itself any more (TASK_2026_360, Defect 4).
     const tabManagerMock = {
-      tabs: () => tabs,
+      tabs: () => {
+        tabsRevision();
+        return tabs;
+      },
       get activeWorkspacePath() {
         return activeWorkspacePath;
       },
@@ -83,7 +95,15 @@ describe('SessionLivenessReconcilerService', () => {
     TestBed.configureTestingModule({
       providers: [
         SessionLivenessReconcilerService,
+        {
+          provide: AgentMonitorStore,
+          useValue: {
+            pendingHistoryCandidates: candidates,
+            applyHistoryEvidence: applyEvidence,
+          },
+        },
         { provide: ClaudeRpcService, useValue: rpcMock },
+        { provide: LoggingService, useValue: { warn: warnMock } },
         { provide: VSCodeService, useValue: vscodeMock },
         { provide: TabManagerService, useValue: tabManagerMock },
         { provide: SessionLivenessRegistry, useValue: livenessMock },
@@ -95,18 +115,165 @@ describe('SessionLivenessReconcilerService', () => {
 
   beforeEach(() => {
     tabs = [];
+    tabsRevision.set(0);
     activeWorkspacePath = null;
     callMock = jest.fn();
     markStreamingLiveness = jest.fn();
     markIdleLiveness = jest.fn();
     applyMock = jest.fn();
-    warn = jest.spyOn(console, 'warn').mockImplementation();
+    candidates.set([]);
+    applyEvidence.mockReset();
+    warnMock.mockReset();
     configure(WS);
   });
 
   afterEach(() => {
-    warn.mockRestore();
     TestBed.resetTestingModule();
+  });
+
+  it.each([
+    ['inactive', { isActive: false, isStreaming: false }, 'inactive'],
+    [
+      'idle',
+      {
+        isActive: true,
+        isStreaming: true,
+        turnState: makeTurnState({ phase: 'idle' }),
+      },
+      'inactive',
+    ],
+    [
+      'sleeping',
+      {
+        isActive: true,
+        isStreaming: true,
+        turnState: makeTurnState({ phase: 'sleeping' }),
+      },
+      'inactive',
+    ],
+    [
+      'live',
+      { isActive: true, isStreaming: true, turnState: makeTurnState() },
+      'live',
+    ],
+    ['unknown', { isActive: true, isStreaming: true }, undefined],
+  ] as const)(
+    'maps %s evidence without reading the liveness registry',
+    async (_name, data, expected) => {
+      candidates.set([{ sessionId: SESS_IDLE, generation: 3 }]);
+      callMock.mockResolvedValue(rpcResult(data));
+      await service.reconcileTab('tab', SESS_IDLE);
+      if (expected)
+        expect(applyEvidence).toHaveBeenCalledWith(SESS_IDLE, 3, expected);
+      else expect(applyEvidence).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([undefined, { success: false }, { success: true }])(
+    'leaves unknown answers pending: %j',
+    async (response) => {
+      candidates.set([{ sessionId: SESS_IDLE, generation: 1 }]);
+      callMock.mockResolvedValue(response);
+      await service.reconcileTab('tab', SESS_IDLE);
+      expect(applyEvidence).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps failed candidates pending and re-probes after a new history registration', async () => {
+    tabs = [makeTab({ claudeSessionId: SESS_IDLE })];
+    candidates.set([{ sessionId: SESS_IDLE, generation: 1 }]);
+    callMock.mockRejectedValueOnce(new Error('offline'));
+    TestBed.flushEffects();
+    await Promise.resolve();
+    expect(applyEvidence).not.toHaveBeenCalled();
+    callMock.mockResolvedValue(
+      rpcResult({
+        isActive: true,
+        isStreaming: true,
+        turnState: makeTurnState({ phase: 'awaiting-background' }),
+      }),
+    );
+    candidates.set([{ sessionId: SESS_IDLE, generation: 2 }]);
+    TestBed.flushEffects();
+    await Promise.resolve();
+    expect(applyEvidence).toHaveBeenCalledWith(SESS_IDLE, 2, 'live');
+  });
+
+  it('retries a failed probe once when candidates change at the same generation', async () => {
+    tabs = [makeTab({ claudeSessionId: SESS_IDLE })];
+    candidates.set([{ sessionId: SESS_IDLE, generation: 1 }]);
+    callMock.mockRejectedValueOnce(new Error('offline')).mockResolvedValue(
+      rpcResult({ isActive: false, isStreaming: false }),
+    );
+    TestBed.flushEffects();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(callMock).toHaveBeenCalledTimes(1);
+
+    candidates.set([{ sessionId: SESS_IDLE, generation: 1 }]);
+    TestBed.flushEffects();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(callMock).toHaveBeenCalledTimes(2);
+    expect(applyEvidence).toHaveBeenCalledWith(SESS_IDLE, 1, 'inactive');
+    candidates.set([{ sessionId: SESS_IDLE, generation: 1 }]);
+    TestBed.flushEffects();
+    expect(callMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['unknown response', rpcResult({ isActive: true, isStreaming: true }), 2],
+    ['failed RPC', new Error('offline'), 2],
+  ] as const)(
+    'bounds status probes after repeated tab updates: %s',
+    async (_case, response, expectedCalls) => {
+      tabs = [makeTab({ claudeSessionId: SESS_IDLE })];
+      candidates.set([{ sessionId: SESS_IDLE, generation: 1 }]);
+      if (response instanceof Error) callMock.mockRejectedValue(response);
+      else callMock.mockResolvedValue(response);
+
+      TestBed.flushEffects();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      for (let i = 0; i < 5; i++) {
+        tabs = [...tabs];
+        tabsRevision.update((revision) => revision + 1);
+        TestBed.flushEffects();
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+
+      expect(callMock).toHaveBeenCalledTimes(expectedCalls);
+      expect(applyEvidence).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not attach a delayed status answer to a newer registration', async () => {
+    let resolve!: (value: ReturnType<typeof rpcResult>) => void;
+    candidates.set([{ sessionId: SESS_IDLE, generation: 1 }]);
+    callMock.mockReturnValue(
+      new Promise<ReturnType<typeof rpcResult>>((done) => {
+        resolve = done;
+      }),
+    );
+    const pending = service.reconcileTab('tab', SESS_IDLE);
+    candidates.set([{ sessionId: SESS_IDLE, generation: 2 }]);
+    resolve(rpcResult({ isActive: false, isStreaming: false }));
+    await pending;
+    expect(applyEvidence).toHaveBeenCalledWith(SESS_IDLE, 1, 'inactive');
+  });
+
+  it('probes each registration once and captures its generation before awaiting', async () => {
+    tabs = [makeTab({ claudeSessionId: SESS_IDLE })];
+    candidates.set([{ sessionId: SESS_IDLE, generation: 1 }]);
+    callMock.mockResolvedValue(
+      rpcResult({ isActive: false, isStreaming: false }),
+    );
+    TestBed.flushEffects();
+    await Promise.resolve();
+    TestBed.flushEffects();
+    expect(callMock).toHaveBeenCalledTimes(1);
+    candidates.set([{ sessionId: SESS_IDLE, generation: 2 }]);
+    TestBed.flushEffects();
+    await Promise.resolve();
+    expect(callMock).toHaveBeenCalledTimes(2);
+    expect(applyEvidence).toHaveBeenCalledWith(SESS_IDLE, 2, 'inactive');
   });
 
   it('applies the backend turnState through TurnStateApplier as a synthetic turn_state event', async () => {
@@ -227,14 +394,13 @@ describe('SessionLivenessReconcilerService', () => {
 
     await expect(service.reconcileRestoredTabs()).resolves.toBeUndefined();
 
-    expect(warn).toHaveBeenCalledWith(
-      '[SessionLivenessReconciler] probe failed; leaving tab as restored',
-      expect.objectContaining({ sessionId: SESS_REJECT }),
-    );
     expect(applyMock).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: SESS_STREAM }),
       `tab-${SESS_STREAM}`,
       { ordered: false },
+    );
+    expect(warnMock).toHaveBeenCalledWith(
+      'SessionLivenessReconciler', 'probe failed', expect.any(Error),
     );
   });
 
@@ -269,10 +435,22 @@ describe('SessionLivenessReconcilerService', () => {
   });
 
   it('reconcileTab probes only the requested tab through the unordered turn-state path', async () => {
-    callMock.mockResolvedValue(rpcResult({ isActive: true, isStreaming: true, turnState: makeTurnState() }));
+    callMock.mockResolvedValue(
+      rpcResult({
+        isActive: true,
+        isStreaming: true,
+        turnState: makeTurnState(),
+      }),
+    );
     await service.reconcileTab('tab-target', SESS_STREAM);
     expect(callMock).toHaveBeenCalledTimes(1);
-    expect(callMock).toHaveBeenCalledWith('session:status', { sessionId: SESS_STREAM });
-    expect(applyMock).toHaveBeenCalledWith(expect.objectContaining({ sessionId: SESS_STREAM }), 'tab-target', { ordered: false });
+    expect(callMock).toHaveBeenCalledWith('session:status', {
+      sessionId: SESS_STREAM,
+    });
+    expect(applyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: SESS_STREAM }),
+      'tab-target',
+      { ordered: false },
+    );
   });
 });

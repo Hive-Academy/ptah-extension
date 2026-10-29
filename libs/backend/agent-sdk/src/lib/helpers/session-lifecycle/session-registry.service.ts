@@ -50,6 +50,11 @@ export type SessionAccountBinding = Readonly<
   >
 >;
 
+export interface QueuedUserTurn {
+  readonly message: SDKUserMessage;
+  readonly clientMessageId?: string;
+}
+
 export interface SessionRecord {
   /** Admitted launch identity. Contains no config directory or credentials. */
   readonly accountBinding?: SessionAccountBinding;
@@ -75,7 +80,28 @@ export interface SessionRecord {
   /** Abort controller for this session. Immutable after register. */
   readonly abortController: AbortController;
   /** Queued user messages awaiting the streaming pump. */
-  messageQueue: SDKUserMessage[];
+  messageQueue: QueuedUserTurn[];
+  awaitingEcho: QueuedUserTurn | null;
+  currentTurnClientMessageId: string | null;
+  currentTurnUserMessageUuid?: string | null;
+  lastResultWasInterruptedLate?: boolean;
+  /** Increments when the pump yields a turn; identifies result and interrupt ownership. */
+  yieldSequence?: number;
+  /** Yield whose result arrived before its expected echo. */
+  resultYieldSequence?: number | null;
+  interruptRetirement: string | null;
+  /** Retirements displaced by a later yielded turn, drained in queue order. */
+  displacedRetirements?: string[];
+  /** Wakes the flat-event stream while its SDK iterator is parked. */
+  retirementWake?: (() => void) | null;
+  resultCount?: number;
+  /**
+   * True when the CLI echoes each user message (`--replay-user-messages`, set
+   * only with file checkpointing). Without echoes no result may wait for one.
+   */
+  echoesUserMessages?: boolean;
+  interruptAwaitingResultYieldSequence: number | null;
+  interruptedTurnUserMessageUuid?: string | null;
   /** Callback to wake the streaming iterator when a message arrives. */
   resolveNext: (() => void) | null;
   /**
@@ -279,6 +305,13 @@ export class SessionRegistry {
       config,
       abortController,
       messageQueue: [],
+      awaitingEcho: null,
+      currentTurnClientMessageId: null,
+      interruptRetirement: null,
+      interruptAwaitingResultYieldSequence: null,
+      yieldSequence: 0,
+      resultYieldSequence: null,
+      resultCount: 0,
       resolveNext: null,
       turnInFlight: false,
       currentModel: config.model || '',

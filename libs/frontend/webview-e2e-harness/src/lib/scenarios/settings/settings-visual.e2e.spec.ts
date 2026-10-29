@@ -124,16 +124,18 @@ async function bottomOf(page: Page, selector: string): Promise<number> {
   return Math.round((box?.y ?? 0) + (box?.height ?? 0));
 }
 
-type FoldRegion = 'tabs' | 'map' | 'heading' | 'card5';
+type FoldRegion = 'tabs' | 'main' | 'heading' | 'card5';
 
 /**
  * THE per-host Providers fold budget. Source: task.md "Gate V 28 (2026-10-01, user)" (the user asked for "the most
  * visible and clean layout"; orchestrator choice recorded there).
- * - VS Code keeps the full plan budget (plan §6 :1045-1048): the tabs, routing map, Connections heading and 5th card
- *   end at or above 660 px; 3 columns at 1024 px; at least 2 at 800 px.
- * - Electron's page is about 670 px wide beside the shell sidebar: 2 columns of 80 px cards, the routing map's third
- *   node on a full row, and the tabs, routing map and Connections heading at or above 660 px (card 5 is below the
- *   fold by that decision); at least 1 column at 800 px.
+ * - VS Code: the tabs, the Main agent section and the Connections heading end at or above 660 px; at least 2 columns
+ *   at 800 px. Settings UI polish: connections are 22rem list rows, so the page holds 2 columns at 1024 px (was 3
+ *   cards of 15rem); card 5 is on the third list row, below the fold, as in Electron (it was enforced only while 3
+ *   card columns put it on the second row).
+ * - Electron's page is about 670 px wide beside the shell sidebar: 1 column of list rows (Settings UI polish; was 2
+ *   columns of 15rem cards), and the tabs, the Main agent section and the Connections heading at or above 660 px
+ *   (card 5 is below the fold by that decision); at least 1 column at 800 px.
  * Both hosts: nothing scrolled, every card at most 80 px, and no horizontal overflow at 800 px.
  */
 const FOLD_BUDGET: Readonly<
@@ -149,14 +151,14 @@ const FOLD_BUDGET: Readonly<
 > = {
   vscode: {
     maxBottom: 660,
-    regions: ['tabs', 'map', 'heading', 'card5'],
-    columnsAt1024: 3,
+    regions: ['tabs', 'main', 'heading'],
+    columnsAt1024: 2,
     minColumnsAt800: 2,
   },
   electron: {
     maxBottom: 660,
-    regions: ['tabs', 'map', 'heading'],
-    columnsAt1024: 2,
+    regions: ['tabs', 'main', 'heading'],
+    columnsAt1024: 1,
     minColumnsAt800: 1,
   },
 };
@@ -177,7 +179,7 @@ async function assertProvidersFold(
   }));
   const bottoms: Record<FoldRegion, number> = {
     tabs: await bottomOf(page, '[data-testid="settings-tabs"]'),
-    map: await bottomOf(page, '[data-testid="routing-map"]'),
+    main: await bottomOf(page, '[data-testid="main-agent-section"]'),
     heading: await bottomOf(page, '#providers-connections-heading'),
     card5: Math.round(
       await cards
@@ -301,8 +303,8 @@ async function assertOrderStripWhole(
 }
 
 /**
- * Batch 27b deviation 6 / Batch 28: an open popover is painted above everything on the page, the routing-map
- * node badges included. The top-most element at the centre of each popover row must belong to the popover.
+ * Batch 27b deviation 6 / Batch 28: an open popover is painted above everything on the page, the Main agent
+ * section's badges included. The top-most element at the centre of each popover row must belong to the popover.
  */
 async function assertPopoverOnTop(
   page: Page,
@@ -329,7 +331,7 @@ async function assertPopoverOnTop(
 }
 
 /**
- * Batch 30: the CLI matrix (table-xs) and its Codex model, effort and permission popovers, each captured open and
+ * Batch 30: the CLI matrix (table-sm) and its Codex model, effort and permission popovers, each captured open and
  * fully on screen, then closed with Esc (the model search closes its list first). Row heights are logged; the
  * Orchestration fold is asserted in `assertOrchestrationFold` (Batch 36).
  */
@@ -546,7 +548,7 @@ type OrchestrationFoldRegion =
  * (6 installed CLIs / instances, 2 uninstalled; Grok became the sixth in TASK_2026_617). Ratchet (execution default 3), the track B
  * `SEARCH_VOICE_FOLD_ENFORCED` pattern. Every region was enforced in both hosts while the matrix opened the Agent
  * Orchestration tab (Batch 36b). The Context Management regroup moved the matrix and the roles onto Providers, below
- * Routing Map + Connections, so they start below the 660 px fold by design: no region is enforced, every bottom is
+ * the Main agent and Connections, so they start below the 660 px fold by design: no region is enforced, every bottom is
  * still measured, logged and annotated as `fold-pending`.
  */
 const ORCHESTRATION_FOLD = 660;
@@ -559,7 +561,7 @@ const ORCHESTRATION_FOLD_REGIONS: Readonly<
 
 /**
  * Batch 36 fold gate for the CLI matrix, per host (`ORCHESTRATION_FOLD_REGIONS`): nothing scrolled, the reference set
- * (6 installed rows, 2 uninstalled), both tables `table-xs`, the roles `<details>` closed, and the enforced region
+ * (6 installed rows, 2 uninstalled), the matrix `table-sm`, the roles `<details>` closed, and the enforced region
  * bottoms at or above 660 px. Every number (bottoms, matrix row heights) is logged for the report, enforced or not.
  */
 async function assertOrchestrationFold(
@@ -610,6 +612,10 @@ async function assertOrchestrationFold(
       'tbody:not([data-testid="cli-matrix-uninstalled"]) tr[data-testid^="cli-matrix-row-"]',
     )
     .count();
+  // The Ptah CLI instances sit under the table in their own sub-section (one card each).
+  const instances = await page
+    .locator('[data-testid="cli-instances"] li[data-kind="instance"]')
+    .count();
   // Decision 1: the group is collapsed by default; its disclosure carries the count ("Uninstalled CLI agents (2)").
   const uninstalledToggle = matrix.locator(
     '[data-testid="cli-matrix-uninstalled-toggle"]',
@@ -631,15 +637,19 @@ async function assertOrchestrationFold(
   console.log(
     `B36 fold orchestration ${host}/${theme}: scroll ${scroll.window}/${scroll.page}; bottoms policy bar ${bottoms.policyBar}, ` +
       `matrix header ${bottoms.matrixHeader}, first row ${bottoms.firstRow}, roles summary ${bottoms.rolesSummary} (budget ${ORCHESTRATION_FOLD}); ` +
-      `reference set ${installed}+${uninstalled} (collapsed); uninstalled header ${uninstalledHeader}; row heights ${rowHeights.join(', ')}; ` +
+      `reference set ${installed}+${instances}+${uninstalled} (system+instances+uninstalled collapsed); uninstalled header ${uninstalledHeader}; row heights ${rowHeights.join(', ')}; ` +
       `over: ${over.length ? over.join('; ') : 'none'}`,
   );
   expect(scroll).toEqual({ window: 0, page: 0 });
-  expect({ installed, uninstalled }, 'the 6+2 reference set').toEqual({
-    installed: 6,
+  expect(
+    { installed, instances, uninstalled },
+    'the 6+2 reference set (5 system rows and 1 instance card, 2 uninstalled)',
+  ).toEqual({
+    installed: 5,
+    instances: 1,
     uninstalled: 2,
   });
-  await expect(matrix).toHaveClass(/\btable-xs\b/);
+  await expect(matrix).toHaveClass(/\btable-sm\b/);
   const consumers = page.locator('[data-testid="consumer-table"]');
   await expect(consumers).toHaveClass(/\bgrid\b/);
   await expect(consumers).toHaveClass(/\bgap-2\b/);
@@ -900,61 +910,46 @@ for (const host of ['vscode', 'electron'] as const) {
       await captureMatrixPopovers(page, host, theme);
     });
 
-    test(`baseline smoke — Providers fold and routing map (${host}, ${theme})`, async ({
+    test(`baseline smoke — Providers fold and Main agent section (${host}, ${theme})`, async ({
       page,
       fixtureServer,
     }) => {
       await openSettingsAt(page, fixtureServer.url, host, theme, 'Providers');
       // Batch 28: the fold gate, in both hosts (Q-extra-1: container-width columns, 80 px cards everywhere).
       await test.step('fold', () => assertProvidersFold(page, host, theme));
-      // Batch 25: the routing map's three work nodes (deferred chunk; wait for it, not its placeholder).
-      const nodes = page.locator(
-        '[data-testid^="routing-node-"][data-testid$="agent"], [data-testid="routing-node-background-roles"], [data-testid="routing-node-cli-agents"]',
+      // The Main agent and Connections share one card (deferred chunk; wait for the block, not its placeholder): the
+      // Main agent block is as wide as the Connections block and above it.
+      const sharedCard = page.locator(
+        '[data-testid="providers-main-connections-card"]',
       );
-      await expect(page.locator('[data-testid="routing-map"]')).toBeVisible();
-      await expect(nodes).toHaveCount(3);
-      const nodeBoxes = await nodes.evaluateAll((all) =>
-        all.map((node) => {
-          const box = node.getBoundingClientRect();
-          return {
-            w: Math.round(box.width),
-            h: Math.round(box.height),
-            top: Math.round(box.top),
-          };
-        }),
+      const mainSection = sharedCard.locator(
+        '[data-testid="main-agent-section"]',
       );
-      const nodeColumns = await page
-        .locator('[data-testid="routing-map-nodes"]')
-        .evaluate(
-          (grid) =>
-            getComputedStyle(grid).gridTemplateColumns.split(' ').length,
-        );
+      await expect(mainSection).toBeVisible();
+      await expect(
+        sharedCard.locator('[data-testid="providers-connections-card"]'),
+      ).toHaveCount(1);
+      const [mainBox, connectionsBox] = await Promise.all([
+        mainSection.boundingBox(),
+        page.locator('[data-testid="providers-connections-card"]').boundingBox(),
+      ]);
       console.log(
-        `B25 nodes ${host}/${theme}: ${nodeBoxes.map((b) => `${b.w}x${b.h}@${b.top}`).join(', ')}, ${nodeColumns} columns`,
+        `main agent section ${host}/${theme}: ${Math.round(mainBox?.width ?? 0)}x${Math.round(mainBox?.height ?? 0)}`,
       );
-      // Container-width columns (Q-extra-1 rule): 3 side by side in VS Code, 2 in Electron's narrower page, where the
-      // third node spans the full row (task.md "Gate V 28"): no half-width node beside an empty half row.
-      expect(nodeColumns).toBe(host === 'vscode' ? 3 : 2);
-      const gridWidth = await page
-        .locator('[data-testid="routing-map-nodes"]')
-        .evaluate((grid) => grid.getBoundingClientRect().width);
-      if (host === 'electron')
-        expect(
-          Math.abs(nodeBoxes[2].w - Math.round(gridWidth)),
-        ).toBeLessThanOrEqual(1);
-      // Gate V 28 (prototype header): the status pill and badges sit beside the title. Since Batch 52.6 every title is
-      // one line (16 px leading); a layer badge that does not fit moves, whole, to the next line under it.
-      for (const height of await page
-        .locator('[data-testid="routing-map"] h3')
-        .evaluateAll((all) =>
-          all.map((h) => h.getBoundingClientRect().height),
-        )) {
-        expect(height).toBeLessThanOrEqual(17);
-      }
+      expect(Math.abs((mainBox?.width ?? 0) - (connectionsBox?.width ?? 0))).toBeLessThanOrEqual(1);
+      expect((mainBox?.y ?? 0) + (mainBox?.height ?? 0)).toBeLessThanOrEqual(connectionsBox?.y ?? 0);
+      // Gate V 28 (prototype header): the status pill and badges sit beside the title. The title is one line: 20 px
+      // leading since the Settings UI polish (text-base, leading-5; was 16 px); a layer badge that does not fit moves,
+      // whole, to the next line under it.
+      expect(
+        await page
+          .locator('[data-testid="routing-node-title"]')
+          .evaluate((h) => h.getBoundingClientRect().height),
+      ).toBeLessThanOrEqual(21);
       const titleRow = await page
         .locator('[data-testid="routing-node-main-agent"]')
         .evaluate((node) => ({
-          title: node.querySelector('h3')?.getBoundingClientRect() ?? null,
+          title: node.querySelector('[data-testid="routing-node-title"]')?.getBoundingClientRect() ?? null,
           badges: Array.from(
             node.querySelectorAll(
               '[data-testid="routing-node-status"], [data-testid="main-scope-layer"]',
@@ -972,7 +967,7 @@ for (const host of ['vscode', 'electron'] as const) {
       const headFit = await page
         .locator('[data-testid="routing-node-main-agent"]')
         .evaluate((node) => ({
-          title: node.querySelector('h3')?.getBoundingClientRect().height ?? 0,
+          title: node.querySelector('[data-testid="routing-node-title"]')?.getBoundingClientRect().height ?? 0,
           overflow: Math.max(
             0,
             ...Array.from(
@@ -989,7 +984,7 @@ for (const host of ['vscode', 'electron'] as const) {
             ),
           ).some((badge) => badge.scrollWidth > badge.clientWidth + 1),
         }));
-      expect(headFit.title).toBeLessThanOrEqual(17);
+      expect(headFit.title).toBeLessThanOrEqual(21);
       expect(headFit.overflow).toBeLessThanOrEqual(0.5);
       expect(headFit.clipped).toBe(false);
       // "PROVIDER:" / "MODEL:" start on the value's first line, and the value is shown whole (Batch 28b: it may wrap in
@@ -1012,8 +1007,10 @@ for (const host of ['vscode', 'electron'] as const) {
         console.log(
           `B28b ${row} ${host}/${theme}: ${layout.lines} line(s), overflow ${layout.overflow}`,
         );
+        // Baseline-aligned on one line. Settings UI polish: the provider value is 16 px (text-base, 24 px line) beside
+        // a 12 px label, which puts the label's box about 5 px lower than the value's (was within 4 px).
         expect(Math.abs(layout.labelTop - layout.valueTop)).toBeLessThanOrEqual(
-          4,
+          6,
         );
         expect(layout.overflow).toBeLessThanOrEqual(0);
       }
@@ -1195,7 +1192,7 @@ for (const host of ['vscode', 'electron'] as const) {
       await badges.first().click();
       await expect(page.locator('[data-testid="scope-popover"]')).toBeVisible();
       await waitForSettled(page);
-      // Batch 27b deviation 6: no routing-map node badge may paint over the open scope popover.
+      // Batch 27b deviation 6: no Main agent badge may paint over the open scope popover.
       await assertPopoverOnTop(
         page,
         '[data-testid="scope-popover"]',
@@ -1349,7 +1346,9 @@ for (const host of ['vscode', 'electron'] as const) {
         'Workspace override',
       ]);
       const head = await node.evaluate((element) => {
-        const title = element.querySelector('h3')?.getBoundingClientRect();
+        const title = element
+          .querySelector('[data-testid="routing-node-title"]')
+          ?.getBoundingClientRect();
         const badges = Array.from(
           element.querySelectorAll<HTMLElement>(
             '[data-testid="main-scope-layer"]',
@@ -1373,14 +1372,15 @@ for (const host of ['vscode', 'electron'] as const) {
       console.log(
         `B52 main node head ${host}/${theme}: title h ${Math.round(head.titleHeight)}, layer tops ${head.tops.map(Math.round).join(',')}, overflow ${Math.round(head.overflow)}, node h ${Math.round(head.nodeHeight)}`,
       );
-      expect(head.titleHeight).toBeLessThanOrEqual(17);
+      // One line: 20 px leading since the Settings UI polish (sentence-case text-base title; was 16 px uppercase).
+      expect(head.titleHeight).toBeLessThanOrEqual(21);
       // Whole badges wrap under the title: in the 261 px VS Code node each of the two takes its own line (two badge
       // lines); in Electron the first fits beside the title. Never more than two lines under the title.
       for (const top of head.tops)
         expect(top).toBeLessThan(head.titleBottom + 56);
       expect(head.overflow).toBeLessThanOrEqual(0.5);
       expect(head.clipped).toBe(false);
-      // The Gate V 28 fold still holds with the taller node (VS Code card 5, Electron map + Connections heading).
+      // The Gate V 28 fold still holds with the taller node (tabs, map and Connections heading in both hosts).
       await assertProvidersFold(page, host, theme);
       await capture(page, 'live-providers', host, theme);
       // The workspace layer's popover lists its two fields by name (D16); Esc returns focus to the layer badge.
