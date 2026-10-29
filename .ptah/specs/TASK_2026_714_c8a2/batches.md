@@ -4379,7 +4379,7 @@ both fields (8q-3a spec).
   `markInactive(nextIdentity)` fails during a close, the new-fingerprint row stays `active`
   (codex-context.ts:815-822, :971-973); the context is closed, and the flag is not liveness.
 
-## Batch 8q-3b: Adapter and identity store follow the live level (agent-sdk) — PENDING
+## Batch 8q-3b: Adapter and identity store follow the live level (agent-sdk) — COMPLETE (commit: the "batch 8q-3b" commit; security-review-8q-3b.md APPROVE 8/10 by codex; verify agent-sdk PASS)
 
 - Recommended executor: CLI lane grok | sequential | Depends on: 8q-3a; after 8q-1 is committed
   (same project)
@@ -4399,6 +4399,16 @@ both fields (8q-3a spec).
 ### Task 8q-3b.3: the identity store accepts the re-persist — PENDING
 - Same thread, context and generation with a new fingerprint -> stored; a different thread is
   still refused.
+
+### 8q-3b result (grok lane; batch-8q-3b-report.md)
+
+- The sink reads `context.turnPermissionLevel` (codex-chat-adapter.ts:474). The store already
+  accepted the re-persist, so only a pinning spec was added (codex-thread-identity-store.spec.ts:160).
+  The coordinator fixed one spec type error (read-only property set with `Object.defineProperty`,
+  codex-chat-adapter.spec.ts:697). Verify agent-sdk PASS.
+- security-review-8q-3b.md (codex) APPROVE 8/10, M3 CLOSED. Minors recorded, not fixed: after a
+  close the getter still returns the last level (bridge and sink are disposed, so no reachable
+  grant); the adapter spec moves the mock level by hand instead of a real runtime turn.
 
 ## Batch 8q-3c: Controls contract with a live level change (rpc-handlers specs) — PENDING
 

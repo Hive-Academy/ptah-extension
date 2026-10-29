@@ -157,6 +157,24 @@ describe('createCodexThreadIdentityStore', () => {
     });
   });
 
+  it('stores a new profile fingerprint for the same thread and still refuses a different context', async () => {
+    const { metadata, store } = await fixture();
+    await store.persist(identity);
+    const revised = { ...identity, profileFingerprint: 'fingerprint-2' };
+    await expect(store.persist(revised)).resolves.toBeUndefined();
+    await expect(store.read('context-1')).resolves.toEqual(revised);
+    expect((await metadata.get(threadId))?.codexThread).toMatchObject({
+      contextId: 'context-1',
+      processGeneration: 1,
+      profileFingerprint: 'fingerprint-2',
+      state: 'active',
+    });
+    await expect(
+      store.persist({ ...revised, contextId: 'context-2' }),
+    ).rejects.toMatchObject({ code: 'context-mismatch' });
+    await expect(store.read('context-1')).resolves.toEqual(revised);
+  });
+
   it('refuses a stale generation or a different context for the same thread', async () => {
     const { store } = await fixture();
     await store.persist({ ...identity, processGeneration: 2 });

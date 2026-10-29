@@ -666,8 +666,8 @@ describe('CodexChatAdapter', () => {
       ),
     ).resolves.toBe('decline');
   });
-  it('uses the live session permission level for chat read approvals', async () => {
-    const { adapter, ports, sink } = setup();
+  it('keeps the active turn permission level in the sink until the next turn', async () => {
+    const { adapter, ports, sink, context } = setup();
     await adapter.startChatSession({ tabId });
     const request = {
       ...identity,
@@ -680,9 +680,24 @@ describe('CodexChatAdapter', () => {
     await expect(sink().request(request, new AbortController().signal))
       .resolves.toBe('accept');
     expect(ports.presentation.present).not.toHaveBeenCalled();
-    await adapter.setSessionPermissionLevel(id, 'plan');
+    // A mid-turn change resolves and is stored for later. The sink reads the
+    // turn snapshot, which stays 'ask' until the runtime advances it.
+    await expect(adapter.setSessionPermissionLevel(id, 'plan')).resolves.toBeUndefined();
+    expect(context.updateNextTurn).toHaveBeenCalledWith({
+      permissionLevel: 'plan',
+    });
+    expect(context.turnPermissionLevel).toBe('ask');
+    await expect(
+      sink().request(
+        { ...request, requestId: 32 },
+        new AbortController().signal,
+      ),
+    ).resolves.toBe('accept');
+    expect(ports.presentation.present).not.toHaveBeenCalled();
+    Object.defineProperty(context, 'turnPermissionLevel', { value: 'plan' });
     const pending = sink().request(
-      { ...request, requestId: 32 }, new AbortController().signal,
+      { ...request, requestId: 33 },
+      new AbortController().signal,
     );
     expect(ports.presentation.present).toHaveBeenCalledTimes(1);
     await adapter.reset();

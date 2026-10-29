@@ -471,7 +471,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
         },
       },
       this.ports.logger,
-      () => getSession()?.settings.permissionLevel,
+      () => context.turnPermissionLevel,
       this.ports.platform.platform,
       threadCwd,
       this.ports.resolveApprovalPath,
