@@ -156,9 +156,7 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     expect(fixture.debugElement.query(By.css('.chat-footer'))).toBeNull();
     expect(bubble.nativeElement.classList.contains('surface-2')).toBe(false);
     expect(bubble.nativeElement.classList.contains('surface-1')).toBe(false);
-    expect(bubble.nativeElement.classList.contains('ml-auto')).toBe(true);
-    expect(bubble.nativeElement.classList.contains('max-w-[min(75%,40rem)]')).toBe(true);
-    expect(bubble.nativeElement.classList.contains('shadow-none')).toBe(true);
+    expect(bubble.nativeElement.classList.contains('cs-own-user-bubble')).toBe(true);
   });
 
   it('does NOT render branch/rewind buttons for assistant role messages', () => {
@@ -215,6 +213,22 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('[data-testid="assistant-turn-header"]')).toHaveLength(1);
     expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')?.textContent).toContain('Ptah');
+  });
+
+  it('omits the Ptah header for a lane agent while retaining it in the main transcript', () => {
+    const message = createExecutionChatMessage({ id: 'lane-answer', role: 'assistant', rawContent: 'done' });
+    setSettledTurn(message);
+    fixture.componentRef.setInput('agentTileMode', true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')).not.toBeNull();
+    fixture.componentRef.setInput('userActions', false);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')).toBeNull();
+  });
+
+  it('does not put a header above an empty assistant answer', () => {
+    setSettledTurn(createExecutionChatMessage({ id: 'empty', role: 'assistant', rawContent: '' }));
+    expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')).toBeNull();
   });
 
   it('renders assistant answers without a divider class or horizontal rule', () => {
@@ -512,6 +526,9 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
           .query(By.css('[data-testid="chat-peer-message"]'))
           .nativeElement.classList.contains('border-secondary'),
       ).toBe(true);
+      const bubble = fixture.nativeElement.querySelector('[data-testid="chat-peer-message"]') as HTMLElement;
+      expect(bubble.classList.contains('border-l-4')).toBe(true);
+      expect(bubble.classList.contains('cs-own-user-bubble')).toBe(false);
     });
 
     it('routes the body through <markdown>, not innerHTML', () => {

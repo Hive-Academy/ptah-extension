@@ -3554,18 +3554,18 @@ END OF ANUBIS DESIGN SYSTEM
 }
 /* The transcript column is the one reading plane of a conversation: it carries
    the local text scrim over the tinted scene. Every other scrim surface inside
-   it (content cards, the answer cards, assistant chat bubbles) goes clear, so
+   it (content cards and assistant chat bubbles) goes clear, so
    no plate stacks on a plate; they keep their padding and bubbles keep their
    frame. Painted only once a message exists, so an empty transcript draws no
    empty card. The user bubble keeps its accent tint, code keeps
    --glass-code and the composer keeps --glass-fill-input. */
-:root[data-theme][data-glass='on'] ptah-chat-transcript .chat-scroll-content:has(> .chat-msg-slot) {
+:root[data-theme][data-glass='on'] :is(ptah-chat-transcript, ptah-lane-transcript) .chat-scroll-content:has(> .chat-msg-slot) {
   background: var(--glass-scrim-text);
   border-radius: var(--glass-radius);
   padding-inline: var(--sidebar-spacing-md);
   padding-bottom: var(--sidebar-spacing-md);
 }
-:root[data-theme][data-glass='on'] ptah-chat-transcript .chat-scroll-content:has(> .chat-msg-slot) :is([data-glass-surface='content'], .chat-bubble:not(.chat-bubble-primary):not(.cs-user-bubble)) {
+:root[data-theme][data-glass='on'] :is(ptah-chat-transcript, ptah-lane-transcript) .chat-scroll-content:has(> .chat-msg-slot) :is([data-glass-surface='content'], .chat-bubble:not(.chat-bubble-primary):not(.cs-user-bubble)) {
   background: transparent;
   box-shadow: none;
 }
@@ -3788,13 +3788,18 @@ ptah-lane-event article {
 :root[data-glass='on'] ptah-lane-event article {
   box-shadow: inset 0 1px 0 var(--glass-glint);
 }
-:root[data-glass='on'] ptah-message-bubble .cs-user-bubble {
+:root[data-glass='on'] ptah-message-bubble .cs-own-user-bubble {
   background: oklch(var(--p) / 0.1);
   border-color: oklch(var(--p) / 0.2);
   box-shadow: none;
 }
-ptah-message-bubble .cs-user-bubble,
-ptah-chat-transcript .cs-user-bubble,
-ptah-lane-transcript .cs-user-bubble {
+:root[data-glass='on'] ptah-message-bubble .cs-peer-chat .cs-user-bubble {
+  background: var(--glass-bubble-user);
+  border-color: oklch(var(--s));
+  box-shadow: inset 0 1px 0 var(--glass-glint);
+}
+ptah-message-bubble .cs-own-user-bubble,
+ptah-chat-transcript .cs-own-user-bubble,
+ptah-lane-transcript .cs-own-user-bubble {
   box-shadow: none;
 }

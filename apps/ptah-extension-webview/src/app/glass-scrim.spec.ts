@@ -182,10 +182,10 @@ describe('glass scene tint', () => {
   });
 
   it('paints the transcript column scrim only once a message exists, and clears the plates inside it', () => {
-    const column = block(/:root\[data-theme\]\[data-glass='on'\] ptah-chat-transcript \.chat-scroll-content:has\(> \.chat-msg-slot\)/);
+    const column = block(/:root\[data-theme\]\[data-glass='on'\] :is\(ptah-chat-transcript, ptah-lane-transcript\) \.chat-scroll-content:has\(> \.chat-msg-slot\)/);
     expect(column).toContain('background: var(--glass-scrim-text);');
     expect(css).not.toMatch(/ptah-chat-transcript \.chat-scroll-content\s*\{[^}]*--glass-scrim-text/);
-    const inner = block(/ptah-chat-transcript \.chat-scroll-content:has\(> \.chat-msg-slot\) :is\(\[data-glass-surface='content'\], \.chat-bubble:not\(\.chat-bubble-primary\):not\(\.cs-user-bubble\)\)/);
+    const inner = block(/:is\(ptah-chat-transcript, ptah-lane-transcript\) \.chat-scroll-content:has\(> \.chat-msg-slot\) :is\(\[data-glass-surface='content'\], \.chat-bubble:not\(\.chat-bubble-primary\):not\(\.cs-user-bubble\)\)/);
     expect(inner).toContain('background: transparent;');
   });
 
@@ -212,8 +212,9 @@ describe('glass scene tint', () => {
       if (target.includes('.chat-bubble')) expect(specificity(on!.selector)).toBeGreaterThan(specificity(glassRaise));
     }
     const user = readFileSync(join(__dirname, '../../../..', 'libs/frontend/chat/src/lib/components/organisms/message-bubble.component.css'), 'utf8');
-    expect(user).toMatch(/\.cs-user-bubble\s*\{[^}]*background: oklch\(var\(--p\) \/ 0\.1\);[^}]*box-shadow: none;/);
-    expect(css).toMatch(/:root\[data-glass='on'\] ptah-message-bubble \.cs-user-bubble \{[^}]*background: oklch\(var\(--p\) \/ 0\.1\);[^}]*box-shadow: none;/);
+    expect(user).toMatch(/\.cs-own-user-bubble\s*\{[^}]*background: oklch\(var\(--p\) \/ 0\.1\);[^}]*box-shadow: none;/);
+    expect(css).toMatch(/:root\[data-glass='on'\] ptah-message-bubble \.cs-own-user-bubble \{[^}]*background: oklch\(var\(--p\) \/ 0\.1\);[^}]*box-shadow: none;/);
+    expect(css).toMatch(/:root\[data-glass='on'\] ptah-message-bubble \.cs-peer-chat \.cs-user-bubble \{[^}]*background: var\(--glass-bubble-user\);[^}]*border-color: oklch\(var\(--s\)\);/);
   });
 
   it('never sets the tint itself in a per-theme rule, only its alpha', () => {

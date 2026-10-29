@@ -13,6 +13,19 @@ import {
   turnAgentsOf,
 } from './transcript-turn-contexts';
 
+describe('assistant header owner', () => {
+  it('moves to the first visible assistant when a finalized empty record comes first', () => {
+    const messages = [
+      createExecutionChatMessage({ id: 'user', role: 'user', rawContent: 'go' }),
+      createExecutionChatMessage({ id: 'empty', role: 'assistant', rawContent: '' }),
+      createExecutionChatMessage({ id: 'answer', role: 'assistant', rawContent: 'done' }),
+    ];
+    const contexts = new TranscriptTurnContexts().compute(messages);
+    expect(contexts.get('empty')?.isFirstAssistant).toBe(false);
+    expect(contexts.get('answer')?.isFirstAssistant).toBe(true);
+  });
+});
+
 function messagesWithAgent(): ExecutionChatMessage[] {
   return [
     createExecutionChatMessage({ id: 'u1', role: 'user', timestamp: 1 }),

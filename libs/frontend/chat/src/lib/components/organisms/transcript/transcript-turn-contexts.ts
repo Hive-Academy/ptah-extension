@@ -69,7 +69,20 @@ export class TranscriptTurnContexts {
   private previous: TurnContexts = NO_TURN_CONTEXTS;
 
   compute(messages: readonly ExecutionChatMessage[]): TurnContexts {
-    const next = buildTurnContexts(messages);
+    const next = new Map(buildTurnContexts(messages));
+    // An empty finalized assistant record still has a slot, but no visible
+    // answer or log. Give the first visible assistant the turn header.
+    const byId = new Map(messages.map((message) => [message.id, message]));
+    for (const [id, context] of next) {
+      const firstVisibleId = context.assistantIds.find((assistantId) => {
+        const assistant = byId.get(assistantId);
+        return !!(assistant?.rawContent?.trim() || assistant?.streamingState?.children?.length);
+      });
+      const shouldLead = id === firstVisibleId;
+      if (context.isFirstAssistant !== shouldLead) {
+        next.set(id, { ...context, isFirstAssistant: shouldLead });
+      }
+    }
     if (next.size === 0) {
       this.previous = NO_TURN_CONTEXTS;
       return NO_TURN_CONTEXTS;

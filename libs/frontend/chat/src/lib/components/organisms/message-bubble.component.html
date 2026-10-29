@@ -9,7 +9,7 @@
     [class.cs-compact]="viewMode() === 'compact'"
     data-testid="chat-tool-output"
   >
-    @if (turn()?.isFirstAssistant ?? true) {
+    @if ((turn()?.isFirstAssistant ?? true) && (!agentTileMode() || userActions()) && (message().rawContent?.trim() || (message().streamingState?.children?.length ?? 0) > 0)) {
       <div class="mb-2 flex items-center gap-2 text-xs text-base-content-muted" data-testid="assistant-turn-header">
         <ptah-agent-avatar kind="orchestrator" [size]="24" />
         <span class="font-semibold text-base-content">Ptah</span>
@@ -195,7 +195,8 @@
            left border + the icon above) so the two are distinguishable without
            relying on colour alone. -->
       <div
-        class="chat-bubble cs-user-bubble ml-auto w-fit max-w-[min(75%,40rem)] rounded-2xl rounded-br-md border border-primary/20 bg-primary/10 text-left text-base-content shadow-none"
+        class="chat-bubble cs-user-bubble text-base-content"
+        [class.cs-own-user-bubble]="!inboundPeerLabel()"
         [class.border-l-4]="!!inboundPeerLabel()"
         [class.border-secondary]="!!inboundPeerLabel()"
         [attr.data-testid]="
