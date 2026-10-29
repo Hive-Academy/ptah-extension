@@ -10,6 +10,7 @@ import {
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
 import {
   mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync,
@@ -49,6 +50,11 @@ jest.mock('@ptah-extension/codex-runtime', () => ({
     '@ptah-extension/codex-runtime',
   ),
   findCodexExecutablePin: jest.fn(),
+  buildCodexExecutionProfile: jest.fn(
+    jest.requireActual<typeof import('@ptah-extension/codex-runtime')>(
+      '@ptah-extension/codex-runtime',
+    ).buildCodexExecutionProfile,
+  ),
 }));
 
 jest.mock('@ptah-extension/agent-sdk', () => ({
@@ -396,6 +402,45 @@ function bindingFixture() {
 }
 
 describe('Electron complete Codex binding', () => {
+  it('binds the saved Codex permission reader to the profile workspace', async () => {
+    const { parent, scopeResolver, settingsStore } = bindingFixture();
+    parent.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
+      useValue: createMockWorkspaceProvider({ folders: [temporaryRoot] }),
+    });
+    parent.register(AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER, {
+      useValue: {
+        resolveExecutionProfile: jest.fn().mockResolvedValue({
+          runtime: 'codex-app-server',
+          seed: {
+            providerId: 'openai-codex', consumer: 'chat',
+            workspacePath: temporaryRoot, home: temporaryRoot,
+            normalizedHome: temporaryRoot, model: 'gpt-5',
+          },
+        }),
+      },
+    });
+    scopeResolver.readForPath.mockImplementation((name: string) => ({
+      'autopilot.enabled': true,
+      'autopilot.permissionLevel': 'auto-edit',
+    })[name as 'autopilot.enabled' | 'autopilot.permissionLevel']);
+    jest.mocked(buildCodexExecutionProfile).mockClear();
+    const binding = await bindElectronCodexChat(parent, {
+      isPackaged: false, env: { PTAH_CODEX_RUNTIME_DEV: '1' },
+      platform, bundledRoot, scopeResolver, settingsStore,
+    });
+    try {
+      const ports = parent.resolve<CodexChatHostPorts>(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS);
+      await expect(ports.profile({
+        projectPath: temporaryRoot, workspaceId: temporaryRoot, model: 'gpt-5',
+      })).rejects.toThrow('Codex executable verification failed');
+      expect(scopeResolver.readForPath).toHaveBeenCalledWith('autopilot.enabled', temporaryRoot, true);
+      expect(scopeResolver.readForPath).toHaveBeenCalledWith('autopilot.permissionLevel', temporaryRoot, true);
+      expect(jest.mocked(buildCodexExecutionProfile).mock.calls.at(-1)?.[0].session.permissionLevel).toBe('auto-edit');
+    } finally {
+      await binding.dispose();
+      await parent.dispose();
+    }
+  });
   it.each([
     { isPackaged: false, env: {}, enabled: false },
     { isPackaged: true, env: { PTAH_CODEX_RUNTIME_DEV: '1' }, enabled: false },

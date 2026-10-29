@@ -95,6 +95,9 @@ describe('Codex chat host ports', () => {
     const readResumeIdentity = jest
       .fn<Promise<CodexThreadIdentity | undefined>, [SessionId]>()
       .mockResolvedValue(undefined);
+    const readSavedPermissionLevel = jest
+      .fn<ReturnType<CodexChatHostPortsDeps['readSavedPermissionLevel']>, [string]>()
+      .mockReturnValue('ask');
     const drained: FlatStreamEventUnion[] = [];
     const streamEventsToWebview = jest.fn(
       async (_id: SessionId, stream: AsyncIterable<FlatStreamEventUnion>) => {
@@ -143,6 +146,7 @@ describe('Codex chat host ports', () => {
         error: jest.fn(),
       }),
       readResumeIdentity,
+      readSavedPermissionLevel,
       broadcaster: { streamEventsToWebview },
       tabId: () => 'tab',
     };
@@ -154,6 +158,7 @@ describe('Codex chat host ports', () => {
       resolveAttention,
       resolveExecutionProfile,
       readResumeIdentity,
+      readSavedPermissionLevel,
       respond,
       drained,
       streamEventsToWebview,
@@ -212,6 +217,44 @@ describe('Codex chat host ports', () => {
     expect(Object.isFrozen(profile)).toBe(true);
     expect(profile.profileFingerprint).toBeTruthy();
     expect(h.broadcastMessage).not.toHaveBeenCalled();
+  });
+  it.each([
+    { mode: 'Manual', saved: 'ask' },
+    { mode: 'Auto edit', saved: 'auto-edit' },
+    { mode: 'Plan', saved: 'plan' },
+    { mode: 'Yolo', saved: 'yolo' },
+  ] as const)('uses the saved $mode permission level', async ({ saved }) => {
+    const h = harness();
+    h.readSavedPermissionLevel.mockReturnValue(saved);
+    const { profile } = await h.ports.profile(config());
+    expect(profile.permissionLevel).toBe(saved);
+    expect(h.readSavedPermissionLevel).toHaveBeenCalledWith(workspace);
+  });
+  it('lets an explicit permission level win without reading the saved level', async () => {
+    const h = harness();
+    h.readSavedPermissionLevel.mockReturnValue('yolo');
+    const { profile } = await h.ports.profile({ ...config(), permissionLevel: 'plan' });
+    expect(profile.permissionLevel).toBe('plan');
+    expect(h.readSavedPermissionLevel).not.toHaveBeenCalled();
+  });
+  it('reads the saved permission level when resuming without an explicit level', async () => {
+    const h = harness();
+    h.readSavedPermissionLevel.mockReturnValue('auto-edit');
+    const { profile } = await h.ports.profile(config());
+    const identity: CodexThreadIdentity = {
+      threadId: id,
+      contextId: profile.contextId,
+      processGeneration: 1,
+      normalizedHome: profile.normalizedHome,
+      workspaceId: workspace,
+      providerId: profile.providerId,
+      profileFingerprint: profile.profileFingerprint,
+    };
+    h.readResumeIdentity.mockResolvedValue(identity);
+    h.readSavedPermissionLevel.mockClear();
+    const resumed = await h.ports.profile(config(), id);
+    expect(resumed.profile.permissionLevel).toBe('auto-edit');
+    expect(h.readSavedPermissionLevel).toHaveBeenCalledWith(workspace);
   });
   it('loads native resume identity and rejects immutable binding changes', async () => {
     const h = harness();

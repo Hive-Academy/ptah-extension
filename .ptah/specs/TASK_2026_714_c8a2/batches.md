@@ -4308,7 +4308,7 @@ both fields (8q-3a spec).
   level; enabled with an invalid or missing level -> `CodexSessionSettingsError('invalid-settings')`.
 ### Task 8q-2a.2: the settings record uses the helper — COMPLETE
 
-## Batch 8q-2b: The Codex profile honours the saved level (rpc-handlers, ptah-electron) — PENDING
+## Batch 8q-2b: The Codex profile honours the saved level (rpc-handlers, ptah-electron) — COMPLETE (commit: the "batch 8q-2b" commit; review-8q-2b.md APPROVE 8/10 by grok; verify rpc-handlers + ptah-electron PASS)
 
 - Recommended executor: CLI lane codex (gpt-6-sol) | sequential | Depends on: 8q-2a
 - Verify: `npm run verify -- -p @ptah-extension/rpc-handlers,ptah-electron`
@@ -4329,6 +4329,20 @@ both fields (8q-3a spec).
 - chat-session.service.spec.ts: a resume whose saved level changed maps to
   `CODEX_RUNTIME_FAILED` with `CODEX_RESUME_PROFILE_CHANGED_MESSAGE` (the p8j D14a scenario).
 ### Task 8q-2b.3: Electron binding — PENDING
+
+### 8q-2b result (codex lane; batch-8q-2b-report.md)
+
+- Host ports deps gain `readSavedPermissionLevel(workspacePath)`; the profile uses
+  `config.permissionLevel ?? deps.readSavedPermissionLevel(workspacePath)`
+  (codex-chat-host-ports.ts:74,395). Electron binds `resolveSavedCodexPermissionLevel` over
+  `scopeResolver.readForPath(name, workspacePath, true)`, the same reader the settings record uses
+  (codex-runtime-composition.ts:494). Two test fixtures get a fixed `ask` reader.
+- 8q-2b.2: the lane added a new chat-session.service.spec.ts that threw the refusal from its own
+  mock (redundant with chat-session.native.spec.ts:677-705) and did not compile. The coordinator
+  removed it. Reachability is covered link by link: host ports resume spec (saved level), runtime
+  fingerprint refusal specs, native spec (error mapping).
+- review-8q-2b.md (grok) APPROVE 8/10; its only finding was that removed spec. Verify
+  rpc-handlers + ptah-electron PASS.
 
 ## Batch 8q-3a: Live level change in the runtime (codex-runtime) — COMPLETE (commit: the "batch 8q-3a" commit; security-review-8q-3a.md APPROVE 8/10, M1/M2 fixed, security-review-8q-3a-fix.md APPROVE 9/10 by grok; Wave 1 verify PASS for codex-runtime, cli-agent-runtime, gateway-chat-bridge, agent-sdk, rpc-handlers)
 

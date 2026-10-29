@@ -206,6 +206,7 @@ describe('chat native session preparation', () => {
       },
       callbacks: () => ({ result: jest.fn(), content: jest.fn(), live: jest.fn(), compaction: jest.fn(), error: jest.fn() }),
       readResumeIdentity: async () => undefined,
+      readSavedPermissionLevel: () => 'ask',
       broadcaster: { streamEventsToWebview: jest.fn() },
       tabId: () => 'tab',
     };

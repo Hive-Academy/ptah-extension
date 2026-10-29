@@ -406,6 +406,7 @@ function codexHarness() {
     approvals,
     callbacks: () => callbacks,
     readResumeIdentity: async () => undefined,
+    readSavedPermissionLevel: () => 'ask',
     broadcaster: { streamEventsToWebview: (...args) => broadcast(...args) },
     tabId: () => TAB,
   });

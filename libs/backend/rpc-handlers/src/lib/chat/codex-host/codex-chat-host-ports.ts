@@ -32,6 +32,7 @@ import {
   type McpHttpServerOverride,
   type PermissionRequest,
   type PermissionResponse,
+  type PermissionLevel,
   type RuntimeHostCapabilities,
   type SessionId,
 } from '@ptah-extension/shared';
@@ -70,6 +71,7 @@ export interface CodexChatHostPortsDeps
   readResumeIdentity(
     sessionId: SessionId,
   ): Promise<CodexThreadIdentity | undefined>;
+  readSavedPermissionLevel(workspacePath: string): PermissionLevel;
   broadcaster: Pick<ChatStreamBroadcaster, 'streamEventsToWebview'>;
   tabId(sessionId: SessionId): string;
   /** Releases the host notice the webview attention observer raised for a request. */
@@ -390,7 +392,7 @@ export function createCodexChatHostPorts(
           cwd,
           model: seed.model,
           effort: config.effort,
-          permissionLevel: config.permissionLevel ?? 'ask',
+          permissionLevel: config.permissionLevel ?? deps.readSavedPermissionLevel(workspacePath),
           systemPrompt: config.systemPrompt,
           enhancedPrompt: config.enhancedPromptsContent,
           outputStyle: config.outputStyleBody,

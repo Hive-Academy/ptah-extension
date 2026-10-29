@@ -23,6 +23,8 @@ import {
   createCodexRuntimeAdmission,
   createCodexChatEventCallbacks,
   createCodexSessionSettingsRecord,
+  CodexSessionSettingsError,
+  resolveSavedCodexPermissionLevel,
   type CodexChatHostPorts,
   type CodexChatHostPortsDeps,
   type CodexChatEventCallbacksDeps,
@@ -489,6 +491,11 @@ function createElectronCodexAdapterPorts(
   const { createScope, verifyBinary } = scope;
   const ports = createCodexChatHostPorts({
     ...deps,
+    readSavedPermissionLevel: (workspacePath) =>
+      resolveSavedCodexPermissionLevel(
+        (name) => input.scopeResolver.readForPath(name, workspacePath, true),
+        () => { throw new CodexSessionSettingsError('invalid-settings'); },
+      ),
     logger,
     platform: input.platform,
     createScope,
