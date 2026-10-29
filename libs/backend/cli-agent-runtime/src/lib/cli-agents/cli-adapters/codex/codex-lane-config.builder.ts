@@ -42,7 +42,7 @@ import { ptahMcpServerUrl } from '../ptah-mcp-url';
 export const CODEX_RESUME_RESENDS_ROLE = true;
 
 /** Codex versions (major.minor prefixes) whose config keys were verified. */
-export const CODEX_VERIFIED_VERSIONS: readonly string[] = ['0.155', '0.160'];
+export const CODEX_VERIFIED_VERSIONS: readonly string[] = ['0.155', '0.160', '0.165'];
 
 /**
  * Per-call timeout for Ptah's MCP tools, in seconds. Long enough for a
