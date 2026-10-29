@@ -157,6 +157,8 @@ export class SessionLivenessReconcilerService {
       }
       return known;
     } catch (error: unknown) {
+      // degradation-audit: reported - the failure is logged, the tab stays
+      // restored, and false leaves the generation unprobed so it retries.
       this.logger.warn('SessionLivenessReconciler', 'probe failed', error);
       return false;
     }

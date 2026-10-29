@@ -216,6 +216,8 @@ export class SubagentTileComponent {
       const tabId = this.context?.() ?? this.injector.get(TabManagerService, null)?.activeTabId();
       return !!tabId && !!this.injector.get(SessionHistoryReplayer, null)?.replayingTabIds().has(tabId);
     } catch {
+      // degradation-audit: optional-capability - a tile mounted without the
+      // session services shows its own status instead of "Loading".
       return false;
     }
   }
