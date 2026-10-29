@@ -45,14 +45,14 @@ describe('migration 0061_provider_account_lease_host', () => {
       .run(leaseId, 'run-' + leaseId, hostPid, hostMachine ?? null);
   }
 
-  it('registers 0061 immediately after 0060 as the maximum version', () => {
+  it('registers 0061 immediately after 0060', () => {
     const previousIndex = MIGRATIONS.findIndex((entry) => entry.version === 60);
     expect(MIGRATIONS[previousIndex + 1]).toEqual({
       version: 61,
       name: '0061_provider_account_lease_host',
       sql,
     });
-    expect(Math.max(...MIGRATIONS.map((entry) => entry.version))).toBe(61);
+    expect(Math.max(...MIGRATIONS.map((entry) => entry.version))).toBe(62);
   });
 
   it('keeps legacy leases with no owning host and records owners on new rows', () => {

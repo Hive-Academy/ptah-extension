@@ -14,7 +14,7 @@ import { CURRENT_LEASE_HOST } from './provider-account-host';
 
 // Real independent SQLite connections; no production/development DB path resolver.
 const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
-const schema = [58, 59, 60, 61].map(version => {
+const schema = [58, 59, 60, 61, 62].map(version => {
   const migration = MIGRATIONS.find(entry => entry.version === version);
   if (!migration?.sql) throw new Error('Provider account migration is missing');
   return migration.sql;
@@ -930,6 +930,148 @@ describe('ProviderAccountStore transactions', () => {
       add();
       a.acquireRunLease(request());
       refuses(() => b.acquireRunLease(request({ reservationId: 'lease-0002', operationId: 'owner-0002' })));
+    });
+  });
+
+  describe('operations of an ended host', () => {
+    /** No process has this pid in these tests: `process.kill(pid, 0)` answers ESRCH for it. */
+    const deadPid = 2_147_483_000;
+    let probe: jest.SpyInstance;
+    beforeEach(() => {
+      probe = jest.spyOn(process, 'kill').mockImplementation((pid: number) => {
+        if (pid === deadPid) throw Object.assign(new Error('no such process'), { code: 'ESRCH' });
+        return true;
+      });
+    });
+    afterEach(() => probe.mockRestore());
+
+    function owner(operationId: string, pid: number | null, machine: string | null = CURRENT_LEASE_HOST.machine): void {
+      first.prepare('UPDATE provider_account_operations SET host_pid = ?, host_machine = ? WHERE operation_id = ?')
+        .run(pid, machine, operationId);
+    }
+    const signIn = () => a.reserveAuth(profileId, 0, request().route, 'auth-00001', 'owner-0001', 'sign-in');
+    const operations = () => first.prepare('SELECT operation_id, kind, host_pid, host_machine, prior_state FROM provider_account_operations ORDER BY operation_id').all();
+
+    it('records this host process on every new operation, and the replaced state on an auth operation', () => {
+      add();
+      add('profile-0002', 'second');
+      signIn();
+      a.reserveStatus('profile-0002', 0, resolveProviderAccountRoute(join(root, 'second')), 'status-0001', 'owner-0001');
+      expect(operations()).toEqual([
+        { operation_id: 'auth-00001', kind: 'sign-in', host_pid: process.pid, host_machine: CURRENT_LEASE_HOST.machine, prior_state: 'signed-in' },
+        { operation_id: 'status-0001', kind: 'status', host_pid: process.pid, host_machine: CURRENT_LEASE_HOST.machine, prior_state: null },
+      ]);
+    });
+
+    it('deletes the operation of a gone host and restores the profile state it replaced with pending', () => {
+      add();
+      const logger = { warn: jest.fn() };
+      const recovering = new ProviderAccountStore({ db: second }, logger);
+      signIn();
+      owner('auth-00001', deadPid);
+      expect(a.get(profileId)).toMatchObject({ state: 'pending', revision: 1, auth_epoch: 1 });
+      expect(recovering.reclaimAbandonedOperations()).toEqual([profileId]);
+      // The epoch stays advanced; the revision moves so a stale caller rereads.
+      expect(a.get(profileId)).toMatchObject({ state: 'signed-in', identity_ref: identityRef, revision: 2, auth_epoch: 1 });
+      expect(count('operations')).toBe(0);
+      expect(probe).toHaveBeenCalledWith(deadPid, 0);
+      expect(logger.warn.mock.calls).toEqual([
+        ['[ProviderAccountStore] Reclaimed account operations left by an ended host', { reclaimed: 1, restored: 1 }],
+      ]);
+      expect(b.reserveAuth(profileId, 2, request().route, 'auth-00002', 'owner-0002', 'sign-out').authEpoch).toBe(2);
+    });
+
+    it('hands the restored profile ids to reclaim listeners after commit, until unsubscribed', () => {
+      add();
+      const heard: (readonly string[])[] = [];
+      const stop = b.onOperationsReclaimed(profileIds => {
+        // Committed: the listener reads the restored state through its own store.
+        expect(b.get(profileId).state).toBe('signed-in');
+        heard.push(profileIds);
+      });
+      signIn();
+      owner('auth-00001', deadPid);
+      b.reclaimAbandonedOperations();
+      expect(heard).toEqual([[profileId]]);
+      // Nothing restored: no call.
+      b.reclaimAbandonedOperations();
+      expect(heard).toHaveLength(1);
+      stop();
+      b.reserveAuth(profileId, 2, request().route, 'auth-00002', 'owner-0002', 'sign-out');
+      owner('auth-00002', deadPid);
+      b.reclaimAbandonedOperations();
+      expect(heard).toHaveLength(1);
+      expect(b.get(profileId).state).toBe('signed-in');
+    });
+
+    it('deletes a gone host status operation without touching the profile, before admission', () => {
+      add();
+      a.reserveStatus(profileId, 0, request().route, 'status-0001', 'owner-0001');
+      owner('status-0001', deadPid);
+      const before = a.get(profileId);
+      expect(b.acquireRunLease(request({ operationId: 'owner-0002' })).reservation).toMatchObject({ phase: 'reserved' });
+      expect(count('operations')).toBe(0);
+      expect(a.get(profileId)).toEqual(before);
+    });
+
+    it.each([
+      ['a live owner', () => owner('auth-00001', 4242)],
+      ['this process', () => owner('auth-00001', process.pid)],
+      ['another machine', () => owner('auth-00001', deadPid, 'f'.repeat(64))],
+      ['a legacy row without an owner', () => owner('auth-00001', null, null)],
+      ['a named auth row without a prior state', () => {
+        owner('auth-00001', deadPid);
+        first.prepare('UPDATE provider_account_operations SET prior_state = NULL').run();
+      }],
+    ] as const)('keeps the operation of %s and the profile pending', (_label, arrange) => {
+      add();
+      signIn();
+      arrange();
+      expect(b.reclaimAbandonedOperations()).toEqual([]);
+      expect(count('operations')).toBe(1);
+      expect(a.get(profileId)).toMatchObject({ state: 'pending', revision: 1 });
+      refuses(() => b.acquireRunLease(request({ expectedRevision: 1 })), 'busy');
+    });
+
+    it('records the console pid only on the owned auth operation at its epoch', () => {
+      add();
+      const { authEpoch } = signIn();
+      refuses(() => a.recordOperationChild('auth-00001', 'owner-0001', authEpoch, 0));
+      expect(a.recordOperationChild('auth-00001', 'owner-0002', authEpoch, 4321)).toBe(false);
+      expect(a.recordOperationChild('auth-00001', 'owner-0001', authEpoch + 1, 4321)).toBe(false);
+      expect(a.recordOperationChild('auth-00001', 'owner-0001', authEpoch, 4321)).toBe(true);
+      expect(first.prepare('SELECT child_pid FROM provider_account_operations').all()).toEqual([{ child_pid: 4321 }]);
+    });
+
+    it('keeps the operation while its console outlives the host, and reclaims once both are gone', () => {
+      const consolePid = 2_147_483_001;
+      let consoleAlive = true;
+      probe.mockImplementation((pid: number) => {
+        if (pid === deadPid || (pid === consolePid && !consoleAlive)) {
+          throw Object.assign(new Error('no such process'), { code: 'ESRCH' });
+        }
+        return true;
+      });
+      add();
+      const { authEpoch } = signIn();
+      a.recordOperationChild('auth-00001', 'owner-0001', authEpoch, consolePid);
+      owner('auth-00001', deadPid);
+      expect(b.reclaimAbandonedOperations()).toEqual([]);
+      expect(count('operations')).toBe(1);
+      expect(a.get(profileId).state).toBe('pending');
+      consoleAlive = false;
+      expect(b.reclaimAbandonedOperations()).toEqual([profileId]);
+      expect(count('operations')).toBe(0);
+      expect(a.get(profileId).state).toBe('signed-in');
+    });
+
+    it('keeps the operation when the liveness probe proves nothing (EPERM)', () => {
+      probe.mockImplementation(() => { throw Object.assign(new Error('not permitted'), { code: 'EPERM' }); });
+      add();
+      signIn();
+      owner('auth-00001', deadPid);
+      expect(b.reclaimAbandonedOperations()).toEqual([]);
+      expect(count('operations')).toBe(1);
     });
   });
 
