@@ -124,6 +124,7 @@ describe('MessageSenderService', () => {
   let rpcCall: jest.Mock;
   let recordBoundary: jest.Mock;
   let removeBoundary: jest.Mock;
+  let retirePendingPrompt: jest.Mock;
   let flagAuthRequired: jest.Mock;
   let vscodeConfig: jest.Mock;
   let consoleWarn: jest.SpyInstance;
@@ -238,6 +239,7 @@ describe('MessageSenderService', () => {
     rpcCall = jest.fn();
     recordBoundary = jest.fn();
     removeBoundary = jest.fn();
+    retirePendingPrompt = jest.fn();
     flagAuthRequired = jest.fn();
     vscodeConfig = jest.fn(() => ({ workspaceRoot: 'D:/repo' }));
 
@@ -260,6 +262,7 @@ describe('MessageSenderService', () => {
           useValue: {
             recordUserPromptBoundary: recordBoundary,
             removeUserPromptBoundary: removeBoundary,
+            retirePendingPrompt,
           },
         },
         { provide: MessageValidationService, useValue: validator },
@@ -352,6 +355,21 @@ describe('MessageSenderService', () => {
       );
       expect(startCalled).toBe(false);
       expect(continueCalled).toBe(true);
+      const bubble = tabsSignal()[0].messages.at(-1);
+      const payload = rpcCall.mock.calls.find((call) => call[0] === 'chat:continue')?.[1];
+      expect(payload.clientMessageId).toBe(bubble?.id);
+      expect(retirePendingPrompt).toHaveBeenCalledWith('tab-1', bubble?.id);
+    });
+
+    it('keeps an enqueued continue pending until its echo or consuming terminal', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      rpcCall.mockImplementation((method: string) => Promise.resolve(
+        method === 'session:validate'
+          ? { success: true, data: { exists: true } }
+          : { success: true, data: { success: true, enqueued: true } },
+      ));
+      await service.send('queued', { tabId: 'tab-1' });
+      expect(retirePendingPrompt).not.toHaveBeenCalled();
     });
 
     it('records the continued prompt as a boundary in the live tree', async () => {

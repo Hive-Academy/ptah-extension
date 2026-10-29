@@ -1282,9 +1282,10 @@ export class ChatSessionService {
       await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
         files,
         images,
+        clientMessageId: params.clientMessageId,
       });
 
-      return { success: true, sessionId };
+      return { success: true, sessionId, enqueued: true };
     } catch (error) {
       const codexFailure = this.codexFailure(error);
       if (codexFailure) return codexFailure;

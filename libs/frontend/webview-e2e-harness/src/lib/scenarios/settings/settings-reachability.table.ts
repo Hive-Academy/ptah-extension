@@ -31,7 +31,7 @@ import {
   SETTINGS_TAB_LABELS,
 } from './settings.fixtures';
 import { rpcError } from '../marketplace/marketplace.fixtures';
-import { ROUTING_MAP_ENTRIES } from './settings-routing-map.entries';
+import { MAIN_AGENT_ENTRIES } from './settings-main-agent.entries';
 import { CLI_MATRIX_ENTRIES } from './settings-cli-matrix.entries';
 import { ADVANCED_ENTRIES } from './settings-advanced.entries';
 import { SEARCH_VOICE_ENTRIES } from './settings-search-voice.entries';
@@ -808,7 +808,7 @@ const mainAgentModel: readonly ReachabilityEntry[] = [
     id: '#37',
     capability: 'Current mapping / resolved model shown',
     status: 'present',
-    // Since Batch 26: the resolved model on the routing map's Main Agent node (the old main-agent block is gone).
+    // Since Batch 26: the resolved model in the Main agent section (the old main-agent block is gone).
     reach: async (page) => {
       await providersTab(page);
       await expect(
@@ -1088,24 +1088,32 @@ const other: readonly ReachabilityEntry[] = [
     id: '#83',
     capability: 'Deep link to a Settings tab (also while open)',
     status: 'present',
-    // A deep link raised while Settings is ALREADY open: the routing map's Background roles action on Providers
-    // (`requestSettingsTab({tab:'providers', section:'background-models'})`). Providers stays active, the closed roles
-    // <details> below the page opens (Batch 33, deviation 4) and the section takes focus. Closed again for later entries.
+    // A deep link raised while Settings is ALREADY open: a connection drawer's "Follows main agent →" on Providers
+    // (`requestSettingsTab({tab:'providers', section:'enhancement'})`; the fixture's Enhancement role has no provider of
+    // its own, so it follows the main agent, Claude (Subscription)). The drawer closes, Providers stays active, the closed
+    // roles <details> below the page opens (Batch 33, deviation 4) and the role's popover opens. Closed again for later
+    // entries.
     reach: async (page) => {
       await providersTab(page);
-      await page
-        .locator(
-          '[data-testid="routing-node-background-roles"] [data-testid="routing-node-action"]',
-        )
-        .click();
+      await openCardDrawer(page, 'Claude (Subscription)');
+      await page.getByRole('tab', { name: 'Overview & Used By', exact: true }).click();
+      const link = page.locator(
+        '[data-used-by="enhancement"] [data-testid="connection-follows-main"]',
+      );
+      await visibleEnabled(link);
+      await link.click();
+      await expect(
+        page.locator('[data-testid="connection-detail-drawer"]'),
+      ).toHaveCount(0);
       await expect(
         page.getByRole('button', { name: 'Providers', exact: true }),
       ).toHaveClass(/tab-active/);
       const details = page.locator('[data-testid="background-roles-details"]');
       await expect(details).toHaveAttribute('open', '');
-      await expect(
-        page.locator('[data-focus="background-models"]'),
-      ).toBeFocused();
+      const editor = page.locator('[data-testid="consumer-editor-enhancement"]');
+      await expect(editor).toBeVisible();
+      await page.locator('[data-testid="consumer-close-enhancement"]').click();
+      await expect(editor).toHaveCount(0);
       await page.locator('[data-testid="background-roles-summary"]').click();
       await expect(details).not.toHaveAttribute('open');
     },
@@ -1364,7 +1372,7 @@ const regressedUx: readonly ReachabilityEntry[] = [
     capability:
       'Unconfigured providers shown up front (hint strip + catalog modal), not in a collapsed disclosure',
     status: 'restored',
-    // Batch 27: the hint strip names them; the modal opens with its search focused and Esc returns focus to the
+    // Batch 27: the catalog caption names them; the modal opens with its search focused and Esc returns focus to the
     // opener (`openCatalog` / `closeCatalog`). Batch 28 moved the Tab-trap and backdrop checks (Batch 14 finding 3)
     // to `settings-providers.e2e.spec.ts`.
     reach: async (page) => {
@@ -1690,7 +1698,7 @@ export const KEPT_SELECTORS: readonly KeptSelector[] = [
   { selector: '[data-testid="provider-connection-card"]', tab: 'Providers' },
   { selector: '#providers-connections-heading', tab: 'Providers' },
   // With the background roles: on Orchestration from Batch 18 (D14), inside the roles <details> since Batch 33, and
-  // back on Providers (below Routing Map + Connections) since the Context Management regroup.
+  // back on Providers (below the Main agent and Connections) since the Context Management regroup.
   {
     selector: '[data-testid="assignments-heading"]',
     tab: 'Providers',
@@ -1707,7 +1715,7 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
   ...other,
   ...restoredPending,
   ...regressedUx,
-  ...ROUTING_MAP_ENTRIES,
+  ...MAIN_AGENT_ENTRIES,
   ...CLI_MATRIX_ENTRIES,
   ...ADVANCED_ENTRIES,
   ...SEARCH_VOICE_ENTRIES,
@@ -1725,8 +1733,10 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
  * Batch 49 (track B, from the 94 above) added the Advanced (ADV-1..24) and Search & Voice (SV-1..19) preserve-list
  * entries: 43. Merged with the Orchestration additions (track A, 98) after Gate V 36: 98 + 43 = 141.
  * TASK_2026_662 batch 51 removed RUX-12 with the deleted Judge lane picker: 140.
+ * Settings UI polish removed RM-2 and RM-3 with the routing map's Background roles and CLI agents tiles (the Background
+ * Model Roles section and the CLI matrix below them show the same data): 138.
  */
-export const EXPECTED_CAPABILITY_COUNT = 140;
+export const EXPECTED_CAPABILITY_COUNT = 138;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS

@@ -182,11 +182,42 @@ describe('glass scene tint', () => {
   });
 
   it('paints the transcript column scrim only once a message exists, and clears the plates inside it', () => {
-    const column = block(/:root\[data-theme\]\[data-glass='on'\] ptah-chat-transcript \.chat-scroll-content:has\(> \.chat-msg-slot\)/);
+    const column = block(/:root\[data-theme\]\[data-glass='on'\] :is\(ptah-chat-transcript, ptah-lane-transcript\) \.chat-scroll-content:has\(> \.chat-msg-slot\)/);
     expect(column).toContain('background: var(--glass-scrim-text);');
     expect(css).not.toMatch(/ptah-chat-transcript \.chat-scroll-content\s*\{[^}]*--glass-scrim-text/);
-    const inner = block(/ptah-chat-transcript \.chat-scroll-content:has\(> \.chat-msg-slot\) :is\(\[data-glass-surface='content'\], \.chat-bubble:not\(\.chat-bubble-primary\)\)/);
+    const inner = block(/:is\(ptah-chat-transcript, ptah-lane-transcript\) \.chat-scroll-content:has\(> \.chat-msg-slot\) :is\(\[data-glass-surface='content'\], \.chat-bubble:not\(\.chat-bubble-primary\):not\(\.cs-user-bubble\)\)/);
     expect(inner).toContain('background: transparent;');
+  });
+
+  it('keeps transcript bubbles and lane rows free of exterior shadows in both glass modes', () => {
+    const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .flatMap(([, selectors, body]) => selectors.split(',').map(selector => ({ selector: selector.trim(), body })));
+    const rule = (selector: string) => rules.find(candidate => candidate.selector === selector && candidate.body.includes('box-shadow: inset 0 1px 0'));
+    const specificity = (selector: string) =>
+      (selector.match(/#[\w-]+/g)?.length ?? 0) * 100 +
+      (selector.match(/\.[\w-]+|\[[^\]]+\]|:root/g)?.length ?? 0) * 10 +
+      (selector.match(/(?:^|\s)(?:ptah-[\w-]+|article)(?=\s|$)/g)?.length ?? 0);
+    const glassRaise = ':root[data-glass=\'on\'] .chat-bubble';
+    const targets = [
+      'ptah-message-bubble .chat-bubble:not(.cs-user-bubble)',
+      'ptah-chat-transcript .chat-bubble:not(.cs-user-bubble)',
+      'ptah-lane-transcript .chat-bubble:not(.cs-user-bubble)',
+      'ptah-lane-event article',
+    ];
+    for (const target of targets) {
+      const off = rule(target);
+      const on = rule(`:root[data-glass='on'] ${target}`);
+      expect(off?.body).toContain('box-shadow: inset 0 1px 0 var(--surface-highlight);');
+      expect(on?.body).toContain('box-shadow: inset 0 1px 0 var(--glass-glint);');
+      if (target.includes('.chat-bubble')) expect(specificity(on!.selector)).toBeGreaterThan(specificity(glassRaise));
+    }
+    // The lane row hover adds its lift to the inset edge in both modes.
+    expect(rule('ptah-lane-event article:hover')?.body).toContain('inset 0 1px 0 var(--surface-highlight), 0 1px 3px');
+    expect(rule(":root[data-glass='on'] ptah-lane-event article:hover")?.body).toContain('inset 0 1px 0 var(--glass-glint), 0 1px 3px');
+    const user = readFileSync(join(__dirname, '../../../..', 'libs/frontend/chat/src/lib/components/organisms/message-bubble.component.css'), 'utf8');
+    expect(user).toMatch(/\.cs-own-user-bubble\s*\{[^}]*background: oklch\(var\(--p\) \/ 0\.1\);[^}]*box-shadow: none;/);
+    expect(css).toMatch(/:root\[data-glass='on'\] ptah-message-bubble \.cs-own-user-bubble \{[^}]*background: oklch\(var\(--p\) \/ 0\.1\);[^}]*box-shadow: none;/);
+    expect(css).toMatch(/:root\[data-glass='on'\] ptah-message-bubble \.cs-peer-chat \.cs-user-bubble \{[^}]*background: var\(--glass-bubble-user\);[^}]*border-color: oklch\(var\(--s\)\);/);
   });
 
   it('never sets the tint itself in a per-theme rule, only its alpha', () => {

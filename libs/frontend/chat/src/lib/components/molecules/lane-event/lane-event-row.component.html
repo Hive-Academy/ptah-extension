@@ -1,0 +1,96 @@
+<article data-testid="lane-event"
+  class="lane-card group my-2 ml-auto w-4/5 min-w-[min(100%,20rem)] rounded-md border border-base-content/10 px-3 py-2 text-[13px] leading-5 border-l-2 transition-shadow duration-200 motion-reduce:transition-none"
+  [attr.data-tone]="tone()"
+  [class.border-l-state-run]="tone() === 'run'" [class.border-l-state-done]="tone() === 'done'"
+  [class.border-l-state-need]="tone() === 'need'" [class.border-l-state-err]="tone() === 'err'"
+  [attr.aria-label]="row().agent + ' lane, ' + chip().label"
+  [attr.title]="presentation().peerTitle ? 'Sent by ' + presentation().peerTitle : null">
+  <div class="flex min-w-0 items-center">
+    <button type="button" data-testid="lane-event-toggle"
+      class="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary hover:bg-base-content/5"
+      [attr.aria-label]="row().agent + ' lane event details' + (chip().title ? ', ' + chip().title : '')"
+      [attr.aria-expanded]="canExpand() ? expanded() : null" [attr.aria-controls]="canExpand() ? bodyId() : null"
+      [disabled]="!canExpand()" (click)="expanded.update((v) => !v)">
+      @if (canExpand()) {
+        <lucide-angular [img]="ChevronRightIcon" class="h-3.5 w-3.5 shrink-0 transition-transform duration-150 motion-reduce:transition-none"
+          [class.rotate-90]="expanded()" aria-hidden="true" />
+      } @else {
+        <span class="w-3.5 shrink-0" aria-hidden="true"></span>
+      }
+      <ptah-agent-avatar kind="cli" [cliId]="row().cli" [status]="avatarStatus()" [size]="24" />
+      <span class="min-w-0 truncate font-semibold" [title]="row().agent">{{ row().agent }}</span>
+      <span data-testid="lane-event-chip"
+        class="lane-chip inline-flex shrink-0 items-center gap-1 rounded-full px-2 text-[11px] font-medium leading-5"
+        [attr.title]="chip().title ?? null"
+        [class.text-state-run]="chip().tone === 'run'" [class.text-state-done]="chip().tone === 'done'"
+        [class.text-state-need]="chip().tone === 'need'" [class.text-state-err]="chip().tone === 'err'">
+        <lucide-angular [img]="chip().icon" class="h-3 w-3 motion-reduce:animate-none" aria-hidden="true" /><span data-testid="lane-event-chip-label" class="text-base-content">{{ chip().label }}</span>
+      </span>
+      <time class="ml-auto shrink-0 text-xs text-base-content-muted tabular-nums" [attr.datetime]="iso(latest().timestamp)">{{ time(latest().timestamp) }}</time>
+    </button>
+    <div data-testid="lane-event-actions" class="pointer-events-none flex shrink-0 items-center gap-0.5 rounded bg-base-200 opacity-0 shadow-none transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 motion-reduce:transition-none">
+      <button type="button" class="btn btn-ghost btn-xs focus-visible:ring-2 focus-visible:ring-primary"
+        title="Branch conversation from here" aria-label="Branch conversation from this message"
+        data-testid="lane-event-branch" (click)="branchRequested.emit(lastMessageId())">
+        <lucide-angular [img]="BranchIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+      <button type="button" class="btn btn-ghost btn-xs focus-visible:ring-2 focus-visible:ring-primary"
+        [title]="isSessionActive() ? 'Rewind file changes to here' : 'Rewind is only available during an active conversation'"
+        [attr.aria-label]="isSessionActive() ? 'Rewind file changes to this message' : 'Rewind unavailable — session is not active'"
+        [disabled]="!isSessionActive()" [attr.aria-disabled]="!isSessionActive()"
+        data-testid="lane-event-rewind" (click)="requestRewind()">
+        <lucide-angular [img]="RewindIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+    </div>
+  </div>
+  <div data-testid="lane-event-second-line" class="mt-1.5 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap pl-[50px] text-xs leading-5 text-base-content-muted">
+    <span data-testid="lane-event-summary" class="min-w-0 flex-1 truncate" [title]="summary()">{{ summary() }}</span>
+    @if (compactStats()) {
+      <span data-testid="lane-event-stats" class="min-w-0 max-w-[38%] shrink truncate text-right tabular-nums"
+        [title]="statsTitle()">{{ compactStats() }}</span>
+    }
+    <span data-testid="lane-event-unverified-caption" class="shrink-0"
+      title="Sent from another session — the sender name is self-reported and unverified.">· self-reported</span>
+    <span class="sr-only">Sent from another session — the sender name is self-reported and unverified.</span>
+  </div>
+  <div [id]="bodyId()" data-testid="lane-event-body" [hidden]="!expanded()" class="mt-2 pl-[50px]">
+    @if (expanded()) {
+      @for (event of row().events; track event.messageId; let first = $first) {
+        <section [class.border-t]="!first" class="mt-2 border-base-content/10 pt-2">
+          <h4 class="text-[11px] font-semibold text-base-content-muted">{{ event.kind === 'report' ? 'Report' : 'Completion' }}, {{ time(event.timestamp) }}</h4>
+          @if (event.kind === 'report') {
+            <markdown [data]="markdown(event.body) | surfaceMarkdown: surfaceActive()"
+              class="prose prose-sm max-w-none [&_*]:text-base-content" />
+          } @else {
+            @let detail = completionFor(event.body);
+            <dl data-testid="lane-event-completion" class="mt-1 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
+              @if (detail.status) { <dt>Status</dt><dd>{{ detail.status }}</dd> }
+              @if (detail.duration) { <dt>Duration</dt><dd>{{ detail.duration }}</dd> }
+              @if (detail.exitCode !== undefined) { <dt>Exit code</dt><dd>{{ detail.exitCode }}</dd> }
+              @if (detail.reports !== undefined) { <dt>Reports</dt><dd>{{ detail.reports }}</dd> }
+              @if (detail.deliverables === null) {
+                <dt>Deliverables</dt><dd>{{ event.verdict === 'unverified' ? 'deliverables not checked' : 'none declared' }}</dd>
+              } @else if (detail.deliverables) {
+                <dt>Deliverables</dt><dd><ul class="min-w-0">
+                  @for (file of detail.deliverables; track file.path) { <li class="break-all">{{ file.path }} — {{ file.state }}</li> }
+                </ul></dd>
+              }
+              @if (detail.task) { <dt>Task</dt><dd class="min-w-0 break-words">{{ detail.task }}</dd> }
+              @if (detail.cliSessionId) { <dt>CLI session</dt><dd class="min-w-0"><code class="break-all font-mono">{{ detail.cliSessionId }}</code></dd> }
+            </dl>
+            @for (line of detail.extra; track $index) { <p class="mt-1 break-words text-[11px]">{{ line }}</p> }
+          }
+        </section>
+      }
+      @if (attachments().files.length || attachments().images) {
+        <div class="mt-1 flex flex-wrap gap-1 text-base-content-muted">
+          @for (file of attachments().files; track file) { <span class="badge badge-ghost badge-sm">{{ fileName(file) }}</span> }
+          @if (attachments().images) {
+            <span class="badge badge-ghost badge-sm"><lucide-angular [img]="ImageIcon" class="h-3 w-3" aria-hidden="true" />{{ attachments().images }} {{ attachments().images === 1 ? 'image' : 'images' }}</span>
+          }
+        </div>
+      }
+    }
+  </div>
+  <span class="sr-only" role="status">{{ completed() ? row().agent + ' lane completed' : '' }}</span>
+</article>

@@ -45,8 +45,9 @@ interface InlineAction {
  * - The whole card is the trigger: a click, Enter or Space on it emits `detailsRequested` (the parent
  *   opens the connection drawer), via `NativeCardComponent`'s `activated`, which ignores clicks that
  *   land on the inline action.
- * - Two rows: avatar, name, provenance and the auth-modality badge; then the status dot and label, at
- *   most ONE inline repair action (the state's primary, `primaryConnectionAction`) and "Used by N". There is no
+ * - One list row: avatar; name over provenance, "Used by N" and the consumer names (`usedByLabels`); then
+ *   the status dot and label, at most ONE inline repair action (the state's primary,
+ *   `primaryConnectionAction`) and the auth-modality badge on the right. There is no
  *   "Use for main agent" on the face (prototype, Gate V 28): the Main Agent popover changes the main agent.
  * - Every other per-state action lives in the drawer. The state table's one-line copy is the card's
  *   accessible name (with its status) and its tooltip; the drawer's Overview repeats it.
@@ -63,70 +64,83 @@ interface InlineAction {
   standalone: true,
   imports: [LucideAngularModule, NativeCardComponent, SettingScopeRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // Fills its grid cell, so rows that sit side by side end at the same bottom edge.
+  // `[&>div]:h-full` relies on ptah-native-card rendering a root <div>.
+  host: { class: 'block h-full' },
   template: `
-    <ptah-native-card density="compact" [tone]="cardTone()" [spine]="cardSpine()" [clickable]="true"
+    <ptah-native-card class="block h-full [&>div]:h-full" density="compact" [tone]="cardTone()" [spine]="cardSpine()" [clickable]="true"
       [ariaLabel]="cardAriaLabel()" (activated)="detailsRequested.emit()" [attr.title]="keyUnreadable() ? keyUnreadableText : statusCopy()"
       [attr.data-state]="resolvedState()" data-testid="provider-connection-card">
-      <div class="flex flex-col gap-0.5">
-        <div class="flex min-h-7 items-center justify-between gap-2">
-          <div class="flex min-w-0 items-center gap-2">
-            <span [class]="avatarClass()" aria-hidden="true" data-testid="card-avatar">{{ initials() }}</span>
-            <div class="min-w-0">
-              <p class="break-words text-xs font-semibold leading-tight text-base-content" data-testid="provider-name">
-                {{ displayName() }}
-              </p>
-              @if (subtitle(); as text) {
-                <p class="break-words text-[10px] leading-tight text-base-content-muted" data-testid="card-subtitle">{{ text }}</p>
-              }
-            </div>
-          </div>
-          @if (modalityLabel(); as modality) {
-            <span class="badge badge-sm badge-outline shrink-0 whitespace-nowrap border-base-content-muted bg-base-100 text-[10px] font-medium text-base-content"
-              data-testid="auth-modality">{{ modality }}</span>
-          }
-        </div>
-        <div class="flex min-h-6 items-center justify-between gap-1.5 text-[11px]">
-          <div class="flex min-w-0 flex-wrap items-center gap-x-1">
-            <span class="flex items-center gap-1.5 font-medium text-base-content" data-testid="status-badge">
-              @if (isBlockedMain()) {
-                <lucide-angular [img]="AlertTriangleIcon" class="h-3 w-3" aria-hidden="true" />
-                <span data-testid="blocked-main-badge">Main agent · Needs attention ·</span>
-              } @else if (keyUnreadable()) {
-                <lucide-angular [img]="AlertTriangleIcon" class="h-3 w-3 shrink-0 text-warning" aria-hidden="true" />
-              } @else {
-                <span [class]="'h-1.5 w-1.5 shrink-0 rounded-full ' + dotClass()" aria-hidden="true"></span>
-              }
-              @if (keyUnreadable()) {
-                <span data-testid="card-key-unreadable">{{ keyUnreadableText }}</span>
-              } @else {
-                <span data-testid="status-copy">{{ statusLabel() }}</span>
-              }
-            </span>
-            @if (keyUnreadable()) {
-              <!-- M-6: the key's state is unknown, so the repair is a re-read, never "Add API key". -->
-              <button type="button" [class]="inlineActionClass" [attr.aria-label]="'Retry reading the stored key for ' + displayName()"
-                (click)="keyRetryRequested.emit()" data-testid="card-key-unreadable-retry">Retry</button>
-            } @else if (inlineAction(); as action) {
-              <button type="button" [class]="inlineActionClass"
-                [attr.aria-label]="action.ariaLabel" (click)="action.emit.emit()" [attr.data-testid]="action.testId">
-                {{ action.label }}
-              </button>
-            }
-          </div>
-          <div class="flex shrink-0 items-center gap-1.5">
-            @if (hasScope()) {
-              <ptah-setting-scope-row [scope]="scope()" [hasOverride]="hasOverride()" [supportedTargets]="supportedTargets()"
-                [workspaceName]="workspaceName()" [workspaceCrossApp]="workspaceCrossApp()" [fieldName]="displayName()"
-                (clearRequested)="scopeClearRequested.emit()" (useGlobalRequested)="scopeUseGlobalRequested.emit()"
-                (copyGlobalRequested)="scopeCopyGlobalRequested.emit()" data-testid="card-scope-wrapper" />
-            }
-            @if (connectedAccounts(); as connected) {
-              <span class="badge badge-ghost badge-sm" data-testid="connected-accounts-badge">{{ connected }} connected</span>
+      <div class="flex min-h-[40px] items-center gap-3">
+        <span [class]="avatarClass()" aria-hidden="true" data-testid="card-avatar">{{ initials() }}</span>
+        <div class="min-w-0 flex-1">
+          <p class="break-words text-sm font-semibold leading-snug text-base-content" data-testid="provider-name">
+            {{ displayName() }}
+          </p>
+          <!-- Wraps between two whole segments (a narrow 3-column grid cut the first one to a few letters): the provenance,
+               then the usage ("Used by N · Used for: …" as ONE segment), so the line is at most two lines and the card
+               stays within its 80 px budget. A segment cut at the row's full width keeps its whole text in its title.
+               Each "·" ends the segment before it, so a wrapped line never starts with a separator. -->
+          <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs leading-snug text-base-content-muted">
+            @if (subtitle(); as text) {
+              <span class="flex min-w-0 max-w-full items-center gap-x-1.5">
+                <span class="block min-w-0 truncate text-xs leading-snug text-base-content-muted" [attr.title]="text"
+                  data-testid="card-subtitle">{{ text }}</span>
+                @if (usedByCount() !== null) {
+                  <span class="shrink-0" aria-hidden="true">·</span>
+                }
+              </span>
             }
             @if (usedByCount() !== null) {
-              <span class="font-mono text-[10px] text-base-content-muted" data-testid="used-by-count">Used by {{ usedByCount() }}</span>
+              <span class="min-w-0 max-w-full truncate text-xs text-base-content-muted" data-testid="used-by-segment">
+                <span data-testid="used-by-count">Used by {{ usedByCount() }}</span>
+                @if (usedByLabels().length) {
+                  <span aria-hidden="true"> · </span>
+                  <span [attr.title]="usedForText()" data-testid="used-for">Used for: {{ usedForText() }}</span>
+                }
+              </span>
             }
           </div>
+        </div>
+        <div class="flex shrink-0 items-center gap-2 text-xs">
+          <span class="flex items-center gap-1.5 font-medium text-base-content" data-testid="status-badge">
+            @if (isBlockedMain()) {
+              <lucide-angular [img]="AlertTriangleIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+              <span data-testid="blocked-main-badge">Main agent · Needs attention ·</span>
+            } @else if (keyUnreadable()) {
+              <lucide-angular [img]="AlertTriangleIcon" class="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+            } @else {
+              <span [class]="'h-2 w-2 shrink-0 rounded-full ' + dotClass()" aria-hidden="true"></span>
+            }
+            @if (keyUnreadable()) {
+              <span data-testid="card-key-unreadable">{{ keyUnreadableText }}</span>
+            } @else {
+              <span data-testid="status-copy">{{ statusLabel() }}</span>
+            }
+          </span>
+          @if (keyUnreadable()) {
+            <!-- M-6: the key's state is unknown, so the repair is a re-read, never "Add API key". -->
+            <button type="button" [class]="inlineActionClass" [attr.aria-label]="'Retry reading the stored key for ' + displayName()"
+              (click)="keyRetryRequested.emit()" data-testid="card-key-unreadable-retry">Retry</button>
+          } @else if (inlineAction(); as action) {
+            <button type="button" [class]="inlineActionClass"
+              [attr.aria-label]="action.ariaLabel" (click)="action.emit.emit()" [attr.data-testid]="action.testId">
+              {{ action.label }}
+            </button>
+          }
+          @if (hasScope()) {
+            <ptah-setting-scope-row [scope]="scope()" [hasOverride]="hasOverride()" [supportedTargets]="supportedTargets()"
+              [workspaceName]="workspaceName()" [workspaceCrossApp]="workspaceCrossApp()" [fieldName]="displayName()"
+              (clearRequested)="scopeClearRequested.emit()" (useGlobalRequested)="scopeUseGlobalRequested.emit()"
+              (copyGlobalRequested)="scopeCopyGlobalRequested.emit()" data-testid="card-scope-wrapper" />
+          }
+          @if (connectedAccounts(); as connected) {
+            <span class="badge badge-ghost badge-sm text-xs" data-testid="connected-accounts-badge">{{ connected }} connected</span>
+          }
+          @if (modalityLabel(); as modality) {
+            <span class="badge badge-sm badge-outline whitespace-nowrap border-base-content-muted bg-base-100 text-xs font-medium text-base-content"
+              data-testid="auth-modality">{{ modality }}</span>
+          }
         </div>
       </div>
     </ptah-native-card>
@@ -136,7 +150,7 @@ export class ProviderConnectionCardComponent {
   protected readonly AlertTriangleIcon = AlertTriangle;
   protected readonly keyUnreadableText = KEY_UNREADABLE_TEXT;
   protected readonly inlineActionClass =
-    'btn btn-link btn-xs h-6 min-h-6 !px-0 text-[11px] text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+    'btn btn-ghost btn-sm px-2 text-xs font-medium text-base-content underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
   /** Provider registry or connection identifier (e.g. 'anthropic', 'kimi-code', 'claude-cli'). */
   readonly providerId = input<string>('');
@@ -183,6 +197,11 @@ export class ProviderConnectionCardComponent {
   /** Consumers using this connection ("Used by N"); null while unknown (hidden, never a guessed 0). */
   readonly usedByCount = input<number | null>(null);
   /**
+   * Presentational: the names behind "Used by N" ("Main agent", "Memory curator"). Shown only beside a known
+   * `usedByCount` (not null); empty hides "Used for".
+   */
+  readonly usedByLabels = input<readonly string[]>([]);
+  /**
    * Claude CLI only (D41): signed-in named accounts + the existing login when connected. Display only;
    * hidden for `null` (loading, failed or not applicable) and `0`. Never carries a name or other detail.
    */
@@ -219,9 +238,10 @@ export class ProviderConnectionCardComponent {
   protected readonly displayName = computed(() => this.providerName() || this.providerId() || 'Provider');
   protected readonly hasScope = computed(() => this.scope() !== null);
   protected readonly modalityLabel = computed(() => this.authModalityText() || authModalityBadge(this.authModality()));
+  protected readonly usedForText = computed(() => this.usedByLabels().join(', '));
   protected readonly initials = computed(() => connectionInitials(this.displayName()));
   protected readonly avatarClass = computed(() =>
-    `flex h-7 w-7 shrink-0 items-center justify-center rounded border text-[11px] font-bold text-base-content ${connectionAvatarTone(this.providerId() || this.displayName())}`);
+    `flex h-8 w-8 shrink-0 items-center justify-center rounded border text-xs font-bold text-base-content ${connectionAvatarTone(this.providerId() || this.displayName())}`);
 
   readonly resolvedState = computed<ResolvedConnectionState>(() => applyRecordedCheck(
     resolveConnectionState(this.status(), this.positiveProbeEvidence(), this.isActive(), this.isBlocked()),

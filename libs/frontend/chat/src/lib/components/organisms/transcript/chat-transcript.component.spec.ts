@@ -51,11 +51,29 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
+describe('ChatTranscriptComponent — lane event slots', () => {
+  it('renders one lane row for peer envelopes and keeps merged slots empty', () => {
+    const h = makeHarness(signal(true));
+    const peer = (id: string, tag: string) => createExecutionChatMessage({
+      id, role: 'user', timestamp: Number(id.slice(1)), inboundPeer: { label: 'codex · Glm' },
+      rawContent: `<${tag} agent-id="lane-1" agent="Glm" cli="codex">Body</${tag}>`,
+    });
+    h.messagesSig.set([peer('m1', 'agent-report'), peer('m2', 'agent-lane-completed')]);
+    h.fixture.detectChanges();
+    const element = h.fixture.nativeElement as HTMLElement;
+    expect(element.querySelectorAll('[data-testid="lane-event"]')).toHaveLength(1);
+    expect(element.querySelectorAll('[data-testid="chat-peer-message"]')).toHaveLength(0);
+    expect(h.slots()).toHaveLength(2);
+    expect(h.slots()[1].querySelector('ptah-message-bubble, ptah-lane-event')).toBeNull();
+  });
+});
+
 import { By } from '@angular/platform-browser';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { ChatTranscriptComponent } from './chat-transcript.component';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { SessionHistoryReplayer } from '../../../services/chat-store/session-history-replayer.service';
 import {
   ALWAYS_MOUNTED_TAIL,
   RENDER_WINDOW_MARGIN_PX,
@@ -70,14 +88,17 @@ import {
   type SessionCardActions,
 } from '../../../tokens/session-context.token';
 import { STREAM_PRESENTATION_RECORDS_ENABLED } from '../../../services/stream-presentation-store.service';
+import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import {
   createExecutionNode,
+  createExecutionChatMessage,
   type ExecutionChatMessage,
   type ExecutionNode,
   type PermissionRequest,
 } from '@ptah-extension/shared';
 import { SubagentTileComponent } from '../execution/subagent-tile.component';
 import {
+  AgentMonitorStore,
   SubagentExecutionStore,
   type SubagentExecutionEntry,
 } from '@ptah-extension/chat-streaming';
@@ -1220,6 +1241,7 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
     configureTranscriptTestBed({ tabs, buildTree: jest.fn(() => []) });
     TestBed.configureTestingModule({
       providers: [
+        { provide: SessionHistoryReplayer, useValue: { replayingTabIds: () => new Set<string>() } },
         {
           provide: SubagentExecutionStore,
           useValue: {
@@ -1504,20 +1526,87 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
     expect(t.scroller.scrollTop).toBe(1000);
   });
 
-  it('keeps the transcript and announces when a lane cannot be opened here', () => {
+  it('keeps the transcript and announces when an unknown cli lane cannot be opened here', () => {
     configure();
+    const requestPanelOpen = jest.fn();
+    TestBed.overrideProvider(AgentMonitorStore, {
+      useValue: { agents: () => [], requestPanelOpen },
+    });
     const fixture = mountHost(SingleChatHost);
     const t = transcriptOf(fixture);
 
-    t.descendantActions()?.openLane('sub:not-in-this-tab');
-    t.descendantActions()?.openLane('cli:agent-1');
+    t.descendantActions()?.openLane('cli:not-in-this-tab');
     fixture.detectChanges();
 
     expect(t.view()).toBeNull();
     expect(t.scroller.hasAttribute('inert')).toBe(false);
+    expect(requestPanelOpen).not.toHaveBeenCalled();
     expect(t.notice()).toBe(
       'This agent is not available in this conversation.',
     );
+  });
+
+  it('opens a known cli lane in the monitor, expands it once, and clears the notice', () => {
+    configure();
+    const agents = signal([{ agentId: 'agent-1', parentSessionId: 'session-1', expanded: false, status: 'running' as const,
+      model: null, usageTotals: null, startedAt: 0, completedAt: undefined }]);
+    const toggleAgentExpanded = jest.fn((agentId: string) => {
+      agents.update((current) => current.map((agent) =>
+        agent.agentId === agentId ? { ...agent, expanded: !agent.expanded } : agent));
+    });
+    const requestPanelOpen = jest.fn();
+    TestBed.overrideProvider(AgentMonitorStore, {
+      useValue: { agents, toggleAgentExpanded, requestPanelOpen },
+    });
+    const fixture = mountHost(SingleChatHost);
+    const t = transcriptOf(fixture);
+
+    t.descendantActions()?.openLane('cli:unknown');
+    t.descendantActions()?.openLane('cli:agent-1');
+    fixture.detectChanges();
+
+    expect(requestPanelOpen).toHaveBeenCalledWith(null);
+    expect(toggleAgentExpanded).toHaveBeenCalledTimes(1);
+    expect(agents()[0].expanded).toBe(true);
+    expect(t.notice()).toBe('');
+    expect(t.view()).toBeNull();
+    expect(t.scroller.hasAttribute('inert')).toBe(false);
+
+    t.descendantActions()?.openLane('cli:agent-1');
+    expect(toggleAgentExpanded).toHaveBeenCalledTimes(1);
+    expect(requestPanelOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not open a CLI agent from another session', () => {
+    configure();
+    const requestPanelOpen = jest.fn();
+    TestBed.overrideProvider(AgentMonitorStore, {
+      useValue: { agents: () => [{ agentId: 'agent-1', parentSessionId: 'session-2' }], requestPanelOpen },
+    });
+    const fixture = mountHost(SingleChatHost);
+    const t = transcriptOf(fixture);
+    t.descendantActions()?.openLane('cli:agent-1');
+    fixture.detectChanges();
+    expect(requestPanelOpen).not.toHaveBeenCalled();
+    expect(t.notice()).toBe('This agent is not available in this conversation.');
+  });
+
+  it('offers no CLI lane action when the Electron dock cannot render a CLI card', () => {
+    configure();
+    const requestPanelOpen = jest.fn();
+    const toggleAgentExpanded = jest.fn();
+    TestBed.overrideProvider(AgentMonitorStore, {
+      useValue: { agents: () => [{ agentId: 'agent-1', parentSessionId: 'session-1', expanded: false }], requestPanelOpen, toggleAgentExpanded },
+    });
+    TestBed.overrideProvider(DisplayDockState, { useValue: new DisplayDockState() });
+    const fixture = mountHost(SingleChatHost);
+    const t = transcriptOf(fixture);
+    expect(t.descendantActions()?.canOpenLane?.('cli:agent-1')).toBe(false);
+    expect(t.descendantActions()?.canOpenLane?.('sub:agent-1')).toBe(true);
+    t.descendantActions()?.openLane('cli:agent-1');
+    fixture.detectChanges();
+    expect(requestPanelOpen).not.toHaveBeenCalled();
+    expect(toggleAgentExpanded).not.toHaveBeenCalled();
   });
 
   it('an agent gone from the open conversation closes the view, restores the transcript and announces', () => {

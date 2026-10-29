@@ -249,4 +249,17 @@ describe('UserMessageTransformer', () => {
     const plain = transformer.transform(msg, state, helpers);
     expect(plain[0]).not.toHaveProperty('inboundPeer');
   });
+
+  it('stamps ordering and client identity only on message_start', () => {
+    const msg = { uuid: 'u-order-1', message: { content: 'status please' } } as never;
+    const peer = transformer.transform(msg, state, helpers, undefined, {
+      label: 'reviewer', beforeClientMessageId: 'Q',
+    });
+    expect(peer[0]).toMatchObject({ inboundPeer: { label: 'reviewer', beforeClientMessageId: 'Q' } });
+    expect(peer[1]).not.toHaveProperty('inboundPeer');
+    const human = transformer.transform(msg, state, helpers, undefined, undefined, 'P');
+    expect(human[0]).toMatchObject({ clientMessageId: 'P' });
+    expect(human[1]).not.toHaveProperty('clientMessageId');
+    expect(transformer.transform(msg, state, helpers)[0]).not.toHaveProperty('clientMessageId');
+  });
 });

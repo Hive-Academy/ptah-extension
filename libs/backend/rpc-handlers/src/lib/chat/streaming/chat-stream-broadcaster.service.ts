@@ -144,6 +144,7 @@ export class ChatStreamBroadcaster {
     const isPtahCliSession = this.ptahCli.hasSession(tabId);
     let streamExitedNormally = false;
     let recordReplaced = false;
+    let sessionConfirmedEnded = false;
     // The id the turn state is keyed under. `sessionId` is the tabId for a
     // fresh session; the events carry the real SDK UUID once known, and the
     // registry's alias (`rekey`) covers the gap either way (TASK_2026_360).
@@ -416,6 +417,7 @@ export class ChatStreamBroadcaster {
             recordToken,
           );
           if (ended) {
+            sessionConfirmedEnded = true;
             this.logger.info(
               `[RPC] Session ${sessionId} cleaned up after stream exit`,
               { normalExit: streamExitedNormally, eventCount },
@@ -438,6 +440,7 @@ export class ChatStreamBroadcaster {
             const currentToken = this.sdkAdapter.getSessionToken(sessionId);
             recordReplaced =
               currentToken !== null && currentToken !== recordToken;
+            sessionConfirmedEnded = currentToken === null;
             this.logger.info(
               recordReplaced
                 ? `[RPC] Session ${sessionId} record was replaced before stream exit — leaving the newer query alone`
@@ -459,6 +462,19 @@ export class ChatStreamBroadcaster {
       if (!recordReplaced) {
         this.turnState.clear(turnSessionId);
         this.turnState.clear(sessionId);
+        if (sessionConfirmedEnded) {
+          try {
+            await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_SESSION_ENDED, {
+              tabId,
+              sessionId: turnSessionId,
+            });
+          } catch (error: unknown) {
+            this.logger.warn(
+              `[RPC] Failed to broadcast session end for ${turnSessionId}`,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        }
       }
     }
   }

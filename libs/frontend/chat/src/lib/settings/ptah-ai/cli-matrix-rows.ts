@@ -98,6 +98,9 @@ export interface SystemCliMatrixRow extends CliMatrixRowBase {
   readonly credentialAction: boolean;
 }
 
+/** The model and effort cells' popover field. */
+export type CliMatrixCellField = 'model' | 'effort';
+
 /** One tier badge (#54), in the order Sonnet, Opus, Haiku. */
 export interface CliTierBadge {
   readonly tier: 'sonnet' | 'opus' | 'haiku';
@@ -127,6 +130,30 @@ export interface InstanceCliMatrixRow extends CliMatrixRowBase {
     ProvidersCliTest,
     'success' | 'latencyMs' | 'reason'
   > | null;
+}
+
+/** The popovers an instance card opens; the matrix owns which one is open (one at a time across the card). */
+export type PtahCliInstanceCell = CliMatrixCellField | 'more';
+export interface PtahCliInstanceOpenCell {
+  readonly rowId: string;
+  readonly kind: string;
+}
+export interface PtahCliInstanceToggle {
+  readonly row: InstanceCliMatrixRow;
+  readonly event: Event;
+}
+
+/** M1: the failed-Test sentence is fixed; only the state's own fixed reason may follow it. */
+export const CLI_TEST_FAILED = 'The connection test failed.';
+/** M1: a Test that could not run. */
+export const CLI_TEST_NOT_RUN = 'The test could not run. Try again.';
+/** A created instance the refreshed list does not show yet: its Test did not start. */
+export const CLI_TEST_NOT_STARTED =
+  'Its connection test did not start. Use Test on its row once it shows.';
+
+/** The failed-Test sentence, followed by the state's own fixed reason when it has one. */
+export function cliTestFailedText(reason: string | null): string {
+  return reason ? `${CLI_TEST_FAILED} ${reason}` : CLI_TEST_FAILED;
 }
 
 export type CliMatrixRow = SystemCliMatrixRow | InstanceCliMatrixRow;

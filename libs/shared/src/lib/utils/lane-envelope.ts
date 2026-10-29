@@ -3,10 +3,10 @@
  * session as a peer turn (`<agent-report …>` from `AgentReportRouter`,
  * `<agent-lane-completed …>` from `LaneCompletionNotifier`).
  *
- * The live stream carries the sender on `origin`, but the CLI does not write
- * `origin` to the JSONL transcript, so a history reload can only recognise a
- * peer turn by this envelope. The webview uses the same parse to render a
- * compact header instead of the raw tags.
+ * The live echo carries no `origin`; live attribution uses the yielded-entry
+ * identity. The CLI does not write `origin` to the JSONL transcript, so history
+ * recognises a peer turn by this envelope. The webview uses the same parse to
+ * render a compact header instead of the raw tags.
  *
  * Every value here is display text. The attributes are self-reported by the
  * sender and must never be used as an identity or to authorize anything.

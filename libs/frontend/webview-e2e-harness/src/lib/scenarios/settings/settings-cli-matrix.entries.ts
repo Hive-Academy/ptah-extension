@@ -4,7 +4,7 @@
  * Batch 32 added #47 and #53 (the add-instance and tier modals) and moved #49 here with its CLI-form half. Batch 34
  * retired the old Ptah CLI instance manager and re-pointed its entries here (#39, #42, #45, #46, #48, #50-#52, #55-#57,
  * and the delegated #59-#62, #65-#69). Kept apart from the table, which is over its `max-lines` budget (the
- * `settings-routing-map.entries.ts` precedent); `REACHABILITY_TABLE` spreads them in and `EXPECTED_CAPABILITY_COUNT`
+ * `settings-main-agent.entries.ts` precedent); `REACHABILITY_TABLE` spreads them in and `EXPECTED_CAPABILITY_COUNT`
  * counts them.
  */
 import { expect, type Locator, type Page } from '@playwright/test';
@@ -266,8 +266,22 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
     reach: async (page) => {
       const glm = await matrixRow(page, GLM_ID);
       await expect(glm).toHaveAttribute('data-kind', 'instance');
-      await expect(glm.getByText('Ptah CLI', { exact: true })).toBeVisible();
-      // The Provider column in a wide box; under the name in a narrow one (Electron).
+      // The instance is a card in the "Ptah CLI instances" sub-section (the section heading replaces the old
+      // per-row "Ptah CLI" badge), with its name and its provider mark and label.
+      const section = page.locator('[data-testid="cli-instances"]');
+      await expect(
+        section.getByRole('heading', {
+          name: 'Ptah CLI instances',
+          exact: true,
+        }),
+      ).toBeVisible();
+      await expect(
+        section.locator(`[data-testid="cli-matrix-row-${GLM_ID}"]`),
+      ).toHaveCount(1);
+      await expect(glm.getByText('Glm', { exact: true })).toBeVisible();
+      await expect(
+        glm.locator('[data-testid="provider-mark-box"]').first(),
+      ).toBeVisible();
       await expect(
         glm
           .getByText('Ollama Cloud', { exact: true })
@@ -463,7 +477,7 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
     id: '#57',
     capability: 'Empty state with Add link',
     status: 'present',
-    // A second page with no Ptah CLI instance: the matrix's "No Ptah CLI instance yet." row carries its own Add.
+    // A second page with no Ptah CLI instance: the instances sub-section's "No Ptah CLI instance yet." state carries its own Add.
     reach: (page) =>
       throughVariantBoot(
         page,
@@ -828,10 +842,11 @@ export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
     status: 'restored',
     reach: async (page) => {
       const row = await matrixRow(page, GLM_ID);
+      // The instance card's tier mapping: each tier's label over its model.
       for (const tier of ['Sonnet', 'Opus', 'Haiku']) {
-        await expect(
-          row.locator(`[data-tier="${tier.toLowerCase()}"]`),
-        ).toHaveText(`${tier}: glm-5.3:cloud`);
+        const slot = row.locator(`[data-tier="${tier.toLowerCase()}"]`);
+        await expect(slot).toContainText(tier);
+        await expect(slot).toContainText('glm-5.3:cloud');
       }
     },
   },

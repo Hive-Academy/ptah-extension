@@ -139,6 +139,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.CHAT_STREAM_SNAPSHOT,
     MESSAGE_TYPES.CHAT_COMPLETE,
     MESSAGE_TYPES.CHAT_ERROR,
+    MESSAGE_TYPES.CHAT_SESSION_ENDED,
     MESSAGE_TYPES.PERMISSION_REQUEST,
     MESSAGE_TYPES.SESSION_STATS,
     MESSAGE_TYPES.SESSION_STATS_LIVE,
@@ -174,6 +175,9 @@ export class ChatMessageHandler implements MessageHandler {
         break;
       case MESSAGE_TYPES.CHAT_ERROR:
         this.handleChatError(message.payload);
+        break;
+      case MESSAGE_TYPES.CHAT_SESSION_ENDED:
+        this.handleSessionEnded(message.payload);
         break;
       case MESSAGE_TYPES.PERMISSION_REQUEST:
         this.handlePermissionRequest(message.payload);
@@ -723,6 +727,13 @@ export class ChatMessageHandler implements MessageHandler {
       sessionId,
       error: error ?? 'Unknown error',
     });
+  }
+  private handleSessionEnded(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const { tabId, sessionId } = payload as { tabId?: unknown; sessionId?: unknown };
+    if (typeof tabId === 'string' && typeof sessionId === 'string') {
+      this.chatStore.retireEndedSessionPrompts(tabId, sessionId);
+    }
   }
   private handlePermissionRequest(payload: unknown): void {
     if (!payload) {

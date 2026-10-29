@@ -178,7 +178,7 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
 
     const result = await h.service.continueSession(params('follow up'));
 
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID });
+    expect(result).toEqual({ success: true, sessionId: SESSION_ID, enqueued: true });
     expect(h.resumeSession).toHaveBeenCalledTimes(1);
     const resumeConfig: object = h.resumeSession.mock.calls[0][1];
     expect(resumeConfig).toEqual(expect.objectContaining({ prompt: 'follow up' }));
@@ -196,7 +196,7 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
 
     const result = await h.service.continueSession(params('follow up'));
 
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID });
+    expect(result).toEqual({ success: true, sessionId: SESSION_ID, enqueued: true });
     expect(h.resumeSession).not.toHaveBeenCalled();
     expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
     expect(h.sendMessageToSession).toHaveBeenCalledWith(SESSION_ID, 'follow up', {

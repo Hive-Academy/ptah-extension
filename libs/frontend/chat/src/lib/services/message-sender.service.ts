@@ -793,6 +793,7 @@ export class MessageSenderService {
           prompt: content,
           sessionId,
           tabId: activeTabId, // For event routing
+          clientMessageId: userMessage.id,
           name: activeTab?.name, // Send session name (support late naming)
           ...(systemPrompt ? { systemPrompt } : {}),
           ...(resolvedWorkspacePath
@@ -855,6 +856,9 @@ export class MessageSenderService {
         this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
         return { success: true };
+      }
+      if (result.data?.enqueued !== true) {
+        this.streamingHandler.retirePendingPrompt?.(activeTabId, userMessage.id);
       }
       this.sessionManager.setStatus('streaming');
       this.tabManager.markStreaming(activeTabId);

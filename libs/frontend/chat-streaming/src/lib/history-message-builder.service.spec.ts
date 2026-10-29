@@ -1,3 +1,5 @@
+import { ClaudeRpcService } from '@ptah-extension/core';
+import { SubagentExecutionStore } from './subagent-execution.store';
 import { TestBed } from '@angular/core/testing';
 import {
   type ExecutionNode,
@@ -83,6 +85,7 @@ describe('HistoryMessageBuilder', () => {
     monitoredAgents = new Map();
     backgroundAgents = new Map();
     const agentMonitorStore = {
+      registerHistoryCandidates: jest.fn(),
       onAgentStart: jest.fn((event: { toolCallId: string }) => {
         monitoredAgents.set(event.toolCallId, event);
       }),
@@ -109,6 +112,7 @@ describe('HistoryMessageBuilder', () => {
     TestBed.configureTestingModule({
       providers: [
         HistoryMessageBuilder,
+        { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
         StreamingAccumulatorCore,
         EventDeduplicationService,
         {
@@ -125,6 +129,34 @@ describe('HistoryMessageBuilder', () => {
   });
 
   afterEach(() => TestBed.resetTestingModule());
+
+  it('registers candidates from both history build paths and persists only the peer label', () => {
+    const state = historyState();
+    const start = state.events.get('user-start');
+    if (!start || start.eventType !== 'message_start')
+      throw new Error('missing user');
+    state.events.set(start.id, {
+      ...start,
+      inboundPeer: { label: 'Reviewer', beforeClientMessageId: 'volatile' },
+    });
+    treeBuilder.buildTree.mockReturnValue([
+      { id: 'agent', type: 'agent', toolCallId: 'tool', children: [] },
+    ]);
+    for (const releaseCacheAfterBuild of [false, true]) {
+      const messages = builder.build(state, {
+        cacheKey: 'history',
+        releaseCacheAfterBuild,
+        sessionId: 'session-1',
+      });
+      expect(messages[0].inboundPeer).toEqual({ label: 'Reviewer' });
+    }
+    expect(
+      TestBed.inject(AgentMonitorStore).registerHistoryCandidates,
+    ).toHaveBeenCalledTimes(2);
+    expect(
+      TestBed.inject(AgentMonitorStore).registerHistoryCandidates,
+    ).toHaveBeenCalledWith('session-1', ['tool']);
+  });
 
   it('builds the same messages for a tab tail and a scratch older page', () => {
     const state = historyState();
@@ -221,6 +253,9 @@ describe('HistoryMessageBuilder', () => {
     expect(onSubagentMessageComplete).toHaveBeenCalledWith(
       expect.objectContaining({ tokenUsage: { input: 4, output: 7 } }),
     );
+    expect(
+      TestBed.inject(SubagentExecutionStore).entryFor('task-tool')?.state,
+    ).toBeTruthy();
     expect(treeBuilder.buildTree).not.toHaveBeenCalled();
   });
 

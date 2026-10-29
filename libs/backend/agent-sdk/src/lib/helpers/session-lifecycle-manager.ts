@@ -469,6 +469,105 @@ export class SessionLifecycleManager {
     this.watchCompactionThreshold();
   }
 
+  /** Capture synchronously before releasing the pump or awaiting result work. */
+  takeResultClientMessageId(
+    sessionId: SessionId,
+    result?: {
+      readonly user_message_uuid?: string;
+      readonly user_message_uuids?: readonly string[];
+    },
+  ): string | null {
+    const rec = this._registry.find(sessionId as string);
+    if (!rec) return null;
+    rec.resultCount = (rec.resultCount ?? 0) + 1;
+    rec.lastResultWasInterruptedLate = false;
+    const interruptedYield = rec.interruptAwaitingResultYieldSequence;
+    const interruptedUuid = rec.interruptedTurnUserMessageUuid;
+    const resultUuids = [
+      ...(result?.user_message_uuids ?? []),
+      ...(result?.user_message_uuid ? [result.user_message_uuid] : []),
+    ];
+    const qYielded = interruptedYield !== (rec.yieldSequence ?? 0);
+    // A result that names the turn yielded after the interrupt is that turn's,
+    // even when its batch also lists the interrupted prompt.
+    const namesCurrent =
+      qYielded &&
+      rec.currentTurnUserMessageUuid != null &&
+      resultUuids.includes(rec.currentTurnUserMessageUuid);
+    const isInterruptedResult =
+      interruptedYield !== null &&
+      !namesCurrent &&
+      (!qYielded ||
+        (interruptedUuid != null && resultUuids.includes(interruptedUuid)));
+    if (isInterruptedResult) {
+      rec.interruptAwaitingResultYieldSequence = null;
+      rec.interruptedTurnUserMessageUuid = null;
+      rec.lastResultWasInterruptedLate = true;
+      return null;
+    }
+    if (interruptedYield !== null) {
+      rec.interruptAwaitingResultYieldSequence = null;
+      rec.interruptedTurnUserMessageUuid = null;
+      // A result without identity after Q was yielded could belong to either
+      // turn. Release the pump, but leave Q's id for later echo or teardown.
+      if (
+        rec.currentTurnUserMessageUuid == null ||
+        !resultUuids.includes(rec.currentTurnUserMessageUuid)
+      )
+        return null;
+    }
+    // An expected echo may lag its result. Retire through the out-of-stream
+    // channel if the pump will idle; otherwise the next yield displaces it.
+    if (rec.echoesUserMessages === true && rec.awaitingEcho !== null) {
+      rec.resultYieldSequence = rec.yieldSequence ?? 0;
+      if (
+        rec.messageQueue.length === 0 &&
+        rec.currentTurnClientMessageId !== null
+      ) {
+        (rec.displacedRetirements ??= []).push(rec.currentTurnClientMessageId);
+        rec.currentTurnClientMessageId = null;
+        rec.retirementWake?.();
+      }
+      return null;
+    }
+    const id = rec.currentTurnClientMessageId;
+    rec.currentTurnClientMessageId = null;
+    return id;
+  }
+
+  wasLastResultInterruptedLate(sessionId: SessionId): boolean {
+    return (
+      this._registry.find(sessionId as string)?.lastResultWasInterruptedLate ===
+      true
+    );
+  }
+
+  /** Drain the interrupted turn independently of the next yielded turn. */
+  takeInterruptRetirement(sessionId: SessionId): string | null {
+    const rec = this._registry.find(sessionId as string);
+    if (!rec) return null;
+    const id = rec.interruptRetirement;
+    rec.interruptRetirement = null;
+    return id;
+  }
+
+  takeDisplacedRetirement(sessionId: SessionId): string | null {
+    return (
+      this._registry.find(sessionId as string)?.displacedRetirements?.shift() ??
+      null
+    );
+  }
+
+  subscribeRetirement(sessionId: SessionId, wake: () => void): () => void {
+    const rec = this._registry.find(sessionId as string);
+    if (!rec) return () => undefined;
+    rec.retirementWake = wake;
+    if (rec.interruptRetirement || rec.displacedRetirements?.length) wake();
+    return () => {
+      if (rec.retirementWake === wake) rec.retirementWake = null;
+    };
+  }
+
   /**
    * At a turn's end, before waking a held queue: the turn's budget estimate
    * must not outlive the turn, nor may its pending notices reach the next one.
@@ -750,6 +849,7 @@ export class SessionLifecycleManager {
     options?: {
       origin?: SDKMessageOrigin;
       admission?: AIMessageOptions['admission'];
+      clientMessageId?: string;
     },
   ): Promise<void> {
     const record = this._registry.find(sessionId as string);

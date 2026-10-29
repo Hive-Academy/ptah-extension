@@ -389,6 +389,7 @@ describe.each([
     ChatContinueParamsSchema,
     { tabId: VALID_TAB_UUID, sessionId: VALID_SESSION_UUID },
     [
+      'clientMessageId',
       'systemPrompt',
       'tabId',
       'sessionId',

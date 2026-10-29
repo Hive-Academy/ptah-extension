@@ -63,7 +63,7 @@ let nextId = 0;
         class="mt-0.5 flex flex-wrap items-center gap-1 font-normal"
         data-testid="cli-matrix-account"
       >
-        <span class="text-[11px] text-base-content-muted">Account</span>
+        <span class="text-xs text-base-content-muted">Account</span>
         <ptah-native-popover
           [isOpen]="open()"
           placement="bottom-start"
@@ -110,7 +110,7 @@ let nextId = 0;
                 </h3>
                 <button
                   type="button"
-                  [class]="'btn btn-ghost btn-xs btn-square min-h-6 ' + focusRing"
+                  [class]="'btn btn-ghost btn-sm btn-square ' + focusRing"
                   aria-label="Close"
                   (click)="closeToTrigger()"
                   data-testid="cli-matrix-account-close"

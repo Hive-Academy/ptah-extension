@@ -233,6 +233,16 @@ export interface StreamTransformConfig {
    * the 180s no-activity watchdog instead of the turn (TASK_2026_294).
    */
   onTurnEnd?: () => void;
+  turnIdentity?: {
+    takeAtResult(result?: {
+      readonly user_message_uuid?: string;
+      readonly user_message_uuids?: readonly string[];
+    }): string | null;
+    wasLastResultInterruptedLate?(): boolean;
+    takeInterruptRetirement(): string | null;
+    takeDisplacedRetirement?(): string | null;
+    subscribeRetirement?(wake: () => void): () => void;
+  };
   /**
    * Fired once per `compact_boundary` message in THIS stream (the main loop;
    * subagent streams are dispatched elsewhere), with the effective session id
@@ -396,6 +406,49 @@ function runGuardedCallback(
  *
  * Does NOT store messages - SDK handles persistence natively.
  */
+const RETIREMENT_TICK = Symbol('retirement-tick');
+
+/** Wake a parked SDK read without starting a second read or losing its result. */
+async function* withRetirementWake(
+  source: AsyncIterable<SDKMessage>,
+  subscribe?: (wake: () => void) => () => void,
+  onCloseError?: (error: unknown) => void,
+): AsyncGenerator<SDKMessage | typeof RETIREMENT_TICK> {
+  const iterator = source[Symbol.asyncIterator]();
+  let resolveWake: (() => void) | null = null;
+  const makeWake = (): Promise<void> =>
+    new Promise<void>((resolve) => { resolveWake = resolve; });
+  let wake = makeWake();
+  let pending: Promise<IteratorResult<SDKMessage>> | null = null;
+  const unsubscribe = subscribe?.(() => resolveWake?.());
+  try {
+    while (true) {
+      pending ??= iterator.next();
+      const next = await Promise.race([
+        pending.then((value) => ({ kind: 'sdk' as const, value })),
+        wake.then(() => ({ kind: 'wake' as const })),
+      ]);
+      if (next.kind === 'wake') {
+        wake = makeWake();
+        yield RETIREMENT_TICK;
+        continue;
+      }
+      pending = null;
+      if (next.value.done) return;
+      yield next.value.value;
+    }
+  } finally {
+    unsubscribe?.();
+    const closing = iterator.return?.();
+    if (pending === null) {
+      await closing;
+    } else {
+      // A parked read can keep the source's return queued indefinitely, so report a late failure.
+      void closing?.catch((error: unknown) => onCloseError?.(error));
+    }
+  }
+}
+
 @injectable()
 export class StreamTransformer {
   constructor(
@@ -443,6 +496,7 @@ export class StreamTransformer {
       onResultStats,
       onLiveStats,
       onTurnEnd,
+      turnIdentity,
       onCompactBoundary,
       tabId,
       activityWatchdog,
@@ -536,7 +590,26 @@ export class StreamTransformer {
         activityWatchdog?.start();
 
         try {
-          for await (const sdkMessage of sdkQuery) {
+          for await (const sdkMessage of withRetirementWake(
+            sdkQuery,
+            turnIdentity?.subscribeRetirement,
+            (error) => logger.warn('[StreamTransformer] SDK iterator return failed:', error),
+          )) {
+            let displacedId = turnIdentity?.takeDisplacedRetirement?.() ?? null;
+            while (displacedId !== null) {
+              yieldedEventCount++;
+              yield messageTransformer.retirePromptOnly(effectiveSessionId, displacedId);
+              displacedId = turnIdentity?.takeDisplacedRetirement?.() ?? null;
+            }
+            let interruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
+            while (interruptClientMessageId !== null) {
+              yieldedEventCount++;
+              yield messageTransformer.settleInterruptedTurn(effectiveSessionId, interruptClientMessageId);
+              interruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
+            }
+            if (sdkMessage === RETIREMENT_TICK) continue;
+            let resultConsumedClientMessageId: string | null = null;
+            let skippedLateResult = false;
             // Any stream activity — message, partial/streaming delta, tool_use,
             // tool_result, thinking — resets the inactivity window.
             activityWatchdog?.observe(sdkMessage);
@@ -696,9 +769,12 @@ export class StreamTransformer {
               }
             }
             if (isResultMessage(sdkMessage)) {
+              const consumedClientMessageId = turnIdentity?.takeAtResult(sdkMessage) ?? null;
+              skippedLateResult = turnIdentity?.wasLastResultInterruptedLate?.() ?? false;
+              resultConsumedClientMessageId = consumedClientMessageId;
               // Turn boundary first — see `onTurnEnd`'s contract. Nothing below
               // may gate it.
-              onTurnEnd?.();
+              if (!skippedLateResult) onTurnEnd?.();
               // Before any await: the turn's estimate is dropped now, so every
               // authoritative snapshot built below supersedes every live one.
               livePublisher.onResult();
@@ -1022,7 +1098,7 @@ export class StreamTransformer {
               sdkMessage.type === 'user' ||
               // The result's `turn_state` must travel IN the stream, after the
               // last chunk of the turn it closes (TASK_2026_360).
-              isResultMessage(sdkMessage) ||
+              (isResultMessage(sdkMessage) && !skippedLateResult) ||
               isCompactBoundary(sdkMessage) ||
               isLocalCommandOutput(sdkMessage) ||
               isTaskStarted(sdkMessage) ||
@@ -1030,17 +1106,53 @@ export class StreamTransformer {
               isTaskUpdated(sdkMessage) ||
               isTaskNotification(sdkMessage)
             ) {
-              const flatEvents = messageTransformer.transform(
-                sdkMessage,
-                effectiveSessionId,
-              );
+              let flatEvents: FlatStreamEventUnion[];
+              try {
+                flatEvents = messageTransformer.transform(
+                  sdkMessage,
+                  effectiveSessionId,
+                );
+              } catch (error: unknown) {
+                if (resultConsumedClientMessageId === null) throw error;
+                logger.warn('[StreamTransformer] Result transform failed; settling turn', {
+                  errorName: error instanceof Error ? error.name : 'Unknown',
+                });
+                flatEvents = [];
+              }
 
+              let emittedTerminal = false;
               for (const event of flatEvents) {
                 yieldedEventCount++;
-
-                yield event;
+                if (event.eventType === 'turn_state') {
+                  if (!emittedTerminal && resultConsumedClientMessageId !== null) {
+                    emittedTerminal = true;
+                    yield { ...event, consumedClientMessageId: resultConsumedClientMessageId };
+                  } else {
+                    emittedTerminal = true;
+                    yield event;
+                  }
+                } else {
+                  yield event;
+                }
+              }
+              if (resultConsumedClientMessageId !== null && !emittedTerminal) {
+                yieldedEventCount++;
+                yield messageTransformer.settleInterruptedTurn(effectiveSessionId, resultConsumedClientMessageId);
               }
             }
+          }
+
+          let finalDisplacedId = turnIdentity?.takeDisplacedRetirement?.() ?? null;
+          while (finalDisplacedId !== null) {
+            yieldedEventCount++;
+            yield messageTransformer.retirePromptOnly(effectiveSessionId, finalDisplacedId);
+            finalDisplacedId = turnIdentity?.takeDisplacedRetirement?.() ?? null;
+          }
+          let finalInterruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
+          while (finalInterruptClientMessageId !== null) {
+            yieldedEventCount++;
+            yield messageTransformer.settleInterruptedTurn(effectiveSessionId, finalInterruptClientMessageId);
+            finalInterruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
           }
 
           logger.debug(

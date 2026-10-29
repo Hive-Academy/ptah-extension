@@ -43,21 +43,26 @@ function isQueuedPrompt(
  * starts its own SDK turn) in the transcript. Returns `null` when a message
  * with its id is already there, so a replayed start adds nothing.
  *
- * The backend input queue is FIFO, and a prompt sent while a turn was in
- * flight waits in it. If such a prompt is still at the tail when the peer turn
- * starts, it was queued BEHIND the peer, so the peer message goes before the
- * first of them. Any other tail prompt — sent while idle, or left by an
- * interrupted turn — came first, so the peer message is appended.
+ * The backend hint names the first human prompt still queued behind this
+ * peer, including after a renderer reload. Live pending prompts in this
+ * renderer supply the same boundary before that hint arrives.
  */
 export function insertInboundPeerMessage(
   messages: readonly ExecutionChatMessage[],
   peer: ExecutionChatMessage,
   queuedPromptIds: ReadonlySet<string>,
+  beforeClientMessageId?: string,
 ): ExecutionChatMessage[] | null {
   if (messages.some((message) => message.id === peer.id)) return null;
   let index = messages.length;
   for (let i = tailStartIndex(messages); i < messages.length; i++) {
-    if (isQueuedPrompt(messages[i], queuedPromptIds)) {
+    if (
+      isQueuedPrompt(messages[i], queuedPromptIds) ||
+      (beforeClientMessageId !== undefined &&
+        messages[i].role === 'user' &&
+        !messages[i].inboundPeer &&
+        messages[i].id === beforeClientMessageId)
+    ) {
       index = i;
       break;
     }

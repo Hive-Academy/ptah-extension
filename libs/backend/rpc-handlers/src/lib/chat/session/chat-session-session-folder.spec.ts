@@ -217,7 +217,11 @@ describe("ChatSessionService — the session's own folder (MP-3)", () => {
         tabId: TAB_ID,
       });
 
-      expect(result).toEqual({ success: true, sessionId: SESSION_ID });
+      expect(result).toEqual({
+        success: true,
+        sessionId: SESSION_ID,
+        enqueued: true,
+      });
       expect(h.resumeSession).toHaveBeenCalledWith(
         SESSION_ID,
         expect.objectContaining({ projectPath: PROJECT_B }),

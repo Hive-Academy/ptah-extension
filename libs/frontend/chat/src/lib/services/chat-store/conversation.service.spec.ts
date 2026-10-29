@@ -84,6 +84,8 @@ describe('ConversationService', () => {
   >;
   let messageFinalization: {
     finalizeCurrentMessage: jest.Mock;
+    clearPendingPrompts: jest.Mock;
+    clearPendingPromptsForSession: jest.Mock;
     markAgentsAsInterruptedByToolCallIds: jest.Mock;
   };
   let rpcCall: jest.Mock;
@@ -184,6 +186,8 @@ describe('ConversationService', () => {
 
     messageFinalization = {
       finalizeCurrentMessage: jest.fn(),
+      clearPendingPrompts: jest.fn(),
+      clearPendingPromptsForSession: jest.fn(),
       markAgentsAsInterruptedByToolCallIds: jest.fn(),
     };
 
@@ -317,6 +321,29 @@ describe('ConversationService', () => {
       expect(rpcCall).toHaveBeenCalledWith('chat:abort', {
         sessionId: 'sess-1',
       });
+      expect(messageFinalization.clearPendingPromptsForSession).toHaveBeenCalledWith('tab-1', 'sess-1');
+    });
+
+    it('keeps a replacement session pending record when an older abort RPC succeeds', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-1', status: 'streaming' })]);
+      let resolveAbort: ((value: { success: boolean }) => void) | undefined;
+      rpcCall.mockImplementation(() => new Promise((resolve) => { resolveAbort = resolve; }));
+      const abort = service.abortCurrentMessage();
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-2', status: 'streaming' })]);
+      resolveAbort?.({ success: true });
+      await abort;
+
+      expect(messageFinalization.clearPendingPromptsForSession).toHaveBeenCalledWith('tab-1', 'sess-1');
+    });
+
+    it.each(['returned failure', 'transport failure'])('clears only after a confirmed end following %s', async (failure) => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-1', status: 'streaming' })]);
+      if (failure === 'returned failure') rpcCall.mockResolvedValue({ success: false });
+      else rpcCall.mockRejectedValue(new Error('transport down'));
+      await service.abortCurrentMessage();
+      expect(messageFinalization.clearPendingPromptsForSession).not.toHaveBeenCalled();
+      service.retireEndedSessionPrompts('tab-1', 'sess-1');
+      expect(messageFinalization.clearPendingPromptsForSession).toHaveBeenCalledWith('tab-1', 'sess-1');
     });
 
     it('preserves a queued message into the restore signal and clears the queue', async () => {
@@ -478,6 +505,7 @@ describe('ConversationService', () => {
       expect(rpcCall).toHaveBeenCalledTimes(1);
       // Transport failure idles the tab locally, because no turn_state comes.
       expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+      expect(messageFinalization.clearPendingPrompts).not.toHaveBeenCalled();
 
       await service.abortCurrentMessage();
 
@@ -504,6 +532,7 @@ describe('ConversationService', () => {
 
       expect(rpcCall).toHaveBeenCalledTimes(1);
       expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+      expect(messageFinalization.clearPendingPrompts).not.toHaveBeenCalled();
 
       await service.abortCurrentMessage();
 
@@ -543,6 +572,13 @@ describe('ConversationService', () => {
         listener({ tabId, sessionId: null, kind });
       }
     };
+
+    it('clears pending identities when the tab closes or resets', () => {
+      closeTab('close');
+      closeTab('reset', 'tab-2');
+      expect(messageFinalization.clearPendingPrompts).toHaveBeenCalledWith('tab-1');
+      expect(messageFinalization.clearPendingPrompts).toHaveBeenCalledWith('tab-2');
+    });
 
     /** Hold `/session-handoff` behind queued text and track its outcome. */
     const holdHandoff = () => {
