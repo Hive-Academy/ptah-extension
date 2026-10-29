@@ -192,25 +192,25 @@ type WriteResult = { ok: true } | { ok: false; message: string };
                 [style.max-height.px]="editorMaxHeight()"
                 data-testid="consumer-editor-decision"
               >
-                <button
-                  type="button"
-                  [class]="
-                    'btn btn-ghost btn-xs btn-square absolute right-3 top-1.5 z-10 min-h-6 ' +
-                    focusRing
-                  "
-                  aria-label="Close"
-                  (click)="close()"
-                  data-testid="consumer-close-decision"
-                >
-                  <lucide-angular
-                    [img]="CloseIcon"
-                    class="h-3.5 w-3.5"
-                    aria-hidden="true"
-                  />
-                </button>
-                <label for="decision-model-kind" [class]="label"
-                  >Decision model</label
-                >
+                <!-- Header row: the 32 px Close sits beside the label, never over the select below it. -->
+                <div class="flex items-center justify-between gap-2">
+                  <label for="decision-model-kind" [class]="label"
+                    >Decision model</label
+                  >
+                  <button
+                    type="button"
+                    [class]="'btn btn-ghost btn-sm btn-square shrink-0 ' + focusRing"
+                    aria-label="Close"
+                    (click)="close()"
+                    data-testid="consumer-close-decision"
+                  >
+                    <lucide-angular
+                      [img]="CloseIcon"
+                      class="h-4 w-4"
+                      aria-hidden="true"
+                    />
+                  </button>
+                </div>
                 <select
                   id="decision-model-kind"
                   [class]="selectClass"

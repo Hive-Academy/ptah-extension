@@ -50,7 +50,7 @@ test.describe('docs screenshots — workspace, settings, setup', () => {
     await page.waitForTimeout(1_500);
     await shoot(page, 'settings-overview');
 
-    // The CLI agent matrix sits on the Providers tab, under the routing map and
+    // The CLI agent matrix sits on the Providers tab, under the Main agent and
     // connections. It is the only surface that shows orchestration config.
     const matrix = settings.locator('ptah-cli-orchestration-matrix');
     await expect(matrix).toBeVisible();

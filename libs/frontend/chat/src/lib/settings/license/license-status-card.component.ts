@@ -89,7 +89,7 @@ const LOGOUT_FAILED = 'Could not log out.';
             @if (isPremium()) {
               <button
                 type="button"
-                class="btn btn-primary btn-xs gap-1"
+                class="btn btn-primary btn-sm gap-1"
                 (click)="openPricing()"
               >
                 <lucide-angular
@@ -110,7 +110,7 @@ const LOGOUT_FAILED = 'Could not log out.';
                 <button
                   trigger
                   type="button"
-                  class="btn btn-ghost btn-xs gap-1 text-base-content"
+                  class="btn btn-ghost btn-sm gap-1 text-base-content"
                   (click)="openKeyPopover()"
                   data-testid="membership-key-trigger"
                 >
@@ -144,7 +144,7 @@ const LOGOUT_FAILED = 'Could not log out.';
                     </div>
                     <button
                       type="button"
-                      class="btn btn-ghost btn-xs btn-square"
+                      class="btn btn-ghost btn-sm btn-square"
                       (click)="closeKeyPopover()"
                       aria-label="Close"
                     >
@@ -177,7 +177,7 @@ const LOGOUT_FAILED = 'Could not log out.';
                     />
                     <button
                       type="button"
-                      class="btn btn-ghost btn-xs absolute right-1 top-1"
+                      class="btn btn-ghost btn-sm absolute right-1 top-1"
                       (click)="keyVisible.set(!keyVisible())"
                       [attr.aria-label]="
                         keyVisible() ? 'Hide membership key' : 'Show membership key'
@@ -200,7 +200,7 @@ const LOGOUT_FAILED = 'Could not log out.';
                   </p>
                   <button
                     type="button"
-                    class="btn btn-primary btn-xs gap-1 mt-2 w-full"
+                    class="btn btn-primary btn-sm gap-1 mt-2 w-full"
                     (click)="submitLicenseKey()"
                     [disabled]="isSubmittingKey() || !licenseKeyInput()"
                     data-testid="membership-key-activate"
@@ -238,7 +238,7 @@ const LOGOUT_FAILED = 'Could not log out.';
               </ptah-native-popover>
               <button
                 type="button"
-                class="btn btn-ghost btn-xs gap-1 text-base-content"
+                class="btn btn-ghost btn-sm gap-1 text-base-content"
                 (click)="openPricing()"
               >
                 <lucide-angular
@@ -250,7 +250,7 @@ const LOGOUT_FAILED = 'Could not log out.';
               </button>
               <button
                 type="button"
-                class="btn btn-primary btn-xs gap-1"
+                class="btn btn-primary btn-sm gap-1"
                 (click)="openSignup()"
               >
                 <lucide-angular
@@ -270,7 +270,7 @@ const LOGOUT_FAILED = 'Could not log out.';
         <!-- Membership badges (A1): outline badges, colour on the dot/icon only. -->
         <div class="flex flex-wrap items-center gap-2 mb-2">
           @if (isPremium()) {
-            <span class="badge badge-outline badge-xs gap-1 text-base-content">
+            <span class="badge badge-outline badge-sm gap-1 text-base-content">
               <lucide-angular
                 [img]="SparklesIcon"
                 class="w-2.5 h-2.5 text-secondary"
@@ -279,12 +279,12 @@ const LOGOUT_FAILED = 'Could not log out.';
               <span>Builder</span>
             </span>
           } @else {
-            <span class="badge badge-outline badge-xs text-base-content">
+            <span class="badge badge-outline badge-sm text-base-content">
               Community
             </span>
           }
           @if (licenseValid() && !licenseReason()) {
-            <span class="badge badge-outline badge-xs gap-1 text-base-content">
+            <span class="badge badge-outline badge-sm gap-1 text-base-content">
               <span
                 class="w-2 h-2 rounded-full bg-success"
                 aria-hidden="true"
@@ -292,7 +292,7 @@ const LOGOUT_FAILED = 'Could not log out.';
               <span>Active</span>
             </span>
           } @else if (licenseValid() && licenseReason()) {
-            <span class="badge badge-outline badge-xs gap-1 text-base-content">
+            <span class="badge badge-outline badge-sm gap-1 text-base-content">
               <span
                 class="w-2 h-2 rounded-full bg-warning"
                 aria-hidden="true"
@@ -328,7 +328,7 @@ const LOGOUT_FAILED = 'Could not log out.';
               </p>
               <button
                 type="button"
-                class="btn btn-outline btn-xs gap-1 text-base-content"
+                class="btn btn-outline btn-sm gap-1 text-base-content"
                 (click)="openKeyPopover()"
                 data-testid="membership-key-alert-action"
               >
@@ -368,7 +368,7 @@ const LOGOUT_FAILED = 'Could not log out.';
             <button
               #logoutButton
               type="button"
-              class="btn btn-ghost btn-xs gap-1 shrink-0 text-base-content"
+              class="btn btn-ghost btn-sm gap-1 shrink-0 text-base-content"
               (click)="requestLogout()"
               aria-label="Remove membership key and log out"
               data-testid="logout-button"
@@ -396,7 +396,7 @@ const LOGOUT_FAILED = 'Could not log out.';
               <div class="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  class="btn btn-outline btn-xs border-error text-base-content"
+                  class="btn btn-outline btn-sm border-error text-base-content"
                   [disabled]="isLoggingOut()"
                   (click)="confirmLogout()"
                   data-testid="logout-confirm-button"
@@ -412,7 +412,7 @@ const LOGOUT_FAILED = 'Could not log out.';
                 <button
                   #logoutCancel
                   type="button"
-                  class="btn btn-ghost btn-xs text-base-content"
+                  class="btn btn-ghost btn-sm text-base-content"
                   [disabled]="isLoggingOut()"
                   (click)="cancelLogout()"
                   data-testid="logout-cancel-button"

@@ -266,7 +266,7 @@ describe('SettingsComponent deep-link', () => {
     await fixture.componentInstance.ngOnInit();
     fixture.componentInstance.setActiveTab('pro-features');
     fixture.detectChanges();
-    // A cli-agents request raised while Settings is open (the routing map's CLI agents node, RM-3).
+    // A cli-agents request raised while Settings is already open.
     appState.requestSettingsTab({ tab: 'providers', section: 'cli-agents' });
     TestBed.tick();
     expect(fixture.componentInstance.activeSettingsTab()).toBe('claude-auth');
@@ -495,7 +495,7 @@ describe('SettingsComponent agents-routing landing', () => {
     fixture.detectChanges();
     expect(fixture.componentInstance.agentsRoutingTarget()).toBeNull();
     expect(stub().focusTarget()).toBeNull();
-    // Raised again from the same Providers tab (the Routing Map's Inspect, or the drawer's role link).
+    // Raised again from the same Providers tab (the connection drawer's role link).
     appState.requestSettingsTab({ tab: 'providers', section: 'enhancement' });
     TestBed.tick();
     expect(fixture.componentInstance.activeSettingsTab()).toBe('claude-auth');
@@ -702,8 +702,8 @@ describe('SettingsComponent security copy', () => {
     expect(builtIn.textContent.replace(/\s+/g, ' ')).toContain(
       'Your credentials go directly from this machine to the AI provider — no proxies, no Ptah servers involved.',
     );
-    // D10 (Batch 28): one text-[11px] line, truncated rather than wrapped.
-    expect(builtIn.className).toContain('text-[11px]');
+    // D10 (Batch 28): one text-xs line (12 px floor), truncated rather than wrapped.
+    expect(builtIn.className).toContain('text-xs');
     expect(builtIn.querySelector('p')?.className).toContain('truncate');
     expect(
       fixture.nativeElement.querySelector(

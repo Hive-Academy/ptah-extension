@@ -5,8 +5,8 @@
  * `provider-connection-card.state.spec.ts`. These specs pin what the component renders from it:
  * - the whole card is one activation target: click, Enter and Space emit `detailsRequested`, a click
  *   on the inline action never does (RUX-4: every card opens its drawer);
- * - two rows: initials avatar, name, provenance, auth-modality badge; status dot + label, at most one
- *   inline action (`btn-xs`), "Used by N";
+ * - one list row: initials avatar, name over provenance, "Used by N" and the consumer names; status
+ *   dot + label, at most one inline action (`btn-sm`, 32 px target), auth-modality badge;
  * - each state's single inline action emits its own output, with an accessible name naming the
  *   provider; Active and Checking carry none;
  * - the state-table copy is the card's accessible name and tooltip;
@@ -137,6 +137,25 @@ describe('ProviderConnectionCardComponent', () => {
       expect(query(fixture, 'used-by-count')?.textContent?.trim()).toBe('Used by 2');
     });
 
+    it('names the consumers next to "Used by N" when labels are given, and omits them when empty', () => {
+      const fixture = createComponent({ ...KIMI_CODE, usedByCount: 2, usedByLabels: ['Main agent', 'Memory curator'] });
+      const usedFor = query(fixture, 'used-for');
+      expect(usedFor?.textContent?.trim()).toBe('Used for: Main agent, Memory curator');
+      expect(usedFor?.getAttribute('title')).toBe('Main agent, Memory curator');
+      // "Used by N · Used for: …" is one truncating segment, so the sub-line wraps to at most two lines (80 px card gate).
+      expect(query(fixture, 'used-by-segment')?.className).toContain('truncate');
+      expect(query(fixture, 'used-by-segment')?.contains(usedFor ?? null)).toBe(true);
+      expect(query(fixture, 'used-by-count')?.textContent?.trim()).toBe('Used by 2');
+      expect(query(createComponent({ ...KIMI_CODE, usedByCount: 0 }), 'used-for')).toBeNull();
+      expect(query(createComponent({ ...KIMI_CODE, usedByCount: null, usedByLabels: ['Main agent'] }), 'used-for')).toBeNull();
+    });
+
+    it('keeps text at the 12 px floor; the card frame is the native card own frame (no second glass frame on the host)', () => {
+      const fixture = createComponent({ ...KIMI_CODE, status: 'needs-key', sourceLabel: 'Key stored on this machine', usedByCount: 1 });
+      expect(fixture.nativeElement.innerHTML).not.toMatch(/text-\[(9|10|11)px\]/);
+      expect(fixture.nativeElement.querySelector('ptah-native-card')?.hasAttribute('data-glass-surface')).toBe(false);
+    });
+
     it('"Used by" is hidden while the count is unknown, and shows 0 when known and unused', () => {
       expect(query(createComponent({ ...KIMI_CODE, usedByCount: null }), 'used-by-count')).toBeNull();
       expect(query(createComponent({ ...KIMI_CODE, usedByCount: 0 }), 'used-by-count')?.textContent?.trim()).toBe('Used by 0');
@@ -161,7 +180,8 @@ describe('ProviderConnectionCardComponent', () => {
       expect(buttons(fixture)).toHaveLength(1);
       const action = query(fixture, testId) as HTMLButtonElement;
       expect(action.getAttribute('aria-label')).toBe(ariaLabel);
-      expect(action.className).toContain('btn-xs');
+      expect(action.className).toContain('btn-sm');
+      expect(action.className).not.toContain('btn-xs');
       expect(action.className).toContain('focus-visible:outline-2');
       action.click();
       expect(emitted).toHaveBeenCalledTimes(1);

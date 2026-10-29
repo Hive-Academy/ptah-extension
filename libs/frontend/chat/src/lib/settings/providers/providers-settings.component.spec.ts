@@ -709,16 +709,16 @@ describe('ProvidersSettingsComponent', () => {
     expect(state.refreshConnections).not.toHaveBeenCalled();
   });
   describe('page composition (Batch 28, prototype order)', () => {
-    it('has no page title, no "Refresh settings" and no Reload (#21); the map comes before Connections', async () => {
+    it('has no page title, no "Refresh settings" and no Reload (#21); the Main agent section comes before Connections', async () => {
       state.route.set(ready(route)); await render();
       expect(element.querySelector('h1')).toBeNull();
       const labels = Array.from(element.querySelectorAll('button')).map((node) => node.textContent?.trim() ?? '');
       expect(labels).not.toContain('Refresh settings');
       expect(labels.some((label) => /reload/i.test(label))).toBe(false);
-      const map = element.querySelector('[data-testid="routing-map"]');
+      const main = element.querySelector('[data-testid="main-agent-section"]');
       const heading = element.querySelector('#providers-connections-heading');
       expect(heading?.textContent?.trim()).toBe('Connections');
-      expect(map && heading && map.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(main && heading && main.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(element.querySelector('[data-read-loading]')).toBeNull();
     });
     it('the header counts configured and catalog providers, and the primary "Connect provider" opens the catalog', async () => {
@@ -745,14 +745,18 @@ describe('ProvidersSettingsComponent', () => {
       button('Clear filter').click(); await render();
       expect(element.querySelectorAll('ptah-provider-connection-card')).toHaveLength(2);
     });
-    it('the grid takes its columns from the container width, and the hint strip is one row directly under it', async () => {
+    it('the list takes its columns from the container width (22rem rows), and the catalog caption is one passive row under the header', async () => {
       await render();
-      expect(element.querySelector('[data-testid="connections-grid"]')?.className).toContain('grid-cols-[repeat(auto-fill,minmax(15rem,1fr))]');
+      expect(element.querySelector('[data-testid="connections-grid"]')?.className).toContain('grid-cols-[repeat(auto-fill,minmax(22rem,1fr))]');
       const hint = element.querySelector('[data-testid="catalog-hint"]');
-      expect(element.querySelector('[data-testid="connections-grid"]')?.nextElementSibling).toBe(hint);
+      // Directly under the header row (the row holding "Connect provider").
+      expect(hint?.previousElementSibling?.querySelector('[data-testid="connect-provider"]')).not.toBeNull();
       expect(hint?.className).not.toContain('flex-wrap');
+      expect(hint?.querySelector('button')).toBeNull();
       expect(element.querySelector('[data-testid="catalog-hint-text"]')?.className).toContain('truncate');
-      expect(element.querySelector('[data-focus="more-providers"]')?.className).toContain('ml-auto');
+      // One way into the catalog: the header button carries the more-providers focus hook; the grid tile is gone.
+      expect(element.querySelector('[data-focus="more-providers"]')?.getAttribute('data-testid')).toBe('connect-provider');
+      expect(element.querySelector('[data-testid="connect-another-provider"]')).toBeNull();
     });
     it('a failed read shows "Retry {label}" in its own region and retries only that read', async () => {
       state.scopes.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
@@ -777,12 +781,18 @@ describe('ProvidersSettingsComponent', () => {
     fixture.componentRef.setInput('focusTarget', 'connections'); await render();
     expect(document.activeElement).toBe(element.querySelector('#providers-connections-heading'));
   });
-  it('groups the routing map and Connections in one card', async () => {
+  it('groups the Main agent and Connections in one blurred glass card, split by a hairline', async () => {
     await render();
-    const card = element.querySelector('[data-testid="providers-routing-connections-card"]');
+    const card = element.querySelector('[data-testid="providers-main-connections-card"]');
     expect(card?.tagName.toLowerCase()).toBe('ptah-surface-section');
-    expect(card?.querySelector('[data-testid="main-agent-region"]')).not.toBeNull();
-    expect(card?.querySelector('section[aria-labelledby="providers-connections-heading"]')).not.toBeNull();
+    expect(card?.querySelector('section')?.getAttribute('data-glass-surface')).toBe('chrome');
+    expect(element.querySelectorAll('ptah-surface-section')).toHaveLength(1);
+    const main = card?.querySelector('[data-testid="main-agent-section"]');
+    const connections = card?.querySelector('[data-testid="providers-connections-card"]');
+    expect(main?.closest('[data-testid="main-agent-region"]')).not.toBeNull();
+    expect(connections?.getAttribute('aria-labelledby')).toBe('providers-connections-heading');
+    expect(connections?.className.split(/\s+/)).toEqual(expect.arrayContaining(['border-t', 'border-base-content/15', 'pt-4']));
+    expect(main && connections && main.compareDocumentPosition(connections) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
   it('does not mount the background roles, the CLI agents or their read states (AgentsRoutingSettingsComponent, beside it)', async () => {
     state.cliModels.set({ status: 'error', data: {}, error: 'Could not load this section. Retry.' });
@@ -792,19 +802,18 @@ describe('ProvidersSettingsComponent', () => {
     expect(element.querySelector('[data-focus="background-models"]')).toBeNull();
     expect(element.querySelector('[data-read-error="cli-models"]')).toBeNull();
   });
-  it('the more-providers route focuses "Browse catalog" and opens the catalog modal (Batch 27)', async () => {
+  it('the more-providers route focuses "Connect provider" and opens the catalog modal (Batch 27)', async () => {
     fixture.componentRef.setInput('focusTarget', 'more-providers'); await render();
     expect(document.activeElement).toBe(element.querySelector('[data-focus="more-providers"]'));
-    expect(element.querySelector('[data-focus="more-providers"]')?.textContent).toContain('Browse catalog');
+    expect(element.querySelector('[data-focus="more-providers"]')?.textContent).toContain('Connect provider');
     expect(catalogDialog()?.hasAttribute('open')).toBe(true);
     expect(element.querySelector('[data-testid="provider-catalog-modal"]')).not.toBeNull();
   });
-  it('the header button, the "+ Connect another provider" tile and the hint strip all open the catalog; closing it keeps the page', async () => {
+  it('the header "Connect provider" button opens the catalog; closing it keeps the page', async () => {
     state.connections.set(ready([connection('first'), { ...connection('openrouter'), name: 'OpenRouter', configured: false, hasKey: false }]));
     await render();
     expect(element.querySelector('[data-testid="catalog-hint"]')?.textContent).toContain('1 catalog provider ready to add: OpenRouter');
-    for (const opener of [button('Connect provider'), element.querySelector<HTMLButtonElement>('[data-testid="connect-another-provider"]'),
-      element.querySelector<HTMLButtonElement>('[data-focus="more-providers"]')]) {
+    for (const opener of [button('Connect provider'), element.querySelector<HTMLButtonElement>('[data-focus="more-providers"]')]) {
       opener?.click(); await render();
       expect(catalogDialog()?.hasAttribute('open')).toBe(true);
       catalogDialog()?.dispatchEvent(new Event('cancel')); await render();
@@ -828,7 +837,7 @@ describe('ProvidersSettingsComponent', () => {
   it('a failed connections read (incl. custom providers) is said in the catalog with Retry (Batch 2b)', async () => {
     state.connections.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
     await render();
-    // The hint strip never reads "0 providers" for a failed read; its Browse still opens the catalog.
+    // The caption never reads "0 providers" for a failed read; "Connect provider" still opens the catalog.
     expect(element.querySelector('[data-testid="catalog-hint"]')?.textContent).toContain('The provider catalog could not be loaded.');
     element.querySelector<HTMLButtonElement>('[data-focus="more-providers"]')?.click(); await render();
     const alert = element.querySelector('[data-testid="provider-catalog-error"]');
@@ -950,26 +959,22 @@ describe('ProvidersSettingsComponent', () => {
     });
   });
 
-  it('uses native controls with 36px height and a visible 2px focus outline', async () => {
+  it('uses native btn-sm controls (32px, the Settings target floor) and a visible 2px focus outline', async () => {
     // One card in a repair state, so the page shows a card's inline action (a connected card has none since Gate V 28).
     state.route.set(ready({ ...route, providers: [route.providers[0], { id: 'second', type: 'apiKey', status: 'unreachable' }] }));
     await render();
-    // The compact card's one inline action is `btn-xs` by plan (:631): 24px, the WCAG 2.2 AA target size.
+    // The compact card's one inline action is `btn-sm` like every other Settings control (32px).
     const cardAction = (node: Element) => node.closest('[data-testid="provider-connection-card"]') !== null;
-    // A routing-map node's action is stretched over the whole node (≥ 88px): the node is its target.
+    // The Main agent's "Reassign" is stretched over the whole block (≥ 96px): the block is its target.
     const nodeAction = (node: Element) => node.getAttribute('data-testid') === 'routing-node-action';
-    // The hint strip's "Browse catalog →" is an inline `btn-xs` link-button (24px); the grid tile is an 80px card.
-    // Batch 28: "Clear filter" is the same inline btn-xs link-button as "Browse catalog →".
-    const compact = (node: Element) => cardAction(node) || node.getAttribute('data-focus') === 'more-providers'
-      || node.textContent?.trim() === 'Clear filter';
-    const tile = (node: Element) => node.getAttribute('data-testid') === 'connect-another-provider';
     // The catalog modal's controls are asserted in its own spec (closed here; the backdrop is the modal primitive's).
     const actions = Array.from(element.querySelectorAll('button')).filter((node) => !node.closest('ptah-provider-catalog-modal'));
     expect(actions.some(cardAction)).toBe(true);
-    expect(actions.filter(nodeAction)).toHaveLength(3);
+    expect(actions.filter(nodeAction)).toHaveLength(1);
     for (const node of actions.filter(nodeAction)) expect(node.classList.contains('after:inset-0')).toBe(true);
     for (const node of actions.filter((candidate) => !nodeAction(candidate))) {
-      expect(node.classList.contains(tile(node) ? 'min-h-[80px]' : compact(node) ? 'min-h-6' : 'min-h-9')).toBe(true);
+      expect(node.classList.contains('btn-sm')).toBe(true);
+      expect(node.classList.contains('btn-xs')).toBe(false);
       expect(node.classList.contains('focus-visible:outline-2')).toBe(true);
     }
   });

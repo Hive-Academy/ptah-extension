@@ -112,11 +112,11 @@ describe('ProviderCatalogModalComponent', () => {
     expect(query<HTMLInputElement>('provider-catalog-search')?.value).toBe('');
   });
 
-  it('every palette control is a 24px `btn-xs` target (WCAG 2.2 AA) with a visible 2px focus outline', () => {
+  it('every palette control is a 32px `btn-sm` target (WCAG 2.2 AA) with a visible 2px focus outline', () => {
     const controls = Array.from(element.querySelectorAll<HTMLButtonElement>('[data-testid="provider-catalog-body"] button'));
     expect(controls.length).toBeGreaterThan(0);
     for (const node of controls) {
-      expect(node.classList.contains('min-h-6')).toBe(true);
+      expect(node.classList.contains('btn-sm')).toBe(true);
       expect(node.classList.contains('focus-visible:outline-2')).toBe(true);
     }
     expect(query('provider-catalog-search')?.classList.contains('focus-visible:outline-2')).toBe(true);

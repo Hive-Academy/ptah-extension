@@ -49,7 +49,7 @@ const PROVIDERS_SECTIONS: ReadonlySet<string> =
     'connections',
     'more-providers',
   ]);
-/** The CLI matrix and the background roles: on the Providers tab, below Routing Map + Connections. */
+/** The CLI matrix and the background roles: on the Providers tab, below the Main agent and Connections. */
 const AGENTS_ROUTING_SECTIONS: ReadonlySet<string> =
   new Set<AgentsRoutingFocusTarget>([
     'background-models',
@@ -87,7 +87,7 @@ const isAgentsRoutingSection = (
  * - Conditional visibility: Show additional sections only after auth configured
  *
  * Child Components:
- * - ProvidersSettingsComponent + AgentsRoutingSettingsComponent: Providers tab (Routing Map + Connections, then the
+ * - ProvidersSettingsComponent + AgentsRoutingSettingsComponent: Providers tab (Main agent, Connections, then the
  *   CLI matrix and the background model roles)
  * - OrchestrationSettingsComponent: Context Management tab (tab id `orchestration`: subagent cache TTL, session
  *   budget, lane guards, context budgets, Codex agents, background queries)
@@ -126,6 +126,22 @@ const isAgentsRoutingSection = (
       display: block;
       container-type: inline-size;
     }
+    /* Glass (data-glass on, any theme): the page plane clears like the other shell pages, so the blurred chrome pane
+       and its scene show between the cards; light and dark keep the solid surface-0 plane. The header and the security
+       line keep a plate (their text sits on the pane), the tabs a tile; the active tab keeps a stronger fill. */
+    :host-context([data-glass='on']) .settings-page {
+      background-color: transparent;
+    }
+    :host-context([data-glass='on']) .settings-header {
+      padding: 0.5rem 0.75rem 0.625rem;
+    }
+    :host-context([data-glass='on']) .settings-plate {
+      padding: 0.25rem 0.625rem;
+    }
+    :host-context([data-glass='on']) .settings-tab.tab-active,
+    :host-context([data-glass='on']) .settings-tab:not(.tab-active):hover {
+      background: var(--glass-hover);
+    }
     .settings-tabs {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -146,11 +162,18 @@ const isAgentsRoutingSection = (
         white-space: nowrap;
       }
     }
-    /* Tighter tiles until 46rem, so "Context Management" fits a quarter of ~42rem without an ellipsis. */
+    /* Tighter tiles until 46rem: 12 px labels (the Settings floor) and a 4 px icon gap there; 14 px (text-sm) from
+       46rem. A label that still does not fit its quarter (Context Management at 1024 px with the Workspaces panel open,
+       ~39-42rem) wraps between words onto a second line instead of ending in an ellipsis. */
     @container (min-width: 36rem) and (max-width: 45.99rem) {
       .settings-tab {
         padding-inline: 0.375rem;
-        gap: 0.375rem;
+        gap: 0.25rem;
+        font-size: 0.75rem;
+      }
+      .settings-tab-label {
+        white-space: normal;
+        line-height: 1rem;
       }
     }
     @container (max-width: 17.99rem) {
@@ -223,8 +246,8 @@ export class SettingsComponent implements OnInit {
    * Auth status is loaded via AuthStateService.
    */
   constructor() {
-    // A request raised while Settings is already open (e.g. the Routing Map's
-    // "Manage matrix", or a role's provider setup) never re-runs ngOnInit, so react to it here.
+    // A request raised while Settings is already open (e.g. the connection
+    // drawer's role link, or a role's provider setup) never re-runs ngOnInit, so react to it here.
     effect(() => {
       if (this.appState.pendingSettingsTab())
         untracked(() => this.applyPendingTab());
