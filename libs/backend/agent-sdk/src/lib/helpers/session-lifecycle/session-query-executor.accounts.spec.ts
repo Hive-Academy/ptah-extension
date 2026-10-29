@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import {
   NamedAccountQueryAdmission, SessionQueryExecutor, namedRefusalReason, type NamedAccountPersistencePort,
 } from './session-query-executor.service';
+import { NamedAdmissionSettlements } from './named-admission-settlements';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -1085,8 +1086,20 @@ describe('SessionQueryExecutor named run without account ports', () => {
       model: 'claude-sonnet-4-5', tabId: 'tab-a', projectPath,
       accountSelection: { kind: 'named', profileId: route.profileId },
     } } as unknown as Parameters<SessionQueryExecutor['executeQuery']>[0]);
-    return { execute, admitClaudeRoute, queryRunner, moduleLoader, builder, registry };
+    return { execute, admitClaudeRoute, queryRunner, moduleLoader, builder, registry, logger, executor };
   }
+
+  it('refuses a named run that arrives after shutdown closed admission, before any reservation', async () => {
+    const h = executorWith({ admission: true, persistence: true }, join(tmpdir(), 'ptah-named-project'));
+    await h.executor.settleNamedAccountReservations();
+    await expect(h.execute()).rejects.toMatchObject({ code: 'cancelled' });
+    expect(h.admitClaudeRoute).not.toHaveBeenCalled();
+    expect(h.moduleLoader.getQueryFunction).not.toHaveBeenCalled();
+    expect(h.queryRunner.invokeNamedQuery).not.toHaveBeenCalled();
+    expect(h.registry.remove).toHaveBeenCalledTimes(1);
+    expect(h.logger.warn).toHaveBeenCalledWith('[SessionLifecycle] Named admission refused',
+      { reason: 'shutting-down', step: 'bootstrap' });
+  });
 
   it.each([
     ['admission', { admission: false, persistence: true }],
@@ -1108,5 +1121,61 @@ describe('SessionQueryExecutor named run without account ports', () => {
     await expect(h.execute()).rejects.toMatchObject({ code: 'conflict' });
     expect(h.admitClaudeRoute).not.toHaveBeenCalled();
     expect(h.queryRunner.invokeNamedQuery).not.toHaveBeenCalled();
+  });
+});
+
+describe('named admission settlement tracking (shutdown drain)', () => {
+  it('untracks every flow that completes naturally, without a shutdown dispose', async () => {
+    const settlements = new NamedAdmissionSettlements({ warn: jest.fn() });
+    for (let turn = 0; turn < 3; turn++) {
+      const f = fixture({});
+      expect(settlements.track(f.flow)).toBe(true);
+      const query = await f.run();
+      expect((await query.next()).value).toMatchObject({ subtype: 'init' });
+      // The admitted child ends on its own: no abort, the lease is released.
+      f.terminations[1].resolve();
+      await f.flow.terminal;
+      await flush();
+      expect(f.controller.signal.aborted).toBe(false);
+      expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+    }
+    expect(settlements.size).toBe(0);
+  });
+
+  it('waits for an in-flight admission and releases the reservation it returns late', async () => {
+    const settlements = new NamedAdmissionSettlements({ warn: jest.fn() });
+    const f = fixture({ pause: 'admit' });
+    settlements.track(f.flow);
+    const refused = expect(f.bootstrap()).rejects.toMatchObject({ code: 'identity-unproved' });
+    await f.entered.promise;
+
+    let drained = false;
+    const drain = settlements.settleAll().then(() => { drained = true; });
+    await flush();
+    // The abort refused the flow, but the admission call may still reserve.
+    expect(drained).toBe(false);
+    expect(settlements.size).toBe(1);
+
+    f.paused.resolve();
+    await drain;
+    await refused;
+    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+    expect(f.admission.retainUnresolvedReservation).not.toHaveBeenCalled();
+    expect(settlements.size).toBe(0);
+    // Admission stays closed: a later flow is refused before it reserves.
+    expect(settlements.track(fixture({}).flow)).toBe(false);
+  });
+
+  it('never asks for a reservation once the flow was disposed by the drain', async () => {
+    const settlements = new NamedAdmissionSettlements({ warn: jest.fn() });
+    const f = fixture({ pause: 'lookup' });
+    settlements.track(f.flow);
+    const refused = expect(f.bootstrap('prior-session')).rejects.toMatchObject({ code: 'identity-unproved' });
+    await f.entered.promise;
+    await settlements.settleAll();
+    f.paused.resolve();
+    await refused;
+    expect(f.admission.admitClaudeRoute).not.toHaveBeenCalled();
+    expect(settlements.size).toBe(0);
   });
 });
