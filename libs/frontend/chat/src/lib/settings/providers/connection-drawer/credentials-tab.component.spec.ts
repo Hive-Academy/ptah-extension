@@ -1,5 +1,9 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import type { ProvidersConnection } from '@ptah-extension/core';
+import {
+  CLAUDE_CODE_NPM_INSTALL_COMMAND,
+  CLAUDE_CODE_SIGN_IN_COMMAND,
+  type ProvidersConnection,
+} from '@ptah-extension/core';
 import type { AuthVerifyDraftConnectionParams, AuthVerifyDraftConnectionResult } from '@ptah-extension/shared';
 import {
   CredentialsTabComponent, replaceKeyDraft, type CredentialsCommit, type ReplaceKeyRequest,
@@ -342,16 +346,22 @@ describe('CredentialsTabComponent', () => {
     expect(query('credentials-codex-copy')?.textContent).toContain('uses the Codex login');
   });
 
-  it('Claude CLI shows the login and install commands with Copy, and Check again (#10)', async () => {
+  it('Claude CLI shows the sign-in and install commands with Copy, and Check again (#10)', async () => {
     const writeText = jest.fn(async () => undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     const action = jest.fn();
     fixture.componentInstance.externalActionRequested.subscribe(action);
     render({ connection: connection({ id: 'claude-cli', name: 'Claude (Subscription)', authMode: 'cli', hasKey: false }), kind: 'claude-cli' });
-    expect(query('credentials-cli')?.textContent).toContain('claude login');
-    expect(query('credentials-cli')?.textContent).toContain('npm install -g @anthropic-ai/claude-code');
+    expect(CLAUDE_CODE_SIGN_IN_COMMAND).toBe('claude');
+    expect(query('credentials-cli')?.textContent).toContain(`Run ${CLAUDE_CODE_SIGN_IN_COMMAND} in your terminal and follow the browser prompts`);
+    expect(query('credentials-cli')?.textContent).not.toContain('claude login');
+    expect(query('credentials-cli')?.textContent).toContain(CLAUDE_CODE_NPM_INSTALL_COMMAND);
+    expect(query('credentials-copy-login')?.getAttribute('aria-label')).toBe('Copy sign-in command');
+    expect(query('credentials-copy-install')?.getAttribute('aria-label')).toBe('Copy install command');
     query('credentials-copy-login')?.click(); await flush();
-    expect(writeText).toHaveBeenCalledWith('claude login');
+    expect(writeText).toHaveBeenCalledWith(CLAUDE_CODE_SIGN_IN_COMMAND);
+    query('credentials-copy-install')?.click(); await flush();
+    expect(writeText).toHaveBeenCalledWith(CLAUDE_CODE_NPM_INSTALL_COMMAND);
     query('credentials-cli-check')?.click();
     expect(action).toHaveBeenCalledWith('cli-check');
   });

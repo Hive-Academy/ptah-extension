@@ -13,7 +13,7 @@ import type {
 } from '@ptah-extension/shared';
 import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
-import { ProvidersSettingsComponent } from './providers-settings.component';
+import { ProvidersSettingsComponent, type ProvidersSettingsDrawerRequest } from './providers-settings.component';
 import { MainAgentReassignPopoverComponent } from './main-agent-reassign-popover.component';
 import { ProvidersModelsLoader } from './providers-models-loader.service';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
@@ -1102,10 +1102,12 @@ describe('ProvidersSettingsComponent named Claude accounts (P5 F5, D41)', () => 
   let element: HTMLElement;
   let accounts: AccountsFake;
   let ambient: AmbientFake;
+  let stateStub: StateStub;
 
   async function setup(isElectron: boolean, claude: ProvidersConnection = claudeCli) {
     Object.defineProperty(Element.prototype, 'scrollIntoView', { writable: true, configurable: true, value: jest.fn() });
     const state = new StateStub();
+    stateStub = state;
     state.connections.set(ready([connection('first'), claude]));
     state.route.set(ready(route));
     accounts = new AccountsFake();
@@ -1144,6 +1146,74 @@ describe('ProvidersSettingsComponent named Claude accounts (P5 F5, D41)', () => 
     element.querySelector<HTMLButtonElement>('[data-testid="connection-drawer-close"]')?.click();
     return render();
   }
+
+  const ACCOUNTS_REQUEST: ProvidersSettingsDrawerRequest = { connection: 'claude-cli', tab: 'accounts' };
+  const openDrawer = () => fixture.debugElement.query(By.directive(ConnectionDetailDrawerComponent))
+    ?.injector.get(ConnectionDetailDrawerComponent) ?? null;
+  async function requestDrawer(request: ProvidersSettingsDrawerRequest | null) {
+    fixture.componentRef.setInput('requestedDrawer', request);
+    await render();
+  }
+
+  describe('requestedDrawer (onboarding deep link, component 11)', () => {
+    it('in Electron, opens the Claude drawer on Accounts when connections are ready', async () => {
+      await setup(true);
+      expect(openDrawer()).toBeNull();
+      await requestDrawer(ACCOUNTS_REQUEST);
+      expect(openDrawer()?.connection()?.id).toBe('claude-cli');
+      expect(openDrawer()?.initialTab()).toBe('accounts');
+    });
+
+    it('waits for the connection list and then opens exactly once', async () => {
+      await setup(true);
+      const claudeSetupReads = () => stateStub.refreshConnectionSetup.mock.calls
+        .filter((call: unknown[]) => call[0] === 'claude-cli').length;
+      const loaded = stateStub.connections().data;
+      stateStub.connections.set({ status: 'loading', data: null, error: null });
+      await requestDrawer(ACCOUNTS_REQUEST);
+      expect(openDrawer()).toBeNull();
+      stateStub.connections.set(ready(loaded ?? []));
+      await render();
+      expect(openDrawer()?.initialTab()).toBe('accounts');
+      stateStub.connections.set(ready([...(loaded ?? [])]));
+      await render();
+      expect(claudeSetupReads()).toBe(1);
+    });
+
+    it('does not reopen after close while the request stays bound; clearing and setting it again does', async () => {
+      await setup(true);
+      await requestDrawer(ACCOUNTS_REQUEST);
+      expect(openDrawer()?.connection()?.id).toBe('claude-cli');
+      await closeDrawerFromFooter();
+      expect(openDrawer()).toBeNull();
+      stateStub.connections.set(ready([...(stateStub.connections().data ?? [])]));
+      await render();
+      expect(openDrawer()).toBeNull();
+      await requestDrawer(null);
+      await requestDrawer({ ...ACCOUNTS_REQUEST });
+      expect(openDrawer()?.connection()?.id).toBe('claude-cli');
+      expect(openDrawer()?.initialTab()).toBe('accounts');
+    });
+
+    it('with the input absent, opens no drawer', async () => {
+      await setup(true);
+      await requestDrawer(null);
+      expect(openDrawer()).toBeNull();
+    });
+
+    it('is a no-op when the loaded list has no Claude connection', async () => {
+      await setup(true);
+      stateStub.connections.set(ready([connection('first')]));
+      await requestDrawer(ACCOUNTS_REQUEST);
+      expect(openDrawer()).toBeNull();
+    });
+
+    it('on the inert host, opens nothing', async () => {
+      await setup(false);
+      await requestDrawer(ACCOUNTS_REQUEST);
+      expect(openDrawer()).toBeNull();
+    });
+  });
 
   describe('in Electron', () => {
     beforeEach(() => setup(true));

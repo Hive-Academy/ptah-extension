@@ -3,7 +3,12 @@ import {
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { AlertTriangle, Copy, Eye, EyeOff, LucideAngularModule } from 'lucide-angular';
-import type { ProvidersConnection, ProvidersConnectionDraft } from '@ptah-extension/core';
+import {
+  CLAUDE_CODE_NPM_INSTALL_COMMAND,
+  CLAUDE_CODE_SIGN_IN_COMMAND,
+  type ProvidersConnection,
+  type ProvidersConnectionDraft,
+} from '@ptah-extension/core';
 import {
   getAnthropicProvider,
   type AuthCancelDraftVerificationParams, type AuthCancelDraftVerificationResult,
@@ -88,9 +93,7 @@ const PROBE_FAILURE_COPY: Readonly<Record<ProbeFailureReason, string>> = {
   'stored-credential-mismatch': 'The stored key does not match this endpoint.',
 };
 
-const CLAUDE_LOGIN = 'claude login';
 const KIMI_LOGIN = 'kimi login';
-const CLAUDE_INSTALL = 'npm install -g @anthropic-ai/claude-code';
 
 type ProbeState = 'idle' | 'checking' | 'verified' | 'failed';
 let PROBE_COUNTER = 0;
@@ -102,7 +105,7 @@ let PROBE_COUNTER = 0;
  * - GitHub Copilot: the account and Sign out; OpenAI Codex: login state and Open login;
  * - Kimi Code: which credential serves it, the in-app sign-in (link, code, Cancel), the `kimi login` command,
  *   Check again, and the optional fallback key (the same key block as api-key connections);
- * - claude-cli: the `claude login` / install commands with Copy;
+ * - claude-cli: the sign-in (`claude`) and npm install commands with Copy, both from the core constants;
  * - local: "no key needed".
  * Every write asks for an inline confirm or a passing check first; this component never writes itself.
  */
@@ -131,7 +134,7 @@ let PROBE_COUNTER = 0;
                 </button>
               </div>
             }
-            <p class="text-xs text-base-content-muted">Run <code class="font-mono">claude login</code> in your terminal; if the CLI is missing, install it first.</p>
+            <p class="text-xs text-base-content-muted">Run <code class="font-mono">{{ signInCommand }}</code> in your terminal and follow the browser prompts; if the CLI is missing, install it first.</p>
             <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="busy() || externalBusy()" (click)="externalActionRequested.emit('cli-check')"
               data-testid="credentials-cli-check">{{ externalBusy() ? 'Checking…' : 'Check again' }}</button>
           </div>
@@ -409,9 +412,10 @@ export class CredentialsTabComponent {
   protected readonly EyeIcon = Eye;
   protected readonly EyeOffIcon = EyeOff;
   protected readonly commands = [
-    { id: 'login', label: 'claude login command', text: CLAUDE_LOGIN },
-    { id: 'install', label: 'install command', text: CLAUDE_INSTALL },
+    { id: 'login', label: 'sign-in command', text: CLAUDE_CODE_SIGN_IN_COMMAND },
+    { id: 'install', label: 'install command', text: CLAUDE_CODE_NPM_INSTALL_COMMAND },
   ] as const;
+  protected readonly signInCommand = CLAUDE_CODE_SIGN_IN_COMMAND;
   protected readonly kimiLoginCommand = KIMI_LOGIN;
 
   protected readonly confirming = signal<'delete' | 'sign-out' | null>(null);

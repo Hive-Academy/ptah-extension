@@ -72,6 +72,20 @@ UI is flawed. The workflows need dedicated UI/UX instead of streaming everything
   part of `npm run verify`, and no other build, serve or e2e use.
 - **Contrast scope (user, 2026-10-28):** the other glass scenes and the rose/moonstone accents
   are measured at the implementation visual gate, not now.
+- **B1 (2026-10-29): committed 7afaad78b.** First implementer was stopped by the budget monitor;
+  a fresh frontend-developer finished it. Codex review lanes stopped twice without a deliverable
+  (not a limit), so review fell back to the ollama-cloud lane: REVISE (route persistence saved
+  `/onboarding` as the restore target) → orchestrator fixed 3 defects → r1 APPROVED.
+- **B1b grep gate (orchestrator, 2026-10-29):** the e2e harness
+  (`settings-reachability.table.ts:1546-1553`) asserts the visible npm command text. The harness
+  may not import app libs, so harness assertions are exempt from the command-string gate.
+- **Branch behind main (2026-10-29):** chat lint errors in `attention-context.util.ts` and
+  `chat-attention-source.service.ts` are fixed on main; merge main after the B1b commit. Still
+  failing on main itself: webview lint (circular dep via command-center `scene-contrast.spec.ts`)
+  and ptah-electron-e2e lint (`git-watcher.spec.ts` fs.watch).
+- **B1b screenshots (orchestrator, 2026-10-29):** the 4 Credentials-drawer captures (Claude
+  (Subscription) → Credentials, 4 themes) are taken in the B1c capture run (one webview build
+  for both). The B1b visual gate stays UNMET until that run; B1c must include them.
 
 ## Project rules (project-rule)
 

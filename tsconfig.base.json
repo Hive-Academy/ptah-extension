@@ -214,6 +214,9 @@
       "@ptah-extension/onboarding/services": [
         "./libs/frontend/onboarding/src/services.ts"
       ],
+      "@ptah-extension/chat/settings-embed": [
+        "./libs/frontend/chat/src/settings-embed.ts"
+      ],
       "@ptah-extension/declarative-dashboard": [
         "./libs/frontend/declarative-dashboard/src/index.ts"
       ],

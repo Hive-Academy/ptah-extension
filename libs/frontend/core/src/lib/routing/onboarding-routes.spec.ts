@@ -4,6 +4,9 @@ import {
   onboardingGenerationBinding,
   onboardingGenerationTarget,
   onboardingHarnessTarget,
+  onboardingReadyTarget,
+  parseOnboardingReadyArea,
+  parseOnboardingReadyOpen,
 } from './onboarding-routes';
 
 describe('onboarding routes', () => {
@@ -100,6 +103,83 @@ describe('onboarding routes', () => {
       expect(
         onboardingGenerationBinding(['onboarding', 'guidance'], queryParams),
       ).toBeNull();
+    });
+  });
+
+  describe('onboardingReadyTarget', () => {
+    it('defaults to the Claude Code check with an empty query', () => {
+      expect(onboardingReadyTarget()).toEqual({
+        subPath: ['ready'],
+        queryParams: {},
+      });
+      expect(onboardingReadyTarget('claude')).toEqual({
+        subPath: ['ready'],
+        queryParams: {},
+      });
+    });
+
+    it('sends settings without area or open to an empty query', () => {
+      expect(onboardingReadyTarget('settings')).toEqual({
+        subPath: ['ready', 'settings'],
+        queryParams: {},
+      });
+    });
+
+    it.each(['providers', 'cli'] as const)('carries area %s', (area) => {
+      expect(onboardingReadyTarget('settings', area)).toEqual({
+        subPath: ['ready', 'settings'],
+        queryParams: { area },
+      });
+    });
+
+    it('carries open with area for the named-account link', () => {
+      expect(
+        onboardingReadyTarget('settings', 'providers', 'claude-accounts'),
+      ).toEqual({
+        subPath: ['ready', 'settings'],
+        queryParams: { area: 'providers', open: 'claude-accounts' },
+      });
+    });
+
+    it('carries open alone when no area is given', () => {
+      expect(
+        onboardingReadyTarget('settings', undefined, 'claude-accounts'),
+      ).toEqual({
+        subPath: ['ready', 'settings'],
+        queryParams: { open: 'claude-accounts' },
+      });
+    });
+  });
+
+  describe('parseOnboardingReadyArea', () => {
+    it.each(['providers', 'cli'] as const)('reads %s', (area) => {
+      expect(parseOnboardingReadyArea(area)).toBe(area);
+    });
+
+    it.each([
+      ['an unknown area', 'billing'],
+      ['undefined', undefined],
+      ['an array', ['cli']],
+      ['a number', 1],
+    ])('reads %s as providers', (_label, value) => {
+      expect(parseOnboardingReadyArea(value)).toBe('providers');
+    });
+  });
+
+  describe('parseOnboardingReadyOpen', () => {
+    it('reads claude-accounts', () => {
+      expect(parseOnboardingReadyOpen('claude-accounts')).toBe(
+        'claude-accounts',
+      );
+    });
+
+    it.each([
+      ['an unknown drawer', 'codex-accounts'],
+      ['undefined', undefined],
+      ['an array', ['claude-accounts']],
+      ['the empty string', ''],
+    ])('reads %s as null', (_label, value) => {
+      expect(parseOnboardingReadyOpen(value)).toBeNull();
     });
   });
 });

@@ -22,11 +22,17 @@ export {
 
 export {
   ONBOARDING_QUERY,
+  ONBOARDING_READY_QUERY,
   isOnboardingIdentityValue,
   onboardingGenerationBinding,
   onboardingGenerationTarget,
   onboardingHarnessTarget,
+  onboardingReadyTarget,
+  parseOnboardingReadyArea,
+  parseOnboardingReadyOpen,
   type OnboardingHarnessMode,
+  type OnboardingReadyArea,
+  type OnboardingReadyOpen,
   type OnboardingTarget,
 } from './onboarding-routes';
 

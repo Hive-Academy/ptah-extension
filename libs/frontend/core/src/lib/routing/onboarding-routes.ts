@@ -40,6 +40,47 @@ export interface OnboardingTarget {
   readonly queryParams: Readonly<Record<string, string>>;
 }
 
+/** The settings area a "Get ready" settings page shows. */
+export type OnboardingReadyArea = 'providers' | 'cli';
+
+/** A drawer the "Get ready" settings page opens on arrival. */
+export type OnboardingReadyOpen = 'claude-accounts';
+
+/** The query keys of the "Get ready" settings page. */
+export const ONBOARDING_READY_QUERY = { area: 'area', open: 'open' } as const;
+
+/**
+ * Where a "Get ready" pre-step is shown.
+ *
+ * - `'claude'` (default): the Claude Code check, `/onboarding/ready`, with no
+ *   query;
+ * - `'settings'`: `/onboarding/ready/settings`, carrying only the `area` and
+ *   `open` keys that are given.
+ */
+export function onboardingReadyTarget(
+  stage: 'claude' | 'settings' = 'claude',
+  area?: OnboardingReadyArea,
+  open?: OnboardingReadyOpen,
+): OnboardingTarget {
+  if (stage === 'claude') return { subPath: ['ready'], queryParams: {} };
+  const queryParams: Record<string, string> = {};
+  if (area) queryParams[ONBOARDING_READY_QUERY.area] = area;
+  if (open) queryParams[ONBOARDING_READY_QUERY.open] = open;
+  return { subPath: ['ready', 'settings'], queryParams };
+}
+
+/** The `area` read from a URL; anything unknown reads as `providers`. */
+export function parseOnboardingReadyArea(value: unknown): OnboardingReadyArea {
+  return value === 'cli' ? 'cli' : 'providers';
+}
+
+/** The `open` read from a URL; anything unknown reads as `null`. */
+export function parseOnboardingReadyOpen(
+  value: unknown,
+): OnboardingReadyOpen | null {
+  return value === 'claude-accounts' ? 'claude-accounts' : null;
+}
+
 /** The longest identity value accepted from a URL. */
 const MAX_IDENTITY_LENGTH = 256;
 

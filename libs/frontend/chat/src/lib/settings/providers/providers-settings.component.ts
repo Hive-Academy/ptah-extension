@@ -71,6 +71,14 @@ export type ProvidersSettingsFocusTarget =
   | 'connections'
   | 'more-providers';
 
+/** A deep link that opens a connection drawer on a tab. Only the Claude Accounts drawer is requestable. */
+export interface ProvidersSettingsDrawerRequest {
+  /** A `ConnectionKind` value, resolved like `openAccountSignIn` does. */
+  readonly connection: 'claude-cli';
+  /** A `ConnectionDrawerTabId` member. */
+  readonly tab: 'accounts';
+}
+
 const CONTROL =
   'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
@@ -581,6 +589,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   /** Emitted once the wizard was opened for {@link requestedProviderId}. */
   readonly requestedProviderConsumed = output<string>();
   readonly focusTarget = input<ProvidersSettingsFocusTarget | null>(null);
+  /** Opens the requested connection drawer once the connection list is ready (Electron only: Accounts is D34). */
+  readonly requestedDrawer = input<ProvidersSettingsDrawerRequest | null>(null);
   protected readonly state = inject(ProvidersSettingsStateService);
   /** Accounts is Electron only (D34): elsewhere the drawer tab is absent and the account reads never run. */
   protected readonly accountsAvailable = inject(VSCodeService).isElectron;
@@ -1045,6 +1055,26 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       untracked(() => {
         this.deepLinkAwaitingAcceptance = provider;
         this.openWizard(provider);
+      });
+    });
+    // Drawer deep link (onboarding named-account link): open the Claude drawer on the requested tab once the
+    // connections are ready. Same per-request guard as above: closing the drawer while the request stays bound does
+    // not reopen it; clearing the input and setting it again does. Not Electron: the Accounts tab does not exist.
+    let drawerOpenedFor = '';
+    effect(() => {
+      if (!this.accountsAvailable) return;
+      const request = this.requestedDrawer();
+      if (!request) {
+        drawerOpenedFor = '';
+        return;
+      }
+      const key = `${request.connection}:${request.tab}`;
+      if (key === drawerOpenedFor || this.state.connections().status !== 'ready')
+        return;
+      drawerOpenedFor = key;
+      untracked(() => {
+        const claude = (this.state.connections().data ?? []).find((connection) => this.isClaudeCli(connection));
+        if (claude) this.openDrawer(claude.id, request.tab);
       });
     });
     afterRenderEffect(() => {
