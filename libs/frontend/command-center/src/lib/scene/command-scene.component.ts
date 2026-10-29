@@ -73,8 +73,8 @@ function paletteName(
   providerId: string | null,
   nodeKind: CommandWorkNode['kind'],
 ): string {
-  if (kind === 'root' || kind === 'tribunal') return 'gold';
-  if (kind === 'satellite' || nodeKind === 'child') return 'silver';
+  if (kind === 'root') return 'gold';
+  if (nodeKind === 'child') return 'silver';
   const id = providerId?.toLowerCase() ?? '';
   if (id.includes('grok')) return 'teal';
   if (id.includes('opencode')) return 'plum';
@@ -116,6 +116,8 @@ export class CommandSceneComponent {
   public readonly selectedId = input<string | null>(null);
   public readonly theme = input<CommandTheme>('dark');
   public readonly reservedTop = input<number>(72);
+  /** Space kept clear under the spheres, e.g. for the stage caption. */
+  public readonly reservedBottom = input<number>(62);
   public readonly voiceState = input<CommandVoiceState>('idle');
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
@@ -187,7 +189,7 @@ export class CommandSceneComponent {
   private readonly sceneViewport = computed(() => {
     const viewport = this.viewport();
     const top = Math.min(viewport.height, Math.max(0, this.reservedTop() + 10));
-    const bottom = Math.max(top, viewport.height - 62);
+    const bottom = Math.max(top, viewport.height - this.reservedBottom());
     return {
       ...viewport,
       sceneRect: {

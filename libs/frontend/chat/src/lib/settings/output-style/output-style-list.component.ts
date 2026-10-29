@@ -359,7 +359,6 @@ const BUILT_IN_NOTE = 'Built into the agent — Ptah can select it but not chang
       [parityTier]="parityTier()"
       [parityDisplayPath]="parityDisplayPath()"
       [pendingParitySelection]="pendingParitySelection()"
-      [parityWrittenPath]="parityWrittenPath()"
       [parityWarning]="parityWarning()"
       [saving]="saving()"
       (parityToggled)="onParityToggled($event)"
@@ -387,8 +386,6 @@ export class OutputStyleListComponent {
   readonly hasCollision = input(false);
   readonly collidingNames = input<readonly string[]>([]);
   readonly usingFallback = input(false);
-  /** Set only after a parity write succeeded; names the file it changed (E2). */
-  readonly parityWrittenPath = input<string | null>(null);
   /** A parity failure. A WARNING — the selection itself succeeded (§4.1). */
   readonly parityWarning = input<string | null>(null);
 

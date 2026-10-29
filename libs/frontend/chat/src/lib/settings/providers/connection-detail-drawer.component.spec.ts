@@ -269,6 +269,16 @@ describe('ConnectionDetailDrawerComponent', () => {
     expect(closed).toHaveBeenCalledTimes(3);
   });
 
+  // The role link focuses a section on the same Providers page, behind this modal drawer: the drawer closes.
+  it('requests closure when the Overview role link opens its deep link', () => {
+    const closed = jest.fn();
+    fixture.componentInstance.closed.subscribe(closed);
+    render({ connection: KIMI_CODE });
+    const overview = fixture.debugElement.query((node) => node.name === 'ptah-connection-overview-tab');
+    overview.triggerEventHandler('roleLinkOpened');
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
   it('opening another connection starts again on Overview, and a stale tab falls back to Overview', () => {
     render({ connection: SOVEREIGNEG });
     selectTab('Advanced');

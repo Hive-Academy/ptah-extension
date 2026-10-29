@@ -127,6 +127,13 @@ export type SpawnTransport = 'worker' | 'inline';
 /** A `SpawnedProcess` that also says which thread spawned it. */
 export interface PtahSpawnedProcess extends SpawnedProcess {
   readonly transport: SpawnTransport;
+  /**
+   * True once the child's own `exit` was observed, including a signal death
+   * after `kill()`. Never true for the exit a worker handle synthesizes after
+   * losing its worker: that child may still be running. Read by
+   * `isChildExitProved` as termination proof for a named-account lease.
+   */
+  readonly exitObserved: boolean;
 }
 
 /**
@@ -346,6 +353,11 @@ class WorkerBackedProcess
   /** Mirrors `ChildProcess.signalCode`: the signal the child ended by, if any. */
   get signalCode(): NodeJS.Signals | null {
     return this.exitSignal;
+  }
+
+  /** Set only by a real `exit` message from the worker, never by {@link endAbnormally}. */
+  get exitObserved(): boolean {
+    return this.exitReported;
   }
 
   get pid(): number | undefined {
@@ -632,6 +644,7 @@ class InlineProcess
   readonly stderr: Readable | null;
   /** An inline spawn already has its pid, so the port's promise is settled. */
   readonly whenSpawned: Promise<number | null>;
+  private observedExit = false;
 
   constructor(
     private readonly child: childProcess.ChildProcess,
@@ -647,6 +660,8 @@ class InlineProcess
     this.stderr = child.stderr;
     this.whenSpawned = Promise.resolve(child.pid ?? null);
     child.on('exit', (code, signal) => {
+      // Node's own child: every `exit` it emits is the child's real exit.
+      this.observedExit = true;
       this.emit('exit', code, signal);
     });
     child.on('close', (code, signal) => {
@@ -663,6 +678,10 @@ class InlineProcess
 
   get exitCode(): number | null {
     return this.child.exitCode;
+  }
+
+  get exitObserved(): boolean {
+    return this.observedExit;
   }
 
   get pid(): number | undefined {

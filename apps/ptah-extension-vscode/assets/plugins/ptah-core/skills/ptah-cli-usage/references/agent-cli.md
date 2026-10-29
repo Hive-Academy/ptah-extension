@@ -42,8 +42,8 @@ left for it to override.
 > as a caller:
 >
 > 1. **The user must have a Ptah CLI provider configured.** If none is,
->    `resume` fails with `No Ptah CLI agents configured. Add one in Agent
-Orchestration settings.` That is the real, actionable error — do not
+>    `resume` fails with `No Ptah CLI agents configured. Add one in
+>    Settings > Providers > CLI Agents.` That is the real, actionable error — do not
 >    retry, and do not tell the user to install a binary. Run
 >    `ptah agent-cli detect` and read the entries with `cli: "ptah-cli"`
 >    to see what they have.

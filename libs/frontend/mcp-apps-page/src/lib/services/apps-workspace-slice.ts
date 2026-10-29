@@ -13,7 +13,7 @@ import type { AppsSurfaceSync } from './apps-surface-sync';
  * `AppsSessionService` keeps one slice per workspace path in a signal and
  * exposes the ACTIVE one, so a workspace switch swaps the whole page state
  * (conversation, surfaces, notices) and switching back restores it
- * (the partition pattern of `tribunal-state.service.ts:144-168`).
+ *.
  */
 
 /**

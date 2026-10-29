@@ -10,7 +10,6 @@ export type ElectronView =
   | 'setup-wizard'
   | 'thoth'
   | 'marketplace'
-  | 'tribunal'
   | 'tasks'
   | 'harness-builder'
   | 'setup-hub';
@@ -34,7 +33,6 @@ const SURFACE_HOSTS: Record<
   // setCurrentView('marketplace') is unchanged), only the mounted host
   // element's selector moved.
   marketplace: 'ptah-marketplace-shell',
-  tribunal: 'ptah-tribunal-page',
   tasks: 'ptah-tasks-view',
   'harness-builder': 'ptah-harness-builder-view',
   'setup-hub': 'ptah-setup-hub',

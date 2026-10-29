@@ -28,6 +28,7 @@ import {
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { ChatStore } from '../../services/chat.store';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 /** One fixed sentence per action (F1): no host, server or transport text reaches the UI. */
 const ACTIVATE_KEY_FAILED = 'Could not activate the membership key.';
@@ -50,13 +51,15 @@ const LOGOUT_FAILED = 'Could not log out.';
  *
  * The membership key entry is a credential popover (P12): single password
  * field with show/hide, format check plus the `license:setKey` server verify
- * before anything is shown as active (S-verify), error and success inline.
+ * before anything is shown as active (S-verify). The format error stays next to
+ * the field; the activation outcome shows as the Settings page toast.
  * A key typed into the popover never persists in component state once it
  * closes, whatever route closed it (Cancel button, Esc, backdrop).
  *
  * Log out is an inline confirm (P8, S-confirm, no Undo): a successful
  * `license:clearKey` reloads the window host-side, so no success toast exists
- * to show; a failed write keeps the confirm open with the failure inline.
+ * to show; a failed write keeps the confirm open and the failure shows as the
+ * Settings page toast.
  *
  * Self-contained: injects its own dependencies (ChatStore, ClaudeRpcService).
  */
@@ -231,19 +234,6 @@ const LOGOUT_FAILED = 'Could not log out.';
                       {{ licenseKeyError() }}
                     </p>
                   }
-                  @if (licenseKeySuccess()) {
-                    <p
-                      role="status"
-                      class="flex items-center gap-1.5 mt-2 text-base-content"
-                      data-testid="membership-key-success"
-                    >
-                      <span
-                        class="h-2 w-2 shrink-0 rounded-full bg-success"
-                        aria-hidden="true"
-                      ></span>
-                      {{ licenseKeySuccess() }}
-                    </p>
-                  }
                 </div>
               </ptah-native-popover>
               <button
@@ -403,19 +393,6 @@ const LOGOUT_FAILED = 'Could not log out.';
                 Remove your membership key and log out? You can enter a new key
                 after reloading.
               </p>
-              @if (logoutError()) {
-                <p
-                  role="alert"
-                  class="flex items-center gap-1.5 text-xs text-base-content mb-2"
-                  data-testid="logout-error"
-                >
-                  <span
-                    class="h-2 w-2 shrink-0 rounded-full bg-error"
-                    aria-hidden="true"
-                  ></span>
-                  {{ logoutError() }}
-                </p>
-              }
               <div class="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -460,6 +437,8 @@ const LOGOUT_FAILED = 'Could not log out.';
 export class LicenseStatusCardComponent {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly chatStore = inject(ChatStore);
+  /** Activation and log-out outcomes show as the Settings page toast. */
+  private readonly feedback = inject(SettingsSaveFeedbackService);
   private readonly injector = inject(Injector);
   private readonly logoutButton =
     viewChild<ElementRef<HTMLButtonElement>>('logoutButton');
@@ -487,14 +466,13 @@ export class LicenseStatusCardComponent {
   readonly keyPopoverOpen = signal(false);
   readonly keyVisible = signal(false);
   readonly licenseKeyInput = signal('');
+  /** The key-format validation message next to the field. */
   readonly licenseKeyError = signal('');
-  readonly licenseKeySuccess = signal('');
   readonly isSubmittingKey = signal(false);
 
   /** The inline Log out confirm (A4, P8). */
   readonly confirmingLogout = signal(false);
   readonly isLoggingOut = signal(false);
-  readonly logoutError = signal('');
 
   readonly isPremium = computed(
     () => this.chatStore.licenseStatus()?.isPremium ?? false,
@@ -605,7 +583,6 @@ export class LicenseStatusCardComponent {
 
     this.isSubmittingKey.set(true);
     this.licenseKeyError.set('');
-    this.licenseKeySuccess.set('');
 
     try {
       const result = await this.rpcService.call('license:setKey', {
@@ -613,24 +590,24 @@ export class LicenseStatusCardComponent {
       });
 
       if (result.isSuccess() && result.data.success) {
-        this.licenseKeySuccess.set(
+        this.feedback.announce(
           `Membership activated! Plan: ${result.data.plan?.name ?? result.data.tier}. Reloading...`,
+          'status',
         );
         this.licenseKeyInput.set('');
       } else {
-        this.licenseKeyError.set(ACTIVATE_KEY_FAILED);
+        this.feedback.announce(ACTIVATE_KEY_FAILED, 'alert');
       }
     } catch {
       // A thrown transport error gets the same fixed sentence.
-      this.licenseKeyError.set(ACTIVATE_KEY_FAILED);
+      this.feedback.announce(ACTIVATE_KEY_FAILED, 'alert');
     } finally {
       this.isSubmittingKey.set(false);
     }
   }
 
-  /** Shows the inline confirm; a failed earlier attempt is cleared. */
+  /** Shows the inline confirm. */
   requestLogout(): void {
-    this.logoutError.set('');
     this.confirmingLogout.set(true);
   }
 
@@ -643,7 +620,6 @@ export class LicenseStatusCardComponent {
     if (!this.confirmingLogout() || this.isLoggingOut()) return;
     event?.stopPropagation();
     this.confirmingLogout.set(false);
-    this.logoutError.set('');
     afterNextRender(() => this.logoutButton()?.nativeElement.focus(), {
       injector: this.injector,
     });
@@ -652,22 +628,21 @@ export class LicenseStatusCardComponent {
   /**
    * Confirmed log out (S-confirm, no Undo). A successful `license:clearKey`
    * reloads the window host-side, so nothing is shown on success; a failed
-   * write keeps the confirm open with the failure inline (D15).
+   * write keeps the confirm open and shows the failure as an alert toast (D15).
    */
   async confirmLogout(): Promise<void> {
     if (this.isLoggingOut()) return;
     this.isLoggingOut.set(true);
-    this.logoutError.set('');
     try {
       const result = await this.rpcService.call('license:clearKey', {});
       if (result.isSuccess() && result.data.success) {
         this.confirmingLogout.set(false);
       } else {
-        this.logoutError.set(LOGOUT_FAILED);
+        this.feedback.announce(LOGOUT_FAILED, 'alert');
       }
     } catch {
       // A thrown transport error gets the same fixed sentence.
-      this.logoutError.set(LOGOUT_FAILED);
+      this.feedback.announce(LOGOUT_FAILED, 'alert');
     } finally {
       this.isLoggingOut.set(false);
     }
@@ -686,7 +661,6 @@ export class LicenseStatusCardComponent {
   private resetKeyState(): void {
     this.licenseKeyInput.set('');
     this.licenseKeyError.set('');
-    this.licenseKeySuccess.set('');
     this.keyVisible.set(false);
   }
 }

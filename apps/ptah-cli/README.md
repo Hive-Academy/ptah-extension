@@ -547,7 +547,7 @@ Errors are written to **stderr** as JSON-RPC error objects with the standard `co
 
 **`agent-cli resume` exits `2` with "--task is required"** — Correct, and deliberate. `agent:resumeCliSession` resumes a session _and_ gives it work. The CLI used to send an empty task instead of asking for one, which the backend now rejects at its boundary. Pass `--task "<what to do next>"`.
 
-**`agent-cli resume` fails with "No Ptah CLI agents configured"** — You have no Anthropic-compatible provider set up, so there is nothing to resume onto. Add one in Agent Orchestration settings, then confirm with `ptah agent-cli detect`. This replaced a much worse error: `resume` used to send the label `glm` as if it were a CLI binary and fail with "glm CLI is not installed", which no install could ever satisfy.
+**`agent-cli resume` fails with "No Ptah CLI agents configured"** — You have no Anthropic-compatible provider set up, so there is nothing to resume onto. Add one in Settings > Providers > CLI Agents, then confirm with `ptah agent-cli detect`. This replaced a much worse error: `resume` used to send the label `glm` as if it were a CLI binary and fail with "glm CLI is not installed", which no install could ever satisfy.
 
 **Verbose diagnostics for DI bootstrap problems** — Pass `--verbose` to emit `debug.di.phase` notifications for each of the 5 DI phases (config, license, auth, RPC, agent-sdk). Combine with `PTAH_LOG_LEVEL=debug` for the underlying logger output on stderr.
 

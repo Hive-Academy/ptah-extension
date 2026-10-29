@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { ClaudeRpcService, WorkspaceScopeService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  ProvidersSettingsStateService,
+  WorkspaceScopeService,
+} from '@ptah-extension/core';
 import type { RpcResult } from '@ptah-extension/core';
 import {
   createMockRpcService,
@@ -14,6 +19,7 @@ import type {
   DiagnosticsGoVetConsentSetResult,
 } from '@ptah-extension/shared';
 
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { GoVetConsentConfigComponent } from './go-vet-consent-config.component';
 
 const ROOT_A = 'D:\\work\\service-a';
@@ -70,12 +76,24 @@ function mount(rpc: MockRpcService): {
 } {
   TestBed.configureTestingModule({
     imports: [GoVetConsentConfigComponent],
-    providers: [{ provide: ClaudeRpcService, useValue: rpc }],
+    providers: [
+      { provide: ClaudeRpcService, useValue: rpc },
+      {
+        provide: ProvidersSettingsStateService,
+        useValue: { commit: signal({ status: 'idle' }) },
+      },
+      SettingsSaveFeedbackService,
+    ],
   });
   const scope = TestBed.inject(WorkspaceScopeService);
   scope.switchTo(ROOT_A);
   const fixture = TestBed.createComponent(GoVetConsentConfigComponent);
   return { fixture, component: fixture.componentInstance, scope };
+}
+
+/** The page toast: on/off results and SET failures are announced there, not in the card. */
+function toast(): { tone: string; message: string } | null {
+  return TestBed.inject(SettingsSaveFeedbackService).toast();
 }
 
 async function settle(
@@ -225,8 +243,12 @@ describe('GoVetConsentConfigComponent', () => {
       },
     ]);
     expect(text(fixture, 'go-vet-consent-state')).toBe('On');
-    expect(text(fixture, 'go-vet-consent-success')).toBe(
-      'go vet is on for this workspace.',
+    expect(q(fixture, 'go-vet-consent-success')).toBeNull();
+    expect(toast()).toEqual(
+      expect.objectContaining({
+        tone: 'status',
+        message: 'go vet is on for this workspace.',
+      }),
     );
     expect(q(fixture, 'go-vet-consent-confirm')).toBeNull();
   });
@@ -319,7 +341,7 @@ describe('GoVetConsentConfigComponent', () => {
       expect.objectContaining({ confirmToken: TOKEN_A }),
     ]);
     expect(toggle(fixture).checked).toBe(false);
-    expect(text(fixture, 'go-vet-consent-error')).toContain(
+    expect(toast()?.message).toContain(
       'The Go toolchain changed after this card was shown',
     );
     expect(text(fixture, 'go-vet-consent-binary')).toBe(NEW_GO);
@@ -364,7 +386,7 @@ describe('GoVetConsentConfigComponent', () => {
 
     expect(getCount(rpc)).toBe(2);
     expect(toggle(fixture).checked).toBe(false);
-    expect(text(fixture, 'go-vet-consent-error')).toContain(
+    expect(toast()?.message).toContain(
       'The active workspace changed before the change was saved',
     );
     expect(text(fixture, 'go-vet-consent-root')).toBe(ROOT_B);
@@ -386,7 +408,7 @@ describe('GoVetConsentConfigComponent', () => {
     expect(toggle(fixture).checked).toBe(true);
     expect(text(fixture, 'go-vet-consent-state')).toBe('On');
     expect(q(fixture, 'go-vet-consent-success')).toBeNull();
-    expect(text(fixture, 'go-vet-consent-error')).toContain(
+    expect(toast()?.message).toContain(
       'could not be saved and verified',
     );
   });
@@ -405,10 +427,10 @@ describe('GoVetConsentConfigComponent', () => {
     await settle(fixture);
 
     expect(toggle(fixture).checked).toBe(false);
-    expect(text(fixture, 'go-vet-consent-error')).toContain(
+    expect(toast()?.message).toContain(
       'Could not reach the app host',
     );
-    expect(text(fixture, 'go-vet-consent-error')).not.toContain('RPC timeout');
+    expect(toast()?.message).not.toContain('RPC timeout');
   });
 
   it('a scope change while a GET is in flight discards the old answer and re-fetches', async () => {
@@ -588,7 +610,7 @@ describe('GoVetConsentConfigComponent', () => {
       await settle(fixture);
 
       expect(toggle(fixture).checked).toBe(false);
-      expect(text(fixture, 'go-vet-consent-error')).toBe(
+      expect(toast()?.message).toBe(
         'Could not reach the app host. The card shows what is stored now.',
       );
       expect(fixture.nativeElement.textContent).not.toContain('host detail');
@@ -607,25 +629,6 @@ describe('GoVetConsentConfigComponent', () => {
       'Could not read the go vet setting for this workspace.',
     );
     expect(fixture.nativeElement.textContent).not.toContain('host detail');
-  });
-
-  it('clears the success-message timer on destroy', async () => {
-    jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] });
-    const rpc = createMockRpcService();
-    routeRpc(rpc, {
-      [GET]: [() => rpcSuccess(getResult({ state: 'on' }))],
-      [SET]: [() => rpcSuccess({ success: true, state: 'off' })],
-    });
-    const { fixture } = mount(rpc);
-    await settle(fixture);
-
-    flip(fixture, false);
-    await settle(fixture);
-    expect(q(fixture, 'go-vet-consent-success')).not.toBeNull();
-    expect(jest.getTimerCount()).toBeGreaterThan(0);
-
-    fixture.destroy();
-    expect(jest.getTimerCount()).toBe(0);
   });
 
   it('sets the card description at 12 px (text-xs), the size of the web search and voice card descriptions (visual m1)', async () => {

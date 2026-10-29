@@ -23,6 +23,9 @@ import {
 } from './provider-setup-wizard.component';
 import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
+/** The page toast's current message: drawer and setup outcomes are said there, never inline. */
+const toastMessage = () => TestBed.inject(SettingsSaveFeedbackService).toast()?.message ?? null;
+
 // jsdom has no <dialog> modal API (the catalog modal mounts with the page); the real behaviour is asserted in Playwright.
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) { this.setAttribute('open', ''); };
@@ -364,21 +367,20 @@ describe('ProvidersSettingsComponent', () => {
         expect(draft).toMatchObject({ providerId: 'second', activation: 'connect-only', saveTo: 'global', editedTiers: [],
           credential: { kind: 'apiKey', value: 'sk-second' }, tiers: { everyday: 'one', complex: 'two', fast: 'three' } });
         expect((draft['verified'] as { probeId: string }).probeId).toMatch(/^drawer-probe-/);
-        expect(byId('credentials-commit')?.textContent).toContain('Key replaced.');
+        expect(toastMessage()).toBe('Key replaced.');
       });
 
       it('never reports Saved after a failed write, nor for an earlier save (D15)', async () => {
         state.commit.set({ ...idle, status: 'saved', saved: ['Something earlier'] });
         await credentialsTab('second');
-        expect(byId('credentials-commit')).toBeNull();
+        expect(toastMessage()).toBeNull();
         byId('credentials-delete')?.click(); await render();
         state.deleteStoredKey.mockImplementationOnce(async () => {
           state.commit.set({ ...idle, status: 'failed', unsaved: ['Stored key'], message: 'Stored key was not saved.' }); return true;
         });
         byId('credentials-delete-confirm-button')?.click(); await render(); await render();
         expect(state.deleteStoredKey).toHaveBeenCalledWith('second', { scopeKey: 'workspace', activePath: '/workspace' });
-        expect(byId('credentials-commit')?.textContent).toContain('Not saved. Stored key was not saved.');
-        expect(byId('credentials-commit')?.textContent).not.toContain('deleted');
+        expect(toastMessage()).toBe('Not saved. Stored key was not saved.');
       });
 
       it('a write refused because another save runs says so instead of Saved', async () => {
@@ -386,7 +388,7 @@ describe('ProvidersSettingsComponent', () => {
         byId('credentials-delete')?.click(); await render();
         state.deleteStoredKey.mockImplementationOnce(async () => false);
         byId('credentials-delete-confirm-button')?.click(); await render(); await render();
-        expect(byId('credentials-commit')?.textContent).toContain('Another save is in progress');
+        expect(toastMessage()).toContain('Another save is in progress');
       });
 
       // Batch 21 review, finding 3.
@@ -395,7 +397,7 @@ describe('ProvidersSettingsComponent', () => {
         byId('credentials-delete')?.click(); await render();
         state.deleteStoredKey.mockImplementationOnce(async () => { throw new Error('host broke'); });
         byId('credentials-delete-confirm-button')?.click(); await render(); await render();
-        expect(byId('credentials-commit')?.textContent).toContain('The save could not be completed. Retry.');
+        expect(toastMessage()).toContain('The save could not be completed. Retry.');
         expect(isDisabledControl((byId('credentials-delete') as HTMLButtonElement))).toBe(false);
       });
 
@@ -406,12 +408,12 @@ describe('ProvidersSettingsComponent', () => {
         let finish: (value: boolean) => void = () => undefined;
         state.deleteStoredKey.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve; }));
         byId('credentials-delete-confirm-button')?.click(); await render();
-        expect(byId('credentials-commit')?.textContent).toContain('Saving…');
+        expect(byId('credentials-commit')).toBeNull();
         byId('connection-drawer-close')?.click(); await render();
         await credentialsTab('second');
         state.commit.set({ ...idle, status: 'saved', saved: ['Stored key'] });
         finish(true); await render(); await render();
-        expect(byId('credentials-commit')).toBeNull();
+        expect(toastMessage()).toBeNull();
       });
 
       it('while a page save runs, the drawer\'s write controls are disabled', async () => {
@@ -775,7 +777,14 @@ describe('ProvidersSettingsComponent', () => {
     fixture.componentRef.setInput('focusTarget', 'connections'); await render();
     expect(document.activeElement).toBe(element.querySelector('#providers-connections-heading'));
   });
-  it('no longer mounts the background roles, the CLI agents or their read states (moved to Orchestration, D14)', async () => {
+  it('groups the routing map and Connections in one card', async () => {
+    await render();
+    const card = element.querySelector('[data-testid="providers-routing-connections-card"]');
+    expect(card?.tagName.toLowerCase()).toBe('ptah-surface-section');
+    expect(card?.querySelector('[data-testid="main-agent-region"]')).not.toBeNull();
+    expect(card?.querySelector('section[aria-labelledby="providers-connections-heading"]')).not.toBeNull();
+  });
+  it('does not mount the background roles, the CLI agents or their read states (AgentsRoutingSettingsComponent, beside it)', async () => {
     state.cliModels.set({ status: 'error', data: {}, error: 'Could not load this section. Retry.' });
     await render();
     expect(element.querySelector('ptah-provider-consumer-assignments')).toBeNull();
@@ -840,9 +849,10 @@ describe('ProvidersSettingsComponent', () => {
     const child = wizard(); child.commitRequested.emit(draft); await render();
     expect(state.connectProvider).toHaveBeenCalledWith(draft, { scopeKey: 'workspace', activePath: '/workspace' });
     expect(wizard()).toBe(child); expect(child.commitState()).toBe('failed');
-    expect(element.textContent).toContain('Saved: Custom connection');
-    expect(element.textContent).toContain('Not saved: Main agent');
-    expect(element.textContent).toContain('Save not confirmed: Credential');
+    // One toast names the whole commit; nothing inline repeats it.
+    expect(toastMessage()).toBe('Some connection settings were not confirmed. Saved: Custom connection. '
+      + 'Not saved: Main agent. Not confirmed: Credential. Check the current values before retrying.');
+    expect(element.querySelector('[data-testid="providers-commit-feedback"]')).toBeNull();
     expect(element.textContent).not.toContain('private-draft-key');
   });
   it('does not convert an unrefreshed acknowledged commit into wizard success', async () => {

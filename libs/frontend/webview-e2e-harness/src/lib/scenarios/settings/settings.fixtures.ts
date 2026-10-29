@@ -533,6 +533,8 @@ export interface FixtureState {
   >;
   /** Recorded checks by provider id (`auth:checkConnection`), read back as the route's `providers[].lastCheck`. */
   readonly connectionChecks: Map<string, FixtureCheckRecord>;
+  /** Third-party provider ids whose stored key was deleted via `auth:deleteStoredKey` (read back by `auth:getApiKeyStatus`). */
+  readonly deletedKeys: Set<string>;
 }
 
 function createFixtureState(): FixtureState {
@@ -549,6 +551,7 @@ function createFixtureState(): FixtureState {
     ptahCliAgents: PTAH_CLI_LIST_FIXTURE.agents.map((a) => ({ ...a })),
     modelTiers: new Map(),
     clearedOverrides: new Set(),
+    deletedKeys: new Set(),
     customEntries: CUSTOM_ENTRIES_FIXTURE.entries.map((entry) => ({
       ...entry,
     })),
@@ -649,7 +652,13 @@ function statefulSettingsFixtures(
       };
     },
     'auth:getAuthStatus': () => ({ ...state.authStatus }),
-    'auth:getApiKeyStatus': API_KEY_STATUS_FIXTURE,
+    'auth:getApiKeyStatus': () => ({
+      providers: API_KEY_STATUS_FIXTURE.providers.map((row) =>
+        state.deletedKeys.has(row.provider)
+          ? { ...row, hasApiKey: false, keyHint: undefined }
+          : { ...row },
+      ),
+    }),
     // Each provider carries its recorded check (`lastCheck`), as the host's route read does (28c).
     'auth:getEffectiveRoute': () => ({
       ...EFFECTIVE_ROUTE_FIXTURE,
@@ -747,6 +756,10 @@ function statefulSettingsFixtures(
     },
     'auth:deleteStoredKey': (params: unknown) => {
       record(state, 'auth:deleteStoredKey', params);
+      // The host's read-back (`auth:getAuthStatus.hasApiKey` / `auth:getApiKeyStatus`) must show the key gone.
+      const { providerId } = params as { providerId: string };
+      if (providerId === 'anthropic') state.authStatus.hasApiKey = false;
+      else state.deletedKeys.add(providerId);
       return { success: true };
     },
     'auth:copilotLogout': (params: unknown) => {
@@ -836,7 +849,7 @@ export function baseSettingsFixtures(
 /** Every `<h2>`/tab label the reachability spec drives by name. */
 export const SETTINGS_TAB_LABELS = [
   'Providers',
-  'Agent Orchestration',
+  'Context Management',
   'Advanced',
   'Search & Voice',
 ] as const;

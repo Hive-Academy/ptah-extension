@@ -19,7 +19,6 @@ import {
   ExternalLink,
   Plus,
   RadioTower,
-  Scale,
   Settings,
   Store,
   X,
@@ -214,7 +213,7 @@ export class AppShellComponent {
    * with no path on which it helped.
    *
    * This is the LAST remaining `*ngComponentOutlet` surface in this template.
-   * The five deferred ones (harness builder, setup hub, marketplace, tribunal,
+   * The four deferred ones (harness builder, setup hub, marketplace,
    * tasks) became `loadComponent` routes in TASK_2026_524; the canvas did not,
    * because it is retained detached while the user is elsewhere: it lives in
    * the `*ptahRetainWhile` shell row, so its instance and component-scoped
@@ -232,7 +231,6 @@ export class AppShellComponent {
   readonly BarChart3Icon = BarChart3;
   readonly RadioTowerIcon = RadioTower;
   readonly StoreIcon = Store;
-  readonly ScaleIcon = Scale;
   readonly ClipboardListIcon = ClipboardList;
   readonly thothFirstRunDismissed = this.appState.thothFirstRunDismissed;
   readonly isElectron = this.vscodeService.isElectron;
@@ -339,10 +337,6 @@ export class AppShellComponent {
    */
   openMarketplace(): void {
     this.appState.setCurrentView('marketplace');
-  }
-
-  openTribunal(): void {
-    this.appState.setCurrentView('tribunal');
   }
 
   openTasks(): void {

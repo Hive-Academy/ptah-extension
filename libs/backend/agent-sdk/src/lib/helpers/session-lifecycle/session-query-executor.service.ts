@@ -21,6 +21,7 @@
  */
 
 import type { Logger } from '@ptah-extension/vscode-core';
+import { NamedAdmissionSettlements } from './named-admission-settlements';
 import { randomUUID } from 'node:crypto';
 import type {
   ClaudeAccountNamedRoute, ClaudeAccountRunReservation, ClaudeCertifiedLaunchContext, ClaudeLaunchBoundary,
@@ -591,7 +592,7 @@ export type NamedRefusalReason =
   | 'launch-missing' | 'launch-cwd-mismatch' | 'launch-refused' | 'boundary-refused' | 'binding-mismatch'
   | 'identity-unproved' | 'identity-mismatch' | 'stream-ended' | 'init-unproven' | 'buffer-overflow'
   | 'state-missing' | 'route-conflict' | 'session-mismatch' | 'attach-conflict' | 'wrong-provider'
-  | 'storage-unavailable' | 'project-path-invalid' | 'step-failed' | 'unclassified';
+  | 'storage-unavailable' | 'project-path-invalid' | 'shutting-down' | 'step-failed' | 'unclassified';
 
 const refusalReasons = new WeakMap<object, NamedRefusalReason>();
 
@@ -715,6 +716,17 @@ export class NamedAccountQueryAdmission {
   private readonly gates: NamedQueryGate[] = [];
   private stopEpoch?: () => void;
   private settlement?: Promise<void>;
+  /** True while the admission port call is in flight and may still return a reservation. */
+  private admitting = false;
+  private resolveTerminal!: () => void;
+  /**
+   * Resolves once the flow is disposed and holds no lease it has not settled:
+   * released, retained, or never reserved. A dispose that runs while the
+   * admission call is in flight resolves it only after that call returns and
+   * any late reservation is settled. Never rejects; the settlement's own
+   * failure is reported by whoever awaits `dispose()`.
+   */
+  readonly terminal: Promise<void> = new Promise<void>((resolve) => { this.resolveTerminal = resolve; });
   /** Terminal: once set, no step admits the run, returns the query or delegates a tool. */
   private disposed = false;
   /** True once the admitted child ended on its own; dispose then leaves the session controller alone. */
@@ -828,14 +840,22 @@ export class NamedAccountQueryAdmission {
       if (resumeSessionId && (!stored || stored.identity.kind === 'unknown')) throw namedAccountRefusal('identity-unproved', 'resume-unproven');
       this.storedBinding = forkSession ? undefined : stored ?? undefined;
       this.resumeSdkSessionId = forkSession ? undefined : resumeSessionId;
+      // A flow disposed between steps (host shutdown) never asks for a reservation.
+      if (this.disposed) throw namedAccountRefusal('identity-unproved', 'aborted');
+      this.admitting = true;
+      // A flow disposed while the call is in flight settles here: a late
+      // reservation is released, and `terminal` resolves only after that.
       const pending = this.admission.admitClaudeRoute({ provider: 'claude', scope: 'main',
         selection, operationId: randomUUID(), runId: this.storedBinding?.runId ?? randomUUID(), workingDirectory,
       }).then(async (result) => {
-        if (result.code === 'ok') {
-          this.reservation = result.reservation;
-          if (this.abortController.signal.aborted) await this.dispose();
-        }
+        this.admitting = false;
+        if (result.code === 'ok') this.reservation = result.reservation;
+        if (this.disposed || this.abortController.signal.aborted) await this.dispose();
         return result;
+      }, async (error: unknown) => {
+        this.admitting = false;
+        if (this.disposed || this.abortController.signal.aborted) await this.dispose();
+        throw error;
       });
       const admitted = await this.wait(pending);
       if (admitted.code !== 'ok') throw namedAccountRefusal(admitted.code, 'admission-refused');
@@ -865,6 +885,7 @@ export class NamedAccountQueryAdmission {
       this.gates.push(gate);
       this.child = this.runner.invokeNamedQuery(queryFn, gate.stream(), bootstrapOptions,
         (termination) => { this.termination = termination; });
+      this.recordChild(this.child.childPid);
       const identity = namedIdentity(await this.wait(this.child.sdkQuery.accountInfo()), launch);
       if (stored && !sameNamedIdentity(stored.identity, identity)) throw namedAccountRefusal('identity-unproved', 'identity-mismatch');
       this.baseline = stored?.identity ?? identity;
@@ -925,6 +946,7 @@ export class NamedAccountQueryAdmission {
         catch (error: unknown) { await this.dispose(); throw rewrapNamedRefusal(error); }
       }), withNamedAccountToolGate(options, toolAdmitted),
         (termination) => { this.termination = termination; });
+      this.recordChild(this.child.childPid);
       await this.verifyIdentity();
       // The same child proved the account: hand over the first caller turn only.
       gate.releaseFirst();
@@ -997,6 +1019,24 @@ export class NamedAccountQueryAdmission {
     if (!sameNamedIdentity(this.baseline, identity)) throw namedAccountRefusal('identity-unproved', 'identity-mismatch');
   }
 
+  /**
+   * Records the child's pid on the reservation so a later process reclaims a
+   * lease this host leaves behind only once the child is gone too. Fire and
+   * forget: a failed record keeps the lease reclaimable on host death alone,
+   * which is logged, and never changes this run's own admission.
+   */
+  private recordChild(childPid: Promise<number | null>): void {
+    const reservation = this.reservation;
+    if (!reservation || !this.admission.recordRunChild) return;
+    const message = '[SessionLifecycle] Named account child was not recorded on its reservation.';
+    void childPid.then(async (pid) => {
+      if (pid === null) return;
+      const result = await this.admission.recordRunChild?.({ reservationId: reservation.reservationId,
+        operationId: reservation.operationId, authEpoch: reservation.authEpoch, pid });
+      if (result && result.code !== 'ok') this.logger.warn(message);
+    }).catch(() => this.logger.warn(message));
+  }
+
   private closeChild(): void {
     try { this.child?.sdkQuery.close(); }
     catch { this.logger.warn('[SessionLifecycle] Named account child close was not confirmed.'); }
@@ -1016,7 +1056,11 @@ export class NamedAccountQueryAdmission {
     this.stopEpoch?.();
     this.abortController.signal.removeEventListener('abort', this.onAbort);
     if (!this.childEnded) this.abortController.abort();
-    if (!this.reservation) return;
+    if (!this.reservation) {
+      // An admission call still in flight may return a reservation; its handler disposes again.
+      if (!this.admitting) this.resolveTerminal();
+      return;
+    }
     if (this.settlement) return this.settlement;
     const reservation = this.reservation;
     this.settlement = (async () => {
@@ -1036,6 +1080,8 @@ export class NamedAccountQueryAdmission {
         : await this.admission.retainUnresolvedReservation(command);
       if (result.code !== 'ok') this.logger.warn('[SessionLifecycle] Named account reservation remains held.');
     })();
+    // Every completion path ends here or above: natural child exit, abort, refusal and shutdown.
+    this.settlement.then(this.resolveTerminal, this.resolveTerminal);
     return this.settlement;
   }
 }
@@ -1077,7 +1123,22 @@ export class SessionQueryExecutor {
     private readonly contextUsagePort: IContextUsagePort | null = null,
     private readonly subagentBudgetMonitor: SubagentBudgetSink | null = null,
     private readonly idle: IdleCompactionSignals | null = null,
-  ) {}
+  ) {
+    this.namedSettlements = new NamedAdmissionSettlements(logger);
+  }
+
+  /** Named-account flows whose run lease may still be unsettled. */
+  private readonly namedSettlements: NamedAdmissionSettlements;
+
+  /**
+   * Host shutdown: close named admission (a later named session is refused
+   * `cancelled` before it reserves), dispose every live named-account flow and
+   * wait for its reservation release (or retain) to be written, including a
+   * reservation an in-flight admission still returns. Never rejects.
+   */
+  settleNamedAccountReservations(): Promise<void> {
+    return this.namedSettlements.settleAll();
+  }
 
   /**
    * Execute an SDK query with all the orchestration steps
@@ -1169,6 +1230,8 @@ export class SessionQueryExecutor {
         if (typeof projectPath !== 'string' || projectPath.trim() === '') throw namedAccountRefusal('conflict', 'project-path-invalid');
         named = new NamedAccountQueryAdmission(this.queryRunner, admission, persistence,
           this.registry, this.logger, abortController, undefined, undefined, admissionDeadline);
+        // Host shutdown has closed admission: refuse before any reservation is asked for.
+        if (!this.namedSettlements.track(named)) throw namedAccountRefusal('cancelled', 'shutting-down');
         namedQueryFn = await named.wait(this.moduleLoader.getQueryFunction());
         await named.bootstrap(namedQueryFn, selection, projectPath, resumeSessionId, forkSession);
       } catch (error) {

@@ -45,8 +45,6 @@ const MOVE = `btn btn-ghost btn-xs btn-square h-6 min-h-6 w-6 p-0 text-base-cont
 const SAVE_SCOPE = 'global';
 const DETECT_FAILED =
   'Could not re-detect CLI agents. Your saved settings have not changed.';
-const ORDER_NOT_SAVED =
-  'Could not save the preferred order. The order shown is the saved one.';
 
 /** One preferred-order entry: an installed system CLI or a Ptah CLI instance, in the matrix's rank order. */
 interface OrderChip {
@@ -65,7 +63,7 @@ interface OrderChip {
  * - Reads `state.orchestration()` and `state.cliAgents()`; the chips are the CLI matrix's installed rows
  *   (`cliMatrixRows`, same rank rule), so the bar and the matrix always show one order.
  * - Every write is `state.saveSettings({orchestration:{…}})` through `SettingsSaveFeedbackService` (toast, Undo, D15:
- *   the shown values are the read-back ones). Re-detect is `state.redetectClis()`. Failures show fixed sentences.
+ *   the shown values are the read-back ones). Re-detect is `state.redetectClis()`; its result is announced through the page toast.
  * Since Batch 33 the old body (system CLI cards, the Copilot toggle now in the matrix, the "Manage … in Providers"
  * links, RUX-9) and its private `agent:*` calls are gone. Class and selector are kept (exported from the barrel).
  */
@@ -291,15 +289,6 @@ interface OrderChip {
                       </li>
                     }
                   </ol>
-                  @if (orderError(); as message) {
-                    <p
-                      class="text-xs text-base-content"
-                      role="alert"
-                      data-testid="policy-order-error"
-                    >
-                      {{ message }}
-                    </p>
-                  }
                   <p class="text-xs text-base-content-muted">
                     The first available agent is used when no CLI is specified.
                   </p>
@@ -343,18 +332,6 @@ interface OrderChip {
           }
         </button>
       </div>
-      @if (detectFailed()) {
-        <p
-          class="mt-1 text-xs text-base-content"
-          role="alert"
-          data-testid="policy-redetect-error"
-        >
-          {{ detectFailedMessage }}
-        </p>
-      }
-      <span class="sr-only" role="status" aria-live="polite">{{
-        detectDone() ? 'CLI agents re-detected.' : ''
-      }}</span>
     </div>
   `,
 })
@@ -366,7 +343,6 @@ export class AgentOrchestrationConfigComponent {
   protected readonly CloseIcon = X;
   protected readonly focusRing = FOCUS;
   protected readonly moveClass = MOVE;
-  protected readonly detectFailedMessage = DETECT_FAILED;
 
   private readonly state = inject(ProvidersSettingsStateService);
   private readonly feedback = inject(SettingsSaveFeedbackService);
@@ -492,25 +468,19 @@ export class AgentOrchestrationConfigComponent {
   }
 
   protected readonly orderOpen = signal(false);
-  protected readonly orderError = signal<string | null>(null);
 
   private readonly redetecting = signal(false);
   protected readonly detecting = computed(
     () => this.redetecting() || this.state.cliDetection().status === 'loading',
   );
-  /** Set by this bar's own Re-detect only, so a failure elsewhere never shows here. */
-  protected readonly detectFailed = signal(false);
-  protected readonly detectDone = signal(false);
 
   protected toggleOrder(): void {
-    this.orderError.set(null);
     this.orderOpen.update((open) => !open);
   }
 
   /** Esc, the backdrop and Close end here; the popover returns focus to the trigger. */
   protected closeOrder(): void {
     this.orderOpen.set(false);
-    this.orderError.set(null);
   }
 
   /** The panel takes focus when positioned; then its first enabled move button does. */
@@ -578,25 +548,23 @@ export class AgentOrchestrationConfigComponent {
   async redetectClis(): Promise<void> {
     if (this.detecting()) return;
     this.redetecting.set(true);
-    this.detectFailed.set(false);
-    this.detectDone.set(false);
+    let ok = false;
     try {
-      const ok = await this.state.redetectClis();
-      this.detectFailed.set(!ok);
-      this.detectDone.set(ok);
+      ok = await this.state.redetectClis();
     } catch (error: unknown) {
+      // degradation-audit: reported - the toast says re-detect failed.
       // The state settles its own read failures; a throw means the command itself broke.
       void error;
-      this.detectFailed.set(true);
     } finally {
       this.redetecting.set(false);
     }
+    if (ok) this.feedback.announce('CLI agents re-detected.', 'status');
+    else this.feedback.announce(DETECT_FAILED, 'alert');
   }
 
   /**
    * One move = one write of the whole order, with Undo. The rows show the read-back order (D15); when this move's own
-   * write did not save (refused, failed or threw), a fixed sentence says so in the popover (the toast carries the
-   * details). `commit()` alone is not enough: a refused move leaves an earlier save's `saved` there (Gate V 36, m-1).
+   * write did not save (refused, failed or threw), the page toast from `save()` says so with the details.
    */
   private async savePreferredOrder(
     order: string[],
@@ -608,26 +576,20 @@ export class AgentOrchestrationConfigComponent {
     const previous = [
       ...(this.state.orchestration().data?.preferredAgentOrder ?? []),
     ];
-    this.orderError.set(null);
-    let saved = false;
     await this.feedback.save({
       label: 'preferred agent order',
       scope: SAVE_SCOPE,
-      write: async () => {
-        const accepted = await this.state.saveSettings(
+      write: () =>
+        this.state.saveSettings(
           { orchestration: { preferredAgentOrder: order } },
           context,
-        );
-        saved = accepted && this.state.commit().status === 'saved';
-        return accepted;
-      },
+        ),
       undo: () =>
         this.state.saveSettings(
           { orchestration: { preferredAgentOrder: previous } },
           context,
         ),
     });
-    if (!saved) this.orderError.set(ORDER_NOT_SAVED);
     this.refocus(movedId, direction);
   }
 

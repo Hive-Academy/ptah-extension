@@ -15,7 +15,7 @@
  * - `authType: 'none'` + `nativeAuth: true` — no key is collected or injected.
  *   Setting an auth token (even a placeholder) would override the real login.
  * - `defaultTiers` map to real Claude model ids so a spawned panelist (e.g. in
- *   the tribunal panel) runs a concrete model.
+ *   a chat skill) runs a concrete model.
  */
 
 import type { AnthropicProvider } from '../provider-registry';

@@ -214,14 +214,16 @@
 
       </div>
       <!-- Input Area (in normal flow at the bottom). -->
-      @if (dockEnabled) {
+      @if (displaySheetEnabled) {
         @if (resolvedTabId(); as displayTabId) {
           <ptah-display-sheet sessionSheet [tabId]="displayTabId" />
         }
       }
-      <div sessionComposer class="flex-shrink-0">
-        <ptah-chat-input />
-      </div>
+      @if (!readOnly) {
+        <div sessionComposer class="flex-shrink-0">
+          <ptah-chat-input />
+        </div>
+      }
       </ptah-chat-session-layout>
     }
   </div>

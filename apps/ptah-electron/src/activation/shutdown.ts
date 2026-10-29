@@ -117,6 +117,22 @@ export const METADATA_FLUSH_BUDGET_MS = 2000;
  */
 export const RUN_CHECK_KILL_BUDGET_MS = 5000;
 
+/**
+ * How long the chain may wait for the main-chat SDK sessions to end before it
+ * moves on to the agent reap and `SQLite close`.
+ *
+ * The wait exists because a session on a named Claude account holds a run
+ * lease in SQLite, and its release is a write that only happens after the
+ * session's child has exited. Closing the connection first leaves the lease
+ * held in the database, and every later status, sign-in or sign-out of that
+ * account then waits for the stale-lease reclaim.
+ *
+ * Two seconds for the same reason as the budgets above: a session whose child
+ * will not exit must cost a bounded pause, not an unquittable app. An expired
+ * budget leaves that lease to the next launch's reclaim.
+ */
+export const CHAT_SESSION_DISPOSE_BUDGET_MS = 2000;
+
 export interface QuitSequenceDeps {
   /** The coordinator's stable refs object — read, never copied. */
   refs: BootRefs;
@@ -154,6 +170,8 @@ export interface QuitSequenceDeps {
   metadataFlushBudgetMs?: number;
   /** Override for tests. Defaults to {@link RUN_CHECK_KILL_BUDGET_MS}. */
   runCheckKillBudgetMs?: number;
+  /** Override for tests. Defaults to {@link CHAT_SESSION_DISPOSE_BUDGET_MS}. */
+  chatSessionDisposeBudgetMs?: number;
 }
 
 /** The subset of {@link QuitSequenceDeps} the disposal chain reads. */
@@ -167,6 +185,7 @@ export type DisposalDeps = Pick<
   | 'agentReapBudgetMs'
   | 'metadataFlushBudgetMs'
   | 'runCheckKillBudgetMs'
+  | 'chatSessionDisposeBudgetMs'
 >;
 
 /** Run `fn`, log and continue on failure. Every disposal is non-fatal. */
@@ -236,8 +255,8 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
 }
 
 /**
- * The tail of the LIFO chain: the agent reap, the lane-outcomes drain,
- * `SQLite close`, and everything after it.
+ * The tail of the LIFO chain: the chat-session dispose, the agent reap, the
+ * lane-outcomes drain, `SQLite close`, and everything after it.
  *
  * Nothing in here may run before {@link stopMessagingGateway} has SETTLED: its
  * drain writes through the connection `SQLite close` shuts (TASK_2026_347
@@ -264,6 +283,18 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   // (`host-shutdown`) and clears its timers, so nothing is pushed into a parent
   // that is going away.
   nonFatal('Session spawner dispose', () => refs.sessionSpawner?.dispose());
+
+  // Main-chat sessions after their children and BEFORE `SQLite close`: a
+  // session on a named Claude account releases its run lease through that
+  // connection once its child exits. The guard is inline for the reason given
+  // just below.
+  const chatSessions = refs.chatSessions;
+  if (chatSessions !== null) {
+    await disposeChatSessions(
+      chatSessions,
+      deps.chatSessionDisposeBudgetMs ?? CHAT_SESSION_DISPOSE_BUDGET_MS,
+    );
+  }
 
   // The guard is HERE rather than inside `reapAgents`, and that placement is
   // the whole reason the undeferred path still works. `await f()` suspends even
@@ -328,6 +359,22 @@ async function reapAgents(
     () => manager.disposeAll(),
     budgetMs,
     'flushing whatever the agents staged.',
+  );
+}
+
+/**
+ * End the main-chat sessions and WAIT for their lease releases, bounded by
+ * {@link CHAT_SESSION_DISPOSE_BUDGET_MS}. Never rejects.
+ */
+async function disposeChatSessions(
+  chatSessions: NonNullable<BootRefs['chatSessions']>,
+  budgetMs: number,
+): Promise<void> {
+  await withBudget(
+    'Chat session disposal',
+    () => chatSessions.disposeAllSessionsForShutdown(),
+    budgetMs,
+    'closing SQLite with named account leases possibly still held.',
   );
 }
 
@@ -402,7 +449,7 @@ async function withBudget(
  * `true` when the disposal chain has something it must AWAIT, and the quit
  * therefore has to be deferred even with no boot in flight.
  *
- * Three handles qualify, all because a WRITE happens after an `await`:
+ * Four handles qualify, all because a WRITE happens after an `await`:
  *
  *  - The **messaging gateway**, whose stop drains buffered adapter sends into
  *    the SQLite database `SQLite close` is about to shut.
@@ -411,6 +458,8 @@ async function withBudget(
  *    {@link disposeBootRefs} flush writes, and its lane-outcome write.
  *  - The **lane-outcomes drain**, which writes pending outcomes through the
  *    same SQLite connection before it closes.
+ *  - The **main-chat sessions**, whose named Claude account run leases are
+ *    released through that connection once each session's child has exited.
  *
  * The agent reaper used to be listed here as the counter-example — "deliberately
  * fire-and-forget, whose settle nothing downstream depends on". That stopped
@@ -429,6 +478,7 @@ export function requiresDeferredDisposal(refs: BootRefs): boolean {
     refs.laneOutcomesDisposer !== null ||
     refs.messagingGateway !== null ||
     refs.agentProcessManager !== null ||
+    refs.chatSessions !== null ||
     runningCheckPids().length > 0
   );
 }
@@ -567,9 +617,10 @@ export function handleWillQuit(deps: QuitSequenceDeps): boolean {
     // can slip in front of `SQLite close` on a path Electron will not wait for.
     //
     // `disposeAfterPersistence` is async but takes no `await` here: its only
-    // two are the agent reap and the lane-outcomes drain, and
-    // `requiresDeferredDisposal` returning false is exactly the statement that
-    // there is neither an agent manager to reap nor an outcome drain to await.
+    // three are the chat-session dispose, the agent reap and the lane-outcomes
+    // drain, and `requiresDeferredDisposal` returning false is exactly the
+    // statement that there are no chat sessions to end, no agent manager to
+    // reap and no outcome drain to await.
     // So the body runs to completion synchronously before the promise is
     // returned, and the `void` discards a promise that is already settled.
     //

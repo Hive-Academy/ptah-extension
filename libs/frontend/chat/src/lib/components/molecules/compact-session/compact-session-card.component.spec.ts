@@ -460,6 +460,9 @@ describe(CompactSessionCardComponent.name, () => {
     expect(fixture.nativeElement.textContent).not.toContain('Retry');
   });
 
+  const openButton = (root: HTMLElement) =>
+    [...root.querySelectorAll<HTMLButtonElement>('[data-testid="cs-callout-permission"] button')]
+      .find((button) => button.textContent?.trim() === 'Open') as HTMLButtonElement;
   it('responds with the routed session tab ID and exact CLI IDs', () => {
     const request = permission();
     permissions.set([request]);
@@ -469,7 +472,7 @@ describe(CompactSessionCardComponent.name, () => {
         '[data-testid="cs-callout-permission"] button',
       ) as HTMLButtonElement
     ).click();
-    expect(respondSession).toHaveBeenCalledWith(request, 'allow', 'tab-1');
+    expect(respondSession).toHaveBeenCalledWith(request, 'allow', 'tab-1', undefined);
 
     permissions.set([]);
     agents.set([
@@ -499,6 +502,17 @@ describe(CompactSessionCardComponent.name, () => {
       'deny',
       'User denied',
     );
+  });
+
+  it('forwards Always allow and a denial reason for a session permission', () => {
+    const request = permission();
+    permissions.set([request]);
+    const fixture = render();
+    const shown = fixture.componentInstance.callout() as chatUi.CompactPermissionCallout;
+    fixture.componentInstance.respond(shown, 'always_allow');
+    expect(respondSession).toHaveBeenLastCalledWith(request, 'always_allow', 'tab-1', undefined);
+    fixture.componentInstance.respond(shown, 'deny_with_message', 'Use the staging database');
+    expect(respondSession).toHaveBeenLastCalledWith(request, 'deny_with_message', 'tab-1', 'Use the staging database');
   });
 
   it('does not offer a CLI permission whose owner is unresolved', () => {
@@ -811,11 +825,7 @@ describe(CompactSessionCardComponent.name, () => {
     expect(
       root.querySelector('[data-testid="cs-callout-permission"]')?.textContent,
     ).toContain('+2 more');
-    (
-      root.querySelector(
-        '[data-testid="cs-callout-permission"] button:last-child',
-      ) as HTMLButtonElement
-    ).click();
+    openButton(root).click();
     expect(openLane).toHaveBeenCalledWith('cli:agent-1');
     expect(openSession).not.toHaveBeenCalled();
   });
@@ -833,11 +843,7 @@ describe(CompactSessionCardComponent.name, () => {
     expect(
       root.querySelector('[data-testid="cs-callout-permission"]')?.textContent,
     ).toContain('+1 more');
-    (
-      root.querySelector(
-        '[data-testid="cs-callout-permission"] button:last-child',
-      ) as HTMLButtonElement
-    ).click();
+    openButton(root).click();
     expect(openSession).toHaveBeenCalledTimes(1);
 
     permissions.set([]);

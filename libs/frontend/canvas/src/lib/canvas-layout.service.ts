@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 
-/** Position contract retained for Tribunal panel tiles. */
+/** Position contract for canvas tiles. */
 export interface TileLayout {
   x: number;
   y: number;

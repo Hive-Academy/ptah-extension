@@ -37,7 +37,7 @@
   data-composition-duration="6"
   data-composition-variables='[
     { "id": "layout", "type": "enum", "label": "Layout", "default": "2+2", "options": [{ "value": "1", "label": "1" }, { "value": "2", "label": "2 side by side" }, { "value": "1+2", "label": "1 + 2 stacked" }, { "value": "2+2", "label": "2 + 2 grid" }] },
-    { "id": "activeTab", "type": "enum", "label": "Active tab", "default": "Chat", "options": [{ "value": "Chat", "label": "Chat" }, { "value": "Apps", "label": "Apps" }, { "value": "Tasks", "label": "Tasks" }, { "value": "Tribunal", "label": "Tribunal" }, { "value": "Analytics", "label": "Analytics" }] },
+    { "id": "activeTab", "type": "enum", "label": "Active tab", "default": "Chat", "options": [{ "value": "Chat", "label": "Chat" }, { "value": "Apps", "label": "Apps" }, { "value": "Tasks", "label": "Tasks" }, { "value": "Analytics", "label": "Analytics" }] },
     { "id": "notifications", "type": "string", "label": "Notification badge", "default": "9+" },
     { "id": "focusedSlot", "type": "number", "label": "Focused slot (-1 none)", "default": -1, "min": -1, "max": 3, "step": 1 },
     { "id": "titleBar", "type": "boolean", "label": "Electron title bar", "default": false },
@@ -308,7 +308,7 @@
             K.vignette();
 
             var layout = K.oneOf("layout", ["1", "2", "1+2", "2+2"], "2+2");
-            var TABS = ["Chat", "Apps", "Tasks", "Tribunal", "Analytics"];
+            var TABS = ["Chat", "Apps", "Tasks", "Analytics"];
             var activeTab = K.oneOf("activeTab", TABS, "Chat");
             var notes = K.str("notifications", "9+");
             var titleBar = K.bool("titleBar", false);
@@ -355,7 +355,7 @@
               return "left:calc(" + x + " * var(--u));top:calc(" + y + " * var(--u));width:calc(" + w + " * var(--u));height:calc(" + h + " * var(--u))";
             }
             var e = K.esc;
-            var TAB_ICON = { Chat: "layout-grid", Apps: "app-window", Tasks: "clipboard-list", Tribunal: "scale", Analytics: "bar-chart" };
+            var TAB_ICON = { Chat: "layout-grid", Apps: "app-window", Tasks: "clipboard-list", Analytics: "bar-chart" };
 
             var html = '<div class="aw-frame"></div>';
             if (titleBar) {

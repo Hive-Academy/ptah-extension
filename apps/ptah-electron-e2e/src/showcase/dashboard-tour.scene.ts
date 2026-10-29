@@ -6,8 +6,7 @@ import type { Locator, Page } from '@playwright/test';
  * SHOWCASE — "Your card-driven home" (Dashboard tour).
  *
  * A calm, social-media-ready walkthrough of Ptah's Dashboard: the card-driven
- * home that aggregates usage from local sources and the
- * Tribunal navigation tab. This is a SCENE, not a test — it asserts almost
+ * home that aggregates usage from local sources. This is a SCENE, not a test — it asserts almost
  * nothing, runs NO agents, and is tuned for how it looks on camera: smooth
  * pointer travel, lower-third captions, generous dwell, and spotlight beats on
  * the hero cards.
@@ -20,7 +19,7 @@ import type { Locator, Page } from '@playwright/test';
  * camera onto each card as the VO names it.
  *
  * Strictly NON-DESTRUCTIVE: it navigates, scrolls, hovers, and spotlights. It
- * never clicks Tribunal or any control that would start a paid run.
+ * never starts a paid run.
  *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
@@ -100,23 +99,12 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     },
   });
 
-  // Show the Tribunal navigation tab without entering a paid run.
-  const tribunalTab = page.getByRole('tab', { name: 'Tribunal' }).first();
-  if (await isVisible(tribunalTab)) {
-    await director.say(4, {
-      target: tribunalTab,
-      during: async () => {
-        await director.hover(tribunalTab, 700);
-        await director.spotlight(tribunalTab, 1800);
-      },
-    });
-  }
   // Hero card #2 — the Usage card.
   const analyticsCard = page
     .locator('section[aria-label="Usage"]')
     .first();
   if (await isVisible(analyticsCard)) {
-    await director.say(5, {
+    await director.say(4, {
       target: analyticsCard,
       during: async () => {
         await director.hover(analyticsCard, 700);
@@ -141,5 +129,5 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     .catch(() => undefined);
   await director.hold(900);
 
-  await director.say(6, { breathMs: 950 });
+  await director.say(5, { breathMs: 950 });
 });

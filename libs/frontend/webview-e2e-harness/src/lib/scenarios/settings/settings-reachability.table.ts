@@ -53,11 +53,12 @@ import {
   openCardDrawer,
   openMainAgentPopover,
   openScopeBadge,
-  orchestrationTab,
+  agentsRoutingTab,
   providersTab,
   throughVariantBoot,
   setupThroughDrawer,
   visibleEnabled,
+  restoreStoredKey,
   withAuthStatus,
 } from './settings-drawer.reach';
 
@@ -839,7 +840,7 @@ const cliAgents: readonly ReachabilityEntry[] = [
 // Table 4: Agent orchestration policy (#72-79)
 // ---------------------------------------------------------------------------
 
-/** Batch 33: the Orchestration tab's policy bar (`orchestration-policy-bar`). */
+/** Batch 33: the CLI matrix's policy bar (`orchestration-policy-bar`), on the Providers tab. */
 const policyBar = (page: Page): Locator =>
   page.locator('[data-testid="orchestration-policy-bar"]');
 
@@ -850,16 +851,17 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     capability: 'Re-detect CLIs',
     status: 'present',
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       const redetect = policyBar(page).getByRole('button', {
         name: 'Re-detect CLI agents',
       });
       await visibleEnabled(redetect);
       await redetect.click();
       await visibleEnabled(redetect);
+      // The result is the page toast: a passing re-detect says so; a failed one would show its failure text.
       await expect(
-        policyBar(page).locator('[data-testid="policy-redetect-error"]'),
-      ).toHaveCount(0);
+        page.locator('[data-testid="settings-toast-message"]'),
+      ).toHaveText('CLI agents re-detected.');
     },
   },
   {
@@ -869,7 +871,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     // Batch 33: the bar's chips open the order popover; ▲/▼ per row (24 px, deviation 5). One move writes the whole
     // order; Esc returns focus to the chips; the toast's Undo writes the previous order back.
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       const trigger = policyBar(page).locator(
         '[data-testid="policy-order-edit"]',
       );
@@ -919,7 +921,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     capability: 'Max concurrent agents number input',
     status: 'present',
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       const field = page.locator('#agent-max-concurrent');
       await visibleEnabled(field);
       const before = getFixtureState(page).calls.length;
@@ -941,7 +943,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     capability: 'System CLI rows with detection badges',
     status: 'present',
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       const codex = page.locator('[data-testid="cli-matrix-row-codex"]');
       await expect(codex).toContainText('v1.4.0');
       await expect(codex).toContainText('Ready');
@@ -952,7 +954,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     capability: 'Enable/disable toggle per system CLI',
     status: 'present',
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       await visibleEnabled(page.getByLabel('Codex enabled', { exact: true }));
     },
   },
@@ -974,7 +976,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
             })),
           },
         },
-        'Agent Orchestration',
+        'Providers',
         async (variantPage) => {
           // Gate V 36 decision 1: the Uninstalled group opens from its disclosure first.
           await variantPage
@@ -998,7 +1000,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     status: 'present',
     // V36-7: an instance's Edit sits in its "More actions" popover; Esc closes it again.
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       await page
         .locator('[data-testid="cli-matrix-more-glm-instance-1"]')
         .click();
@@ -1019,7 +1021,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     // second page whose `ptahCli:list` answers `success:false` (the opt-in `rpcError` envelope) until Retry shows the
     // container's "… could not be loaded" line for that section, with Retry, and Retry clears it.
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       await expect(page.locator('[data-read-loading]')).toHaveCount(0);
       await expect(page.locator('[data-read-error]')).toHaveCount(0);
       await expect(page.locator('#agent-max-concurrent')).toHaveValue('3');
@@ -1030,7 +1032,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
           'ptahCli:list': () =>
             failing ? rpcError('list unavailable') : PTAH_CLI_LIST_FIXTURE,
         },
-        'Agent Orchestration',
+        'Providers',
         async (variant) => {
           const section = variant.locator('[data-read-error="cli"]');
           await expect(section).toContainText(
@@ -1087,8 +1089,8 @@ const other: readonly ReachabilityEntry[] = [
     capability: 'Deep link to a Settings tab (also while open)',
     status: 'present',
     // A deep link raised while Settings is ALREADY open: the routing map's Background roles action on Providers
-    // (`requestSettingsTab({tab:'orchestration', section:'background-models'})`). The routed tab becomes active, the
-    // closed roles <details> opens (Batch 33, deviation 4) and the section takes focus. Closed again for later entries.
+    // (`requestSettingsTab({tab:'providers', section:'background-models'})`). Providers stays active, the closed roles
+    // <details> below the page opens (Batch 33, deviation 4) and the section takes focus. Closed again for later entries.
     reach: async (page) => {
       await providersTab(page);
       await page
@@ -1097,7 +1099,7 @@ const other: readonly ReachabilityEntry[] = [
         )
         .click();
       await expect(
-        page.getByRole('button', { name: 'Agent Orchestration', exact: true }),
+        page.getByRole('button', { name: 'Providers', exact: true }),
       ).toHaveClass(/tab-active/);
       const details = page.locator('[data-testid="background-roles-details"]');
       await expect(details).toHaveAttribute('open', '');
@@ -1140,6 +1142,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
           'credentials-delete-confirm-button',
           'auth:deleteStoredKey',
           { providerId: 'anthropic' },
+          'Stored key deleted.',
         );
       }),
   },
@@ -1156,9 +1159,11 @@ const restoredPending: readonly ReachabilityEntry[] = [
           'credentials-delete-confirm-button',
           'auth:deleteStoredKey',
           { providerId: 'kimi-code' },
+          'Stored key deleted.',
         );
       } finally {
         await closeConnectionDrawer(page);
+        await restoreStoredKey(page, 'kimi-code');
       }
     },
   },
@@ -1176,6 +1181,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
           'credentials-sign-out-confirm-button',
           'auth:copilotLogout',
           {},
+          'Signed out.',
         );
       }),
   },
@@ -1201,7 +1207,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
             id: 'sovereigneg',
           });
           await expect(
-            panel.locator('[data-testid="advanced-commit"]'),
+            page.locator('[data-testid="settings-toast-message"]'),
           ).toBeVisible();
         },
       ),
@@ -1231,7 +1237,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
           await expect(save).toBeDisabled();
           await panel.locator('[data-testid="advanced-check"]').click();
           await expect(
-            panel.locator('[data-testid="advanced-probe"]'),
+            page.locator('[data-testid="settings-toast-message"]'),
           ).toContainText('Endpoint verified');
           await save.click();
           await expectCall(page, before, 'provider:updateCustomEntry', {
@@ -1239,7 +1245,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
             changes: { modelsEndpoint: '/v2/models' },
           });
           await expect(
-            panel.locator('[data-testid="advanced-commit"]'),
+            page.locator('[data-testid="settings-toast-message"]'),
           ).toContainText('Endpoint saved.');
           if (entry) entry['modelsEndpoint'] = stored;
         },
@@ -1266,7 +1272,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
             changes: { helpUrl: 'https://docs.example.internal/ai' },
           });
           await expect(
-            panel.locator('[data-testid="advanced-commit"]'),
+            page.locator('[data-testid="settings-toast-message"]'),
           ).toContainText('Help URL saved.');
         },
       ),
@@ -1302,7 +1308,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
             },
           });
           await expect(
-            panel.locator('[data-testid="advanced-commit"]'),
+            page.locator('[data-testid="settings-toast-message"]'),
           ).toContainText('Pricing saved.');
         },
       ),
@@ -1513,13 +1519,13 @@ const regressedUx: readonly ReachabilityEntry[] = [
         await key.fill(INVALID_PROBE_KEY);
         await page.locator('[data-testid="credentials-verify"]').click();
         await expect(
-          page.locator('[data-testid="credentials-probe"]'),
+          page.locator('[data-testid="settings-toast-message"]'),
         ).toContainText('Nothing was saved');
         await expect(save).toBeDisabled();
         await key.fill('sk-e2e-replacement');
         await page.locator('[data-testid="credentials-verify"]').click();
         await expect(
-          page.locator('[data-testid="credentials-probe"]'),
+          page.locator('[data-testid="settings-toast-message"]'),
         ).toContainText('Key verified');
         await expect(save).toBeEnabled();
       } finally {
@@ -1579,7 +1585,7 @@ const regressedUx: readonly ReachabilityEntry[] = [
     status: 'restored',
     // Batch 33: the old per-CLI links went with the old policy body; the matrix edits in place.
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       await expect(policyBar(page)).toBeVisible();
       await expect(page.getByText(/Manage .* in Providers/)).toHaveCount(0);
     },
@@ -1683,10 +1689,11 @@ export const KEPT_SELECTORS: readonly KeptSelector[] = [
   { selector: '[data-testid="settings-back"]', tab: 'Providers' },
   { selector: '[data-testid="provider-connection-card"]', tab: 'Providers' },
   { selector: '#providers-connections-heading', tab: 'Providers' },
-  // Moved with the background roles to Orchestration in Batch 18 (D14); inside the roles <details> since Batch 33.
+  // With the background roles: on Orchestration from Batch 18 (D14), inside the roles <details> since Batch 33, and
+  // back on Providers (below Routing Map + Connections) since the Context Management regroup.
   {
     selector: '[data-testid="assignments-heading"]',
-    tab: 'Agent Orchestration',
+    tab: 'Providers',
     reveal: '[data-testid="background-roles-summary"]',
   },
 ];

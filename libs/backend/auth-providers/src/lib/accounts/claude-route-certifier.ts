@@ -7,6 +7,7 @@ import type {
   ClaudeLaunchBoundaryOutcome,
 } from '@ptah-extension/auth-providers-tokens';
 import type { ProviderAccountResultCode } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type { ClaudeChildCloseReceipt } from './claude-account-command';
 import type { ClaudeAccountStatus } from './claude-account-status';
 import {
@@ -18,6 +19,7 @@ import {
   type ClaudeRegistryQueryResult,
 } from './claude-auth-settings-scan';
 import { revalidateProviderAccountRoute, type CanonicalProviderAccountRoute } from './provider-account-route';
+import { ClaudeCertificationCache, type ClaudeCertificationScope } from './claude-certification-cache';
 
 /** Oldest CLI build whose account store layout is supported. */
 const MIN_SUPPORTED_VERSION = [2, 1, 301] as const;
@@ -134,6 +136,12 @@ export interface ClaudeRouteCertifyRequest extends ClaudeAuthContextRequest {
   readonly profile: { readonly identityRef: string | null };
   readonly cwd: string;
   readonly settingSources: readonly ClaudeCertifiedSettingSource[];
+  /**
+   * Present for a named run: the profile facts this certification proves. A
+   * passed certification is then reused for an equal scope and run inputs
+   * until it expires (see {@link ClaudeCertificationCache}).
+   */
+  readonly reuse?: ClaudeCertificationScope;
 }
 
 function parseVersion(version: string): readonly [number, number, number] | null {
@@ -168,11 +176,18 @@ function withoutReceipts(refusal: ClaudeProbeRefusal): ClaudeCertificationRefusa
  * for its context. Results carry codes only: no path, value or CLI text.
  */
 export class ClaudeRouteCertifier {
+  private readonly reused: ClaudeCertificationCache;
+
   constructor(
     private readonly probe: ClaudeCliProbe,
     private readonly platform: NodeJS.Platform,
     private readonly fs: ClaudeRouteCertifierFs,
-  ) {}
+    /** Diagnostics only: a certifier without a logger certifies the same way. */
+    private readonly logger: Pick<Logger, 'warn'> | null = null,
+    now: () => number = Date.now,
+  ) {
+    this.reused = new ClaudeCertificationCache(now);
+  }
 
   /** Steps 1-5 with `cwd = canonicalDir`, for sign-in, status and sign-out. */
   async authContext(request: ClaudeAuthContextRequest): Promise<ClaudeAuthContextOutcome> {
@@ -187,8 +202,71 @@ export class ClaudeRouteCertifier {
     return scan.ok ? { ok: true } : scan;
   }
 
-  /** Steps 1-8 for a named run. */
+  /**
+   * Steps 1-8 for a named run, or a reused passed certification (see
+   * {@link reusedLaunch}). A refusal drops the profile's reusable entry.
+   */
   async certify(request: ClaudeRouteCertifyRequest): Promise<ClaudeRouteCertification> {
+    const scope = request.reuse;
+    if (!scope) return this.certifyFresh(request);
+    const key = ClaudeCertificationCache.key({ scope, route: request.route, identityRef: request.profile.identityRef,
+      cwd: request.cwd, settingSources: request.settingSources });
+    const reused = await this.reusedLaunch(scope.profileId, key, request);
+    if (reused) return { ok: true, launch: reused };
+    const result = await this.certifyFresh(request);
+    if (!result.ok) {
+      this.reused.forget(scope.profileId);
+      return result;
+    }
+    return { ok: true, launch: this.reused.set(scope.profileId, key, result.launch) };
+  }
+
+  /**
+   * A cached launch for an equal key, re-proved by the cheap steps only: the
+   * coverage entry, the certified env digest, the executable file fingerprint,
+   * the step 7 remote-signal check and the step 8 route revalidation. It skips
+   * the policy scan and the `auth status` child. Both still guard every launch:
+   * `checkLaunch` re-scans the policy before each SDK child, and the post-init
+   * `accountInfo()` check refuses any login other than the personal one with
+   * the stored identity. Any failed step falls back to a full certification.
+   */
+  private async reusedLaunch(profileId: string, key: string,
+    request: ClaudeRouteCertifyRequest): Promise<ClaudeCertifiedLaunchContext | undefined> {
+    const launch = this.reused.get(profileId, key);
+    if (!launch || request.signal.aborted) return undefined;
+    const failed = await this.recheckFailure(launch, request.route);
+    if (!failed) return launch;
+    this.reused.forget(profileId);
+    // Fixed text and the failed step word only; no path, env value or CLI output.
+    this.logger?.warn('[ClaudeRouteCertifier] Reused certification failed its re-check; certifying again', { step: failed });
+    return undefined;
+  }
+
+  /** The first cheap re-check a reused launch fails, or undefined when all pass. */
+  private async recheckFailure(launch: ClaudeCertifiedLaunchContext,
+    route: CanonicalProviderAccountRoute): Promise<'coverage' | 'env' | 'executable' | 'remote-signals' | 'route' | undefined> {
+    const entry = claudePolicyCoverage(this.platform);
+    if (!entry || entry.id !== launch.policy.coverage || !entry.versions.includes(launch.executable.version)) return 'coverage';
+    let step: 'env' | 'executable' | 'remote-signals' | 'route' = 'env';
+    try {
+      if (certifiedEnvDigest(buildCertifiedClaudeEnv(process.env, route.canonicalPath)) !== launch.envDigest) return step;
+      step = 'executable';
+      const current = await this.fs.stat(launch.executable.sdkExecutablePath);
+      const expected = launch.executable.fingerprint;
+      if (current.size !== expected.size || current.mtimeMs !== expected.mtimeMs) return step;
+      step = 'remote-signals';
+      if (!(await claudeRemoteSignalsAbsent(route.canonicalPath, this.platform, this.fs))) return step;
+      step = 'route';
+      revalidateProviderAccountRoute(route);
+    } catch {
+      // A throwing step is a failed re-check: the caller logs it and certifies again in full.
+      return step;
+    }
+    return undefined;
+  }
+
+  /** Steps 1-8 for a named run. */
+  private async certifyFresh(request: ClaudeRouteCertifyRequest): Promise<ClaudeRouteCertification> {
     const { route, profile, signal } = request;
     const canonicalDir = route.canonicalPath;
     const prepared = await this.prepare(request.cwd, route, signal);
@@ -255,6 +333,7 @@ export class ClaudeRouteCertifier {
 
     const scan = await this.scan(launch.cwd, canonicalDir, entry, signal, launch.executable.version);
     if (!scan.ok) {
+      this.reused.forgetLaunch(launch);
       withoutReceipts(scan);
       return { ok: false, code: scan.code === 'cancelled' ? 'identity-unproved' : 'unsupported-source', terminated: scan.terminated };
     }
@@ -263,10 +342,12 @@ export class ClaudeRouteCertifier {
     try {
       const current = await this.fs.stat(launch.executable.sdkExecutablePath);
       if (current.size !== expected.size || current.mtimeMs !== expected.mtimeMs) {
+        this.reused.forgetLaunch(launch);
         return { ok: false, code: 'identity-unproved', terminated: true };
       }
     } catch {
       // degradation-audit: reported - an unreadable executable cannot prove the certified build; refused as identity-unproved.
+      this.reused.forgetLaunch(launch);
       return { ok: false, code: 'identity-unproved', terminated: true };
     }
     return { ok: true };

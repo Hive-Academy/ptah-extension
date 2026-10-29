@@ -138,6 +138,14 @@ export interface BootRefs extends ThothRuntimeRefs {
    * {@link cliRegistry}.
    */
   sessionSpawner: { dispose: () => void } | null;
+  /**
+   * Main-chat SDK sessions (`SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER`).
+   * `disposeAllSessionsForShutdown()` ends every live session and waits for
+   * each named Claude account run lease to be released, a write that goes
+   * through the SQLite connection. Awaited (bounded) BEFORE `SQLite close`;
+   * captured eagerly for the same reason as {@link cliRegistry}.
+   */
+  chatSessions: { disposeAllSessionsForShutdown: () => Promise<void> } | null;
   /** Per-workspace isolated provider-proxy pool; shutdown-wide backstop. */
   providerProxyPool: { disposeAll: () => Promise<void> } | null;
   /**
@@ -185,6 +193,7 @@ export function createEmptyBootRefs(): BootRefs {
     agentProcessManager: null,
     laneOutcomesDisposer: null,
     sessionSpawner: null,
+    chatSessions: null,
     providerProxyPool: null,
     integrityService: null,
     workspaceWatcher: null,

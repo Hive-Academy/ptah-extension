@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { CAPTION_ANNOUNCE_DEBOUNCE_MS } from '../components/command-caption-strip.component';
 import { createHarness } from './integration-harness.testing';
 
 describe('Command Center voice loop integration', () => {
@@ -71,6 +72,8 @@ describe('Command Center voice loop integration', () => {
     const page = fixture.componentInstance.page;
     await page.open();
     page.coordinator.chooseCurrentTab();
+    // Binding flushes before the turn can end, as it does in the app.
+    fixture.detectChanges();
     page.voice['active'] = true;
     rpc.call.mockImplementation(async (method: string) => ({
       success: method === 'voice:transcribe',
@@ -111,11 +114,55 @@ describe('Command Center voice loop integration', () => {
     expect(spoken).toContain('The change is ready');
     expect(spoken).not.toMatch(/secretCode|removedDiff|addedDiff|diff --git/);
     expect(spoken.length).toBeLessThan(700);
-    expect(fixture.nativeElement.textContent).toContain(
-      'const secretCode = 42;',
-    );
-    expect(fixture.nativeElement.textContent).toContain('+addedDiff');
+    // Synthesis is unavailable here, so the reply's first sentence reaches the
+    // caption strip; the full reply stays in the rail's Live transcript.
+    fixture.detectChanges();
+    const strip = fixture.nativeElement.querySelector(
+      '[data-testid="caption-strip"]',
+    ) as HTMLElement | null;
+    expect(strip?.textContent).toContain('The change is ready.');
+    expect(strip?.textContent).not.toMatch(/secretCode|addedDiff/);
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="live-target"]')
+        ?.textContent,
+    ).toContain(page.store.markedTabId() ?? '');
     await page.exit();
     fixture.destroy();
+  });
+
+  it('shows and announces a reply as a caption when voice is off', async () => {
+    jest.useFakeTimers();
+    try {
+      const { fixture, pulses } = createHarness();
+      const page = fixture.componentInstance.page;
+      await page.open();
+      page.coordinator.chooseCurrentTab();
+      fixture.detectChanges();
+      pulses.set([
+        {
+          tabId: page.store.markedTabId() ?? '',
+          seq: 1,
+          classification: 'success',
+          lastAssistantMessage:
+            'All three tests pass now. The flaky one waited on a timer.',
+        },
+      ]);
+      fixture.detectChanges();
+      const strip = fixture.nativeElement.querySelector(
+        '[data-testid="caption-strip"]',
+      ) as HTMLElement | null;
+      expect(strip?.textContent).toContain('All three tests pass now.');
+      expect(strip?.textContent).not.toContain('flaky');
+      jest.advanceTimersByTime(CAPTION_ANNOUNCE_DEBOUNCE_MS);
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement
+          .querySelector('[data-testid="caption-announcer"]')
+          ?.textContent?.trim(),
+      ).toBe('Ptah: All three tests pass now.');
+      fixture.destroy();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

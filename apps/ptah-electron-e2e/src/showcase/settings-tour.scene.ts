@@ -7,7 +7,7 @@ import { openConfigSurface } from './_harness/config-menu';
  * P3.x — "Tune Ptah to your stack" (Settings surface tour).
  *
  * A calm, confident pan across the desktop app's Settings surface: the four
- * settings tabs (Providers, Agent Orchestration, Advanced, Search & Voice),
+ * settings tabs (Providers, Context Management, Advanced, Search & Voice),
  * the data-portability controls, and the global top-bar
  * affordances (Notifications + the live theme switcher). This is a SCENE, not a
  * test — it asserts almost nothing and is tuned for how it looks on camera.
@@ -51,7 +51,7 @@ import { openConfigSurface } from './_harness/config-menu';
  */
 const TAB_LABELS: readonly string[] = [
   'Providers',
-  'Agent Orchestration',
+  'Context Management',
   'Advanced',
   'Search & Voice',
 ];

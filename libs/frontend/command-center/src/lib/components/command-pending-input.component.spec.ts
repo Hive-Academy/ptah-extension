@@ -1,6 +1,5 @@
 import { TestBed } from '@angular/core/testing';
 import type { CommandPendingInput } from '../model/command-center.store';
-import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
 import { CommandPendingInputComponent } from './command-pending-input.component';
 
 const pending: CommandPendingInput = {
@@ -9,19 +8,6 @@ const pending: CommandPendingInput = {
   title: 'Choose a branch',
   description: 'Which release branch should we inspect?',
 };
-const roster: TribunalRosterProposal = {
-  proposalId: 'p1',
-  nonce: 'n1',
-  rootSessionId: 'root',
-  move: 'council',
-  options: ['Decline', 'Confirm'],
-  objective: 'Review the release',
-  rounds: 1,
-  lanes: [
-    { laneId: 'codex1', family: 'codex', displayName: 'Codex', cli: 'codex' },
-  ],
-};
-
 function buttonWithText(root: HTMLElement, text: string): HTMLButtonElement {
   const button = Array.from(root.querySelectorAll('button')).find((item) =>
     item.textContent?.includes(text),
@@ -31,17 +17,16 @@ function buttonWithText(root: HTMLElement, text: string): HTMLButtonElement {
 }
 
 describe('CommandPendingInputComponent', () => {
-  function setup(proposal: TribunalRosterProposal | null = roster) {
+  function setup() {
     TestBed.configureTestingModule({ imports: [CommandPendingInputComponent] });
     const fixture = TestBed.createComponent(CommandPendingInputComponent);
     fixture.componentRef.setInput('pending', pending);
-    fixture.componentRef.setInput('proposal', proposal);
     fixture.detectChanges();
     return fixture;
   }
 
   it('keeps an assertive announcement region mounted while pending changes', () => {
-    const fixture = setup(null);
+    const fixture = setup();
     const live = fixture.nativeElement.querySelector('[aria-live="assertive"]') as HTMLElement;
     expect(live.getAttribute('aria-atomic')).toBe('true');
     expect(live.textContent).toContain('Action required: Choose a branch');
@@ -57,7 +42,7 @@ describe('CommandPendingInputComponent', () => {
   });
 
   it('uses readable light input tokens and a base-content focus ring', () => {
-    const fixture = setup(null);
+    const fixture = setup();
     const answer = fixture.nativeElement.querySelector(
       '#pending-answer',
     ) as HTMLInputElement;
@@ -66,42 +51,11 @@ describe('CommandPendingInputComponent', () => {
     expect(answer.className).toContain('focus-visible:outline-base-content');
   });
 
-  it('confirms a Tribunal once by click and shows its roster, mode and rounds', () => {
-    const fixture = setup();
-    const confirm = jest.fn();
-    fixture.componentInstance.confirm.subscribe(confirm);
-    expect(fixture.nativeElement.textContent).toContain('Codex');
-    expect(fixture.nativeElement.textContent).toContain('council');
-    expect(fixture.nativeElement.textContent).toContain('Rounds: 1');
-    const button = buttonWithText(fixture.nativeElement, 'Confirm');
-    button.click();
-    button.click();
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(confirm).toHaveBeenCalledWith(roster);
-  });
 
-  it('confirms from Enter on the focused button', () => {
-    const fixture = setup();
-    const confirm = jest.fn();
-    fixture.componentInstance.confirm.subscribe(confirm);
-    const button = buttonWithText(fixture.nativeElement, 'Confirm');
-    button.focus();
-    button.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
-    );
-    expect(confirm).toHaveBeenCalledTimes(1);
-  });
 
-  it('does not confirm from a spoken or ordinary answer', () => {
-    const fixture = setup(null);
-    const confirm = jest.fn();
-    fixture.componentInstance.confirm.subscribe(confirm);
-    fixture.componentInstance.respond('q1', 'yes');
-    expect(confirm).not.toHaveBeenCalled();
-  });
 
   it('scrolls the question body while keeping Send answer outside it', () => {
-    const fixture = setup(null);
+    const fixture = setup();
     fixture.componentRef.setInput('choices', ['release/next']);
     fixture.detectChanges();
     const card = fixture.nativeElement.querySelector('section') as HTMLElement;
@@ -123,7 +77,7 @@ describe('CommandPendingInputComponent', () => {
   });
 
   it('shows and emits the full ordinary choice', () => {
-    const fixture = setup(null);
+    const fixture = setup();
     fixture.componentRef.setInput('choices', [
       'release/next',
       'release/stable',
@@ -140,23 +94,9 @@ describe('CommandPendingInputComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(pending.description);
   });
 
-  it('emits Decline and displays timeout', () => {
-    const fixture = setup();
-    const decline = jest.fn();
-    fixture.componentInstance.decline.subscribe(decline);
-    (
-      fixture.nativeElement.querySelector('button') as HTMLButtonElement
-    ).click();
-    expect(decline).toHaveBeenCalledWith('p1');
-    fixture.componentRef.setInput('timedOut', true);
-    fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('timed out');
-    const confirm = buttonWithText(fixture.nativeElement, 'Confirm');
-    expect(confirm.disabled).toBe(true);
-  });
 
   it('clears a typed answer when the pending request id changes', () => {
-    const fixture = setup(null);
+    const fixture = setup();
     fixture.componentInstance.answer.set('answer for q1');
     fixture.detectChanges();
     fixture.componentRef.setInput('pending', { ...pending, id: 'q2' });
@@ -170,7 +110,7 @@ describe('CommandPendingInputComponent', () => {
   });
 
   it('emits an ordinary answer once despite duplicate clicks', () => {
-    const fixture = setup(null);
+    const fixture = setup();
     const response = jest.fn();
     fixture.componentInstance.response.subscribe(response);
     const choice = buttonWithText(fixture.nativeElement, 'Send answer');
@@ -184,7 +124,7 @@ describe('CommandPendingInputComponent', () => {
   });
 
   it('re-enables a rejected answer with feedback, then sends a valid answer once', () => {
-    const fixture = setup(null);
+    const fixture = setup();
     fixture.componentRef.setInput('choices', ['Decline']);
     fixture.detectChanges();
     const response = jest.fn();
@@ -214,35 +154,10 @@ describe('CommandPendingInputComponent', () => {
     expect(send.disabled).toBe(true);
   });
 
-  it('emits Decline once despite duplicate clicks, including after timeout', () => {
-    const fixture = setup();
-    const decline = jest.fn();
-    fixture.componentInstance.decline.subscribe(decline);
-    fixture.componentRef.setInput('timedOut', true);
-    fixture.detectChanges();
-    const button = buttonWithText(fixture.nativeElement, 'Decline');
-    button.click();
-    button.click();
-    fixture.detectChanges();
-    expect(decline).toHaveBeenCalledTimes(1);
-    expect(decline).toHaveBeenCalledWith('p1');
-    expect(button.disabled).toBe(true);
-  });
 
-  it('renders a non-Decline-first proposal as invalid with disabled Confirm', () => {
-    const fixture = setup({ ...roster, options: ['Confirm', 'Decline'] });
-    expect(fixture.nativeElement.textContent).toContain(
-      'Invalid Tribunal proposal',
-    );
-    const confirm = buttonWithText(fixture.nativeElement, 'Confirm Tribunal');
-    expect(confirm.disabled).toBe(true);
-    const explanation = fixture.nativeElement.querySelector('#invalid-tribunal-proposal') as HTMLElement;
-    expect(explanation.textContent).toContain('Invalid Tribunal proposal');
-    expect(confirm.getAttribute('aria-describedby')).toBe(explanation.id);
-  });
 
   it('uses a scoped question card and keeps the typed answer available', () => {
-    const fixture = setup(null);
+    const fixture = setup();
     expect(fixture.nativeElement.textContent).toContain('For this session');
     expect(fixture.nativeElement.querySelector('#pending-title')?.textContent).toContain(pending.title);
     expect(fixture.nativeElement.querySelector('[data-test="pending-kind-icon"] svg')).not.toBeNull();
@@ -257,7 +172,7 @@ describe('CommandPendingInputComponent', () => {
   });
 
   it('uses the approval card with explicit Deny and Approve controls', () => {
-    const fixture = setup(null);
+    const fixture = setup();
     fixture.componentRef.setInput('pending', { ...pending, kind: 'approval', title: 'Repository access' });
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Action required · approval');
@@ -269,21 +184,4 @@ describe('CommandPendingInputComponent', () => {
     expect(response).toHaveBeenCalledWith({ id: 'q1', answer: 'Approve' });
   });
 
-  it('keeps Tribunal confirmation on its focused button and disables invalid proposals', () => {
-    const fixture = setup();
-    const confirm = jest.fn();
-    fixture.componentInstance.confirm.subscribe(confirm);
-    const button = buttonWithText(fixture.nativeElement, 'Confirm Tribunal');
-    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    expect(confirm).not.toHaveBeenCalled();
-    button.focus();
-    button.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-    expect(confirm).toHaveBeenCalledTimes(1);
-    fixture.componentRef.setInput('proposal', { ...roster, proposalId: 'p2', options: ['Confirm', 'Decline'] });
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('#pending-title')).not.toBeNull();
-    expect(fixture.nativeElement.textContent).toContain('Invalid Tribunal proposal');
-    expect(fixture.nativeElement.querySelector('[data-test="pending-kind-icon"] svg')).not.toBeNull();
-    expect(buttonWithText(fixture.nativeElement, 'Confirm Tribunal').disabled).toBe(true);
-  });
 });

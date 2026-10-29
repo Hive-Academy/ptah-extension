@@ -3,6 +3,15 @@ import { CommandCenterStore } from '../model/command-center.store';
 import type { CommandCenterSessionCoordinator } from '../model/session-coordinator';
 import type { ClaudeRpcService } from '@ptah-extension/core';
 
+/** Caption members every store stub must provide; the loop calls them directly. */
+function captionStub() {
+  return {
+    caption: () => null,
+    setCaption: jest.fn(),
+    clearCaption: jest.fn(),
+  };
+}
+
 describe('CommandVoiceLoop', () => {
   const frames = new Float32Array(128).fill(0.2);
   const silence = new Float32Array(128);
@@ -107,6 +116,7 @@ describe('CommandVoiceLoop', () => {
         resolveSpeech = resolve;
       });
       const store = Object.assign(Object.create(null) as CommandCenterStore, {
+        ...captionStub(),
         voiceState: () => state,
         setVoiceState: (next: string) => {
           state = next;
@@ -550,21 +560,13 @@ describe('CommandVoiceLoop', () => {
     expect(armed).not.toHaveBeenCalled();
   });
 
-  it('only guards speech as a roster while the roster card is shown', () => {
-    const { loop } = frameLoop();
-    loop.onRosterProposal('Roster', true);
-    expect(loop['pendingRoster']).toBe(true);
-    loop.setRosterPending(false);
-    expect(loop['pendingRoster']).toBe(false);
-    loop.setRosterPending(true);
-    expect(loop['pendingRoster']).toBe(true);
-  });
 
   function frameLoop(isIndependentSpeech?: () => boolean): {
     loop: CommandVoiceLoop;
     bargeIn: jest.SpyInstance;
   } {
     const store = Object.assign(Object.create(null) as CommandCenterStore, {
+      ...captionStub(),
       voiceState: () => 'speaking',
       setVoiceState: jest.fn(),
       updateLevels: jest.fn(),
@@ -823,6 +825,7 @@ describe('CommandVoiceLoop', () => {
 
   it('does not turn a pending approval into a voice answer', () => {
     const store = {
+      ...captionStub(),
       pendingInput: () => ({ kind: 'approval' }),
       setToast: jest.fn(),
       setVoiceState: jest.fn(),
@@ -844,43 +847,6 @@ describe('CommandVoiceLoop', () => {
     expect(coordinator.send).not.toHaveBeenCalled();
   });
 
-  it('blocks roster speech and resumes ordinary question answers after resolution', async () => {
-    const answerOrdinaryQuestion = jest.fn().mockReturnValue(true);
-    const send = jest.fn();
-    const setToast = jest.fn();
-    const store = Object.assign(Object.create(null) as CommandCenterStore, {
-      pendingInput: () => ({ kind: 'question' }),
-      setToast,
-      setVoiceState: jest.fn(),
-      resetLevels: jest.fn(),
-    });
-    const rpc = Object.assign(Object.create(null) as ClaudeRpcService, {
-      call: jest.fn().mockResolvedValue({
-        success: true,
-        data: { ok: true, transcript: 'yes, confirm' },
-      }),
-    });
-    const loop = new CommandVoiceLoop(
-      store,
-      Object.assign(Object.create(null) as CommandCenterSessionCoordinator, {
-        send,
-      }),
-      rpc,
-      { answerOrdinaryQuestion, sendTranscript: send },
-    );
-    loop.onRosterProposal('Confirm the roster.', true);
-    loop['active'] = true;
-    await loop['onClip']({ audioBase64: 'AA==', mimeType: 'audio/wav' });
-    expect(answerOrdinaryQuestion).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
-    expect(setToast).toHaveBeenCalledWith({
-      message: 'Confirm or decline the roster on the card.',
-      tone: 'error',
-    });
-    loop.onRosterResolved();
-    await loop['onClip']({ audioBase64: 'AA==', mimeType: 'audio/wav' });
-    expect(answerOrdinaryQuestion).toHaveBeenCalledWith('yes, confirm');
-  });
 
   it('records one VAD-close-to-play mark per reply with cold, barge-in and warm labels', async () => {
     let now = 0;
@@ -897,6 +863,7 @@ describe('CommandVoiceLoop', () => {
     });
     try {
       const store = Object.assign(Object.create(null) as CommandCenterStore, {
+        ...captionStub(),
         voiceState: () => 'thinking',
         setVoiceState: jest.fn(),
         updateLevels: jest.fn(),
@@ -981,6 +948,7 @@ describe('CommandVoiceLoop', () => {
     const send = jest.fn().mockReturnValueOnce(oldSend).mockResolvedValue(true);
     const setVoiceState = jest.fn();
     const store = Object.assign(Object.create(null) as CommandCenterStore, {
+      ...captionStub(),
       voiceState: () => 'listening',
       setVoiceState,
       resetLevels: jest.fn(),
@@ -1034,6 +1002,7 @@ describe('CommandVoiceLoop', () => {
     );
     const setVoiceState = jest.fn();
     const store = Object.assign(Object.create(null) as CommandCenterStore, {
+      ...captionStub(),
       voiceState: () => 'stopped',
       setVoiceState,
       setMuted: jest.fn(),
@@ -1093,6 +1062,7 @@ describe('CommandVoiceLoop', () => {
       ),
     });
     const store = Object.assign(Object.create(null) as CommandCenterStore, {
+      ...captionStub(),
       setVoiceState: jest.fn(),
       setToast: jest.fn(),
       voiceState: () => 'thinking',
@@ -1163,6 +1133,7 @@ describe('CommandVoiceLoop', () => {
       }),
     });
     const store = Object.assign(Object.create(null) as CommandCenterStore, {
+      ...captionStub(),
       voiceState: () => 'speaking',
       setVoiceState: jest.fn(),
       updateLevels: jest.fn(),
@@ -1227,5 +1198,165 @@ describe('CommandVoiceLoop', () => {
         value: originalRevoke,
       });
     }
+  });
+
+  describe('stage caption', () => {
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    let ended: () => void;
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      ended = () => undefined;
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: () => 'blob:caption',
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: jest.fn(),
+      });
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+      Object.defineProperty(URL, 'createObjectURL', {
+        configurable: true,
+        value: originalCreate,
+      });
+      Object.defineProperty(URL, 'revokeObjectURL', {
+        configurable: true,
+        value: originalRevoke,
+      });
+    });
+
+    function createLoop(
+      store: CommandCenterStore,
+      call: jest.Mock = jest.fn().mockResolvedValue({
+        success: true,
+        data: { ok: true, audioBase64: 'AA==', mimeType: 'audio/wav' },
+      }),
+      sendTranscript: () => Promise<boolean> = async () => true,
+    ): CommandVoiceLoop {
+      const rpc = Object.assign(Object.create(null) as ClaudeRpcService, {
+        call,
+      });
+      const coordinator = Object.assign(
+        Object.create(null) as CommandCenterSessionCoordinator,
+        { mute: jest.fn(), stop: jest.fn() },
+      );
+      const loop = new CommandVoiceLoop(store, coordinator, rpc, {
+        sendTranscript,
+        audioFactory: () => ({
+          play: () => Promise.resolve(),
+          stop: jest.fn(),
+          onEnded: (callback) => {
+            ended = callback;
+          },
+        }),
+      });
+      loop['active'] = true;
+      return loop;
+    }
+
+    it('shows each sentence as its clip starts, then lingers 1200ms after the audio ends', async () => {
+      const store = new CommandCenterStore();
+      const loop = createLoop(store);
+      loop['speak']('First sentence here. Second sentence follows.', 'reply');
+      expect(store.caption()).toBeNull();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(store.caption()).toMatchObject({
+        role: 'agent',
+        text: 'First sentence here.',
+      });
+      ended();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(store.caption()).toMatchObject({
+        role: 'agent',
+        text: 'Second sentence follows.',
+      });
+      ended();
+      await jest.advanceTimersByTimeAsync(1199);
+      expect(store.caption()?.text).toBe('Second sentence follows.');
+      await jest.advanceTimersByTimeAsync(1);
+      expect(store.caption()).toBeNull();
+      expect(store.captionExit()).toBe('fade');
+    });
+
+    it('cuts the caption at once on interrupt', async () => {
+      const store = new CommandCenterStore();
+      const loop = createLoop(store);
+      loop['speak']('A long spoken reply.', 'reply');
+      await jest.advanceTimersByTimeAsync(0);
+      expect(store.caption()?.role).toBe('agent');
+      loop.interruptSpeech();
+      expect(store.caption()).toBeNull();
+      expect(store.captionExit()).toBe('cut');
+      await jest.advanceTimersByTimeAsync(2000);
+      expect(store.caption()).toBeNull();
+    });
+
+    it('shows the final transcript and clears it 800ms after a turn ends without a reply', async () => {
+      const store = new CommandCenterStore();
+      const loop = createLoop(
+        store,
+        jest.fn().mockResolvedValue({
+          success: true,
+          data: { ok: true, transcript: '  open the logs ' },
+        }),
+        async () => false,
+      );
+      await loop['onClip']({ audioBase64: '', mimeType: 'audio/wav' });
+      expect(store.caption()).toMatchObject({
+        role: 'user',
+        text: 'open the logs',
+      });
+      await jest.advanceTimersByTimeAsync(799);
+      expect(store.caption()?.role).toBe('user');
+      await jest.advanceTimersByTimeAsync(1);
+      expect(store.caption()).toBeNull();
+    });
+
+    it('keeps the transcript through thinking while the sent turn runs', async () => {
+      const store = new CommandCenterStore();
+      const loop = createLoop(
+        store,
+        jest.fn().mockResolvedValue({
+          success: true,
+          data: { ok: true, transcript: 'status please' },
+        }),
+      );
+      await loop['onClip']({ audioBase64: '', mimeType: 'audio/wav' });
+      await jest.advanceTimersByTimeAsync(5000);
+      expect(store.caption()).toMatchObject({
+        role: 'user',
+        text: 'status please',
+      });
+    });
+
+    it('lingers an unspoken reply caption 1200ms, then fades it', async () => {
+      const store = new CommandCenterStore();
+      const loop = createLoop(store);
+      store.setCaption('user', 'status please');
+      loop.showReplyCaption('All three agents are done.');
+      expect(store.caption()).toMatchObject({
+        role: 'agent',
+        text: 'All three agents are done.',
+      });
+      await jest.advanceTimersByTimeAsync(1199);
+      expect(store.caption()?.role).toBe('agent');
+      await jest.advanceTimersByTimeAsync(1);
+      expect(store.caption()).toBeNull();
+      expect(store.captionExit()).toBe('fade');
+    });
+
+    it('cuts the caption when voice stops', async () => {
+      const store = new CommandCenterStore();
+      const loop = createLoop(store);
+      store.setCaption('user', 'hello');
+      await loop.exit();
+      expect(store.caption()).toBeNull();
+      expect(store.captionExit()).toBe('cut');
+    });
   });
 });

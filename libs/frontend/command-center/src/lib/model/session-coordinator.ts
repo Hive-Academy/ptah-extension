@@ -362,7 +362,6 @@ export class CommandCenterSessionCoordinator {
     return this.send(block ? `${block}\n\n${content}` : content);
   }
 
-  /** Called once by the proposal owner after registration; this method never answers Confirm. */
   public sendLaunchTurn(content: string): Promise<boolean> {
     return this.send(content);
   }

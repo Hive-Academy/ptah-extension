@@ -359,7 +359,8 @@ export class VoiceConfigComponent implements OnInit {
 
   /**
    * Shows `next` while it saves and re-reads the config after a confirmed write, so the row and the
-   * drawer reflect the backend (downloaded state, saved fields). A failed write puts `fallback` back.
+   * drawer reflect the backend (downloaded state, saved fields). A failed write puts `fallback` back;
+   * its fixed sentence goes to the page toast only.
    */
   private async writeProvider(
     direction: VoiceDirection,
@@ -381,7 +382,6 @@ export class VoiceConfigComponent implements OnInit {
     }
     const message = SAVE_PROVIDER_FAILED[direction];
     this.setProvider(direction, fallback);
-    this.errorMessage.set(message);
     return { ok: false, message };
   }
 

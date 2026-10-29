@@ -40,7 +40,7 @@ const estimateEnum = z.enum(TASK_ESTIMATES);
  * This is the SHARED guard ({@link TaskIdRefSchema}), not a local re-statement
  * of it. The earlier local version tested only `'/'`, `'\\'` and an exact
  * `'..'`, which let `" .. "`, `"   "`, `"C:"`, the drive-relative `"C:NAME"`
- * and an embedded NUL straight through — none of which the frontmatter
+ * and an embedded NUL straight through â€” none of which the frontmatter
  * parser's guard accepted. Two guards over the same value disagreeing about
  * what a folder name is has exactly one useful fix, and it is not a third
  * copy.
@@ -48,13 +48,13 @@ const estimateEnum = z.enum(TASK_ESTIMATES);
 const taskIdRef = TaskIdRefSchema;
 
 /**
- * `tasks:list` — no new method, one new optional facet bag (FR-C1.5).
+ * `tasks:list` â€” no new method, one new optional facet bag (FR-C1.5).
  *
  * `status` / `type` stay exactly as they were: `ptah_task_list` and
  * `ptah spec list` both use them, and this is not the batch that breaks them.
  * They are folded into the SAME two facets of the spec before the predicate
  * runs (`mergeStatusTypeFacets`), so adding `filter` did not add a second
- * comparison path — it removed the possibility of one.
+ * comparison path â€” it removed the possibility of one.
  *
  * `TaskFilterSpecSchema` is IMPORTED, never restated: the board, this boundary
  * and the CLI must agree on what a filter is, and three copies of a facet list
@@ -76,8 +76,8 @@ export const TasksGetParamsSchema = z.object({
  * `file` is a CLOSED ENUM over the contract's document set, never a string.
  *
  * This is the whole security boundary for `tasks:getArtifact`: the value is
- * joined onto a folder path on the other side, so a free string — even one
- * screened for `..` — would make the method a general file reader pointed at
+ * joined onto a folder path on the other side, so a free string â€” even one
+ * screened for `..` â€” would make the method a general file reader pointed at
  * the user's disk. An enum cannot express a path at all, which is a stronger
  * guarantee than any sanitiser, and it comes from `DOC_FILES` so the boundary
  * cannot drift from the contract it is enforcing.
@@ -86,29 +86,6 @@ export const TasksGetArtifactParamsSchema = z.object({
   workspaceRoot,
   taskId: taskIdRef,
   file: z.enum(DOC_FILES),
-});
-
-/**
- * `round` is a BOUNDED INTEGER, and there is no filename in this shape at all.
- *
- * `round-N-judge.md` cannot be a `DocFile` — `N` is a parameter, so the set is
- * open — which removes the enum boundary `tasks:getArtifact` relies on. It is
- * replaced by a stronger one rather than a weaker one: the caller sends a
- * number, the server derives the name via `roundJudgeFile()`, and a number
- * cannot express a separator or a `..`. Traversal is structurally impossible
- * here, not screened out.
- *
- * The ceiling is 4, deliberately NOT the panel's cap of 2. The Conductor may
- * run a third round when the user explicitly authorises one
- * (`crucible.md:153`), and a fourth is a skill violation that must surface in
- * the UI as a visible anomaly rather than as an RPC error the user never sees.
- * `int()` refuses `1.5`; `min(1)` refuses `0` and negatives — both would
- * otherwise compose into a filename for a round that cannot exist.
- */
-export const TasksGetRoundJudgeParamsSchema = z.object({
-  workspaceRoot,
-  taskId: taskIdRef,
-  round: z.number().int().min(1).max(4),
 });
 
 /**
@@ -131,7 +108,7 @@ export const TasksCreateParamsSchema = z.object({
   workspaceRoot,
   title: z.string().min(1),
   type: typeEnum,
-  // Omitted means `backlog`, defaulted by the emitter rather than here — one
+  // Omitted means `backlog`, defaulted by the emitter rather than here â€” one
   // place decides what an unstated status means, and it is the same place for
   // every writer.
   status: statusEnum.optional(),
@@ -141,7 +118,7 @@ export const TasksCreateParamsSchema = z.object({
   // Optional metadata carried at creation time. `estimate` is the enum, so an
   // unrecognised size is refused at the boundary rather than written to a file
   // and reported as a validation warning on the next scan. `labels` uses the
-  // SHARED label schema and cap — a create that could plant 40 labels which
+  // SHARED label schema and cap â€” a create that could plant 40 labels which
   // `tasks:updateMetadata` would then refuse to edit is not a boundary, it is
   // a hole beside one.
   labels: z.array(LabelSchema).max(MAX_LABELS_PER_TASK).optional(),
@@ -158,7 +135,7 @@ export const TasksUpdateStatusParamsSchema = z.object({
 });
 
 /**
- * `tasks:updateMetadata` — the one metadata write method.
+ * `tasks:updateMetadata` â€” the one metadata write method.
  *
  * `patch` is composed from the SHARED `TaskMetadataPatchSchema` rather than
  * restated, so the RPC surface and the `ptah_task_update` MCP tool enforce
@@ -176,7 +153,7 @@ export const TasksUpdateMetadataParamsSchema = z.object({
    * A bare `z.array(z.string())`, deliberately NOT `LabelSchema`: this is a
    * description of what the caller last SAW on disk, not a proposal of what to
    * write. The read boundary accepts a hand-authored 40-character label as a
-   * warning, so a task can legitimately carry one — and refusing to state it
+   * warning, so a task can legitimately carry one â€” and refusing to state it
    * here would make the one carrier that most needs the precondition the one
    * carrier that cannot use it.
    */
@@ -184,7 +161,7 @@ export const TasksUpdateMetadataParamsSchema = z.object({
 });
 
 /**
- * `tasks:bulkUpdateStatus` — move a set of tasks to one status (FR-C4).
+ * `tasks:bulkUpdateStatus` â€” move a set of tasks to one status (FR-C4).
  *
  * ## `taskIds` uses the SAME `taskIdRef` as every single-task method
  *
@@ -196,7 +173,7 @@ export const TasksUpdateMetadataParamsSchema = z.object({
  *
  * ## The cap is a Zod `.max()` here, unlike `tasks:saveViews`
  *
- * Exceeding `BULK_CHUNK_SIZE` is a CLIENT bug, not a user action — the client
+ * Exceeding `BULK_CHUNK_SIZE` is a CLIENT bug, not a user action â€” the client
  * owns the chunking, so a request over the cap means its loop is wrong, and a
  * generic `INVALID_PARAMS` is the correct and complete answer. That is the
  * opposite of the saved-views cap, which a user reaches by saving views and so
@@ -213,7 +190,7 @@ export const TasksBulkUpdateStatusParamsSchema = z.object({
 });
 
 /**
- * `tasks:bulkUpdateLabel` — add or remove ONE label across a set of tasks
+ * `tasks:bulkUpdateLabel` â€” add or remove ONE label across a set of tasks
  * (FR-C5).
  *
  * Shares `taskIds` verbatim with {@link TasksBulkUpdateStatusParamsSchema}: the
@@ -224,24 +201,24 @@ export const TasksBulkUpdateStatusParamsSchema = z.object({
  *
  * ## `label` is a bare `z.string()` here, and that is not a relaxed boundary
  *
- * The three label rules — ≤ {@link LabelSchema}'s 32 characters, no newline,
- * not blank — still hold, and it is still `LabelSchema` that holds them. They
+ * The three label rules â€” â‰¤ {@link LabelSchema}'s 32 characters, no newline,
+ * not blank â€” still hold, and it is still `LabelSchema` that holds them. They
  * are applied one line into the HANDLER instead of here, for the same reason
  * `MAX_LABELS_PER_TASK` is: this method answers with a LIST, one entry per
  * task, and `parse` cannot produce one. Every Zod failure at this boundary
  * collapses to a single generic `INVALID_PARAMS` throw, which the board turns
- * into a `WRITE_FAILED` entry for every task in the chunk — so a user who
+ * into a `WRITE_FAILED` entry for every task in the chunk â€” so a user who
  * typed a 40-character label was told twelve carriers had failed to write and
  * never told that the label was too long. Checking one line later makes the
  * refusal say what it is, per task, in `LabelSchema`'s own words.
  *
  * Nothing here is trusted onto a path or into a file: the label is joined into
- * the merged array and that array is validated by `TaskMetadataPatchSchema` —
- * which contains `LabelSchema` — before any write.
+ * the merged array and that array is validated by `TaskMetadataPatchSchema` â€”
+ * which contains `LabelSchema` â€” before any write.
  *
  * Note what is also NOT here: the per-task limit. `MAX_LABELS_PER_TASK`
  * constrains the MERGED array, which does not exist until the handler has read
- * the task's current labels, so it is enforced there — by running the merged
+ * the task's current labels, so it is enforced there â€” by running the merged
  * array through `TaskMetadataPatchSchema`, the one definition of that limit.
  */
 export const TasksBulkUpdateLabelParamsSchema = z.object({
@@ -264,14 +241,14 @@ export const TasksReindexParamsSchema = z.object({
 });
 
 /**
- * `tasks:adopt` — note `status` is REQUIRED here while `tasks:create` has no
+ * `tasks:adopt` â€” note `status` is REQUIRED here while `tasks:create` has no
  * status field at all. That asymmetry is the point: creation always starts at
  * `backlog`, whereas adoption is retrofitting a carrier onto work that already
  * happened, so the caller must say what state that work is in.
  *
  * `folderName` is constrained to a single path segment by the SHARED guard. It
  * is joined onto `.ptah/specs` and then written to, so a `..` or a separator
- * would let a caller steer the write outside the spec tree entirely — and so
+ * would let a caller steer the write outside the spec tree entirely â€” and so
  * would `" .. "` or a drive-relative `"C:NAME"`, which the earlier local
  * check here did not catch.
  */
@@ -296,7 +273,7 @@ export const TasksGetViewsParamsSchema = z.object({
 });
 
 /**
- * `tasks:saveViews` — whole-list replace (FR-C2.5).
+ * `tasks:saveViews` â€” whole-list replace (FR-C2.5).
  *
  * ## The 50-view cap is deliberately NOT a Zod `.max()`
  *
@@ -305,7 +282,7 @@ export const TasksGetViewsParamsSchema = z.object({
  * That is right for a malformed request and wrong for a full list: "invalid
  * parameters" tells a user who just hit the limit nothing they can act on. The
  * cap is therefore checked in the handler, which can return the typed
- * `CAP_EXCEEDED` result naming the limit — a clear message rather than a silent
+ * `CAP_EXCEEDED` result naming the limit â€” a clear message rather than a silent
  * truncation. `MAX_SAVED_TASK_VIEWS` stays the one number, in one place; adding
  * a `.max()` here as well would be a second limit for a later reader to tighten
  * independently.
@@ -334,9 +311,6 @@ export type TasksListParamsParsed = z.infer<typeof TasksListParamsSchema>;
 export type TasksGetParamsParsed = z.infer<typeof TasksGetParamsSchema>;
 export type TasksGetArtifactParamsParsed = z.infer<
   typeof TasksGetArtifactParamsSchema
->;
-export type TasksGetRoundJudgeParamsParsed = z.infer<
-  typeof TasksGetRoundJudgeParamsSchema
 >;
 export type TasksCreateParamsParsed = z.infer<typeof TasksCreateParamsSchema>;
 export type TasksSweepParamsParsed = z.infer<typeof TasksSweepParamsSchema>;

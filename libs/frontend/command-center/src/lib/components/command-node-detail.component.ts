@@ -20,28 +20,6 @@ import type { CommandWorkNode } from '../model/command-center.store';
 import { relativeTime } from './command-relative-time';
 import { stateColor, stateIcon } from './command-state-icon';
 
-export interface CommandPhaseCount {
-  readonly done: number;
-  readonly total: number;
-}
-export function phaseCountOf(
-  nodes: readonly CommandWorkNode[],
-  nodeId: string,
-): CommandPhaseCount | null {
-  const phases = nodes.filter(
-    (node) =>
-      node.parentId === nodeId &&
-      node.kind === 'phase' &&
-      node.label !== 'No phase tracking' &&
-      node.label !== 'Phase unavailable',
-  );
-  return phases.length
-    ? {
-        done: phases.filter((phase) => phase.state === 'completed').length,
-        total: phases.length,
-      }
-    : null;
-}
 export interface CommandChildStats {
   readonly messages?: number;
   readonly tokens?: number;
@@ -108,9 +86,6 @@ export interface CommandChildStats {
         @if (runningDuration(); as duration) {
           <p>Running for {{ duration }}</p>
         }
-        @if (phaseCount(); as phase) {
-          <p>Phase {{ phase.done }} / {{ phase.total }}</p>
-        }
         @if (freshness(); as age) {
           <p>Updated {{ age }}</p>
         }
@@ -158,7 +133,6 @@ export interface CommandChildStats {
 })
 export class CommandNodeDetailComponent {
   public readonly node = input.required<CommandWorkNode>();
-  public readonly phaseCount = input<CommandPhaseCount | null>(null);
   public readonly childStats = input<CommandChildStats | null>(null);
   public readonly now = input.required<number>();
   public readonly reducedMotion = input(false);
@@ -198,10 +172,6 @@ export class CommandNodeDetailComponent {
         return null;
       case 'child':
         return 'Ptah agent child session';
-      case 'tribunal':
-        return 'Tribunal group';
-      case 'phase':
-        return 'Work phase';
       default:
         return 'Delegated engineering work';
     }

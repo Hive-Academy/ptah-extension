@@ -9,7 +9,7 @@ import { BACKGROUND_ROLE_IDS } from './provider-consumer-rows';
 
 export type RoutingNodeId = 'main-agent' | 'background-roles' | 'cli-agents';
 
-/** Background roles in the order the Orchestration tab lists them (as `connection-usage.ts`). */
+/** Background roles in the order the Providers tab lists them (as `connection-usage.ts`). */
 export interface BackgroundRolesPreview {
   /** Roles with a provider of their own, in list order: `{ label, provider }` (provider = connection name). */
   readonly explicit: readonly { readonly label: string; readonly provider: string }[];
@@ -35,7 +35,7 @@ export function backgroundRolesPreview(
 }
 
 export interface CliAgentsPreview {
-  /** Installed agents in the preferred order (the Orchestration tab's rule); disabled ones are flagged. */
+  /** Installed agents in the preferred order (the CLI matrix's rule, Providers tab); disabled ones are flagged. */
   readonly order: readonly { readonly id: string; readonly name: string; readonly disabled: boolean }[];
   readonly enabledSystem: number;
   readonly ptahInstances: number;
@@ -91,7 +91,8 @@ function sectionState(...sections: readonly ProvidersSettingsSection<unknown>[])
  * - Main Agent: provider, model and effort of the next request; its D16 scope badges (`[main-agent-badges]`)
  *   and the Main Agent popover (`[main-agent-popover]`, anchored at the node) are projected in by the page,
  *   which owns them. "Reassign" emits `nodeActivated('main-agent')`; the page opens the popover.
- * - Background Roles and CLI Agents go to Agent Orchestration (`requestSettingsTab`, routed as in Batch 18).
+ * - Background Roles and CLI Agents focus their sections below on this Providers tab (`requestSettingsTab`; Settings
+ *   routes the section to `AgentsRoutingSettingsComponent`).
  * Colour sits on dots and pills; all text stays base-content (deviation 6).
  */
 @Component({
@@ -144,7 +145,7 @@ function sectionState(...sections: readonly ProvidersSettingsSection<unknown>[])
         <ptah-routing-map-node nodeId="background-roles" title="Background roles" [tone]="background().tone"
           [statusText]="background().status" [state]="background().state" errorText="Background roles could not be loaded."
           [footer]="background().footer" actionLabel="Inspect" actionIcon="right"
-          actionAriaLabel="Inspect background roles on Agent Orchestration" (activated)="open('background-roles')"
+          actionAriaLabel="Inspect background roles below" (activated)="open('background-roles')"
           (retryRequested)="retryBackground()">
           @if (background().preview; as preview) {
             <ul class="space-y-1">
@@ -166,7 +167,7 @@ function sectionState(...sections: readonly ProvidersSettingsSection<unknown>[])
 
         <ptah-routing-map-node nodeId="cli-agents" title="CLI agents & matrix" [tone]="cli().tone" [statusText]="cli().status"
           [state]="cli().state" errorText="CLI agents could not be loaded." [footer]="cli().footer" actionLabel="Manage matrix"
-          actionIcon="right" actionAriaLabel="Manage the CLI agent matrix on Agent Orchestration" (activated)="open('cli-agents')"
+          actionIcon="right" actionAriaLabel="Manage the CLI agent matrix below" (activated)="open('cli-agents')"
           (retryRequested)="state.refreshOrchestration()">
           @if (cli().preview; as preview) {
             @if (preview.order.length) {
@@ -265,7 +266,7 @@ export class RoutingMapComponent {
   });
 
   protected open(node: 'background-roles' | 'cli-agents'): void {
-    this.appState.requestSettingsTab({ tab: 'orchestration', section: node === 'cli-agents' ? 'cli-agents' : 'background-models' });
+    this.appState.requestSettingsTab({ tab: 'providers', section: node === 'cli-agents' ? 'cli-agents' : 'background-models' });
     this.nodeActivated.emit(node);
   }
 

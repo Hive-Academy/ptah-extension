@@ -31,10 +31,6 @@ import type { CommandSessionStatus } from '../model/command-center.store';
       </div>
       <div class="session-support flex min-w-0 items-center gap-2 text-[11px] text-base-content-muted">
         <p class="shrink-0" aria-live="polite">Command Center · {{ sessionStatus() }}</p>
-        <p class="min-w-0 truncate" title="To start a Tribunal, say an explicit move word: Council, Forge, Race, Relay, or Crucible. Ambiguous speech goes to Ptah chat.">
-          To start a Tribunal, say an explicit move word: Council, Forge, Race,
-          Relay, or Crucible. Ambiguous speech goes to Ptah chat.
-        </p>
       </div>
     </section>
   `,

@@ -51,7 +51,6 @@ export type ViewType =
   | 'setup-hub'
   | 'thoth'
   | 'marketplace'
-  | 'tribunal'
   | 'tasks'
   | 'apps'
   | 'command-center';
@@ -73,7 +72,6 @@ export const SURFACE_ROUTE_IDS: readonly ViewType[] = [
   'setup-hub',
   'thoth',
   'marketplace',
-  'tribunal',
   'tasks',
   'apps',
   'command-center',

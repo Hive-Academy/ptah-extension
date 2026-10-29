@@ -28,8 +28,7 @@ never rename a folder to "fix" it.
 
 Never derive the ID from `registry.md` — it is generated and can be stale.
 
-A task folder the Tribunal UI already created (`Spec folder: … already created`) is used as given;
-skip allocation.
+A task folder the user names in chat is used as given; skip allocation.
 
 ---
 

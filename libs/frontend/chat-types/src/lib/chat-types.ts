@@ -475,9 +475,8 @@ export type TabViewMode = 'full' | 'compact';
  *
  * This lives here rather than in `canvas` because the consumers sit on both
  * sides of that dependency edge — `chat-view` decides whether to render the
- * compact card at all, `tab-item` draws the tab affordance, `conductor-tile`
- * reads it for the tribunal, and canvas projects geometry from it. `chat-types`
- * is the one lib all four may import.
+ * compact card at all, `tab-item` draws the tab affordance, and canvas
+ * projects geometry from it. `chat-types` is the common import for them.
  */
 export function isCompactViewMode(mode: TabViewMode | undefined): boolean {
   return mode === 'compact';
@@ -669,9 +668,8 @@ export interface TabState {
   /**
    * Hidden preamble prepended to the BACKEND prompt of this tab's first
    * message only — never shown in the user's chat bubble. Consumed (cleared)
-   * when that first message is sent. Lets a configured surface (e.g. the
-   * Tribunal conductor) inject framing/spawn instructions while the user just
-   * types a plain objective into the normal chat input.
+   * when that first message is sent. Lets a configured surface inject framing
+   * instructions while the user types into the normal chat input.
    */
   firstMessagePreamble?: string | null;
 

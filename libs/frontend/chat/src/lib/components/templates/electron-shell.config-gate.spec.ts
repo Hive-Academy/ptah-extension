@@ -219,7 +219,7 @@ describe('ElectronShellComponent configuration gate', () => {
     ).toBe('Settings route');
   });
 
-  it('shows the workspace app shell and Chat, Voice, Apps, Tasks, Tribunal, Analytics, Setup hub tabs in order', () => {
+  it('shows the workspace app shell and Chat, Voice, Apps, Tasks, Analytics, Setup hub tabs in order', () => {
     layoutStub.hasWorkspaceFolders.set(true);
     fixture.detectChanges();
     expect(shell().querySelector('ptah-app-shell')).not.toBeNull();
@@ -234,7 +234,6 @@ describe('ElectronShellComponent configuration gate', () => {
       'Voice',
       'Apps',
       'Tasks',
-      'Tribunal',
       'Analytics',
       'Setup hub',
     ];
@@ -247,9 +246,8 @@ describe('ElectronShellComponent configuration gate', () => {
       'false',
       'false',
       'false',
-      'false',
     ]);
-    expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(7);
+    expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(6);
   });
 
   it('opens Setup hub from its tab and marks the tab active once the surface settles', () => {

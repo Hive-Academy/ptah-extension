@@ -24,6 +24,7 @@ const FLAG_SECRET = new RegExp(`(--${SECRET_NAME}\\s+)(?:"[^"]*"|'[^']*'|[^\\s]+
 const TOKEN_SHAPE = /\b(?:sk-[\w-]{8,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9_]+|xoxb-[A-Za-z0-9-]+|[0-9a-f]{32,}|[A-Za-z0-9+/_-]{40,}={0,2})\b/gi;
 
 function safePreview(text: string, limit: number): string {
+  // eslint-disable-next-line no-control-regex -- removing control characters is the point
   const plain = text.replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim();
   const redacted = plain.replace(ASSIGNED_SECRET, '$1***').replace(FLAG_SECRET, '$1***')
     .replace(TOKEN_SHAPE, '***');
@@ -128,6 +129,9 @@ export class ChatAttentionSourceService {
       const previous = previousLive.get(key);
       this.live.set(key, entry);
       if (!previous || JSON.stringify(previous.item) !== JSON.stringify(entry.item)) this.notifications.upsert(entry.item);
+      // The host's native notification covers a request that arrives while the window is in the
+      // background, so returning to the app shows it in the bell and the rail, not a snackbar too.
+      if (!previous && !this.document.hasFocus()) this.notifications.dismissPresentation(key);
     }
     this.refreshSuppression();
   }

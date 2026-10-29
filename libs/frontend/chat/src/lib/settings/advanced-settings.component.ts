@@ -24,6 +24,7 @@ import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.compone
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
 import { AgentBehaviourSectionComponent } from './pro-features/agent-behaviour-section.component';
 import { OutputStyleConfigComponent } from './output-style/output-style-config.component';
+import { SettingsSaveFeedbackService } from './feedback/settings-save-feedback.service';
 
 /**
  * A per-key import failure is reported as `<key>: <reason>`, the key being a `ptah.*` secret
@@ -35,13 +36,6 @@ const KEYED_IMPORT_ERROR = /^(ptah\.|config:)/;
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
-
-/** The import outcome, shown inline in the Membership & data card (A9, D15). */
-interface ImportOutcome {
-  /** `status` renders `role="status"` (polite); `alert` renders `role="alert"`. */
-  readonly tone: 'status' | 'alert';
-  readonly message: string;
-}
 
 /**
  * Advanced tab shell (TASK_2026_555 Advanced / Search & Voice, Batches 39-42).
@@ -57,7 +51,7 @@ interface ImportOutcome {
  *
  * Import is S-confirm: an inline confirm (P8) precedes the write, and the
  * outcome is surfaced only from the write's own result (D15). On Electron the
- * RPC reports the import summary, so success and errors are shown inline; on
+ * RPC reports the import summary, so success and errors are shown in the page toast; on
  * VS Code the host command shows its own dialogs and a cancel is
  * indistinguishable from success at the RPC layer, so only an execution
  * failure is reported here.
@@ -165,23 +159,6 @@ interface ImportOutcome {
             </button>
           }
         </div>
-        @if (importOutcome(); as outcome) {
-          <div membership-notices class="mt-1">
-            <p
-              [attr.role]="outcome.tone"
-              class="flex items-center gap-1.5 text-xs text-base-content"
-              data-testid="import-outcome"
-            >
-              <span
-                class="h-2 w-2 shrink-0 rounded-full"
-                [class.bg-error]="outcome.tone === 'alert'"
-                [class.bg-success]="outcome.tone === 'status'"
-                aria-hidden="true"
-              ></span>
-              {{ outcome.message }}
-            </p>
-          </div>
-        }
       </ptah-license-status-card>
 
       <ptah-agent-behaviour-section />
@@ -244,6 +221,8 @@ export class AdvancedSettingsComponent {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly injector = inject(Injector);
+  /** The page toast: the import's own result is said there (D15). */
+  private readonly feedback = inject(SettingsSaveFeedbackService);
   private readonly importButton =
     viewChild<ElementRef<HTMLButtonElement>>('importButton');
   private readonly importCancel =
@@ -260,8 +239,6 @@ export class AdvancedSettingsComponent {
   readonly isImporting = signal(false);
   /** The inline import confirm is open (S-confirm, P8). */
   readonly confirmingImport = signal(false);
-  /** The last import's own result; `null` until a write reports one (D15). */
-  readonly importOutcome = signal<ImportOutcome | null>(null);
 
   constructor() {
     // P8: the opened import confirm takes focus on Cancel, so Esc reaches it.
@@ -309,13 +286,12 @@ export class AdvancedSettingsComponent {
   /**
    * Import settings from a JSON file, after the inline confirm.
    * Uses platform-aware RPC: command:execute for VS Code, settings:import for
-   * Electron. The outcome is shown only from this write's own result (D15).
+   * Electron. The outcome is the page toast, only from this write's own result (D15).
    */
   async importSettings(): Promise<void> {
     if (this.isImporting()) return;
     this.confirmingImport.set(false);
     this.isImporting.set(true);
-    this.importOutcome.set(null);
     try {
       if (this.vscodeService.isElectron) {
         const result = await this.rpcService.call('settings:import', {});
@@ -330,26 +306,14 @@ export class AdvancedSettingsComponent {
             !errors.some((entry) => KEYED_IMPORT_ERROR.test(entry))
           ) {
             // N4: only a file the host rejected as a whole (empty, malformed, not an export) blames the file.
-            this.importOutcome.set({
-              tone: 'alert',
-              message: 'The file is not a Ptah settings export.',
-            });
+            this.feedback.announce('The file is not a Ptah settings export.', 'alert');
           } else if (errors.length > 0) {
-            this.importOutcome.set({
-              tone: 'alert',
-              message: 'Some settings could not be imported.',
-            });
+            this.feedback.announce('Some settings could not be imported.', 'alert');
           } else {
-            this.importOutcome.set({
-              tone: 'status',
-              message: 'Settings imported.',
-            });
+            this.feedback.announce('Settings imported.', 'status');
           }
         } else {
-          this.importOutcome.set({
-            tone: 'alert',
-            message: 'Could not import the settings.',
-          });
+          this.feedback.announce('Could not import the settings.', 'alert');
         }
       } else {
         // The host command runs its own dialogs and result notifications; a
@@ -359,17 +323,11 @@ export class AdvancedSettingsComponent {
           command: 'ptah.importSettings',
         });
         if (!result.isSuccess()) {
-          this.importOutcome.set({
-            tone: 'alert',
-            message: 'Could not import the settings.',
-          });
+          this.feedback.announce('Could not import the settings.', 'alert');
         }
       }
     } catch {
-      this.importOutcome.set({
-        tone: 'alert',
-        message: 'Could not import the settings.',
-      });
+      this.feedback.announce('Could not import the settings.', 'alert');
     } finally {
       this.isImporting.set(false);
       // The confirm that held focus is gone: focus returns to Import.

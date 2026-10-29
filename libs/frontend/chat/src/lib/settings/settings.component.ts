@@ -13,21 +13,22 @@ import {
   LucideAngularModule,
   ArrowLeft,
   Plug,
-  Workflow,
+  Layers,
   SlidersHorizontal,
   AudioLines,
   RotateCw,
 } from 'lucide-angular';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 // Two declarations on purpose: each component import must hold only the `@defer`-only class, or
-// Angular keeps the whole tab (Providers with its named-accounts UI, Orchestration) in the eager chunk.
+// Angular keeps the whole tab (Providers with its named-accounts UI and agents routing, Context Management) in the eager chunk.
 import { ProvidersSettingsComponent } from './providers/providers-settings.component';
 import type { ProvidersSettingsFocusTarget } from './providers/providers-settings.component';
 import { ProvidersModelsLoader } from './providers/providers-models-loader.service';
 import { SettingsSaveFeedbackService } from './feedback/settings-save-feedback.service';
 import { SettingsToastComponent } from './feedback/settings-toast.component';
+import { AgentsRoutingSettingsComponent } from './providers/agents-routing-settings.component';
+import type { AgentsRoutingFocusTarget } from './providers/agents-routing-settings.component';
 import { OrchestrationSettingsComponent } from './ptah-ai/orchestration-settings.component';
-import type { OrchestrationSettingsFocusTarget } from './ptah-ai/orchestration-settings.component';
 import { AdvancedSettingsComponent } from './advanced-settings.component';
 import { SearchVoiceSettingsComponent } from './search-voice-settings.component';
 import {
@@ -48,8 +49,9 @@ const PROVIDERS_SECTIONS: ReadonlySet<string> =
     'connections',
     'more-providers',
   ]);
-const ORCHESTRATION_SECTIONS: ReadonlySet<string> =
-  new Set<OrchestrationSettingsFocusTarget>([
+/** The CLI matrix and the background roles: on the Providers tab, below Routing Map + Connections. */
+const AGENTS_ROUTING_SECTIONS: ReadonlySet<string> =
+  new Set<AgentsRoutingFocusTarget>([
     'background-models',
     'cli-agents',
     'memory-curator',
@@ -60,10 +62,10 @@ const isProvidersSection = (
   section: PendingSection | undefined,
 ): section is ProvidersSettingsFocusTarget =>
   section !== undefined && PROVIDERS_SECTIONS.has(section);
-const isOrchestrationSection = (
+const isAgentsRoutingSection = (
   section: PendingSection | undefined,
-): section is OrchestrationSettingsFocusTarget =>
-  section !== undefined && ORCHESTRATION_SECTIONS.has(section);
+): section is AgentsRoutingFocusTarget =>
+  section !== undefined && AGENTS_ROUTING_SECTIONS.has(section);
 
 /**
  * SettingsComponent - Main settings page container
@@ -85,13 +87,16 @@ const isOrchestrationSection = (
  * - Conditional visibility: Show additional sections only after auth configured
  *
  * Child Components:
- * - ProvidersSettingsComponent: Providers tab
- * - OrchestrationSettingsComponent: Agent Orchestration tab (policy, background roles, CLI agents)
+ * - ProvidersSettingsComponent + AgentsRoutingSettingsComponent: Providers tab (Routing Map + Connections, then the
+ *   CLI matrix and the background model roles)
+ * - OrchestrationSettingsComponent: Context Management tab (tab id `orchestration`: subagent cache TTL, session
+ *   budget, lane guards, context budgets, Codex agents, background queries)
  * - AdvancedSettingsComponent: Advanced tab (membership, data portability, agent behaviour, MCP, VS Code LM)
  * - SearchVoiceSettingsComponent: Search & Voice tab (web search, voice, go vet consent)
  *
  * Deep links (`AppStateManager.requestSettingsTab`) are routed by section to the tab that owns
- * it (implementation-plan.md Component 10); an unknown or missing section opens the requested tab.
+ * it, whatever tab the caller named (implementation-plan.md Component 10); an unknown or missing
+ * section opens the requested tab. See `applyPendingTab`.
  */
 @Component({
   selector: 'ptah-settings',
@@ -100,6 +105,7 @@ const isOrchestrationSection = (
     // Used only inside `@defer` in the template, so each tab compiles to its own lazy chunk.
     // Referencing any of these classes anywhere else in this file would make it eager again.
     ProvidersSettingsComponent,
+    AgentsRoutingSettingsComponent,
     OrchestrationSettingsComponent,
     AdvancedSettingsComponent,
     SearchVoiceSettingsComponent,
@@ -129,8 +135,7 @@ const isOrchestrationSection = (
       background: var(--surface-3);
       color: oklch(var(--bc));
     }
-    /* One row from 36rem: the Electron page beside its sidebar (~42rem) must keep one row, because a 2x2 bar pushes
-       the Orchestration roles summary below the 660 px fold. */
+    /* One row from 36rem: the Electron page beside its sidebar (~42rem) keeps one row of four tabs. */
     @container (min-width: 36rem) {
       .settings-tabs {
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -141,7 +146,7 @@ const isOrchestrationSection = (
         white-space: nowrap;
       }
     }
-    /* Tighter tiles until 46rem, so "Agent Orchestration" fits a quarter of ~42rem without an ellipsis. */
+    /* Tighter tiles until 46rem, so "Context Management" fits a quarter of ~42rem without an ellipsis. */
     @container (min-width: 36rem) and (max-width: 45.99rem) {
       .settings-tab {
         padding-inline: 0.375rem;
@@ -181,7 +186,7 @@ export class SettingsComponent implements OnInit {
   /** Card tabs, in order. Each label is the button's exact accessible name (live-app scripts use it). */
   readonly settingsTabs = [
     { id: 'claude-auth', label: 'Providers', icon: Plug },
-    { id: 'orchestration', label: 'Agent Orchestration', icon: Workflow },
+    { id: 'orchestration', label: 'Context Management', icon: Layers },
     { id: 'pro-features', label: 'Advanced', icon: SlidersHorizontal },
     { id: 'tools', label: 'Search & Voice', icon: AudioLines },
   ] as const;
@@ -190,8 +195,10 @@ export class SettingsComponent implements OnInit {
   >('claude-auth');
 
   readonly providersTarget = signal<ProvidersSettingsFocusTarget | null>(null);
-  readonly orchestrationTarget =
-    signal<OrchestrationSettingsFocusTarget | null>(null);
+  /** Focus target for the CLI matrix / background roles part of the Providers tab. */
+  readonly agentsRoutingTarget = signal<AgentsRoutingFocusTarget | null>(
+    null,
+  );
 
   /**
    * Provider id carried by a deep-link into the settings page (e.g. the
@@ -216,8 +223,8 @@ export class SettingsComponent implements OnInit {
    * Auth status is loaded via AuthStateService.
    */
   constructor() {
-    // A request raised while Settings is already open (e.g. Agent Orchestration's
-    // "Manage ... in Providers") never re-runs ngOnInit, so react to it here.
+    // A request raised while Settings is already open (e.g. the Routing Map's
+    // "Manage matrix", or a role's provider setup) never re-runs ngOnInit, so react to it here.
     effect(() => {
       if (this.appState.pendingSettingsTab())
         untracked(() => this.applyPendingTab());
@@ -240,8 +247,11 @@ export class SettingsComponent implements OnInit {
   }
 
   /**
-   * Routing table: implementation-plan.md Component 10. `cli-agents` lands on Orchestration, which focuses the CLI
-   * matrix table (`[data-testid="cli-matrix"]`, the S6 row; Batch 34 retired the interim CLI manager heading).
+   * The one routing table for deep links (implementation-plan.md Component 10). The section decides the tab, not the
+   * caller's `tab`: Providers sections and every `providerId` land on Providers; `cli-agents`, `background-models` and
+   * the role ids land on Providers too, where `AgentsRoutingSettingsComponent` focuses the CLI matrix table
+   * (`[data-testid="cli-matrix"]`) or opens the background roles. Callers that still name `tab: 'orchestration'` for
+   * those sections keep working unchanged.
    */
   private applyPendingTab(): void {
     const pending = this.appState.consumePendingSettingsTab();
@@ -251,15 +261,15 @@ export class SettingsComponent implements OnInit {
     if (providerId || isProvidersSection(section)) {
       this.setActiveTab('providers');
       this.providersTarget.set(isProvidersSection(section) ? section : null);
-      this.orchestrationTarget.set(null);
-    } else if (isOrchestrationSection(section)) {
-      this.setActiveTab('orchestration');
-      this.orchestrationTarget.set(section);
+      this.agentsRoutingTarget.set(null);
+    } else if (isAgentsRoutingSection(section)) {
+      this.setActiveTab('providers');
+      this.agentsRoutingTarget.set(section);
       this.providersTarget.set(null);
     } else {
       this.setActiveTab(pending.tab);
       this.providersTarget.set(null);
-      this.orchestrationTarget.set(null);
+      this.agentsRoutingTarget.set(null);
     }
   }
 
@@ -276,7 +286,7 @@ export class SettingsComponent implements OnInit {
       // kept target would re-open the roles (or a role's popover) and take focus again (Batch 35 revise, R3).
       // applyPendingTab sets the new target after this call.
       this.providersTarget.set(null);
-      this.orchestrationTarget.set(null);
+      this.agentsRoutingTarget.set(null);
     }
     this.activeSettingsTab.set(next);
   }
@@ -299,7 +309,7 @@ export class SettingsComponent implements OnInit {
 
   /**
    * A VS Code LM model change can change which CLIs are usable (#84). Re-detect through the
-   * shared state: the Orchestration tab is never mounted while Advanced is shown.
+   * shared state: the Providers tab (which holds the CLI matrix) is never mounted while Advanced is shown.
    */
   onModelChanged(): void {
     void this.providersState.redetectClis();
