@@ -223,6 +223,12 @@ export class AuthManager implements IAuthEnvProvider {
     return this.activeProviderResolver.resolveActiveAuth();
   }
 
+  resolveActiveAuthWithDefault(): Promise<ActiveAuth> {
+    return this.activeProviderResolver.resolveActiveAuthWithDefault(
+      this.credentialProbe,
+    );
+  }
+
   resolveActiveAuthForPath(workspacePath: string): ActiveAuth {
     return this.activeProviderResolver.resolveActiveAuthForPath(workspacePath);
   }

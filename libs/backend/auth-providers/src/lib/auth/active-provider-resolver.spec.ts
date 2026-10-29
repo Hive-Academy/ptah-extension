@@ -167,10 +167,10 @@ describe('ActiveProviderResolver', () => {
       );
 
       await expect(p.hasAnthropicApiKey()).resolves.toBe(false);
-      process.env['ANTHROPIC_API_KEY'] = 'sk-ant-api03-env';
+      process.env['ANTHROPIC_API_KEY'] = 'test-env-key';
       await expect(p.hasAnthropicApiKey()).resolves.toBe(true);
       delete process.env['ANTHROPIC_API_KEY'];
-      stored.key = 'sk-ant-api03-stored';
+      stored.key = 'test-stored-key';
       await expect(p.hasAnthropicApiKey()).resolves.toBe(true);
       await expect(p.isClaudeCliConnected()).resolves.toBe(true);
     });

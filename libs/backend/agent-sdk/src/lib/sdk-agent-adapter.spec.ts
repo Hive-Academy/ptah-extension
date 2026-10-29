@@ -130,9 +130,13 @@ function createMockIAuthEnvProvider(): jest.Mocked<
     | 'configureAuthentication'
     | 'clearAuthentication'
     | 'resolveActiveAuth'
+    | 'resolveActiveAuthWithDefault'
     | 'resolveActiveAuthForPath'
   >
 > {
+  const resolveActiveAuth = jest
+    .fn()
+    .mockReturnValue({ authMethod: 'apiKey', providerId: 'anthropic' });
   return {
     configureAuthentication: jest.fn().mockResolvedValue({
       configured: true,
@@ -140,9 +144,9 @@ function createMockIAuthEnvProvider(): jest.Mocked<
       errorMessage: undefined,
     }),
     clearAuthentication: jest.fn(),
-    resolveActiveAuth: jest
-      .fn()
-      .mockReturnValue({ authMethod: 'apiKey', providerId: 'anthropic' }),
+    resolveActiveAuth,
+    // Same answer as the synchronous reader unless a test overrides it.
+    resolveActiveAuthWithDefault: jest.fn(async () => resolveActiveAuth()),
     resolveActiveAuthForPath: jest
       .fn()
       .mockReturnValue({ authMethod: 'apiKey', providerId: 'anthropic' }),
@@ -1005,6 +1009,30 @@ describe('SdkAgentAdapter', () => {
       // another multi-second SDK-bridge spawn.
       expect(h.modelService.invalidateForAuthChange).toHaveBeenCalledTimes(1);
       expect(h.modelService.clearCache).not.toHaveBeenCalled();
+    });
+
+    // A configured `authMethod` at startup skips the credential default, so
+    // the synchronous reader can still say `'apiKey'` for a workspace with no
+    // `authMethod`. The switch must use the probe-based answer.
+    it('uses the credential-aware default on a switch to a folder without authMethod', async () => {
+      const h = makeAdapter({ workspaceRoot: '/ws/a' });
+      await h.adapter.initialize();
+
+      h.authManager.resolveActiveAuth.mockReturnValue({
+        authMethod: 'apiKey',
+        providerId: 'anthropic',
+      });
+      h.authManager.resolveActiveAuthWithDefault.mockResolvedValue({
+        authMethod: 'claudeCli',
+        providerId: 'anthropic',
+      });
+      h.workspaceProvider.__state.setFolders(['/ws/b']);
+      await flush();
+
+      expect(h.authManager.resolveActiveAuthWithDefault).toHaveBeenCalled();
+      expect(h.authManager.configureAuthentication).toHaveBeenLastCalledWith(
+        'claudeCli',
+      );
     });
 
     // Pins decision note (a): FREEZING rather than tearing down keeps

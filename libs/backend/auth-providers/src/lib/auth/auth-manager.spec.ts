@@ -598,6 +598,20 @@ describe('AuthManager', () => {
         });
       });
 
+      it('resolveActiveAuthWithDefault applies the default without configuring', async () => {
+        const { manager, strategies, ambientRead } = makeManager({
+          ambientState: 'connected',
+        });
+
+        await expect(manager.resolveActiveAuthWithDefault()).resolves.toEqual({
+          authMethod: 'claudeCli',
+          providerId: 'anthropic',
+        });
+        expect(ambientRead).toHaveBeenCalledTimes(1);
+        expect(strategies.cli.configure).not.toHaveBeenCalled();
+        expect(strategies.apiKey.configure).not.toHaveBeenCalled();
+      });
+
       it('treats an unknown stored spelling like a missing one', async () => {
         const { manager, strategies } = makeManager({
           config: { authMethod: 'garbage' },
@@ -612,7 +626,7 @@ describe('AuthManager', () => {
 
       it('keeps the API key when one is stored, without reading the login', async () => {
         const { manager, strategies, ambientRead } = makeManager({
-          storedApiKey: 'sk-ant-api03-stored',
+          storedApiKey: 'test-stored-key',
           ambientState: 'connected',
         });
         strategies.apiKey.configure.mockResolvedValueOnce(configured);
@@ -626,7 +640,7 @@ describe('AuthManager', () => {
       });
 
       it('keeps the API key when ANTHROPIC_API_KEY is set', async () => {
-        process.env['ANTHROPIC_API_KEY'] = 'sk-ant-api03-env';
+        process.env['ANTHROPIC_API_KEY'] = 'test-env-key';
         const { manager, strategies, ambientRead } = makeManager({
           ambientState: 'connected',
         });

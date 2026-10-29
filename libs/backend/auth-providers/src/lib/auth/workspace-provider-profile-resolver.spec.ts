@@ -738,7 +738,7 @@ describe('WorkspaceProviderProfileResolver — default auth method', () => {
   it('keeps the API key when one is stored, without reading the login', async () => {
     const { resolver, ambientRead } = createHarness({
       workspaceSettings: {},
-      apiKey: 'sk-ant-api03-stored',
+      apiKey: 'test-stored-key',
       ambientState: 'connected',
     });
 
@@ -747,7 +747,7 @@ describe('WorkspaceProviderProfileResolver — default auth method', () => {
       'default',
     );
 
-    expect(profile?.authEnv.ANTHROPIC_API_KEY).toBe('sk-ant-api03-stored');
+    expect(profile?.authEnv.ANTHROPIC_API_KEY).toBe('test-stored-key');
     expect(ambientRead).not.toHaveBeenCalled();
   });
 

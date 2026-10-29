@@ -601,7 +601,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   private async reconfigureAuthIfChanged(): Promise<void> {
-    const active = this.authManager.resolveActiveAuth();
+    // The probe-based read: a startup that found a configured `authMethod`
+    // never ran the credential default, so the synchronous reader can still
+    // hold `'apiKey'` for a workspace without one.
+    const active = await this.authManager.resolveActiveAuthWithDefault();
     if (
       this.lastConfiguredAuth &&
       this.lastConfiguredAuth.authMethod === active.authMethod &&
