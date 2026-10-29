@@ -226,6 +226,10 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     };
   }
 
+  publishPromptLifecycle(event: PermissionPromptLifecycleEvent): void {
+    this.emitLifecycle(event);
+  }
+
   private emitLifecycle(event: PermissionPromptLifecycleEvent): void {
     for (const listener of this.lifecycleListeners) {
       try {

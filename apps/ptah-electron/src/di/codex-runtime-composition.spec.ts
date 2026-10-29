@@ -1,7 +1,10 @@
 import 'reflect-metadata';
 import { createHash } from 'node:crypto';
 import type { IAgentAdapter, SessionId } from '@ptah-extension/shared';
-import type { CodexChatHostPorts } from '@ptah-extension/rpc-handlers';
+import {
+  createCodexChatHostPorts,
+  type CodexChatHostPorts,
+} from '@ptah-extension/rpc-handlers';
 import type { ElectronCodexBindingInput } from './codex-binding.types';
 import {
   createElectronCodexSessionState,
@@ -34,6 +37,7 @@ import {
   SessionTurnStateRegistry,
   wireAgentAdapterAliases,
   type CodexChatAdapterPorts,
+  type PermissionPromptLifecycleEvent,
   resolveCodexNativeBinaryPath,
 } from '@ptah-extension/agent-sdk';
 import {
@@ -64,6 +68,16 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
   ),
   resolveCodexNativeBinaryPath: jest.fn(),
 }));
+
+jest.mock('@ptah-extension/rpc-handlers', () => {
+  const actual = jest.requireActual<typeof import('@ptah-extension/rpc-handlers')>(
+    '@ptah-extension/rpc-handlers',
+  );
+  return {
+    ...actual,
+    createCodexChatHostPorts: jest.fn(actual.createCodexChatHostPorts),
+  };
+});
 
 let temporaryRoot: string;
 let bundledRoot: string;
@@ -409,18 +423,57 @@ function bindingFixture() {
   });
   const legacy = { initialize: jest.fn(async () => true) };
   parent.register(SDK_TOKENS.SDK_AGENT_ADAPTER, { useValue: legacy });
+  const permissionHandler = {
+    handleResponse: jest.fn(),
+    publishPromptLifecycle: jest.fn(),
+  };
   parent.register(SDK_TOKENS.SDK_PERMISSION_HANDLER, {
-    useValue: { handleResponse: jest.fn() },
+    useValue: permissionHandler,
   });
   parent.register(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY, {
     useValue: new SessionTurnStateRegistry(),
   });
   registerCodexChatServices(parent);
   wireAgentAdapterAliases(parent);
-  return { parent, unsubscribe, legacy, scopeResolver, settingsStore };
+  return {
+    parent, unsubscribe, legacy, permissionHandler, scopeResolver, settingsStore,
+  };
 }
 
 describe('Electron complete Codex binding', () => {
+  it('forwards Codex prompt lifecycle events to the permission handler', async () => {
+    const { parent, permissionHandler, scopeResolver, settingsStore } = bindingFixture();
+    jest.mocked(createCodexChatHostPorts).mockClear();
+    const binding = await bindElectronCodexChat(parent, {
+      isPackaged: false,
+      env: { PTAH_CODEX_RUNTIME_DEV: '1' },
+      platform,
+      bundledRoot,
+      scopeResolver,
+      settingsStore,
+    });
+    try {
+      const deps = jest.mocked(createCodexChatHostPorts).mock.calls.at(-1)?.[0];
+      const event: PermissionPromptLifecycleEvent = {
+        phase: 'requested',
+        requestId: 'codex-request-1',
+        routingHint: 'gw-conversation-1',
+        toolName: 'Bash',
+        description: 'Run a command',
+        routable: false,
+        timeoutMs: 60_000,
+      };
+
+      expect(deps?.promptLifecycle).toBeDefined();
+      deps?.promptLifecycle?.publish(event);
+
+      expect(permissionHandler.publishPromptLifecycle).toHaveBeenCalledWith(event);
+    } finally {
+      await binding.dispose();
+      await parent.dispose();
+    }
+  });
+
   it('binds the saved Codex permission reader to the profile workspace', async () => {
     const { parent, scopeResolver, settingsStore } = bindingFixture();
     parent.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {

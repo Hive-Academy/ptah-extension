@@ -544,6 +544,12 @@ function createElectronCodexAdapterPorts(
           )
           .cancelPrompt(...args),
     },
+    promptLifecycle: {
+      publish: (event) =>
+        container
+          .resolve<SdkPermissionHandler>(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+          .publishPromptLifecycle(event),
+    },
     hostAttention: container.resolve<CodexChatHostPortsDeps['hostAttention']>(
       SDK_TOKENS.HOST_ATTENTION_COORDINATOR,
     ),

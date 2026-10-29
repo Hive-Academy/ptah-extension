@@ -171,6 +171,7 @@ export type { RuntimeAdmissionPort } from './lib/codex-app-server/routing-agent-
 export type { SessionApprovalRouter } from './lib/codex-app-server/session-approval-router';
 export type { NativeSessionControls, StreamlessFollowUpAdmission } from './lib/codex-app-server/session-runtime-router';
 export type { SessionRuntimeIdentityLookup } from './lib/codex-app-server/session-runtime-identity';
+export { resolveSessionRuntimeIdentity } from './lib/codex-app-server/session-runtime-identity';
 export type { LegacySettingsPersistence } from './lib/codex-app-server/legacy-session-controls';
 export {
   type CodexChatEventCallbacks,
