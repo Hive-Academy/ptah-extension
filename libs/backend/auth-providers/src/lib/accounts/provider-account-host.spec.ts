@@ -1,4 +1,33 @@
-import { CURRENT_LEASE_HOST, leaseOwnerGone, processExists } from './provider-account-host';
+import { createHash } from 'node:crypto';
+import { computeLeaseMachine, CURRENT_LEASE_HOST, leaseOwnerGone, processExists } from './provider-account-host';
+
+describe('computeLeaseMachine', () => {
+  const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
+  const unreadable = (): string => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); };
+
+  it('includes the Linux pid namespace, so same-named containers differ', () => {
+    const first = computeLeaseMachine('linux', 'box', () => 'pid:[4026531836]');
+    expect(first).toMatch(/^[a-f0-9]{64}$/);
+    expect(computeLeaseMachine('linux', 'box', () => 'pid:[4026531836]')).toBe(first);
+    expect(computeLeaseMachine('linux', 'box', () => 'pid:[4026532001]')).not.toBe(first);
+    expect(first).not.toBe(sha256('linux\0box'));
+  });
+
+  it('uses a per-process random value when the namespace cannot be read', () => {
+    const one = computeLeaseMachine('linux', 'box', unreadable);
+    const two = computeLeaseMachine('linux', 'box', unreadable);
+    expect(one).toMatch(/^[a-f0-9]{64}$/);
+    expect(two).not.toBe(one);
+    expect(one).not.toBe(computeLeaseMachine('linux', 'box', () => 'pid:[4026531836]'));
+    expect(one).not.toBe(sha256('linux\0box'));
+  });
+
+  it.each(['win32', 'darwin'] as const)('keeps the %s digest of platform and host name', (platform) => {
+    const read = jest.fn(() => 'pid:[1]');
+    expect(computeLeaseMachine(platform, 'box', read)).toBe(sha256(`${platform}\0box`));
+    expect(read).not.toHaveBeenCalled();
+  });
+});
 
 describe('leaseOwnerGone', () => {
   const current = { pid: 100, machine: 'a'.repeat(64) };
