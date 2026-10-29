@@ -249,7 +249,15 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort, Cla
     }
   }
 
-  list(): readonly ProviderAccountSummary[] { return this.store.list().map(profile => this.summary(profile)); }
+  /**
+   * Restores the profiles a crashed host left 'pending' first (the store tells
+   * the actions service, which notifies its listeners), so the list never shows
+   * a dead operation's 'pending' and revision.
+   */
+  list(): readonly ProviderAccountSummary[] {
+    this.store.reclaimAbandonedOperations();
+    return this.store.list().map(profile => this.summary(profile));
+  }
   rename(profileId: string, expectedRevision: number, label: string): ProviderAccountSummary {
     return this.summary(this.store.rename(profileId, expectedRevision, label));
   }

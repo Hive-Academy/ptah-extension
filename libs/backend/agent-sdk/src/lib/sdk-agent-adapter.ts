@@ -601,7 +601,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
   }
 
   private async reconfigureAuthIfChanged(): Promise<void> {
-    const active = this.authManager.resolveActiveAuth();
+    // The probe-based read: a startup that found a configured `authMethod`
+    // never ran the credential default, so the synchronous reader can still
+    // hold `'apiKey'` for a workspace without one.
+    const active = await this.authManager.resolveActiveAuthWithDefault();
     if (
       this.lastConfiguredAuth &&
       this.lastConfiguredAuth.authMethod === active.authMethod &&
@@ -671,14 +674,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
+      // No argument: the auth manager resolves the active auth with its
+      // credential-aware default (a missing `authMethod` uses the connected
+      // Claude CLI login when no API key exists). `resolveActiveAuth()` then
+      // reports that same resolved method.
+      const authResult = await this.authManager.configureAuthentication();
       const active = this.authManager.resolveActiveAuth();
       this.lastConfiguredAuth = {
         authMethod: active.authMethod,
         providerId: active.providerId,
       };
-      const authResult = await this.authManager.configureAuthentication(
-        active.authMethod,
-      );
 
       if (!authResult.configured) {
         this.runtimeState.setHealth({

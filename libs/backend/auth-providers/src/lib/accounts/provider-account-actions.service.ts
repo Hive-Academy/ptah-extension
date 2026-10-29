@@ -211,6 +211,8 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
   /** Close receipts of status-action children that outlived the action; disposed on `dispose`. */
   private readonly statusReceipts = new Set<ClaudeChildCloseReceipt>();
   private disposal?: Promise<void>;
+  /** Release path of the store's reclaim subscription; called on `dispose`. */
+  private readonly stopReclaimWatch: () => void;
 
   constructor(
     @inject(ProviderAccountStore) private readonly store: ProviderAccountStore,
@@ -219,7 +221,12 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     @inject(ClaudeLoginConsole) private readonly loginConsole: ClaudeLoginConsole,
     // Diagnostics only: a container without a logger runs every action the same way.
     @inject(TOKENS.LOGGER, { isOptional: true }) private readonly logger: Pick<Logger, 'warn'> | null = null,
-  ) {}
+  ) {
+    // Every reclaim (an action here, an admission, a plain list) reports the profiles it restored.
+    this.stopReclaimWatch = store.onOperationsReclaimed(profileIds => {
+      for (const profileId of profileIds) this.emit(profileId);
+    });
+  }
 
   onStateChanged(listener: (change: ProviderAccountStateChange) => void): () => void {
     this.listeners.add(listener);
@@ -229,6 +236,7 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
   dispose(): Promise<void> {
     if (this.disposal) return this.disposal;
     this.disposalController.abort();
+    this.stopReclaimWatch();
     const pending: Promise<unknown>[] = [];
     for (const operation of this.active.values()) {
       if (operation.kind === 'sign-in') {
@@ -263,6 +271,7 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
         // One poll tick inside the existing sign-in reservation.
         return (await this.poll(owned)) ?? accountActionResult('ok');
       }
+      this.reclaimAbandoned();
       const profile = this.store.get(target.profileId);
       // Restart never turns an unresolved operation into a successful status.
       if (owned || profile.state === 'pending') return accountActionResult('busy');
@@ -308,6 +317,7 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     try {
       if (command.provider !== 'claude') return accountActionResult('wrong-provider');
       const active = this.active.get(command.profileId);
+      this.reclaimAbandoned();
       const profile = this.store.get(command.profileId);
       if (!active) return accountActionResult(profile.state === 'pending' ? 'busy' : 'conflict');
       if (active.kind !== 'sign-in' || active.operationId !== command.operationId ||
@@ -338,6 +348,7 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
 
   private reserve(command: ClaudeAccountActionCommand, kind: 'sign-in' | 'sign-out'): AuthOperation | ProviderAccountActionResult {
     if (command.provider !== 'claude') return accountActionResult('wrong-provider');
+    this.reclaimAbandoned();
     const profile = this.store.get(command.profileId);
     if (profile.revision !== command.expectedRevision) return accountActionResult('conflict');
     if (this.active.has(command.profileId) || profile.state === 'pending') return accountActionResult('busy');
@@ -383,10 +394,38 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     if (start.kind === 'started') {
       // Tracked even after a terminal transition, so the gate kills and waits for it.
       operation.ledger.trackConsole(start.child);
+      this.recordConsolePid(operation, start.child);
       return { ok: true };
     }
     const fallback = this.loginConsole.fallbackScript(prepared.context);
     return { ok: true, fallback: { platform: fallback.dialect === 'powershell' ? 'win32' : 'posix', script: fallback.script } };
+  }
+
+  /**
+   * Persists the console pid once it exists, so a later process keeps the
+   * operation held while the console outlives a crashed host.
+   *
+   * A failed write fails closed: a row without a child would let a later
+   * process reclaim it after this host dies while the console still runs. So
+   * the sign-in ends through the normal gate: the console is killed and waited
+   * on, and `completeAuth` puts back the prior state with `unavailable-storage`.
+   * Before `startSignIn` has returned it reports that code; afterwards the end
+   * reaches listeners through `onStateChanged`, like any other console failure.
+   *
+   * Residual window: between spawn and this write the row has no child, the
+   * same window a run lease has before `recordRunChild`. A host crash inside
+   * it leaves the console unrecorded.
+   */
+  private recordConsolePid(operation: AuthOperation, child: SpawnedProcessHandle): void {
+    void child.whenSpawned
+      .then(pid => {
+        if (pid !== null) this.store.recordOperationChild(operation.operationId, this.ownerId, operation.epoch, pid);
+      })
+      .catch((error: unknown) => {
+        this.logger?.warn('[ProviderAccountActions] Could not record the sign-in console pid; ending the sign-in',
+          { code: error instanceof ProviderAccountStoreError ? error.code : 'unknown' });
+        void this.finishSignIn(operation, { code: 'unavailable-storage', state: operation.priorState });
+      });
   }
 
   private schedulePoll(operation: AuthOperation): void {
@@ -633,6 +672,15 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     if (operation.deadlineTimer) clearTimeout(operation.deadlineTimer);
     operation.pollTimer = undefined;
     operation.deadlineTimer = undefined;
+  }
+
+  /**
+   * Restores the profiles an ended host left 'pending' (its operation rows are
+   * deleted) before a profile's state is judged, and tells listeners.
+   */
+  private reclaimAbandoned(): void {
+    // Listeners hear each restored profile through the store subscription made in the constructor.
+    this.store.reclaimAbandonedOperations();
   }
 
   private emit(profileId: string): void {

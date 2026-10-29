@@ -1,18 +1,49 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { readlinkSync } from 'node:fs';
 import { hostname } from 'node:os';
 
 /**
- * The host process that owns a run lease, recorded with the lease so a later
- * process can prove the owner is gone (migration 0061).
+ * The host process that owns a run lease or an auth operation, recorded with
+ * the row so a later process can prove the owner is gone (migrations 0061 and
+ * 0062).
  *
- * `machine` is a digest of the platform and host name. A process can only
- * observe processes on its own machine, so a lease from any other machine
+ * `machine` is a digest of the machine the pid is meaningful on. A process can
+ * only observe processes in its own pid space, so a row from any other machine
  * (another container, WSL against a Windows host, a shared home directory) is
- * never judged and stays held.
+ * never judged and stays held. See `computeLeaseMachine`.
  */
 export interface ProviderAccountLeaseHost {
   readonly pid: number;
   readonly machine: string;
+}
+
+/**
+ * Digest of the pid space this process lives in.
+ *
+ * - win32 and darwin: platform and host name.
+ * - linux: platform, host name and the pid namespace (`/proc/self/ns/pid`,
+ *   e.g. `pid:[4026531836]`). Two containers can share a host name and still
+ *   have separate pid namespaces, where a pid probe says nothing about the
+ *   other one.
+ * - linux with an unreadable namespace: a per-process random value instead, so
+ *   no other process ever records the same machine and nothing is reclaimed
+ *   across processes (fail closed).
+ *
+ * `readPidNamespace` is called only on linux.
+ */
+export function computeLeaseMachine(platform: NodeJS.Platform, host: string, readPidNamespace: () => string): string {
+  let parts = `${platform}\0${host}`;
+  if (platform === 'linux') {
+    let namespace: string;
+    try {
+      namespace = `ns\0${readPidNamespace()}`;
+    } catch {
+      // degradation-audit: optional-capability — an unknown pid namespace gets a machine no other process shares (fail closed)
+      namespace = `random\0${randomBytes(32).toString('hex')}`;
+    }
+    parts = `${parts}\0${namespace}`;
+  }
+  return createHash('sha256').update(parts).digest('hex');
 }
 
 /** Answers whether a process with `pid` exists right now on this machine. */
@@ -21,7 +52,7 @@ export type ProcessExistsProbe = (pid: number) => boolean;
 /** This process, computed once. */
 export const CURRENT_LEASE_HOST: ProviderAccountLeaseHost = Object.freeze({
   pid: process.pid,
-  machine: createHash('sha256').update(`${process.platform}\0${hostname()}`).digest('hex'),
+  machine: computeLeaseMachine(process.platform, hostname(), () => readlinkSync('/proc/self/ns/pid')),
 });
 
 /**

@@ -32,7 +32,11 @@ import {
   createMockAuthSecretsService,
 } from '@ptah-extension/vscode-core/testing';
 import { createMockLogger } from '@ptah-extension/shared/testing';
-import { getAnthropicProvider, type AuthEnv } from '@ptah-extension/shared';
+import {
+  getAnthropicProvider,
+  type AuthEnv,
+  type ProviderAmbientClaudeStatus,
+} from '@ptah-extension/shared';
 import type {
   ConfigManager,
   IAuthSecretsService,
@@ -84,6 +88,8 @@ interface Harness {
   /** Mutable: what the shared AuthEnv is configured for. */
   shared: { auth: ActiveAuth | null };
   logger: ReturnType<typeof createMockLogger>;
+  /** The ambient Claude CLI login read. */
+  ambientRead: jest.Mock<Promise<ProviderAmbientClaudeStatus>, []>;
 }
 
 function createHarness(opts: {
@@ -101,6 +107,10 @@ function createHarness(opts: {
   sharedAuth?: ActiveAuth | null;
   /** Workspace-scoped overrides by path, over `workspaceSettings` (mutable). */
   settingsByPath?: Record<string, Record<string, unknown>>;
+  /** The Anthropic API key in SecretStorage (`authSecrets.getCredential('apiKey')`). */
+  apiKey?: string;
+  /** What the ambient Claude CLI login reader answers. */
+  ambientState?: ProviderAmbientClaudeStatus['state'];
 }): Harness {
   const mockLogger = createMockLogger();
   const logger = mockLogger as unknown as Logger;
@@ -109,7 +119,13 @@ function createHarness(opts: {
   }) as unknown as ConfigManager;
   const authSecrets = createMockAuthSecretsService({
     providerKeys: opts.providerKeys,
+    credentials: opts.apiKey === undefined ? {} : { apiKey: opts.apiKey },
   }) as unknown as IAuthSecretsService;
+  const ambientRead = jest.fn(async (): Promise<ProviderAmbientClaudeStatus> =>
+    opts.ambientState === 'connected' || opts.ambientState === 'signed-out'
+      ? { state: opts.ambientState, checkedAt: '2026-10-29T00:00:00.000Z' }
+      : { state: 'unknown', reason: 'timeout', checkedAt: null },
+  );
 
   const settings = opts.workspaceSettings ?? {};
   const scope = {
@@ -149,9 +165,17 @@ function createHarness(opts: {
     activeProviderResolver,
     authManager,
     proxyPool,
+    { read: ambientRead },
   );
 
-  return { resolver, globalAuthEnv, acquire, shared, logger: mockLogger };
+  return {
+    resolver,
+    globalAuthEnv,
+    acquire,
+    shared,
+    logger: mockLogger,
+    ambientRead,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -650,6 +674,112 @@ describe('WorkspaceProviderProfileResolver — no snapshot', () => {
     await expect(
       resolver.buildProfileForPath(WORKSPACE, 'default'),
     ).resolves.toBeUndefined();
+  });
+
+  it('refuses an explicit apiKey without a stored key and names the auth method setting', async () => {
+    const { resolver, ambientRead } = createHarness({
+      workspaceSettings: { authMethod: 'apiKey' },
+      ambientState: 'connected',
+      sharedAuth: null,
+    });
+
+    await expect(
+      resolver.resolveProviderProfileForWorkspace(WORKSPACE, 'default'),
+    ).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+      providerId: 'anthropic',
+      message:
+        'Cannot start this session: the Anthropic API key is not ready. Add an API key, or choose the Claude CLI login in Settings > Providers > Main agent authentication.',
+      recoveryHint:
+        'Add an API key, or choose the Claude CLI login in Settings > Providers > Main agent authentication.',
+    });
+    // An explicit value is honoured: the login is never consulted.
+    expect(ambientRead).not.toHaveBeenCalled();
+  });
+});
+
+describe('WorkspaceProviderProfileResolver — default auth method', () => {
+  // The default also counts `ANTHROPIC_API_KEY` as a key; keep the
+  // developer's shell environment out of these cases.
+  const envApiKey = process.env['ANTHROPIC_API_KEY'];
+  beforeEach(() => {
+    delete process.env['ANTHROPIC_API_KEY'];
+  });
+  afterEach(() => {
+    if (envApiKey === undefined) delete process.env['ANTHROPIC_API_KEY'];
+    else process.env['ANTHROPIC_API_KEY'] = envApiKey;
+  });
+
+  it.each([
+    ['missing', {}],
+    ['unknown', { authMethod: 'garbage' }],
+  ])(
+    'uses the connected Claude CLI login when the auth method is %s and no API key is stored',
+    async (_label, workspaceSettings) => {
+      const { resolver, ambientRead } = createHarness({
+        workspaceSettings,
+        ambientState: 'connected',
+        sharedAuth: { authMethod: 'thirdParty', providerId: 'openrouter' },
+      });
+
+      const profile = await resolver.resolveProviderProfileForWorkspace(
+        WORKSPACE,
+        'default',
+      );
+
+      expect(ambientRead).toHaveBeenCalledTimes(1);
+      expect(profile?.providerId).toBe('anthropic');
+      expect(profile?.authEnv.ANTHROPIC_API_KEY).toBe('');
+      expect(profile?.authEnv.ANTHROPIC_BASE_URL).toBe('');
+      expect(profile?.model).toBe('default');
+    },
+  );
+
+  it('keeps the API key when one is stored, without reading the login', async () => {
+    const { resolver, ambientRead } = createHarness({
+      workspaceSettings: {},
+      apiKey: 'test-stored-key',
+      ambientState: 'connected',
+    });
+
+    const profile = await resolver.resolveProviderProfileForWorkspace(
+      WORKSPACE,
+      'default',
+    );
+
+    expect(profile?.authEnv.ANTHROPIC_API_KEY).toBe('test-stored-key');
+    expect(ambientRead).not.toHaveBeenCalled();
+  });
+
+  it.each(['signed-out', undefined] as const)(
+    'refuses with the setting hint when no key is stored and the login is %s',
+    async (ambientState) => {
+      const { resolver } = createHarness({
+        workspaceSettings: {},
+        ambientState,
+        sharedAuth: null,
+      });
+
+      await expect(
+        resolver.resolveProviderProfileForWorkspace(WORKSPACE, 'default'),
+      ).rejects.toMatchObject({
+        name: 'AuthRequiredError',
+        recoveryHint:
+          'Add an API key, or choose the Claude CLI login in Settings > Providers > Main agent authentication.',
+      });
+    },
+  );
+
+  it('applies the default to buildProfileForPath too', async () => {
+    const { resolver } = createHarness({
+      workspaceSettings: {},
+      ambientState: 'connected',
+    });
+
+    const profile = await resolver.buildProfileForPath(WORKSPACE, 'default');
+
+    expect(profile?.providerId).toBe('anthropic');
+    expect(profile?.authEnv.ANTHROPIC_API_KEY).toBe('');
   });
 });
 

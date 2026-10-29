@@ -73,8 +73,9 @@ describe('migration 0044_memory_lifecycle — registry and static SQL', () => {
     // 59 since TASK_2026_712 appended 0059_provider_account_session_links.
     // 60 since TASK_2026_719 appended 0060_provider_account_lease_epoch.
     // 61 since 0061_provider_account_lease_host (named-account lease recovery).
+    // 62 since 0062_provider_account_operation_host (auth operation recovery).
     expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(
-      61,
+      62,
     );
     expect(entry?.vecSql).toBeUndefined();
     expect(entry?.requiresVec).toBeUndefined();

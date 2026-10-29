@@ -35,6 +35,7 @@ import type {
 } from '../auth-strategy.types';
 import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
 import { unavailableProviderMessage } from '../provider-auth.error';
+import { API_KEY_RECOVERY_HINT } from '../auth-method.utils';
 import type { ProviderModelsService } from '../../provider-models.service';
 import {
   isCustomProviderId,
@@ -532,8 +533,7 @@ export class ApiKeyStrategy implements IAuthStrategy {
     return {
       configured: false,
       details: [],
-      errorMessage:
-        'No Anthropic API key configured. Add an API key in Settings, or switch to Claude CLI.',
+      errorMessage: `No Anthropic API key configured. ${API_KEY_RECOVERY_HINT}`,
     };
   }
 
