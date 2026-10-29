@@ -3658,7 +3658,7 @@ Team-leader session 23 is the only committing agent. Phase = the whole round (on
   `prompt-harness/ptah-ui-hint.ts` only if a Codex variant must live beside the Claude hint
   (Claude text unchanged, pinned by a spec). Verify: chat path command.
 
-## Round 8p: p8i gaps (A2, I) + P8 logic/style review fixes — PARTIAL (session wrap-up; 6 of 8 batches COMMITTED; 8p-4 NOT ACCEPTED, 8p-8 PENDING; phase gate NOT RUN)
+## Round 8p: p8i gaps (A2, I) + P8 logic/style review fixes — COMPLETE (8 of 8 batches COMMITTED; 8p-4 = 80b916f98, 8p-8 = edad8d577; main merged in 03d37d067; phase gate in session 25)
 
 Source: `live-test-p8i.md` (head 552010a4e), `code-logic-review-p8.md` (S1, S2, M1, M4, M5),
 `code-style-review-p8.md` (S1, S2, S3, M1-M3). Principle unchanged: native Codex chat produces
@@ -3748,7 +3748,7 @@ restart with attachments (delivered once, with attachments).
   the one `codexFollowUpRejected` error; a terminal turn stays log-only.
 - Verify: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/cli-agent-runtime,@ptah-extension/gateway-chat-bridge`.
 
-### Batch 8p-4: typed resume error consumers + StreamlessFollowUpAdmission — NOT ACCEPTED, uncommitted (+ code-logic-review-8p-2 M1/M2; code-logic-review-8p-4.md APPROVED 8/10; scoped tests FAIL)
+### Batch 8p-4: typed resume error consumers + StreamlessFollowUpAdmission — COMMITTED 80b916f98 (+ code-logic-review-8p-2 M1/M2; code-logic-review-8p-4.md APPROVED 8/10; 2 stale specs fixed; chat-path verify 15/15)
 
 - Depends on: 8p-2, 8p-3. Files: agent-sdk `codex-chat-adapter.ts`, `session-runtime-router.ts`,
   `src/index.ts`; rpc-handlers `chat-session.service.ts`. Verify: chat path command.
@@ -3783,7 +3783,7 @@ Phase gate (degradation-audit, di-lint, host typechecks) NOT RUN (session wrap-u
 
 - Depends on: none. Small edits.
 
-### Batch 8p-8: review follow-ups (Moderates from 8p-1 / 8p-3 reviews) — PENDING
+### Batch 8p-8: review follow-ups (Moderates from 8p-1 / 8p-3 reviews) — COMMITTED (code-logic-review-8p-8.md APPROVED; its minor note, a `C:\..` SystemRoot, fixed before commit; trio + agent-sdk verify 12/12)
 
 Named later task per the fix-round rule (Moderates that cannot break a lane config or lose
 data). Depends on: 8p-1, 8p-3 committed.
