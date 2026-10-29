@@ -438,7 +438,13 @@ async function* withRetirementWake(
     }
   } finally {
     unsubscribe?.();
-    await iterator.return?.();
+    const closing = iterator.return?.();
+    if (pending === null) {
+      await closing;
+    } else {
+      // degradation-audit: optional-capability - A parked read can keep the source's return queued indefinitely.
+      void closing?.catch(() => undefined);
+    }
   }
 }
 

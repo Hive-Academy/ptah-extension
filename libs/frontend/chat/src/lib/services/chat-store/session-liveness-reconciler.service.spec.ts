@@ -54,6 +54,7 @@ function makeTurnState(
 describe('SessionLivenessReconcilerService', () => {
   let service: SessionLivenessReconcilerService;
   let tabs: TabState[];
+  const tabsRevision = signal(0);
   let activeWorkspacePath: string | null;
   let callMock: jest.Mock;
   let markStreamingLiveness: jest.Mock;
@@ -77,7 +78,10 @@ describe('SessionLivenessReconcilerService', () => {
     // No `markStreaming` / `markTabStreaming` on the mock: the reconciler
     // must not write tab status itself any more (TASK_2026_360, Defect 4).
     const tabManagerMock = {
-      tabs: () => tabs,
+      tabs: () => {
+        tabsRevision();
+        return tabs;
+      },
       get activeWorkspacePath() {
         return activeWorkspacePath;
       },
@@ -111,6 +115,7 @@ describe('SessionLivenessReconcilerService', () => {
 
   beforeEach(() => {
     tabs = [];
+    tabsRevision.set(0);
     activeWorkspacePath = null;
     callMock = jest.fn();
     markStreamingLiveness = jest.fn();
@@ -213,6 +218,31 @@ describe('SessionLivenessReconcilerService', () => {
     TestBed.flushEffects();
     expect(callMock).toHaveBeenCalledTimes(2);
   });
+
+  it.each([
+    ['unknown response', rpcResult({ isActive: true, isStreaming: true }), 1],
+    ['failed RPC', new Error('offline'), 2],
+  ] as const)(
+    'bounds status probes after repeated tab updates: %s',
+    async (_case, response, expectedCalls) => {
+      tabs = [makeTab({ claudeSessionId: SESS_IDLE })];
+      candidates.set([{ sessionId: SESS_IDLE, generation: 1 }]);
+      if (response instanceof Error) callMock.mockRejectedValue(response);
+      else callMock.mockResolvedValue(response);
+
+      TestBed.flushEffects();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      for (let i = 0; i < 5; i++) {
+        tabs = [...tabs];
+        tabsRevision.update((revision) => revision + 1);
+        TestBed.flushEffects();
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+
+      expect(callMock).toHaveBeenCalledTimes(expectedCalls);
+      expect(applyEvidence).not.toHaveBeenCalled();
+    },
+  );
 
   it('does not attach a delayed status answer to a newer registration', async () => {
     let resolve!: (value: ReturnType<typeof rpcResult>) => void;

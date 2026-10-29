@@ -2127,6 +2127,58 @@ describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () =>
     await iterator.return?.();
   });
 
+  it('completes stream cleanup when closed after retirement with an SDK read pending', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+    messageTransformer.settleInterruptedTurn.mockImplementation((_sessionId, id) =>
+      ({ eventType: 'turn_state', consumedClientMessageId: id }) as never,
+    );
+    let releaseRead!: () => void;
+    const blockedRead = new Promise<void>((resolve) => { releaseRead = resolve; });
+    let resolveSourceClosed!: () => void;
+    const sourceClosed = new Promise<void>((resolve) => { resolveSourceClosed = resolve; });
+    async function* sdkMessages(): AsyncGenerator<SDKMessage> {
+      try {
+        await blockedRead;
+        yield resultMessage(MODEL, { inputTokens: 1, outputTokens: 1 });
+      } finally {
+        resolveSourceClosed();
+      }
+    }
+    let wake: (() => void) | undefined;
+    let retirement: string | null = 'P';
+    const onStreamEnd = jest.fn();
+    const iterator = transformer.transform({
+      sdkQuery: sdkMessages(),
+      sessionId: 'sess-1' as SessionId, initialModel: MODEL,
+      onStreamEnd,
+      turnIdentity: {
+        takeAtResult: () => null,
+        takeInterruptRetirement: () => { const id = retirement; retirement = null; return id; },
+        subscribeRetirement: (callback) => { wake = callback; return () => { wake = undefined; }; },
+      },
+    })[Symbol.asyncIterator]();
+    const first = iterator.next();
+    await Promise.resolve();
+    wake?.();
+    expect((await first).value).toMatchObject({ eventType: 'turn_state', consumedClientMessageId: 'P' });
+
+    const closing = iterator.return?.();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const outcome = await Promise.race([
+        closing?.then(() => 'closed' as const),
+        new Promise<'timed-out'>((resolve) => { timer = setTimeout(() => resolve('timed-out'), 100); }),
+      ]);
+      expect(outcome).toBe('closed');
+      expect(onStreamEnd).toHaveBeenCalledTimes(1);
+    } finally {
+      if (timer) clearTimeout(timer);
+      releaseRead();
+      await closing;
+    }
+    await sourceClosed;
+  });
+
   it('emits displacement as identity-only retirement without settling the turn', async () => {
     const { transformer, messageTransformer } = makeHarness();
     let pending: string | null = 'P';

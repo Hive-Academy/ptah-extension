@@ -161,6 +161,19 @@ describe('LaneEventRowComponent', () => {
     expect(toggle.querySelector(':scope > lucide-angular')).toBeNull();
   });
 
+  it('lets a long single-line report expand so its full text is reachable by keyboard', () => {
+    const body = 'alpha.md contains only the heading "# Alpha" and nothing else in the file';
+    const fixture = TestBed.createComponent(LaneEventRowComponent);
+    fixture.componentRef.setInput('row', { ...row, events: [{ kind: 'report', body, timestamp: 1, messageId: 'long' }] });
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    const toggle = element.querySelector<HTMLButtonElement>('[data-testid="lane-event-toggle"]');
+    expect(toggle?.disabled).toBe(false);
+    toggle?.click(); fixture.detectChanges();
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(element.querySelectorAll('[data-testid="lane-event-body"] markdown')).toHaveLength(1);
+  });
+
   it('has no Open lane action even when the host can open lanes', () => {
     const fixture = TestBed.createComponent(LaneEventRowComponent);
     fixture.componentRef.setInput('row', row);

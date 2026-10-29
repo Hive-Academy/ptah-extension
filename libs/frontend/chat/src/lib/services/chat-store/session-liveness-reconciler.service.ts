@@ -41,20 +41,26 @@ export class SessionLivenessReconcilerService {
       const tabs = this.tabManager.tabs();
       untracked(() => {
         for (const { sessionId, generation } of candidates) {
+          const attempts = this.probeAttempts.get(sessionId);
           if (
             this.probedGenerations.get(sessionId) === generation ||
-            this.inFlightGenerations.get(sessionId) === generation
+            this.inFlightGenerations.get(sessionId) === generation ||
+            (attempts?.generation === generation && attempts.count >= 2)
           ) continue;
           const tab = tabs.find((item) => item.claudeSessionId === sessionId);
           if (!tab) continue;
+          this.probeAttempts.set(sessionId, {
+            generation,
+            count: attempts?.generation === generation ? attempts.count + 1 : 1,
+          });
           this.inFlightGenerations.set(sessionId, generation);
           const workspacePath =
             this.tabManager.activeWorkspacePath ??
             this.vscodeService.config().workspaceRoot ??
             undefined;
-          void this.probe(tab.id, sessionId, workspacePath).then((known) => {
+          void this.probe(tab.id, sessionId, workspacePath).then((received) => {
             if (
-              known &&
+              received &&
               this.agentMonitor.pendingHistoryCandidates().some(
                 (candidate) =>
                   candidate.sessionId === sessionId &&
@@ -71,12 +77,17 @@ export class SessionLivenessReconcilerService {
           )
             this.probedGenerations.delete(sessionId);
         }
+        for (const sessionId of this.probeAttempts.keys()) {
+          if (!candidates.some((candidate) => candidate.sessionId === sessionId))
+            this.probeAttempts.delete(sessionId);
+        }
       });
     });
   }
 
   private readonly probedGenerations = new Map<string, number>();
   private readonly inFlightGenerations = new Map<string, number>();
+  private readonly probeAttempts = new Map<string, { generation: number; count: number }>();
 
   async reconcileRestoredTabs(): Promise<void> {
     const workspacePath =
@@ -155,11 +166,11 @@ export class SessionLivenessReconcilerService {
         // Known to the backend but no turn recorded yet: live and idle.
         this.liveness.markIdle(sessionId, workspacePath);
       }
-      return known;
+      return true;
     } catch (error: unknown) {
       // degradation-audit: reported - the failure is logged and the tab stays
-      // restored; false leaves the generation unprobed, so the next candidate
-      // or tab change probes it again (there is no timed retry).
+      // restored; the reactive probe allows one retry per generation after a
+      // candidate or tab update, then waits for a new generation.
       this.logger.warn('SessionLivenessReconciler', 'probe failed', error);
       return false;
     }

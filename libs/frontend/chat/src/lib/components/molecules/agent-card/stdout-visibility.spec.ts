@@ -17,6 +17,7 @@ import {
 } from '@ptah-extension/core/testing';
 import { AgentCardComponent } from './agent-card.component';
 import { ChatStore } from '../../../services/chat.store';
+import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 
 function makeAgent(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
   return {
@@ -118,6 +119,8 @@ describe('raw stdout fallback', () => {
     await fixture.whenStable();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
 
     const output = outputOf(fixture);
     expect(output.textContent).not.toContain(
@@ -141,5 +144,55 @@ describe('raw stdout fallback', () => {
 
     const node = outputOf(fixture).querySelector('ptah-execution-node');
     expect(node?.textContent).toContain('opencode CLI exited with code 1');
+  });
+
+  const streamEvents: FlatStreamEventUnion[] = [
+    {
+      id: 'start',
+      eventType: 'message_start',
+      messageId: 'message',
+      role: 'assistant',
+      timestamp: 1000,
+    },
+    {
+      id: 'delta',
+      eventType: 'text_delta',
+      messageId: 'message',
+      blockIndex: 0,
+      delta: 'Structured answer',
+      timestamp: 1001,
+    },
+  ];
+
+  it('keeps a terminal error segment visible after stream events', async () => {
+    const fixture = await render(makeAgent({
+      status: 'failed',
+      stdout: 'Initializing sandbox environment',
+      streamEvents,
+      segments: [
+        { type: 'text', content: 'Structured answer' },
+        { type: 'error', content: 'CLI exited with code 1' },
+      ],
+    }));
+
+    const output = outputOf(fixture);
+    expect(output.textContent).toContain('CLI exited with code 1');
+    expect(output.textContent).not.toContain('Initializing sandbox environment');
+  });
+
+  it('keeps a peer message visible after stream events', async () => {
+    const fixture = await render(makeAgent({
+      stdout: 'Initializing sandbox environment',
+      streamEvents,
+      segments: [
+        { type: 'text', content: 'Structured answer' },
+        { type: 'info', content: 'Message from unverified peer "reviewer": Please check this.' },
+      ],
+    }));
+
+    const output = outputOf(fixture);
+    expect(output.textContent).toContain('Message from unverified peer');
+    expect(output.textContent).toContain('Please check this.');
+    expect(output.textContent).not.toContain('Initializing sandbox environment');
   });
 });

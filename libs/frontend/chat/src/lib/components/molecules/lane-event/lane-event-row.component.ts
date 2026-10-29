@@ -8,6 +8,9 @@ import { toUserMessageMarkdown } from '../../../utils/user-message-markdown.util
 import type { LaneEventRow } from './lane-event-row.types';
 import { deriveLaneEventPresentation, laneEventTime, parseLaneCompletion, type LaneEventMetrics, type LaneEventTone } from './lane-event-row.presentation';
 
+/** About what line 2 shows before it truncates at the narrow card minimum. */
+const LONG_SUMMARY_CHARS = 40;
+
 @Component({
   selector: 'ptah-lane-event',
   standalone: true,
@@ -43,8 +46,10 @@ export class LaneEventRowComponent {
   protected readonly completed = computed(() => this.row().events.some(event => event.kind === 'completed'));
   protected readonly lastMessageId = computed(() => this.latest().messageId);
   protected readonly bodyId = computed(() => 'lane-event-body-' + this.row().rowKey);
+  // A long one-line report is truncated on line 2, so it must expand too.
   protected readonly canExpand = computed(() => this.completed() || this.row().events.length > 1 ||
-    this.latest().body.trim() !== this.presentation().summary.trim());
+    this.latest().body.trim() !== this.presentation().summary.trim() ||
+    this.presentation().summary.length > LONG_SUMMARY_CHARS);
   protected readonly presentation = computed(() => deriveLaneEventPresentation(this.row(), this.monitorAgent(), this.laterCompleted(), this.monitorStatus()));
   protected readonly summary = computed(() => this.presentation().summary);
   protected readonly stats = computed(() => this.presentation().stats);

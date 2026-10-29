@@ -155,13 +155,25 @@ export class CliAgentOutputComponent {
     // The store appends events in place; the revision invalidates this computed.
     this.streamRevision();
     const events = this.streamEvents();
-    const tree =
-      events.length > 0
-        ? this.treeBuilder.buildTree(this.agentId(), events)
-        : this.treeBuilder.buildTreeFromSegments(
+    const tree = events.length > 0
+      ? [
+          ...this.treeBuilder.buildTree(this.agentId(), events),
+          // The CLI emits peer turns and terminal/crash errors as segments only.
+          // Keep them beside the event tree without repeating ordinary stdout.
+          ...this.treeBuilder.buildTreeFromSegments(
             this.agentId(),
-            this.treeSegments(),
-          );
+            this.treeSegments().filter(
+              (segment) =>
+                segment.type === 'error' ||
+                (segment.type === 'info' &&
+                  segment.content.startsWith('Message from unverified peer')),
+            ),
+          ),
+        ]
+      : this.treeBuilder.buildTreeFromSegments(
+          this.agentId(),
+          this.treeSegments(),
+        );
     if (!this.isStreaming()) {
       return this.treeBuilder.finalizeOrphanedTools(tree);
     }
