@@ -3657,3 +3657,150 @@ Team-leader session 23 is the only committing agent. Phase = the whole round (on
 - Files: rpc-handlers `codex-host/codex-chat-host-ports.ts` (+ spec); agent-sdk
   `prompt-harness/ptah-ui-hint.ts` only if a Codex variant must live beside the Claude hint
   (Claude text unchanged, pinned by a spec). Verify: chat path command.
+
+## Round 8p: p8i gaps (A2, I) + P8 logic/style review fixes — PARTIAL (session wrap-up; 6 of 8 batches COMMITTED; 8p-4 NOT ACCEPTED, 8p-8 PENDING; phase gate NOT RUN)
+
+Source: `live-test-p8i.md` (head 552010a4e), `code-logic-review-p8.md` (S1, S2, M1, M4, M5),
+`code-style-review-p8.md` (S1, S2, S3, M1-M3). Principle unchanged: native Codex chat produces
+exactly Claude's UI contracts; fixes only in codex-runtime -> agent-sdk codex-app-server ->
+rpc-handlers codex-host; no frontend Codex special case; no second proxy; MCP untouched.
+Team-leader (Round 8p) is the only committing agent; no push. Phase = the whole round; one
+Claude code-logic review per batch (security review for 8p-1), then the round's phase gate.
+Out of scope: D9 history after reload, GAP-F header, G6 fileChange path, GAP-3 user MCP.
+
+### Plan validation — PASSED WITH RISKS
+
+- RISK A2-1 (HIGH, new): fixing `unwrap()` alone would NOT close GAP-A. The sink gate
+  (`codex-chat-approval-sink.ts:112`) requires `proposedExecpolicyAmendment == null`, but every
+  real command approval recorded by the evidence harness carries one (spike-run-6h x3, 6j, 7a2
+  x2, 7d x2: `hasProposedExecpolicyAmendment: true`). Mitigation (Task 8p-1.2): the gate ignores
+  a PROPOSED amendment; the sink still answers plain `accept` (never an amendment decision, never
+  acceptForSession), so D20's "never an exec-policy amendment" holds. Security review confirms.
+- RISK A2-2 (MEDIUM): real argv `["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+  "-Command","<body>"]` (rollout 01a1852d). The App Server sends `command` as one string (schema
+  `CommandExecutionRequestApprovalParams.command: string|null`); the card renders
+  `"C:\...\powershell.exe" -Command '<body>'`. The exact join (quote style, doubled backslashes)
+  is not in any log. Mitigation (Task 8p-1.1): executable token unquoted, double- or
+  single-quoted; `path.win32.normalize` of it equals (case-insensitive)
+  `<SystemRoot|windir>\System32\WindowsPowerShell\v1.0\powershell.exe`, or bare
+  `powershell`/`pwsh` (`.exe` optional). Specs use the exact live argv joined both ways.
+- ASSUMPTION A2-3: the approval `cwd` is a native path (`LegacyAppPathString`); the rollout exec
+  event shows `file:///C:/...` URIs. Task 8p-1.2 converts a `file:` URI cwd with `fileURLToPath`
+  before classification; anything else unparseable still fails closed.
+- RISK I-1 (MEDIUM): GAP-I root cause confirmed. `CodexChatAdapter.resumeSession` on a closed
+  thread runs a turn with `config.prompt` (`codex-chat-adapter.ts:245,287`); Claude's resume
+  ignores `prompt` (used only on start in `sdk-agent-adapter.ts`). `chat-session.service.ts:1272`
+  then sends again -> adapter `busy` -> CODEX_BUSY. The resume turn also drops `files`/`images`.
+  Mitigation (Batch 8p-2): `autoResumeIfInactive` reports `promptDelivered` when the Codex
+  runtime resumed with the prompt; `chat:continue` skips the second send; files/images ride the
+  resume config (optional fields on `AgentSessionResumeConfig`, read by the existing
+  `'files' in config` mapping in host ports). Claude path unchanged (pinned by a spec).
+- S1 contract: Claude dismisses pending question cards via `cleanupPendingPermissions(id)` ->
+  `PERMISSION_SESSION_CLEANUP` (`sdk-permission-handler.ts:1315-1360`); the frontend
+  `cleanupSession` matches `sessionId` or `tabId`. Codex reuses that exact call when its question
+  signal aborts unanswered (Batch 8p-2).
+- Item 4 research: `thread/resume` accepts `developerInstructions`, `baseInstructions`,
+  `approvalPolicy`, `sandbox` (pinned schema `v2/ThreadResumeParams`), and `RuntimeContext.open`
+  already sends the full thread params (prompts included) on resume (`codex-runtime.ts:362-379`).
+  YES branch: fingerprint permissionLevel + sandboxPolicy + approvalPolicy only; prompts re-sent
+  on resume. Every fingerprint stored before this change mismatches the new formula and refuses
+  once ("Start a new chat"); acceptable, dev-gated runtime (as in 8o-5). Recorded as D23.
+- File-size exception: Batch 8p-5 moves two symbols across 3 libs (~7 files); splitting a move
+  would need a temporary re-export shim, which the round forbids. Accepted.
+
+Edge cases: body containing its quote char (rejected, unchanged); `-EncodedCommand`/`-File`/extra
+flags (rejected); look-alike or other-drive powershell paths (rejected); SystemRoot unset (bare
+names only); question answered after turn end (card dismissed at turn end; late answer logged);
+answer steer refused mid-turn (one `codexFollowUpRejected` error, as 8o-3); first follow-up after
+restart with attachments (delivered once, with attachments).
+
+### Batch 8p-1: GAP-A2 Windows PowerShell wrapper + sink minors — COMPLETE (commit 42cbcfa64; security-review-8p-1.md APPROVED WITH NOTES 8/10; code-logic-review-8p-1.md APPROVED 8/10)
+
+- Executor: CLI lane codex (`gpt-6-sol`), sequential. Reviews: Claude security
+  (`security-review-8p-1.md`) + code-logic (`code-logic-review-8p-1.md`). Depends on: none.
+- Task 8p-1.1 — COMPLETE: agent-sdk `codex-app-server/codex-read-only-command.ts` (+ spec):
+  RISK A2-2; `-NoProfile` optional (`-NoLogo` only after it, as today); only
+  `-Command|-c <single quoted body>`; every other rule unchanged.
+- Task 8p-1.2 — COMPLETE: agent-sdk `codex-app-server/codex-chat-approval-sink.ts` (+ spec):
+  RISK A2-1, A2-3; SystemRoot/windir passed to the classifier (injectable); M4 `seen` cleanup on
+  auto-accept and early-decline paths; M5 edit follow-up via `setImmediate` like the bridge.
+- Verify: `npm run verify -- -p @ptah-extension/agent-sdk`.
+
+### Batch 8p-2: GAP-I deliver once + S1 question card dismissal — COMPLETE (commit e8d449ab8; code-logic-review-8p-2.md APPROVED 8/10, M1/M2 moved to 8p-4)
+
+- Executor: CLI lane grok, sequential. Review: Claude code-logic (`code-logic-review-8p-2.md`).
+  Depends on: none (file-disjoint with 8p-1/8p-3).
+- Task 8p-2.1 — COMPLETE: rpc-handlers `chat/session/chat-session.service.ts` (+ spec), shared
+  `agent-adapter.types.ts`: RISK I-1 mitigation.
+- Task 8p-2.2 — COMPLETE: rpc-handlers `chat/codex-host/codex-chat-user-questions.ts` (+ spec):
+  unanswered abort -> `permissionHandler.cleanupPendingPermissions(sessionId)`.
+- Verify: `npm run verify -- -p @ptah-extension/shared,@ptah-extension/rpc-handlers`.
+
+### Batch 8p-3: resume fingerprint (D23) + typed error + refused answer (logic M1) — COMPLETE (commit f3bdd974d; code-logic-review-8p-3.md APPROVED 8/10; fix round 1: TS2322 at codex-runtime.ts:665)
+
+- Executor: CLI lane codex (`gpt-6-sol`), sequential. Review: Claude code-logic
+  (`code-logic-review-8p-3.md`). Depends on: none.
+- Task 8p-3.1 — COMPLETE: codex-runtime `codex-execution-profile.ts` (+ spec): digest =
+  permissionLevel, sandboxPolicy, approvalPolicy.
+- Task 8p-3.2 — COMPLETE: new `codex-resume-profile-error.ts` (class, code, message, guard),
+  exported from `src/index.ts`; resume frame carries instructions (spec).
+- Task 8p-3.3 — COMPLETE: `codex-runtime.ts` (+ spec): refused answer steer on a live turn emits
+  the one `codexFollowUpRejected` error; a terminal turn stays log-only.
+- Verify: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/cli-agent-runtime,@ptah-extension/gateway-chat-bridge`.
+
+### Batch 8p-4: typed resume error consumers + StreamlessFollowUpAdmission — NOT ACCEPTED, uncommitted (+ code-logic-review-8p-2 M1/M2; code-logic-review-8p-4.md APPROVED 8/10; scoped tests FAIL)
+
+- Depends on: 8p-2, 8p-3. Files: agent-sdk `codex-chat-adapter.ts`, `session-runtime-router.ts`,
+  `src/index.ts`; rpc-handlers `chat-session.service.ts`. Verify: chat path command.
+- State at wrap-up: implemented (batch-8p-4-report.md), reviewed APPROVED 8/10, left
+  UNCOMMITTED in W. Wave 2 verify (`-p codex-runtime,cli-agent-runtime,gateway-chat-bridge,
+  agent-sdk,rpc-handlers`): 15 tasks, 13 ok; 2 failures, both stale specs of this batch:
+  - `codex-chat-adapter.spec.ts:1540-1550` builds a duck-typed
+    `Object.assign(new Error(), {name, code})`; the new `instanceof` guard rejects it
+    (code `runtime-failed`). Fix: throw `new CodexResumeProfileChangedError()`.
+  - `chat-session.native.spec.ts:350-356,432,475` (4 tests) call `autoResumeIfInactive`
+    without the new `deliversFollowUp` option and expect `promptDelivered: true`. Fix: pass
+    the option where the test models chat:continue, else expect `false`.
+  - Review moderates to fold in: M1 make `deliversFollowUp` a named option (not positional
+    after a defaulted parameter); M2 comment why `codexFailure` checks code and cause.
+  - Remaining: spec fix -> re-run the chat path verify -> commit.
+
+Round-level verify evidence: Wave 1 (8p-1/2/3/7) `-p codex-runtime,cli-agent-runtime,
+gateway-chat-bridge,agent-sdk,shared,rpc-handlers` = 18/18 PASS (after the 8p-3 fix round).
+Wave 2 (8p-5, 8p-6): codex-runtime, cli-agent-runtime, gateway-chat-bridge lint/test/typecheck
+and agent-sdk/rpc-handlers lint/typecheck PASS; the only test failures are the 8p-4 specs above.
+Phase gate (degradation-audit, di-lint, host typechecks) NOT RUN (session wrap-up).
+
+### Batch 8p-5: Codex Ptah MCP constants into codex-runtime (style S2) — COMPLETE (commit 1035d575f; code-logic-review-8p-5.md APPROVED 9/10)
+
+- Depends on: 8p-3. Move `CODEX_PTAH_TOOL_TIMEOUT_SEC` and `ptahMcpSessionUrl`; no shims.
+
+### Batch 8p-6: split codex-runtime.ts (style S3, behavior-preserving) — COMPLETE (commit 7734ff47d; + 8p-3 M1 spec; code-logic-review-8p-6.md APPROVED 9/10; BOM stripped before commit)
+
+- Depends on: 8p-3. Move `RuntimeContext` to `codex-context.ts`.
+
+### Batch 8p-7: minors (session-rpc ternary, metadata-store catch marker) — COMPLETE (commit 0759012e3; code-logic-review-8p-7.md APPROVED 9/10)
+
+- Depends on: none. Small edits.
+
+### Batch 8p-8: review follow-ups (Moderates from 8p-1 / 8p-3 reviews) — PENDING
+
+Named later task per the fix-round rule (Moderates that cannot break a lane config or lose
+data). Depends on: 8p-1, 8p-3 committed.
+- security-review-8p-1 M-1: trust SystemRoot only as a single-segment drive root
+  (`X:\Name`); reject a trusted-looking executable that resolves inside the thread cwd.
+- security-review-8p-1 M-4: approvals carrying a non-empty `reason` may be sandbox-escalation
+  retries. Live evidence of whether `untrusted` read approvals carry `reason` is missing, so do
+  NOT gate on it blindly: log `hasReason` (boolean only) on auto-accept now; decide the gate in
+  the next live run (p8j). M-2 (bare powershell via PATH, pre-existing since 8o-4) and M-3
+  (`-NoProfile` optional: the user's own profile loads, as for an approved command) recorded,
+  no change.
+- code-logic-review-8p-1 M-1: skip the edit follow-up `setImmediate` when the sink is disposed;
+  M-2: spec abort/dispose during the async realpath check.
+- code-logic-review-8p-3 M1: DONE in 8p-6 (7734ff47d).
+- 8p-6 follow-up: export `CodexRuntimeOptions` in `codex-runtime/src/index.ts` from
+  `./lib/codex-context` and drop the type re-export in `codex-runtime.ts` (the re-export was
+  allowed only because 8p-5 held index.ts). `codex-context.ts` is 913 lines (class 847), still
+  over the 700-line warning; a further split is new design work, not a move.
+- code-logic-review-8p-3 M2 (optional): note in code that `normalizedHome` is the account
+  boundary now that `accountId`/`consumer` left the digest.
