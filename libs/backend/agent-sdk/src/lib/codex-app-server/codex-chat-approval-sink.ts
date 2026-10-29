@@ -93,6 +93,7 @@ export class CodexChatApprovalSink implements ApprovalSink {
     private readonly threadCwd: string | undefined = undefined,
     private readonly resolvePath: (value: string) => Promise<string> = realpath,
     private readonly systemRoot: string | undefined = process.env['SystemRoot'] ?? process.env['windir'],
+    private readonly autoAcceptReadOnly = false,
   ) {}
 
   request(
@@ -124,7 +125,7 @@ export class CodexChatApprovalSink implements ApprovalSink {
     const detailsPass = (details['kind'] === undefined || details['kind'] === 'command') &&
       details['networkApprovalContext'] == null && details['environmentId'] == null &&
       details['proposedNetworkPolicyAmendments'] == null;
-    const classified = levelIsAsk && request.kind === 'command' && detailsPass
+    const classified = this.autoAcceptReadOnly && levelIsAsk && request.kind === 'command' && detailsPass
       ? classifyReadOnlyCommand(details['command'], cwd, this.threadCwd, this.platform, { systemRoot: this.systemRoot })
       : undefined;
     if (classified && typeof cwd === 'string' && this.threadCwd)

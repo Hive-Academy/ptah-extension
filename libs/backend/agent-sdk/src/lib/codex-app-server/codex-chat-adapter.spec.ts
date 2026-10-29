@@ -58,7 +58,7 @@ function mockLogger(): Logger {
   return Object.assign(Object.create(Logger.prototype), createMockLogger());
 }
 
-function setup(override = true) {
+function setup(override: boolean | 'gateway' = true) {
   const logger = mockLogger();
   const context: jest.Mocked<CodexContext> = {
     listModels: jest.fn(async () => [
@@ -116,7 +116,10 @@ function setup(override = true) {
   });
   scope.register(CODEX_RUNTIME_TOKENS.DevRouteOverride, {
     useFactory: (): CodexDevRouteOverride | null => (
-      override ? { consumers: ['chat', 'gateway'], source: 'PTAH_CODEX_RUNTIME_DEV' } : null
+      override ? {
+        consumers: override === 'gateway' ? ['gateway'] : ['chat', 'gateway'],
+        source: 'PTAH_CODEX_RUNTIME_DEV',
+      } : null
     ),
   });
   scope.register(CODEX_RUNTIME_TOKENS.Logger, {
@@ -414,6 +417,57 @@ describe('CodexChatAdapter', () => {
     expect(lifecycle.opened).not.toHaveBeenCalled();
     expect(lifecycle.closed).not.toHaveBeenCalled();
     expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens a gateway start through the gateway gate and presents read approvals', async () => {
+    const { adapter, ports, open, sink } = setup('gateway');
+    jest.mocked(ports.profile).mockImplementation(async (_config, resumeId) => ({
+      profile: { ...profile, consumer: 'gateway' },
+      ...(resumeId ? { resume: identity } : {}),
+    }));
+    await adapter.startChatSession({ tabId, consumer: 'gateway' });
+    expect(open).toHaveBeenCalledWith(
+      expect.objectContaining({ consumer: 'gateway' }), undefined, undefined,
+    );
+    const pending = sink().request({
+      ...identity,
+      turnId: 'turn',
+      requestId: 1,
+      kind: 'command',
+      message: 'Run?',
+      details: { command: 'Get-Content README.md', cwd: 'C:\\repo' },
+    }, new AbortController().signal);
+    expect(ports.presentation.present).toHaveBeenCalledTimes(1);
+    await adapter.closeSession(id);
+    await expect(pending).resolves.toBe('decline');
+  });
+
+  it('reopens a gateway resume through the gateway gate', async () => {
+    const { adapter, ports, open } = setup('gateway');
+    jest.mocked(ports.profile).mockImplementation(async (_config, resumeId) => ({
+      profile: { ...profile, consumer: 'gateway' },
+      ...(resumeId ? { resume: identity } : {}),
+    }));
+    await adapter.resumeSession(id, { tabId, consumer: 'gateway' });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenLastCalledWith(
+      expect.objectContaining({ consumer: 'gateway' }), identity, undefined,
+    );
+    await adapter.closeSession(id);
+  });
+
+  it.each([
+    ['gateway', 'chat'],
+    ['chat', 'gateway'],
+  ] as const)('rejects %s config with a %s profile', async (consumer, profileConsumer) => {
+    const { adapter, ports, open } = setup();
+    jest.mocked(ports.profile).mockResolvedValue({
+      profile: { ...profile, consumer: profileConsumer },
+    });
+    await expect(adapter.startChatSession({ tabId, consumer })).rejects.toMatchObject({
+      code: 'identity-mismatch',
+    });
+    expect(open).not.toHaveBeenCalled();
   });
   it('retains native open and cleanup errors without changing the coded message', async () => {
     const { adapter, open, dispose, ports } = setup();

@@ -281,6 +281,61 @@ describe('RoutingAgentAdapter', () => {
     },
   );
 
+  it.each([
+    ['gateway', false, true, true],
+    ['gateway', true, false, false],
+    ['chat', false, true, false],
+    ['chat', true, false, true],
+  ] as const)(
+    'routes %s with chat capability %s and gateway capability %s',
+    async (consumer, nativeCodex, nativeCodexGateway, useNative) => {
+      const legacy = adapter();
+      const native = adapter();
+      const admission = { servingProviderId: jest.fn().mockResolvedValue('openai-codex') };
+      const router = new RoutingAgentAdapter(
+        { lookup: () => undefined }, legacy, native, admission,
+        { nativeCodex, nativeCodexGateway },
+      );
+      const config = { tabId: 'tab', consumer } as const;
+      await router.startChatSession(config);
+      expect((useNative ? native : legacy).startChatSession).toHaveBeenCalledWith(config);
+      expect((useNative ? legacy : native).startChatSession).not.toHaveBeenCalled();
+      expect(admission.servingProviderId).toHaveBeenCalledTimes(useNative ? 1 : 0);
+    },
+  );
+
+  it('rejects a prepared gateway native runtime when only chat is enabled', async () => {
+    const legacy = adapter();
+    const native = adapter();
+    const admission = { servingProviderId: jest.fn().mockResolvedValue('openai-codex') };
+    const router = new RoutingAgentAdapter(
+      { lookup: () => undefined }, legacy, native, admission,
+      { nativeCodex: true, nativeCodexGateway: false },
+    );
+    await expect(router.startChatSession({
+      tabId: 'tab', consumer: 'gateway', runtime: 'codex-app-server',
+    })).rejects.toMatchObject({
+      name: 'ChatRuntimeAdmissionError', code: 'runtime-admission-mismatch',
+    });
+    expect(admission.servingProviderId).not.toHaveBeenCalled();
+    expect(native.startChatSession).not.toHaveBeenCalled();
+    expect(legacy.startChatSession).not.toHaveBeenCalled();
+  });
+
+  it('admits a prepared gateway native runtime with its own capability', async () => {
+    const legacy = adapter();
+    const native = adapter();
+    const router = new RoutingAgentAdapter(
+      { lookup: () => undefined }, legacy, native,
+      { servingProviderId: jest.fn().mockResolvedValue('openai-codex') },
+      { nativeCodex: false, nativeCodexGateway: true },
+    );
+    const config = { tabId: 'tab', consumer: 'gateway' as const, runtime: 'codex-app-server' as const };
+    await router.startChatSession(config);
+    expect(native.startChatSession).toHaveBeenCalledWith(config);
+    expect(legacy.startChatSession).not.toHaveBeenCalled();
+  });
+
   it.each(['disabled', 'missing-adapter', 'missing-admission'] as const)(
     'rejects a prepared Codex launch with %s native support', async (missing) => {
       const legacy = adapter();

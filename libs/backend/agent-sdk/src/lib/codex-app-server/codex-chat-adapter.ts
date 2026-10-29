@@ -272,15 +272,16 @@ export class CodexChatAdapter implements NativeChatAdapter {
     let session: TrackedSession | undefined;
     let stagedId: SessionId | undefined;
     try {
+      const consumer = config.consumer ?? 'chat';
       const prepared = await this.prepareProfile(config, resumeId);
       this.checkOpening(opening, generation);
       scope = this.createScope(() => sink);
-      context = await this.openContext(scope, prepared);
+      context = await this.openContext(scope, prepared, consumer);
       const id = SessionId.from(context.identity.threadId);
       this.checkOpening(opening, generation);
       if (this.sessions.has(id))
         throw new CodexChatAdapterError('busy', 'open');
-      sink = this.buildSink(id, context, prepared.profile.cwd, () => session);
+      sink = this.buildSink(id, context, prepared.profile.cwd, () => session, consumer);
       stagedId = id;
       this.ports.sessions?.opened(id, prepared);
       this.checkOpening(opening, generation);
@@ -319,7 +320,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
   ): ReturnType<CodexChatAdapterPorts['profile']> {
     const prepared = await this.ports.profile(config, resumeId);
     if (
-      prepared.profile.consumer !== 'chat' ||
+      prepared.profile.consumer !== (config.consumer ?? 'chat') ||
       !!resumeId !== !!prepared.resume ||
       (resumeId && prepared.resume?.threadId !== resumeId)
     )
@@ -348,10 +349,11 @@ export class CodexChatAdapter implements NativeChatAdapter {
   private openContext(
     scope: CodexChatScope,
     prepared: Awaited<ReturnType<CodexChatAdapterPorts['profile']>>,
+    consumer: 'chat' | 'gateway',
   ): Promise<CodexContext> {
     const runtime = resolveGatedCodexRuntime(
       scope.container,
-      'chat',
+      consumer,
       this.ports.platform,
     );
     return runtime.open(prepared.profile, prepared.resume, prepared.secrets);
@@ -427,6 +429,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     context: CodexContext,
     threadCwd: string,
     getSession: () => TrackedSession | undefined,
+    consumer: 'chat' | 'gateway',
   ): CodexChatApprovalSink {
     const releases = new Map<string, () => void>();
     const address = (request: Parameters<ApprovalSink['request']>[0]) => ({
@@ -475,6 +478,8 @@ export class CodexChatAdapter implements NativeChatAdapter {
       this.ports.platform.platform,
       threadCwd,
       this.ports.resolveApprovalPath,
+      undefined,
+      consumer === 'chat',
     );
     return sink;
   }

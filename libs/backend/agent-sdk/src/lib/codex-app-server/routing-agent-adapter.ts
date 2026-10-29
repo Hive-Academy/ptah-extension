@@ -88,16 +88,19 @@ export class RoutingAgentAdapter implements IAgentAdapter {
     ...args: Parameters<IAgentAdapter['startChatSession']>
   ): ReturnType<IAgentAdapter['startChatSession']> {
     const preparedRuntime = args[0].runtime;
+    const nativeEnabled = args[0].consumer === 'gateway'
+      ? this.capabilities.nativeCodexGateway === true
+      : this.capabilities.nativeCodex === true;
     if (preparedRuntime) {
       if (
         preparedRuntime === 'codex-app-server' &&
-        (this.capabilities.nativeCodex !== true || !this.native || !this.admission)
+        (!nativeEnabled || !this.native || !this.admission)
       ) {
         throw new ChatRuntimeAdmissionError();
       }
       const provider = await this.admission.servingProviderId(args[0]);
       const admittedRuntime =
-        this.capabilities.nativeCodex && provider === 'openai-codex'
+        nativeEnabled && provider === 'openai-codex'
           ? 'codex-app-server'
           : 'claude-sdk';
       if (provider !== undefined && preparedRuntime !== admittedRuntime) {
@@ -109,7 +112,7 @@ export class RoutingAgentAdapter implements IAgentAdapter {
     }
     // Admission lookup failures propagate: a failed workspace lookup is not consent to switch runtimes.
     const useNative =
-      this.capabilities.nativeCodex &&
+      nativeEnabled &&
       (await this.admission.servingProviderId(args[0])) === 'openai-codex';
     return (useNative ? this.native : this.legacy).startChatSession(...args);
   }

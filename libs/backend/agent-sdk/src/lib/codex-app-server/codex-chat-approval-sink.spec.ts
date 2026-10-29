@@ -42,6 +42,7 @@ function setup(
   resolvePath: (value: string) => Promise<string> = async (value) => value,
   threadCwd: string | undefined = 'C:\\repo',
   systemRoot: string | undefined = 'C:\\Windows',
+  autoAcceptReadOnly = true,
 ) {
   const logger = mockLogger();
   const presentation = {
@@ -75,6 +76,7 @@ function setup(
       threadCwd,
       resolvePath,
       systemRoot,
+      autoAcceptReadOnly,
     ),
   };
 }
@@ -86,6 +88,36 @@ function nextPresentation(presentation: ReturnType<typeof setup>['presentation']
 }
 
 describe('CodexChatApprovalSink', () => {
+  it('defaults read-only auto-accept off for new callers', async () => {
+    const fixture = setup(() => 'ask');
+    const sink = new CodexChatApprovalSink(
+      reply.sessionId, 'context', fixture.presentation, fixture.followUp,
+      fixture.logger, () => 'ask', 'win32', 'C:\\repo', async (value) => value,
+    );
+    const pending = sink.request({
+      ...request,
+      details: { command: 'Get-Content README.md', cwd: 'C:\\repo' },
+    }, new AbortController().signal);
+    expect(fixture.presentation.present).toHaveBeenCalledTimes(1);
+    sink.dispose();
+    await expect(pending).resolves.toBe('decline');
+  });
+
+  it('presents a gateway read request when auto-accept is off', async () => {
+    const { sink, presentation } = setup(
+      () => 'ask', async (value) => value, 'C:\\repo', 'C:\\Windows', false,
+    );
+    const pending = sink.request({
+      ...request,
+      details: { command: 'Get-Content README.md', cwd: 'C:\\repo' },
+    }, new AbortController().signal);
+    expect(presentation.present).toHaveBeenCalledTimes(1);
+    expect(presentation.present).toHaveBeenCalledWith(
+      reply.sessionId, expect.objectContaining({ kind: 'command' }), CODEX_CHAT_APPROVAL_CHOICES,
+    );
+    sink.dispose();
+    await expect(pending).resolves.toBe('decline');
+  });
   it.each([
     ['level-not-ask', 'plan', 'command', { command: 'Get-Content secret.txt', cwd: 'C:\\repo' }],
     ['not-command', 'ask', 'fileChange', { command: 'Get-Content secret.txt', cwd: 'C:\\repo' }],
