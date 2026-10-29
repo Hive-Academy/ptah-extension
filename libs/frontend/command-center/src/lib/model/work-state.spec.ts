@@ -1,5 +1,4 @@
 import { workStateForStatus } from './work-state';
-import { runState } from '../components/command-center-projection.source';
 
 describe('workStateForStatus', () => {
   it.each([
@@ -23,9 +22,4 @@ describe('workStateForStatus', () => {
     expect(workStateForStatus(status)).toBe(expected);
   });
 
-  it('rolls up stopped and completed agents as cancelled', () => {
-    expect(runState([{ status: 'stopped' }, { status: 'completed' }])).toBe(
-      'cancelled',
-    );
-  });
 });

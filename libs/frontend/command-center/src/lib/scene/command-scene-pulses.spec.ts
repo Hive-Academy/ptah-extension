@@ -42,7 +42,6 @@ const sceneNode = (
   kind: id === 'root' ? 'root' : 'delegate',
   label: id,
   labelRect: null,
-  phases: [],
 });
 const layout = (
   states: Record<string, CommandWorkNode['state']>,

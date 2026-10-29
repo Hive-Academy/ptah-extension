@@ -1,28 +1,4 @@
-/**
- * Prompt routing across EVERY Setup Hub workflow (TASK_2026_317).
- *
- * The reported bug was "New Project questions land on an unrelated canvas
- * tile", but the user's read was broader: it happens "with all the workflows in
- * our setup page". So this suite enumerates the four surface shapes the Setup
- * Hub can put on screen and pins what each one must do with a prompt. They are
- * genuinely different shapes, not four copies of one:
- *
- *   | Setup Hub card      | host                    | claim | surface        |
- *   | ------------------- | ----------------------- | ----- | -------------- |
- *   | New Project         | HarnessWorkflowService  | yes   | interactive    |
- *   | AI Team Builder     | HarnessWorkflowService  | yes   | interactive    |
- *   | Workspace Analysis  | SetupWizardStateService | no    | background     |
- *   | Tribunal            | TribunalRunService      | yes   | never adapted  |
- *
- * Tribunal is the trap: it claims its CONDUCTOR TAB's id against a `SurfaceId`
- * it never registers an adapter for — the claim is a marker, and the conductor
- * is a normal chat tab that must keep routing as one. Any "is it claimed?"
- * check that skips the interactive gate hides the conductor's own prompts.
- *
- * The wizard is the other end: its phases run `bypassPermissions` with no
- * `canUseTool`, so they cannot raise a prompt at all — and if one ever appears,
- * auto-answering it is the correct full-auto behaviour, not a regression.
- */
+/** Prompt routing across interactive and background Setup Hub surfaces. */
 
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
@@ -399,70 +375,12 @@ describe('StreamRouter — prompt routing across every Setup Hub workflow', () =
     });
   });
 
-  // ── Tribunal ─────────────────────────────────────────────────────────────
-
-  describe('Tribunal (conductor tab claimed against an unregistered surface)', () => {
-    /** `TribunalRunService.prepare` — a REAL tab, claimed, surface never adapted. */
-    function prepareTribunal(): { conductorTab: TabId; surfaceId: SurfaceId } {
-      const conductorTab = TabId.create();
-      const surfaceId = SurfaceId.create(); // deliberately never registered
-      claims.claim(conductorTab as string, surfaceId);
-      router.onTabCreated(conductorTab, REAL_SESSION);
-      return { conductorTab, surfaceId };
-    }
-
-    it('routes the conductor’s question to its TAB, not to the claimed surface', () => {
-      const { conductorTab } = prepareTribunal();
-
-      const targets = router.routeQuestionPrompt(
-        makeQuestion({
-          id: 'q-tribunal',
-          tabId: conductorTab as string,
-          sessionId: REAL_SESSION as unknown as string,
-        }),
-      );
-
-      expect(targets).toEqual([conductorTab]);
-      expect(permissionHandler._questionTargets.get('q-tribunal')).toEqual([
-        conductorTab,
-      ]);
-    });
-
-    it('routes the conductor’s permission prompt to its TAB', () => {
-      const { conductorTab } = prepareTribunal();
-
-      const targets = router.routePermissionPrompt(
-        makePermission({
-          id: 'p-tribunal',
-          tabId: conductorTab as string,
-          sessionId: REAL_SESSION as unknown as string,
-        }),
-      );
-
-      expect(targets).toEqual([conductorTab]);
-      expect(permissionHandler.handlePermissionResponse).not.toHaveBeenCalled();
-    });
-
-    it('is NOT reported as owned by an interactive surface — the chat-view fallback must stay live for it', () => {
-      const { conductorTab } = prepareTribunal();
-
-      expect(
-        router.interactiveSurfaceOwning({
-          tabId: conductorTab as string,
-          sessionId: REAL_SESSION as unknown as string,
-        }),
-      ).toBeNull();
-    });
-  });
-
-  // ── cross-talk ───────────────────────────────────────────────────────────
-
   describe('two workflows live at once', () => {
-    it('a harness question and a tribunal question each reach their own owner', () => {
+    it('a harness question and a chat tab question each reach their own owner', () => {
       const { correlationId, surfaceId } = startHarnessWorkflow();
-      const conductorTab = TabId.create();
-      claims.claim(conductorTab as string, SurfaceId.create());
-      router.onTabCreated(conductorTab, OTHER_SESSION);
+      const chatTab = TabId.create();
+      claims.claim(chatTab as string, SurfaceId.create());
+      router.onTabCreated(chatTab, OTHER_SESSION);
 
       router.routeQuestionPrompt(
         makeQuestion({
@@ -473,8 +391,8 @@ describe('StreamRouter — prompt routing across every Setup Hub workflow', () =
       );
       router.routeQuestionPrompt(
         makeQuestion({
-          id: 'q-conductor',
-          tabId: conductorTab as string,
+          id: 'q-chat-tab',
+          tabId: chatTab as string,
           sessionId: OTHER_SESSION as unknown as string,
         }),
       );
@@ -482,8 +400,8 @@ describe('StreamRouter — prompt routing across every Setup Hub workflow', () =
       expect(permissionHandler._questionTargets.get('q-harness')).toEqual([
         surfaceId,
       ]);
-      expect(permissionHandler._questionTargets.get('q-conductor')).toEqual([
-        conductorTab,
+      expect(permissionHandler._questionTargets.get('q-chat-tab')).toEqual([
+        chatTab,
       ]);
     });
 

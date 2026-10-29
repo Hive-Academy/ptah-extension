@@ -1,6 +1,6 @@
 ---
 name: tribunal
-description: 'Multi-vendor peer panel (Council, Forge, Race, Crucible) across installed CLI vendors. Use for second opinions, cross-vendor review, model debates, competing implementations or judged attempts, and Tribunal UI launches. Not the default build workflow — use orchestration.'
+description: 'Multi-vendor peer panel (Council, Forge, Race, Crucible) across installed CLI vendors. Use for second opinions, cross-vendor review, model debates, competing implementations, judged attempts, or a named Tribunal mode (Council, Forge, Race, Crucible, Relay) in main chat. Not the default build workflow — use orchestration.'
 ---
 
 # Tribunal
@@ -21,12 +21,13 @@ Do not use Tribunal as the default development workflow.
 
 ## Preflight (always first)
 
-1. **Explicit panel?** If the prompt lists `[tribunal:<laneId>] … ptah_agent_spawn({ … })` lines, the
-   user built the panel in the Tribunal UI: spawn those lanes verbatim
-   ([vendor-panel.md §0](references/vendor-panel.md#0-explicit-panel-from-the-tribunal-ui)).
+1. **Read the user's mode and pins in main chat.** If the user names lanes, models or roles in plain text,
+   resolve each pin against `ptah_agent_list` in the given order, including duplicates
+   ([vendor-panel.md section 0](references/vendor-panel.md#0-explicit-panel-from-the-user)).
 2. **Otherwise discover** and build the panel by family spread
-   ([vendor-panel.md §1–2](references/vendor-panel.md#1-panelists-and-families)).
-3. **Announce** the panel, rounds and call count before spending.
+   ([vendor-panel.md sections 1-2](references/vendor-panel.md#1-panelists-and-families)).
+3. **Present** the resolved panel, rounds and expected paid call count; get the user's confirmation
+   before any `ptah_agent_spawn`. Report unavailable or AT LIMIT pins without substitution.
 4. **Fewer than 2 families** → say so; offer single-voice or stop. A tribunal of one is not a tribunal.
 
 ## The four moves
@@ -48,9 +49,9 @@ different family scores it against a rubric frozen before the first spawn and re
 defects plus a mentor note; the executor revises until `PASS`, a regression stop, or the round cap.
 → [references/crucible.md](references/crucible.md)
 
-**Relay** is no longer a tribunal move: running plan → architect → implement → review on CLI lanes is
-orchestration with every phase assigned to a lane. A Relay launch from the Tribunal UI →
-[references/relay.md](references/relay.md).
+**Relay — phased lane workflow.** Invoke Relay through the `tribunal` skill in main chat.
+Orchestration owns plan → architect → implement → review, with each phase assigned to a lane.
+→ [references/relay.md](references/relay.md).
 
 ## The Conductor
 
@@ -76,11 +77,11 @@ answer and says so.
 | --- | --- |
 | [vendor-panel.md](references/vendor-panel.md) | Every move |
 | [council.md](references/council.md) · [forge.md](references/forge.md) · [race.md](references/race.md) · [crucible.md](references/crucible.md) | Running that move |
-| [relay.md](references/relay.md) | A Relay launch from the Tribunal UI |
+| [relay.md](references/relay.md) | Running Relay from main chat |
 
 ## Requires
 
 - `agent-lanes` — every move. If it is not installed, tell the user to enable the `agent-lanes`
   skill; do not improvise lane rules.
-- `orchestration` — Relay launches, and the task-folder rules Crucible writes into. If it is not
+- `orchestration` — Relay runs, and the task-folder rules Crucible writes into. If it is not
   installed, say which skill to enable before running either.

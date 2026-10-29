@@ -560,15 +560,6 @@ describe('CommandVoiceLoop', () => {
     expect(armed).not.toHaveBeenCalled();
   });
 
-  it('only guards speech as a roster while the roster card is shown', () => {
-    const { loop } = frameLoop();
-    loop.onRosterProposal('Roster', true);
-    expect(loop['pendingRoster']).toBe(true);
-    loop.setRosterPending(false);
-    expect(loop['pendingRoster']).toBe(false);
-    loop.setRosterPending(true);
-    expect(loop['pendingRoster']).toBe(true);
-  });
 
   function frameLoop(isIndependentSpeech?: () => boolean): {
     loop: CommandVoiceLoop;
@@ -856,44 +847,6 @@ describe('CommandVoiceLoop', () => {
     expect(coordinator.send).not.toHaveBeenCalled();
   });
 
-  it('blocks roster speech and resumes ordinary question answers after resolution', async () => {
-    const answerOrdinaryQuestion = jest.fn().mockReturnValue(true);
-    const send = jest.fn();
-    const setToast = jest.fn();
-    const store = Object.assign(Object.create(null) as CommandCenterStore, {
-      ...captionStub(),
-      pendingInput: () => ({ kind: 'question' }),
-      setToast,
-      setVoiceState: jest.fn(),
-      resetLevels: jest.fn(),
-    });
-    const rpc = Object.assign(Object.create(null) as ClaudeRpcService, {
-      call: jest.fn().mockResolvedValue({
-        success: true,
-        data: { ok: true, transcript: 'yes, confirm' },
-      }),
-    });
-    const loop = new CommandVoiceLoop(
-      store,
-      Object.assign(Object.create(null) as CommandCenterSessionCoordinator, {
-        send,
-      }),
-      rpc,
-      { answerOrdinaryQuestion, sendTranscript: send },
-    );
-    loop.onRosterProposal('Confirm the roster.', true);
-    loop['active'] = true;
-    await loop['onClip']({ audioBase64: 'AA==', mimeType: 'audio/wav' });
-    expect(answerOrdinaryQuestion).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
-    expect(setToast).toHaveBeenCalledWith({
-      message: 'Confirm or decline the roster on the card.',
-      tone: 'error',
-    });
-    loop.onRosterResolved();
-    await loop['onClip']({ audioBase64: 'AA==', mimeType: 'audio/wav' });
-    expect(answerOrdinaryQuestion).toHaveBeenCalledWith('yes, confirm');
-  });
 
   it('records one VAD-close-to-play mark per reply with cold, barge-in and warm labels', async () => {
     let now = 0;

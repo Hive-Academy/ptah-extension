@@ -21,12 +21,9 @@ import {
 } from '@ptah-extension/ui';
 import {
   Bot,
-  CircleDot,
   GitBranch,
   LucideAngularModule,
-  Shield,
   Sparkles,
-  Terminal,
 } from 'lucide-angular';
 import type { LucideIconData } from 'lucide-angular';
 import { ContextRingComponent } from '@ptah-extension/chat-ui';
@@ -38,8 +35,6 @@ import { CommandOverlayPositioner } from './command-overlay-positioner';
 import {
   CommandNodeDetailComponent,
   type CommandChildStats,
-  type CommandPhaseCount,
-  phaseCountOf,
 } from './command-node-detail.component';
 import { stateBorder, stateColor, stateIcon } from './command-state-icon';
 
@@ -210,7 +205,6 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
             <ptah-command-node-detail
               class="min-w-0 flex-1"
               [node]="node"
-              [phaseCount]="phaseCount(node.id)"
               [childStats]="childStats()[node.id] ?? null"
               [now]="now()"
               [reducedMotion]="reducedMotion()"
@@ -261,18 +255,12 @@ export class CommandOverlayComponent {
     root: Sparkles,
     child: GitBranch,
     agent: Bot,
-    tribunal: Shield,
-    lane: Terminal,
-    phase: CircleDot,
   } satisfies Record<CommandWorkNode['kind'], LucideIconData>;
 
   public kindIcon(node: CommandWorkNode): LucideIconData {
     return this.kindIcons[node.kind];
   }
 
-  public phaseCount(nodeId: string): CommandPhaseCount | null {
-    return phaseCountOf(this.projection().nodes, nodeId);
-  }
 
   private readonly floating = inject(FloatingUIService);
   private readonly zone = inject(NgZone);

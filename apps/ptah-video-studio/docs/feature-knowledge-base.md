@@ -58,11 +58,11 @@ Welcome → Scan → Analysis → Selection → **Enhance** → **Generation** �
   - **Tier 2 — subagents (senior leads):** 14-15 specialists (`references/agent-catalog.md`) that retain full reasoning.
   - **Tier 3 — CLI agents (junior helpers):** `ptah-cli`, `codex`, `copilot` — **no shared context**, fully self-contained prompts.
 - **Spawn → Poll → Read** via real MCP tools (`ptah_agent_spawn/status/read/list/steer/stop`). Interrupted agents **resume** via `resume_session_id` (ptah-cli + copilot; codex ephemeral). **Max 3 concurrent** CLI agents; priority **ptah-cli > codex > copilot**.
-- **Multi-vendor `tribunal`** rides `agent-sdk`'s single `IAIProvider` adapter: **Council** (debate → cited verdict), **Forge** (per-vendor git worktrees → cross-review → merge winner), **Race** (N attempts, verify winner before commit), **Relay** (plan→architect→implement→review across vendor lanes).
+- **Multi-vendor `tribunal` skill** runs from main chat across installed CLI lanes: Council debates, Forge cross-reviews isolated implementations, Race verifies a winner, Crucible pairs an executor with an independent judge, and Relay assigns orchestration phases to lanes. The conductor announces the pinned panel and paid call count and waits for confirmation before spawning.
 
 **Why SaaS-from-day-one:** parallelism on boilerplate (3 CLI agents at once), specialist quality gates for the SaaS-critical decisions (auth, multitenancy), **structural** adversarial review (`code-logic-reviewer` before every commit; Forge/Race add cross-vendor gates), and decomposition that scales as the team grows.
 
-**On-screen facts:** ✅ 8 task types · 3 depths · 3-tier model · max 3 concurrent CLI agents · ptah-cli > codex > copilot · 4 tribunal moves · vendors: Codex, Copilot, Cursor, Kimi Code, Z.AI GLM, Ollama Cloud, OpenRouter.
+**On-screen facts:** 8 task types; 3 depths; 3-tier model; CLI lanes are discovered at run time; Tribunal is requested in chat.
 
 **Visual metaphors:** (1) **Conductor + orchestra pit** — podium figure (Claude), front-row lit stands (senior specialists), dimmer back-row session players (CLI vendors); baton lights 8/5/2 stands for Full/Partial/Minimal. (2) **Assembly line + 3 junior robot arms** (concurrency cap = 3 glowing slots, each with a countdown/timeout + status strip). (3) **Panel of judges / relay baton** — four frosted-glass vendor booths, each building in a sealed terrarium (worktree); gavel merges one, others dissolve.
 

@@ -25,7 +25,7 @@ export type CommandWorkState =
 
 export interface CommandWorkNode {
   readonly id: string;
-  readonly kind: 'root' | 'child' | 'agent' | 'tribunal' | 'lane' | 'phase';
+  readonly kind: 'root' | 'child' | 'agent';
   readonly agentKind?: 'cli' | 'sdk';
   readonly parentId: string | null;
   readonly label: string;

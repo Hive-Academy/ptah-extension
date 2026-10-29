@@ -56,7 +56,6 @@
     "@ptah-extension/thoth-runtime": 36.833,
     "@ptah-extension/thoth-shell": 14.564,
     "@ptah-extension/tool-output-reducers": 85.368,
-    "@ptah-extension/tribunal-panel": 47.17,
     "@ptah-extension/ui": 145.243,
     "@ptah-extension/usage-analytics": 0.456,
     "@ptah-extension/voice-providers": 0.713,

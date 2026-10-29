@@ -34,7 +34,6 @@ import {
   RefreshCw,
   ArrowLeft,
   Rocket,
-  Scale,
   Mic,
   X,
   PlayCircle,
@@ -800,63 +799,6 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
               </div>
             </div>
 
-            <!-- ── Card 4: Tribunal ── -->
-            <div
-              class="group relative rounded-xl p-px cursor-pointer
-                     bg-gradient-to-br from-accent/20 via-base-300/50 to-accent/10
-                     hover:from-accent/40 hover:via-accent/15 hover:to-accent/30
-                     transition-all duration-300 ease-out
-                     card-enter card-enter-delay-4
-                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-              (click)="conveneTribunal()"
-              (keydown.enter)="conveneTribunal()"
-              role="button"
-              tabindex="0"
-              aria-label="Convene a Tribunal"
-            >
-              <div
-                class="rounded-[11px] bg-base-200 p-5 h-full flex flex-col gap-4
-                       transition-colors duration-300 ease-out group-hover:bg-base-200/80"
-              >
-                <div class="flex items-start justify-between">
-                  <div class="relative">
-                    <div
-                      class="relative w-11 h-11 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center"
-                    >
-                      <lucide-angular
-                        [img]="ScaleIcon"
-                        class="w-5 h-5 text-accent"
-                        aria-hidden="true"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h2 class="text-lg font-bold text-base-content">Tribunal</h2>
-                  <p class="text-sm text-base-content-muted mt-1">
-                    Put your AI vendors on one panel — run a Council, Forge, or
-                    Race and compare them side by side.
-                  </p>
-                </div>
-
-                <button
-                  class="btn btn-sm w-full mt-auto gap-1
-                         bg-gradient-to-r from-accent/10 to-accent/5
-                         border border-accent/20
-                         hover:border-accent/40 hover:from-accent/20 hover:to-accent/10
-                         text-base-content font-medium transition-all duration-200"
-                >
-                  Convene a Tribunal
-                  <lucide-angular
-                    [img]="ChevronRightIcon"
-                    class="w-3.5 h-3.5"
-                    aria-hidden="true"
-                  />
-                </button>
-              </div>
-            </div>
-
             @if (isElectron) {
               <div
                 class="group relative rounded-xl p-px cursor-pointer
@@ -1338,7 +1280,6 @@ export class SetupHubComponent implements OnInit {
   protected readonly RefreshIcon = RefreshCw;
   protected readonly ArrowLeftIcon = ArrowLeft;
   protected readonly RocketIcon = Rocket;
-  protected readonly ScaleIcon = Scale;
   protected readonly MicIcon = Mic;
   protected get isElectron(): boolean {
     return this.vscode.isElectron;
@@ -1526,10 +1467,6 @@ export class SetupHubComponent implements OnInit {
       mode: 'configure-harness',
     });
     this.reportEntryOutcome(outcome);
-  }
-
-  conveneTribunal(): void {
-    this.appState.setCurrentView('tribunal');
   }
 
   openCommandCenter(): void {

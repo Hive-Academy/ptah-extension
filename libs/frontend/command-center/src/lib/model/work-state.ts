@@ -1,6 +1,6 @@
 import type { CommandWorkState } from './command-center.store';
 
-/** Shared mapping for monitored agents, lanes, and run roll-ups. */
+/** Shared mapping for monitored agents and sessions. */
 export function workStateForStatus(status: string): CommandWorkState {
   switch (status) {
     case 'streaming':

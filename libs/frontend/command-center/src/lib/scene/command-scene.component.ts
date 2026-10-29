@@ -73,8 +73,8 @@ function paletteName(
   providerId: string | null,
   nodeKind: CommandWorkNode['kind'],
 ): string {
-  if (kind === 'root' || kind === 'tribunal') return 'gold';
-  if (kind === 'satellite' || nodeKind === 'child') return 'silver';
+  if (kind === 'root') return 'gold';
+  if (nodeKind === 'child') return 'silver';
   const id = providerId?.toLowerCase() ?? '';
   if (id.includes('grok')) return 'teal';
   if (id.includes('opencode')) return 'plum';

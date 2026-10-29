@@ -586,7 +586,7 @@ export class StreamRouter {
    *   2. `ClaudeSessionId` — the SDK's UUID, resolvable through
    *      `ConversationRegistry` once the session has reported it.
    *   3. A workflow CORRELATION id — minted by a surface host (New Project,
-   *      harness builder, tribunal) and handed to `chat:start` as `tabId`.
+   *      harness builder) and handed to `chat:start` as `tabId`.
    *
    * The backend puts the correlation id on BOTH `tabId` and `sessionId` of
    * every prompt it raises: `SdkQueryOptionsBuilder` derives its routing ids
@@ -605,19 +605,13 @@ export class StreamRouter {
    *
    * Returns null unless the claimed surface is also registered INTERACTIVE —
    * a background surface has no card to render on, and the existing
-   * auto-answer / auto-deny guards below must keep owning that case. Two live
-   * claimants depend on that gate:
+   * auto-answer / auto-deny guards below must keep owning that case. A live
+   * claimant depends on that gate:
    *   - the setup wizard's analysis phases register non-interactive surfaces
    *     (their queries run `bypassPermissions` with no `canUseTool`, so they
    *     cannot raise a prompt at all);
-   *   - Tribunal claims its CONDUCTOR TAB's id against a `SurfaceId` it never
-   *     registers an adapter for — the claim is a marker, and the conductor is
-   *     a normal chat tab that must keep routing as one.
-   *
    * Public because `chat-view` needs the same verdict to decide whether its
    * active-tile fallback should stand down. One rule, one implementation:
-   * duplicating the gate is how Tribunal's tab-shaped claim would have started
-   * suppressing cards that only the tab could show.
    */
   interactiveSurfaceOwning(prompt: {
     readonly tabId?: string;
@@ -638,7 +632,7 @@ export class StreamRouter {
    *
    * Question routing's surface counterpart to `tabsForSession`. A surface is
    * a valid question target only when its host registered it as interactive
-   * (harness workflow, tribunal conductor) — background surfaces run full-auto
+   * (harness workflow) — background surfaces run full-auto
    * and have no card to render on. Returns an empty array when the session is
    * unknown to the registry or every bound surface is non-interactive.
    */

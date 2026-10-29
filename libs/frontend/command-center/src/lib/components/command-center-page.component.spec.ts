@@ -13,7 +13,6 @@ import {
   type CommandWorkNode,
 } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
-import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
 import { CommandSceneComponent } from '../scene/command-scene.component';
 import { CommandOverlayComponent } from './command-overlay.component';
 import { CommandPendingInputComponent } from './command-pending-input.component';
@@ -114,7 +113,6 @@ describe('CommandCenterPageComponent', () => {
   const hoveredNodeId = signal<string | null>(null);
   const canvasUnavailable = signal(false);
   const now = signal(1_000);
-  const pendingProposal = signal<TribunalRosterProposal | null>(null);
   const recordWriteFailure = signal<{
     workspacePath: string;
     record: 'lastSession';
@@ -126,16 +124,11 @@ describe('CommandCenterPageComponent', () => {
     hoveredNodeId,
     canvasUnavailable,
     now,
-    pendingProposal,
-    shownProposal: computed(() =>
-      store.pendingInput()?.kind === 'approval' ? null : pendingProposal(),
-    ),
     recordWriteFailure,
     turnAbortable: signal(false),
     shownSessionStatus: computed(() => store.sessionStatus()),
     darkMode: signal(true),
     toggleTheme: jest.fn(),
-    rosterTimedOut: signal(false),
     ordinaryQuestion: signal(null),
     ordinaryChoices: signal<readonly string[]>([]),
     coordinator: {
@@ -160,15 +153,12 @@ describe('CommandCenterPageComponent', () => {
     },
     open: jest.fn(async (): Promise<string | null> => 'root-tab'),
     exit: jest.fn(async () => undefined),
-    confirmProposal: jest.fn(async (_id: string) => undefined),
-    declineProposal: jest.fn((_id: string) => undefined),
     answerOrdinaryQuestion: jest.fn(),
     answerPermission: jest.fn(),
     startVoice: jest.fn(),
     stopVoice: jest.fn(),
     toggleMuteVoice: jest.fn(),
     retrySpeech: jest.fn(),
-    retryInvalidDecline: jest.fn(),
     interruptSpeech: jest.fn(),
     openVoiceSettings: jest.fn(),
     sendCommand: jest.fn(),
@@ -184,7 +174,6 @@ describe('CommandCenterPageComponent', () => {
     hoveredNodeId.set(null);
     canvasUnavailable.set(false);
     now.set(1_000);
-    pendingProposal.set(null);
     store.setPendingInput(null);
     store.setVoiceError(null);
     recordWriteFailure.set(null);
@@ -470,12 +459,6 @@ describe('CommandCenterPageComponent', () => {
       nodes: [
         nodes[0],
         { ...nodes[1], state: 'starting' },
-        {
-          ...nodes[1],
-          id: 'phase:one',
-          kind: 'phase',
-          state: 'awaiting input',
-        },
         { ...nodes[1], id: 'child:two', state: 'awaiting input' },
         { ...nodes[1], id: 'child:three', state: 'running' },
       ],
@@ -486,7 +469,7 @@ describe('CommandCenterPageComponent', () => {
     const caption = fixture.nativeElement.querySelector(
       '.stage .stats-band .stage-caption p:nth-child(2)',
     ) as HTMLElement;
-    expect(caption.textContent).toContain('5 nodes');
+    expect(caption.textContent).toContain('4 nodes');
     expect(caption.textContent).toContain('1 running');
     expect(caption.textContent).toContain('1 waiting');
     projection.set({ nodes: [{ ...nodes[0], state: 'completed' }], edges: [] });
@@ -1014,37 +997,6 @@ describe('CommandCenterPageComponent', () => {
     fixture.destroy();
   });
 
-  it('passes the roster proposal to the pending card and routes confirm and decline', () => {
-    const proposal: TribunalRosterProposal = {
-      proposalId: 'p1',
-      nonce: 'nonce',
-      rootSessionId: 'session',
-      move: 'council',
-      options: ['Decline', 'Confirm'],
-      objective: 'Review',
-      rounds: 1,
-      lanes: [
-        {
-          laneId: 'codex#1',
-          family: 'codex',
-          displayName: 'Codex',
-          cli: 'codex',
-        },
-      ],
-    };
-    pendingProposal.set(proposal);
-    const fixture = TestBed.createComponent(CommandCenterPageComponent);
-    fixture.detectChanges();
-    const card = fixture.debugElement.query(
-      By.directive(CommandPendingInputComponent),
-    ).componentInstance as CommandPendingInputComponent;
-    expect(card.proposal()).toBe(proposal);
-    card.confirm.emit(proposal);
-    card.decline.emit('p1');
-    expect(controller.confirmProposal).toHaveBeenCalledWith('p1');
-    expect(controller.declineProposal).toHaveBeenCalledWith('p1');
-    fixture.destroy();
-  });
 
   it('routes approval card decisions to permission response only', () => {
     store.setPendingInput({
@@ -1122,30 +1074,6 @@ describe('CommandCenterPageComponent', () => {
     expect(controller.answerOrdinaryQuestion).toHaveBeenCalledTimes(2);
     fixture.destroy();
     store.setPendingInput(null);
-  });
-  it('offers the Decline retry action and catches initial open failures with fixed text', async () => {
-    controller.open.mockRejectedValueOnce(new Error('secret detail'));
-    const fixture = TestBed.createComponent(CommandCenterPageComponent);
-    fixture.detectChanges();
-    await Promise.resolve();
-    expect(store.toast()?.message).toBe(
-      'Could not open the Command Center session.',
-    );
-    expect(store.toast()?.message).not.toContain('secret');
-    store.setToast({
-      tone: 'error',
-      message: 'Retry the Decline.',
-      action: 'retry-decline',
-    });
-    fixture.detectChanges();
-    const button = [
-      ...fixture.nativeElement.querySelectorAll('.alert button'),
-    ].find((item: HTMLButtonElement) =>
-      item.textContent?.includes('Retry Decline'),
-    ) as HTMLButtonElement;
-    button.click();
-    expect(controller.retryInvalidDecline).toHaveBeenCalledTimes(1);
-    fixture.destroy();
   });
 
   it('reopens for an explicit Status click before sending', async () => {

@@ -271,8 +271,8 @@ export interface AppState {
  * webview — which is single-root and never switches — every slice read and
  * write stays on this key for the lifetime of the webview.
  *
- * Mirrors `IMPLICIT_WORKSPACE_PATH` in `CanvasStore` and
- * `TribunalStateService`, the two surfaces already partitioned this way.
+ * Mirrors `IMPLICIT_WORKSPACE_PATH` in `CanvasStore` and other workspace state
+ * already partitioned this way.
  */
 const IMPLICIT_WORKSPACE_PATH = '';
 
@@ -373,7 +373,7 @@ export class AppStateManager implements MessageHandler {
    * Per-workspace view slices, keyed by workspace path (or
    * {@link IMPLICIT_WORKSPACE_PATH} before the first switch). Session state is
    * workspace-partitioned (`TabManagerService`, `SessionLoaderService`, the
-   * editor services, `CanvasStore`, `TribunalStateService`); the view pointer
+   * editor services and `CanvasStore`); the view pointer
    * has to be too, or a switch lands the user on the previous workspace's
    * surface rendered against the new workspace's — now empty — state.
    */
@@ -583,14 +583,15 @@ export class AppStateManager implements MessageHandler {
   ): Promise<SurfaceNavigationResult> {
     const generation = ++this._navigationGeneration;
     const workspacePath = this._activeWorkspacePath();
+    const target = this.normalizeInitialView(surface);
 
     const navigation = this.surfaceRouter.navigateToSurface(
-      surface,
+      target,
       subPath,
       extras,
     );
     void navigation.then((result) =>
-      this.recordSettledSurface(generation, workspacePath, surface, result),
+      this.recordSettledSurface(generation, workspacePath, target, result),
     );
     return navigation;
   }
@@ -939,8 +940,7 @@ export class AppStateManager implements MessageHandler {
   /**
    * Drop a closed workspace's view slice. Without this a workspace removed and
    * later re-added would resurrect the view it was closed on. Mirrors the
-   * slice cleanup `CanvasStore` and `TribunalStateService` do on
-   * `removedWorkspace$`.
+   * slice cleanup `CanvasStore` does on `removedWorkspace$`.
    */
   removeWorkspaceState(workspacePath: string): void {
     this._viewSlices.update((slices) => {
@@ -1031,11 +1031,11 @@ export class AppStateManager implements MessageHandler {
 
   handleInitialData(data: {
     workspaceInfo?: WorkspaceInfo;
-    currentView?: ViewType;
+    currentView?: string;
   }): void {
     if (data.workspaceInfo) this.setWorkspaceInfo(data.workspaceInfo);
     if (data.currentView) {
-      void this.requestSurface(this.normalizeView(data.currentView));
+      void this.requestSurface(this.normalizeInitialView(data.currentView));
     }
     this.setConnected(true);
   }
@@ -1440,7 +1440,7 @@ export class AppStateManager implements MessageHandler {
    * Open Settings already pointed at `tab`.
    *
    * Replaces `WebviewNavigationService.navigateToSettingsTab`, which was the
-   * only reason three Tribunal wizard steps injected that service. Guarded
+   * only reason three setup wizard steps injected that service. Guarded
    * before the request is raised — the same shape as
    * {@link openSkillsDivergedClones} — so a switch dropped while disconnected
    * or loading cannot leave a pending tab request that fires later against

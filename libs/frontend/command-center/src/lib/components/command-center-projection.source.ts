@@ -1,18 +1,10 @@
 import { Injectable, inject } from '@angular/core';
 import { ChatStore } from '@ptah-extension/chat';
 import { CLI_PROVIDER_MARK_IDS } from '@ptah-extension/chat-ui';
-import {
-  CommandCenterRecordsService,
-  TabManagerService,
-} from '@ptah-extension/chat-state';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
 import { PROVIDER_BRAND_SLUGS, PROVIDER_MARKS } from '@ptah-extension/ui';
-import type {
-  PhaseDerivationInput,
-  VendorLane,
-} from '@ptah-extension/tribunal-panel/phase';
-import type { CommandWorkState } from '../model/command-center.store';
 import { workStateForStatus } from '../model/work-state';
 import type { ProjectionInput } from '../model/work-projection';
 
@@ -54,36 +46,12 @@ function tabProvider(tab: TabState | undefined): string | undefined {
   );
 }
 
-const RUN_LAUNCH_WINDOW_MS = 2 * 60 * 1000;
-
-export function runState(
-  agents: readonly { readonly status: string }[],
-  startedAt: number,
-  now: number,
-): CommandWorkState {
-  if (agents.length === 0)
-    return startedAt - now <= RUN_LAUNCH_WINDOW_MS &&
-      Math.max(0, now - startedAt) < RUN_LAUNCH_WINDOW_MS
-      ? 'starting'
-      : 'unknown';
-  const states = agents.map((agent) => workStateForStatus(agent.status));
-  if (states.includes('running')) return 'running';
-  if (states.includes('failed')) return 'failed';
-  if (states.includes('awaiting input')) return 'awaiting input';
-  if (states.includes('starting')) return 'starting';
-  if (states.includes('queued')) return 'queued';
-  if (states.includes('unknown')) return 'unknown';
-  if (states.includes('cancelled')) return 'cancelled';
-  return 'completed';
-}
-
 // eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- page-scoped provider
 @Injectable()
 export class CommandCenterProjectionSource {
   private readonly tabs = inject(TabManagerService);
   private readonly chat = inject(ChatStore);
   private readonly monitor = inject(AgentMonitorStore);
-  private readonly records = inject(CommandCenterRecordsService);
 
   public input(
     root: { tabId: string; sessionId: string },
@@ -161,7 +129,6 @@ export class CommandCenterProjectionSource {
         providerId: cliProvider(agent.cli, agent.ptahCliId),
         displayName: agent.displayName,
         task: agent.task,
-        runId: agent.workflowRunId,
         startedAt: agent.startedAt,
         updatedAt: agent.completedAt ?? agent.startedAt,
       }));
@@ -177,68 +144,9 @@ export class CommandCenterProjectionSource {
         providerId: 'anthropic',
         displayName: agent.teammateName ?? agent.agentType,
         task: agent.taskDescription ?? agent.description,
-        runId: agent.workflowRunId,
         startedAt: agent.startedAt,
         updatedAt: agent.lastEventAt ?? agent.completedAt ?? agent.startedAt,
       }));
-    const workspace =
-      rootTab?.commandCenterOrigin?.workspaceId ??
-      this.tabs.activeWorkspacePath;
-    const runs = workspace
-      ? this.records
-          .readRunManifests(workspace, root.tabId)
-          .filter((manifest) => manifest.rootSdkId === root.sessionId)
-          .map((manifest) => {
-            const runAgents = this.monitor
-              .agents()
-              .filter((agent) => agent.workflowRunId === manifest.runId);
-            const claimed = new Set<string>();
-            const bound = new Map<string, (typeof runAgents)[number] | null>();
-            const laneStartedAt = new Map<string, number>();
-            const lanes: VendorLane[] = manifest.lanes.map((lane) => {
-              const family = lane.laneId.replace(/#\d+$/, '');
-              const agent = runAgents.find(
-                (candidate) =>
-                  !claimed.has(candidate.agentId) &&
-                  (candidate.cli === family ||
-                    candidate.ptahCliId === family) &&
-                  (!lane.role || candidate.role === lane.role),
-              );
-              if (agent) claimed.add(agent.agentId);
-              if (agent) laneStartedAt.set(lane.laneId, agent.startedAt);
-              bound.set(lane.laneId, agent ?? null);
-              return {
-                laneId: lane.laneId,
-                role: lane.role as VendorLane['role'],
-                family,
-                displayName: agent?.displayName ?? lane.laneId,
-                cli: agent?.cli ?? 'ptah-cli',
-                agentId: agent?.agentId,
-                providerId: agent
-                  ? cliProvider(agent.cli, agent.ptahCliId)
-                  : cliProvider(family),
-              };
-            });
-            const phase: PhaseDerivationInput = {
-              move: manifest.move,
-              specTaskId: manifest.specTaskId,
-              laneBindings: {
-                lanes,
-                bound,
-              },
-              agents: runAgents,
-              artifacts: null,
-            };
-            return {
-              runId: manifest.runId,
-              rootSessionId: root.sessionId,
-              phase,
-              laneStartedAt,
-              state: runState(runAgents, manifest.startedAt, now),
-              updatedAt: manifest.startedAt,
-            };
-          })
-      : [];
     return {
       rootTabId: root.tabId,
       rootSessionId: root.sessionId,
@@ -255,7 +163,6 @@ export class CommandCenterProjectionSource {
       children,
       persistedChildren,
       agents: [...cli, ...sdk],
-      runs,
     };
   }
 }
