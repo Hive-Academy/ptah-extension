@@ -508,7 +508,7 @@ Smoke checklist (sideloaded package):
 - S7 Single instance: launching again focuses the existing window.
 - S8 Logs/crash dumps under `%LOCALAPPDATA%\Packages\PtahOrchestra.Ptah_rwqmhy9dq1amj\LocalCache\Roaming\Ptah`.
 - S9 With the NSIS build still installed, start both: record whether two instances run (R1).
-- S10 Report flag opens a mail draft to support@ptah.live.
+- S10 Report flag opens a mail draft to help@ptah.live with "Response time" in the body.
 - S11 Uninstall removes the package; `~/.ptah` remains (expected).
 
 ## Manual one-time checklist (user)
