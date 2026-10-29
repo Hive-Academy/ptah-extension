@@ -101,6 +101,8 @@ export class CodexChatEvents {
       source: 'stream' as const,
     };
     const projected = this.project(event, base);
+    // Neither a card-only question nor a diagnostic opens assistant content.
+    if (event.type === 'error' || (event.type === 'userInputAsync' && event.presentation !== 'text')) return projected;
     if (this.started) return projected;
     this.started = true;
     return [
@@ -165,6 +167,10 @@ export class CodexChatEvents {
             ]
           : [];
       }
+      case 'userInputAsync':
+        return event.presentation === 'text'
+          ? this.project({ ...event, type: 'textFinal' }, base)
+          : [];
       case 'reasoning': {
         const blockIndex = this.block('reasoning', event.itemId);
         if (event.phase === 'final') {
@@ -253,7 +259,7 @@ export class CodexChatEvents {
         this.callbacks.live(event);
         return [];
       case 'error':
-        this.error();
+        if (event.error.code === 'codexFollowUpRejected') this.error();
         return [];
       case 'terminal': {
         this.terminal = true;

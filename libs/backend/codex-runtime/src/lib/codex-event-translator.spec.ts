@@ -110,6 +110,37 @@ describe('CodexEventTranslator', () => {
     translator = new CodexEventTranslator('context', 4);
   });
 
+  it('maps a completed async question to user input and ignores sleep', () => {
+    const item = {
+      type: 'agentMessage', id: 'question', text: 'Choose one',
+      delivery: 'async', questions: [{ title: 'Which?', options: ['A', 'B'] }],
+    };
+    expect(translator.translate(itemFrame(item))).toEqual([]);
+    expect(translator.translate({
+      method: 'item/agentMessage/delta',
+      params: { ...ids, itemId: 'question', delta: 'Choose' },
+    })).toEqual([]);
+    expect(translator.translate(itemFrame(item, true))).toMatchObject([{
+      type: 'userInputAsync', itemId: 'question', text: 'Choose one',
+      questions: [{ title: 'Which?', options: ['A', 'B'] }],
+    }]);
+    expect(translator.translate(itemFrame({ type: 'sleep', id: 'nap', durationMs: 1000 }))).toEqual([]);
+    expect(translator.translate(itemFrame({ type: 'sleep', id: 'nap', durationMs: 1000 }, true))).toEqual([]);
+    expect(translator.translate(itemFrame({ type: 'agentMessage', id: 'final', text: 'Done', phase: 'final_answer' }, true)))
+      .toMatchObject([{ type: 'textFinal', text: 'Done' }]);
+  });
+
+  it('marks an async completion for text presentation when started omitted delivery and deltas were visible', () => {
+    const started = { type: 'agentMessage', id: 'late-async', text: '' };
+    expect(translator.translate(itemFrame(started))).toEqual([]);
+    expect(translator.translate({ method: 'item/agentMessage/delta',
+      params: { ...ids, itemId: 'late-async', delta: 'Choose' },
+    })).toMatchObject([{ type: 'textDelta', delta: 'Choose' }]);
+    expect(translator.translate(itemFrame({ ...started, text: 'Choose one',
+      delivery: 'async', questions: [{ title: 'Which?' }],
+    }, true))).toMatchObject([{ type: 'userInputAsync', presentation: 'text' }]);
+  });
+
   it('preserves text order, final-only text, identity and monotonic sequence', () => {
     const events = [
       translator.translate({

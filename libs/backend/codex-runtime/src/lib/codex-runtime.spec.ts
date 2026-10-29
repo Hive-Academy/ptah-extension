@@ -899,6 +899,195 @@ describe('CodexRuntime', () => {
     );
   });
 
+  it('asks async chat questions through the shared port and steers one answer on the live turn', async () => {
+    const ask = jest.fn(async () => ({ 'question:0': { answers: ['A'] } }));
+    runtime = new CodexRuntime({ ...options, requestUserInput: ask });
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    children[0].notify('item/completed', {
+      threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
+      item: { type: 'agentMessage', id: 'question', text: 'Choose one',
+        delivery: 'async', questions: [{ title: 'Which?', options: ['A', 'B'] }] },
+    });
+    await flush();
+    await flush();
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'userInput', requestId: 'question',
+      details: { questions: [{ id: 'question:0', header: '', question: 'Which?',
+        options: [{ label: 'A', description: '' }, { label: 'B', description: '' }] }] },
+    }), expect.any(AbortSignal));
+    expect(children[0].frames.filter((frame) => frame['method'] === 'turn/steer'))
+      .toHaveLength(1);
+    expect(children[0].frames.find((frame) => frame['method'] === 'turn/steer')?.['params'])
+      .toMatchObject({ expectedTurnId: 'turn-1', input: [{ type: 'text',
+        text: 'User has answered your questions: "Which?"="A". You can now continue with the user\'s answers in mind.' }] });
+  });
+
+  it('presents a question as text when no card port is registered', async () => {
+    runtime = new CodexRuntime(options);
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    const iterator = context.events(new AbortController().signal)[Symbol.asyncIterator]();
+    children[0].notify('item/completed', {
+      threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
+      item: { type: 'agentMessage', id: 'question', text: 'Choose one',
+        delivery: 'async', questions: [{ title: 'Which?' }] },
+    });
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'userInputAsync', presentation: 'text', text: 'Choose one',
+    });
+    expect(options.logger.warn).toHaveBeenCalledWith(
+      'Codex async question used text presentation or was already presented.',
+      { code: 'codex-user-input-text-fallback', cause: 'card-unavailable' },
+    );
+  });
+
+  it('opens one card and steers once for a repeated async completion', async () => {
+    const ask = jest.fn(async () => ({ 'question:0': { answers: ['A'] } }));
+    runtime = new CodexRuntime({ ...options, requestUserInput: ask });
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    const completion = {
+      threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
+      item: { type: 'agentMessage', id: 'question', text: 'Choose one',
+        delivery: 'async', questions: [{ title: 'Which?' }] },
+    };
+    children[0].notify('item/completed', completion);
+    children[0].notify('item/completed', completion);
+    await flush();
+    await flush();
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(children[0].frames.filter((frame) => frame['method'] === 'turn/steer'))
+      .toHaveLength(1);
+  });
+
+  it('keeps visible deltas as text when completion first reveals async delivery', async () => {
+    const ask = jest.fn(async () => ({}));
+    runtime = new CodexRuntime({ ...options, requestUserInput: ask });
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    const iterator = context.events(new AbortController().signal)[Symbol.asyncIterator]();
+    children[0].notify('item/started', { threadId: 'thread-1', turnId: 'turn-1', startedAtMs: 1,
+      item: { type: 'agentMessage', id: 'question', text: '' } });
+    children[0].notify('item/agentMessage/delta', {
+      threadId: 'thread-1', turnId: 'turn-1', itemId: 'question', delta: 'Choose',
+    });
+    children[0].notify('item/completed', {
+      threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
+      item: { type: 'agentMessage', id: 'question', text: 'Choose one',
+        delivery: 'async', questions: [{ title: 'Which?' }] },
+    });
+    expect((await iterator.next()).value).toMatchObject({ type: 'textDelta', delta: 'Choose' });
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'userInputAsync', presentation: 'text', text: 'Choose one',
+    });
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it('quotes each answered question in a single same-turn steer', async () => {
+    const ask = jest.fn(async () => ({
+      'question:0': { answers: ['Line 1\nLine 2'] },
+      'question:1': { answers: ['Yes'] },
+    }));
+    runtime = new CodexRuntime({ ...options, requestUserInput: ask });
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    children[0].notify('item/completed', {
+      threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
+      item: { type: 'agentMessage', id: 'question', text: 'Two questions',
+        delivery: 'async', questions: [{ title: 'Say "yes"?' }, { title: 'Continue?' }] },
+    });
+    await flush();
+    await flush();
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(children[0].frames.filter((frame) => frame['method'] === 'turn/steer'))
+      .toHaveLength(1);
+    expect(children[0].frames.find((frame) => frame['method'] === 'turn/steer')?.['params'])
+      .toMatchObject({ input: [{ type: 'text', text:
+        'User has answered your questions: "Say \\"yes\\"?"="Line 1\\nLine 2", "Continue?"="Yes". You can now continue with the user\'s answers in mind.' }] });
+  });
+
+  it('logs a dismissed or empty async answer without steering', async () => {
+    const ask = jest.fn(async () => ({}));
+    runtime = new CodexRuntime({ ...options, requestUserInput: ask });
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    children[0].notify('item/completed', {
+      threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
+      item: { type: 'agentMessage', id: 'question', text: 'Choose one',
+        delivery: 'async', questions: [{ title: 'Which?' }] },
+    });
+    await flush();
+    expect(options.logger.warn).toHaveBeenCalledWith(
+      'Codex user answer was not delivered.',
+      { code: 'codex-user-input-undelivered', cause: 'dismissed' },
+    );
+    expect(children[0].frames.filter((frame) => frame['method'] === 'turn/steer'))
+      .toHaveLength(0);
+  });
+
+  it('cancels an async card on terminal and never steers a late answer or starts a turn', async () => {
+    let answer: (value: { 'question:0': { answers: string[] } }) => void = () => undefined;
+    const ask = jest.fn((_request: unknown, signal: AbortSignal) => new Promise<{ 'question:0': { answers: string[] } }>((resolve) => {
+      answer = resolve;
+      expect(signal.aborted).toBe(false);
+    }));
+    runtime = new CodexRuntime({ ...options, requestUserInput: ask });
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    children[0].notify('item/completed', {
+      threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
+      item: { type: 'agentMessage', id: 'question', text: 'Choose one',
+        delivery: 'async', questions: [{ title: 'Which?' }] },
+    });
+    await flush();
+    const signal = ask.mock.calls[0][1];
+    children[0].complete();
+    await flush();
+    expect(signal.aborted).toBe(true);
+    answer({ 'question:0': { answers: ['private answer'] } });
+    await flush();
+    expect(children[0].frames.filter((frame) => frame['method'] === 'turn/steer' || frame['method'] === 'turn/start'))
+      .toHaveLength(1);
+    expect(options.logger.warn).toHaveBeenCalledWith('Codex user answer was not delivered.',
+      { code: 'codex-user-input-undelivered', cause: 'turn-ended' });
+    expect(JSON.stringify(jest.mocked(options.logger.warn).mock.calls)).not.toContain('private answer');
+  });
+
+  it('aborts a pending async card on interrupt', async () => {
+    let questionSignal: AbortSignal | undefined;
+    const ask = jest.fn((_request: unknown, signal: AbortSignal) => {
+      questionSignal = signal;
+      return new Promise<Record<string, { answers: string[] }>>(() => undefined);
+    });
+    runtime = new CodexRuntime({ ...options, requestUserInput: ask });
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    children[0].notify('item/completed', {
+      threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
+      item: { type: 'agentMessage', id: 'question', text: 'Choose one',
+        delivery: 'async', questions: [{ title: 'Which?' }] },
+    });
+    await flush();
+    expect(questionSignal?.aborted).toBe(false);
+    await context.interrupt('turn-1');
+    expect(questionSignal?.aborted).toBe(true);
+  });
+
+  it.each(['gateway', 'lane'] as const)('does not show async cards to %s consumers', async (consumer) => {
+    const ask = jest.fn(async () => ({}));
+    runtime = new CodexRuntime({ ...options, requestUserInput: ask });
+    const context = await runtime.open({ ...profile, consumer });
+    await context.startTurn({ text: 'go' });
+    children[0].notify('item/completed', {
+      threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
+      item: { type: 'agentMessage', id: 'question', text: 'Choose one',
+        delivery: 'async', questions: [{ title: 'Which?' }] },
+    });
+    await flush();
+    expect(ask).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['accept', 'accept'],
     ['cancel', 'cancel'],

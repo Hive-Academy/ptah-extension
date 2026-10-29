@@ -23,6 +23,10 @@ const correlation = z.object({ threadId: z.string(), turnId: z.string() });
 const itemEnvelope = correlation.extend({
   item: z.object({ id: z.string(), type: z.string() }),
 });
+const asyncQuestions = z.array(z.object({
+  title: z.string(),
+  options: z.array(z.string()).nullish(),
+}));
 type Usage = z.infer<
   (typeof codexNotificationSchemas)['thread/tokenUsage/updated']
 >['tokenUsage']['total'];
@@ -87,6 +91,9 @@ export class CodexEventTranslator {
   private readonly baselines = new Map<string, Usage>();
   /** Turn key -> item ids whose reasoning summary deltas were streamed; textDelta stays silent for them. */
   private readonly summaryItems = new Map<string, Set<string>>();
+  private readonly asyncMessageItems = new Set<string>();
+  /** Deltas that were already visible before completion revealed async delivery. */
+  private readonly streamedMessageItems = new Set<string>();
   private disposed = false;
 
   constructor(
@@ -129,6 +136,9 @@ export class CodexEventTranslator {
       case 'item/agentMessage/delta': {
         const parsed = codexNotificationSchemas[method].safeParse(params);
         if (!parsed.success) return this.invalid(params);
+        const itemKey = this.key(parsed.data) + ':' + parsed.data.itemId;
+        if (this.asyncMessageItems.has(itemKey)) return [];
+        if (parsed.data.delta !== '') this.streamedMessageItems.add(itemKey);
         return this.emit(parsed.data, [
           {
             type: 'textDelta',
@@ -184,6 +194,18 @@ export class CodexEventTranslator {
                 { type: 'error', error: safeError('unsupportedItem') },
               ])
             : this.invalid(params);
+        }
+        if (parsed.data.item.type === 'agentMessage') {
+          const itemKey = this.key(parsed.data) + ':' + parsed.data.item.id;
+          if (method === 'item/started' && parsed.data.item.delivery === 'async')
+            this.asyncMessageItems.add(itemKey);
+          if (method === 'item/completed') this.asyncMessageItems.delete(itemKey);
+          const streamed = this.streamedMessageItems.has(itemKey);
+          if (method === 'item/completed') this.streamedMessageItems.delete(itemKey);
+          return this.emit(
+            parsed.data,
+            this.item(parsed.data.item, method === 'item/completed', streamed),
+          );
         }
         return this.emit(
           parsed.data,
@@ -247,6 +269,10 @@ export class CodexEventTranslator {
         this.usage.delete(key);
         this.baselines.delete(key);
         this.summaryItems.delete(key);
+        for (const itemKey of this.asyncMessageItems)
+          if (itemKey.startsWith(key + ':')) this.asyncMessageItems.delete(itemKey);
+        for (const itemKey of this.streamedMessageItems)
+          if (itemKey.startsWith(key + ':')) this.streamedMessageItems.delete(itemKey);
         return events;
       }
       default:
@@ -263,6 +289,8 @@ export class CodexEventTranslator {
     this.totals.clear();
     this.baselines.clear();
     this.summaryItems.clear();
+    this.asyncMessageItems.clear();
+    this.streamedMessageItems.clear();
   }
 
   private key(identity: Identity): string {
@@ -294,14 +322,28 @@ export class CodexEventTranslator {
       : [];
   }
 
-  private item(item: Item, completed: boolean): Payload[] {
+  private item(item: Item, completed: boolean, streamed = false): Payload[] {
     switch (item.type) {
       case 'userMessage':
         return [];
-      case 'agentMessage':
-        return completed
-          ? [{ type: 'textFinal', itemId: item.id, text: item.text }]
-          : [];
+      case 'agentMessage': {
+        if (!completed) return [];
+        const parsedQuestions = asyncQuestions.safeParse(item.questions);
+        if (item.delivery === 'async' && parsedQuestions.success && parsedQuestions.data.length)
+          return [{
+            type: 'userInputAsync',
+            itemId: item.id,
+            text: item.text,
+            ...(streamed ? { presentation: 'text' as const } : {}),
+            questions: parsedQuestions.data.map((question) => ({
+              title: question.title,
+              ...(question.options == null ? {} : { options: question.options }),
+            })),
+          }];
+        return [{ type: 'textFinal', itemId: item.id, text: item.text }];
+      }
+      case 'sleep':
+        return [];
       case 'reasoning':
         return completed
           ? [

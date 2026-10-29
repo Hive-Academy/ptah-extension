@@ -251,21 +251,53 @@ describe('CodexChatEvents', () => {
   });
   it('does not terminate on errors and never forwards raw diagnostic text', () => {
     const { projection, callbacks } = setup();
-    projection.map({
-      ...identity,
-      sequence: 1,
-      type: 'error',
-      error: { code: 'secret', message: 'secret', retryable: true },
-    });
+    expect(projection.map({ ...identity, sequence: 1, type: 'error',
+      error: { code: 'turnError', message: 'secret', retryable: true },
+    })).toEqual([]);
+    expect(projection.map({ ...identity, sequence: 2, type: 'userInputAsync',
+      itemId: 'question', text: 'Private question', questions: [{ title: 'Title' }],
+    })).toEqual([]);
+    for (const [index, code] of ['unsupportedItem', 'unsupportedNotification'].entries()) {
+      expect(projection.map({ ...identity, sequence: index + 3, type: 'error',
+        error: { code, message: 'secret', retryable: true },
+      })).toEqual([]);
+    }
     expect(callbacks.result).not.toHaveBeenCalled();
+    expect(callbacks.error).not.toHaveBeenCalled();
+    expect(projection.map({ ...identity, sequence: 5, type: 'error',
+      error: { code: 'codexFollowUpRejected', message: 'secret', retryable: true },
+    })).toEqual([]);
+    expect(callbacks.error).toHaveBeenCalledTimes(1);
+    expect(callbacks.error).toHaveBeenCalledWith('Codex reported a runtime error.');
     projection.map({
       ...identity,
-      sequence: 2,
+      sequence: 6,
       type: 'terminal',
       status: 'failed',
     });
     expect(callbacks.error).toHaveBeenCalledTimes(1);
+    expect(projection.map({ ...identity, sequence: 7, type: 'terminal', status: 'failed' })).toEqual([]);
+    expect(callbacks.error).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(callbacks.result.mock.calls)).not.toContain('secret');
+  });
+  it('opens no assistant message for a card-only question and renders a text fallback once', () => {
+    const { projection, callbacks } = setup();
+    expect(projection.map({ ...identity, sequence: 1, type: 'userInputAsync',
+      itemId: 'card', text: 'Choose one', questions: [{ title: 'Which?' }],
+      presentation: 'card',
+    })).toEqual([]);
+    const fallback = projection.map({ ...identity, sequence: 2, type: 'userInputAsync',
+      itemId: 'fallback', text: 'Choose one', questions: [{ title: 'Which?' }],
+      presentation: 'text',
+    });
+    expect(fallback.map((event) => event.eventType)).toEqual(['message_start', 'text_delta']);
+    expect(fallback[1]).toMatchObject({ eventType: 'text_delta', delta: 'Choose one' });
+    expect(callbacks.content).not.toHaveBeenCalled();
+    expect(projection.map({ ...identity, sequence: 3, type: 'userInputAsync',
+      itemId: 'fallback', text: 'Choose one', questions: [{ title: 'Which?' }],
+      presentation: 'text',
+    })).toEqual([]);
+    expect(callbacks.content).not.toHaveBeenCalled();
   });
   it('passes normalized live and compaction events through callbacks', () => {
     const { projection, callbacks } = setup();

@@ -21,6 +21,12 @@ function mapper() {
 }
 
 describe('CodexLaneEvents', () => {
+  it('renders async questions as ordinary text for lane users', () => {
+    const map = mapper();
+    expect(map({ type: 'userInputAsync', itemId: 'question', text: 'Choose one',
+      questions: [{ title: 'Which?', options: ['A'] }],
+    }).segments).toEqual([{ type: 'text', content: 'Choose one' }]);
+  });
   it('preserves ordered partial text and emits only a missing final suffix', () => {
     const map = mapper();
     expect(

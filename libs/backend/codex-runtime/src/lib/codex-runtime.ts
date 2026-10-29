@@ -36,6 +36,7 @@ import type {
 import type {
   AppliedSettings,
   CodexContext,
+  CodexApprovalRequest,
   CodexModelInfo,
   CodexExecutionProfile,
   CodexJsonValue,
@@ -233,6 +234,8 @@ class RuntimeContext implements CodexContext {
   private compactTimer?: ReturnType<typeof setTimeout>;
   private interruptTimer?: ReturnType<typeof setTimeout>;
   private readonly targets = new Map<string, CodexPermissionRuleTarget>();
+  /** Item ids already presented during the active turn. */
+  private readonly asyncQuestionItems = new Set<string>();
 
   constructor(
     private readonly options: CodexRuntimeOptions,
@@ -541,6 +544,7 @@ class RuntimeContext implements CodexContext {
       if (event.type === 'terminal') {
         this.terminalTurns.add(event.turnId);
         if (event.turnId === this.activeTurn) {
+          this.asyncQuestionItems.clear();
           this.activeTurn = undefined;
           this.targets.clear();
           this.turnController.abort();
@@ -554,7 +558,20 @@ class RuntimeContext implements CodexContext {
       }
       if (event.type === 'compaction' && event.phase !== 'started')
         this.finishCompact?.();
-      this.emit(event);
+      if (event.type === 'userInputAsync' && this.profile.consumer === 'chat') {
+        if (this.asyncQuestionItems.has(event.itemId)) {
+          this.warnAsyncQuestion('duplicate');
+          continue;
+        }
+        this.asyncQuestionItems.add(event.itemId);
+        const card = event.presentation !== 'text' && this.askAsyncUserInput(event);
+        if (!card) this.warnAsyncQuestion(event.presentation === 'text' ? 'already-streamed' : 'card-unavailable');
+        this.emit({
+          ...event,
+          presentation: card ? 'card' : 'text',
+          text: event.text || event.questions.map((question) => question.title).join('\n'),
+        });
+      } else this.emit(event);
     }
   }
 
@@ -663,14 +680,18 @@ class RuntimeContext implements CodexContext {
   }
 
   /** After a decline is written. Does not start a new turn and does not close the context. */
-  private deliverDenialFeedback(text: string, turnId: string): Promise<void> {
+  private deliverDenialFeedback(
+    text: string,
+    turnId: string,
+    kind: 'denial' | 'user-input' = 'denial',
+  ): Promise<void> {
     return this.serialize(async () => {
       if (
         this.state !== 'running' ||
         this.activeTurn !== turnId ||
         this.terminalTurns.has(turnId)
       ) {
-        this.warnDenialFeedback('turn-ended');
+        this.warnDenialFeedback('turn-ended', kind);
         return;
       }
       try {
@@ -679,22 +700,98 @@ class RuntimeContext implements CodexContext {
           expectedTurnId: turnId,
           input: this.wireInput({ text }),
         });
-        if (steered.turnId !== turnId) this.warnDenialFeedback('failed');
+        if (steered.turnId !== turnId) this.warnDenialFeedback('failed', kind);
       } catch (error) {
         this.warnDenialFeedback(
           error instanceof CodexRequestRejectedError ? 'refused' : 'failed',
+          kind,
         );
       }
     }).catch(() => {
-      this.warnDenialFeedback('failed');
+      this.warnDenialFeedback('failed', kind);
+    });
+  }
+
+  /** The native async question is an item, so its answer must steer the same live turn. */
+  private askAsyncUserInput(
+    event: Extract<CodexRuntimeEvent, { type: 'userInputAsync' }>,
+  ): boolean {
+    const ask = this.options.requestUserInput;
+    if (!ask || this.state !== 'running' || this.activeTurn !== event.turnId || this.turnController.signal.aborted)
+      return false;
+    const ids = event.questions.map((_, index) => `${event.itemId}:${index}`);
+    const request: CodexApprovalRequest = {
+      ...this.identity,
+      turnId: event.turnId,
+      requestId: event.itemId,
+      kind: 'userInput',
+      normalizedHome: this.profile.normalizedHome,
+      workspaceId: this.profile.workspaceId,
+      providerId: this.profile.providerId,
+      message: event.text,
+      details: {
+        questions: event.questions.map((question, index) => ({
+          id: ids[index],
+          header: '',
+          question: question.title,
+          options: (question.options ?? []).map((label) => ({
+            label,
+            description: '',
+          })),
+        })),
+      },
+    };
+    const signal = this.turnController.signal;
+    let response: ReturnType<NonNullable<CodexRuntimeOptions['requestUserInput']>>;
+    try {
+      response = ask(request, signal);
+    } catch {
+      this.warnDenialFeedback('failed', 'user-input');
+      return false;
+    }
+    void response.then((answers) => {
+      if (signal.aborted) {
+        this.warnDenialFeedback('turn-ended', 'user-input');
+        return;
+      }
+      if (!answers) {
+        this.warnDenialFeedback('dismissed', 'user-input');
+        return;
+      }
+      const pairs = event.questions.flatMap((question, index) => {
+        const answer = answers[ids[index]]?.answers[0];
+        return answer === undefined
+          ? []
+          : [`${JSON.stringify(question.title)}=${JSON.stringify(answer)}`];
+      });
+      if (!pairs.length) {
+        this.warnDenialFeedback('dismissed', 'user-input');
+        return;
+      }
+      const text = `User has answered your questions: ${pairs.join(', ')}. You can now continue with the user's answers in mind.`;
+      void this.deliverDenialFeedback(text, event.turnId, 'user-input');
+    }).catch(() => {
+      if (!signal.aborted) this.warnDenialFeedback('failed', 'user-input');
+    });
+    return true;
+  }
+
+  private warnAsyncQuestion(cause: 'duplicate' | 'already-streamed' | 'card-unavailable'): void {
+    this.options.logger.warn('Codex async question used text presentation or was already presented.', {
+      code: 'codex-user-input-text-fallback', cause,
     });
   }
 
   private warnDenialFeedback(
-    cause: 'turn-ended' | 'refused' | 'failed',
+    cause: 'turn-ended' | 'refused' | 'failed' | 'dismissed',
+    kind: 'denial' | 'user-input' = 'denial',
   ): void {
-    this.options.logger.warn('Codex denial feedback was not delivered.', {
-      code: 'codex-denial-feedback-undelivered',
+    this.options.logger.warn(kind === 'denial'
+      ? 'Codex denial feedback was not delivered.'
+      : 'Codex user answer was not delivered.', {
+      code: kind === 'denial'
+        ? 'codex-denial-feedback-undelivered'
+        : 'codex-user-input-undelivered',
       cause,
     });
   }

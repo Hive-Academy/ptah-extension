@@ -326,6 +326,15 @@ describe('CodexGatewayAdapter', () => {
     expect(result.every((e) => e.sessionId === 'thread')).toBe(true);
   });
 
+  it('renders async questions as text for gateway users', async () => {
+    const { adapter } = await setup([
+      { ...base, type: 'userInputAsync', itemId: 'question', text: 'Choose one',
+        questions: [{ title: 'Which?', options: ['A'] }] },
+      { ...terminal, sequence: 2 },
+    ]);
+    expect(text(await collect(adapter.startTurn({ text: 'hi' })))).toBe('Choose one');
+  });
+
   it('does not duplicate final text after deltas or another final', async () => {
     const { adapter } = await setup([
       { ...base, type: 'textDelta', itemId: 'a', delta: 'hello' },

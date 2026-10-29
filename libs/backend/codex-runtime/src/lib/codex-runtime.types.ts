@@ -207,6 +207,17 @@ export type CodexRuntimeEvent = CodexEventIdentity &
         readonly text: string;
       }
     | {
+        readonly type: 'userInputAsync';
+        readonly itemId: string;
+        readonly text: string;
+        /** Chat runtime decides whether the question has a card or needs text. */
+        readonly presentation?: 'card' | 'text';
+        readonly questions: readonly {
+          readonly title: string;
+          readonly options?: readonly string[];
+        }[];
+      }
+    | {
         readonly type: 'toolStarted';
         readonly toolId: string;
         readonly toolName: string;

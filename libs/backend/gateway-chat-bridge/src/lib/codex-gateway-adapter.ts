@@ -196,7 +196,8 @@ class GatewayEventProjection {
           blockIndex: 0,
         };
         break;
-      case 'textFinal': {
+      case 'textFinal':
+      case 'userInputAsync': {
         const previous = this.text.get(event.itemId) ?? '';
         const delta = event.text.startsWith(previous)
           ? event.text.slice(previous.length)
