@@ -75,12 +75,8 @@ export class StatusNarrator {
 
   private meaningful(node: CommandWorkNode): boolean {
     switch (node.kind) {
-      case 'phase':
-      case 'tribunal':
-        return ['running', 'completed', 'failed'].includes(node.state);
       case 'child':
       case 'agent':
-      case 'lane':
         return ['starting', 'running', 'completed', 'failed'].includes(
           node.state,
         );

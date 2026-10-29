@@ -21,12 +21,9 @@ import {
 } from '@ptah-extension/ui';
 import {
   Bot,
-  CircleDot,
   GitBranch,
   LucideAngularModule,
-  Shield,
   Sparkles,
-  Terminal,
 } from 'lucide-angular';
 import type { LucideIconData } from 'lucide-angular';
 import { ContextRingComponent } from '@ptah-extension/chat-ui';
@@ -38,8 +35,6 @@ import { CommandOverlayPositioner } from './command-overlay-positioner';
 import {
   CommandNodeDetailComponent,
   type CommandChildStats,
-  type CommandPhaseCount,
-  phaseCountOf,
 } from './command-node-detail.component';
 import { stateBorder, stateColor, stateIcon } from './command-state-icon';
 
@@ -64,6 +59,7 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
       @for (node of projection().nodes; track node.id) {
         <button
           type="button"
+          data-glass-surface="plate"
           class="command-plate pointer-events-auto absolute left-0 top-0 flex min-h-11 min-w-11 flex-col items-center justify-center rounded-lg border border-base-300 border-l-4 bg-base-100/95 px-2 text-xs text-base-content shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           [class]="stateBorder(node.state)"
           [class.plate-root]="node.kind === 'root'"
@@ -209,7 +205,6 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
             <ptah-command-node-detail
               class="min-w-0 flex-1"
               [node]="node"
-              [phaseCount]="phaseCount(node.id)"
               [childStats]="childStats()[node.id] ?? null"
               [now]="now()"
               [reducedMotion]="reducedMotion()"
@@ -260,18 +255,12 @@ export class CommandOverlayComponent {
     root: Sparkles,
     child: GitBranch,
     agent: Bot,
-    tribunal: Shield,
-    lane: Terminal,
-    phase: CircleDot,
   } satisfies Record<CommandWorkNode['kind'], LucideIconData>;
 
   public kindIcon(node: CommandWorkNode): LucideIconData {
     return this.kindIcons[node.kind];
   }
 
-  public phaseCount(nodeId: string): CommandPhaseCount | null {
-    return phaseCountOf(this.projection().nodes, nodeId);
-  }
 
   private readonly floating = inject(FloatingUIService);
   private readonly zone = inject(NgZone);

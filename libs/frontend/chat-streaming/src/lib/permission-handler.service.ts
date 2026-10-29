@@ -612,7 +612,7 @@ export class PermissionHandlerService {
   /**
    * Question twin of `hasSurfaceTargets`. Returns `true` when the question
    * has attached targets AND none of them is a live tab id — i.e. every
-   * target is a non-tab surface (harness workflow, tribunal conductor,
+   * target is a non-tab surface (harness workflow,
    * wizard phase).
    *
    * Questions live in `_questionTargetTabs`, a different map from the

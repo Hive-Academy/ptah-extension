@@ -15,6 +15,7 @@ import {
 import { createEmptyBootRefs } from './boot-coordinator';
 import type { BootRefs } from './boot-coordinator';
 import {
+  CHAT_SESSION_DISPOSE_BUDGET_MS,
   RUN_CHECK_KILL_BUDGET_MS,
   handleWillQuit,
   requiresDeferredDisposal,
@@ -167,5 +168,115 @@ describe('will-quit — the run-check kill', () => {
       'diagnostics',
     ]);
     expect(deps.quit).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Named Claude account sessions hold a run lease in SQLite; the release is a
+// write after the session's child exits, so it must settle before the close.
+describe('will-quit — main-chat sessions release leases before SQLite close', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    kill.mockReset().mockResolvedValue(undefined);
+    pids.mockReset().mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('defers the quit when only chat sessions are captured', () => {
+    const refs = minimalRefs([]);
+    refs.chatSessions = { disposeAllSessionsForShutdown: async () => undefined };
+
+    expect(requiresDeferredDisposal(refs)).toBe(true);
+    expect(handleWillQuit(quitDeps(refs))).toBe(false);
+  });
+
+  it('closes SQLite only after the session dispose has settled', async () => {
+    const order: string[] = [];
+    let finish!: () => void;
+    const refs = minimalRefs(order);
+    refs.chatSessions = {
+      disposeAllSessionsForShutdown: () =>
+        new Promise<void>((resolve) => {
+          order.push('chat sessions');
+          finish = () => {
+            order.push('lease released');
+            resolve();
+          };
+        }),
+    };
+    refs.agentProcessManager = {
+      disposeAll: async () => {
+        order.push('agent reap');
+      },
+    };
+    const deps = quitDeps(refs);
+
+    handleWillQuit(deps);
+    await flushMicrotasks();
+    expect(order).toEqual(['chat sessions']);
+    expect(deps.quit).not.toHaveBeenCalled();
+
+    finish();
+    await flushMicrotasks();
+    expect(order).toEqual([
+      'chat sessions',
+      'lease released',
+      'agent reap',
+      'sqliteConnection',
+      'diagnostics',
+    ]);
+    expect(deps.quit).toHaveBeenCalledTimes(1);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('bounds a hung session dispose by its budget, then closes SQLite', async () => {
+    const order: string[] = [];
+    const refs = minimalRefs(order);
+    refs.chatSessions = {
+      disposeAllSessionsForShutdown: () => new Promise<void>(() => undefined),
+    };
+    const deps = quitDeps(refs);
+
+    handleWillQuit(deps);
+    await flushMicrotasks();
+    expect(order).toEqual([]);
+
+    await jest.advanceTimersByTimeAsync(CHAT_SESSION_DISPOSE_BUDGET_MS - 1);
+    await flushMicrotasks();
+    expect(order).toEqual([]);
+    expect(deps.quit).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(1);
+    await flushMicrotasks();
+    expect(order).toEqual(['sqliteConnection', 'diagnostics']);
+    expect(deps.quit).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Chat session disposal exceeded'),
+    );
+  });
+
+  it('keeps disposing when the session dispose rejects', async () => {
+    const order: string[] = [];
+    const refs = minimalRefs(order);
+    refs.chatSessions = {
+      disposeAllSessionsForShutdown: async () => {
+        throw new Error('teardown failed');
+      },
+    };
+    const deps = quitDeps(refs);
+
+    handleWillQuit(deps);
+    await flushMicrotasks();
+
+    expect(order).toEqual(['sqliteConnection', 'diagnostics']);
+    expect(deps.quit).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Chat session disposal failed'),
+      'teardown failed',
+    );
   });
 });

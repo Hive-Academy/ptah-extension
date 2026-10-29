@@ -12,11 +12,12 @@
  * `LegacyAuthMethod` triad. Without this helper, `auth use claude-cli` and
  * `auth use github-copilot` silently fall back to `'apiKey'`.
  *
- * Mapping (first match wins, default `'apiKey'`):
+ * Mapping (first match wins):
  *   'apiKey'                          → 'apiKey'
  *   'claudeCli' | 'claude-cli'        → 'claudeCli'
  *   'thirdParty' | 'oauth' | 'openrouter' → 'thirdParty'
- *   anything else                     → 'apiKey'
+ *   anything else (missing, unknown)  → no method ({@link parseAuthMethod})
+ *                                       or 'apiKey' ({@link normalizeAuthMethod})
  */
 
 import type { LegacyAuthMethod } from '@ptah-extension/shared';
@@ -24,14 +25,13 @@ import type { LegacyAuthMethod } from '@ptah-extension/shared';
 export type { LegacyAuthMethod };
 
 /**
- * Normalize any persisted `authMethod` value (legacy or new spelling) to the
- * canonical `LegacyAuthMethod` triad. Defaults to `'apiKey'` on unknown input.
+ * Map a persisted `authMethod` value to the canonical triad, or `undefined`
+ * when the value is missing or not a known spelling. Callers that know the
+ * credential state pick the default with {@link resolveDefaultAuthMethod}.
  */
-export function normalizeAuthMethod(rawValue: unknown): LegacyAuthMethod {
-  if (typeof rawValue !== 'string') {
-    return 'apiKey';
-  }
-
+export function parseAuthMethod(
+  rawValue: unknown,
+): LegacyAuthMethod | undefined {
   if (rawValue === 'apiKey') return 'apiKey';
   if (rawValue === 'claudeCli' || rawValue === 'claude-cli') return 'claudeCli';
   if (
@@ -41,6 +41,43 @@ export function normalizeAuthMethod(rawValue: unknown): LegacyAuthMethod {
   ) {
     return 'thirdParty';
   }
-
-  return 'apiKey';
+  return undefined;
 }
+
+/**
+ * Normalize any persisted `authMethod` value (legacy or new spelling) to the
+ * canonical `LegacyAuthMethod` triad. Defaults to `'apiKey'` on missing or
+ * unknown input; for callers that cannot see the credential state.
+ */
+export function normalizeAuthMethod(rawValue: unknown): LegacyAuthMethod {
+  return parseAuthMethod(rawValue) ?? 'apiKey';
+}
+
+/** Credential facts that decide the auth method when none is configured. */
+export interface DefaultAuthMethodFacts {
+  /** An Anthropic API key is stored. */
+  readonly hasApiKey: boolean;
+  /** The Claude CLI login is connected. */
+  readonly claudeCliConnected: boolean;
+}
+
+/**
+ * The auth method used when the configured value is missing or unknown: the
+ * Claude CLI login when no API key is stored and that login is connected,
+ * otherwise `'apiKey'` (a stored key wins; with neither, the API key path
+ * reports what is missing).
+ */
+export function resolveDefaultAuthMethod(
+  facts: DefaultAuthMethodFacts,
+): LegacyAuthMethod {
+  return !facts.hasApiKey && facts.claudeCliConnected ? 'claudeCli' : 'apiKey';
+}
+
+/**
+ * Recovery text when the direct Anthropic API key path has no key. It names
+ * the Electron settings field that selects the main agent's auth method: the
+ * Providers tab (`settings.component.ts`) and its "Main agent authentication"
+ * field (`providers-settings.component.ts`).
+ */
+export const API_KEY_RECOVERY_HINT =
+  'Add an API key, or choose the Claude CLI login in Settings > Providers > Main agent authentication.';

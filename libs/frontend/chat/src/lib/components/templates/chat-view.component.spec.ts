@@ -109,6 +109,7 @@ import {
   SESSION_CONTEXT,
   SESSION_VISIBLE,
   SESSION_FORCED_CARD,
+  SESSION_READ_ONLY,
   SESSION_START_GUARD,
 } from '../../tokens/session-context.token';
 import { RpcResult } from '@ptah-extension/core';
@@ -190,6 +191,8 @@ function makeHarness(
     forcedCard?: boolean;
     startGuard?: () => string | null;
     isElectron?: boolean;
+    /** Provide `SESSION_READ_ONLY` (a watch-only host such as the Command Center rail). */
+    readOnly?: boolean;
   } = {},
 ) {
   const {
@@ -206,6 +209,7 @@ function makeHarness(
     forcedCard,
     startGuard,
     isElectron = false,
+    readOnly,
   } = opts;
   const sessionVisibleSig =
     sessionVisible === undefined ? null : signal<boolean>(sessionVisible);
@@ -549,6 +553,9 @@ function makeHarness(
       ...(startGuard
         ? [{ provide: SESSION_START_GUARD, useValue: startGuard }]
         : []),
+      ...(readOnly === undefined
+        ? []
+        : [{ provide: SESSION_READ_ONLY, useValue: readOnly }]),
       {
         provide: SESSION_CONTEXT,
         useValue:
@@ -2729,6 +2736,28 @@ describe('ChatViewComponent — compact card gate (forced only)', () => {
     expect(region).not.toBeNull();
     expect(region.querySelector('ptah-chat-transcript')).not.toBeNull();
     expect(region.querySelector('ptah-chat-input')).not.toBeNull();
+  });
+
+  it('renders the composer by default and hides it for a read-only host', () => {
+    const editable = makeHarness({ renderCompactTemplate: true });
+    editable.fixture.detectChanges();
+    expect(
+      editable.fixture.nativeElement.querySelector('ptah-chat-input'),
+    ).not.toBeNull();
+    editable.fixture.destroy();
+    TestBed.resetTestingModule();
+
+    const watchOnly = makeHarness({
+      renderCompactTemplate: true,
+      readOnly: true,
+    });
+    watchOnly.fixture.detectChanges();
+    expect(
+      watchOnly.fixture.nativeElement.querySelector('ptah-chat-transcript'),
+    ).not.toBeNull();
+    expect(
+      watchOnly.fixture.nativeElement.querySelector('ptah-chat-input'),
+    ).toBeNull();
   });
 
   it('keeps transcript and composer instances through full, compact, full', () => {

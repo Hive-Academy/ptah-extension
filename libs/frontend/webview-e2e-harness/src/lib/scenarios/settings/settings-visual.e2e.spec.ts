@@ -26,11 +26,11 @@ import {
 test.use({ useAppBuild: true });
 
 const TABS: readonly {
-  readonly label: 'Providers' | 'Agent Orchestration';
+  readonly label: 'Providers' | 'Context Management';
   readonly name: string;
 }[] = [
   { label: 'Providers', name: 'providers' },
-  { label: 'Agent Orchestration', name: 'orchestration' },
+  { label: 'Context Management', name: 'orchestration' },
 ];
 
 /**
@@ -542,30 +542,25 @@ type OrchestrationFoldRegion =
   'policyBar' | 'matrixHeader' | 'firstRow' | 'rolesSummary';
 
 /**
- * THE per-host Orchestration fold budget (plan §6 :1049-1052, design-spec §1.2), measured on the 6+2 reference set
+ * THE per-host matrix fold budget (plan §6 :1049-1052, design-spec §1.2), measured on the 6+2 reference set
  * (6 installed CLIs / instances, 2 uninstalled; Grok became the sixth in TASK_2026_617). Ratchet (execution default 3), the track B
- * `SEARCH_VOICE_FOLD_ENFORCED` pattern:
- * - VS Code: every region is enforced (roles summary at 643 px since Batch 33).
- * - Electron: every region is enforced since Batch 36b (fold round 2). The roles summary was at 779 px (Gate V 36
- *   item 4). It now fits because the Uninstalled group is collapsed by default (user decision, 2026-10-02), instance
- *   actions are on one line (V36-7), and in the narrow layout the tier badges become one summary badge and the status
- *   and provider share one line (orchestrator decision).
+ * `SEARCH_VOICE_FOLD_ENFORCED` pattern. Every region was enforced in both hosts while the matrix opened the Agent
+ * Orchestration tab (Batch 36b). The Context Management regroup moved the matrix and the roles onto Providers, below
+ * Routing Map + Connections, so they start below the 660 px fold by design: no region is enforced, every bottom is
+ * still measured, logged and annotated as `fold-pending`.
  */
-const ORCHESTRATION_ELECTRON_ROLES_FOLD_ENFORCED = true;
 const ORCHESTRATION_FOLD = 660;
 const ORCHESTRATION_FOLD_REGIONS: Readonly<
   Record<'vscode' | 'electron', readonly OrchestrationFoldRegion[]>
 > = {
-  vscode: ['policyBar', 'matrixHeader', 'firstRow', 'rolesSummary'],
-  electron: ORCHESTRATION_ELECTRON_ROLES_FOLD_ENFORCED
-    ? ['policyBar', 'matrixHeader', 'firstRow', 'rolesSummary']
-    : ['policyBar', 'matrixHeader', 'firstRow'],
+  vscode: [],
+  electron: [],
 };
 
 /**
- * Batch 36 fold gate for Orchestration, per host (`ORCHESTRATION_FOLD_REGIONS`): nothing scrolled, the reference set
- * (6 installed rows, 2 uninstalled), both tables `table-xs`, the roles `<details>` closed, and the region bottoms at or
- * above 660 px. Every number (bottoms, matrix row heights) is logged for the report, enforced or not.
+ * Batch 36 fold gate for the CLI matrix, per host (`ORCHESTRATION_FOLD_REGIONS`): nothing scrolled, the reference set
+ * (6 installed rows, 2 uninstalled), both tables `table-xs`, the roles `<details>` closed, and the enforced region
+ * bottoms at or above 660 px. Every number (bottoms, matrix row heights) is logged for the report, enforced or not.
  */
 async function assertOrchestrationFold(
   page: Page,
@@ -581,7 +576,7 @@ async function assertOrchestrationFold(
       0,
       ...Array.from(
         document.querySelectorAll(
-          'ptah-orchestration-settings, ptah-orchestration-settings *',
+          'ptah-agents-routing-settings, ptah-agents-routing-settings *',
         ),
       ).map((node) => node.scrollTop),
     ),
@@ -663,7 +658,7 @@ async function assertOrchestrationFold(
   if (pending.length) {
     test.info().annotations.push({
       type: 'fold-pending',
-      description: `${host}/${theme}: ${pending.join('; ')} — over after the Gate V 36 decision 1 collapse (Batch 36b)`,
+      description: `${host}/${theme}: ${pending.join('; ')} — below the fold on Providers (Context Management regroup)`,
     });
   }
 }
@@ -825,21 +820,21 @@ async function captureOrderPopover(
 
 /**
  * Shared setup of the baseline smoke tests (Batch 53.6): boot Settings in `host`/`theme` at 1024x768 and open `tab`.
- * The Orchestration matrix is a deferred chunk: wait for its rows, or a capture can catch an empty section or the On
- * ticks mid-bounce (Batch 36c.i).
+ * The CLI matrix (on Providers) is a deferred chunk: wait for its rows, or a capture can catch an empty section or the
+ * On ticks mid-bounce (Batch 36c.i).
  */
 async function openSettingsAt(
   page: Page,
   url: string,
   host: 'vscode' | 'electron',
   theme: 'anubis' | 'anubis-light',
-  tab: 'Providers' | 'Agent Orchestration',
+  tab: 'Providers' | 'Context Management',
 ): Promise<void> {
   await bootSettings(page, url, host, theme);
   await page.setViewportSize({ width: 1024, height: 768 });
   await gotoSettingsTab(page, tab);
   await waitForSettled(page);
-  if (tab === 'Agent Orchestration')
+  if (tab === 'Providers')
     await expect(
       page.locator('[data-testid="cli-matrix-toggle-codex"]'),
     ).toBeVisible();
@@ -861,9 +856,9 @@ for (const host of ['vscode', 'electron'] as const) {
       for (const tab of TABS) {
         await gotoSettingsTab(page, tab.label);
         await waitForSettled(page);
-        // The matrix is a deferred chunk: the capture waits for its rows, or it can catch an empty section or the
-        // On ticks mid-bounce (Batch 36c.i).
-        if (tab.name === 'orchestration')
+        // The matrix (on Providers) is a deferred chunk: the capture waits for its rows, or it can catch an empty
+        // section or the On ticks mid-bounce (Batch 36c.i).
+        if (tab.name === 'providers')
           await expect(
             page.locator('[data-testid="cli-matrix-toggle-codex"]'),
           ).toBeVisible();
@@ -880,7 +875,7 @@ for (const host of ['vscode', 'electron'] as const) {
         fixtureServer.url,
         host,
         theme,
-        'Agent Orchestration',
+        'Providers',
       );
       // Batch 36: the Orchestration fold gate (the tab is still open), then (Batch 33) the roles <details> open.
       await assertOrderStripWhole(page, host, theme, 6);
@@ -899,7 +894,7 @@ for (const host of ['vscode', 'electron'] as const) {
         fixtureServer.url,
         host,
         theme,
-        'Agent Orchestration',
+        'Providers',
       );
       // Batch 30: the CLI matrix's cell popovers (prototype interactions/orchestration-2/-3).
       await captureMatrixPopovers(page, host, theme);
@@ -1401,7 +1396,7 @@ for (const host of ['vscode', 'electron'] as const) {
       await expect(popover).toHaveCount(0);
       await expect(layers.nth(1)).toBeFocused();
 
-      await gotoSettingsTab(page, 'Agent Orchestration');
+      await gotoSettingsTab(page, 'Providers');
       await waitForSettled(page);
       await expect(
         page.locator('[data-testid="cli-matrix-toggle-codex"]'),

@@ -44,6 +44,10 @@ interface PlaybackMark {
   origin: ReplyOrigin | null;
 }
 
+/** Spec section 4: the agent line lingers after its audio ends, the user line after its send. */
+const AGENT_CAPTION_LINGER_MS = 1200;
+const USER_CAPTION_LINGER_MS = 800;
+
 /** Voice transport for a single Command Center page lifetime. */
 export class CommandVoiceLoop {
   private readonly vad = new EnergyVad();
@@ -72,9 +76,9 @@ export class CommandVoiceLoop {
   private bargeInOnset = false;
   private bargeInCandidateAt: number | null = null;
   private playbackEpoch = 0;
-  private pendingRoster = false;
   private lastReply = '';
   private generation = 0;
+  private captionTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly latencyMarks: {
     kind: 'cold-worker' | 'post-barge-in' | 'warm';
     ms: number;
@@ -124,6 +128,14 @@ export class CommandVoiceLoop {
               if (origin && mark) this.transferOrigin(mark.replyId, origin);
               throw error;
             }
+            // The caption follows the audio: each sentence shows as its clip starts.
+            if (
+              mark &&
+              epoch === this.playbackEpoch &&
+              this.active &&
+              !this.muted
+            )
+              this.showCaption('agent', mark.text);
             if (origin && epoch === this.playbackEpoch) {
               this.latencyMarks.push({
                 kind: origin.barged
@@ -152,6 +164,13 @@ export class CommandVoiceLoop {
         if (playing) {
           this.store.setVoiceState('speaking');
         } else if (!this.playback.hasPending) {
+          const caption = this.store.caption();
+          if (caption)
+            this.lingerCaption(
+              caption.role === 'agent'
+                ? AGENT_CAPTION_LINGER_MS
+                : USER_CAPTION_LINGER_MS,
+            );
           if (
             this.store.pendingInput() !== null ||
             (!this.busy && !this.awaitingBoundary)
@@ -179,6 +198,32 @@ export class CommandVoiceLoop {
     this.store.setToast({ message, tone: 'error', action: 'retry-speech' });
   }
 
+  private showCaption(role: 'user' | 'agent', text: string): void {
+    this.clearCaptionTimer();
+    this.store.setCaption(role, text);
+  }
+
+  /** The line stays readable for `ms` after its audio or send ends, then fades. */
+  private lingerCaption(ms: number): void {
+    this.clearCaptionTimer();
+    this.captionTimer = setTimeout(() => {
+      this.captionTimer = null;
+      this.store.clearCaption('fade');
+    }, ms);
+  }
+
+  /** Barge-in, mute and stop remove the line at once. */
+  private cutCaption(): void {
+    this.clearCaptionTimer();
+    if (this.store.caption()) this.store.clearCaption('cut');
+  }
+
+  private clearCaptionTimer(): void {
+    if (this.captionTimer === null) return;
+    clearTimeout(this.captionTimer);
+    this.captionTimer = null;
+  }
+
   private removePlaybackMark(id: number): void {
     const index = this.playbackMarks.findIndex((mark) => mark.id === id);
     if (index < 0) return;
@@ -201,6 +246,21 @@ export class CommandVoiceLoop {
     this.synthesisIds.push(id);
     this.playback.enqueue(text);
     return id;
+  }
+
+  /** True when a finished reply will be spoken aloud rather than only shown. */
+  public get speaksReplies(): boolean {
+    return this.active && !this.muted && this.store.provider().synthesis;
+  }
+
+  /**
+   * Shows an unspoken reply excerpt as the agent caption. It replaces any pending
+   * linger, so an earlier user line cannot fade the reply out early, and then
+   * lingers and fades like a spoken agent line (no audio end will clear it).
+   */
+  public showReplyCaption(text: string): void {
+    this.showCaption('agent', text);
+    this.lingerCaption(AGENT_CAPTION_LINGER_MS);
   }
 
   public getLatencyMarks(): readonly {
@@ -316,6 +376,7 @@ export class CommandVoiceLoop {
       independent
     ) {
       this.playback.bargeIn();
+      this.cutCaption();
       this.playbackEpoch++;
       this.synthesisFailurePending = false;
       this.playbackMarks.length = 0;
@@ -397,14 +458,7 @@ export class CommandVoiceLoop {
         this.finishTurn();
         return;
       }
-      if (this.pendingRoster) {
-        this.store.setToast({
-          message: 'Confirm or decline the roster on the card.',
-          tone: 'error',
-        });
-        this.finishTurn();
-        return;
-      }
+      this.showCaption('user', transcript);
       if (this.store.pendingInput()?.kind === 'question') {
         if (this.options.answerOrdinaryQuestion?.(transcript)) {
           this.finishTurn();
@@ -530,6 +584,7 @@ export class CommandVoiceLoop {
 
   public interruptSpeech(): void {
     this.playback.bargeIn();
+    this.cutCaption();
     this.playbackEpoch++;
     this.synthesisFailurePending = false;
     this.playbackMarks.length = 0;
@@ -543,19 +598,6 @@ export class CommandVoiceLoop {
 
   public onPendingPrompt(summary: string): void {
     this.speak(summary, 'status');
-  }
-
-  public onRosterProposal(summary: string, valid: boolean): void {
-    this.pendingRoster = valid;
-    if (valid) this.speak(summary, 'status');
-  }
-
-  public onRosterResolved(): void {
-    this.pendingRoster = false;
-  }
-
-  public setRosterPending(pending: boolean): void {
-    this.pendingRoster = pending;
   }
 
   public retrySpeech(): void {
@@ -585,6 +627,12 @@ export class CommandVoiceLoop {
 
   private finishTurn(): void {
     if (!this.active) return;
+    // A user line with no reply on the way lingers briefly, then leaves.
+    if (
+      this.store.caption()?.role === 'user' &&
+      !this.playback.hasPending
+    )
+      this.lingerCaption(USER_CAPTION_LINGER_MS);
     this.busy = false;
     this.turnGeneration = null;
     this.awaitingBoundary = false;
@@ -616,6 +664,7 @@ export class CommandVoiceLoop {
     this.active = false;
     this.resetTurnState();
     this.playback.mute();
+    this.cutCaption();
     this.playbackEpoch++;
     this.vad.reset();
     await this.capture?.stop();
@@ -640,8 +689,8 @@ export class CommandVoiceLoop {
     this.muted = false;
     this.store.setMuted(false);
     this.resetTurnState();
-    this.pendingRoster = false;
     this.playback.stopAll();
+    this.cutCaption();
     this.playbackEpoch++;
     this.vad.reset();
     this.narrator.clear();

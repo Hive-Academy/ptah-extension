@@ -10,10 +10,11 @@ import { PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY, PROVIDER_ACCOUNT_RESERVED_LAB
 import { ProviderAccountStore, type AccountRunAdmission, type AccountRunLease } from './provider-account.store';
 import { ProviderAccountStoreError, resolveProviderAccountRoute } from './provider-account-route';
 import { ProviderAccountService } from './provider-account.service';
+import { CURRENT_LEASE_HOST } from './provider-account-host';
 
 // Real independent SQLite connections; no production/development DB path resolver.
 const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
-const schema = [58, 59, 60].map(version => {
+const schema = [58, 59, 60, 61, 62].map(version => {
   const migration = MIGRATIONS.find(entry => entry.version === version);
   if (!migration?.sql) throw new Error('Provider account migration is missing');
   return migration.sql;
@@ -743,7 +744,8 @@ describe('ProviderAccountStore transactions', () => {
       expect(outcome.reservation).toMatchObject({ phase: 'reserved', routeKind: 'named', runId: 'run-00001', authEpoch: 0 });
       expect(outcome.resources).toMatchObject({ kind: 'named', launch, route: { kind: 'named', profileId, runId: 'run-00001' } });
       expect(certify.certify).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: root, settingSources: ['user', 'project', 'local'], profile: { identityRef } }));
+        cwd: root, settingSources: ['user', 'project', 'local'], profile: { identityRef },
+        reuse: { profileId, revision: 0, authEpoch: 0, routeRevision: 0 } }));
       expect(count('run_leases')).toBe(1);
       expect(count('run_bindings')).toBe(0);
     });
@@ -798,6 +800,298 @@ describe('ProviderAccountStore transactions', () => {
       const facade = accountService(a);
       await expect(facade.readStoredSelection(root, 'lane')).resolves.toEqual({ profileId });
       await expect(facade.readStoredSelection(root, 'main')).resolves.toEqual({ profileId: null });
+    });
+  });
+
+  describe('run leases of an ended host', () => {
+    /** No process has this pid in these tests: `process.kill(pid, 0)` answers ESRCH for it. */
+    const deadPid = 2_147_483_000;
+    let probe: jest.SpyInstance;
+    beforeEach(() => {
+      probe = jest.spyOn(process, 'kill').mockImplementation((pid: number) => {
+        if (pid === deadPid) throw Object.assign(new Error('no such process'), { code: 'ESRCH' });
+        return true;
+      });
+    });
+    afterEach(() => probe.mockRestore());
+
+    function owner(leaseId: string, pid: number | null, machine: string | null = CURRENT_LEASE_HOST.machine): void {
+      first.prepare('UPDATE provider_account_run_leases SET host_pid = ?, host_machine = ? WHERE lease_id = ?').run(pid, machine, leaseId);
+    }
+    const signIn = () => a.reserveAuth(profileId, 0, request().route, 'auth-00001', 'owner-0002', 'sign-in');
+
+    it('records this host process on every new lease', () => {
+      add();
+      a.acquireRunLease(request());
+      expect(first.prepare('SELECT host_pid, host_machine FROM provider_account_run_leases').all())
+        .toEqual([{ host_pid: process.pid, host_machine: CURRENT_LEASE_HOST.machine }]);
+    });
+
+    it('reclaims a lease whose owning host process is gone, then admits sign-in', () => {
+      add();
+      a.acquireRunLease(request());
+      owner('lease-0001', deadPid);
+      expect(signIn().authEpoch).toBe(1);
+      expect(count('run_leases')).toBe(0);
+      expect(probe).toHaveBeenCalledWith(deadPid, 0);
+    });
+
+    it('logs a reclaim with a count only', () => {
+      add();
+      const logger = { warn: jest.fn() };
+      const logged = new ProviderAccountStore({ db: first }, logger);
+      logged.acquireRunLease(request());
+      owner('lease-0001', deadPid);
+      logged.reserveAuth(profileId, 0, request().route, 'auth-00001', 'owner-0002', 'sign-in');
+      expect(logger.warn.mock.calls).toEqual([
+        ['[ProviderAccountStore] Reclaimed run leases left by an ended host', { reclaimed: 1 }],
+      ]);
+    });
+
+    it.each([
+      ['a live owner', () => owner('lease-0001', 4242)],
+      ['this process', () => owner('lease-0001', process.pid)],
+      ['another machine', () => owner('lease-0001', deadPid, 'f'.repeat(64))],
+      ['a legacy row without an owner', () => owner('lease-0001', null, null)],
+      ['a quarantined row', () => {
+        owner('lease-0001', deadPid);
+        first.prepare("UPDATE provider_account_run_leases SET lease_state = 'quarantined'").run();
+      }],
+    ] as const)('keeps the lease of %s and stays busy', (_label, arrange) => {
+      add();
+      a.acquireRunLease(request());
+      arrange();
+      refuses(signIn, 'busy');
+      expect(count('run_leases')).toBe(1);
+    });
+
+    it('keeps the lease while its recorded Claude child outlives the host, and reclaims once both are gone', () => {
+      const childPid = 2_147_483_001;
+      let childAlive = true;
+      probe.mockImplementation((pid: number) => {
+        if (pid === deadPid || (pid === childPid && !childAlive)) throw Object.assign(new Error('no such process'), { code: 'ESRCH' });
+        return true;
+      });
+      add();
+      const { reservation } = a.acquireRunLease(request());
+      a.recordRunChild({ reservationId: reservation.reservationId, operationId: reservation.operationId,
+        authEpoch: reservation.authEpoch, pid: childPid });
+      owner('lease-0001', deadPid);
+      refuses(signIn, 'busy');
+      expect(count('run_leases')).toBe(1);
+      childAlive = false;
+      expect(signIn().authEpoch).toBe(1);
+      expect(count('run_leases')).toBe(0);
+    });
+
+    it('records a child only for the owned live lease at its epoch', () => {
+      add();
+      a.acquireRunLease(request());
+      const keys = { reservationId: 'lease-0001', operationId: 'owner-0001', authEpoch: 0 };
+      refuses(() => a.recordRunChild({ ...keys, operationId: 'owner-0002', pid: 4242 }));
+      refuses(() => a.recordRunChild({ ...keys, authEpoch: 1, pid: 4242 }));
+      refuses(() => a.recordRunChild({ ...keys, pid: 0 }));
+      expect(a.recordRunChild({ ...keys, pid: 4242 })).toMatchObject({ phase: 'retained', reservationId: 'lease-0001' });
+      a.recordRunChild({ ...keys, pid: 4243 });
+      expect(first.prepare('SELECT child_pid FROM provider_account_run_leases').all()).toEqual([{ child_pid: 4243 }]);
+    });
+
+    it('records a child through the admission facade until disposal', async () => {
+      add();
+      const { reservation } = a.acquireRunLease(request());
+      const facade = accountService(a);
+      const command = { reservationId: reservation.reservationId, operationId: reservation.operationId,
+        authEpoch: reservation.authEpoch, pid: 4242 };
+      expect(await facade.recordRunChild(command)).toMatchObject({ code: 'ok' });
+      expect(await facade.recordRunChild({ ...command, operationId: 'owner-0002' })).toMatchObject({ code: 'conflict' });
+      facade.dispose();
+      expect(await facade.recordRunChild(command)).toMatchObject({ code: 'unavailable-storage' });
+    });
+
+    it('keeps the lease when the liveness probe proves nothing (EPERM)', () => {
+      probe.mockImplementation(() => { throw Object.assign(new Error('not permitted'), { code: 'EPERM' }); });
+      add();
+      a.acquireRunLease(request());
+      owner('lease-0001', deadPid);
+      refuses(signIn, 'busy');
+      expect(count('run_leases')).toBe(1);
+    });
+
+    it('frees the run id of an ended host for a resumed run', () => {
+      add();
+      a.acquireRunLease(request());
+      owner('lease-0001', deadPid);
+      const resumed = b.acquireRunLease(request({ reservationId: 'lease-0002', operationId: 'owner-0002' }));
+      expect(resumed.reservation).toMatchObject({ reservationId: 'lease-0002', runId: 'run-00001' });
+      expect(count('run_leases')).toBe(1);
+    });
+
+    it('a live owner still refuses the same run id', () => {
+      add();
+      a.acquireRunLease(request());
+      refuses(() => b.acquireRunLease(request({ reservationId: 'lease-0002', operationId: 'owner-0002' })));
+    });
+  });
+
+  describe('operations of an ended host', () => {
+    /** No process has this pid in these tests: `process.kill(pid, 0)` answers ESRCH for it. */
+    const deadPid = 2_147_483_000;
+    let probe: jest.SpyInstance;
+    beforeEach(() => {
+      probe = jest.spyOn(process, 'kill').mockImplementation((pid: number) => {
+        if (pid === deadPid) throw Object.assign(new Error('no such process'), { code: 'ESRCH' });
+        return true;
+      });
+    });
+    afterEach(() => probe.mockRestore());
+
+    function owner(operationId: string, pid: number | null, machine: string | null = CURRENT_LEASE_HOST.machine): void {
+      first.prepare('UPDATE provider_account_operations SET host_pid = ?, host_machine = ? WHERE operation_id = ?')
+        .run(pid, machine, operationId);
+    }
+    const signIn = () => a.reserveAuth(profileId, 0, request().route, 'auth-00001', 'owner-0001', 'sign-in');
+    const operations = () => first.prepare('SELECT operation_id, kind, host_pid, host_machine, prior_state FROM provider_account_operations ORDER BY operation_id').all();
+
+    it('records this host process on every new operation, and the replaced state on an auth operation', () => {
+      add();
+      add('profile-0002', 'second');
+      signIn();
+      a.reserveStatus('profile-0002', 0, resolveProviderAccountRoute(join(root, 'second')), 'status-0001', 'owner-0001');
+      expect(operations()).toEqual([
+        { operation_id: 'auth-00001', kind: 'sign-in', host_pid: process.pid, host_machine: CURRENT_LEASE_HOST.machine, prior_state: 'signed-in' },
+        { operation_id: 'status-0001', kind: 'status', host_pid: process.pid, host_machine: CURRENT_LEASE_HOST.machine, prior_state: null },
+      ]);
+    });
+
+    it('deletes the operation of a gone host and restores the profile state it replaced with pending', () => {
+      add();
+      const logger = { warn: jest.fn() };
+      const recovering = new ProviderAccountStore({ db: second }, logger);
+      signIn();
+      owner('auth-00001', deadPid);
+      expect(a.get(profileId)).toMatchObject({ state: 'pending', revision: 1, auth_epoch: 1 });
+      expect(recovering.reclaimAbandonedOperations()).toEqual([profileId]);
+      // The epoch stays advanced; the revision moves so a stale caller rereads.
+      expect(a.get(profileId)).toMatchObject({ state: 'signed-in', identity_ref: identityRef, revision: 2, auth_epoch: 1 });
+      expect(count('operations')).toBe(0);
+      expect(probe).toHaveBeenCalledWith(deadPid, 0);
+      expect(logger.warn.mock.calls).toEqual([
+        ['[ProviderAccountStore] Reclaimed account operations left by an ended host', { reclaimed: 1, restored: 1 }],
+      ]);
+      expect(b.reserveAuth(profileId, 2, request().route, 'auth-00002', 'owner-0002', 'sign-out').authEpoch).toBe(2);
+    });
+
+    it('hands the restored profile ids to reclaim listeners after commit, until unsubscribed', () => {
+      add();
+      const heard: (readonly string[])[] = [];
+      const stop = b.onOperationsReclaimed(profileIds => {
+        // Committed: the listener reads the restored state through its own store.
+        expect(b.get(profileId).state).toBe('signed-in');
+        heard.push(profileIds);
+      });
+      signIn();
+      owner('auth-00001', deadPid);
+      b.reclaimAbandonedOperations();
+      expect(heard).toEqual([[profileId]]);
+      // Nothing restored: no call.
+      b.reclaimAbandonedOperations();
+      expect(heard).toHaveLength(1);
+      stop();
+      b.reserveAuth(profileId, 2, request().route, 'auth-00002', 'owner-0002', 'sign-out');
+      owner('auth-00002', deadPid);
+      b.reclaimAbandonedOperations();
+      expect(heard).toHaveLength(1);
+      expect(b.get(profileId).state).toBe('signed-in');
+    });
+
+    it('deletes a gone host status operation without touching the profile, before admission', () => {
+      add();
+      a.reserveStatus(profileId, 0, request().route, 'status-0001', 'owner-0001');
+      owner('status-0001', deadPid);
+      const before = a.get(profileId);
+      expect(b.acquireRunLease(request({ operationId: 'owner-0002' })).reservation).toMatchObject({ phase: 'reserved' });
+      expect(count('operations')).toBe(0);
+      expect(a.get(profileId)).toEqual(before);
+    });
+
+    it.each([
+      ['a live owner', () => owner('auth-00001', 4242)],
+      ['this process', () => owner('auth-00001', process.pid)],
+      ['another machine', () => owner('auth-00001', deadPid, 'f'.repeat(64))],
+      ['a legacy row without an owner', () => owner('auth-00001', null, null)],
+      ['a named auth row without a prior state', () => {
+        owner('auth-00001', deadPid);
+        first.prepare('UPDATE provider_account_operations SET prior_state = NULL').run();
+      }],
+    ] as const)('keeps the operation of %s and the profile pending', (_label, arrange) => {
+      add();
+      signIn();
+      arrange();
+      expect(b.reclaimAbandonedOperations()).toEqual([]);
+      expect(count('operations')).toBe(1);
+      expect(a.get(profileId)).toMatchObject({ state: 'pending', revision: 1 });
+      refuses(() => b.acquireRunLease(request({ expectedRevision: 1 })), 'busy');
+    });
+
+    it('records the console pid only on the owned auth operation at its epoch', () => {
+      add();
+      const { authEpoch } = signIn();
+      refuses(() => a.recordOperationChild('auth-00001', 'owner-0001', authEpoch, 0));
+      expect(a.recordOperationChild('auth-00001', 'owner-0002', authEpoch, 4321)).toBe(false);
+      expect(a.recordOperationChild('auth-00001', 'owner-0001', authEpoch + 1, 4321)).toBe(false);
+      expect(a.recordOperationChild('auth-00001', 'owner-0001', authEpoch, 4321)).toBe(true);
+      expect(first.prepare('SELECT child_pid FROM provider_account_operations').all()).toEqual([{ child_pid: 4321 }]);
+    });
+
+    it('keeps the operation while its console outlives the host, and reclaims once both are gone', () => {
+      const consolePid = 2_147_483_001;
+      let consoleAlive = true;
+      probe.mockImplementation((pid: number) => {
+        if (pid === deadPid || (pid === consolePid && !consoleAlive)) {
+          throw Object.assign(new Error('no such process'), { code: 'ESRCH' });
+        }
+        return true;
+      });
+      add();
+      const { authEpoch } = signIn();
+      a.recordOperationChild('auth-00001', 'owner-0001', authEpoch, consolePid);
+      owner('auth-00001', deadPid);
+      expect(b.reclaimAbandonedOperations()).toEqual([]);
+      expect(count('operations')).toBe(1);
+      expect(a.get(profileId).state).toBe('pending');
+      consoleAlive = false;
+      expect(b.reclaimAbandonedOperations()).toEqual([profileId]);
+      expect(count('operations')).toBe(0);
+      expect(a.get(profileId).state).toBe('signed-in');
+    });
+
+    it('keeps the operation when the liveness probe proves nothing (EPERM)', () => {
+      probe.mockImplementation(() => { throw Object.assign(new Error('not permitted'), { code: 'EPERM' }); });
+      add();
+      signIn();
+      owner('auth-00001', deadPid);
+      expect(b.reclaimAbandonedOperations()).toEqual([]);
+      expect(count('operations')).toBe(1);
+    });
+  });
+
+  describe('status beside live runs', () => {
+    it('reserves status while a run lease is live; sign-in and sign-out stay busy', () => {
+      add();
+      a.acquireRunLease(request());
+      const held = b.reserveStatus(profileId, 0, request().route, 'status-0001', 'owner-0002');
+      b.completeStatus('status-0001', 'owner-0002', held.authEpoch, 'signed-in', true);
+      for (const kind of ['sign-in', 'sign-out'] as const) {
+        refuses(() => b.reserveAuth(profileId, 0, request().route, 'auth-00001', 'owner-0002', kind), 'busy');
+      }
+      expect(count('run_leases')).toBe(1);
+      expect(count('operations')).toBe(0);
+    });
+
+    it('a status operation still makes a new run busy', () => {
+      add();
+      a.reserveStatus(profileId, 0, request().route, 'status-0001', 'owner-0002');
+      refuses(() => b.acquireRunLease(request()), 'busy');
     });
   });
 });

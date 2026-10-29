@@ -70,6 +70,7 @@ import { OutputStyleEditorComponent } from './output-style-editor.component';
 import { OutputStyleInstructionsFieldComponent } from './output-style-instructions-field.component';
 import { OutputStyleStore } from './output-style.store';
 import { isDisabledControl } from '../feedback/busy-disabled.testing';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 const COMPONENT_FILES = [
   'output-style-editor.component.ts',
@@ -97,6 +98,8 @@ const EXISTING_STYLE: OutputStyleDetail = {
 describe('OutputStyleEditorComponent', () => {
   let save: jest.Mock;
   let load: jest.Mock;
+  /** A failed save shows as the page toast, not inside the drawer. */
+  let announce: jest.Mock;
   let fixture: ComponentFixture<OutputStyleEditorComponent>;
   let component: OutputStyleEditorComponent;
   /** Batch 55b CS-2: the toggle and the Instructions body (Edit | Preview) live in this child of the editor. */
@@ -118,6 +121,7 @@ describe('OutputStyleEditorComponent', () => {
   beforeEach(() => {
     save = jest.fn().mockResolvedValue(null);
     load = jest.fn().mockResolvedValue(null);
+    announce = jest.fn();
 
     TestBed.configureTestingModule({
       imports: [OutputStyleEditorComponent],
@@ -126,6 +130,7 @@ describe('OutputStyleEditorComponent', () => {
           provide: OutputStyleStore,
           useValue: { saving: signal(false), save, load },
         },
+        { provide: SettingsSaveFeedbackService, useValue: { announce } },
       ],
     });
 
@@ -193,10 +198,9 @@ describe('OutputStyleEditorComponent', () => {
       await component.submit();
       fixture.detectChanges();
 
-      expect(component.formError()).toBe('Could not save the output style.');
-      const alert = fixture.nativeElement.querySelector('[role="alert"]');
-      expect(alert.textContent).toContain('Could not save the output style.');
-      expect(alert.textContent).not.toContain('ENOSPC');
+      expect(announce).toHaveBeenCalledWith('Could not save the output style.', 'alert');
+      expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
+      expect(text()).not.toContain('ENOSPC');
     });
   });
 

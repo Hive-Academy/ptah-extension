@@ -37,8 +37,8 @@ const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-ba
  *   instance manager retired in Batch 34).
  * The secret is per machine (secrets store), so there is no Save-to target and no Undo.
  * Gate V 36: a saved key reads "Key stored, not verified." (M4; Ptah has no Cursor check yet, an accepted deviation),
- * and every outcome is also announced through the page toast (M3): a saved key moves the Cursor row between the
- * Uninstalled and installed groups, which re-creates this popover and would drop its inline line.
+ * and every outcome is reported only through the page toast (M3): a saved key moves the Cursor row between the
+ * Uninstalled and installed groups, which re-creates this popover, and the toast outlives it.
  * Re-check 2 (N3): while a write runs the key field is read-only and the buttons are `aria-disabled`, never natively
  * disabled, so focus never drops to `body` and Esc still closes the popover; after a write focus lands on the key field.
  */
@@ -217,15 +217,6 @@ const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-ba
           </div>
         </div>
       }
-      @if (outcomeText(); as text) {
-        <p
-          [attr.role]="text.alert ? 'alert' : 'status'"
-          class="text-base-content"
-          data-testid="cursor-credential-outcome"
-        >
-          {{ text.text }}
-        </p>
-      }
     </div>
   `,
 })
@@ -264,7 +255,7 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
       this.outcome()?.status === 'saving',
   );
 
-  protected readonly outcomeText = computed(() => {
+  private readonly outcomeText = computed(() => {
     const outcome = this.outcome(),
       action = this.action();
     if (!outcome || outcome.status === 'saving' || outcome.status === 'idle')
@@ -341,7 +332,7 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
     );
   }
 
-  /** M3: the outcome also goes to the page toast, which outlives this popover (it may be re-created meanwhile). */
+  /** M3: the outcome goes to the page toast, which outlives this popover (it may be re-created meanwhile). */
   private announce(): void {
     const text = this.outcomeText();
     if (text)

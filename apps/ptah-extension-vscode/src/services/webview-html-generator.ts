@@ -118,7 +118,7 @@ export class WebviewHtmlGenerator {
     //     `generateFallbackHtml`, so that command rendered an empty panel. This
     //     was broken before TASK_2026_524 touched anything.
     //   - it rejected every surface added since (`harness-builder`,
-    //     `setup-hub`, `thoth`, `marketplace`, `tribunal`, `tasks`).
+    //     `setup-hub`, `thoth`, `marketplace`, `tasks`).
     //   - it still accepted `command-builder` and `context-tree`, which have no
     //     render branch in the app at all.
     //

@@ -113,8 +113,8 @@ describe('CursorCredentialPopoverComponent', () => {
     await flush();
     expect(state.saveCursorCredential).toHaveBeenCalledWith(KEY, CONTEXT);
     // M4: stored is not verified (no Cursor check exists; accepted deviation, Gate V 36 decision 3).
-    expect(q('cursor-credential-outcome')?.textContent?.trim()).toBe('Key stored, not verified.');
-    // M3: also announced through the page toast, which outlives this popover.
+    expect(q('cursor-credential-outcome')).toBeNull();
+    // M3: reported only through the page toast, which outlives this popover.
     expect(feedback.toast()).toEqual({ tone: 'status', message: 'Key stored, not verified.', canUndo: false });
     expect(q('cursor-credential-status')?.textContent?.trim()).toBe('Set');
     expect(keyInput()?.value).toBe('');
@@ -126,17 +126,15 @@ describe('CursorCredentialPopoverComponent', () => {
     typeKey(KEY);
     q<HTMLButtonElement>('cursor-credential-save')?.click();
     await flush();
-    const outcome = q('cursor-credential-outcome');
-    expect(outcome?.getAttribute('role')).toBe('alert');
-    expect(outcome?.textContent).toContain('The key was not saved.');
-    expect(outcome?.textContent).not.toContain('Key stored');
+    expect(q('cursor-credential-outcome')).toBeNull();
     expect(feedback.toast()?.tone).toBe('alert');
+    expect(feedback.toast()?.message).not.toContain('Key stored');
     expect(feedback.toast()?.message).toContain('The key was not saved.');
     expect(keyInput()?.value).toBe(KEY);
     state.outcome = 'unconfirmed';
     q<HTMLButtonElement>('cursor-credential-save')?.click();
     await flush();
-    expect(q('cursor-credential-outcome')?.textContent).toContain('Could not confirm the change');
+    expect(feedback.toast()?.message).toContain('Could not confirm the change');
   });
 
   it('removes the stored key after a confirm, through saveCursorCredential(\'\')', async () => {
@@ -149,7 +147,7 @@ describe('CursorCredentialPopoverComponent', () => {
     q<HTMLButtonElement>('cursor-credential-remove-confirm-button')?.click();
     await flush();
     expect(state.saveCursorCredential).toHaveBeenCalledWith('', CONTEXT);
-    expect(q('cursor-credential-outcome')?.textContent?.trim()).toBe('Stored key removed.');
+    expect(feedback.toast()).toEqual({ tone: 'status', message: 'Stored key removed.', canUndo: false });
     expect(q('cursor-credential-status')?.textContent?.trim()).toBe('Not set');
     expect(q('cursor-credential-remove-confirm')).toBeNull();
   });
@@ -163,11 +161,8 @@ describe('CursorCredentialPopoverComponent', () => {
     fixture.detectChanges();
     q<HTMLButtonElement>('cursor-credential-remove-confirm-button')?.click();
     await flush();
-    const outcome = q('cursor-credential-outcome');
-    expect(outcome?.getAttribute('role')).toBe('alert');
-    expect(outcome?.textContent?.trim()).toBe('The stored key was not removed.');
-    expect(outcome?.textContent).not.toContain('not saved');
-    expect(outcome?.textContent).not.toContain('Could not remove the Cursor API key');
+    expect(q('cursor-credential-outcome')).toBeNull();
+    expect(feedback.toast()?.tone).toBe('alert');
     expect(feedback.toast()?.message).toBe('The stored key was not removed.');
     expect(q('cursor-credential-status')?.textContent?.trim()).toBe(statusBefore);
     expect(state.orchestration().data?.cursorApiKeyStored).toBe(true);
@@ -198,7 +193,7 @@ describe('CursorCredentialPopoverComponent', () => {
     q<HTMLButtonElement>('cursor-credential-save')?.click();
     await flush();
     expect(state.saveCursorCredential).not.toHaveBeenCalled();
-    expect(q('cursor-credential-outcome')?.textContent).toContain('Settings are still loading');
+    expect(feedback.toast()?.message).toContain('Settings are still loading');
   });
 
   it('D3 / N3: while any save runs the controls are aria-disabled and the field read-only, never natively disabled', async () => {
@@ -237,7 +232,7 @@ describe('CursorCredentialPopoverComponent', () => {
       release();
       await flush();
       render();
-      expect(q('cursor-credential-outcome')?.textContent).toContain('The key was not saved.');
+      expect(feedback.toast()?.message).toContain('The key was not saved.');
       expect(document.activeElement).toBe(keyInput());
     });
 

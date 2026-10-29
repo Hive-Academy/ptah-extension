@@ -219,4 +219,25 @@ describe('CommandCenterStore', () => {
     store.updateLevels(0.4, 0.6);
     expect([store.inputLevel(), store.outputLevel()]).toEqual([0.4, 0.6]);
   });
+
+  it('sets a trimmed caption with a rising sequence and clears blank text', () => {
+    expect(store.caption()).toBeNull();
+    store.setCaption('agent', '  First sentence.  ');
+    const first = store.caption();
+    expect(first).toMatchObject({ role: 'agent', text: 'First sentence.' });
+    store.setCaption('agent', 'First sentence.');
+    expect(store.caption()?.seq).toBeGreaterThan(first?.seq ?? 0);
+    store.setCaption('user', '   ');
+    expect(store.caption()).toBeNull();
+    expect(store.captionExit()).toBe('fade');
+  });
+
+  it('records how the caption left', () => {
+    store.setCaption('user', 'hello');
+    store.clearCaption('cut');
+    expect(store.caption()).toBeNull();
+    expect(store.captionExit()).toBe('cut');
+    store.setCaption('agent', 'Back again.');
+    expect(store.captionExit()).toBe('fade');
+  });
 });

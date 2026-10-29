@@ -71,21 +71,6 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
       on first use.
     </p>
 
-    @if (errorMessage(); as message) {
-      <div
-        role="alert"
-        data-testid="local-stt-panel-error"
-        class="mb-3 flex items-center gap-1.5 rounded border border-error/40 p-2 text-xs text-base-content"
-      >
-        <lucide-angular
-          [img]="AlertCircleIcon"
-          class="w-3.5 h-3.5 text-error shrink-0"
-          aria-hidden="true"
-        />
-        {{ message }}
-      </div>
-    }
-
     <table class="table table-sm" data-testid="local-stt-panel-table">
       <tbody>
         <!-- V13: source. Returning to Curated saves immediately; a custom source
@@ -312,7 +297,6 @@ export class LocalSttPanelComponent {
   readonly downloaded = computed(() => this.config().sttDownloaded);
 
   readonly isDownloading = signal(false);
-  readonly errorMessage = signal<string | null>(null);
 
   /** True when the custom id/path passes basic shape validation. */
   readonly customModelValid = computed(() => {
@@ -445,24 +429,20 @@ export class LocalSttPanelComponent {
     modelSource: ModelSource;
     customModel?: string;
   }): Promise<WriteResult> {
-    this.errorMessage.set(null);
     try {
       const result = await this.rpc.call('voice:setConfig', params);
       if (result.isSuccess() && result.data.ok) {
         this.changed.emit();
         return { ok: true };
       }
-      this.errorMessage.set(SAVE_FAILED_MESSAGE);
       return { ok: false, message: SAVE_FAILED_MESSAGE };
     } catch {
-      this.errorMessage.set(SAVE_FAILED_MESSAGE);
       return { ok: false, message: SAVE_FAILED_MESSAGE };
     }
   }
 
   async downloadModel(): Promise<void> {
     if (this.isDownloading()) return;
-    this.errorMessage.set(null);
     this.downloadProgress.reset();
     this.isDownloading.set(true);
     try {
@@ -474,10 +454,11 @@ export class LocalSttPanelComponent {
       if (result.isSuccess() && result.data.ok) {
         this.changed.emit();
       } else {
-        this.errorMessage.set(DOWNLOAD_FAILED_MESSAGE);
+        this.feedback.announce(DOWNLOAD_FAILED_MESSAGE, 'alert');
       }
     } catch {
-      this.errorMessage.set(DOWNLOAD_FAILED_MESSAGE);
+      // degradation-audit: reported - a thrown download gets the same fixed alert toast.
+      this.feedback.announce(DOWNLOAD_FAILED_MESSAGE, 'alert');
     } finally {
       this.isDownloading.set(false);
       this.downloadProgress.reset();

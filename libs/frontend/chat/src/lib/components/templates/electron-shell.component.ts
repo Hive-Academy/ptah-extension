@@ -36,7 +36,6 @@ import {
   BarChart3,
   ArrowLeft,
   LayoutGrid,
-  Scale,
   ClipboardList,
   AppWindow,
   Wrench,
@@ -268,18 +267,6 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             >
               <lucide-angular [img]="ClipboardListIcon" class="w-3.5 h-3.5" />
               <span class="tab-label whitespace-nowrap">Tasks</span>
-            </button>
-            <button
-              role="tab"
-              class="tab gap-1.5 no-drag whitespace-nowrap"
-              [class.tab-active]="appState.currentView() === 'tribunal'"
-              [attr.aria-selected]="appState.currentView() === 'tribunal'"
-              title="Tribunal"
-              aria-label="Tribunal"
-              (click)="openTribunal()"
-            >
-              <lucide-angular [img]="ScaleIcon" class="w-3.5 h-3.5" />
-              <span class="tab-label whitespace-nowrap">Tribunal</span>
             </button>
             <button
               role="tab"
@@ -635,7 +622,6 @@ export class ElectronShellComponent {
   readonly BarChart3Icon = BarChart3;
   readonly ArrowLeftIcon = ArrowLeft;
   readonly LayoutGridIcon = LayoutGrid;
-  readonly ScaleIcon = Scale;
   readonly ClipboardListIcon = ClipboardList;
   readonly AppWindowIcon = AppWindow;
   readonly WrenchIcon = Wrench;
@@ -657,10 +643,6 @@ export class ElectronShellComponent {
 
   openDashboard(): void {
     this.appState.setCurrentView('analytics');
-  }
-
-  openTribunal(): void {
-    this.appState.setCurrentView('tribunal');
   }
 
   openTasks(): void {

@@ -300,6 +300,20 @@ export interface ProviderAccountAdmissionPort {
   retainUnresolvedReservation(
     command: ClaudeAccountReservationRetain,
   ): Promise<ClaudeAccountReservationRetainOutcome>;
+  /**
+   * Records the pid of the run's current Claude child on its live lease, so a
+   * later process reclaims the lease only once both the owning host and that
+   * child are proved gone. Checks the same keys as retain; the lease stays.
+   * Optional: a host without lease storage has nothing to record.
+   */
+  recordRunChild?(
+    command: ClaudeAccountRunChild,
+  ): Promise<ClaudeAccountReservationRetainOutcome>;
+}
+
+/** Lease keys plus the OS pid of the child the run just spawned. */
+export interface ClaudeAccountRunChild extends ClaudeAccountReservationRetain {
+  readonly pid: number;
 }
 
 /** Profile target. No path and no environment. */

@@ -26,12 +26,8 @@ describe('commandCenterPersonaFor', () => {
     ).toBeUndefined();
   });
 
-  it('keeps discovery non-launching and Decline first', () => {
+  it('keeps generic Command Center instructions', () => {
     expect(COMMAND_CENTER_PERSONA).toContain('Start each reply with 1-2 plain spoken sentences that give the answer; put details after.');
-    expect(COMMAND_CENTER_PERSONA).toMatch(/Decline first and Confirm second/);
-    expect(COMMAND_CENTER_PERSONA).toMatch(
-      /Never spawn or launch Tribunal lanes during discovery/,
-    );
     expect(COMMAND_CENTER_PERSONA).toContain('COMMAND_CENTER_STATUS_CONTEXT');
     expect(COMMAND_CENTER_PERSONA.length).toBeLessThanOrEqual(16 * 1024);
   });

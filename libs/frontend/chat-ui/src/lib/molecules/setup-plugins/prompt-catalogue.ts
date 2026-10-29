@@ -142,8 +142,8 @@ export const PROMPT_CATALOGUE: readonly PromptCategory[] = [
         description: 'JSON-RPC CI pipeline',
       },
       {
-        label: 'Start tribunal panel',
-        text: '/tribunal Start a tribunal panel for [topic] and render a cited verdict',
+        label: 'Run tribunal skill in chat',
+        text: '/tribunal Convene a multi-vendor panel for [topic] and render a cited verdict',
         description: 'Council, Forge, or Crucible',
       },
       {

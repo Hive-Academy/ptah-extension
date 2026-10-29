@@ -155,7 +155,7 @@ export class TurnStateApplier {
     );
     if (rejectedOwnTab) return;
 
-    // Surface-owned sessions (harness builder, wizard, tribunal conductor)
+    // Surface-owned sessions (harness builder, wizard)
     // resolve no tab and are still live sessions — the sidebar dot must follow
     // them too. The same is true for a session whose tab now belongs to a
     // replacement session: the write is for the OLD session id only and never

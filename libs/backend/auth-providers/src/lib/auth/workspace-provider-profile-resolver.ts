@@ -58,12 +58,16 @@ import type { ProviderModelsService } from '../provider-models.service';
 import type { DerivedTierMap } from '../model-tier-derivation';
 import {
   ActiveProviderResolver,
+  createAuthCredentialProbe,
   type ActiveAuth,
+  type AuthCredentialProbe,
 } from './active-provider-resolver';
 import type { AuthManager } from './auth-manager';
 import type { ModelResolver } from './model-resolver';
 import type { ProviderProxyPool } from './provider-proxy-pool';
 import { isStoredModelOffered } from './stored-model-offer';
+import { API_KEY_RECOVERY_HINT } from './auth-method.utils';
+import { ClaudeAmbientLoginStatusReader } from '../accounts/claude-ambient-login-status';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local';
 
 /**
@@ -93,6 +97,8 @@ function createIsolatedSnapshot(): AuthEnv {
 
 @injectable()
 export class WorkspaceProviderProfileResolver {
+  private readonly credentialProbe: AuthCredentialProbe;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
@@ -108,7 +114,23 @@ export class WorkspaceProviderProfileResolver {
     private readonly authManager: AuthManager,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_PROXY_POOL)
     private readonly proxyPool: ProviderProxyPool,
-  ) {}
+    @inject(ClaudeAmbientLoginStatusReader)
+    ambientLogin: Pick<ClaudeAmbientLoginStatusReader, 'read'>,
+  ) {
+    this.credentialProbe = createAuthCredentialProbe(authSecrets, ambientLogin);
+  }
+
+  /**
+   * The auth that `workspacePath` resolves to, with the credential-aware
+   * default ({@link ActiveProviderResolver.resolveActiveAuthWithDefault}) —
+   * the same rule global initialization applies.
+   */
+  private resolveAuthForPath(workspacePath: string): Promise<ActiveAuth> {
+    return this.activeProviderResolver.resolveActiveAuthWithDefault(
+      this.credentialProbe,
+      workspacePath,
+    );
+  }
 
   /**
    * Resolve the provider profile for one chat session (start, resume, slash
@@ -130,8 +152,7 @@ export class WorkspaceProviderProfileResolver {
     workspacePath: string,
     requestedModel: string,
   ): Promise<ProviderProfile | undefined> {
-    const active =
-      this.activeProviderResolver.resolveActiveAuthForPath(workspacePath);
+    const active = await this.resolveAuthForPath(workspacePath);
     const profile = await this.buildProfile(
       active,
       workspacePath,
@@ -154,7 +175,6 @@ export class WorkspaceProviderProfileResolver {
       return undefined;
     }
 
-    const providerName = this.providerDisplayName(active);
     this.logger.warn(
       '[WorkspaceProviderProfileResolver] No isolated snapshot and the shared auth env serves a different provider — refusing the session',
       {
@@ -163,6 +183,16 @@ export class WorkspaceProviderProfileResolver {
         sharedProviderId: shared?.providerId ?? null,
       },
     );
+    if (active.authMethod === 'apiKey') {
+      throw new AuthRequiredError(
+        `Cannot start this session: the Anthropic API key is not ready. ${API_KEY_RECOVERY_HINT}`,
+        {
+          providerId: active.providerId,
+          recoveryHint: API_KEY_RECOVERY_HINT,
+        },
+      );
+    }
+    const providerName = this.providerDisplayName(active);
     throw new AuthRequiredError(
       `Cannot start this session: ${providerName} is not ready for this workspace, and the active connection uses a different provider. Check ${providerName} in Settings and retry.`,
       {
@@ -188,7 +218,7 @@ export class WorkspaceProviderProfileResolver {
     requestedModel: string,
   ): Promise<ProviderProfile | undefined> {
     return this.buildProfile(
-      this.activeProviderResolver.resolveActiveAuthForPath(workspacePath),
+      await this.resolveAuthForPath(workspacePath),
       workspacePath,
       requestedModel,
     );
@@ -220,11 +250,8 @@ export class WorkspaceProviderProfileResolver {
     return 'default';
   }
 
-  /** User-facing name of a resolved provider for error messages. */
+  /** User-facing name of a resolved non-API-key provider for error messages. */
   private providerDisplayName({ authMethod, providerId }: ActiveAuth): string {
-    if (authMethod === 'apiKey') {
-      return 'the Anthropic API key';
-    }
     if (authMethod === 'claudeCli') {
       return 'the Claude CLI login';
     }

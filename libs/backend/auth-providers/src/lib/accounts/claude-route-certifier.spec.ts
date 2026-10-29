@@ -8,6 +8,7 @@ import type { ClaudeChildCloseReceipt } from './claude-account-command';
 import { parseClaudeAccountStatus } from './claude-account-status';
 import { CLAUDE_REMOTE_SETTINGS_FILES, type ClaudePolicyDirEntry, type ClaudeRegistryQueryResult } from './claude-auth-settings-scan';
 import { resolveProviderAccountRoute, type CanonicalProviderAccountRoute } from './provider-account-route';
+import { CLAUDE_CERTIFICATION_REUSE_MS, type ClaudeCertificationScope } from './claude-certification-cache';
 import {
   ClaudeRouteCertifier,
   type ClaudeAuthContext,
@@ -15,6 +16,7 @@ import {
   type ClaudeExecutableProbeResult,
   type ClaudeLogoutProbeResult,
   type ClaudeRouteCertifierFs,
+  type ClaudeRouteCertifyRequest,
   type ClaudeStatusProbeResult,
 } from './claude-route-certifier';
 
@@ -124,7 +126,8 @@ interface Harness {
   afterStatus?: () => void;
 }
 
-function harness(platform: NodeJS.Platform = 'win32'): Harness {
+function harness(platform: NodeJS.Platform = 'win32', now: () => number = Date.now,
+  logger: { warn: jest.Mock } | null = null): Harness {
   const events: Event[] = [];
   const { fs, state } = fakeFs(events);
   const statusFor = new Map<string, string>();
@@ -162,7 +165,7 @@ function harness(platform: NodeJS.Platform = 'win32'): Harness {
       return h.registry(path);
     }),
   };
-  return Object.assign(h, { probe, certifier: new ClaudeRouteCertifier(probe, platform, fs) }) as Harness;
+  return Object.assign(h, { probe, certifier: new ClaudeRouteCertifier(probe, platform, fs, logger, now) }) as Harness;
 }
 
 const tempDirs: string[] = [];
@@ -546,5 +549,107 @@ describe('ClaudeRouteCertifier.checkLaunch', () => {
     const launch = await certified(h);
     const other = { ...launch, policy: { ...launch.policy, coverage: 'win32@2.1.309' } };
     await expect(h.certifier.checkLaunch(other, signal())).resolves.toEqual({ ok: false, code: 'unsupported-source', terminated: true });
+  });
+});
+
+describe('ClaudeRouteCertifier.certify reuse', () => {
+  const scope: ClaudeCertificationScope = { profileId: 'profile-0001', revision: 3, authEpoch: 2, routeRevision: 1 };
+  let clock: number;
+  let h: Harness;
+  let route: CanonicalProviderAccountRoute;
+  let logger: { warn: jest.Mock };
+  beforeEach(() => {
+    clock = 1_000;
+    logger = { warn: jest.fn() };
+    h = harness('win32', () => clock, logger);
+    route = newRoute();
+  });
+  const reuseRequest = (overrides: Partial<ClaudeRouteCertifyRequest> = {}): ClaudeRouteCertifyRequest =>
+    ({ ...certifyRequest(route), reuse: scope, ...overrides });
+  async function passes(request: ClaudeRouteCertifyRequest = reuseRequest()): Promise<ClaudeCertifiedLaunchContext> {
+    const result = await h.certifier.certify(request);
+    if (!result.ok) throw new Error(`expected a launch, got ${result.code}`);
+    return result.launch;
+  }
+
+  it('reuses a passed certification without the policy scan or the status child', async () => {
+    const first = await passes();
+    h.events.length = 0;
+    const second = await passes();
+    expect(second).toBe(first);
+    // One shared object for every admission: nothing in it can be changed.
+    expect(Object.isFrozen(second)).toBe(true);
+    expect(Object.isFrozen(second.env)).toBe(true);
+    expect(Object.isFrozen(second.executable.fingerprint)).toBe(true);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(h.probe.status).toHaveBeenCalledTimes(1);
+    expect(h.probe.certifyExecutable).toHaveBeenCalledTimes(1);
+    // Only the cheap re-checks: the executable stat and the remote-signal files.
+    expect(h.events).toEqual(['stat', ...CLAUDE_REMOTE_SETTINGS_FILES.map((name) => `lstat:${name}`)]);
+  });
+
+  it('never reuses without a scope', async () => {
+    await passes(certifyRequest(route));
+    await passes(certifyRequest(route));
+    expect(h.probe.status).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['revision (status change, sign-in, sign-out)', { reuse: { ...scope, revision: 4 } }],
+    ['auth epoch', { reuse: { ...scope, authEpoch: 3 } }],
+    ['route revision', { reuse: { ...scope, routeRevision: 2 } }],
+    ['working directory', { cwd: 'C:\\work\\other' }],
+    ['setting sources', { settingSources: ['user'] as const }],
+  ] as const)('certifies again when the %s differs', async (_label, overrides) => {
+    await passes();
+    await passes(reuseRequest(overrides));
+    expect(h.probe.status).toHaveBeenCalledTimes(2);
+  });
+
+  it('certifies again when the stored identity differs', async () => {
+    await passes();
+    const result = await h.certifier.certify({ ...reuseRequest(), profile: { identityRef: 'other-identity' } });
+    expect(result).toMatchObject({ ok: false, code: 'identity-mismatch' });
+    expect(h.probe.status).toHaveBeenCalledTimes(2);
+  });
+
+  it('expires after the reuse window', async () => {
+    await passes();
+    clock += CLAUDE_CERTIFICATION_REUSE_MS - 1;
+    await passes();
+    expect(h.probe.status).toHaveBeenCalledTimes(1);
+    clock += 1;
+    await passes();
+    expect(h.probe.status).toHaveBeenCalledTimes(2);
+  });
+
+  it('certifies again when the executable file changed', async () => {
+    await passes();
+    h.state.stats.set(SDK_PATH, { size: FINGERPRINT.size + 1, mtimeMs: FINGERPRINT.mtimeMs });
+    await passes();
+    expect(h.probe.status).toHaveBeenCalledTimes(2);
+    expect(logger.warn.mock.calls).toEqual([
+      ['[ClaudeRouteCertifier] Reused certification failed its re-check; certifying again', { step: 'executable' }],
+    ]);
+  });
+
+  it('a refusal on the re-check falls back to full certification and drops the entry', async () => {
+    await passes();
+    const remoteFile = win32.join(route.canonicalPath, CLAUDE_REMOTE_SETTINGS_FILES[0]);
+    h.state.present.add(remoteFile);
+    await expect(h.certifier.certify(reuseRequest())).resolves.toEqual({ ok: false, code: 'unsupported-source', terminated: true });
+    h.state.present.delete(remoteFile);
+    const callsBefore = h.probe.status.mock.calls.length;
+    await passes();
+    expect(h.probe.status.mock.calls.length).toBe(callsBefore + 1);
+  });
+
+  it('a refused launch boundary drops the entry that handed the launch out', async () => {
+    const launch = await passes();
+    h.registry = (path) => registryOk(path, path.startsWith('HKLM') ? ['Microsoft', 'ClaudeCode'] : ['Microsoft']);
+    await expect(h.certifier.checkLaunch(launch, signal())).resolves.toMatchObject({ ok: false, code: 'unsupported-source' });
+    h.registry = (path) => registryOk(path);
+    await passes();
+    expect(h.probe.status).toHaveBeenCalledTimes(2);
   });
 });

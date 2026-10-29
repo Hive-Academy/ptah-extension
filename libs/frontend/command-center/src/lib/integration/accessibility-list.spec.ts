@@ -8,6 +8,8 @@ describe('Command Center accessible page integration', () => {
     const { fixture } = createHarness();
     await fixture.componentInstance.page.open();
     fixture.componentInstance.page.coordinator.chooseCurrentTab();
+    // The work list lives behind the rail's Work tab.
+    fixture.componentInstance.activeTab.set('work');
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('canvas')).not.toBeNull();
     expect(
@@ -102,6 +104,8 @@ describe('Command Center accessible page integration', () => {
     const page = fixture.componentInstance.page;
     await page.open();
     page.coordinator.chooseCurrentTab();
+    // The work list lives behind the rail's Work tab.
+    fixture.componentInstance.activeTab.set('work');
     const rootSessionId = page.store.sessionId() ?? '';
     const children = (betaState: 'running' | 'completed') =>
       ['Alpha', 'Beta'].map((name) => ({

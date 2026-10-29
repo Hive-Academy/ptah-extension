@@ -5,7 +5,7 @@ description: Skills and telemetry switches, and manual enhancement settings.
 
 # Skills Library Settings
 
-Open **Thoth → Skills** in Ptah desktop for the Skills and Skill telemetry switches. Enhancement provider, model, and timeout are in **Settings → Agent Orchestration → Background models**. These settings are stored in `~/.ptah/settings.json`.
+Open **Thoth → Skills** in Ptah desktop for the Skills and Skill telemetry switches. Enhancement provider, model, and timeout are in **Settings → Providers → Background Model Roles**. These settings are stored in `~/.ptah/settings.json`.
 
 | Key                            | What it does                                                                                   |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |

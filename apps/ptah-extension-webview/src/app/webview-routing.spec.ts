@@ -77,26 +77,6 @@ interface HostWindow {
 }
 
 /**
- * Surfaces whose lazy chunk cannot be dynamically imported under THIS
- * project's jest transform.
- *
- * `TribunalPageComponent` imports `gridstack/dist/angular`, which ships ESM
- * that `apps/ptah-extension-webview/jest.config.ts` does not put through a
- * transform, so `import('@ptah-extension/tribunal-panel')` throws
- * "Must use import to load ES Module" here. That is a limitation of this test
- * environment, not of the route: `@ptah-extension/tribunal-panel:test`
- * exercises the component under a config that does transform gridstack, and
- * `apps/ptah-electron-e2e/src/specs/tribunal/tribunal.spec.ts` proves the
- * route resolves in the real renderer. What is asserted here for these
- * surfaces is that the route exists and carries a `loadComponent` function.
- */
-const JEST_UNRESOLVABLE_SURFACES: readonly string[] = ['tribunal'];
-
-const JEST_RESOLVABLE_SURFACE_IDS = SURFACE_ROUTE_IDS.filter(
-  (id) => !JEST_UNRESOLVABLE_SURFACES.includes(id),
-);
-
-/**
  * Surfaces whose route carries `canMatch: [electronOnlySurface]`.
  *
  * They are still in `SURFACE_ROUTE_IDS` — one list — so every loop below keeps
@@ -282,7 +262,7 @@ describe('webview routing composition', () => {
       hostIsElectron(true);
       const surfaceRouter = TestBed.inject(SurfaceRouterService);
 
-      for (const id of JEST_RESOLVABLE_SURFACE_IDS) {
+      for (const id of SURFACE_ROUTE_IDS) {
         await surfaceRouter.navigateToSurface(id);
       }
       await settle();
@@ -298,7 +278,7 @@ describe('webview routing composition', () => {
       hostIsElectron(false);
       const surfaceRouter = TestBed.inject(SurfaceRouterService);
 
-      for (const id of JEST_RESOLVABLE_SURFACE_IDS) {
+      for (const id of SURFACE_ROUTE_IDS) {
         await surfaceRouter.navigateToSurface(id);
       }
       await settle();
@@ -306,7 +286,7 @@ describe('webview routing composition', () => {
       // The last surface is Electron-only, so the `**` fallback put the user
       // back on chat — through the Router, not through the History API.
       expect(ELECTRON_ONLY_SURFACES).toContain(
-        JEST_RESOLVABLE_SURFACE_IDS.at(-1),
+        SURFACE_ROUTE_IDS.at(-1),
       );
       expect(surfaceRouter.currentSurface()).toBe('chat');
       expect(TestBed.inject(Router).url).toBe('/chat');
@@ -387,7 +367,7 @@ describe('webview routing composition', () => {
       expect(history['pushState']).not.toHaveBeenCalled();
     });
 
-    it.each([...JEST_RESOLVABLE_SURFACE_IDS])(
+    it.each([...SURFACE_ROUTE_IDS])(
       'lands a %s deep link on its route',
       async (id) => {
         // An Electron-only surface is only a deep link on the host that can
@@ -1065,7 +1045,6 @@ describe('app.routes', () => {
   it.each([
     'harness-builder',
     'setup-hub',
-    'tribunal',
     'tasks',
     'apps',
     'command-center',
@@ -1129,7 +1108,6 @@ describe('app.routes', () => {
     async (path) => {
       // Pins the barrel export each `loadComponent` names. A rename would
       // otherwise only surface as a dead surface at runtime.
-      // 'tribunal' is absent — see JEST_UNRESOLVABLE_SURFACES.
       const route = appRoutes.find((candidate) => candidate.path === path);
       const loaded = await (route?.loadComponent as () => Promise<unknown>)();
       expect(typeof loaded).toBe('function');
@@ -1206,7 +1184,6 @@ describe('app.config routing wiring', () => {
       'HARNESS_BUILDER_COMPONENT',
       'SETUP_HUB_COMPONENT',
       'MARKETPLACE_COMPONENT',
-      'TRIBUNAL_COMPONENT',
       'TASKS_VIEW_COMPONENT',
       'WIZARD_VIEW_COMPONENT',
     ]) {

@@ -1,15 +1,17 @@
 import { inject, injectable } from 'tsyringe';
 import { z } from 'zod';
 import { PERSISTENCE_TOKENS, type SqliteConnectionService, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   isProviderAccountLabelTaken, isProviderAccountOpaqueId, isProviderAccountOwnerKey, isSafeProviderAccountLabel,
   PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY, PROVIDER_ACCOUNT_DUPLICATE_ROUTE_SUMMARY, PROVIDER_ACCOUNT_STATES,
   type ProviderAccountBinding, type ProviderAccountIdentityEvidence, type ProviderAccountScope, type ProviderAccountState,
 } from '@ptah-extension/shared';
 import type { ClaudeAccountRunReservation, ClaudeAccountAuthOperationReservation,
-  ClaudeAccountReservationRelease, ClaudeAccountReservationRetain } from '@ptah-extension/auth-providers-tokens';
+  ClaudeAccountReservationRelease, ClaudeAccountReservationRetain, ClaudeAccountRunChild } from '@ptah-extension/auth-providers-tokens';
 import { ProviderAccountStoreError, revalidateProviderAccountRoute,
   withNewProviderAccountDirectory, providerAccountErrorCode, type CanonicalProviderAccountRoute } from './provider-account-route';
+import { CURRENT_LEASE_HOST, leaseOwnerGone } from './provider-account-host';
 
 const revision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const opaqueId = z.string().refine(isProviderAccountOpaqueId);
@@ -54,6 +56,15 @@ const leaseSchema = z.object({
   auth_epoch: revision, route_revision: revision, lease_state: z.enum(['live', 'quarantined']),
 });
 type StoredRunLease = z.infer<typeof leaseSchema>;
+const leaseHostSchema = z.object({
+  lease_id: z.string(), host_pid: z.number().int().positive(), host_machine: z.string(),
+  child_pid: z.number().int().positive().nullable(),
+});
+const operationHostSchema = z.object({
+  operation_id: z.string(), profile_id: opaqueId.nullable(), kind: z.enum(['status', 'sign-in', 'sign-out']),
+  auth_epoch: revision, host_pid: z.number().int().positive(), host_machine: z.string(),
+  child_pid: z.number().int().positive().nullable(), prior_state: z.enum(PROVIDER_ACCOUNT_STATES).nullable(),
+});
 export type StoredProviderAccount = z.infer<typeof profileSchema>;
 const liveLabelSchema = z.object({ profile_id: z.string(), label: z.string() });
 const selectionSchema = z.object({ profile_id: opaqueId.nullable(), revision });
@@ -98,12 +109,27 @@ export interface AccountRunBindingCommit {
 }
 
 /** Lazy shared connection: registration does not open or choose a database.
- * All writes are synchronous. No expiry, PID recovery or in-memory fallback.
+ * All writes are synchronous. No expiry or in-memory fallback. A run lease is
+ * reclaimed only when its host and Claude child are proved gone, an operation
+ * only when its host is proved gone (`leaseOwnerGone`).
  */
 @injectable()
 export class ProviderAccountStore {
   constructor(@inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
-    private readonly connection: Pick<SqliteConnectionService, 'db'>) {}
+    private readonly connection: Pick<SqliteConnectionService, 'db'>,
+    // Diagnostics only: a container without a logger reclaims and refuses the same way.
+    @inject(TOKENS.LOGGER, { isOptional: true }) private readonly logger: Pick<Logger, 'warn'> | null = null) {}
+
+  private readonly reclaimListeners = new Set<(profileIds: readonly string[]) => void>();
+
+  /**
+   * Hears the profile ids each `reclaimAbandonedOperations` call restored,
+   * after its transaction committed. Returns the unsubscribe.
+   */
+  onOperationsReclaimed(listener: (profileIds: readonly string[]) => void): () => void {
+    this.reclaimListeners.add(listener);
+    return () => { this.reclaimListeners.delete(listener); };
+  }
 
   private atomic<T>(work: (db: SqliteDatabase) => T): T {
     let db: SqliteDatabase | undefined;
@@ -399,6 +425,7 @@ export class ProviderAccountStore {
     this.validateIds(request.runId, request.reservationId, request.operationId);
     this.validateRevision(request.expectedRevision);
     revalidateProviderAccountRoute(request.route);
+    this.reclaimAbandonedOperations();
     return this.atomic(db => {
       if (request.selection) {
         const s = request.selection;
@@ -423,20 +450,28 @@ export class ProviderAccountStore {
           throw new ProviderAccountStoreError('route-changed');
         }
       }
+      // A resumed run reuses its run id (UNIQUE): free the lease an ended host left for it.
+      this.reclaimAbandoned(db, request.route.fingerprint);
       const lease: StoredRunLease = {
         run_id: request.runId, profile_id: request.profileId, route_fingerprint: request.route.fingerprint,
         auth_epoch: profile?.auth_epoch ?? 0, route_revision: profile?.route_revision ?? 0, lease_state: 'live',
       };
       db.prepare(`INSERT INTO provider_account_run_leases
-        (lease_id, run_id, provider, profile_id, route_fingerprint, owner_id, acquired_at, auth_epoch, route_revision, lease_state)
-        VALUES (?, ?, 'claude', ?, ?, ?, ?, ?, ?, 'live')`)
+        (lease_id, run_id, provider, profile_id, route_fingerprint, owner_id, acquired_at, auth_epoch, route_revision, lease_state,
+          host_pid, host_machine)
+        VALUES (?, ?, 'claude', ?, ?, ?, ?, ?, ?, 'live', ?, ?)`)
         .run(request.reservationId, lease.run_id, lease.profile_id, lease.route_fingerprint, request.operationId, Date.now(),
-          lease.auth_epoch, lease.route_revision);
+          lease.auth_epoch, lease.route_revision, CURRENT_LEASE_HOST.pid, CURRENT_LEASE_HOST.machine);
       return { binding, reservation: this.runReservation(request, lease, 'reserved') };
     });
   }
 
-  /** Status excludes other operations without starting a new authentication epoch. */
+  /**
+   * Status excludes other operations without starting a new authentication
+   * epoch. Live runs do not make it busy: a status child only reads the route,
+   * as the status child of every run certification already does beside other
+   * live runs, and completion never changes the epoch or route a lease holds.
+   */
   reserveStatus(profileId: string, expectedRevision: number, route: CanonicalProviderAccountRoute,
     operationId: string, ownerId: string): { readonly authEpoch: number } {
     this.validateIds(operationId, ownerId);
@@ -445,11 +480,13 @@ export class ProviderAccountStore {
     return this.atomic(db => {
       const profile = this.profile(db, profileId, expectedRevision);
       this.routeProfile(db, profileId, expectedRevision, route);
-      this.unoccupied(db, route.fingerprint, true);
+      this.unoccupied(db, route.fingerprint, false);
       db.prepare(`INSERT INTO provider_account_operations
-        (operation_id, route_fingerprint, profile_id, provider, kind, auth_epoch, expected_revision, owner_id, created_at)
-        VALUES (?, ?, ?, 'claude', 'status', ?, ?, ?, ?)`)
-        .run(operationId, route.fingerprint, profileId, profile.auth_epoch, profile.revision, ownerId, Date.now());
+        (operation_id, route_fingerprint, profile_id, provider, kind, auth_epoch, expected_revision, owner_id, created_at,
+          host_pid, host_machine, prior_state)
+        VALUES (?, ?, ?, 'claude', 'status', ?, ?, ?, ?, ?, ?, NULL)`)
+        .run(operationId, route.fingerprint, profileId, profile.auth_epoch, profile.revision, ownerId, Date.now(),
+          CURRENT_LEASE_HOST.pid, CURRENT_LEASE_HOST.machine);
       return { authEpoch: profile.auth_epoch };
     });
   }
@@ -486,20 +523,39 @@ export class ProviderAccountStore {
     this.validateRevision(expectedRevision);
     if (kind !== 'sign-in' && kind !== 'sign-out') throw new ProviderAccountStoreError('conflict');
     revalidateProviderAccountRoute(route);
+    this.reclaimAbandonedOperations();
     return this.atomic(db => {
       const profile = this.routeProfile(db, profileId, expectedRevision, route);
       this.unoccupied(db, route.fingerprint, true);
       const epoch = (profile?.auth_epoch ?? 0) + 1;
+      // The state reclaim restores if this host ends first; an already pending profile has none to restore.
+      const priorState = profile && profile.state !== 'pending' ? profile.state : null;
       if (profile) db.prepare("UPDATE provider_account_profiles SET auth_epoch = ?, revision = revision + 1, state = 'pending', updated_at = ? WHERE profile_id = ?")
         .run(epoch, Date.now(), profileId);
       db.prepare(`INSERT INTO provider_account_operations
-        (operation_id, route_fingerprint, profile_id, provider, kind, auth_epoch, expected_revision, owner_id, created_at)
-        VALUES (?, ?, ?, 'claude', ?, ?, ?, ?, ?)`)
-        .run(operationId, route.fingerprint, profileId, kind, epoch, (profile?.revision ?? 0) + 1, ownerId, Date.now());
+        (operation_id, route_fingerprint, profile_id, provider, kind, auth_epoch, expected_revision, owner_id, created_at,
+          host_pid, host_machine, prior_state)
+        VALUES (?, ?, ?, 'claude', ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(operationId, route.fingerprint, profileId, kind, epoch, (profile?.revision ?? 0) + 1, ownerId, Date.now(),
+          CURRENT_LEASE_HOST.pid, CURRENT_LEASE_HOST.machine, priorState);
       return { kind: 'auth-operation', phase: 'reserved', provider: 'claude', routeKind: profile ? 'named' : 'ambient',
         reservationId: operationId, operationId, routeFingerprint: route.fingerprint,
         routeRevision: profile?.route_revision ?? 0, authEpoch: epoch };
     });
+  }
+
+  /**
+   * Records the sign-in console the operation spawned on its row (owner and
+   * epoch checked), so a later process keeps the row held while the console
+   * outlives a crashed host. `false` when the operation is no longer held.
+   */
+  recordOperationChild(operationId: string, ownerId: string, authEpoch: number, pid: number): boolean {
+    this.validateIds(operationId, ownerId);
+    this.validateRevision(authEpoch);
+    if (!Number.isSafeInteger(pid) || pid <= 0) throw new ProviderAccountStoreError('conflict');
+    return this.atomic(db => db.prepare(`UPDATE provider_account_operations SET child_pid = ?
+      WHERE operation_id = ? AND owner_id = ? AND auth_epoch = ? AND kind IN ('sign-in', 'sign-out')`)
+      .run(pid, operationId, ownerId, authEpoch).changes > 0);
   }
 
   /** Caller invokes only after child termination is established; otherwise leave held. */
@@ -532,6 +588,20 @@ export class ProviderAccountStore {
       const lease = this.held(db, command);
       db.prepare('DELETE FROM provider_account_run_leases WHERE lease_id = ?').run(command.reservationId);
       return this.runReservation(command, lease, 'released');
+    });
+  }
+
+  /**
+   * Records the run's current Claude child on its live lease (ownership and
+   * epoch checked as for retain). A later child of the same run replaces it:
+   * a run starts its next child only after the previous one's close.
+   */
+  recordRunChild(command: ClaudeAccountRunChild): ClaudeAccountRunReservation & { readonly phase: 'retained' } {
+    if (!Number.isSafeInteger(command.pid) || command.pid <= 0) throw new ProviderAccountStoreError('conflict');
+    return this.atomic(db => {
+      const lease = this.held(db, command);
+      db.prepare('UPDATE provider_account_run_leases SET child_pid = ? WHERE lease_id = ?').run(command.pid, command.reservationId);
+      return this.runReservation(command, lease, 'retained');
     });
   }
 
@@ -588,11 +658,86 @@ export class ProviderAccountStore {
     return { profileId: row.profile_id, revision: row.revision };
   }
 
+  /** `includeRuns` first reclaims the route's leases whose owning host is proved gone. */
   private unoccupied(db: SqliteDatabase, fingerprint: string, includeRuns: boolean): void {
+    if (includeRuns) this.reclaimAbandoned(db, fingerprint);
     if (db.prepare('SELECT 1 FROM provider_account_operations WHERE route_fingerprint = ?').get(fingerprint) ||
       (includeRuns && db.prepare('SELECT 1 FROM provider_account_run_leases WHERE route_fingerprint = ?').get(fingerprint))) {
       throw new ProviderAccountStoreError('busy');
     }
+  }
+
+  /**
+   * Deletes the route's live leases whose run is proved over: same machine,
+   * and neither the host pid nor the recorded Claude child pid exists. A
+   * quarantined row, a legacy row without an owner, another machine's row and
+   * a row with either process still present stay held. Disposal never proves
+   * termination, and neither does the host's exit alone: its child can
+   * outlive it.
+   */
+  private reclaimAbandoned(db: SqliteDatabase, fingerprint: string): void {
+    const rows = db.prepare(`SELECT lease_id, host_pid, host_machine, child_pid FROM provider_account_run_leases
+      WHERE route_fingerprint = ? AND lease_state = 'live' AND host_pid IS NOT NULL AND host_machine = ?`)
+      .all(fingerprint, CURRENT_LEASE_HOST.machine);
+    let reclaimed = 0;
+    for (const raw of rows) {
+      const row = leaseHostSchema.safeParse(raw);
+      if (!row.success) throw new ProviderAccountStoreError('unavailable-storage');
+      if (!leaseOwnerGone({ pid: row.data.host_pid, machine: row.data.host_machine, childPid: row.data.child_pid })) continue;
+      db.prepare('DELETE FROM provider_account_run_leases WHERE lease_id = ?').run(row.data.lease_id);
+      reclaimed += 1;
+    }
+    if (reclaimed > 0) this.logger?.warn('[ProviderAccountStore] Reclaimed run leases left by an ended host', { reclaimed });
+  }
+
+  /**
+   * Deletes the operations whose run is proved over (`leaseOwnerGone`: same
+   * machine, another pid, and neither the host pid nor the recorded console
+   * child pid exists) and puts a
+   * named sign-in or sign-out profile back in the state it had before
+   * 'pending'. The profile is restored only while it is still 'pending' at the
+   * operation's epoch; the epoch itself stays advanced. A legacy row without a
+   * host, another machine's row, a row whose host or console still exists and
+   * a named auth row without a recorded prior state stay held.
+   *
+   * Runs in its own transaction, before the caller reads the profile: a
+   * restore bumps the profile revision, so a caller that read it first gets
+   * `conflict` and rereads. Returns the restored profile ids and, once
+   * committed, hands them to every `onOperationsReclaimed` listener.
+   */
+  reclaimAbandonedOperations(): readonly string[] {
+    const restored = this.reclaimOperationRows();
+    if (restored.length > 0) for (const listener of [...this.reclaimListeners]) listener(restored);
+    return restored;
+  }
+
+  private reclaimOperationRows(): readonly string[] {
+    return this.atomic(db => {
+      const rows = db.prepare(`SELECT operation_id, profile_id, kind, auth_epoch, host_pid, host_machine, child_pid, prior_state
+        FROM provider_account_operations WHERE host_pid IS NOT NULL AND host_pid <> ? AND host_machine = ?`)
+        .all(CURRENT_LEASE_HOST.pid, CURRENT_LEASE_HOST.machine);
+      const restored: string[] = [];
+      let reclaimed = 0;
+      for (const raw of rows) {
+        const parsed = operationHostSchema.safeParse(raw);
+        if (!parsed.success) throw new ProviderAccountStoreError('unavailable-storage');
+        const op = parsed.data;
+        if (!leaseOwnerGone({ pid: op.host_pid, machine: op.host_machine, childPid: op.child_pid })) continue;
+        if (op.profile_id !== null && op.kind !== 'status') {
+          if (op.prior_state === null) continue;
+          const update = db.prepare(`UPDATE provider_account_profiles SET state = ?, revision = revision + 1, updated_at = ?
+            WHERE profile_id = ? AND state = 'pending' AND auth_epoch = ?`)
+            .run(op.prior_state, Date.now(), op.profile_id, op.auth_epoch);
+          if (update.changes > 0) restored.push(op.profile_id);
+        }
+        db.prepare('DELETE FROM provider_account_operations WHERE operation_id = ?').run(op.operation_id);
+        reclaimed += 1;
+      }
+      if (reclaimed > 0) {
+        this.logger?.warn('[ProviderAccountStore] Reclaimed account operations left by an ended host', { reclaimed, restored: restored.length });
+      }
+      return restored;
+    });
   }
 
   private validateIds(...ids: string[]): void {

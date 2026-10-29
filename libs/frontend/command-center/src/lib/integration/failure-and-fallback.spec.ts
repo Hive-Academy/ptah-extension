@@ -187,6 +187,8 @@ describe('Command Center failure and fallback integration', () => {
     const page = fixture.componentInstance.page;
     await page.open();
     page.coordinator.chooseCurrentTab();
+    // The work list lives behind the rail's Work tab.
+    fixture.componentInstance.activeTab.set('work');
     page.voice['active'] = true;
     answerTranscription(rpc, { transcript: 'Status' });
     const rootSessionId = page.store.sessionId() ?? '';
@@ -259,6 +261,8 @@ describe('Command Center failure and fallback integration', () => {
     const page = fixture.componentInstance.page;
     await page.open();
     page.coordinator.chooseCurrentTab();
+    // The work list lives behind the rail's Work tab.
+    fixture.componentInstance.activeTab.set('work');
     page.canvasUnavailable.set(true);
     fixture.detectChanges();
     expect(

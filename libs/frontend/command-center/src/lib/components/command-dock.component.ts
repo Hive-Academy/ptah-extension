@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, input, output, ViewEncapsulation, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input, output, ViewEncapsulation, viewChild } from '@angular/core';
+import { VSCodeService } from '@ptah-extension/core';
 import type { CommandProviderReadiness, CommandSessionStatus, CommandVoiceError, CommandVoiceState } from '../model/command-center.store';
 import { CommandSessionControlsComponent } from './command-session-controls.component';
 import { CommandVoiceHudComponent } from './command-voice-hud.component';
@@ -56,7 +57,7 @@ export const commandDockStyles = `
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   template: `
-    <div class="command-dock rounded-xl border border-base-300 bg-base-200 p-2 text-base-content" role="group" aria-label="Command dock" data-dock-layout="responsive">
+    <div class="command-dock relative rounded-xl border border-base-300 bg-base-200 p-2 text-base-content" role="group" aria-label="Command dock" data-dock-layout="responsive" [attr.data-glass-surface]="isElectron ? null : 'chrome'">
       <ptah-command-voice-hud
         [voiceState]="voiceState()" [provider]="provider()" [muted]="muted()"
         [voiceError]="voiceError()" [inputLevel]="inputLevel()" [outputLevel]="outputLevel()"
@@ -72,6 +73,8 @@ export const commandDockStyles = `
   styles: [commandDockStyles],
 })
 export class CommandDockComponent {
+  /** Electron shell panes are already chrome cards; nested chrome would double the glass. */
+  protected readonly isElectron = inject(VSCodeService).isElectron;
   public readonly voiceState = input.required<CommandVoiceState>();
   public readonly provider = input.required<CommandProviderReadiness>();
   public readonly muted = input(false);

@@ -21,6 +21,7 @@ import {
 } from '@ptah-extension/shared';
 import { SurfaceSectionComponent } from '@ptah-extension/ui';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
@@ -247,21 +248,14 @@ function formatValue(
             </div>
           }
         }
-
-        <p
-          role="status"
-          aria-live="polite"
-          class="min-h-4 text-base-content-muted"
-          [attr.data-testid]="idPrefix() + '-status'"
-        >
-          {{ status() }}
-        </p>
       </ptah-surface-section>
     }
   `,
 })
 export class AdvancedSettingsGroupComponent implements OnInit {
   private readonly vscode = inject(VSCodeService);
+  /** The page toast: every write's outcome (with Undo after a save) is said there. */
+  private readonly feedback = inject(SettingsSaveFeedbackService);
 
   readonly groupId = input.required<AdvancedSettingGroupId>();
 
@@ -293,8 +287,9 @@ export class AdvancedSettingsGroupComponent implements OnInit {
   protected readonly errors = signal<Readonly<Record<string, string>>>({});
   /** The key whose write is in flight; every control in the group is busy meanwhile. */
   private readonly savingKey = signal<string | null>(null);
-  protected readonly busy = computed(() => this.savingKey() !== null);
-  protected readonly status = signal('');
+  protected readonly busy = computed(
+    () => this.savingKey() !== null || this.feedback.saving(),
+  );
   /** The deadline timer of the read in flight; cleared when the read settles or the group is destroyed. */
   private readDeadline: ReturnType<typeof setTimeout> | undefined;
 
@@ -432,14 +427,40 @@ export class AdvancedSettingsGroupComponent implements OnInit {
     await this.write(setting, next);
   }
 
-  /** Writes one key; true when the host confirmed the write. A failure leaves the saved value and says so. */
+  /**
+   * Writes one key through the page toast (`saveGeneric`); true when the host confirmed the write. The toast says
+   * "Saved {label}." with an Undo to the previous read-back value, or the failure; the saved value stays shown.
+   */
   private async write(
     setting: AdvancedSetting,
     value: number | boolean,
   ): Promise<boolean> {
     const { key, label } = setting;
+    const previous = this.saved()[key];
     this.savingKey.set(key);
     this.setError(key, null);
+    try {
+      const result = await this.feedback.saveGeneric({
+        label,
+        write: () => this.send(setting, value),
+        // An unreadable or hand-edited previous value cannot be written back.
+        undo:
+          typeof previous === typeof value
+            ? () => this.send(setting, previous as number | boolean)
+            : null,
+      });
+      return result === 'saved';
+    } finally {
+      this.savingKey.set(null);
+    }
+  }
+
+  /** One `settings:set` write; a confirmed one moves the read-back value. */
+  private async send(
+    setting: AdvancedSetting,
+    value: number | boolean,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    const { key, label } = setting;
     let confirmed = false;
     let timedOut = false;
     try {
@@ -454,23 +475,20 @@ export class AdvancedSettingsGroupComponent implements OnInit {
         !result.success &&
         (result.error?.startsWith(RPC_TIMEOUT_PREFIX) ?? false);
     } catch {
-      // A transport failure is reported below like a refused write (the field's message and the status line).
+      // degradation-audit: reported - a transport failure is said in the toast like a refused write.
     }
     if (confirmed) {
       this.saved.update((saved) => ({ ...saved, [key]: value }));
-      this.status.set(`Saved ${label}.`);
-    } else {
-      // A timed-out write may still land on the host, so it cannot claim the setting is unchanged.
-      const message = timedOut
-        ? `Could not confirm saving ${label}. Reopen settings to see the saved value.`
-        : `Could not save ${label}. The saved setting is unchanged.`;
-      // Host error text is never shown (it may carry paths or secrets); the client validator already refused
-      // out-of-range values, so the field shows the same fixed message as the status line.
-      this.setError(key, message);
-      this.status.set(message);
+      return { ok: true };
     }
-    this.savingKey.set(null);
-    return confirmed;
+    // A timed-out write may still land on the host, so it cannot claim the setting is unchanged. Host error text
+    // is never shown (it may carry paths or secrets); the client validator already refused out-of-range values.
+    const message = timedOut
+      ? `Could not confirm saving ${label}. Reopen settings to see the saved value.`
+      : `Could not save ${label}. The saved setting is unchanged.`;
+    // The field keeps the same fixed message: its typed value stays and is not the saved one (the toast times out).
+    this.setError(key, message);
+    return { ok: false, message };
   }
 
   private clearDraft(key: string): void {

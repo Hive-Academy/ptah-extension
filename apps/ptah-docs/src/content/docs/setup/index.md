@@ -1,9 +1,9 @@
 ---
 title: Setup Hub
-description: One dashboard to analyze your workspace, build an AI team, scaffold a new project, or convene a Tribunal.
+description: One dashboard to analyze your workspace, build an AI team, or scaffold a new project.
 ---
 
-The **Setup Hub** is Ptah's unified configuration dashboard. Instead of hunting through menus, it surfaces every way to wire your workspace up for AI work from a single screen — analyzing an existing project, designing a custom AI team, scaffolding a brand-new project, and comparing AI vendors side by side.
+The **Setup Hub** is Ptah's unified configuration dashboard. It brings workspace analysis, AI team design, and new project setup together on one screen.
 
 ![Setup Hub overview](/screenshots/setup-hub.png)
 
@@ -15,14 +15,13 @@ The Setup Hub and all of its builders are free and available to everyone — ope
 
 ## Quick Actions
 
-The hub opens with four primary cards. Each is a self-contained workflow:
+The hub opens with three primary cards. Each is a self-contained workflow:
 
 | Card                   | What it does                                                                                                         | Opens                                      |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | **Workspace Analysis** | Scans an existing project and generates a tuned agent roster with AI recommendations.                                | [Setup Wizard](/setup/setup-wizard/)       |
 | **AI Team Builder**    | Conversationally designs agents, skills, prompts, and MCP tools, then applies them as `CLAUDE.md` + agents + skills. | [AI Team Builder](/setup/ai-team-builder/) |
 | **New Project**        | Plans and scaffolds a brand-new SaaS workspace (Nx + Angular / NestJS) with a generated roadmap and its own AI team. | [New Project Setup](/setup/new-project/)   |
-| **Tribunal**           | Puts your AI vendors on one panel — run a Council, Forge, or Race and compare them.                                  | [Tribunal](/tribunal/)                     |
 
 ### Status at a glance
 
@@ -47,7 +46,7 @@ Use the **Refresh** button in the header to re-read status after you've applied 
 | Get good agents for an existing repo, fast                        | **Workspace Analysis** (Setup Wizard) |
 | Hand-craft a team — pick agents, write skills, attach MCP servers | **AI Team Builder**                   |
 | Start a greenfield SaaS app with a phased roadmap                 | **New Project**                       |
-| Decide which model/vendor handles a task best                     | **Tribunal**                          |
+| Compare vendors on a task or decision                              | [**Tribunal skill in chat**](/tribunal/) |
 
 ## Next steps
 

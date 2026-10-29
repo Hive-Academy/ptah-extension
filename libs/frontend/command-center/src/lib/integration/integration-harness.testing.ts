@@ -13,13 +13,16 @@ import {
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
 import { CommandCenterPageComponent } from '../components/command-center-page.component';
-import { CommandCenterTribunalTransport } from '../components/command-center-tribunal.transport';
 import { CommandCenterProjectionSource } from '../components/command-center-projection.source';
 import type {
   ProjectionInput,
   ProjectionResult,
 } from '../model/work-projection';
 import { CommandSceneComponent } from '../scene/command-scene.component';
+import {
+  RAIL_STUB_OVERRIDE,
+  railStubProviders,
+} from '../components/command-rail.testing';
 
 @Component({
   selector: 'ptah-command-scene',
@@ -34,6 +37,7 @@ export class SceneStubComponent {
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
   public readonly reservedTop = input(72);
+  public readonly reservedBottom = input(62);
   public readonly selection = output<string>();
   public readonly hoveredNodeId = output<string | null>();
   public readonly canvasUnavailable = output<boolean>();
@@ -112,41 +116,12 @@ export function createHarness(
     handleQuestionResponse: jest.fn(),
     handlePermissionResponse: jest.fn(),
   };
-  const transport = {
-    open: jest.fn(async () => undefined),
-    pageExit: jest.fn(),
-    cancelDiscovery: jest.fn(),
-    answer: jest.fn(
-      (_questionId: string, _questionKey: string, _answer: string) => true,
-    ),
-    availability: jest.fn(() => ({
-      lanes: [
-        { laneId: 'codex#1', state: 'READY', family: 'codex', cli: 'codex' },
-        { laneId: 'codex#2', state: 'READY', family: 'codex', cli: 'codex' },
-        { laneId: 'codex#3', state: 'READY', family: 'codex', cli: 'codex' },
-        {
-          laneId: 'copilot#1',
-          state: 'READY',
-          family: 'copilot',
-          cli: 'copilot',
-        },
-      ],
-      disabledClis: [],
-    })),
-    discoveryComplete: jest.fn(async () => undefined),
-    createTask: jest.fn(async (_proposal?: object) => 'task-1'),
-    writeManifest: jest.fn((_workspace?: string, _manifest?: object) => true),
-    removeManifest: jest.fn((_workspace?: string, _runId?: string) => true),
-    sendLaunchTurn: jest.fn(async (_content?: string) => true),
-    reportFailure: jest.fn(),
-  };
   const projectionInput = signal<ProjectionInput>({
     rootTabId: root.id,
     rootSessionId: root.claudeSessionId,
     children: [],
     persistedChildren: [],
     agents: [],
-    runs: [],
   });
   TestBed.configureTestingModule({
     imports: [CommandCenterPageComponent],
@@ -158,20 +133,19 @@ export function createHarness(
       { provide: MessageSenderService, useValue: sender },
       { provide: ChatStore, useValue: chat },
       { provide: AgentMonitorStore, useValue: monitor },
+      ...railStubProviders(),
     ],
   });
   TestBed.overrideComponent(CommandCenterPageComponent, {
     remove: {
-      imports: [CommandSceneComponent],
+      imports: [CommandSceneComponent, ...RAIL_STUB_OVERRIDE.remove],
       providers: [
-        CommandCenterTribunalTransport,
         CommandCenterProjectionSource,
       ],
     },
     add: {
-      imports: [SceneStubComponent],
+      imports: [SceneStubComponent, ...RAIL_STUB_OVERRIDE.add],
       providers: [
-        { provide: CommandCenterTribunalTransport, useValue: transport },
         ...(options.realProjectionSource
           ? [CommandCenterProjectionSource]
           : [
@@ -191,7 +165,6 @@ export function createHarness(
     questions,
     sender,
     rpc,
-    transport,
     projectionInput,
     chat,
     records,

@@ -10,10 +10,10 @@ import { InjectionToken, Type } from '@angular/core';
  * reference here at bootstrap instead.
  *
  * **This is the residue, not the pattern.** TASK_2026_524 moved every
- * standalone surface into the application's route table, so the five deferred
+ * standalone surface into the application's route table, so the four deferred
  * tokens this file used to carry (`HARNESS_BUILDER_COMPONENT`,
- * `SETUP_HUB_COMPONENT`, `MARKETPLACE_COMPONENT`, `TRIBUNAL_COMPONENT`,
- * `TASKS_VIEW_COMPONENT`), the `LazyViewService` that resolved them and
+ * `SETUP_HUB_COMPONENT`, `MARKETPLACE_COMPONENT`, `TASKS_VIEW_COMPONENT`),
+ * the `LazyViewService` that resolved them and
  * `WIZARD_VIEW_COMPONENT` are all gone: `loadComponent` (or a plain
  * `component:` for a launch surface) does the same job with no DI indirection,
  * no `*ngComponentOutlet` and no hand-written spinner branch. The one token

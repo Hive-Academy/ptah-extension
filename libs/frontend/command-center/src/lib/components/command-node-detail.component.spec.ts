@@ -14,12 +14,11 @@ describe('CommandNodeDetailComponent', () => {
     task: '<script>untrusted</script>\nSecond line',
     updatedAt: 820_000,
   };
-  it('renders escaped first-line task, state, phase, freshness and supplied figures', () => {
+  it('renders escaped first-line task, state, freshness and supplied figures', () => {
     TestBed.configureTestingModule({ imports: [CommandNodeDetailComponent] });
     const fixture = TestBed.createComponent(CommandNodeDetailComponent);
     fixture.componentRef.setInput('node', node);
     fixture.componentRef.setInput('now', 1_000_000);
-    fixture.componentRef.setInput('phaseCount', { done: 2, total: 3 });
     fixture.componentRef.setInput('childStats', { messages: 4, tokens: 12 });
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
@@ -27,7 +26,6 @@ describe('CommandNodeDetailComponent', () => {
     expect(host.querySelector('script')).toBeNull();
     expect(host.textContent).not.toContain('Second line');
     expect(host.textContent).toContain('running');
-    expect(host.textContent).toContain('Phase 2 / 3');
     expect(host.textContent).toContain('Updated 3m ago');
     expect(host.textContent).toContain('4 messages');
     expect(host.textContent).toContain('12 tokens');

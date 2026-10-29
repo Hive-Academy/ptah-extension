@@ -5,10 +5,12 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import {
   CommandCenterVoiceSessionService,
   TabManagerService,
+  type TerminalTurnPulse,
 } from '@ptah-extension/chat-state';
 import { ChatStore } from '@ptah-extension/chat';
 import {
@@ -26,13 +28,12 @@ import {
   rootWorkState,
 } from '../model/work-projection';
 import { CommandVoiceLoop } from '../voice/command-voice-loop';
-import { hasTribunalIntent } from './command-center-tribunal-intent';
+import { replyExcerpt } from '../voice/spoken-text';
 import { commandCenterClock } from './command-center-clock';
 import {
-  CommandCenterRosterProvider,
-  isRosterIdleWithoutPendingRequest,
-} from './command-center-roster.provider';
-import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
+  CommandCenterQuestionProvider,
+  isIdleWithoutPendingRequest,
+} from './command-center-question.provider';
 import { CommandCenterProjectionSource } from './command-center-projection.source';
 import {
   shownSessionStatus,
@@ -64,21 +65,13 @@ export class CommandCenterPageController {
   private readonly destroyRef = inject(DestroyRef);
   private readonly chat = inject(ChatStore);
   private readonly voiceSessions = inject(CommandCenterVoiceSessionService);
-  private readonly tribunalTransport = inject(CommandCenterTribunalTransport);
   private readonly projectionSource = inject(CommandCenterProjectionSource);
   public readonly now = commandCenterClock();
-  private readonly roster: CommandCenterRosterProvider =
-    new CommandCenterRosterProvider(
-      this.store,
-      this.tabs,
-      this.chat,
-      this.tribunalTransport,
-      this.destroyRef,
-      (): CommandVoiceLoop => this.voice,
-    );
-  public readonly tribunal = this.roster.tribunal;
-  public readonly pendingProposal = this.roster.pendingProposal;
-  public readonly rosterTimedOut = this.roster.rosterTimedOut;
+  private readonly questions = new CommandCenterQuestionProvider(
+    this.store,
+    this.chat,
+    (prompt) => this.voice.onPendingPrompt(prompt),
+  );
   public readonly turnAbortable = computed(() => {
     const tabId = this.store.markedTabId();
     return (
@@ -96,15 +89,11 @@ export class CommandCenterPageController {
   public readonly hoveredNodeId = signal<string | null>(null);
   public readonly recordWriteFailure =
     this.tabs.commandCenterRecordWriteFailure;
-  public readonly latestReply = computed(() => {
-    const tabId = this.store.markedTabId();
-    const pulse = tabId
-      ? this.tabs.lastTerminalPulseByTab().get(tabId)
-      : undefined;
-    return pulse?.classification === 'success'
-      ? (pulse.lastAssistantMessage ?? null)
-      : null;
-  });
+  /** Last terminal pulse seen for the marked tab, so only new replies are captioned. */
+  private replyCaptionMark: { tabId: string | null; seq: number } = {
+    tabId: null,
+    seq: 0,
+  };
   private readonly voiceTurnToken = signal<number | null>(null);
   /** Each entry belongs to the tab active at send time, even after a rebind. */
   private readonly armedTurns: {
@@ -118,13 +107,10 @@ export class CommandCenterPageController {
   private stoppedTabId: string | null = null;
   private voicePreSendSeq: number | null = null;
   private previousMarkedTabId: string | null = null;
-  public readonly ordinaryQuestion = this.roster.ordinaryQuestion;
-  public readonly ordinaryChoices = this.roster.ordinaryChoices;
-  public readonly permissionRequest = this.roster.permissionRequest;
-  public readonly shownInput = this.roster.shownInput;
-  public readonly shownProposal = this.roster.shownProposal;
-  public readonly undeclinedInvalidQuestionId =
-    this.roster.undeclinedInvalidQuestionId;
+  public readonly ordinaryQuestion = this.questions.ordinaryQuestion;
+  public readonly ordinaryChoices = this.questions.ordinaryChoices;
+  public readonly permissionRequest = this.questions.permissionRequest;
+  public readonly shownInput = this.questions.shownInput;
   public readonly projection = computed(() => {
     const tabId = this.store.markedTabId();
     const root = this.tabs.tabs().find((tab) => tab.id === tabId);
@@ -225,7 +211,7 @@ export class CommandCenterPageController {
       if (this.previousMarkedTabId && tabId !== this.previousMarkedTabId) {
         this.voiceSessions.deactivate(this.previousMarkedTabId);
         this.deliveredPulseSeq = 0;
-        this.teardownSessionState(false);
+        this.teardownSessionState();
         // degradation-audit: reported — voice exit failure is shown through the safe toast
         void this.voice.exit().catch(() =>
           this.store.setToast({
@@ -237,6 +223,13 @@ export class CommandCenterPageController {
       this.previousMarkedTabId = tabId;
     });
     trackTurnStatus(this.tabs, this.store, this.turnAbortable);
+    effect(() => {
+      const tabId = this.store.markedTabId();
+      const pulse = tabId
+        ? this.tabs.lastTerminalPulseByTab().get(tabId)
+        : undefined;
+      untracked(() => this.captionUnspokenReply(tabId, pulse));
+    });
     effect(() => {
       const tabId = this.store.markedTabId();
       const token = this.voiceTurnToken();
@@ -272,7 +265,7 @@ export class CommandCenterPageController {
       this.voiceTurnToken();
       const armed = this.armedTurns[0];
       const tabId = this.store.markedTabId();
-      const idle = isRosterIdleWithoutPendingRequest(
+      const idle = isIdleWithoutPendingRequest(
         this.tabs,
         this.chat,
         tabId,
@@ -309,7 +302,7 @@ export class CommandCenterPageController {
         if (
           this.armedTurns[0] !== armed ||
           this.store.markedTabId() !== tabId ||
-          !isRosterIdleWithoutPendingRequest(
+          !isIdleWithoutPendingRequest(
             this.tabs,
             this.chat,
             tabId,
@@ -331,12 +324,6 @@ export class CommandCenterPageController {
 
   public async open(): Promise<string | null> {
     const tabId = await this.workspaceBinding.open();
-    void this.tribunalTransport.open().catch(() => {
-      this.store.setToast({
-        message: 'Tribunal is unavailable right now.',
-        tone: 'error',
-      });
-    });
     try {
       const response = await this.rpc.call(
         'voice:getProviderConfig',
@@ -397,12 +384,6 @@ export class CommandCenterPageController {
     const request = this.ordinaryQuestion();
     const question = request?.questions[0];
     if (!request || !question || request.id !== id) return false;
-    if (
-      this.roster.tribunalRequestActive() &&
-      question.options.some((option) => /\bconfirm\b/i.test(option.label)) &&
-      /^(confirm|yes|approve|go ahead)\b/i.test(answer.trim())
-    )
-      return false;
     this.coordinator.answerQuestion({
       id,
       answers: { [question.question]: answer },
@@ -428,44 +409,16 @@ export class CommandCenterPageController {
     source: 'text' | 'voice' = 'text',
   ): Promise<boolean> {
     if (!this.workspaceBinding.canSend()) return false;
-    if (this.undeclinedInvalidQuestionId()) {
-      this.store.setToast({
-        message:
-          'Invalid Tribunal proposal is awaiting Decline. Retry the Decline before sending.',
-        tone: 'error',
-        action: 'retry-decline',
-      });
-      return false;
-    }
     this.stoppedTabId = null;
     const tabId = this.store.markedTabId();
     const minPulseSeq = tabId
       ? (this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0)
       : 0;
     if (source === 'voice') this.voicePreSendSeq = minPulseSeq;
-    if (!hasTribunalIntent(content)) {
-      const sent = await this.coordinator.send(content);
-      if (!sent && source === 'voice') this.voicePreSendSeq = null;
-      if (sent && source === 'text') this.voice.armTypedTurn(minPulseSeq);
-      return sent;
-    }
-    const sent = await this.roster.sendRequest(content, this.coordinator);
+    const sent = await this.coordinator.send(content);
     if (!sent && source === 'voice') this.voicePreSendSeq = null;
     if (sent && source === 'text') this.voice.armTypedTurn(minPulseSeq);
     return sent;
-  }
-  public confirmProposal(id: string): Promise<void> {
-    if (!this.workspaceBinding.canSend()) return Promise.resolve();
-    return this.roster.confirmProposal(id);
-  }
-  public declineProposal(id: string): void {
-    this.roster.declineProposal(id);
-  }
-  public timeoutProposal(id: string): void {
-    this.roster.timeoutProposal(id);
-  }
-  public retryInvalidDecline(): void {
-    this.roster.retryInvalidDecline();
   }
   public getLatencyMarks(): ReturnType<CommandVoiceLoop['getLatencyMarks']> {
     return this.voice.getLatencyMarks();
@@ -473,18 +426,39 @@ export class CommandCenterPageController {
   public exit(): Promise<void> {
     const tabId = this.store.markedTabId();
     if (tabId) this.voiceSessions.deactivate(tabId);
-    this.teardownSessionState(true);
+    this.teardownSessionState();
     return this.voice.exit();
   }
-  private teardownSessionState(pageLeave: boolean): void {
+  private teardownSessionState(): void {
     this.clearArmedTurns();
-    this.roster.teardown(pageLeave);
   }
   private clearArmedTurns(): void {
     this.clearGraceTimer();
     this.armedTurns.length = 0;
     this.voiceTurnToken.set(null);
   }
+  /**
+   * A reply that will not be spoken (voice off, muted or no synthesis) still
+   * reaches the stage caption and its live region as a short excerpt. Pulses
+   * already present when a tab is bound are history, not new replies.
+   */
+  private captionUnspokenReply(
+    tabId: string | null,
+    pulse: TerminalTurnPulse | undefined,
+  ): void {
+    const seq = pulse?.seq ?? 0;
+    if (tabId !== this.replyCaptionMark.tabId) {
+      this.replyCaptionMark = { tabId, seq };
+      return;
+    }
+    if (!pulse || seq <= this.replyCaptionMark.seq) return;
+    this.replyCaptionMark = { tabId, seq };
+    if (pulse.classification !== 'success' || this.voice.speaksReplies)
+      return;
+    const excerpt = replyExcerpt(pulse.lastAssistantMessage ?? '');
+    if (excerpt) this.voice.showReplyCaption(excerpt);
+  }
+
   private clearGraceTimer(): void {
     if (this.graceTimer) clearTimeout(this.graceTimer);
     this.graceTimer = null;

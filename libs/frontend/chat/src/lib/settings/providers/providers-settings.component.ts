@@ -60,10 +60,16 @@ import type {
 import { runDrawerWrite } from './connection-drawer/drawer-write';
 import { connectionUsage } from './connection-usage';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { commitToast } from '../feedback/settings-commit-toast';
 // Rendered only inside `@defer`, so it stays out of the eager settings bundle.
 import { KimiCodeLoginProgressComponent } from './connection-drawer/kimi-code-login-progress.component';
+import { SurfaceSectionComponent } from '@ptah-extension/ui';
 
-/** Deep-link sections the Providers tab owns. Background roles and CLI agents are on Orchestration. */
+/**
+ * Deep-link sections this page owns. Background roles and CLI agents are on the same tab, in
+ * `AgentsRoutingSettingsComponent` below this page.
+ */
 export type ProvidersSettingsFocusTarget =
   | 'main-agent'
   | 'main-model'
@@ -100,6 +106,7 @@ const CONTROL =
     MainAgentReassignPopoverComponent,
     ProviderCatalogModalComponent,
     KimiCodeLoginProgressComponent,
+    SurfaceSectionComponent,
   ],
   template: `
     <div
@@ -107,298 +114,306 @@ const CONTROL =
     >
       <!-- No width or side padding of its own: the Settings shell (settings.component.html) already sets
            max-w-screen-2xl and the page padding, which used to be applied twice (Batch 24, card grid width). -->
-      <!-- Prototype order (plan :580-583): routing map, then Connections (header, grid, tile), then the catalog hint.
+      <!-- Prototype order (plan :580-583): routing map, then Connections (header, grid, tile), then the catalog hint,
+           in one card. Settings renders the CLI matrix and the background roles after this page.
            No page title, no Refresh: the tab names the page, and every region retries its own read. -->
       <div class="py-3 space-y-4">
-        <!-- Main-agent region. Loading shows as the nodes' skeletons (aria-busy here keeps captures waiting). -->
-        <div
-          class="space-y-2"
-          [attr.aria-busy]="mainReadsLoading()"
-          data-testid="main-agent-region"
+        <!-- Routing Map and Connections share one card: which model does what, and the connections it draws on. -->
+        <ptah-surface-section
+          tone="subtle"
+          padding="md"
+          data-testid="providers-routing-connections-card"
         >
-          <!-- The Main Agent node holds the D16 badges and opens the Main Agent popover (provider, model, effort).
-             Deferred with the popover (eager route at its bundle budget) behind a same-footprint placeholder. -->
-          @defer (on immediate) {
-            <ptah-routing-map
-              (nodeActivated)="$event === 'main-agent' && openMainPopover()"
-            >
-              <ptah-main-agent-reassign-popover
-                main-agent-popover
-                [open]="mainPopover() !== null"
-                [initialFocus]="mainPopover()?.focus ?? null"
-                (closed)="mainPopover.set(null)"
-                (accountSignInRequested)="openAccountSignIn()"
-              />
-              <div
-                main-agent-badges
-                class="contents"
-                data-testid="main-scope-badges"
+          <!-- Main-agent region. Loading shows as the nodes' skeletons (aria-busy here keeps captures waiting). -->
+          <div
+            class="space-y-2"
+            [attr.aria-busy]="mainReadsLoading()"
+            data-testid="main-agent-region"
+          >
+            <!-- The Main Agent node holds the D16 badges and opens the Main Agent popover (provider, model, effort).
+               Deferred with the popover (eager route at its bundle budget) behind a same-footprint placeholder. -->
+            @defer (on immediate) {
+              <ptah-routing-map
+                (nodeActivated)="$event === 'main-agent' && openMainPopover()"
               >
-                <!-- Batch 52.6: one badge per overridden layer ("Workspace override"), listing its fields (prototype). -->
-                <ptah-main-agent-scope-badges
-                  [fields]="mainScopeFields()"
-                  [workspaceName]="workspaceName()"
-                  (clearRequested)="reviewClear($event.key, $event.target)"
+                <ptah-main-agent-reassign-popover
+                  main-agent-popover
+                  [open]="mainPopover() !== null"
+                  [initialFocus]="mainPopover()?.focus ?? null"
+                  (closed)="mainPopover.set(null)"
+                  (accountSignInRequested)="openAccountSignIn()"
                 />
-              </div>
-            </ptah-routing-map>
-          } @placeholder {
-            <div
-              class="min-h-[178px] rounded-xl border border-base-300 bg-base-200/40 p-3"
-              aria-busy="true"
-              data-testid="routing-map-placeholder"
-            ></div>
-          }
-          <!-- The route's own failure is shown (with Retry) inside the Main Agent node; these are its other reads. -->
-          @for (section of mainReadErrors(); track section.id) {
-            <div
-              role="alert"
-              [class]="readError"
-              [attr.data-read-error]="section.id"
-            >
-              <p class="min-w-0">
-                {{ section.title }} could not be loaded. Your saved settings
-                have not changed.
-              </p>
-              <button
-                type="button"
-                [class]="retryControl"
-                (click)="section.retry()"
-              >
-                Retry {{ section.label }}
-              </button>
-            </div>
-          }
-          @if (clearKey(); as key) {
-            <section
-              class="rounded-md border border-base-content-muted p-3 space-y-3"
-              aria-label="Review clear override"
-            >
-              @if (clearTarget() === 'all-above-global') {
-                <p>
-                  Use the global {{ settingLabel(key) }} value. Removes the
-                  workspace and App overrides above Global. Removing the App
-                  override also affects its other workspaces.
-                </p>
-              } @else {
-                <p>
-                  Clear {{ settingLabel(key) }} override. The host will resolve
-                  the next stored source.
-                </p>
-                <p>
-                  Next source:
-                  {{
-                    state.scopeEntry(key)?.fallbackPreview?.scope ??
-                      'App default'
-                  }}.
-                </p>
-              }
-              @if (clearEndsSessions(key)) {
-                <p data-testid="clear-ends-sessions">
-                  Clearing this override ends running chat sessions. It cannot
-                  be undone from here.
-                </p>
-              }
-              <button
-                type="button"
-                [class]="control"
-                (click)="clearOverride()"
-                [ptahBusyDisabled]="saving()"
-              >
-                Confirm clear override
-              </button>
-              <button
-                type="button"
-                [class]="control"
-                (click)="clearKey.set(null)"
-                [disabled]="saving()"
-              >
-                Cancel clear
-              </button>
-            </section>
-          }
-        </div>
-
-        <section
-          aria-labelledby="providers-connections-heading"
-          class="space-y-3"
-          [attr.aria-busy]="state.connections().status === 'loading'"
-        >
-          <!-- Header (prototype): title + count pill left; filter and the primary "Connect provider" right. -->
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="flex min-w-0 flex-wrap items-center gap-2">
-              <h2
-                id="providers-connections-heading"
-                data-focus="connections"
-                tabindex="-1"
-                class="text-sm font-semibold scroll-mt-4"
-              >
-                Connections
-              </h2>
-              @if (state.connections().status === 'ready') {
-                <span
-                  class="rounded-full border border-base-300 bg-base-200 px-2 py-0.5 text-[11px] text-base-content"
-                  data-testid="connections-count"
+                <div
+                  main-agent-badges
+                  class="contents"
+                  data-testid="main-scope-badges"
                 >
-                  {{ connections().length }} configured ·
-                  {{ catalog().length }} available in catalog</span
-                >
-              }
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <input
-                type="search"
-                [class]="
-                  'input input-bordered input-sm h-9 min-h-9 w-44 border-base-content-muted bg-base-100 text-xs text-base-content ' +
-                  focusRing
-                "
-                placeholder="Filter connections…"
-                aria-label="Filter connections"
-                data-testid="connections-filter"
-                [value]="filter()"
-                (input)="filter.set(inputValue($event))"
-              />
-              <button
-                type="button"
-                [class]="'btn btn-primary btn-sm min-h-9 gap-1 ' + focusRing"
-                (click)="openCatalog()"
-                data-testid="connect-provider"
-              >
-                <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
-                  <path
-                    d="M8 3v10M3 8h10"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    fill="none"
-                  /></svg
-                >Connect provider
-              </button>
-            </div>
-          </div>
-          @if (state.connections().status === 'error') {
-            <div role="alert" [class]="readError" data-read-error="connections">
-              <p class="min-w-0">
-                Providers could not be loaded. Your saved settings have not
-                changed.
-              </p>
-              <button
-                type="button"
-                [class]="retryControl"
-                (click)="state.refreshConnections()"
-              >
-                Retry providers
-              </button>
-            </div>
-          }
-          @if (
-            state.connections().status === 'ready' && connections().length === 0
-          ) {
-            <p>No connections configured. Connect a provider to get started.</p>
-          }
-          @if (filter() && connections().length && !shownConnections().length) {
-            <p role="status" data-testid="connections-filter-empty">
-              No connections match “{{ filter() }}”.
-              <button
-                type="button"
-                [class]="
-                  'btn btn-ghost btn-xs min-h-6 text-base-content underline ' +
-                  focusRing
-                "
-                (click)="filter.set('')"
-              >
-                Clear filter
-              </button>
-            </p>
-          }
-          <!-- Compact cards (≤ 80 px): the whole card opens the drawer, which holds every per-state action but one.
-               Columns come from the CONTAINER width (Q-extra-1): 3 in VS Code at 1024 px, 2 in the narrower Electron page. -->
-          <div
-            class="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3"
-            data-testid="connections-grid"
-          >
-            @for (connection of shownConnections(); track connection.id) {
-              <ptah-provider-connection-card
-                [attr.data-connection-id]="connection.id"
-                [providerId]="connection.id"
-                [providerName]="connection.name"
-                [authModality]="connection.authMode"
-                [sourceLabel]="connection.hasKey ? 'Key stored locally' : null"
-                [authModalityText]="connection.custom ? 'Custom' : null"
-                [status]="connectionStatus(connection)"
-                [isActive]="activeId() === connection.id"
-                [positiveProbeEvidence]="hasProbeEvidence(connection.id)"
-                [isBlocked]="isBlocked(connection.id)"
-                [lastCheck]="lastCheckOf(connection.id)"
-                [routeProbedAt]="state.route().data?.probedAt ?? null"
-                [usedByCount]="
-                  usage().complete
-                    ? (usage().byProvider[connection.id]?.length ?? 0)
-                    : null
-                "
-                [keyUnreadable]="connection.keyUnreadable === true"
-                [connectedAccounts]="
-                  isClaudeCli(connection) ? connectedAccounts() : null
-                "
-                (keyRetryRequested)="state.refreshConnections()"
-                (detailsRequested)="openDrawer(connection.id)"
-                (setupRequested)="openWizard(connection.id)"
-                (addKeyRequested)="openWizard(connection.id)"
-                (replaceKeyRequested)="openWizard(connection.id)"
-                (signInRequested)="externalAction(connection.id, 'sign-in')"
-                (retryRequested)="checkFromCard(connection.id)"
-                (checkAgainRequested)="
-                  externalAction(connection.id, 'cli-check')
-                "
-                (checkConnectionRequested)="checkFromCard(connection.id)"
-              />
+                  <!-- Batch 52.6: one badge per overridden layer ("Workspace override"), listing its fields (prototype). -->
+                  <ptah-main-agent-scope-badges
+                    [fields]="mainScopeFields()"
+                    [workspaceName]="workspaceName()"
+                    (clearRequested)="reviewClear($event.key, $event.target)"
+                  />
+                </div>
+              </ptah-routing-map>
+            } @placeholder {
+              <div
+                class="min-h-[178px] rounded-xl border border-base-300 bg-base-200/40 p-3"
+                aria-busy="true"
+                data-testid="routing-map-placeholder"
+              ></div>
             }
-            <!-- Prototype tile: the catalog modal from inside the grid. -->
-            <button
-              type="button"
-              [class]="
-                'flex min-h-[80px] items-center justify-center gap-2 rounded-xl border border-dashed border-base-300 p-3 text-xs font-medium text-base-content hover:border-primary ' +
-                focusRing
-              "
-              (click)="openCatalog()"
-              data-testid="connect-another-provider"
-            >
-              <span
-                class="h-2 w-2 rounded-full bg-primary"
-                aria-hidden="true"
-              ></span>
-              + Connect another provider
-            </button>
+            <!-- The route's own failure is shown (with Retry) inside the Main Agent node; these are its other reads. -->
+            @for (section of mainReadErrors(); track section.id) {
+              <div
+                role="alert"
+                [class]="readError"
+                [attr.data-read-error]="section.id"
+              >
+                <p class="min-w-0">
+                  {{ section.title }} could not be loaded. Your saved settings
+                  have not changed.
+                </p>
+                <button
+                  type="button"
+                  [class]="retryControl"
+                  (click)="section.retry()"
+                >
+                  Retry {{ section.label }}
+                </button>
+              </div>
+            }
+            @if (clearKey(); as key) {
+              <section
+                class="rounded-md border border-base-content-muted p-3 space-y-3"
+                aria-label="Review clear override"
+              >
+                @if (clearTarget() === 'all-above-global') {
+                  <p>
+                    Use the global {{ settingLabel(key) }} value. Removes the
+                    workspace and App overrides above Global. Removing the App
+                    override also affects its other workspaces.
+                  </p>
+                } @else {
+                  <p>
+                    Clear {{ settingLabel(key) }} override. The host will resolve
+                    the next stored source.
+                  </p>
+                  <p>
+                    Next source:
+                    {{
+                      state.scopeEntry(key)?.fallbackPreview?.scope ??
+                        'App default'
+                    }}.
+                  </p>
+                }
+                @if (clearEndsSessions(key)) {
+                  <p data-testid="clear-ends-sessions">
+                    Clearing this override ends running chat sessions. It cannot
+                    be undone from here.
+                  </p>
+                }
+                <button
+                  type="button"
+                  [class]="control"
+                  (click)="clearOverride()"
+                  [ptahBusyDisabled]="saving()"
+                >
+                  Confirm clear override
+                </button>
+                <button
+                  type="button"
+                  [class]="control"
+                  (click)="clearKey.set(null)"
+                  [disabled]="saving()"
+                >
+                  Cancel clear
+                </button>
+              </section>
+            }
           </div>
-          <!-- Catalog hint strip, directly under the grid (prototype): one row, the names truncate (full list in the
-               title), "Browse catalog →" right-aligned. -->
-          <div
-            class="flex items-center gap-3 rounded-lg border border-base-300 bg-base-200 px-3 py-2 text-xs text-base-content-muted"
-            data-testid="catalog-hint"
+
+          <section
+            aria-labelledby="providers-connections-heading"
+            class="space-y-3"
+            [attr.aria-busy]="state.connections().status === 'loading'"
           >
-            <p
-              class="min-w-0 flex-1 truncate"
-              [attr.title]="catalogHint().names || null"
-              data-testid="catalog-hint-text"
+            <!-- Header (prototype): title + count pill left; filter and the primary "Connect provider" right. -->
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <h2
+                  id="providers-connections-heading"
+                  data-focus="connections"
+                  tabindex="-1"
+                  class="text-sm font-semibold scroll-mt-4"
+                >
+                  Connections
+                </h2>
+                @if (state.connections().status === 'ready') {
+                  <span
+                    class="rounded-full border border-base-300 bg-base-200 px-2 py-0.5 text-[11px] text-base-content"
+                    data-testid="connections-count"
+                  >
+                    {{ connections().length }} configured ·
+                    {{ catalog().length }} available in catalog</span
+                  >
+                }
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <input
+                  type="search"
+                  [class]="
+                    'input input-bordered input-sm h-9 min-h-9 w-44 border-base-content-muted bg-base-100 text-xs text-base-content ' +
+                    focusRing
+                  "
+                  placeholder="Filter connections…"
+                  aria-label="Filter connections"
+                  data-testid="connections-filter"
+                  [value]="filter()"
+                  (input)="filter.set(inputValue($event))"
+                />
+                <button
+                  type="button"
+                  [class]="'btn btn-primary btn-sm min-h-9 gap-1 ' + focusRing"
+                  (click)="openCatalog()"
+                  data-testid="connect-provider"
+                >
+                  <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
+                    <path
+                      d="M8 3v10M3 8h10"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      fill="none"
+                    /></svg
+                  >Connect provider
+                </button>
+              </div>
+            </div>
+            @if (state.connections().status === 'error') {
+              <div role="alert" [class]="readError" data-read-error="connections">
+                <p class="min-w-0">
+                  Providers could not be loaded. Your saved settings have not
+                  changed.
+                </p>
+                <button
+                  type="button"
+                  [class]="retryControl"
+                  (click)="state.refreshConnections()"
+                >
+                  Retry providers
+                </button>
+              </div>
+            }
+            @if (
+              state.connections().status === 'ready' && connections().length === 0
+            ) {
+              <p>No connections configured. Connect a provider to get started.</p>
+            }
+            @if (filter() && connections().length && !shownConnections().length) {
+              <p role="status" data-testid="connections-filter-empty">
+                No connections match “{{ filter() }}”.
+                <button
+                  type="button"
+                  [class]="
+                    'btn btn-ghost btn-xs min-h-6 text-base-content underline ' +
+                    focusRing
+                  "
+                  (click)="filter.set('')"
+                >
+                  Clear filter
+                </button>
+              </p>
+            }
+            <!-- Compact cards (≤ 80 px): the whole card opens the drawer, which holds every per-state action but one.
+                 Columns come from the CONTAINER width (Q-extra-1): 3 in VS Code at 1024 px, 2 in the narrower Electron page. -->
+            <div
+              class="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3"
+              data-testid="connections-grid"
             >
-              <span class="font-semibold text-base-content">{{
-                catalogHint().lead
-              }}</span>
-              {{ catalogHint().names }}
-            </p>
-            <button
-              type="button"
-              data-focus="more-providers"
-              [class]="
-                'btn btn-ghost btn-xs ml-auto min-h-6 shrink-0 font-semibold text-base-content underline ' +
-                focusRing
-              "
-              (click)="openCatalog()"
+              @for (connection of shownConnections(); track connection.id) {
+                <ptah-provider-connection-card
+                  [attr.data-connection-id]="connection.id"
+                  [providerId]="connection.id"
+                  [providerName]="connection.name"
+                  [authModality]="connection.authMode"
+                  [sourceLabel]="connection.hasKey ? 'Key stored locally' : null"
+                  [authModalityText]="connection.custom ? 'Custom' : null"
+                  [status]="connectionStatus(connection)"
+                  [isActive]="activeId() === connection.id"
+                  [positiveProbeEvidence]="hasProbeEvidence(connection.id)"
+                  [isBlocked]="isBlocked(connection.id)"
+                  [lastCheck]="lastCheckOf(connection.id)"
+                  [routeProbedAt]="state.route().data?.probedAt ?? null"
+                  [usedByCount]="
+                    usage().complete
+                      ? (usage().byProvider[connection.id]?.length ?? 0)
+                      : null
+                  "
+                  [keyUnreadable]="connection.keyUnreadable === true"
+                  [connectedAccounts]="
+                    isClaudeCli(connection) ? connectedAccounts() : null
+                  "
+                  (keyRetryRequested)="state.refreshConnections()"
+                  (detailsRequested)="openDrawer(connection.id)"
+                  (setupRequested)="openWizard(connection.id)"
+                  (addKeyRequested)="openWizard(connection.id)"
+                  (replaceKeyRequested)="openWizard(connection.id)"
+                  (signInRequested)="externalAction(connection.id, 'sign-in')"
+                  (retryRequested)="checkFromCard(connection.id)"
+                  (checkAgainRequested)="
+                    externalAction(connection.id, 'cli-check')
+                  "
+                  (checkConnectionRequested)="checkFromCard(connection.id)"
+                />
+              }
+              <!-- Prototype tile: the catalog modal from inside the grid. -->
+              <button
+                type="button"
+                [class]="
+                  'flex min-h-[80px] items-center justify-center gap-2 rounded-xl border border-dashed border-base-300 p-3 text-xs font-medium text-base-content hover:border-primary ' +
+                  focusRing
+                "
+                (click)="openCatalog()"
+                data-testid="connect-another-provider"
+              >
+                <span
+                  class="h-2 w-2 rounded-full bg-primary"
+                  aria-hidden="true"
+                ></span>
+                + Connect another provider
+              </button>
+            </div>
+            <!-- Catalog hint strip, directly under the grid (prototype): one row, the names truncate (full list in the
+                 title), "Browse catalog →" right-aligned. -->
+            <div
+              class="flex items-center gap-3 rounded-lg border border-base-300 bg-base-200 px-3 py-2 text-xs text-base-content-muted"
+              data-testid="catalog-hint"
             >
-              Browse catalog →
-            </button>
-          </div>
-        </section>
+              <p
+                class="min-w-0 flex-1 truncate"
+                [attr.title]="catalogHint().names || null"
+                data-testid="catalog-hint-text"
+              >
+                <span class="font-semibold text-base-content">{{
+                  catalogHint().lead
+                }}</span>
+                {{ catalogHint().names }}
+              </p>
+              <button
+                type="button"
+                data-focus="more-providers"
+                [class]="
+                  'btn btn-ghost btn-xs ml-auto min-h-6 shrink-0 font-semibold text-base-content underline ' +
+                  focusRing
+                "
+                (click)="openCatalog()"
+              >
+                Browse catalog →
+              </button>
+            </div>
+          </section>
+        </ptah-surface-section>
         <!-- Catalog modal: deferred (eager route at its bundle budget); the native <dialog> traps focus and returns it. -->
         @defer (on immediate) {
           <ptah-provider-catalog-modal
@@ -442,41 +457,15 @@ const CONTROL =
             Sign-in could not be checked. Retry the named provider action.
           </p>
         }
-        @if (feedback()) {
-          <p role="status">{{ feedback() }}</p>
-        }
-        @if (state.commit().status !== 'idle') {
-          <div
-            role="status"
-            class="rounded-md bg-base-100 p-3 space-y-1 break-words"
-            data-testid="providers-commit-feedback"
-          >
-            @if (saving()) {
-              <p>Saving…</p>
-            }
-            @if (state.commit().saved.length) {
-              <p>Saved: {{ state.commit().saved.join(', ') }}.</p>
-            }
-            @if (state.commit().unsaved.length) {
-              <p>Not saved: {{ state.commit().unsaved.join(', ') }}.</p>
-            }
-            @if (state.commit().unconfirmed.length) {
-              <p>
-                Save not confirmed: {{ state.commit().unconfirmed.join(', ') }}.
-                Check effective values before retrying.
-              </p>
-            }
-            <p>{{ state.commit().message }}</p>
-          </div>
-        }
       </div>
     </div>
     @if (drawerConnection(); as connection) {
       <!-- Mounted only while open: the usage reads run only then, and the drawer restores focus on destroy.
            Deferred into its own chunk: the settings route is eager and at its initial-bundle budget. -->
       @defer (on immediate) {
-        <!-- z-[60]: the drawer stacks above the page save toast (fixed, z-50, bottom-right), which would
-             otherwise cover the drawer's footer Close. The Models & Tiers tab repeats that feedback inline. -->
+        <!-- z-[60]: keeps the drawer above in-page content. The page toast is a top-layer popover that re-raises
+             above the drawer and moves to bottom-28 while it is open, so it clears the drawer's footer. The
+             Models & Tiers tab repeats that feedback inline (its focus trap is outside the page toast). -->
         <div class="relative z-[60]">
           <ptah-connection-detail-drawer
             [connection]="connection"
@@ -697,7 +686,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected readonly clearTarget = signal<'nearest' | 'all-above-global'>(
     'nearest',
   );
-  protected readonly feedback = signal<string | null>(null);
+  /** The page toast: this page's own outcomes (setup, clear override) go there, never inline. */
+  private readonly feedback = inject(SettingsSaveFeedbackService);
   private focusedTarget: ProvidersSettingsFocusTarget | null = null;
   private lastInputFocus: ProvidersSettingsFocusTarget | null = null;
   private clearContext: ProvidersEditContext | null = null;
@@ -771,17 +761,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   });
   protected readonly wizardCommitDetail = computed(() => {
     if (this.wizardCommitState() === 'idle') return '';
-    const result = this.state.commit();
-    return [
-      result.saved.length ? 'Saved: ' + result.saved.join(', ') : '',
-      result.unsaved.length ? 'Not saved: ' + result.unsaved.join(', ') : '',
-      result.unconfirmed.length
-        ? 'Not confirmed: ' + result.unconfirmed.join(', ')
-        : '',
-      result.message,
-    ]
-      .filter(Boolean)
-      .join('. ');
+    return commitToast(this.state.commit())?.message ?? '';
   });
   private returnFocus: HTMLElement | null = null;
   /** What opened the catalog modal ("Connect provider", the tile, "Browse catalog →"). */
@@ -1320,7 +1300,6 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.wizardProviderId.set(providerId);
     this.wizardSession.update((session) => session + 1);
     this.wizardCommitState.set('idle');
-    this.feedback.set(null);
     this.wizardOpen.set(true);
   }
   readonly verifyDraftConnection = async (
@@ -1348,11 +1327,10 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.wizardCommitState.set(confirmed ? 'saved' : 'failed');
     // m2 (Providers 21-28 review): a new or re-set connection must be visible; old filter text could hide it.
     if (confirmed) this.filter.set('');
-    this.feedback.set(
-      confirmed
-        ? 'Connection settings saved and refreshed.'
-        : 'Some connection settings were not confirmed. Review the saved and unsaved fields below.',
-    );
+    // One toast for the whole commit: the fields it saved, did not save and could not confirm.
+    if (confirmed) this.feedback.announce('Connection settings saved and refreshed.', 'status');
+    else this.feedback.announce(['Some connection settings were not confirmed.', commitToast(this.state.commit())?.message]
+      .filter(Boolean).join(' '), 'alert');
   }
   protected selectWizardProvider(providerId: string): void {
     this.selectedWizardProvider.set(providerId);
@@ -1382,11 +1360,9 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.consumeDeepLink();
     this.wizardOpen.set(false);
     this.wizardContext.set(null);
-    this.feedback.set(
-      this.wizardCommitState() === 'saved'
-        ? 'Connection settings saved.'
-        : 'Setup closed. External sign-in, if completed, remains available.',
-    );
+    // A saved setup already said so when it committed.
+    if (this.wizardCommitState() !== 'saved')
+      this.feedback.announce('Setup closed. External sign-in, if completed, remains available.', 'status');
     void this.state.cancelVerification().catch((error: unknown) => {
       const errorType =
         error instanceof Error ? error.constructor.name : typeof error;
@@ -1451,6 +1427,9 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       this.clearTarget(),
       this.clearContext,
     );
-    if (this.state.commit().status === 'saved') this.clearKey.set(null);
+    const commit = this.state.commit();
+    if (commit.status === 'saved') this.clearKey.set(null);
+    const said = commitToast(commit);
+    if (said) this.feedback.announce(said.message, said.tone);
   }
 }

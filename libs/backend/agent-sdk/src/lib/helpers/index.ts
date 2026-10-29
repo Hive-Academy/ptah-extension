@@ -203,6 +203,7 @@ export {
   type InteractiveRunInput,
   type InteractiveRunResult,
 } from './sdk-query-runner.service';
+export { isChildExitProved, spawnedChildPid } from './child-exit-proof';
 export {
   OffThreadProcessSpawner,
   type OffThreadSpawnHooks,

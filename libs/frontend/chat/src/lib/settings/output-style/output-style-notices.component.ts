@@ -1,7 +1,9 @@
 /**
  * OutputStyleNoticesComponent — the notices above the output-style matrix (TASK_2026_555 Batch 55b CS-2, split out of
  * {@link OutputStyleListComponent} unchanged, A23):
- *  - the failed-operation alert, a fixed sentence per operation (Moderate 4; host error text is never shown, D15);
+ *  - the list read-failure alert, a fixed sentence (Moderate 4; host error text is never shown, D15). Every other
+ *    failed operation (activate, save, delete, open, copy) is a transient outcome and shows as the Settings page
+ *    toast from the component that ran it, so it is not repeated here;
  *  - the missing-active banner (E5/N1), naming both causes unless no file failed to parse, with "Clear the selection";
  *  - the name-collision banner (E4);
  *  - the fallback banner (Req 5.4) with "Copy to this project", confirmed first when a project style of the same name
@@ -16,15 +18,8 @@ import type { OutputStyleEntry } from '@ptah-extension/shared';
 import type { OutputStyleFailedOperation } from './output-style.store';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
-/** Moderate 4: the banner names the operation the store recorded, never one guessed from host text. */
-const FAILURE_MESSAGES: Readonly<Record<OutputStyleFailedOperation, string>> = {
-  list: 'Could not read the output styles.',
-  activate: 'Could not change the active output style.',
-  save: 'Could not save the output style.',
-  delete: 'Could not delete the output style.',
-  open: 'Could not open that output style.',
-  copy: 'Could not copy the output style to the project.',
-};
+/** Moderate 4: the banner is the fixed sentence for the failed list read, never host text. */
+const LIST_READ_FAILED = 'Could not read the output styles.';
 
 @Component({
   selector: 'ptah-output-style-notices',
@@ -32,7 +27,7 @@ const FAILURE_MESSAGES: Readonly<Record<OutputStyleFailedOperation, string>> = {
   imports: [SettingsBusyDisabledDirective, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <!-- Write / Operation Error Alert -->
+    <!-- List read failure (a load state; write outcomes are toasts) -->
     @if (fixedErrorMessage(); as message) {
       <div
         class="flex items-start gap-2 rounded border border-error/40 bg-error/10 p-2 mb-3 text-xs text-base-content"
@@ -189,11 +184,10 @@ export class OutputStyleNoticesComponent {
   /** View state: the copy-to-project confirm is open (a project style of the same name exists). */
   readonly confirmingCopy = signal(false);
 
-  /** The fixed sentence for the failed operation; host error text is never shown (D15). */
-  readonly fixedErrorMessage = computed<string | null>(() => {
-    const operation = this.failedOperation();
-    return operation === null ? null : FAILURE_MESSAGES[operation];
-  });
+  /** The fixed sentence for a failed list read; host error text is never shown (D15). */
+  readonly fixedErrorMessage = computed<string | null>(() =>
+    this.failedOperation() === 'list' ? LIST_READ_FAILED : null,
+  );
 
   /** E5/N1 explanation of why the active style stopped resolving. */
   readonly missingActiveExplanation = computed<string>(() =>

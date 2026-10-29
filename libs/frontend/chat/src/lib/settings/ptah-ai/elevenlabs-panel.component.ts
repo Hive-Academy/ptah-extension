@@ -93,21 +93,6 @@ function testFailureMessage(category: string | undefined): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    @if (errorMessage(); as message) {
-      <div
-        role="alert"
-        data-testid="elevenlabs-panel-error"
-        class="mb-3 flex items-center gap-1.5 rounded border border-error/40 p-2 text-xs text-base-content"
-      >
-        <lucide-angular
-          [img]="AlertCircleIcon"
-          class="w-3.5 h-3.5 text-error shrink-0"
-          aria-hidden="true"
-        />
-        {{ message }}
-      </div>
-    }
-
     <table class="table table-sm" data-testid="elevenlabs-panel-table">
       <tbody>
         <!-- V21: stored key status + Clear (S-confirm, no Undo) -->
@@ -519,7 +504,6 @@ export class ElevenLabsPanelComponent {
   readonly isTesting = signal(false);
   readonly testResult = signal<TestResult | null>(null);
   readonly confirmingClear = signal(false);
-  readonly errorMessage = signal<string | null>(null);
 
   readonly voices = signal<VoiceInfoDto[]>([]);
   readonly isLoadingVoices = signal(false);
@@ -589,7 +573,6 @@ export class ElevenLabsPanelComponent {
   async testConnection(): Promise<void> {
     if (!this.canTest()) return;
     const draft = this.keyDraft().trim();
-    this.errorMessage.set(null);
     this.testResult.set(null);
     this.verifiedKey.set(null);
     this.isTesting.set(true);
@@ -619,7 +602,6 @@ export class ElevenLabsPanelComponent {
   async saveKey(): Promise<void> {
     const apiKey = this.keyDraft().trim();
     if (apiKey.length === 0 || this.verifiedKey() !== apiKey) return;
-    this.errorMessage.set(null);
     await this.feedback.saveGeneric({
       label: 'ElevenLabs API key',
       write: async () => {
@@ -640,7 +622,6 @@ export class ElevenLabsPanelComponent {
   }
 
   openClearConfirm(): void {
-    this.errorMessage.set(null);
     this.confirmingClear.set(true);
   }
 
@@ -653,7 +634,6 @@ export class ElevenLabsPanelComponent {
 
   /** V21 clear after the inline confirm (S-confirm, no Undo). The confirm stays open on failure. */
   async clearKey(): Promise<void> {
-    this.errorMessage.set(null);
     await this.feedback.saveGeneric({
       label: 'removal of the ElevenLabs API key',
       write: async () => {
@@ -809,13 +789,12 @@ export class ElevenLabsPanelComponent {
   /**
    * Runs one write. Success only when the write's own result says so (D15); it emits `changed` so
    * the container re-reads the backend config. Any failure — RPC error, `{ok:false}` or a throw —
-   * shows the fixed `failure` sentence inline, never host text (F1).
+   * returns the fixed `failure` sentence for the toast, never host text (F1).
    */
   private async attempt(
     failure: string,
     request: () => Promise<boolean>,
   ): Promise<WriteResult> {
-    this.errorMessage.set(null);
     let saved = false;
     try {
       saved = await request();
@@ -826,7 +805,6 @@ export class ElevenLabsPanelComponent {
       this.changed.emit();
       return { ok: true };
     }
-    this.errorMessage.set(failure);
     return { ok: false, message: failure };
   }
 }

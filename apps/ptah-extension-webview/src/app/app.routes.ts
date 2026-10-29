@@ -200,16 +200,6 @@ export const appRoutes: Routes = [
       import('@ptah-extension/marketplace').then((m) => m.MARKETPLACE_ROUTES),
   },
   {
-    path: 'tribunal',
-    providers: [
-      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('tribunal') },
-    ],
-    loadComponent: () =>
-      import('@ptah-extension/tribunal-panel').then(
-        (m) => m.TribunalPageComponent,
-      ),
-  },
-  {
     path: 'tasks',
     providers: [
       { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('tasks') },

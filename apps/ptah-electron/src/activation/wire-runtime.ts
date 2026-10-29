@@ -13,7 +13,8 @@ import type {
   DegradationSnapshot,
   Logger,
 } from '@ptah-extension/vscode-core';
-import { setPtahMcpPort } from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS, setPtahMcpPort } from '@ptah-extension/agent-sdk';
+import type { SessionLifecycleManager } from '@ptah-extension/agent-sdk';
 import {
   LANE_OUTCOME_TOKENS,
   type LaneOutcomesDisposer,
@@ -616,6 +617,30 @@ function captureShutdownHandles(
         : String(sessionSpawnerError),
     );
     coordinator.refs.sessionSpawner = null;
+  }
+
+  // Main-chat SDK sessions, captured for the same reason. Their quit-time
+  // dispose releases named Claude account run leases through SQLite, so
+  // `will-quit` must reach the instance before it closes the connection.
+  // Resolving it starts no session.
+  try {
+    coordinator.refs.chatSessions = container.isRegistered(
+      SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+    )
+      ? container.resolve<SessionLifecycleManager>(
+          SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+        )
+      : null;
+  } catch (chatSessionsError: unknown) {
+    // degradation-audit: reported - logged at warn; a null ref means
+    // `will-quit` has no chat sessions to end and their leases stay held.
+    console.warn(
+      '[Ptah Electron] Chat session lifecycle eager resolve failed (non-fatal):',
+      chatSessionsError instanceof Error
+        ? chatSessionsError.message
+        : String(chatSessionsError),
+    );
+    coordinator.refs.chatSessions = null;
   }
 
   // The watch host is a child process: `will-quit` must kill it through the

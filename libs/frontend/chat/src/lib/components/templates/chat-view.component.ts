@@ -75,7 +75,9 @@ import {
 import { StreamRouter } from '@ptah-extension/chat-routing';
 import {
   SESSION_CONTEXT,
+  SESSION_DISPLAY_DOCK,
   RAIL_TRANSCRIPT_RETENTION,
+  SESSION_READ_ONLY,
   HIDE_AGENT_SIDEBAR,
   SESSION_VISIBLE,
   SESSION_FORCED_CARD,
@@ -200,11 +202,15 @@ const VIEW_PANEL_KEY = '';
     SessionBudgetActionsService,
     // The Display dock store, only where the dock mounts: Electron (R1.14,
     // decision #108). In VS Code the token resolves to null, so the
-    // transcript's live-turn effect and the chips stay inert.
+    // transcript's live-turn effect and the chips stay inert. A host that
+    // shows the display itself supplies the store (SESSION_DISPLAY_DOCK).
     {
       provide: DisplayDockState,
       useFactory: (): DisplayDockState | null =>
-        inject(VSCodeService).isElectron ? new DisplayDockState() : null,
+        inject(VSCodeService).isElectron
+          ? (inject(SESSION_DISPLAY_DOCK, { optional: true }) ??
+            new DisplayDockState())
+          : null,
     },
     // The chat-ui ports the chip and the display sync read (decisions #59, #60).
     { provide: PTAH_UI_DISPLAY_DOCK, useExisting: DisplayDockState },
@@ -422,6 +428,10 @@ export class ChatViewComponent implements OnDestroy {
   private readonly sheetState = inject(DisplaySheetState);
   /** Electron: the right-side panel is the display dock. */
   protected readonly dockEnabled = this.displayDock !== null;
+  /** A host-supplied dock: the host shows the display, so no sheet here. */
+  protected readonly displaySheetEnabled =
+    this.dockEnabled &&
+    inject(SESSION_DISPLAY_DOCK, { optional: true }) === null;
   /**
    * Open state and the agent user-close rule of the right-side panel. The
    * dock store when there is one (per tab); otherwise a view-private instance
@@ -792,6 +802,10 @@ export class ChatViewComponent implements OnDestroy {
 
   private readonly _railRetention =
     inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) ?? false;
+
+  /** A read-only host (e.g. the Command Center rail) renders no composer. */
+  protected readonly readOnly =
+    inject(SESSION_READ_ONLY, { optional: true }) ?? false;
 
   /**
    * Tab ids to render as `<ptah-chat-transcript>` instances. Tile mode

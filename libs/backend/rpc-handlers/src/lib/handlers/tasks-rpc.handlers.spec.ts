@@ -1,16 +1,16 @@
 /**
- * TasksRpcHandlers — unit specs.
+ * TasksRpcHandlers â€” unit specs.
  *
  * Coverage:
- *   METHODS invariant       — exactly the 7 tasks:* names
- *   register()              — wires all 7 methods
- *   tasks:list              — Zod rejection (bad status) → INVALID_PARAMS
- *   tasks:list              — no workspace open → WORKSPACE_NOT_OPEN
- *   tasks:list              — normalizes workspaceRoot before delegating
- *   tasks:board             — groups into six always-present columns
- *   tasks:create            — folder collision surfaces structured error
- *   tasks:list              — sanitizes unexpected errors (no path leakage)
- *   constructor             — broadcasts tasks:changed on index events
+ *   METHODS invariant       â€” exactly the 7 tasks:* names
+ *   register()              â€” wires all 7 methods
+ *   tasks:list              â€” Zod rejection (bad status) â†’ INVALID_PARAMS
+ *   tasks:list              â€” no workspace open â†’ WORKSPACE_NOT_OPEN
+ *   tasks:list              â€” normalizes workspaceRoot before delegating
+ *   tasks:board             â€” groups into six always-present columns
+ *   tasks:create            â€” folder collision surfaces structured error
+ *   tasks:list              â€” sanitizes unexpected errors (no path leakage)
+ *   constructor             â€” broadcasts tasks:changed on index events
  *
  * Source-under-test:
  *   libs/backend/rpc-handlers/src/lib/handlers/tasks-rpc.handlers.ts
@@ -118,7 +118,6 @@ interface FakeIndex {
   list: jest.Mock;
   getDetail: jest.Mock;
   readArtifact: jest.Mock;
-  readRoundJudge: jest.Mock;
   reindex: jest.Mock;
   fire: (event: TaskIndexChangeEvent) => void;
 }
@@ -139,7 +138,6 @@ function createFakeIndex(): FakeIndex {
     }),
     getDetail: jest.fn().mockResolvedValue(null),
     readArtifact: jest.fn().mockResolvedValue(null),
-    readRoundJudge: jest.fn().mockResolvedValue(null),
     reindex: jest
       .fn()
       .mockResolvedValue({ indexedCount: 0, excludedCount: 0, durationMs: 1 }),
@@ -344,12 +342,11 @@ function getHandler(
 }
 
 describe('TasksRpcHandlers.METHODS', () => {
-  it('owns exactly the 17 tasks:* methods', () => {
+  it('owns exactly the 16 tasks:* methods', () => {
     expect([...TasksRpcHandlers.METHODS]).toEqual([
       'tasks:list',
       'tasks:get',
       'tasks:getArtifact',
-      'tasks:getRoundJudge',
       'tasks:create',
       'tasks:sweepFinished',
       'tasks:updateStatus',
@@ -455,102 +452,6 @@ describe('tasks:getArtifact', () => {
   });
 });
 
-describe('tasks:getRoundJudge', () => {
-  it('returns the report markdown and echoes the round back', async () => {
-    const { rpc, index } = buildSuite();
-    index.readRoundJudge.mockResolvedValue('## VERDICT\n\nREVISE');
-    const handler = getHandler(rpc, 'tasks:getRoundJudge');
-
-    await expect(
-      handler({ taskId: 'TASK_2026_401', round: 2 }),
-    ).resolves.toEqual({ round: 2, content: '## VERDICT\n\nREVISE' });
-  });
-
-  /**
-   * An unjudged round is the ORDINARY state of a Crucible in progress: round 2
-   * has no report while round 1 is still being revised. Reporting that as an
-   * error would make every live run look broken and send the user hunting a
-   * fault that is not there.
-   */
-  it('reports an unjudged round as content: null, not an error', async () => {
-    const { rpc, index } = buildSuite();
-    index.readRoundJudge.mockResolvedValue(null);
-    const handler = getHandler(rpc, 'tasks:getRoundJudge');
-
-    await expect(
-      handler({ taskId: 'TASK_2026_401', round: 1 }),
-    ).resolves.toEqual({ round: 1, content: null });
-  });
-
-  /**
-   * THE boundary for this method. `getArtifact` is kept safe by a closed enum;
-   * `round-N-judge.md` cannot be enumerated, so safety comes from the shape of
-   * the parameter instead — a NUMBER, from which no separator or `..` can be
-   * expressed. Each of these must die at Zod, before `readRoundJudge` runs.
-   */
-  it.each([
-    ['a filename', 'round-1-judge.md'],
-    ['a traversal string', '../../../../etc/passwd'],
-    ['a numeric string', '1'],
-    ['a fraction', 1.5],
-    ['zero', 0],
-    ['a negative round', -1],
-    ['null', null],
-  ])('refuses %s as `round` with INVALID_PARAMS', async (_label, round) => {
-    const { rpc, index } = buildSuite();
-    const handler = getHandler(rpc, 'tasks:getRoundJudge');
-
-    await expect(
-      handler({ taskId: 'TASK_2026_401', round }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(index.readRoundJudge).not.toHaveBeenCalled();
-  });
-
-  /**
-   * The ceiling is 4 and NOT the panel's cap of 2, deliberately. The Conductor
-   * may run a third round when the user explicitly authorises one
-   * (`crucible.md:153`), and a fourth is a skill violation that must surface in
-   * the UI as a visible anomaly — not be swallowed as an RPC error nobody sees.
-   */
-  it('accepts rounds 1..4 and refuses 5', async () => {
-    const { rpc } = buildSuite();
-    const handler = getHandler(rpc, 'tasks:getRoundJudge');
-    for (const round of [1, 2, 3, 4]) {
-      await expect(
-        handler({ taskId: 'TASK_2026_401', round }),
-      ).resolves.toMatchObject({ round });
-    }
-    await expect(
-      handler({ taskId: 'TASK_2026_401', round: 5 }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-
-  it('refuses a taskId that is a path rather than a folder name', async () => {
-    const { rpc, index } = buildSuite();
-    const handler = getHandler(rpc, 'tasks:getRoundJudge');
-
-    await expect(
-      handler({ taskId: '../../../etc', round: 1 }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(index.readRoundJudge).not.toHaveBeenCalled();
-  });
-
-  it('normalizes the workspace root before delegating', async () => {
-    const { rpc, index } = buildSuite();
-    const handler = getHandler(rpc, 'tasks:getRoundJudge');
-    await handler({
-      taskId: 'TASK_2026_401',
-      round: 1,
-      workspaceRoot: 'D:\\workspace\\',
-    });
-    expect(index.readRoundJudge).toHaveBeenCalledWith(
-      normalizeWorkspaceRoot('D:\\workspace\\'),
-      'TASK_2026_401',
-      1,
-    );
-  });
-});
-
 describe('tasks:list', () => {
   it('rejects an invalid status filter with INVALID_PARAMS', async () => {
     const { rpc } = buildSuite();
@@ -570,7 +471,7 @@ describe('tasks:list', () => {
 
   // Segment case is deliberately NOT varied here. `normalizeWorkspaceRoot`
   // lower-cases only the drive letter, while the `resolveRoot` guard's
-  // `isPathWithinRoots` folds case on win32 ONLY — so a `D:\Workspace` request
+  // `isPathWithinRoots` folds case on win32 ONLY â€” so a `D:\Workspace` request
   // against a `D:\workspace` folder is authorized on Windows and rejected on
   // the Linux CI runner. Drive-letter case + trailing separator still prove
   // normalization ran; segment-case behaviour is pinned by
@@ -638,10 +539,10 @@ describe('tasks:board', () => {
   });
 });
 
-// ── tasks:board over a REAL index + REAL stores ──────────────────────────────
+// â”€â”€ tasks:board over a REAL index + REAL stores â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // The fake index above cannot prove the exclusion rows survive the store
-// boundary — that boundary is exactly where they used to be dropped (only
+// boundary â€” that boundary is exactly where they used to be dropped (only
 // `excluded_count` was persisted). These cases therefore wire the real
 // `TaskScannerService` + `TaskIndexService` over an in-memory filesystem and
 // run the SAME assertions against BOTH `ITaskIndexStore` impls, because the DI
@@ -649,13 +550,13 @@ describe('tasks:board', () => {
 
 const REAL_ROOT = normalizeWorkspaceRoot('D:\\real-ws');
 
-/** Folder name → the carrier content that makes it excluded (or valid). */
+/** Folder name â†’ the carrier content that makes it excluded (or valid). */
 const CARRIER_FIXTURES: ReadonlyArray<
   readonly [folder: string, carrier: string | null]
 > = [
   ['TASK_2026_001', '---\nstatus: backlog\ntype: FEATURE\ntitle: One\n---\nb'],
   ['TASK_2026_002', '---\nstatus: done\ntype: BUGFIX\ntitle: Two\n---\nb'],
-  // no carrier at all — the 12-folder case in this workspace.
+  // no carrier at all â€” the 12-folder case in this workspace.
   ['TASK_2026_155', null],
   ['TASK_2026_160', null],
   ['VOICE_PROVIDERS', null],
@@ -752,7 +653,7 @@ function runBoardExclusionContract(makeStore: () => ITaskIndexStore): void {
         [...EXPECTED_EXCLUSIONS].sort(byFolder),
       );
       expect(result.excludedCount).toBe(EXPECTED_EXCLUSIONS.length);
-      // The valid folders still land on the board — exclusions are additive.
+      // The valid folders still land on the board â€” exclusions are additive.
       expect(result.columns['backlog']).toHaveLength(1);
       expect(result.columns['done']).toHaveLength(1);
     } finally {
@@ -781,15 +682,15 @@ function byFolder(a: ExcludedTaskFolder, b: ExcludedTaskFolder): number {
   return a.folderName.localeCompare(b.folderName);
 }
 
-describe('tasks:board exclusions — InMemoryTaskIndexStore', () => {
+describe('tasks:board exclusions â€” InMemoryTaskIndexStore', () => {
   runBoardExclusionContract(
     () => new InMemoryTaskIndexStore(createMockLogger() as unknown as Logger),
   );
 });
 
-describe('tasks:board exclusions — SqliteTaskIndexStore', () => {
+describe('tasks:board exclusions â€” SqliteTaskIndexStore', () => {
   // The native binding may `require` fine yet throw on instantiation when the
-  // ABI mismatches — probe it and skip rather than fail the whole suite.
+  // ABI mismatches â€” probe it and skip rather than fail the whole suite.
   const Database = loadBetterSqlite3();
   const maybe = Database ? describe : describe.skip;
 
@@ -800,7 +701,7 @@ describe('tasks:board exclusions — SqliteTaskIndexStore', () => {
       // five metadata columns that `SqliteTaskIndexStore.insertSql()` has
       // written since TASK_2026_181 Batch 1. Seeding from 0029 alone gives this
       // suite a schema no shipped database has ever had, so every insert throws
-      // on a missing column and the board comes back empty — which stayed
+      // on a missing column and the board comes back empty â€” which stayed
       // invisible because this block self-skips whenever the native addon's ABI
       // does not match the runner. Same fix, same reason, as
       // `task-index.store.spec.ts`.
@@ -810,7 +711,7 @@ describe('tasks:board exclusions — SqliteTaskIndexStore', () => {
       return new SqliteTaskIndexStore(
         // `isOpen` is not decoration. These suites drive the store through
         // `TaskIndexService.rebuild`, which since TASK_2026_306 task 4.4 asks
-        // `store.isReady()` first and SKIPS the write when it is false —
+        // `store.isReady()` first and SKIPS the write when it is false â€”
         // `SqliteTaskIndexStore.isReady()` forwards this exact property. A
         // double carrying only `db` reports `undefined`, the rebuild writes
         // nothing, and the board comes back with zero exclusions.
@@ -849,7 +750,7 @@ describe('tasks:create', () => {
    * The five metadata fields reach the writer.
    *
    * `TasksCreateParamsSchema` validated them for a whole batch while this
-   * handler mapped its fields explicitly and never listed them — so a
+   * handler mapped its fields explicitly and never listed them â€” so a
    * `tasks:create` carrying `labels` succeeded and silently discarded them.
    * That is a SILENT failure on a tree with no undo, which is why it is
    * asserted at the call boundary and again, below, against a real carrier.
@@ -932,7 +833,7 @@ describe('tasks:create', () => {
       '.ptah',
       'specs',
       result.task?.id ?? '',
-      // Never a filename literal — every per-task name flows from the contract
+      // Never a filename literal â€” every per-task name flows from the contract
       // module, which is what the `.ptah/specs` ratchet enforces (BR-7).
       CARRIER_FILE,
     );
@@ -996,7 +897,7 @@ describe('tasks:updateMetadata', () => {
   });
 
   /**
-   * `expectLabels` — the optimistic-concurrency precondition, on the wire.
+   * `expectLabels` â€” the optimistic-concurrency precondition, on the wire.
    *
    * `patch.labels` is a full replacement, so a caller that means "add b" sends
    * `[...whatItLastSaw, 'b']`. The writer's own pre-write re-read cannot catch
@@ -1005,7 +906,7 @@ describe('tasks:updateMetadata', () => {
    *
    * `tasks:bulkUpdateLabel` has stated the precondition internally since it
    * shipped. This method could not state it at all, which left the board's
-   * OTHER full-replacement label writer — the detail panel — unprotected
+   * OTHER full-replacement label writer â€” the detail panel â€” unprotected
    * against exactly the run the bulk path was protecting itself from.
    */
   it('forwards expectLabels to the writer as a precondition', async () => {
@@ -1117,7 +1018,7 @@ describe('tasks:updateMetadata', () => {
 
 /**
  * Every shape that must NOT survive as a task id or folder name. Mirrors the
- * `REJECTED_PARENTS` table in `task-specs`' `contract.guard.spec.ts` — these
+ * `REJECTED_PARENTS` table in `task-specs`' `contract.guard.spec.ts` â€” these
  * guards decide the same question about the same class of value, and the whole
  * reason they were unified onto one implementation is that they used to
  * disagree. Everything below except the four leading-separator/traversal-path
@@ -1289,7 +1190,7 @@ describe('tasks:adopt', () => {
 
   /**
    * The load-bearing case. Adoption onto an occupied folder must come back as a
-   * typed refusal — NOT as a freshly allocated id, and NOT as an overwrite. A
+   * typed refusal â€” NOT as a freshly allocated id, and NOT as an overwrite. A
    * silent re-allocation would leave two folders claiming one task, which is
    * exactly the failure this task set exists to remove.
    */
@@ -1342,7 +1243,7 @@ describe('tasks:adopt', () => {
 });
 
 // ---------------------------------------------------------------------------
-// tasks:doctorPlan (TASK_2026_179, step 18) — READ-ONLY
+// tasks:doctorPlan (TASK_2026_179, step 18) â€” READ-ONLY
 // ---------------------------------------------------------------------------
 
 describe('tasks:doctorPlan', () => {
@@ -1403,7 +1304,7 @@ describe('tasks:doctorPlan', () => {
    *   1. No mutating filesystem call happened at all.
    *   2. `index.ensureStarted` was NOT called. That is the easy regression:
    *      every other method in this class calls it, and it writes
-   *      `.ptah/specs/README.md` when the hash differs — warming the index here
+   *      `.ptah/specs/README.md` when the hash differs â€” warming the index here
    *      would make the read-only method mutate the directory it reports on.
    */
   it('performs ZERO writes against a real doctor over a seeded tree', async () => {
@@ -1456,7 +1357,7 @@ describe('tasks:doctorPlan', () => {
     );
     handlers.register();
 
-    // Seeding used the mock's own writes — clear them so the assertion below
+    // Seeding used the mock's own writes â€” clear them so the assertion below
     // measures only what the handler itself did.
     fsMock.writeFile.mockClear();
     fsMock.writeFileBytes.mockClear();
@@ -1472,7 +1373,7 @@ describe('tasks:doctorPlan', () => {
     )({})) as TasksDoctorPlanResult;
 
     expect(result.ok).toBe(true);
-    // It found real work to propose — otherwise "zero writes" would be vacuous.
+    // It found real work to propose â€” otherwise "zero writes" would be vacuous.
     expect(result.plan?.actions.length).toBeGreaterThan(0);
 
     expect(fsMock.writeFile).not.toHaveBeenCalled();
@@ -1511,15 +1412,15 @@ describe('tasks:changed broadcast', () => {
   });
 });
 
-// ── FR-C1.5 — the parity block ───────────────────────────────────────────────
+// â”€â”€ FR-C1.5 â€” the parity block â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // The claim under test is that there is exactly ONE filter predicate. That is
 // only checkable end to end: `filterTasks` is asserted against `tasks:list`
 // over the SAME fixture and the SAME spec, and the two must return an identical
-// id list — same members, same order.
+// id list â€” same members, same order.
 //
 // The client side of each case is computed the way the board computes it (plan
-// §6.1): `filterTasks(allTasks, spec, buildTaskGraph(allTasks))` over the full,
+// Â§6.1): `filterTasks(allTasks, spec, buildTaskGraph(allTasks))` over the full,
 // unfiltered listing. The server side is a real handler over a real scanner,
 // index and store. Nothing here re-implements a comparison; if anybody adds a
 // second predicate on either side, these cases stop agreeing.
@@ -1762,7 +1663,7 @@ const PARITY_CASES: ReadonlyArray<
   ],
   [
     // The card's rollup click (FR-B3.3). It travels as a facet on the SAME
-    // spec, so the board and `tasks:list` answer it with the same predicate —
+    // spec, so the board and `tasks:list` answer it with the same predicate â€”
     // which is the whole reason it is not a `.filter()` beside the handler.
     'childrenOf: the parent rollup click',
     { ...EMPTY_TASK_FILTER, childrenOf: ['TASK_2026_301'] },
@@ -1801,7 +1702,7 @@ const NON_DISCRIMINATING = new Set([
 ]);
 
 function runFilterParityContract(makeStore: () => ITaskIndexStore): void {
-  /** The unfiltered listing — the exact payload the board holds client-side. */
+  /** The unfiltered listing â€” the exact payload the board holds client-side. */
   async function loadAllTasks(rpc: MockRpcHandler): Promise<TaskSpecSummary[]> {
     const result = (await getHandler(rpc, 'tasks:list')({})) as TasksListResult;
     return result.tasks;
@@ -1831,7 +1732,7 @@ function runFilterParityContract(makeStore: () => ITaskIndexStore): void {
   });
 
   it.each(PARITY_CASES)(
-    'returns an identical id list from filterTasks and tasks:list — %s',
+    'returns an identical id list from filterTasks and tasks:list â€” %s',
     async (name, spec) => {
       const { rpc, dispose } = buildParitySuite(makeStore());
       try {
@@ -1843,7 +1744,7 @@ function runFilterParityContract(makeStore: () => ITaskIndexStore): void {
 
         expect(serverSide).toEqual(clientSide);
         // A case that matches everything, or nothing, proves nothing about the
-        // predicate — so the fixture is asserted to be discriminating.
+        // predicate â€” so the fixture is asserted to be discriminating.
         if (!NON_DISCRIMINATING.has(name)) {
           expect(clientSide.length).toBeGreaterThan(0);
           expect(clientSide.length).toBeLessThan(PARITY_CARRIERS.length);
@@ -1900,7 +1801,7 @@ function runFilterParityContract(makeStore: () => ITaskIndexStore): void {
         status: ['backlog'],
         filter: { ...EMPTY_TASK_FILTER, statuses: ['done'] },
       });
-      // The empty intersection is NOT written back as `[]` — that would read as
+      // The empty intersection is NOT written back as `[]` â€” that would read as
       // "no constraint" and hand back every task.
       expect(ids).toEqual([]);
     } finally {
@@ -1936,13 +1837,13 @@ function runFilterParityContract(makeStore: () => ITaskIndexStore): void {
   });
 }
 
-describe('tasks:list filter parity (FR-C1.5) — InMemoryTaskIndexStore', () => {
+describe('tasks:list filter parity (FR-C1.5) â€” InMemoryTaskIndexStore', () => {
   runFilterParityContract(
     () => new InMemoryTaskIndexStore(createMockLogger() as unknown as Logger),
   );
 });
 
-describe('tasks:list filter parity (FR-C1.5) — SqliteTaskIndexStore', () => {
+describe('tasks:list filter parity (FR-C1.5) â€” SqliteTaskIndexStore', () => {
   const Database = loadBetterSqlite3();
   const maybe = Database ? describe : describe.skip;
 
@@ -1950,7 +1851,7 @@ describe('tasks:list filter parity (FR-C1.5) — SqliteTaskIndexStore', () => {
     runFilterParityContract(() => {
       const db = new (Database as BetterSqlite3Ctor)(':memory:');
       // 0031 adds the five metadata columns the parity fixture exercises, so
-      // both are applied — 0029 alone cannot hold `labels` or `estimate`.
+      // both are applied â€” 0029 alone cannot hold `labels` or `estimate`.
       for (const version of [29, 31]) {
         db.exec(MIGRATIONS.find((m) => m.version === version)?.sql ?? '');
       }
@@ -1965,7 +1866,7 @@ describe('tasks:list filter parity (FR-C1.5) — SqliteTaskIndexStore', () => {
 });
 
 // ---------------------------------------------------------------------------
-// tasks:getViews / tasks:saveViews — saved board views (FR-C2)
+// tasks:getViews / tasks:saveViews â€” saved board views (FR-C2)
 // ---------------------------------------------------------------------------
 
 describe('tasks:getViews', () => {
@@ -2050,7 +1951,7 @@ describe('tasks:getViews', () => {
   it('reports nothing skipped when the store held no readable array at all', async () => {
     // `z.array(z.unknown())` rejects a non-array whole value, so `handleFor`
     // hands back the definition default. Nothing was parseable, so nothing was
-    // SKIPPED — an empty list is not two dropped views.
+    // SKIPPED â€” an empty list is not two dropped views.
     const { rpc } = buildSuite('D:\\workspace', createMockTasksSettings([]));
 
     const result = (await getHandler(
@@ -2265,7 +2166,7 @@ describe('tasks:saveViews', () => {
     expect(result.error?.message).not.toContain('.ptah');
     expect(result.warning).toBeUndefined();
     // The list write is the one that failed, so the active id is never
-    // attempted — a pointer must not outlive the list it points into.
+    // attempted â€” a pointer must not outlive the list it points into.
     expect(settings.activeViewId.set).not.toHaveBeenCalled();
     // The real error is kept server-side, where the path is not a leak.
     expect(logger.error).toHaveBeenCalled();
@@ -2303,7 +2204,7 @@ describe('tasks:saveViews', () => {
       })) as TasksSaveViewsResult;
     }
 
-    it('does NOT report the save as failed — the views genuinely persisted', async () => {
+    it('does NOT report the save as failed â€” the views genuinely persisted', async () => {
       const { settings, rpc } = buildPartialFailure();
 
       const result = await save(rpc);
@@ -2339,7 +2240,7 @@ describe('tasks:saveViews', () => {
     it('self-heals on the next read rather than leaving wrong data', async () => {
       // The stale pointer needs no repair path: `readViews` reconciles the
       // stored id against the views it actually read, so a pointer that names
-      // nothing surfaces as `activeViewId: null` — never as a view the board
+      // nothing surfaces as `activeViewId: null` â€” never as a view the board
       // cannot show.
       const settings = createMockTasksSettings(
         [makeView({ id: 'stale-pointer-target' })],
@@ -2417,7 +2318,7 @@ describe('tasks:saveViews', () => {
  * ## Why five ids, with the conflict in the middle
  *
  * A fixture that narrows to one item cannot tell "reported the conflict and
- * carried on" from "stopped at the conflict" — both yield one failing entry, so
+ * carried on" from "stopped at the conflict" â€” both yield one failing entry, so
  * the buggy and the correct implementation give the same answer and the test
  * cannot fail. The contended id is third of five precisely so the two ids after
  * it have to succeed.
@@ -2430,7 +2331,7 @@ const BULK_TASK_IDS = [
   'TASK_2026_184',
   'TASK_2026_185',
 ] as const;
-/** Third of five — deliberately neither first nor last. */
+/** Third of five â€” deliberately neither first nor last. */
 const BULK_CONTENDED_ID = BULK_TASK_IDS[2];
 
 function bulkCarrierPath(taskId: string): string {
@@ -2444,8 +2345,8 @@ function bulkCarrierPath(taskId: string): string {
  * The mock is a `Map` keyed on the exact path string, so by default it is
  * case-sensitive and cannot express the hazard canonical dedupe exists to
  * prevent. This rewrites an incoming path to whichever existing key matches it
- * case-insensitively, leaving everything else — including the pre-write
- * re-read that detects conflicts — completely untouched.
+ * case-insensitively, leaving everything else â€” including the pre-write
+ * re-read that detects conflicts â€” completely untouched.
  *
  * Applied per-test rather than globally: the other bulk fixtures rely on
  * ordinary case-sensitive behaviour, and quietly changing it for all of them
@@ -2496,11 +2397,11 @@ interface BulkSuite {
 
 /**
  * Seed five backlog carriers, warm the index, then arm ONE external whole-file
- * write inside the contended task's read → write window.
+ * write inside the contended task's read â†’ write window.
  *
  * The arming happens AFTER `ensureStarted`, because the initial index scan
  * reads every carrier and would otherwise consume the trap before the writer
- * ever ran — the interleave has to land inside the WRITER's window, not the
+ * ever ran â€” the interleave has to land inside the WRITER's window, not the
  * scanner's.
  *
  * @param interleave false disarms the external write entirely (the control).
@@ -2640,13 +2541,13 @@ async function callBulk(
   )({ taskIds: [...taskIds], status })) as TasksBulkUpdateStatusResult;
 }
 
-describe('tasks:bulkUpdateStatus — five ids, one interleaved external write', () => {
+describe('tasks:bulkUpdateStatus â€” five ids, one interleaved external write', () => {
   it('returns one TASK_CONFLICT carrying currentStatus, and four successes', async () => {
     const suite = await buildBulkSuite();
     try {
       const result = await callBulk(suite);
 
-      // The interleaving really happened — otherwise everything below is
+      // The interleaving really happened â€” otherwise everything below is
       // vacuous, which is exactly how a bulk test passes while proving nothing.
       expect(suite.externalWrites()).toBe(1);
 
@@ -2663,7 +2564,7 @@ describe('tasks:bulkUpdateStatus — five ids, one interleaved external write', 
             code: 'TASK_CONFLICT',
             message: expect.stringContaining(BULK_CONTENDED_ID),
           },
-          // FR-C4.7 — what the OTHER writer left, not what we attempted
+          // FR-C4.7 â€” what the OTHER writer left, not what we attempted
           // (`done`) and not what we read before it landed (`backlog`).
           currentStatus: 'in_review',
         },
@@ -2680,7 +2581,7 @@ describe('tasks:bulkUpdateStatus — five ids, one interleaved external write', 
     try {
       await callBulk(suite);
 
-      // Not "at most one" — exactly one. Four carriers changed, so zero would
+      // Not "at most one" â€” exactly one. Four carriers changed, so zero would
       // leave the board stale, and the pre-`deferNotify` behaviour would be
       // four (one per successful write) plus this one.
       expect(suite.applyFolderChange).toHaveBeenCalledTimes(1);
@@ -2772,7 +2673,7 @@ describe('tasks:bulkUpdateStatus — five ids, one interleaved external write', 
     }
   });
 
-  it('enriches ONLY a conflict — a missing task carries no currentStatus', async () => {
+  it('enriches ONLY a conflict â€” a missing task carries no currentStatus', async () => {
     const suite = await buildBulkSuite(false);
     try {
       const result = await callBulk(suite, 'done', ['TASK_2026_999']);
@@ -2810,12 +2711,12 @@ describe('tasks:bulkUpdateStatus — five ids, one interleaved external write', 
    * ## What this test does and does not prove
    *
    * `createMockFileSystemProvider` is backed by a `Map` keyed on the exact path
-   * string, so it is case-SENSITIVE — unlike the Windows filesystem this
+   * string, so it is case-SENSITIVE â€” unlike the Windows filesystem this
    * project primarily runs on. Under exact-string dedupe this fixture
    * therefore produces a spurious `TASK_NOT_FOUND` for the second casing,
    * not the `TASK_CONFLICT` that a real case-insensitive volume would produce.
    *
-   * So the pin here is the DEDUPE itself — one entry, one write — which is the
+   * So the pin here is the DEDUPE itself â€” one entry, one write â€” which is the
    * property the fix actually establishes and which fails loudly either way.
    * Asserting "no `TASK_CONFLICT` appears" would look like it covered the
    * hazard while being satisfied trivially by this mock, so it is deliberately
@@ -2844,7 +2745,7 @@ describe('tasks:bulkUpdateStatus — five ids, one interleaved external write', 
    * `makeCaseInsensitive` folds path lookups the way NTFS does, so
    * `TASK_2026_181` and `task_2026_181` resolve to ONE file.
    *
-   * ## What exact-string dedupe actually costs here — measured, not assumed
+   * ## What exact-string dedupe actually costs here â€” measured, not assumed
    *
    * It is tempting to say the second write's pre-write re-read sees the first
    * write's bytes and reports `TASK_CONFLICT` against a write that succeeded.
@@ -2856,7 +2757,7 @@ describe('tasks:bulkUpdateStatus — five ids, one interleaved external write', 
    *
    * The real cost is quieter and still worth refusing: the caller gets TWO
    * result entries for ONE task, which FR-C4.3 forbids outright, and the
-   * carrier is written TWICE — a second `updated` refresh on a gitignored file
+   * carrier is written TWICE â€” a second `updated` refresh on a gitignored file
    * with no undo, for a change nobody asked for.
    */
   it('writes one file once when two casings name the same task', async () => {
@@ -2872,7 +2773,7 @@ describe('tasks:bulkUpdateStatus — five ids, one interleaved external write', 
         'task_2026_181',
       ]);
 
-      // One entry — FR-C4.3 is one result per TASK, and these two ids are one
+      // One entry â€” FR-C4.3 is one result per TASK, and these two ids are one
       // task on this filesystem.
       expect(result.results).toEqual([{ taskId: 'TASK_2026_181', ok: true }]);
       // ONE write to the single underlying file. Without canonical dedupe this
@@ -2889,7 +2790,7 @@ describe('tasks:bulkUpdateStatus — five ids, one interleaved external write', 
    *
    * The throw is placed at item 4 of 5 so there are three landed writes before
    * it and one task after it. Those three `ok: true` entries are the difference
-   * between "retry the two that failed" and "retry all five" — and retrying a
+   * between "retry the two that failed" and "retry all five" â€” and retrying a
    * write that already landed is how a bulk operation manufactures conflicts.
    */
   it('preserves the results of writes that already landed when item 4 throws', async () => {
@@ -2921,7 +2822,7 @@ describe('tasks:bulkUpdateStatus — five ids, one interleaved external write', 
       const result = await callBulk(suite);
 
       const failed = result.results.find((r) => !r.ok);
-      // R4.4 — the thrown message carried `D:\secrets\...`; the wire must not.
+      // R4.4 â€” the thrown message carried `D:\secrets\...`; the wire must not.
       expect(failed?.error?.message).not.toContain('D:\\secrets');
       expect(failed?.error?.message).not.toContain('EBUSY');
     } finally {
@@ -2943,7 +2844,7 @@ describe('tasks:bulkUpdateStatus — five ids, one interleaved external write', 
   });
 });
 
-describe('tasks:bulkUpdateStatus — boundary', () => {
+describe('tasks:bulkUpdateStatus â€” boundary', () => {
   it('rejects a selection larger than BULK_CHUNK_SIZE', async () => {
     const { rpc, writer } = buildSuite();
     const tooMany = Array.from(
@@ -2981,7 +2882,7 @@ describe('tasks:bulkUpdateStatus — boundary', () => {
           'tasks:bulkUpdateStatus',
         )({ taskIds: ['TASK_2026_181', value], status: 'done' }),
       ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-      // The whole call is refused — a bad entry does not get nineteen writes
+      // The whole call is refused â€” a bad entry does not get nineteen writes
       // issued around it.
       expect(writer.updateMetadata).not.toHaveBeenCalled();
     },
@@ -2989,7 +2890,7 @@ describe('tasks:bulkUpdateStatus — boundary', () => {
 });
 
 // ---------------------------------------------------------------------------
-// tasks:bulkUpdateLabel (FR-C5) — the method that gives `noop` a producer
+// tasks:bulkUpdateLabel (FR-C5) â€” the method that gives `noop` a producer
 // ---------------------------------------------------------------------------
 
 /**
@@ -2997,7 +2898,7 @@ describe('tasks:bulkUpdateStatus — boundary', () => {
  * the real `TaskIndexService` as its notifier.
  *
  * Not a mocked writer, for the same reason the status bulk block is not: every
- * claim here is about something that happens BELOW the handler — that a no-op
+ * claim here is about something that happens BELOW the handler â€” that a no-op
  * leaves the carrier's bytes alone, that removing the last label removes the
  * KEY rather than writing `labels: []`, that `expectLabels` refuses a write the
  * whole-file re-read provably cannot refuse, and that `deferNotify` keeps the
@@ -3047,7 +2948,7 @@ function labelsOf(fs: MockFileSystemProvider, taskId: string): string[] {
  * `renderTaskMd` double-quotes an ISO timestamp (it contains colons, so it is
  * not a plain-safe YAML scalar) while `gray-matter` re-serializes it its own
  * way. Comparing the raw line would therefore fail on a quoting difference that
- * no reader can see, and — worse — could be "fixed" by loosening it to a
+ * no reader can see, and â€” worse â€” could be "fixed" by loosening it to a
  * substring match that no longer notices a REFRESHED stamp, which is the only
  * thing it is here to notice.
  */
@@ -3170,7 +3071,7 @@ async function callLabel(
  * `taskId` after arming.
  *
  * That first read is the HANDLER's `getDetail`, so the external write lands
- * between the handler's read and the writer's — the exact window the writer's
+ * between the handler's read and the writer's â€” the exact window the writer's
  * pre-write re-read cannot see, because by the time the writer reads, the other
  * writer's bytes are already in its own snapshot and its re-read agrees.
  * `expectLabels` is the only thing standing between that window and a silent
@@ -3204,7 +3105,7 @@ function armExternalLabelWrite(
   return () => fired;
 }
 
-describe('tasks:bulkUpdateLabel — add', () => {
+describe('tasks:bulkUpdateLabel â€” add', () => {
   it('adds the label to a task that lacks it and reports a plain success', async () => {
     const suite = await buildLabelSuite([
       { id: 'TASK_2026_401', labels: ['licensing'] },
@@ -3218,7 +3119,7 @@ describe('tasks:bulkUpdateLabel — add', () => {
       // implementation that set `noop: false` on every success would pass a
       // `toBeFalsy` assertion and make the field meaningless.
       expect(result.results).toEqual([{ taskId: 'TASK_2026_401', ok: true }]);
-      // Appended at the END — existing order is preserved.
+      // Appended at the END â€” existing order is preserved.
       expect(labelsOf(suite.fs, 'TASK_2026_401')).toEqual([
         'licensing',
         'security',
@@ -3235,7 +3136,7 @@ describe('tasks:bulkUpdateLabel — add', () => {
    * from this one on `ok` alone. The byte comparison is what separates them:
    * `updateMetadata` refreshes `updated` on EVERY write, so a write that landed
    * here shows up as a changed `updated:` line even though the label set is
-   * identical — a modification stamp recording a change that did not happen, on
+   * identical â€” a modification stamp recording a change that did not happen, on
    * a gitignored file with no undo.
    */
   it('reports a task that ALREADY carries the label as a no-op and leaves its bytes untouched', async () => {
@@ -3251,7 +3152,7 @@ describe('tasks:bulkUpdateLabel — add', () => {
       expect(result.results).toEqual([
         { taskId: 'TASK_2026_401', ok: true, noop: true },
       ]);
-      // Byte-identical — including the `updated:` stamp, asserted separately so
+      // Byte-identical â€” including the `updated:` stamp, asserted separately so
       // a failure names the actual defect rather than dumping the whole file.
       const after = readLabelCarrier(suite.fs, 'TASK_2026_401');
       expect(updatedStampOf(after)).toBe(LABEL_SEED_NOW);
@@ -3282,7 +3183,7 @@ describe('tasks:bulkUpdateLabel — add', () => {
       expect(result.results).toEqual([
         { taskId: 'TASK_2026_401', ok: true, noop: true },
       ]);
-      // The AUTHORED casing survives — matching is folded, storage is not.
+      // The AUTHORED casing survives â€” matching is folded, storage is not.
       expect(labelsOf(suite.fs, 'TASK_2026_401')).toEqual(['Licensing']);
     } finally {
       suite.dispose();
@@ -3290,7 +3191,7 @@ describe('tasks:bulkUpdateLabel — add', () => {
   });
 });
 
-describe('tasks:bulkUpdateLabel — remove', () => {
+describe('tasks:bulkUpdateLabel â€” remove', () => {
   it('removes a label that is present', async () => {
     const suite = await buildLabelSuite([
       { id: 'TASK_2026_401', labels: ['licensing', 'security'] },
@@ -3371,15 +3272,15 @@ describe('tasks:bulkUpdateLabel — remove', () => {
   });
 });
 
-describe('tasks:bulkUpdateLabel — the limits live in TaskMetadataPatchSchema', () => {
+describe('tasks:bulkUpdateLabel â€” the limits live in TaskMetadataPatchSchema', () => {
   /**
    * The per-task cap constrains the MERGED array, which does not exist until
-   * the handler has read the task's current labels — the request schema saw one
+   * the handler has read the task's current labels â€” the request schema saw one
    * label and had nothing to count. So the enforcement has to happen in the
    * handler, and it happens by running the merged array through the ONE
    * definition of the limit rather than restating `12` there.
    */
-  it('refuses a merged array over MAX_LABELS_PER_TASK with the schema’s own message', async () => {
+  it('refuses a merged array over MAX_LABELS_PER_TASK with the schemaâ€™s own message', async () => {
     const full = Array.from(
       { length: MAX_LABELS_PER_TASK },
       (_v, i) => `label-${i}`,
@@ -3405,7 +3306,7 @@ describe('tasks:bulkUpdateLabel — the limits live in TaskMetadataPatchSchema',
           },
         },
       ]);
-      // Refused BEFORE the funnel — the writer was never asked.
+      // Refused BEFORE the funnel â€” the writer was never asked.
       expect(suite.updateMetadata).not.toHaveBeenCalled();
       expect(readLabelCarrier(suite.fs, 'TASK_2026_401')).toBe(before);
       expect(suite.applyFolderChange).not.toHaveBeenCalled();
@@ -3439,7 +3340,7 @@ describe('tasks:bulkUpdateLabel — the limits live in TaskMetadataPatchSchema',
   });
 });
 
-describe('tasks:bulkUpdateLabel — tasks the writer refuses', () => {
+describe('tasks:bulkUpdateLabel â€” tasks the writer refuses', () => {
   it('reports a task with no carrier on disk as TASK_NOT_FOUND', async () => {
     const suite = await buildLabelSuite([
       { id: 'TASK_2026_401', labels: ['licensing'] },
@@ -3506,7 +3407,7 @@ describe('tasks:bulkUpdateLabel — tasks the writer refuses', () => {
    * the writer reads, the other writer's bytes ARE its snapshot, and its
    * re-read agrees with that snapshot. Without the precondition this call
    * writes `['security']` over the external writer's `['licensing',
-   * 'urgent']` and reports `ok: true` — a silent discard with no undo.
+   * 'urgent']` and reports `ok: true` â€” a silent discard with no undo.
    */
   it('refuses with TASK_CONFLICT when the labels changed between the read and the write', async () => {
     const suite = await buildLabelSuite([
@@ -3522,7 +3423,7 @@ describe('tasks:bulkUpdateLabel — tasks the writer refuses', () => {
         'TASK_2026_401',
       ]);
 
-      // The interleaving really happened — otherwise everything below is
+      // The interleaving really happened â€” otherwise everything below is
       // vacuous, which is exactly how a concurrency test passes proving nothing.
       expect(fired()).toBe(1);
       expect(result.results).toEqual([
@@ -3574,7 +3475,7 @@ describe('tasks:bulkUpdateLabel — tasks the writer refuses', () => {
   });
 });
 
-describe('tasks:bulkUpdateLabel — the result list and the single rebuild', () => {
+describe('tasks:bulkUpdateLabel â€” the result list and the single rebuild', () => {
   const FIVE: readonly LabelSeed[] = [
     { id: 'TASK_2026_401', labels: ['licensing'] },
     { id: 'TASK_2026_402' },
@@ -3640,7 +3541,7 @@ describe('tasks:bulkUpdateLabel — the result list and the single rebuild', () 
         FIVE.map((seed) => seed.id),
       );
 
-      // Not "at most one" — exactly one. Three carriers changed, so zero would
+      // Not "at most one" â€” exactly one. Three carriers changed, so zero would
       // leave the board stale, and dropping `deferNotify` would make it four.
       expect(suite.applyFolderChange).toHaveBeenCalledTimes(1);
     } finally {
@@ -3658,7 +3559,7 @@ describe('tasks:bulkUpdateLabel — the result list and the single rebuild', () 
         FIVE.map((seed) => seed.id),
       );
 
-      // Three writes — the two tasks that already carry `security` are no-ops
+      // Three writes â€” the two tasks that already carry `security` are no-ops
       // and never reach the funnel at all.
       expect(suite.updateMetadata).toHaveBeenCalledTimes(3);
       for (const call of suite.updateMetadata.mock.calls) {
@@ -3741,7 +3642,7 @@ describe('tasks:bulkUpdateLabel — the result list and the single rebuild', () 
         // The loop carried on past the unexpected fault.
         { taskId: 'TASK_2026_405', ok: true },
       ]);
-      // R4.4 — the thrown message carried an absolute path; the wire must not.
+      // R4.4 â€” the thrown message carried an absolute path; the wire must not.
       const failed = result.results.find((entry) => !entry.ok);
       expect(failed?.error?.message).not.toContain('D:\\secrets');
       expect(suite.applyFolderChange).toHaveBeenCalledTimes(1);
@@ -3751,7 +3652,7 @@ describe('tasks:bulkUpdateLabel — the result list and the single rebuild', () 
   });
 });
 
-describe('tasks:bulkUpdateLabel — boundary', () => {
+describe('tasks:bulkUpdateLabel â€” boundary', () => {
   it('rejects a selection larger than BULK_CHUNK_SIZE', async () => {
     const { rpc, writer } = buildSuite();
     const tooMany = Array.from(
@@ -3769,8 +3670,8 @@ describe('tasks:bulkUpdateLabel — boundary', () => {
   });
 
   it('accepts a selection of exactly BULK_CHUNK_SIZE', async () => {
-    // The other half of the boundary: without it, a schema that capped at 19 —
-    // or at 0 — would satisfy the rejection test above.
+    // The other half of the boundary: without it, a schema that capped at 19 â€”
+    // or at 0 â€” would satisfy the rejection test above.
     const suite = await buildLabelSuite(
       Array.from({ length: BULK_CHUNK_SIZE }, (_v, i) => ({
         id: `TASK_2026_5${String(i).padStart(2, '0')}`,
@@ -3816,12 +3717,12 @@ describe('tasks:bulkUpdateLabel — boundary', () => {
    * An illegal label is refused as a RESULT LIST, not as a throw.
    *
    * These three used to reach the caller as `parse`'s single generic
-   * "Invalid task request parameters." — and `callBulkChunk` on the board
+   * "Invalid task request parameters." â€” and `callBulkChunk` on the board
    * expands a throw into ONE WRITE_FAILED ENTRY PER TASK in the chunk. So
    * selecting twelve tasks and typing a 40-character label produced a summary
    * reading "0 task(s) got the label; 12 were refused", stamped with a
    * write-failure code on twelve carriers nothing had tried to write, and with
-   * no mention of the one thing the user could act on. The ≤12-per-task limit
+   * no mention of the one thing the user could act on. The â‰¤12-per-task limit
    * already answered correctly, because it is enforced in `applyBulkLabel`
    * where a result list exists to put it in; these are the other two thirds of
    * the same contract.
@@ -3829,7 +3730,7 @@ describe('tasks:bulkUpdateLabel — boundary', () => {
    * The asserted message is `LabelSchema`'s own, character for character.
    * `TaskBulkBarComponent` states in its doc-block that the label field ships
    * with NO `maxlength` precisely because the boundary's sentence comes back
-   * per task — this is what makes that true rather than aspirational.
+   * per task â€” this is what makes that true rather than aspirational.
    */
   it.each([
     ['a blank label', '   ', 'a label may not be blank'],
@@ -3891,7 +3792,7 @@ describe('tasks:bulkUpdateLabel — boundary', () => {
   );
 });
 
-// ── The namespace-wide workspace guard ───────────────────────────────────────
+// â”€â”€ The namespace-wide workspace guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // `resolveRoot` is the ONE place a `tasks:*` root becomes a filesystem path, so
 // the guard lives there and this block asserts it namespace-wide rather than
@@ -3918,7 +3819,6 @@ describe('tasks:* workspace authorization', () => {
       taskId: 'TASK_2026_401',
       file: 'implementation-plan.md',
     },
-    'tasks:getRoundJudge': { taskId: 'TASK_2026_401', round: 1 },
     'tasks:create': { title: 'T', type: 'BUGFIX' },
     'tasks:sweepFinished': { olderThanDays: 7, apply: false },
     'tasks:updateStatus': { taskId: 'TASK_2026_401', status: 'done' },
@@ -4007,7 +3907,7 @@ describe('tasks:* workspace authorization', () => {
   // The CLI/TUI transport is a real non-webview caller: `ptah spec *` passes
   // `workspaceRoot: globals.cwd`, and `with-engine.ts` hands that SAME value to
   // `CliWorkspaceProvider` as its single folder. So the CLI's explicit root is
-  // always the authorized folder or a descendant of it — this pins the second
+  // always the authorized folder or a descendant of it â€” this pins the second
   // case, which is what `ptah spec` run from a subdirectory produces.
   it('admits a path inside the open folder (CLI cwd case)', async () => {
     const { rpc, index } = buildSuite();

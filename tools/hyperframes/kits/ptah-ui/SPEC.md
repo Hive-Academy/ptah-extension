@@ -583,7 +583,7 @@ Acceptance for the gallery: every component animates exactly once; smallest text
 5. **Inline code color.** Screenshots show amber/gold inline code text; the repo rule I found (`message-bubble.component.css:107-115`) sets background, border, padding and radius but no color. Which global rule sets the color (assumed `--ptah-gold`)?
 6. **Cursor.** Should button presses be accompanied by a synthetic mouse pointer (the screenshots show one)? Default is no pointer (press = scale and brighten only).
 7. **Frame rate.** 30 fps leaves the 128 BPM beat at 14.06 frames. Is 60 fps acceptable for the gallery (beat = 28.125 frames) or should the soundtrack be 125 BPM (beat = 14.4 frames) or 120 BPM (15 frames) for an exact grid?
-8. **Window chrome.** The screenshots show the Electron title bar and top nav (Chat / Apps / Tasks / Tribunal / Analytics). I did not read that source. Include a `frame = window` variant of `session-shell` (needs a read of `CH/templates/electron-shell.component.ts`), or keep tile-only?
+8. **Window chrome.** The screenshots show the Electron title bar and top nav (Chat / Apps / Tasks / Analytics). I did not read that source. Include a `frame = window` variant of `session-shell` (needs a read of `CH/templates/electron-shell.component.ts`), or keep tile-only?
 
 ---
 
@@ -592,7 +592,7 @@ Acceptance for the gallery: every component animates exactly once; smallest text
 (Component 11 of section 4, appended after sections 5-6 so the existing sections stay unchanged.)
 
 Purpose: the wrapping Ptah desktop app frame, so a video can show several live sessions inside the real app (`REF/app-window-multi-session.png`). Components cannot nest, so the window draws only the chrome and EMPTY slot placeholders; hosts mount `ptah-ui-session-shell` instances on top of the slots at the rectangles below.
-Mirrors: `CH/templates/electron-shell.component.ts:100-118` (navbar `h-10 px-3 bg-base-200 border-b border-base-content/10`, logo `w-5 h-5` + "Ptah" `text-sm font-semibold text-base-content-muted`), `:124-182` (tabs-lifted: Chat LayoutGrid, Apps AppWindow, Tasks ClipboardList, Tribunal Scale, Analytics BarChart3, icons `w-3.5`), `:187-215` (global actions: config menu, theme toggle, notification center), `:233-240` (Workspaces rail), `CH/templates/app-shell.component.html:350` (Sessions rail), `CU/atoms/sidebar-tab.component.ts:30-75` (rail `w-6`/`w-8`, `writing-mode: vertical-rl`, left rails `rotate(180deg)`, `tracking-widest uppercase`), `CV/orchestra-canvas.component.ts:86` (dock row `px-3 py-1.5 border-b bg-base-200/50`), `:129-135` (New Session `btn-xs btn-primary`, Plus `w-3.5`, `text-xs font-medium`), `CV/canvas-layout-controls.component.ts:67` (Layout button `btn-xs btn-ghost border-base-content/10 bg-base-100/90`), `CV/canvas-workspace-grid.component.ts:197` (grid margin 8 = 16 app gutter, 32 kit), `CV/canvas-tile.component.ts:114-134` (tile border base-300, radius, focused `border-primary ring-2 ring-primary`), `libs/frontend/notification-center/src/lib/notification-center.component.ts:252` ("9+" cap).
+Mirrors: `CH/templates/electron-shell.component.ts:100-118` (navbar `h-10 px-3 bg-base-200 border-b border-base-content/10`, logo `w-5 h-5` + "Ptah" `text-sm font-semibold text-base-content-muted`), `:124-182` (tabs-lifted: Chat LayoutGrid, Apps AppWindow, Tasks ClipboardList, Analytics BarChart3, icons `w-3.5`), `:187-215` (global actions: config menu, theme toggle, notification center), `:233-240` (Workspaces rail), `CH/templates/app-shell.component.html:350` (Sessions rail), `CU/atoms/sidebar-tab.component.ts:30-75` (rail `w-6`/`w-8`, `writing-mode: vertical-rl`, left rails `rotate(180deg)`, `tracking-widest uppercase`), `CV/orchestra-canvas.component.ts:86` (dock row `px-3 py-1.5 border-b bg-base-200/50`), `:129-135` (New Session `btn-xs btn-primary`, Plus `w-3.5`, `text-xs font-medium`), `CV/canvas-layout-controls.component.ts:67` (Layout button `btn-xs btn-ghost border-base-content/10 bg-base-100/90`), `CV/canvas-workspace-grid.component.ts:197` (grid margin 8 = 16 app gutter, 32 kit), `CV/canvas-tile.component.ts:114-134` (tile border base-300, radius, focused `border-primary ring-2 ring-primary`), `libs/frontend/notification-center/src/lib/notification-center.component.ts:252` ("9+" cap).
 Design box: DW 1920 x DH 1080 (full frame, u = 1 at 1920x1080). Recommended mount 1920x1080 at 0,0.
 
 Anatomy (design px, `titleBar` false; `titleBar` true pushes everything below it down by `TB` = 56):
@@ -630,7 +630,7 @@ Variables:
 | id | type | default |
 | -- | ---- | ------- |
 | `layout` | enum `1` / `2` / `1+2` / `2+2` | `2+2` |
-| `activeTab` | enum Chat/Apps/Tasks/Tribunal/Analytics | `Chat` |
+| `activeTab` | enum Chat/Apps/Tasks/Analytics | `Chat` |
 | `notifications` | string | `9+` (empty hides the badge) |
 | `focusedSlot` | number | `-1` (none; 0-based slot index) |
 | `titleBar` | boolean | `false` |

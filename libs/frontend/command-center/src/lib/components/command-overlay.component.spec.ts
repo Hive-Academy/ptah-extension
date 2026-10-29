@@ -121,7 +121,7 @@ describe('CommandOverlayComponent', () => {
     fixture.componentRef.setInput('projection', {
       nodes: [
         { ...nodes[0], task: '<b>Review</b>\nLater', updatedAt: 820_000 },
-        { ...nodes[1], kind: 'phase', parentId: 'a', state: 'completed' },
+        { ...nodes[1], state: 'completed' },
       ],
       edges: [],
     });
@@ -137,7 +137,6 @@ describe('CommandOverlayComponent', () => {
     expect(card.querySelector('ptah-command-node-detail')).not.toBeNull();
     expect(card.textContent).toContain('<b>Review</b>');
     expect(card.querySelector('b')).toBeNull();
-    expect(card.textContent).toContain('Phase 1 / 1');
     expect(card.textContent).toContain('Updated 3m ago');
     expect(labels[0].getAttribute('aria-controls')).toBe('command-node-card');
   });

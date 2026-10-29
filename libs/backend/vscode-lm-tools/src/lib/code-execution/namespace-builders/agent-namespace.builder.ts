@@ -435,7 +435,7 @@ export function buildAgentNamespace(
         if (disabledClis.includes(request.cli)) {
           throw new Error(
             `CLI agent '${request.cli}' is disabled. ` +
-              'Enable it in Agent Orchestration settings or use a different CLI. ' +
+              'Enable it in Settings > Providers > CLI Agents or use a different CLI. ' +
               'Use ptah_agent_list to see available agents.',
           );
         }

@@ -1424,7 +1424,7 @@ export class AgentRpcHandlers {
           );
         } else if (params.cli === 'ptah-cli') {
           throw new Error(
-            'No Ptah CLI agents configured. Add one in Agent Orchestration settings.',
+            'No Ptah CLI agents configured. Add one in Settings > Providers > CLI Agents.',
           );
         } else {
           const accountSelection = resumeSpawnAccountSelection(
