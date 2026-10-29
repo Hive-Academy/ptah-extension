@@ -161,9 +161,9 @@ describe('ProviderConnectionCardComponent', () => {
       const name = query(fixture, 'provider-name');
       const status = query(fixture, 'status-badge');
       expect(name?.textContent?.trim()).toBe('Claude (Subscription)');
-      expect(name?.parentElement?.className).toContain('min-w-0');
+      expect(name?.parentElement?.className).toContain('min-w-[7rem]');
       expect(name?.parentElement?.className).toContain('flex-1');
-      expect(name?.parentElement?.className).toContain('basis-48');
+      expect(name?.parentElement?.className).toContain('basis-0');
       expect(status?.parentElement?.className).toContain('flex-wrap');
       expect(fixture.nativeElement.className).toContain('self-start');
     });
