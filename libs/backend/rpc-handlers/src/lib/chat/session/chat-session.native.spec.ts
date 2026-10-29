@@ -3,7 +3,7 @@ import { ChatSlashCommandRouterService } from './chat-slash-command-router.servi
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { PTAH_UI_HINT } from '@ptah-extension/agent-sdk';
+import { PTAH_UI_HINT_CODEX } from '@ptah-extension/agent-sdk';
 import { createCodexChatHostPorts, type CodexChatHostPortsDeps } from '../codex-host/codex-chat-host-ports';
 import { WorkspaceProviderProfileResolver } from '@ptah-extension/auth-providers';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
@@ -296,7 +296,8 @@ describe('chat native session preparation', () => {
     expect(started.systemPrompt).toBeUndefined();
     expect(classifyCodexChatOptions(started).rejected).toEqual([]);
     const startedProfile = await ports.profile(started);
-    expect(startedProfile.profile.developerPrompt).toContain(PTAH_UI_HINT);
+    expect(startedProfile.profile.developerPrompt).toContain(PTAH_UI_HINT_CODEX);
+    expect(startedProfile.profile.developerPrompt).not.toContain('ptah-surface-authoring');
     // D8: the Smithery and OAuth servers the session layer resolved attach natively,
     // beside Ptah MCP; the profile keeps references and the values travel as secrets.
     expect(startedProfile.profile.mcpServers).toEqual([
@@ -365,7 +366,8 @@ describe('chat native session preparation', () => {
     }
     expect(classifyCodexChatOptions(resumed).rejected).toEqual([]);
     const resumedProfile = await ports.profile(resumed);
-    expect(resumedProfile.profile.developerPrompt).toContain(PTAH_UI_HINT);
+    expect(resumedProfile.profile.developerPrompt).toContain(PTAH_UI_HINT_CODEX);
+    expect(resumedProfile.profile.developerPrompt).not.toContain('ptah-surface-authoring');
     // Resume config carries the style but does not assemble user MCP overrides
     // (Claude resume parity); Ptah MCP still attaches.
     expect(resumedProfile.profile.mcpServers.map((server) => server.name)).toEqual(['ptah']);

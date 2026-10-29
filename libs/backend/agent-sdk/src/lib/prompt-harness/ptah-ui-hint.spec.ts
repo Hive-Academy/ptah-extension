@@ -3,7 +3,7 @@ import {
   parsePtahUi,
   segmentPtahUi,
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
-import { PTAH_UI_HINT } from './ptah-ui-hint';
+import { PTAH_UI_HINT, PTAH_UI_HINT_CODEX } from './ptah-ui-hint';
 
 /**
  * Every host source the hint must list, in the order it lists them (R8.1),
@@ -20,9 +20,19 @@ const HOST_SOURCES = Object.keys(HOST_SOURCE_SCALARS) as Array<
   keyof typeof HOST_SOURCE_SCALARS
 >;
 
+const CLAUDE_PTAH_UI_HINT =
+  'Use ```ptah-ui blocks for compact turn summaries, stats, changed files, test results or charts in Ptah Electron; ```ptah-ui display [id] shows one in the side panel, and reusing an id updates it in place. Reference $diff $tests $usage $agents $limits; the host supplies real values—never type them yourself. Load the ptah-surface-authoring skill for grammar and examples.';
+
 describe('PTAH_UI_HINT', () => {
   it('stays within the 100-token budget', () => {
     expect(encode(PTAH_UI_HINT).length).toBeLessThanOrEqual(100);
+  });
+
+  it('keeps the Claude text byte-identical, including the skill sentence', () => {
+    expect(PTAH_UI_HINT).toBe(CLAUDE_PTAH_UI_HINT);
+    expect(PTAH_UI_HINT).toContain(
+      'Load the ptah-surface-authoring skill for grammar and examples.',
+    );
   });
 
   it('points to the on-demand skill without advertising deferred elements', () => {
@@ -77,5 +87,17 @@ describe('PTAH_UI_HINT', () => {
       const body = `stats\n  Value | $${source}.${HOST_SOURCE_SCALARS[source]}`;
       expect({ body, ok: parsePtahUi(body).ok }).toEqual({ body, ok: true });
     }
+  });
+});
+
+describe('PTAH_UI_HINT_CODEX', () => {
+  it('keeps the shared sentences and drops the skill-loading sentence', () => {
+    expect(PTAH_UI_HINT.startsWith(PTAH_UI_HINT_CODEX)).toBe(true);
+    expect(PTAH_UI_HINT).toBe(
+      `${PTAH_UI_HINT_CODEX} Load the ptah-surface-authoring skill for grammar and examples.`,
+    );
+    expect(PTAH_UI_HINT_CODEX).not.toContain('ptah-surface-authoring');
+    expect(PTAH_UI_HINT_CODEX).not.toContain('skill');
+    expect(encode(PTAH_UI_HINT_CODEX).length).toBeLessThanOrEqual(100);
   });
 });

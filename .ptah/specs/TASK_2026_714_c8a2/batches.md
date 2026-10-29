@@ -3497,7 +3497,7 @@ right after spawn, so every Codex open failed.
   or that non-initialize timeouts stay at debug.
 - Open: a live Electron re-run (p8h) must confirm a Codex open succeeds on the bundled binary.
 
-## Round 8o: p8h backend gaps (A, B, C, E, F, H) — IN_PROGRESS
+## Round 8o: p8h backend gaps (A, B, C, E, F, H) — COMPLETE (phase gate not run, session wrap-up)
 
 Source: `live-test-p8h.md` (head d6602359e). Principle: native Codex chat produces exactly
 Claude's UI contracts; fixes only in codex-runtime -> agent-sdk codex-app-server ->
@@ -3600,7 +3600,15 @@ Team-leader session 23 is the only committing agent. Phase = the whole round (on
 - Executor: CLI lane codex (research, web). No source edits. Deliverable
   `research-8o-a-report.md`.
 
-### Batch 8o-3: E question card + no mid-turn CHAT_ERROR — PENDING (after 8o-1 and 8o-2 commit)
+### Batch 8o-3: E question card + no mid-turn CHAT_ERROR — COMPLETE (commit: "batch 8o-3")
+
+- Lanes codex 5dffb0e1, fix round 551ce0dc, verify fix 9f7fdd8d. Report `batch-8o-3-report.md`.
+- Review `code-logic-review-8o-3-5.md`: NEEDS_REVISION 6.5/10 (S1 codexFollowUpRejected
+  swallowed, S2 question could vanish, M4 delta/card duplication, M5 duplicate completion) ->
+  fix round -> re-review APPROVED (R1 log reason fixed; R2/R3 minor recorded).
+- Verify (final): codex-runtime trio 9/9, chat path 15/15.
+- Open (live test): Codex may end the turn right after the async question, which cancels the
+  card at once (review M3); R2 a rejected follow-up's CHAT_ERROR latches later failures.
 
 - Executor: CLI lane codex (gpt-6-sol), sequential. Review family: Anthropic.
 - Exceeds the 6-file rule on purpose: adding a CodexRuntimeEvent variant must land with every
@@ -3618,7 +3626,15 @@ Team-leader session 23 is the only committing agent. Phase = the whole round (on
   the pending card. Mid-turn `error` events (retryable, unsupportedItem,
   unsupportedNotification) no longer raise CHAT_ERROR; a terminal `failed` still does once.
 
-### Batch 8o-4: A read-only allowlist (D20) — PENDING (after 8o-1 and 8o-2 commit)
+### Batch 8o-4: A read-only allowlist (D20) — COMPLETE (commit: "batch 8o-4")
+
+- Lanes codex c1d20f66, fix round 8cb9204b, verify fix c8e35e23. Report `batch-8o-4-report.md`.
+- Security review `security-review-8o-4.md`: NEEDS_REVISION 5/10 (B1 containment used the
+  model-controlled command cwd, S2 symlinks, M3-M5, spec gaps) -> fix round -> re-review
+  APPROVED 8/10. The later lint fix only removed escapes inside character classes
+  (`/[*?[\]]/`, same semantics). Recorded: realpath-to-exec TOCTOU; a very broad profile cwd
+  (home or drive root) makes "inside cwd" broad (product decision).
+- Verify (final): chat path 15/15.
 
 - User decision D20 (option 1). Executor: CLI lane codex (gpt-6-sol), sequential, parallel with
   8o-3 and 8o-5 (file-disjoint). Review: independent security-focused review (Anthropic) before
@@ -3629,7 +3645,13 @@ Team-leader session 23 is the only committing agent. Phase = the whole round (on
 - Batch 8o-R: COMPLETE (research only, report `research-8o-a-report.md`): no native per-thread
   option in 0.165.0. D14 unchanged.
 
-### Batch 8o-5: Codex UI hint without skill-file search (D21) — PENDING (after 8o-1/8o-2 commit)
+### Batch 8o-5: Codex UI hint without skill-file search (D21) — COMPLETE (commit: "batch 8o-5")
+
+- Lane grok 4e7b7ff6 (+ ae247f62 spec scope extension). Report `batch-8o-5-report.md`.
+- Review `code-logic-review-8o-3-5.md`: APPROVED 9/10; Claude `PTAH_UI_HINT` byte-identical.
+  Note: the Codex developerPrompt changes, so threads created before this commit refuse resume
+  with "Start a new chat" (D14a behaviour; dev-gated runtime).
+- Verify (final): chat path 15/15.
 
 - Executor: CLI lane grok, sequential, parallel with 8o-3/8o-4.
 - Files: rpc-handlers `codex-host/codex-chat-host-ports.ts` (+ spec); agent-sdk

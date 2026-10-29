@@ -3,7 +3,7 @@ import { realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
   PTAH_MCP_PORT,
-  PTAH_UI_HINT,
+  PTAH_UI_HINT_CODEX,
   presentCodexApproval,
 } from '@ptah-extension/agent-sdk';
 import {
@@ -415,7 +415,7 @@ export function createCodexChatHostPorts(
       ) {
         developerPrompt = [
           developerPrompt,
-          PTAH_UI_HINT,
+          PTAH_UI_HINT_CODEX,
         ].filter((part) => part !== undefined).join('\n\n');
       }
       const profile = buildCodexExecutionProfile({

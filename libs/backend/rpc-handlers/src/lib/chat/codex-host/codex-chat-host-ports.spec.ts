@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
-import { PTAH_UI_HINT, type SessionApprovalRouter } from '@ptah-extension/agent-sdk';
+import { PTAH_UI_HINT_CODEX, type SessionApprovalRouter } from '@ptah-extension/agent-sdk';
 import type { ResolvedExecutionProfile } from '@ptah-extension/auth-providers';
 import {
   buildCodexMcpConfigOverrides,
@@ -33,9 +33,9 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
   presentCodexApproval: jest.requireActual<
     typeof import('../../../../../agent-sdk/src/lib/codex-app-server/codex-tool-presentation')
   >('../../../../../agent-sdk/src/lib/codex-app-server/codex-tool-presentation').presentCodexApproval,
-  PTAH_UI_HINT: jest.requireActual<
+  PTAH_UI_HINT_CODEX: jest.requireActual<
     typeof import('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint')
-  >('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint').PTAH_UI_HINT,
+  >('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint').PTAH_UI_HINT_CODEX,
   SDK_TOKENS: { RUNTIME_HOST_CAPABILITIES: Symbol.for('caps') },
   PTAH_MCP_PORT: 51820,
 }));
@@ -300,7 +300,9 @@ describe('Codex chat host ports', () => {
       ...config(), ptahUiFence: true, mcpToolProfile,
       systemPrompt: 'system', enhancedPromptsContent: 'enhanced', outputStyleBody: 'style',
     });
-    expect(profile.developerPrompt).toBe(PTAH_UI_HINT);
+    expect(profile.developerPrompt).toBe(PTAH_UI_HINT_CODEX);
+    expect(profile.developerPrompt).not.toContain('ptah-surface-authoring');
+    expect(profile.developerPrompt).not.toContain('skill');
     expect(profile).toMatchObject({ systemPrompt: 'system', enhancedPrompt: 'enhanced', outputStyle: 'style' });
   });
   it.each([false, undefined] as const)('omits the UI hint when the fence is %s', async (ptahUiFence) => {
