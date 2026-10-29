@@ -4293,7 +4293,7 @@ both fields (8q-3a spec).
   the serialized log args contain no command text, path or cwd; one end-to-end sink spec with the
   real `-TotalCount` command in a real temp folder expects `'accept'`.
 
-## Batch 8q-2a: One saved-level helper (rpc-handlers) — IN_PROGRESS
+## Batch 8q-2a: One saved-level helper (rpc-handlers) — COMPLETE (commit: the "batch 8q-2a" commit; Wave 1 verify: rpc-handlers lint/test/typecheck PASS; record spec unchanged and green)
 
 - Recommended executor: CLI lane grok | sequential | Depends on: none
 - Verify: `npm run verify -- -p @ptah-extension/rpc-handlers`
@@ -4303,10 +4303,10 @@ both fields (8q-3a spec).
   existing record specs stay green)
 - Report: T/batch-8q-2a-report.md
 
-### Task 8q-2a.1: helper (8q-D3) — IN_PROGRESS
+### Task 8q-2a.1: helper (8q-D3) — COMPLETE
 - Specs: disabled -> ask; absent `enabled` -> ask; enabled ask/plan/auto-edit/yolo -> that
   level; enabled with an invalid or missing level -> `CodexSessionSettingsError('invalid-settings')`.
-### Task 8q-2a.2: the settings record uses the helper — IN_PROGRESS
+### Task 8q-2a.2: the settings record uses the helper — COMPLETE
 
 ## Batch 8q-2b: The Codex profile honours the saved level (rpc-handlers, ptah-electron) — PENDING
 

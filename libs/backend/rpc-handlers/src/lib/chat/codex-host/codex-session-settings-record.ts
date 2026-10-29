@@ -8,11 +8,9 @@ import {
   providerSelectedModelDef,
   providerReasoningEffortDef,
 } from '@ptah-extension/settings-core';
-import type {
-  EffortLevel,
-  PermissionLevel,
-  SessionId,
-} from '@ptah-extension/shared';
+import type { EffortLevel, SessionId } from '@ptah-extension/shared';
+
+import { resolveSavedCodexPermissionLevel } from './codex-saved-permission-level';
 import type { SessionControlSettings } from './native-session-controls';
 
 type ProfileResult = Awaited<ReturnType<CodexChatAdapterPorts['profile']>>;
@@ -102,20 +100,9 @@ export function createCodexSessionSettingsRecord(
       );
       if (!model.success || !parsedEffort.success)
         throw new CodexSessionSettingsError('invalid-settings');
-      const enabled = read('autopilot.enabled');
-      const level = read('autopilot.permissionLevel');
-      let permissionLevel: PermissionLevel = 'ask';
-      if (enabled === true) {
-        if (
-          level !== 'ask' &&
-          level !== 'plan' &&
-          level !== 'auto-edit' &&
-          level !== 'yolo'
-        ) {
-          throw new CodexSessionSettingsError('invalid-settings');
-        }
-        permissionLevel = level;
-      }
+      const permissionLevel = resolveSavedCodexPermissionLevel(read, () => {
+        throw new CodexSessionSettingsError('invalid-settings');
+      });
       return {
         workspacePath,
         authKey: key,
