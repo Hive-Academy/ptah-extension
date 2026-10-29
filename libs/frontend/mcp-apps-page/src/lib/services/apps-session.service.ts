@@ -77,7 +77,7 @@ const LOG_PREFIX = '[AppsSessionService]';
  * Root-provided, defined in the lazy Apps lib: the routed page holds no
  * state, so leaving the tab and returning shows the same conversation and
  * surfaces (Req 2.4). State is partitioned by workspace path
- * (`tribunal-state.service.ts:144-168`): the public signals read the ACTIVE
+ * used by workspace-scoped stores: the public signals read the ACTIVE
  * slice, so a workspace switch shows that workspace's own slice (Req 2.6),
  * and a removed workspace's slice is torn down.
  *

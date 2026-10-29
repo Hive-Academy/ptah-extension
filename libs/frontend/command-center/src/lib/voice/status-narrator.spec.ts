@@ -7,17 +7,7 @@ const node = (
   state: CommandWorkNode['state'],
 ): CommandWorkNode => ({
   id,
-  kind: id.startsWith('root:')
-    ? 'root'
-    : id.startsWith('tribunal:')
-      ? 'tribunal'
-      : id.startsWith('phase:')
-        ? 'phase'
-        : id.startsWith('lane:')
-          ? 'lane'
-          : id.startsWith('child:')
-            ? 'child'
-            : 'agent',
+  kind: id.startsWith('root:') ? 'root' : id.startsWith('child:') ? 'child' : 'agent',
   parentId,
   state,
   label: 'Worker',
@@ -45,19 +35,19 @@ describe('StatusNarrator', () => {
     const narrator = new StatusNarrator();
     const nodes = [
       node('root:a', null, 'running'),
-      node('lane:run:one', 'root:a', 'running'),
+      node('cli:one', 'root:a', 'running'),
     ];
     narrator.observe('root:a', nodes);
     narrator.observe('root:a', nodes);
     expect(narrator.drain()).toEqual([]);
     narrator.observe('root:a', [
       node('root:a', null, 'running'),
-      node('lane:run:one', 'root:a', 'completed'),
+      node('cli:one', 'root:a', 'completed'),
     ]);
     expect(narrator.drain()).toEqual(['Worker completed.']);
     narrator.observe('root:a', [
       node('root:a', null, 'running'),
-      node('lane:run:one', 'root:a', 'completed'),
+      node('cli:one', 'root:a', 'completed'),
     ]);
     expect(narrator.drain()).toEqual([]);
   });

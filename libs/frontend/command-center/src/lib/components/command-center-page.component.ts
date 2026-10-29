@@ -32,14 +32,11 @@ import { CommandDockComponent } from './command-dock.component';
 import { CommandCenterHeaderComponent } from './command-center-header.component';
 import { CommandWorkListComponent } from './command-work-list.component';
 import { CommandCenterPageController } from './command-center-page.controller';
-import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
 import { CommandCenterProjectionSource } from './command-center-projection.source';
 import { CommandCenterStartComponent } from './command-center-start.component';
 import {
   CommandNodeDetailComponent,
   type CommandChildStats,
-  type CommandPhaseCount,
-  phaseCountOf,
 } from './command-node-detail.component';
 import { CommandSessionStatsComponent } from './command-session-stats.component';
 import { CommandCaptionStripComponent } from './command-caption-strip.component';
@@ -83,7 +80,6 @@ const CAPTION_RESERVE_PX = 72;
   providers: [
     CommandCenterStore,
     CommandCenterSessionCoordinator,
-    CommandCenterTribunalTransport,
     CommandCenterProjectionSource,
     CommandCenterPageController,
   ],
@@ -137,9 +133,6 @@ export class CommandCenterPageComponent {
       return result;
     },
   );
-  public phaseCount(nodeId: string): CommandPhaseCount | null {
-    return phaseCountOf(this.page.projection().nodes, nodeId);
-  }
   public readonly contextCue = computed(() => {
     const rootId = this.page.store.markedTabId();
     const root = this.page.tabs.tabs().find((tab) => tab.id === rootId);
@@ -152,7 +145,7 @@ export class CommandCenterPageComponent {
     let running = 0;
     let waiting = 0;
     for (const node of this.page.projection().nodes) {
-      if (node.kind === 'root' || node.kind === 'phase') continue;
+      if (node.kind === 'root') continue;
       if (node.state === 'running') running++;
       if (node.state === 'awaiting input') waiting++;
     }
@@ -199,7 +192,7 @@ export class CommandCenterPageComponent {
   /**
    * The Live tab follows the selection up to the nearest node with its own
    * chat tab: a live child streams its tab, everything else (root, SDK and
-   * CLI agents, tribunals, lanes) streams the root tab, where their cards and
+   * CLI agents) streams the root tab, where their cards and
    * inline bubbles appear. A target whose tab is not open in the
    * `TabManagerService` (a persisted or finished child) has no live tab.
    */
@@ -404,10 +397,7 @@ export class CommandCenterPageComponent {
   }
 
   private scrollToNewPendingCard(): void {
-    const inputId = this.page.store.pendingInput()?.id;
-    const proposalId = this.page.shownProposal()?.proposalId;
-    const key =
-      inputId || proposalId ? `${inputId ?? ''}:${proposalId ?? ''}` : null;
+    const key = this.page.store.pendingInput()?.id ?? null;
     if (key === this.lastPendingKey) return;
     this.lastPendingKey = key;
     if (key)

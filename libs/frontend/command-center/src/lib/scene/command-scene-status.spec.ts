@@ -28,7 +28,6 @@ const sceneNode = (
   kind,
   label: 'a',
   labelRect: null,
-  phases: [],
 });
 const snapshot = (reducedMotion: boolean): SceneRenderSnapshot =>
   ({ reducedMotion }) as SceneRenderSnapshot;

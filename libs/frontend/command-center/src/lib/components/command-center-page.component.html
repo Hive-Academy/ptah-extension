@@ -41,15 +41,6 @@
             Retry speech
           </button>
         }
-        @if (toast.action === 'retry-decline') {
-          <button
-            type="button"
-            class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-            (click)="page.retryInvalidDecline()"
-          >
-            Retry Decline
-          </button>
-        }
         <button
           type="button"
           class="btn btn-ghost btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
@@ -82,7 +73,7 @@
         (retry)="page.coordinator.refreshSessions()"
       />
     } @else {
-      @if (page.store.pendingInput() || page.shownProposal()) {
+      @if (page.store.pendingInput()) {
         <button
           type="button"
           class="pending-cue mx-4 mt-2 min-h-11 rounded-lg border border-warning bg-base-200 px-3 text-left text-sm font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
@@ -203,12 +194,8 @@
               #pendingCard
               class="block"
               [pending]="page.store.pendingInput()"
-              [proposal]="page.shownProposal()"
               [choices]="page.ordinaryChoices()"
-              [timedOut]="page.rosterTimedOut()"
               [answerResult]="answerResult()"
-              (confirm)="page.confirmProposal($event.proposalId)"
-              (decline)="page.declineProposal($event)"
               (response)="answerPendingInput($event)"
             />
             <section
@@ -226,7 +213,6 @@
                 <ptah-command-node-detail
                   class="mt-1 block"
                   [node]="node"
-                  [phaseCount]="phaseCount(node.id)"
                   [childStats]="childStats()[node.id] ?? null"
                   [now]="page.now()"
                   [reducedMotion]="page.store.reducedMotion()"

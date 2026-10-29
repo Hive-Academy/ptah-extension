@@ -1,5 +1,4 @@
 import { TestBed } from '@angular/core/testing';
-import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import { createHarness } from './integration-harness.testing';
 
 describe('Command Center delegation and status integration', () => {
@@ -230,62 +229,4 @@ describe('Command Center delegation and status integration', () => {
     fixture.destroy();
   });
 
-  it('groups a manifest root and monitored lanes under one Tribunal node with a stage', async () => {
-    const { fixture, records, monitor } = createHarness({
-      realProjectionSource: true,
-    });
-    const page = fixture.componentInstance.page;
-    await page.open();
-    page.coordinator.chooseCurrentTab();
-    const runId = 'run-1';
-    records.readRunManifests.mockReturnValue([
-      {
-        runId,
-        rootTabId: page.store.markedTabId(),
-        rootSdkId: page.store.sessionId(),
-        move: 'council',
-        specTaskId: 'TASK_1',
-        lanes: [{ laneId: 'codex#1' }, { laneId: 'cursor#1' }],
-        rounds: 1,
-        startedAt: 100,
-      },
-    ]);
-    monitor.agents.set([
-      {
-        agentId: 'lane-1',
-        cli: 'codex',
-        parentSessionId: page.store.sessionId(),
-        workflowRunId: runId,
-        status: 'completed',
-        startedAt: 100,
-      } as MonitoredAgent,
-      {
-        agentId: 'lane-2',
-        cli: 'cursor',
-        parentSessionId: page.store.sessionId(),
-        workflowRunId: runId,
-        status: 'failed',
-        startedAt: 100,
-      } as MonitoredAgent,
-    ]);
-    fixture.detectChanges();
-    const nodes = page.projection().nodes;
-    const groups = nodes.filter((node) => node.id === `tribunal:${runId}`);
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.parentId).toBe(`root:${page.store.markedTabId()}`);
-    expect(
-      nodes.filter(
-        (node) =>
-          node.parentId === `tribunal:${runId}` && node.id.startsWith('lane:'),
-      ),
-    ).toHaveLength(2);
-    expect(nodes.some((node) => node.id.startsWith(`phase:${runId}:`))).toBe(
-      true,
-    );
-    expect(
-      nodes.find((node) => node.id === `lane:${runId}:cursor#1`)?.state,
-    ).toBe('failed');
-    expect(fixture.nativeElement.textContent).toContain('Tribunal council');
-    fixture.destroy();
-  });
 });

@@ -33,15 +33,6 @@
       ],
       "@ptah-extension/canvas": ["./libs/frontend/canvas/src/index.ts"],
       "@ptah-extension/canvas/focus": ["./libs/frontend/canvas/src/focus.ts"],
-      "@ptah-extension/tribunal-panel/phase": [
-        "./libs/frontend/tribunal-panel/src/phase.ts"
-      ],
-      "@ptah-extension/tribunal-panel/discovery": [
-        "./libs/frontend/tribunal-panel/src/discovery.ts"
-      ],
-      "@ptah-extension/tribunal-panel": [
-        "./libs/frontend/tribunal-panel/src/index.ts"
-      ],
       "@ptah-extension/chat": ["./libs/frontend/chat/src/index.ts"],
       "@ptah-extension/chat/inspector": [
         "./libs/frontend/chat/src/inspector.ts"

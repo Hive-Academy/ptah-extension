@@ -20,8 +20,7 @@
  *                      "Angular index.html not found"
  *
  * That makes "the allow-list accepted this id" assertable without a packaged
- * extension, and it fails on the old six-entry array for seven of the eleven
- * accepted ids.
+ * extension, and it fails when the old allow-list rejects a supported id.
  */
 
 import * as vscode from 'vscode';
@@ -99,7 +98,6 @@ describe('WebviewHtmlGenerator initialView validation', () => {
     'setup-hub',
     'thoth',
     'marketplace',
-    'tribunal',
     'tasks',
   ])('accepts %s, which the old six-entry list rejected', (initialView) => {
     expect(generateAndCaptureError(initialView)).not.toContain(

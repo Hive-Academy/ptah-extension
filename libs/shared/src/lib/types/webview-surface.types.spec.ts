@@ -30,7 +30,6 @@ describe('webview surface ids', () => {
       'setup-hub',
       'thoth',
       'marketplace',
-      'tribunal',
       'tasks',
       'apps',
       'command-center',

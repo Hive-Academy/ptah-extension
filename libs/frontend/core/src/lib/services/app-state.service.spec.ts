@@ -218,7 +218,6 @@ describe('AppStateManager', () => {
       'setup-hub',
       'thoth',
       'marketplace',
-      'tribunal',
       'tasks',
     ] as const)('passes the routable id %s through unchanged', (view) => {
       expect(createService().normalizeInitialView(view)).toBe(view);
@@ -303,13 +302,13 @@ describe('AppStateManager', () => {
       const service = createService();
       service.setCurrentView('analytics');
       await settle();
-      service.setCurrentView('tribunal');
+      service.setCurrentView('harness-builder');
       await settle();
 
       service.closeView('analytics');
       await settle();
 
-      expect(service.currentView()).toBe('tribunal');
+      expect(service.currentView()).toBe('harness-builder');
       expect(service.openViews()).not.toContain('analytics');
     });
 
@@ -621,6 +620,20 @@ describe('AppStateManager', () => {
       expect(service.isConnected()).toBe(true);
     });
 
+    it('restores a retired tribunal view to chat', async () => {
+      const service = createService();
+      const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+
+      service.handleInitialData({ currentView: `tribunal` });
+      await settle();
+
+      expect(service.currentView()).toBe('chat');
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining(`tribunal`),
+      );
+      consoleWarn.mockRestore();
+    });
+
     it('handleError formats the status message', () => {
       const service = createService();
       service.handleError('oops');
@@ -700,16 +713,16 @@ describe('AppStateManager', () => {
       // `App.handleInitialView` lands the host's deep link before the initial
       // workspace:switch RPC settles, so the surface is recorded against the
       // bootstrap sentinel slice.
-      service.setCurrentView('tribunal');
+      service.setCurrentView('harness-builder');
       await settle();
-      expect(service.currentView()).toBe('tribunal');
+      expect(service.currentView()).toBe('harness-builder');
 
       service.switchWorkspace('/ws/a');
       await settle();
 
-      expect(service.currentView()).toBe('tribunal');
+      expect(service.currentView()).toBe('harness-builder');
       expect(service.openViews()).toEqual(
-        expect.arrayContaining(['chat', 'tribunal']),
+        expect.arrayContaining(['chat', 'harness-builder']),
       );
     });
 
@@ -717,9 +730,9 @@ describe('AppStateManager', () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
       await settle();
-      service.setCurrentView('tribunal');
+      service.setCurrentView('harness-builder');
       await settle();
-      expect(service.currentView()).toBe('tribunal');
+      expect(service.currentView()).toBe('harness-builder');
 
       service.switchWorkspace('/ws/b');
       await settle();
@@ -732,7 +745,7 @@ describe('AppStateManager', () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
       await settle();
-      service.setCurrentView('tribunal');
+      service.setCurrentView('harness-builder');
       await settle();
       service.switchWorkspace('/ws/b');
       await settle();
@@ -743,7 +756,7 @@ describe('AppStateManager', () => {
 
       service.switchWorkspace('/ws/a');
       await settle();
-      expect(service.currentView()).toBe('tribunal');
+      expect(service.currentView()).toBe('harness-builder');
 
       service.switchWorkspace('/ws/b');
       await settle();
@@ -853,7 +866,7 @@ describe('AppStateManager', () => {
         const surfaceRouter = TestBed.inject(SurfaceRouterService);
         service.switchWorkspace('/ws/a');
         await settle();
-        service.setCurrentView('tribunal');
+        service.setCurrentView('harness-builder');
         await settle();
         service.switchWorkspace('/ws/b');
         await settle();
@@ -861,15 +874,15 @@ describe('AppStateManager', () => {
         await settle();
         service.switchWorkspace('/ws/a');
         await settle();
-        expect(service.currentView()).toBe('tribunal');
+        expect(service.currentView()).toBe('harness-builder');
 
         // A→B→A with B's restore still in flight. The surface on screen is
-        // A's; stamping it onto B made B remember 'tribunal'.
+        // A's; stamping it onto B made B remember 'harness-builder'.
         service.switchWorkspace('/ws/b');
         service.switchWorkspace('/ws/a');
         await settle();
 
-        expect(service.currentView()).toBe('tribunal');
+        expect(service.currentView()).toBe('harness-builder');
         service.switchWorkspace('/ws/b');
         await settle();
         expect(service.currentView()).toBe('analytics');
@@ -1271,11 +1284,11 @@ describe('AppStateManager', () => {
 
       // Every navigation rewrites the slice through the constructor effect —
       // the in-surface pointer must survive that, not be reset by it.
-      service.setCurrentView('tribunal');
+      service.setCurrentView('harness-builder');
       await settle();
       service.setCurrentView('tasks');
       await settle();
-      service.closeView('tribunal');
+      service.closeView('harness-builder');
       await settle();
 
       expect(service.thothActiveTab()).toBe('cron');

@@ -128,7 +128,7 @@ describe('ElectronShellComponent Command Center tab', () => {
         fixture.nativeElement as HTMLElement
       ).querySelectorAll<HTMLButtonElement>('.electron-tabs [role="tab"]'),
     );
-    expect(tabs).toHaveLength(7);
+    expect(tabs).toHaveLength(6);
     for (const tab of tabs) {
       expect(tab.getAttribute('aria-label')).toBe(tab.title);
       expect(tab.querySelector('.tab-label')).not.toBeNull();

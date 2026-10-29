@@ -92,21 +92,6 @@ export function drawStatus(
     }
     context.stroke();
   }
-  if (node.kind === 'tribunal' && node.phases.length) {
-    const done = node.phases.filter(
-      (phase) => phase.state === 'completed',
-    ).length;
-    context.lineWidth = 3;
-    context.beginPath();
-    context.arc(
-      node.x,
-      node.y,
-      node.radius + 12,
-      -Math.PI / 2,
-      -Math.PI / 2 + (Math.PI * 2 * done) / node.phases.length,
-    );
-    context.stroke();
-  }
 }
 
 /** Running ring: 0.15 turn per second. */
