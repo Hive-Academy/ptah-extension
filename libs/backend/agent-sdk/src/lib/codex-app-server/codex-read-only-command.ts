@@ -15,7 +15,12 @@ export interface ReadOnlyCommandOptions {
   readonly systemRoot?: string;
 }
 
-function unwrap(command: string, platform: Platform, options: ReadOnlyCommandOptions): string | undefined {
+function unwrap(
+  command: string,
+  threadCwd: string,
+  platform: Platform,
+  options: ReadOnlyCommandOptions,
+): string | undefined {
   if (platform !== 'win32') return command;
   const trimmed = command.trim();
   const invocation = /^("[^"]+"|'[^']+'|[^\s"']+)(?: +([\s\S]*))?$/.exec(trimmed);
@@ -25,9 +30,12 @@ function unwrap(command: string, platform: Platform, options: ReadOnlyCommandOpt
   const shellPath = /(?:^|[\\/])(?:powershell|pwsh)(?:\.exe)?$/i.test(executable);
   if (!bare && !shellPath) return command;
   const systemRoot = options.systemRoot;
-  const trustedPath = systemRoot && /^[a-z]:[\\/]/i.test(systemRoot) &&
-    path.win32.isAbsolute(systemRoot) &&
-    path.win32.normalize(executable).toLowerCase() ===
+  const normalizedExecutable = path.win32.normalize(executable);
+  // SystemRoot comes from the environment: trust it only as one folder below a
+  // drive root (X:\Name), and never for an executable inside the thread folder.
+  const trustedPath = systemRoot && /^[a-z]:[\\/](?!\.+[\\/]?$)[^\\/]+[\\/]?$/i.test(systemRoot) &&
+    !pathWithin(normalizedExecutable, threadCwd, 'win32') &&
+    normalizedExecutable.toLowerCase() ===
       path.win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe').toLowerCase();
   if (!bare && !trustedPath) return undefined;
   const match = /^(?:-NoProfile(?: +-NoLogo)? +)?-(?:Command|c) +(["'])([\s\S]*)\1$/i.exec(invocation[2] ?? '');
@@ -159,7 +167,7 @@ export function classifyReadOnlyCommand(
       !cwd || !threadCwd ||
       (platform === 'win32' && [cwd, threadCwd].some((value) => value.startsWith('\\\\') || value.startsWith('//'))) ||
       !pathWithin(cwd, threadCwd, platform)) return undefined;
-  const body = unwrap(command, platform, options);
+  const body = unwrap(command, threadCwd, platform, options);
   const tokens = body === undefined ? undefined : tokenize(body, platform);
   if (!tokens || tokens[0]?.value === '|' || tokens.at(-1)?.value === '|') return undefined;
   const stages: string[][] = [[]];

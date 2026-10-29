@@ -91,6 +91,23 @@ describe('read-only Codex command classifier', () => {
     expect(classify(`"${liveExecutable}" -Command '${liveBody}'`, win, win, 'win32')).toBe(false);
     expect(classify(`"${liveExecutable}" -Command '${liveBody}'`, win, win, 'win32', { systemRoot: '' })).toBe(false);
     expect(classify(`"${liveExecutable}" -Command '${liveBody}'`, win, win, 'win32', { systemRoot: 'Windows' })).toBe(false);
+    expect(classify(`"${liveExecutable}" -Command '${liveBody}'`, win, win, 'win32', { systemRoot: 'C:\\Windows\\' })).toBe(true);
+  });
+
+  it.each([
+    ['a nested folder', 'C:\\repo\\work\\fake', 'C:\\repo\\work\\fake\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+    ['a drive root', 'C:\\', 'C:\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+    ['a parent segment', 'C:\\..', 'C:\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+    ['a dot segment', 'C:\\.\\', 'C:\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+    ['a relative folder', '.\\Windows', 'Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+  ])('rejects a SystemRoot that is %s', (_label, root, executable) => {
+    expect(classify(`"${executable}" -Command '${liveBody}'`, win, win, 'win32', { systemRoot: root })).toBe(false);
+  });
+
+  it('rejects a trusted-looking PowerShell inside the thread folder', () => {
+    const thread = 'C:\\work';
+    const inside = 'C:\\work\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+    expect(classify(`"${inside}" -Command '${liveBody}'`, thread, thread, 'win32', { systemRoot: 'C:\\work' })).toBe(false);
     expect(classify(`powershell -Command '${liveBody}'`, win, win, 'win32')).toBe(true);
   });
 

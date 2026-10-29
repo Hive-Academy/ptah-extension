@@ -17,8 +17,6 @@ import type {
   CodexThreadIdentity,
 } from './codex-runtime.types';
 
-export type { CodexRuntimeOptions } from './codex-context';
-
 /** Host-owned instance; contexts share only the scoped, in-memory permission rules. */
 export class CodexRuntime implements RuntimePort {
   private readonly contexts = new Map<string, RuntimeContext>();

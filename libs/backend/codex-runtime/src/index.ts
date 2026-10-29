@@ -48,7 +48,8 @@ export {
   readCodexDevRouteOverride,
   type CodexDevRouteOverride,
 } from './lib/codex-dev-route';
-export { CodexRuntime, type CodexRuntimeOptions } from './lib/codex-runtime';
+export { CodexRuntime } from './lib/codex-runtime';
+export type { CodexRuntimeOptions } from './lib/codex-context';
 export {
   CodexResumeProfileChangedError,
   isCodexResumeProfileChangedError,

@@ -94,7 +94,7 @@ describe('CodexChatApprovalSink', () => {
     expect(presentation.dismiss).not.toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith(
       '[CodexChatApprovalSink] accepted read-only command.',
-      { commands: ['Get-Content', 'rg'] },
+      { commands: ['Get-Content', 'rg'], hasReason: false },
     );
     expect(JSON.stringify(jest.mocked(logger.info).mock.calls)).not.toContain('secret.txt');
     expect(JSON.stringify(jest.mocked(logger.info).mock.calls)).not.toContain('password');
@@ -117,7 +117,7 @@ describe('CodexChatApprovalSink', () => {
     expect(logger.info).toHaveBeenCalledTimes(2);
     expect(logger.info).toHaveBeenCalledWith(
       '[CodexChatApprovalSink] accepted read-only command.',
-      { commands: ['Get-Content'] },
+      { commands: ['Get-Content'], hasReason: false },
     );
     expect(JSON.stringify(jest.mocked(logger.info).mock.calls)).not.toContain('README.md');
     expect(JSON.stringify(jest.mocked(logger.info).mock.calls)).not.toContain('proposedExecpolicyAmendment');
@@ -392,6 +392,46 @@ describe('CodexChatApprovalSink', () => {
         active ? 'steer' : 'newTurn',
         request,
       );
+    },
+  );
+  it('does not post an edit follow-up after the sink is disposed', async () => {
+    const { sink, followUp } = setup();
+    const promise = sink.request(request, new AbortController().signal);
+    sink.respond({ ...reply, modifiedInput: { command: 'safe' } });
+    await expect(promise).resolves.toEqual({ decision: 'decline', editNotSupported: true });
+    sink.dispose();
+    await jest.runOnlyPendingTimersAsync();
+    expect(followUp.post).not.toHaveBeenCalled();
+  });
+  it('logs only whether an auto-accepted read carries a reason', async () => {
+    const { sink, logger } = setup(() => 'ask');
+    const read = {
+      ...request,
+      details: { command: 'Get-Content README.md', cwd: 'C:\\repo', reason: 'private reason text' },
+    };
+    await expect(sink.request(read, new AbortController().signal)).resolves.toBe('accept');
+    expect(logger.info).toHaveBeenCalledWith(
+      '[CodexChatApprovalSink] accepted read-only command.',
+      { commands: ['Get-Content'], hasReason: true },
+    );
+    expect(JSON.stringify(jest.mocked(logger.info).mock.calls)).not.toContain('private reason text');
+  });
+  it.each(['abort', 'dispose'] as const)(
+    'declines without a card on %s during the realpath check',
+    async (mode) => {
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const resolvePath = jest.fn(async (value: string) => { await gate; return value; });
+      const { sink, presentation, logger } = setup(() => 'ask', resolvePath);
+      const controller = new AbortController();
+      const read = { ...request, details: { command: 'Get-Content README.md', cwd: 'C:\\repo' } };
+      const pending = sink.request(read, controller.signal);
+      if (mode === 'abort') controller.abort();
+      else sink.dispose();
+      release();
+      await expect(pending).resolves.toBe('decline');
+      expect(presentation.present).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalled();
     },
   );
   it('does not post invalid replacement input', async () => {

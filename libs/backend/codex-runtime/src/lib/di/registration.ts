@@ -9,7 +9,8 @@ import {
   type CodexParityConsumer,
   type CodexParityPlatform,
 } from '../codex-parity-gate';
-import { CodexRuntime, type CodexRuntimeOptions } from '../codex-runtime';
+import { CodexRuntime } from '../codex-runtime';
+import type { CodexRuntimeOptions } from '../codex-context';
 import type { CodexRuntimeLogger } from '../codex-runtime-ports';
 import type { CodexExecutionProfile } from '../codex-runtime.types';
 import { CODEX_RUNTIME_TOKENS } from './tokens';

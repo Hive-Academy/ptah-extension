@@ -280,6 +280,8 @@ export function buildCodexExecutionProfile(
   // RuntimeContext.open re-sends instructions on thread/resume; stable context,
   // home, provider and workspace identity is checked separately on resume.
   // MCP servers and their references are also re-applied per open.
+  // accountId and consumer are not in the digest: normalizedHome (checked on
+  // resume) is the account boundary, because one Codex home is one login.
   const identity = {
     permissionLevel: profile.permissionLevel,
     sandboxPolicy: profile.sandboxPolicy,

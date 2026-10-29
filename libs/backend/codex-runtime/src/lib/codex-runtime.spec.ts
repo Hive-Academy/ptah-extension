@@ -9,10 +9,8 @@ import {
 } from './codex-app-server-process';
 import { CodexProtocolError } from './codex-protocol-validator';
 import { CodexMcpConfigError } from './codex-mcp-config';
-import {
-  CodexRuntime,
-  type CodexRuntimeOptions,
-} from './codex-runtime';
+import { CodexRuntime } from './codex-runtime';
+import type { CodexRuntimeOptions } from './codex-context';
 import {
   CodexResumeProfileChangedError,
   CODEX_RESUME_PROFILE_CHANGED_CODE,

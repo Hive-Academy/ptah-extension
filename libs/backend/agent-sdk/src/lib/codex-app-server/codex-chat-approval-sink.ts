@@ -135,6 +135,10 @@ export class CodexChatApprovalSink implements ApprovalSink {
             this.seen.delete(key);
             this.logger.info('[CodexChatApprovalSink] accepted read-only command.', {
               commands: classified.names,
+              // Boolean only: p8j decides whether a reason (a possible sandbox
+              // escalation retry) must send the request to the card instead.
+              hasReason: typeof details['reason'] === 'string' &&
+                details['reason'].trim().length > 0,
             });
             return 'accept';
           }
@@ -253,6 +257,8 @@ export class CodexChatApprovalSink implements ApprovalSink {
         const editedText = text;
         // Resolve the decline first. The owner chooses steer/new turn at delivery time.
         setImmediate(() => {
+          // A disposed sink belongs to a closed chat: never start its follow-up.
+          if (this.disposed) return;
           void (async () => {
             await this.followUp.post(
               editedText,
