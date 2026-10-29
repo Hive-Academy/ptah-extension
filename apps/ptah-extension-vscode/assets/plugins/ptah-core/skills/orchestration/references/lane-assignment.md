@@ -93,9 +93,11 @@ authoring phase is a lane, the whole task runs on external lanes — a relay. Do
 Gates 1, 1.7 and 2 use an independent reviewer on the opposite execution side unless a disclosed
 fallback or a user-pinned same-side reviewer applies (agent-lanes §6). Shipping-code reviews use
 an independent capable reviewer from a different family than the implementer when available. A whole-phase
-lane still respects the batch cap (≤6 files, ≤2 libs, one scoped verification per batch) and the
-per-lane tool-call ceiling (agent-lanes §8): an implement phase larger than one batch is spawned as
-several sequential lanes, each with its own file list, not one long lane.
+lane still respects the batch cap (≤6 files, ≤2 libs, one scoped verification per batch). Lanes
+have no tool-call ceiling; Ptah stops a lane only on a repeated-call loop (agent-lanes §8), so work
+is split by scope, not by call count: an implement phase larger than one batch is spawned as
+several sequential lanes, each with its own file list, not one long lane. Each lane writes its
+deliverable early as a skeleton and fills it in as it goes, so any stop leaves usable output.
 
 | Phase           | Deliverable                                                                                     | Default lane when the user names none                                                                                                                |
 | --------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |

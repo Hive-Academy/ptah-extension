@@ -1199,8 +1199,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       restorePreviousLane();
       resumeGate.evaluate.mockResolvedValueOnce({
         decision: 'fresh',
-        reason: 'last request 61000 tokens exceeds 60000',
-        contextTokens: 61_000,
+        reason: 'last request 151000 tokens exceeds 150000',
+        contextTokens: 151_000,
         source: 'rollout',
         idleMs: 1_000,
       });
@@ -1215,7 +1215,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       const runSdkCall = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
       expect(runSdkCall.resumeSessionId).toBeUndefined();
       const task: string = runSdkCall.task;
-      expect(task).toContain('last request 61000 tokens exceeds 60000');
+      expect(task).toContain('last request 151000 tokens exceeds 150000');
       expect(task).toContain('Original task:\nImplement the parser');
       expect(task).toContain('- src/parser.ts\n- src/lexer.ts');
       expect(task.match(/src\/parser\.ts/g)).toHaveLength(1);
@@ -1231,7 +1231,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       // S2: the caller is told the lane was not resumed, and why.
       expect(result.resumeDecision).toEqual({
         decision: 'fresh',
-        reason: 'last request 61000 tokens exceeds 60000',
+        reason: 'last request 151000 tokens exceeds 150000',
         sessionKnown: true,
       });
       // M1: the fresh record keeps the chain's first task.

@@ -195,93 +195,22 @@ function withoutNegativeZero(value: number): number {
   return Object.is(value, -0) ? 0 : value;
 }
 
-/** Lane tool-call guards: steer at N calls, stop at N calls, stop at N identical calls. */
-const LANE_GUARD_FIELDS = [
-  'laneToolCallSteerAt',
-  'laneToolCallStopAt',
-  'laneRepeatCallStopAt',
-] as const;
-
-type LaneGuardField = (typeof LANE_GUARD_FIELDS)[number];
-
 /**
- * Read-side defaults for the lane guard keys. Mirrors
- * `FILE_BASED_SETTINGS_DEFAULTS` in `platform-core`; the set-config spec pins
- * the two against each other.
+ * Lane repeat-call guard: stop a lane at N identical calls. Lanes have no
+ * tool-call budget. The read-side default mirrors `FILE_BASED_SETTINGS_DEFAULTS`
+ * in `platform-core`; the set-config spec pins the two against each other.
  */
-const LANE_GUARD_DEFAULTS: Readonly<Record<LaneGuardField, number>> = {
-  laneToolCallSteerAt: 40,
-  laneToolCallStopAt: 60,
-  laneRepeatCallStopAt: 20,
-};
+const LANE_REPEAT_CALL_STOP_AT_DEFAULT = 20;
 
-/**
- * Smallest value each guard accepts on its own: steer >= 1, repeat >= 2, and
- * stop >= 2 because it must also exceed steer (checked as a pair below).
- */
-const LANE_GUARD_MINIMUMS: Readonly<Record<LaneGuardField, number>> = {
-  laneToolCallSteerAt: 1,
-  laneToolCallStopAt: 2,
-  laneRepeatCallStopAt: 2,
-};
+/** Two identical calls is the smallest repeat that can be a loop. */
+const LANE_REPEAT_CALL_STOP_AT_MIN = 2;
 
-function isLaneGuardValue(
-  field: LaneGuardField,
-  value: unknown,
-): value is number {
+function isLaneRepeatCallStopAt(value: unknown): value is number {
   return (
     typeof value === 'number' &&
     Number.isSafeInteger(value) &&
-    value >= LANE_GUARD_MINIMUMS[field]
+    value >= LANE_REPEAT_CALL_STOP_AT_MIN
   );
-}
-
-/**
- * Host-boundary check for the lane guard writes, rejected with the field name
- * and never clamped. Stop must exceed steer; a write that changes only one of
- * the pair is checked against the stored value of the other (`readStored`).
- * Returns the first invalid field, or null.
- */
-function invalidLaneGuard(
-  params: AgentSetConfigParams,
-  readStored: (field: LaneGuardField) => number,
-): string | null {
-  for (const field of LANE_GUARD_FIELDS) {
-    const value: unknown = params[field];
-    if (value !== undefined && !isLaneGuardValue(field, value)) {
-      return field;
-    }
-  }
-  const { laneToolCallSteerAt: steer, laneToolCallStopAt: stop } = params;
-  if (steer === undefined && stop === undefined) return null;
-  const effectiveSteer = steer ?? readStored('laneToolCallSteerAt');
-  const effectiveStop = stop ?? readStored('laneToolCallStopAt');
-  if (effectiveStop <= effectiveSteer) {
-    return stop === undefined ? 'laneToolCallSteerAt' : 'laneToolCallStopAt';
-  }
-  return null;
-}
-
-/**
- * Order for writing the lane guard keys of an already-validated request. The
- * settings store writes one key at a time, so when both steer and stop change
- * the stored pair must stay valid (stop > steer) between the two writes: stop
- * goes first when the new stop already exceeds the stored steer (raising
- * both), else steer goes first (lowering both). One of the two always holds,
- * because both the stored and the requested pair are valid.
- */
-function laneGuardWriteOrder(
-  params: AgentSetConfigParams,
-  readStored: (field: LaneGuardField) => number,
-): readonly LaneGuardField[] {
-  const stop = params.laneToolCallStopAt;
-  const stopFirst =
-    params.laneToolCallSteerAt === undefined ||
-    stop === undefined ||
-    stop > readStored('laneToolCallSteerAt');
-  return stopFirst
-    ? ['laneToolCallStopAt', 'laneToolCallSteerAt', 'laneRepeatCallStopAt']
-    : ['laneToolCallSteerAt', 'laneToolCallStopAt', 'laneRepeatCallStopAt'];
 }
 
 /** Host env var that overrides the subagent prompt-cache TTL inside the SDK. */
@@ -537,9 +466,7 @@ export class AgentRpcHandlers {
               'codexToolOutputTokenLimit',
             ),
             codexWebSearch: this.getCodexWebSearch(),
-            laneToolCallSteerAt: this.getLaneGuard('laneToolCallSteerAt'),
-            laneToolCallStopAt: this.getLaneGuard('laneToolCallStopAt'),
-            laneRepeatCallStopAt: this.getLaneGuard('laneRepeatCallStopAt'),
+            laneRepeatCallStopAt: this.getLaneRepeatCallStopAt(),
             ...this.getSubagentPromptCacheTtl(),
             copilotReasoningEffort: this.getAgentCfg<string>(
               'copilotReasoningEffort',
@@ -673,9 +600,9 @@ export class AgentRpcHandlers {
       AgentSetConfigParams,
       { success: boolean; error?: string }
     >('agent:setConfig', (params) => {
-      // One call at a time: validation reads stored values and the writes
-      // await one key after another, so two overlapping calls could leave a
-      // stop <= steer pair. Each call waits for the previous one to settle.
+      // One call at a time: the writes await one key after another, so two
+      // overlapping calls would interleave their keys. Each call waits for the
+      // previous one to settle.
       const run = this.setConfigQueue.then(() => this.applySetConfig(params));
       this.setConfigQueue = run.then(
         () => undefined,
@@ -776,13 +703,14 @@ export class AgentRpcHandlers {
           error: `Unsupported ${invalidBudget} value`,
         };
       }
-      const invalidGuard = invalidLaneGuard(params, (field) =>
-        this.getLaneGuard(field),
-      );
-      if (invalidGuard) {
+      // Host-boundary check, rejected with the field name and never clamped.
+      if (
+        params.laneRepeatCallStopAt !== undefined &&
+        !isLaneRepeatCallStopAt(params.laneRepeatCallStopAt)
+      ) {
         return {
           success: false,
-          error: `Unsupported ${invalidGuard} value`,
+          error: 'Unsupported laneRepeatCallStopAt value',
         };
       }
       if (
@@ -853,14 +781,11 @@ export class AgentRpcHandlers {
           await this.setAgentCfg(field, withoutNegativeZero(value));
         }
       }
-      const guardOrder = laneGuardWriteOrder(params, (field) =>
-        this.getLaneGuard(field),
-      );
-      for (const field of guardOrder) {
-        const value = params[field];
-        if (value !== undefined) {
-          await this.setAgentCfg(field, value);
-        }
+      if (params.laneRepeatCallStopAt !== undefined) {
+        await this.setAgentCfg(
+          'laneRepeatCallStopAt',
+          params.laneRepeatCallStopAt,
+        );
       }
       if (params.codexWebSearch !== undefined) {
         await this.setAgentCfg('codexWebSearch', params.codexWebSearch);
@@ -1734,13 +1659,13 @@ export class AgentRpcHandlers {
   }
 
   /**
-   * Read a lane guard. A hand-edited value below the field's minimum or not an
-   * integer is reported as the default.
+   * Read the lane repeat-call guard. A hand-edited value below the minimum or
+   * not an integer is reported as the default.
    */
-  private getLaneGuard(field: LaneGuardField): number {
-    const fallback = LANE_GUARD_DEFAULTS[field];
-    const value = this.getAgentCfg<unknown>(field, fallback);
-    return isLaneGuardValue(field, value) ? value : fallback;
+  private getLaneRepeatCallStopAt(): number {
+    const fallback = LANE_REPEAT_CALL_STOP_AT_DEFAULT;
+    const value = this.getAgentCfg<unknown>('laneRepeatCallStopAt', fallback);
+    return isLaneRepeatCallStopAt(value) ? value : fallback;
   }
 
   /** Read the Codex lane web-search switch; a non-boolean reads as the default. */

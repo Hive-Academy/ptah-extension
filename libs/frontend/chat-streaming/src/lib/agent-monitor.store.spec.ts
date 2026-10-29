@@ -1988,9 +1988,9 @@ describe('AgentMonitorStore', () => {
       spawnLane('lane-stop', {});
       exitLane('lane-stop', {
         status: 'stopped',
-        stopReason: 'tool-call-budget',
+        stopReason: 'repeat-call',
       });
-      expect(card('lane-stop')?.stopReason).toBe('tool-call-budget');
+      expect(card('lane-stop')?.stopReason).toBe('repeat-call');
 
       spawnLane('lane-stop', {});
       expect(card('lane-stop')?.stopReason).toBeUndefined();

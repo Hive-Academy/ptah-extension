@@ -454,13 +454,125 @@ describe('LaneCompletionNotifier.signal', () => {
       expect(h.envelope()).toContain('did not finish');
     });
 
-    it('reports `failed` for a stopped lane', async () => {
+    it('reports `failed` for a lane the caller stopped', async () => {
       const h = createHarness();
 
       const result = await h.notifier.signal(createInfo({ status: 'stopped' }));
 
       expect(result.signal?.status).toBe('stopped');
       expect(result.signal?.verdict).toBe('failed');
+    });
+
+    it('omits the host-stop fields for a caller stop', async () => {
+      const h = createHarness();
+
+      const result = await h.notifier.signal(createInfo({ status: 'stopped' }), {
+        reportsDelivered: 0,
+        toolCalls: 7,
+      });
+
+      expect(result.signal).not.toHaveProperty('stopReason');
+      expect(result.signal).not.toHaveProperty('repeatedCalls');
+      expect(result.signal?.toolCalls).toBe(7);
+      expect(h.envelope()).not.toContain('Stopped by Ptah');
+      expect(h.envelope()).toContain('Tool calls: 7.');
+    });
+  });
+
+  describe('host stop (repeat-call loop)', () => {
+    const hostStopped = (overrides: Partial<AgentProcessInfo> = {}) =>
+      createInfo({
+        status: 'stopped',
+        exitCode: undefined,
+        stopReason: 'repeat-call',
+        ...overrides,
+      });
+
+    it('judges a host-stopped lane by its deliverables: delivered', async () => {
+      const h = createHarness({ files: { '/ws/tf/report.md': 42 } });
+
+      const result = await h.notifier.signal(
+        hostStopped({ taskFolder: 'tf', deliverables: ['report.md'] }),
+        { reportsDelivered: 1, toolCalls: 58, repeatedCalls: 20 },
+      );
+
+      expect(result.signal).toMatchObject({
+        status: 'stopped',
+        verdict: 'delivered',
+        stopReason: 'repeat-call',
+        toolCalls: 58,
+        repeatedCalls: 20,
+      });
+      expect(result.signal).not.toHaveProperty('queuedMessagesDropped');
+      expect(h.envelope()).toContain('verdict="delivered"');
+      expect(h.envelope()).toContain('may be only a skeleton');
+    });
+
+    it('judges a host-stopped lane by its deliverables: no-deliverable', async () => {
+      const h = createHarness();
+
+      const result = await h.notifier.signal(
+        hostStopped({ taskFolder: 'tf', deliverables: ['report.md'] }),
+        { reportsDelivered: 0, toolCalls: 20, repeatedCalls: 20 },
+      );
+
+      expect(result.signal?.verdict).toBe('no-deliverable');
+    });
+
+    it('judges a host-stopped lane with nothing declared as unverified', async () => {
+      const h = createHarness();
+
+      const result = await h.notifier.signal(hostStopped(), {
+        reportsDelivered: 0,
+      });
+
+      expect(result.signal?.verdict).toBe('unverified');
+    });
+
+    it('keeps `failed` for a crash even when a stopReason is on the record', async () => {
+      const h = createHarness({ files: { '/ws/tf/report.md': 42 } });
+
+      const result = await h.notifier.signal(
+        hostStopped({
+          status: 'failed',
+          exitCode: 1,
+          taskFolder: 'tf',
+          deliverables: ['report.md'],
+        }),
+      );
+
+      expect(result.signal?.verdict).toBe('failed');
+    });
+
+    it('says in the envelope who stopped the lane, why and after how many calls', async () => {
+      const h = createHarness();
+
+      await h.notifier.signal(hostStopped(), {
+        reportsDelivered: 0,
+        toolCalls: 58,
+        repeatedCalls: 20,
+        queuedMessagesDropped: 2,
+      });
+
+      const envelope = h.envelope();
+      expect(envelope).toContain(
+        'Stopped by Ptah: repeated the same call 20 times (58 tool calls). The caller did not stop it.',
+      );
+      expect(envelope).toContain(
+        'Queued messages dropped by the stop: 2. Send them again if they still matter.',
+      );
+      expect(envelope).not.toContain('Tool calls: 58.');
+    });
+
+    it('drops the repeat count when the record carries no stopReason', async () => {
+      const h = createHarness();
+
+      const result = await h.notifier.signal(createInfo(), {
+        reportsDelivered: 0,
+        repeatedCalls: 20,
+      });
+
+      expect(result.signal).not.toHaveProperty('repeatedCalls');
     });
 
     it('says when the lane never reported before it ended', async () => {
