@@ -1103,6 +1103,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
       ),
       onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(trackingId),
+      turnIdentity: {
+        takeAtResult: (result) => this.sessionLifecycle.takeResultClientMessageId(trackingId, result),
+        wasLastResultInterruptedLate: () => this.sessionLifecycle.wasLastResultInterruptedLate(trackingId),
+        takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(trackingId),
+        takeDisplacedRetirement: () => this.sessionLifecycle.takeDisplacedRetirement(trackingId),
+        subscribeRetirement: (wake) => this.sessionLifecycle.subscribeRetirement(trackingId, wake),
+      },
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
       activityWatchdog,
@@ -1305,6 +1312,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
         ),
         onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
         onTurnEnd: this.releaseTurnOnResult(sessionId),
+        turnIdentity: {
+          takeAtResult: (result) => this.sessionLifecycle.takeResultClientMessageId(sessionId, result),
+          wasLastResultInterruptedLate: () => this.sessionLifecycle.wasLastResultInterruptedLate(sessionId),
+          takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(sessionId),
+          takeDisplacedRetirement: () => this.sessionLifecycle.takeDisplacedRetirement(sessionId),
+          subscribeRetirement: (wake) => this.sessionLifecycle.subscribeRetirement(sessionId, wake),
+        },
         onCompactBoundary: this.recordBudgetCompaction,
         tabId: config?.tabId,
         // The run's compaction tap, as the stream that started it passes it.
@@ -1471,6 +1485,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
       ),
       onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
+      turnIdentity: {
+          takeAtResult: (result) => this.sessionLifecycle.takeResultClientMessageId(sessionId, result),
+          wasLastResultInterruptedLate: () => this.sessionLifecycle.wasLastResultInterruptedLate(sessionId),
+          takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(sessionId),
+          takeDisplacedRetirement: () => this.sessionLifecycle.takeDisplacedRetirement(sessionId),
+        subscribeRetirement: (wake) => this.sessionLifecycle.subscribeRetirement(sessionId, wake),
+      },
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
       activityWatchdog,
@@ -1731,7 +1752,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // Forwarded verbatim. The factory defaults an absent origin to
       // `{ kind: 'human' }`, and an absent admission holds a mid-turn
       // message as before, so an interactive turn is unaffected.
-      { origin: options?.origin, admission: options?.admission },
+      {
+        origin: options?.origin,
+        admission: options?.admission,
+        clientMessageId: options?.clientMessageId,
+      },
     );
   }
 
@@ -1858,6 +1883,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
       ),
       onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
+      turnIdentity: {
+          takeAtResult: (result) => this.sessionLifecycle.takeResultClientMessageId(sessionId, result),
+          wasLastResultInterruptedLate: () => this.sessionLifecycle.wasLastResultInterruptedLate(sessionId),
+          takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(sessionId),
+          takeDisplacedRetirement: () => this.sessionLifecycle.takeDisplacedRetirement(sessionId),
+        subscribeRetirement: (wake) => this.sessionLifecycle.subscribeRetirement(sessionId, wake),
+      },
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config.tabId,
       activityWatchdog,

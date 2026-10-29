@@ -17,6 +17,8 @@ import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 import type { LiveUsageTracker } from './helpers/live-usage-tracker';
 import type { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
+import { toTurnStateEvent } from './helpers/session-turn-state.registry';
+import { firstQueuedClientMessageId, takeAwaitingEcho } from './helpers/session-lifecycle/echo-identity';
 import { isFailureTerminalReason, type HostAttentionCoordinator } from './permission/host-attention-coordinator';
 import type { CompactionBoundaryGenerationRegistry } from './helpers/compaction-boundary-generation-registry';
 import { SubagentStopNotices } from './helpers/compaction/subagent-stop-notices';
@@ -80,9 +82,8 @@ function readOrigin(message: SDKMessage): SDKMessageOrigin | undefined {
  * silently.
  */
 function resolveInboundPeerLabel(
-  message: SDKMessage,
+  origin: SDKMessageOrigin | undefined,
 ): { readonly label: string } | undefined {
-  const origin = readOrigin(message);
   if (origin?.kind !== 'peer') {
     return undefined;
   }
@@ -177,6 +178,23 @@ export class SdkMessageTransformer implements TransformerState {
     this.usageTracker.clearSessionTokenSnapshot(sessionId);
   }
 
+  settleInterruptedTurn(sessionId: SessionId, clientMessageId: string): FlatStreamEventUnion {
+    return {
+      ...toTurnStateEvent(sessionId, this.turnState.settleTurn(sessionId, 'aborted_streaming')),
+      consumedClientMessageId: clientMessageId,
+    };
+  }
+
+  retirePromptOnly(sessionId: SessionId, clientMessageId: string): FlatStreamEventUnion {
+    const state = this.turnState.get(sessionId);
+    if (!state) throw new Error(`Missing turn state for prompt retirement: ${sessionId}`);
+    return {
+      ...toTurnStateEvent(sessionId, state),
+      consumedClientMessageId: clientMessageId,
+      retirementOnly: true,
+    };
+  }
+
   transform(
     sdkMessage: SDKMessage,
     callerSessionId?: SessionId | HarnessStreamId | WizardPhaseId,
@@ -217,9 +235,34 @@ export class SdkMessageTransformer implements TransformerState {
       // Restricted to the two user-turn shapes on purpose: `origin` is
       // declared on other message types too, and only a user turn has a
       // sender to attribute.
+      if (isReplayMessage(sdkMessage)) {
+        const rec = sessionId ? this.sessionLifecycle.find(sessionId) : undefined;
+        const turn = takeAwaitingEcho(rec, sdkMessage);
+        const originKind = turn?.message.origin?.kind ?? readOrigin(sdkMessage)?.kind;
+        this.logger.debug('[SdkMessageTransformer] Replay echo', {
+          matched: turn ? 'uuid' : 'none',
+          inFlight: Boolean(rec?.awaitingEcho || turn),
+          originKind,
+        });
+        if (turn) {
+          if (turn.message.origin?.kind === 'peer') {
+            const peer = resolveInboundPeerLabel(turn.message.origin);
+            const beforeClientMessageId = firstQueuedClientMessageId(rec);
+            return this.userTransformer.transform(
+              sdkMessage, this, this.helpers, sessionId,
+              peer ? { ...peer, ...(beforeClientMessageId !== undefined ? { beforeClientMessageId } : {}) } : undefined,
+            );
+          }
+          if (turn.message.origin && turn.message.origin.kind !== 'human') return [];
+          if (sdkMessage.isSynthetic === true) return [];
+          if (this.activeSkillToolUseIds.size > 0 && !userMessageHasToolResult(sdkMessage)) return [];
+          if (isSkillOrMetaContent(sdkMessage)) return [];
+          return this.userTransformer.transform(sdkMessage, this, this.helpers, sessionId, undefined, turn.clientMessageId);
+        }
+      }
       const inboundPeer =
         isUserMessage(sdkMessage) || isReplayMessage(sdkMessage)
-          ? resolveInboundPeerLabel(sdkMessage)
+          ? resolveInboundPeerLabel(readOrigin(sdkMessage))
           : undefined;
       if (inboundPeer) {
         this.logger.debug(

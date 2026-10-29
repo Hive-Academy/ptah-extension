@@ -33,7 +33,8 @@ export class UserMessageTransformer {
     state: TransformerState,
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
-    inboundPeer?: { readonly label: string },
+    inboundPeer?: { readonly label: string; readonly beforeClientMessageId?: string },
+    clientMessageId?: string,
   ): FlatStreamEventUnion[] {
     const { uuid, message, parent_tool_use_id } = sdkMessage;
     const events: FlatStreamEventUnion[] = [];
@@ -140,6 +141,7 @@ export class UserMessageTransformer {
       // Absent for an ordinary turn — the key is only present when the turn
       // came from outside this session.
       ...(inboundPeer ? { inboundPeer } : {}),
+      ...(clientMessageId !== undefined ? { clientMessageId } : {}),
     };
     events.push(messageStartEvent);
 

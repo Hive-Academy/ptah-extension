@@ -589,4 +589,8 @@ export class ChatStore {
   }): void {
     this.lifecycle.handleChatError(data);
   }
+
+  retireEndedSessionPrompts(tabId: string, sessionId: string): void {
+    this.conversation.retireEndedSessionPrompts(tabId, sessionId);
+  }
 }

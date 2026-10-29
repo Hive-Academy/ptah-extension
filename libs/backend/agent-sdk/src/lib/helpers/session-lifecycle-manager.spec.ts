@@ -56,6 +56,7 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import { SessionLifecycleManager } from './session-lifecycle-manager';
+import { takeAwaitingEcho } from './session-lifecycle/echo-identity';
 import type { SdkModuleLoader } from './sdk-module-loader';
 import type {
   SdkQueryOptionsBuilder,
@@ -598,12 +599,17 @@ describe('SessionLifecycleManager', () => {
       await concurrentHarness.manager.sendMessage(
         'tab_msg_a' as SessionId,
         'hello-a',
+        undefined,
+        undefined,
+        { clientMessageId: 'client-a' },
       );
 
       const sessionA = concurrentHarness.manager.find('tab_msg_a');
       const sessionB = concurrentHarness.manager.find('tab_msg_b');
 
       expect(sessionA?.messageQueue).toHaveLength(1);
+      expect(sessionA?.messageQueue[0].clientMessageId).toBe('client-a');
+      expect(sessionA?.messageQueue[0].message.message.content).toBe('hello-a');
       expect(sessionB?.messageQueue).toHaveLength(0);
     });
 
@@ -1337,5 +1343,251 @@ describe('SessionLifecycleManager', () => {
       //     (indirectly verified: the session is gone AND no orphan exists)
       expect(throwHarness.manager.getActiveSessionCount()).toBe(0);
     });
+  });
+});
+
+describe('SessionLifecycleManager turn identity accessors', () => {
+  it('drains displaced ids once and wakes the stream', async () => {
+    const h = makeHarness();
+    const tab = 'displaced-result' as SessionId;
+    await h.manager.executeQuery({
+      sessionId: tab,
+      sessionConfig: createSessionConfig(),
+    });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    const wake = jest.fn();
+    const unsubscribe = h.manager.subscribeRetirement(tab, wake);
+    rec.displacedRetirements = ['P'];
+    rec.retirementWake?.();
+    expect(wake).toHaveBeenCalledTimes(1);
+    expect(h.manager.takeDisplacedRetirement(tab)).toBe('P');
+    expect(h.manager.takeInterruptRetirement(tab)).toBeNull();
+    unsubscribe();
+    expect(rec.retirementWake).toBeNull();
+  });
+
+  it('retires P once through the wake channel when its expected echo never arrives and the pump idles', async () => {
+    const h = makeHarness();
+    const tab = 'autonomous-result' as SessionId;
+    await h.manager.executeQuery({
+      sessionId: tab,
+      sessionConfig: createSessionConfig(),
+    });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.echoesUserMessages = true;
+    rec.currentTurnClientMessageId = 'P';
+    rec.awaitingEcho = {
+      message: { uuid: 'p-echo' },
+      clientMessageId: 'P',
+    } as never;
+    const wake = jest.fn();
+    rec.retirementWake = wake;
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(wake).toHaveBeenCalledTimes(1);
+    expect(h.manager.takeDisplacedRetirement(tab)).toBe('P');
+    expect(h.manager.takeInterruptRetirement(tab)).toBeNull();
+    expect(rec.currentTurnClientMessageId).toBeNull();
+    expect(rec.resultCount).toBe(1);
+    rec.awaitingEcho = null;
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+  });
+
+  it('takes the id at the result when the CLI does not echo user messages', async () => {
+    const h = makeHarness();
+    const tab = 'no-echo-result' as SessionId;
+    await h.manager.executeQuery({
+      sessionId: tab,
+      sessionConfig: createSessionConfig(),
+    });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.echoesUserMessages = false;
+    rec.currentTurnClientMessageId = 'P';
+    rec.awaitingEcho = {
+      message: { uuid: 'p-echo' },
+      clientMessageId: 'P',
+    } as never;
+    expect(h.manager.takeResultClientMessageId(tab)).toBe('P');
+    rec.turnInFlight = true;
+    h.manager.onTurnTerminal(tab);
+    expect(rec.turnInFlight).toBe(false);
+  });
+
+  it('settles P after its late echo and keeps P off a later autonomous result', async () => {
+    const h = makeHarness();
+    const tab = 'late-echo-result' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.echoesUserMessages = true;
+    rec.yieldSequence = 1;
+    rec.currentTurnClientMessageId = 'P';
+    rec.awaitingEcho = { message: { uuid: 'p-echo' }, clientMessageId: 'P' } as never;
+    rec.messageQueue.push({ message: { uuid: 'q-echo' }, clientMessageId: 'Q' } as never);
+
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(takeAwaitingEcho(rec, { uuid: 'p-echo' })?.clientMessageId).toBe('P');
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(h.manager.takeInterruptRetirement(tab)).toBeNull();
+  });
+
+  it('releases the guard without consuming Q for an id-less result after Q yields', async () => {
+    const h = makeHarness();
+    const tab = 'peer-then-q-result' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.echoesUserMessages = true;
+    rec.yieldSequence = 2;
+    rec.interruptAwaitingResultYieldSequence = 1;
+    rec.currentTurnClientMessageId = 'Q';
+    rec.awaitingEcho = { message: { uuid: 'q-echo' }, clientMessageId: 'Q' } as never;
+    expect(takeAwaitingEcho(rec, { uuid: 'q-echo' })?.clientMessageId).toBe('Q');
+
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
+    expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
+    expect(rec.currentTurnClientMessageId).toBe('Q');
+  });
+
+  it('does not consume Q when P emits an aborted result after Q was yielded', async () => {
+    const h = makeHarness();
+    const tab = 'late-p-result' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.yieldSequence = 2;
+    rec.interruptAwaitingResultYieldSequence = 1;
+    rec.interruptedTurnUserMessageUuid = 'p-uuid';
+    rec.currentTurnClientMessageId = 'Q';
+    rec.currentTurnUserMessageUuid = 'q-uuid';
+    expect(h.manager.takeResultClientMessageId(tab, { user_message_uuid: 'p-uuid' })).toBeNull();
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(true);
+    expect(rec.currentTurnClientMessageId).toBe('Q');
+    expect(h.manager.takeResultClientMessageId(tab, { user_message_uuid: 'q-uuid' })).toBe('Q');
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
+  });
+
+  it.each([
+    ['error_during_execution', { user_message_uuid: 'q-uuid' }],
+    [
+      'batch uuid list',
+      { user_message_uuid: 'last-in-batch', user_message_uuids: ['q-uuid', 'last-in-batch'] },
+    ],
+    ['batch naming both P and Q', { user_message_uuids: ['p-uuid', 'q-uuid'] }],
+  ])('releases Q on its %s result while the interrupt guard is owed', async (_case, result) => {
+    const h = makeHarness();
+    const tab = 'q-result-with-guard' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.yieldSequence = 2;
+    rec.interruptAwaitingResultYieldSequence = 1;
+    rec.interruptedTurnUserMessageUuid = 'p-uuid';
+    rec.currentTurnUserMessageUuid = 'q-uuid';
+    rec.currentTurnClientMessageId = 'Q';
+    rec.turnInFlight = true;
+    expect(h.manager.takeResultClientMessageId(tab, result)).toBe('Q');
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
+    h.manager.onTurnTerminal(tab);
+    expect(rec.turnInFlight).toBe(false);
+    expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
+  });
+
+  it('releases Q without consuming its id for a late uuid-less P success', async () => {
+    const h = makeHarness();
+    const tab = 'ambiguous-late-success' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.yieldSequence = 2;
+    rec.interruptAwaitingResultYieldSequence = 1;
+    rec.interruptedTurnUserMessageUuid = 'p-uuid';
+    rec.currentTurnClientMessageId = 'Q';
+    rec.turnInFlight = true;
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
+    h.manager.onTurnTerminal(tab);
+    expect(rec.turnInFlight).toBe(false);
+    expect(rec.currentTurnClientMessageId).toBe('Q');
+    expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
+  });
+
+  it('releases Q without consuming its id for a result with an unrelated uuid', async () => {
+    const h = makeHarness();
+    const tab = 'ambiguous-other-uuid' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.yieldSequence = 2;
+    rec.interruptAwaitingResultYieldSequence = 1;
+    rec.interruptedTurnUserMessageUuid = 'p-uuid';
+    rec.currentTurnUserMessageUuid = 'q-uuid';
+    rec.currentTurnClientMessageId = 'Q';
+    rec.turnInFlight = true;
+    expect(h.manager.takeResultClientMessageId(tab, { user_message_uuid: 'other' })).toBeNull();
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
+    h.manager.onTurnTerminal(tab);
+    expect(rec.turnInFlight).toBe(false);
+    expect(rec.currentTurnClientMessageId).toBe('Q');
+  });
+
+  it('takes results and interrupt retirements once without consuming the next turn on a late result', async () => {
+    const h = makeHarness();
+    const tab = 'identity-tab' as SessionId;
+    await h.manager.executeQuery({
+      sessionId: tab,
+      sessionConfig: createSessionConfig(),
+    });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    const realId = 'identity-real' as SessionId;
+    h.manager.bindRealSessionId(tab, realId);
+    rec.currentTurnClientMessageId = 'P';
+    expect(h.manager.takeResultClientMessageId(realId)).toBe('P');
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    rec.interruptRetirement = 'P';
+    rec.interruptAwaitingResultYieldSequence = rec.yieldSequence ?? 0;
+    rec.currentTurnClientMessageId = 'Q';
+    expect(h.manager.takeInterruptRetirement(realId)).toBe('P');
+    expect(h.manager.takeInterruptRetirement(tab)).toBeNull();
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(rec.currentTurnClientMessageId).toBe('Q');
+    expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
+    expect(h.manager.takeResultClientMessageId(tab)).toBe('Q');
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(
+      h.manager.takeResultClientMessageId('missing' as SessionId),
+    ).toBeNull();
+    expect(
+      h.manager.takeInterruptRetirement('missing' as SessionId),
+    ).toBeNull();
+  });
+});
+
+describe('SessionLifecycleManager queue identity on interrupt', () => {
+  it('forwards client ids and preserves held entry references on a successful interrupt', async () => {
+    const h = makeHarness();
+    const tab = 'interrupt-identity' as SessionId;
+    await h.manager.executeQuery({
+      sessionId: tab,
+      sessionConfig: createSessionConfig(),
+    });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.turnInFlight = true;
+    await h.manager.sendMessage(tab, 'held', undefined, undefined, {
+      clientMessageId: 'held-id',
+    });
+    const held = rec.messageQueue[0];
+    expect(held.clientMessageId).toBe('held-id');
+    expect(held.message.message.content).toBe('held');
+    expect(await h.manager.interruptCurrentTurn(tab)).toBe(true);
+    expect(h.manager.find(tab)).toBe(rec);
+    expect(rec.messageQueue).toEqual([held]);
+    expect(rec.messageQueue[0]).toBe(held);
+    expect(rec.turnInFlight).toBe(false);
   });
 });

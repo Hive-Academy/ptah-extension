@@ -176,9 +176,8 @@ export class MessageFinalizationService {
     this.batchedUpdate.flushSync();
     const targetTabId = tabId ?? this.tabManager.activeTabId();
     if (!targetTabId) return;
-    // A stopped or failed turn takes its mid-turn prompts with it: none of
-    // them is still queued behind a later peer turn.
-    if (isAborted) this.queuedPrompts.clear(targetTabId);
+    // isAborted controls only the tree's visual state. A retained session can
+    // interrupt P while Q remains queued; TurnStateApplier retires P by id.
     const targetTab = tabId
       ? this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab
       : this.tabManager.activeTab();
@@ -319,6 +318,15 @@ export class MessageFinalizationService {
     if (this.tabManager.activeTabId() === targetTabId) {
       this.sessionManager.setStatus('loaded');
     }
+  }
+
+  /** Drop the tab's pending identities only after confirmed session teardown. */
+  clearPendingPrompts(tabId: string): void {
+    this.queuedPrompts.clear(tabId);
+  }
+
+  clearPendingPromptsForSession(tabId: string, sessionId: string): void {
+    this.queuedPrompts.clearSession(tabId, sessionId);
   }
 
   /**

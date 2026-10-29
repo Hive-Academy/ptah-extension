@@ -84,6 +84,196 @@ describe('AgentMonitorStore', () => {
     mockActiveTab.set(null);
   });
 
+  describe('monotonic background and history settlement', () => {
+    const base = {
+      id: 'lane',
+      messageId: 'parent',
+      sessionId: 'history-session',
+      source: 'complete' as const,
+      timestamp: 10,
+    };
+    const start = (taskId = 'A') =>
+      store.onAgentStart({
+        ...base,
+        eventType: 'agent_start',
+        toolCallId: 'tool',
+        taskId,
+        agentType: 'Explore',
+      });
+    const status = (taskId = 'A') =>
+      store.onAgentStatus({
+        ...base,
+        eventType: 'agent_status',
+        parentToolUseId: 'tool',
+        taskId,
+        status: 'running',
+        timestamp: 40,
+      });
+    const complete = () =>
+      store.onAgentCompleted({
+        ...base,
+        eventType: 'agent_completed',
+        parentToolUseId: 'tool',
+        taskId: 'A',
+        status: 'completed',
+        timestamp: 20,
+        summary: 'old summary',
+        outputFile: '',
+      });
+    const generation = () => store.pendingHistoryCandidates()[0].generation;
+
+    it('keeps completion and timestamp after late status and same-id starts', () => {
+      start();
+      complete();
+      status();
+      start();
+      store.onAgentStart({
+        ...base,
+        eventType: 'agent_start',
+        toolCallId: 'tool',
+        agentType: 'Explore',
+      });
+      expect(store.getSubagent('tool')).toMatchObject({
+        status: 'completed',
+        completedAt: 20,
+      });
+    });
+
+    it.each(['start', 'status', 'progress'])(
+      'restarts from the pre-merge identity through %s',
+      (reducer) => {
+        start();
+        complete();
+        if (reducer === 'start') start('B');
+        else if (reducer === 'status') status('B');
+        else
+          store.onAgentProgress({
+            ...base,
+            eventType: 'agent_progress',
+            parentToolUseId: 'tool',
+            taskId: 'B',
+            description: 'working',
+            totalTokens: 2,
+            toolUses: 1,
+            durationMs: 3,
+          });
+        status('B');
+        expect(store.getSubagent('tool')).toMatchObject({
+          taskId: 'B',
+          status: 'running',
+        });
+        expect(store.getSubagent('tool')?.completedAt).toBeUndefined();
+        expect(store.getSubagent('tool')?.latestSummary).toBeUndefined();
+        expect(store.getSubagent('tool')?.errorMessage).toBeUndefined();
+      },
+    );
+
+    it('settles background completion once and preserves usage and summary', () => {
+      start();
+      const event = {
+        ...base,
+        eventType: 'background_agent_completed' as const,
+        toolCallId: 'tool',
+        agentId: 'agent',
+        timestamp: 20,
+        result: 'x'.repeat(300),
+        duration: 10,
+      };
+      store.onBackgroundAgentCompleted(event);
+      store.onBackgroundAgentCompleted({
+        ...event,
+        timestamp: 30,
+        result: 'duplicate',
+      });
+      status();
+      expect(store.getSubagent('tool')).toMatchObject({
+        status: 'completed',
+        completedAt: 20,
+        durationMs: 10,
+        latestSummary: 'x'.repeat(240),
+      });
+    });
+
+    it('preserves stopped and failed against late status and progress', () => {
+      start();
+      store.onBackgroundAgentStopped({
+        ...base,
+        eventType: 'background_agent_stopped',
+        toolCallId: 'tool',
+        agentId: 'agent',
+      });
+      status();
+      expect(store.getSubagent('tool')?.status).toBe('stopped');
+      store.onAgentCompleted({
+        ...base,
+        eventType: 'agent_completed',
+        parentToolUseId: 'tool',
+        taskId: 'A',
+        status: 'failed',
+        summary: 'failed',
+        outputFile: '',
+      });
+      store.onAgentProgress({
+        ...base,
+        eventType: 'agent_progress',
+        parentToolUseId: 'tool',
+        taskId: 'A',
+        description: 'working',
+        totalTokens: 2,
+        toolUses: 1,
+        durationMs: 3,
+      });
+      expect(store.getSubagent('tool')?.status).toBe('failed');
+    });
+
+    it('registers without settling, rejects stale evidence and lets live writes own candidates', () => {
+      start();
+      store.registerHistoryCandidates('history-session', ['tool']);
+      const old = generation();
+      expect(store.getSubagent('tool')?.status).toBe('running');
+      store.registerHistoryCandidates('history-session', ['tool']);
+      store.applyHistoryEvidence('history-session', old, 'inactive');
+      expect(store.getSubagent('tool')?.status).toBe('running');
+      const current = generation();
+      status();
+      store.applyHistoryEvidence('history-session', current, 'inactive');
+      expect(store.getSubagent('tool')?.status).toBe('running');
+      expect(store.pendingHistoryCandidates()).toEqual([]);
+    });
+
+    it('makes inactive-history settlement non-sticky, but real completion sticky', () => {
+      start();
+      store.registerHistoryCandidates('history-session', ['tool']);
+      store.applyHistoryEvidence('history-session', generation(), 'inactive');
+      expect(store.getSubagent('tool')).toMatchObject({
+        status: 'stopped',
+        completedAt: 10,
+        settledFromHistory: true,
+      });
+      status();
+      expect(store.getSubagent('tool')?.status).toBe('running');
+      complete();
+      store.registerHistoryCandidates('history-session', ['tool']);
+      status();
+      expect(store.getSubagent('tool')?.status).toBe('completed');
+      expect(store.pendingHistoryCandidates()).toEqual([]);
+    });
+
+    it('clears live evidence and session-close candidates without retaining keys', () => {
+      start();
+      store.registerHistoryCandidates('history-session', ['tool']);
+      store.applyHistoryEvidence('history-session', generation(), 'live');
+      expect(store.getSubagent('tool')?.status).toBe('running');
+      expect(store.pendingHistoryCandidates()).toEqual([]);
+      store.registerHistoryCandidates('history-session', ['tool']);
+      store.clearSessionAgents('history-session');
+      expect(store.pendingHistoryCandidates()).toEqual([]);
+      store.registerHistoryCandidates('history-session', ['tool']);
+      store.forceClearSessionAgents('history-session');
+      expect(store.pendingHistoryCandidates()).toEqual([]);
+    });
+  });
+
   it('restores CLI completion time and accepts older or invalid references', () => {
     const restoredId = AgentId.create();
     const olderId = AgentId.create();
@@ -855,16 +1045,32 @@ describe('AgentMonitorStore', () => {
       store.onAgentCompleted(completedEvent({ timestamp: 4 }));
       expect(store.getSubagent(PARENT)?.completedAt).toBe(4);
 
-      store.onAgentStatus(statusEvent({ status: 'running', timestamp: 5 }));
+      store.onAgentStatus(
+        statusEvent({
+          status: 'running',
+          timestamp: 5,
+          taskId: 'restarted-task',
+        }),
+      );
       expect(store.getSubagent(PARENT)?.completedAt).toBeUndefined();
-      store.onAgentProgress(progressEvent({ timestamp: 6 }));
+      store.onAgentProgress(
+        progressEvent({ timestamp: 6, taskId: 'restarted-task' }),
+      );
       expect(store.getSubagent(PARENT)?.completedAt).toBeUndefined();
 
-      store.onAgentCompleted(completedEvent({ timestamp: 7 }));
+      store.onAgentCompleted(
+        completedEvent({ timestamp: 7, taskId: 'restarted-task' }),
+      );
       expect(store.getSubagent(PARENT)?.completedAt).toBe(7);
       // A repeated terminal agent_status must not move the first completion
       // time (PR #751 review 4309313408).
-      store.onAgentStatus(statusEvent({ status: 'completed', timestamp: 8 }));
+      store.onAgentStatus(
+        statusEvent({
+          status: 'completed',
+          timestamp: 8,
+          taskId: 'restarted-task',
+        }),
+      );
       expect(store.getSubagent(PARENT)?.completedAt).toBe(7);
     });
 

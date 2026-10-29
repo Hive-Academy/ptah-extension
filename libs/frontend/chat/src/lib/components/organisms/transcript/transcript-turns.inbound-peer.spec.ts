@@ -36,6 +36,7 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { buildTurnContexts } from '../../../utils/turn-facts.utils';
 import { groupTurns } from './transcript-turns';
+import { groupLaneEvents } from './transcript-lane-events';
 
 const TAB_ID = 'tab-peer';
 const SESSION_ID = SessionId.create();
@@ -259,5 +260,15 @@ describe('transcript turns — live inbound peer turns', () => {
         isLastAssistant: true,
       });
     }
+  });
+
+  it('maps live inbound peers to lane rows without consuming the assistant replies', () => {
+    const messages = liveTranscript();
+    const slots = groupLaneEvents(messages, new Set());
+    for (const peer of PEER_TURNS) {
+      expect(slots.get(peer.userId)?.kind).toBe('row');
+      expect(slots.has(`${peer.replyId}-start`)).toBe(false);
+    }
+    expect(slots.has(PROMPT.userId)).toBe(false);
   });
 });

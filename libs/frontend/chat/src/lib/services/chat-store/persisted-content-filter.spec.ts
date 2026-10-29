@@ -33,6 +33,12 @@ function fixture(overrides: Partial<PersistedContentFilterOptions> = {}) {
 describe('PersistedContentFilter', () => {
   beforeEach(() => { next = 0; jest.restoreAllMocks(); });
 
+  it('keeps filtering after an identity-only terminal retirement', () => {
+    const { filter } = fixture();
+    expect(filter.decide(e('turn_state', { phase: 'idle', retirementOnly: true }), 1)).toBe('keep');
+    expect(filter.decide(start(), 2)).toBe('hold');
+  });
+
   it('P drops only pre-snapshot seed copies and seed anchors', () => {
     const { filter } = fixture({ prefixMark: 5, seedMessageIds: new Set(['X']),
       seedBlockKeys: new Set(['X|text|1', 'X|tool|t']) });

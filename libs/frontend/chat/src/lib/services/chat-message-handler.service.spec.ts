@@ -74,6 +74,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     resyncStream: jest.Mock;
     handleSessionStats: jest.Mock;
     handleSessionStatsLive: jest.Mock;
+    retireEndedSessionPrompts: jest.Mock;
   };
   let linkCapture: { onSessionIdResolved: jest.Mock };
   let streamRouter: {
@@ -121,6 +122,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       resyncStream: jest.fn().mockResolvedValue(undefined),
       handleSessionStats: jest.fn(),
       handleSessionStatsLive: jest.fn(),
+      retireEndedSessionPrompts: jest.fn(),
     };
     linkCapture = {
       onSessionIdResolved: jest.fn().mockResolvedValue(undefined),
@@ -180,6 +182,13 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     consoleWarnSpy = jest
       .spyOn(console, 'warn')
       .mockImplementation(() => undefined);
+  });
+
+  it('retires pending ids only on a confirmed session-ended message', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.CHAT_SESSION_ENDED, payload: { tabId: 'tab-1', sessionId: 'old-session' } });
+    expect(chatStore.retireEndedSessionPrompts).toHaveBeenCalledWith('tab-1', 'old-session');
+    handler.handleMessage({ type: MESSAGE_TYPES.CHAT_SESSION_ENDED, payload: { tabId: 'tab-1' } });
+    expect(chatStore.retireEndedSessionPrompts).toHaveBeenCalledTimes(1);
   });
 
   afterEach(() => {

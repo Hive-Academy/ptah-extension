@@ -145,7 +145,7 @@ describe('agent card unified output regressions', () => {
   });
 
   it.each(['text', 'error'] as const)(
-    'retains stdout, mounted nodes and scroll position when a first %s segment arrives',
+    'swaps the stdout fallback for the tree and keeps scroll position when a first %s segment arrives',
     async (type) => {
       // Isolate scroll-container retention from the existing follow-output animation.
       const frames: FrameRequestCallback[] = [];
@@ -197,12 +197,12 @@ describe('agent card unified output regressions', () => {
           fixture.nativeElement.querySelector('ptah-cli-agent-output'),
         ).toBe(output);
         expect(output.firstElementChild).toBe(scroller);
-        expect(output.querySelector('ptah-agent-card-output')).toBe(raw);
+        // The structured tree replaces the stdout fallback.
+        expect(output.querySelector('ptah-agent-card-output')).toBeNull();
         expect(scroller.scrollTop).toBe(37);
-        expect(output.textContent).toContain(
+        expect(output.textContent).not.toContain(
           'Initializing sandbox environment',
         );
-        expect(output.textContent).toContain('read_file');
         expect(output.querySelector('ptah-execution-node')).not.toBeNull();
         for (const callback of frames.splice(0)) callback(performance.now());
         fixture.detectChanges();

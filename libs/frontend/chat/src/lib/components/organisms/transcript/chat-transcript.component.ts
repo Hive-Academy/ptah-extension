@@ -5,6 +5,7 @@ import {
   output,
   signal,
   computed,
+  linkedSignal,
   viewChild,
   ChangeDetectionStrategy,
   afterNextRender,
@@ -31,10 +32,12 @@ import type { TabViewMode } from '@ptah-extension/chat-types';
 import { DOCUMENT } from '@angular/common';
 import {
   SESSION_CARD_ACTIONS,
+  SESSION_CONTEXT,
   SESSION_FOCUSED,
   type SessionCardActions,
 } from '../../../tokens/session-context.token';
 import { parseLaneKey } from '../../molecules/compact-session/compact-lane-rows';
+import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import { SingleChatSubagentViewComponent } from './single-chat-subagent-view.component';
 import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import {
@@ -100,6 +103,10 @@ import {
   type TurnContexts,
 } from './transcript-turn-contexts';
 import { TranscriptLiveClock } from './transcript-live-clock';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { groupLaneEvents, laneMetricsForRow, laneRowsBeforeCompletion, newestLaneRowKeys, sameLaneMonitorSnapshot, type LaneMonitorSnapshot } from './transcript-lane-events';
+import type { LaneSlot } from '../../molecules/lane-event/lane-event-row.types';
+import { LaneEventRowComponent } from '../../molecules/lane-event/lane-event-row.component';
 
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_MESSAGES: readonly ExecutionChatMessage[] = [];
@@ -241,6 +248,7 @@ function findAgentNode(
   imports: [
     LucideAngularModule,
     MessageBubbleComponent,
+    LaneEventRowComponent,
     ChatEmptyStateComponent,
     TranscriptSlotDirective,
     TranscriptOlderHistorySentinelDirective,
@@ -299,6 +307,9 @@ export class ChatTranscriptComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly _tabManager = inject(TabManagerService);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
+  private readonly laneMonitor = inject(AgentMonitorStore, { optional: true });
+  private readonly sessionContext = inject(SESSION_CONTEXT, { optional: true });
+  private readonly displayDock = inject(DisplayDockState, { optional: true });
   private readonly presentationRecordsEnabled = inject(
     STREAM_PRESENTATION_RECORDS_ENABLED,
   );
@@ -691,6 +702,51 @@ export class ChatTranscriptComponent {
     },
   );
 
+  /** Keep the rendered rows stable while this tab is inactive. */
+  private readonly liveLaneIds = computed(() => new Set(
+    (this.laneMonitor?.agents?.() ?? [])
+      .filter(agent => agent.status === 'running')
+      .map(agent => agent.agentId),
+  ), { equal: (a, b) => a.size === b.size && [...a].every(id => b.has(id)) });
+
+  protected readonly laneSlots = linkedSignal({
+    source: () => ({
+      active: this.workActive(),
+      messages: this.turnMessages(),
+      liveIds: this.liveLaneIds(),
+    }),
+    computation: (source, previous): ReadonlyMap<string, LaneSlot> => {
+      if (!source.active) return previous?.value ?? new Map();
+      return groupLaneEvents(source.messages, source.liveIds);
+    },
+  });
+
+  protected readonly newestLaneRows = computed(() => newestLaneRowKeys(this.laneSlots()));
+  protected readonly laneRowsBeforeCompletion = computed(() => laneRowsBeforeCompletion(this.laneSlots()));
+  private monitorSnapshots = new Map<string, LaneMonitorSnapshot>();
+  protected readonly laneMetricsForRow = laneMetricsForRow;
+
+  /** Reuse each agent's small metrics object while stream-only fields change. */
+  protected readonly monitoredLaneAgents = computed(() => {
+    const previous = this.monitorSnapshots;
+    const next = new Map<string, LaneMonitorSnapshot>();
+    for (const agent of this.laneMonitor?.agents?.() ?? []) {
+      const usage = agent.usageTotals;
+      const snapshot: LaneMonitorSnapshot = {
+        agentId: agent.agentId,
+        model: agent.model, usageTotals: usage ? {
+          model: usage.model, totalTokens: usage.totalTokens,
+          inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: usage.costUsd,
+        } : null,
+        status: agent.status, startedAt: agent.startedAt, completedAt: agent.completedAt,
+      };
+      const old = previous.get(agent.agentId);
+      next.set(agent.agentId, old && sameLaneMonitorSnapshot(old, snapshot) ? old : snapshot);
+    }
+    this.monitorSnapshots = next;
+    return next;
+  });
+
   private readonly turnContextBuilder = new TranscriptTurnContexts();
 
   /**
@@ -853,7 +909,16 @@ export class ChatTranscriptComponent {
     return {
       openLane: (key) => this.openSubagentLane(key),
       openSession: () => this.closeSubagent(),
+      canOpenLane: (key) => this.canOpenLaneHere(key),
     };
+  }
+
+  /**
+   * The Electron display dock has no agent-card view, so a CLI lane has no
+   * surface in a single chat view there: its turn chip shows status only. The canvas Rail provides its own actions and opens it.
+   */
+  private canOpenLaneHere(key: string): boolean {
+    return parseLaneKey(key)?.kind !== 'cli' || this.displayDock === null;
   }
 
   /**
@@ -925,8 +990,24 @@ export class ChatTranscriptComponent {
 
   private openSubagentLane(key: string): void {
     const lane = parseLaneKey(key);
+    if (lane?.kind === 'cli') {
+      // No surface here (see canOpenLaneHere): the UI offers no action.
+      if (!this.canOpenLaneHere(key)) return;
+      const agent = this.laneMonitor?.agents().find((item) =>
+        item.agentId === lane.id && item.parentSessionId === this.sessionId());
+      if (!agent) {
+        this.subagentNotice.set(
+          'This agent is not available in this conversation.',
+        );
+        return;
+      }
+      this.subagentNotice.set('');
+      if (!agent.expanded) this.laneMonitor?.toggleAgentExpanded(lane.id);
+      this.laneMonitor?.requestPanelOpen(this.sessionContext?.() ?? null);
+      return;
+    }
     const target =
-      lane && lane.kind !== 'cli' ? this.findSubagent(lane.id) : null;
+      lane ? this.findSubagent(lane.id) : null;
     if (!lane || !target) {
       // Never route to another session: keep the transcript, say why.
       this.subagentNotice.set(

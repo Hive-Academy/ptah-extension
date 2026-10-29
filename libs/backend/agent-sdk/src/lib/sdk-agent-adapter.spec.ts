@@ -1854,6 +1854,10 @@ describe('SdkAgentAdapter', () => {
         config: {} as AISessionConfig,
         abortController: new AbortController(),
         messageQueue: [],
+        awaitingEcho: null,
+        currentTurnClientMessageId: null,
+        interruptRetirement: null,
+        interruptAwaitingResultYieldSequence: null,
         resolveNext: null,
         turnInFlight: false,
         activityHold: null,
@@ -1908,6 +1912,10 @@ describe('SdkAgentAdapter', () => {
         config: {} as AISessionConfig,
         abortController: new AbortController(),
         messageQueue: [],
+        awaitingEcho: null,
+        currentTurnClientMessageId: null,
+        interruptRetirement: null,
+        interruptAwaitingResultYieldSequence: null,
         resolveNext: null,
         turnInFlight: false,
         activityHold: null,
@@ -2113,6 +2121,10 @@ describe('SdkAgentAdapter', () => {
         config: {} as AISessionConfig,
         abortController: new AbortController(),
         messageQueue: [],
+        awaitingEcho: null,
+        currentTurnClientMessageId: null,
+        interruptRetirement: null,
+        interruptAwaitingResultYieldSequence: null,
         resolveNext: null,
         turnInFlight: false,
         activityHold: null,
@@ -2848,6 +2860,10 @@ describe('SdkAgentAdapter', () => {
         config: {} as AISessionConfig,
         abortController: new AbortController(),
         messageQueue: [],
+        awaitingEcho: null,
+        currentTurnClientMessageId: null,
+        interruptRetirement: null,
+        interruptAwaitingResultYieldSequence: null,
         resolveNext: null,
         turnInFlight: false,
         activityHold: null,
@@ -4118,6 +4134,32 @@ describe('SdkAgentAdapter', () => {
   });
 });
 
+describe('SdkAgentAdapter client message identity', () => {
+  it('forwards clientMessageId to the lifecycle queue options', async () => {
+    const h = makeAdapter();
+    await h.adapter.sendMessageToSession(
+      'identity-session' as SessionId,
+      'hello',
+      {
+        clientMessageId: 'client-id',
+        origin: { kind: 'human' },
+        admission: 'require-idle',
+      },
+    );
+    expect(h.sessionLifecycle.sendMessage).toHaveBeenCalledWith(
+      'identity-session',
+      'hello',
+      undefined,
+      undefined,
+      {
+        clientMessageId: 'client-id',
+        origin: { kind: 'human' },
+        admission: 'require-idle',
+      },
+    );
+  });
+});
+
 describe('SdkAgentAdapter account selection on live and relaunched runs (B15)', () => {
   const PROFILE_A = '11111111-1111-4111-8111-111111111111';
   const PROFILE_B = '22222222-2222-4222-8222-222222222222';
@@ -4151,6 +4193,10 @@ describe('SdkAgentAdapter account selection on live and relaunched runs (B15)', 
       config: {} as AISessionConfig,
       abortController: new AbortController(),
       messageQueue: [],
+      awaitingEcho: null,
+      currentTurnClientMessageId: null,
+      interruptRetirement: null,
+      interruptAwaitingResultYieldSequence: null,
       resolveNext: null,
       turnInFlight: false,
       activityHold: null,
@@ -4177,10 +4223,13 @@ describe('SdkAgentAdapter account selection on live and relaunched runs (B15)', 
     h: ReturnType<typeof makeAdapter>,
     accountSelection?: ProviderAccountSelection,
   ) =>
-    h.adapter.resumeSession('sess-live' as SessionId, {
-      tabId: 'tab-live',
-      ...(accountSelection ? { accountSelection } : {}),
-    } as AISessionConfig & { tabId: string });
+    h.adapter.resumeSession(
+      'sess-live' as SessionId,
+      {
+        tabId: 'tab-live',
+        ...(accountSelection ? { accountSelection } : {}),
+      } as AISessionConfig & { tabId: string },
+    );
 
   it.each<[string, ProviderAccountSelection | undefined]>([
     ['absent', undefined],
@@ -4283,7 +4332,8 @@ describe('SdkAgentAdapter account selection on live and relaunched runs (B15)', 
         accountSelection,
       }),
     ).resolves.toBeDefined();
-    const options = h.sessionLifecycle.executeSlashCommandQuery.mock.calls[0][2];
+    const options =
+      h.sessionLifecycle.executeSlashCommandQuery.mock.calls[0][2];
     expect(options.sessionConfig).toEqual({
       projectPath: '/fake/workspace',
       accountSelection,
@@ -4298,7 +4348,9 @@ describe('SdkAgentAdapter account selection on live and relaunched runs (B15)', 
     async (_label, accountSelection) => {
       const h = slashHarness();
       await h.adapter.initialize();
-      const sessionConfig = { projectPath: '/fake/workspace' } as AISessionConfig;
+      const sessionConfig = {
+        projectPath: '/fake/workspace',
+      } as AISessionConfig;
       await h.adapter.executeSlashCommand('sess-1' as SessionId, '/compact', {
         sessionConfig,
         ...(accountSelection ? { accountSelection } : {}),

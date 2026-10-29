@@ -433,6 +433,9 @@ function makeHarness(
   } as unknown as PlanLimitsStore;
 
   const agentMonitorStoreStub = {
+    pendingHistoryCandidates: signal<
+      ReturnType<AgentMonitorStore['pendingHistoryCandidates']>
+    >([]).asReadonly(),
     agents: agentsSig.asReadonly(),
     agentsForSession: agentsForSessionMock,
     // Exact-parent rule of the real store: an unresolved parent matches none.

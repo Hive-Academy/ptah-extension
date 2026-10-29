@@ -338,7 +338,11 @@ describe('chat:continue — inactive session + plain text (unchanged)', () => {
       params('check the current project'),
     );
 
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID });
+    expect(result).toEqual({
+      success: true,
+      sessionId: SESSION_ID,
+      enqueued: true,
+    });
     expect(h.resumeSession).toHaveBeenCalledTimes(1);
     expect(h.resumeSession).toHaveBeenCalledWith(
       SESSION_ID,

@@ -1,3 +1,6 @@
+import { signal } from '@angular/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import bgSequence from './__fixtures__/lane-order/bg-agent-events-sequence.json';
 /**
  * StreamingAccumulatorCore specs.
  *
@@ -330,6 +333,8 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       | 'onTaskToolResult'
       | 'onSubagentMessageComplete'
       | 'onBackgroundAgentStarted'
+      | 'onBackgroundAgentCompleted'
+      | 'onBackgroundAgentStopped'
     >
   >;
   let state: StreamingState;
@@ -388,6 +393,8 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       onTaskToolResult: jest.fn(),
       onSubagentMessageComplete: jest.fn(),
       onBackgroundAgentStarted: jest.fn(),
+      onBackgroundAgentCompleted: jest.fn(),
+      onBackgroundAgentStopped: jest.fn(),
     } as jest.Mocked<
       Pick<
         AgentMonitorStore,
@@ -401,12 +408,18 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
         | 'onTaskToolResult'
         | 'onSubagentMessageComplete'
         | 'onBackgroundAgentStarted'
+        | 'onBackgroundAgentCompleted'
+        | 'onBackgroundAgentStopped'
       >
     >;
 
     TestBed.configureTestingModule({
       providers: [
         StreamingAccumulatorCore,
+        {
+          provide: TabManagerService,
+          useValue: { tabs: signal([]), activeTabSessionId: signal(null) },
+        },
         EventDeduplicationService, // real — exercises source-priority logic
         { provide: SessionManager, useValue: sessionManager },
         { provide: BatchedUpdateService, useValue: batchedUpdate },
@@ -694,6 +707,65 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
   });
 
   // ---- Dedup-source-replay: the wizard/harness regression cases ----------
+
+  describe('captured background sequence', () => {
+    it.each(['sdk', 'background', 'late-status'])(
+      'settles completion through %s after the early placeholder',
+      (variant) => {
+        // The live capture is an event envelope projection: restore omitted required
+        // payload fields while retaining its actual order, timestamps and identity.
+        const monitor = TestBed.runInInjectionContext(
+          () => new AgentMonitorStore(),
+        );
+        const ctx = makeCtx({ agentMonitorStore: monitor });
+        const key = bgSequence[0].toolCallId;
+        if (!key) throw new Error('capture has no tool key');
+        for (const [index, row] of bgSequence.entries()) {
+          if (row.toolCallId !== key && row.parentToolUseId !== key) continue;
+          if (
+            variant === 'background' &&
+            (row.eventType === 'agent_completed' ||
+              row.eventType === 'agent_status')
+          )
+            continue;
+          const event = {
+            ...row,
+            id: `capture-${index}`,
+            timestamp: Date.parse(row.t),
+            source: 'complete',
+            output:
+              'Agent running in the background. agentId: a6942d6496519ada4',
+            isError: false,
+            toolName: 'Task',
+            agentType: 'general-purpose',
+            summary: 'done',
+            outputFile: '',
+          } as FlatStreamEventUnion;
+          core.process(state, event, ctx);
+          if (row.eventType === 'tool_result')
+            expect(monitor.getSubagent(key)?.status).toBe('running');
+        }
+        if (variant === 'background')
+          core.process(state, { ...bgAgentCompleted(), toolCallId: key }, ctx);
+        if (variant === 'late-status')
+          core.process(
+            state,
+            {
+              id: 'late',
+              eventType: 'agent_status',
+              timestamp: Date.now(),
+              sessionId: SESSION_ID,
+              messageId: MESSAGE_ID,
+              parentToolUseId: key,
+              taskId: monitor.getSubagent(key)?.taskId ?? 'task',
+              status: 'running',
+            },
+            ctx,
+          );
+        expect(monitor.getSubagent(key)?.status).toBe('completed');
+      },
+    );
+  });
 
   describe('dedup-source-replay (wizard/harness regression coverage)', () => {
     it('duplicate message_start with `complete` source REPLACES the prior stream message_start (no duplicate messageEventIds)', () => {
@@ -1014,19 +1086,52 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     it('leaves background and agent lifecycle stores untouched during replay', () => {
       const ctx = makeCtx({ skipStoreEffects: true });
       const lifecycleEvents: FlatStreamEventUnion[] = [
-        bgAgentStarted(), bgAgentCompleted(), bgAgentStopped(),
-        { id: 'progress', eventType: 'agent_progress', timestamp: 15, sessionId: SESSION_ID, messageId: MESSAGE_ID,
-          parentToolUseId: 'toolu_agent_1', taskId: 'task-1', description: 'Working',
-          totalTokens: 10, toolUses: 1, durationMs: 100 },
-        { id: 'status', eventType: 'agent_status', timestamp: 16, sessionId: SESSION_ID, messageId: MESSAGE_ID,
-          parentToolUseId: 'toolu_agent_1', taskId: 'task-1', status: 'running' },
-        { id: 'completed', eventType: 'agent_completed', timestamp: 17, sessionId: SESSION_ID, messageId: MESSAGE_ID,
-          parentToolUseId: 'toolu_agent_1', taskId: 'task-1', status: 'completed',
-          summary: 'Done', outputFile: '' },
+        bgAgentStarted(),
+        bgAgentCompleted(),
+        bgAgentStopped(),
+        {
+          id: 'progress',
+          eventType: 'agent_progress',
+          timestamp: 15,
+          sessionId: SESSION_ID,
+          messageId: MESSAGE_ID,
+          parentToolUseId: 'toolu_agent_1',
+          taskId: 'task-1',
+          description: 'Working',
+          totalTokens: 10,
+          toolUses: 1,
+          durationMs: 100,
+        },
+        {
+          id: 'status',
+          eventType: 'agent_status',
+          timestamp: 16,
+          sessionId: SESSION_ID,
+          messageId: MESSAGE_ID,
+          parentToolUseId: 'toolu_agent_1',
+          taskId: 'task-1',
+          status: 'running',
+        },
+        {
+          id: 'completed',
+          eventType: 'agent_completed',
+          timestamp: 17,
+          sessionId: SESSION_ID,
+          messageId: MESSAGE_ID,
+          parentToolUseId: 'toolu_agent_1',
+          taskId: 'task-1',
+          status: 'completed',
+          summary: 'Done',
+          outputFile: '',
+        },
       ];
       for (const event of lifecycleEvents) core.process(state, event, ctx);
       expect(backgroundAgentStore.onStarted).not.toHaveBeenCalled();
       expect(backgroundAgentStore.onCompleted).not.toHaveBeenCalled();
+      expect(
+        agentMonitorStore.onBackgroundAgentCompleted,
+      ).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onBackgroundAgentStopped).not.toHaveBeenCalled();
       expect(backgroundAgentStore.onStopped).not.toHaveBeenCalled();
       expect(agentMonitorStore.onBackgroundAgentStarted).not.toHaveBeenCalled();
       expect(agentMonitorStore.onAgentProgress).not.toHaveBeenCalled();
@@ -1038,17 +1143,15 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     it('does not read or update the agent monitor for a Task result or subagent completion', () => {
       const ctx = makeCtx({ skipStoreEffects: true });
       core.process(state, toolResult(), ctx);
-      core.process(
-        state,
-        messageComplete({ parentToolUseId: 'tool-1' }),
-        ctx,
-      );
+      core.process(state, messageComplete({ parentToolUseId: 'tool-1' }), ctx);
 
       expect(state.events.has('evt-tool-result')).toBe(true);
       expect(state.events.has('evt-msg-complete')).toBe(true);
       expect(agentMonitorStore.getSubagent).not.toHaveBeenCalled();
       expect(agentMonitorStore.onTaskToolResult).not.toHaveBeenCalled();
-      expect(agentMonitorStore.onSubagentMessageComplete).not.toHaveBeenCalled();
+      expect(
+        agentMonitorStore.onSubagentMessageComplete,
+      ).not.toHaveBeenCalled();
     });
   });
 

@@ -1,3 +1,4 @@
+import { AgentMonitorStore } from './agent-monitor.store';
 /**
  * `finalizeSessionHistory` — O(E + M) indexing (TASK_2026_437 C16, AC-11).
  *
@@ -499,6 +500,15 @@ describe('MessageFinalizationService.finalizeSessionHistory — O(E + M) indexin
       (state, messageId) => service.extractTextForMessage(state, messageId),
     );
   }
+
+  it('registers history candidates through the shared builder at finalization', () => {
+    const fixture = representativeFixture();
+    const monitor = TestBed.inject(AgentMonitorStore);
+    const register = jest.spyOn(monitor, 'registerHistoryCandidates');
+    load(fixture);
+    service.finalizeSessionHistory('tab-1');
+    expect(register).toHaveBeenCalledWith('sess-1', expect.any(Array));
+  });
 
   describe('equivalence with the pre-change algorithm', () => {
     const cases: ReadonlyArray<[string, () => HistoryFixture]> = [

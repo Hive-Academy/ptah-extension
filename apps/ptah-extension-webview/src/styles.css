@@ -3568,18 +3568,18 @@ END OF ANUBIS DESIGN SYSTEM
 }
 /* The transcript column is the one reading plane of a conversation: it carries
    the local text scrim over the tinted scene. Every other scrim surface inside
-   it (content cards, the answer cards, assistant chat bubbles) goes clear, so
+   it (content cards and assistant chat bubbles) goes clear, so
    no plate stacks on a plate; they keep their padding and bubbles keep their
    frame. Painted only once a message exists, so an empty transcript draws no
-   empty card. The user bubble keeps --glass-bubble-user, code keeps
+   empty card. The user bubble keeps its accent tint, code keeps
    --glass-code and the composer keeps --glass-fill-input. */
-:root[data-theme][data-glass='on'] ptah-chat-transcript .chat-scroll-content:has(> .chat-msg-slot) {
+:root[data-theme][data-glass='on'] :is(ptah-chat-transcript, ptah-lane-transcript) .chat-scroll-content:has(> .chat-msg-slot) {
   background: var(--glass-scrim-text);
   border-radius: var(--glass-radius);
   padding-inline: var(--sidebar-spacing-md);
   padding-bottom: var(--sidebar-spacing-md);
 }
-:root[data-theme][data-glass='on'] ptah-chat-transcript .chat-scroll-content:has(> .chat-msg-slot) :is([data-glass-surface='content'], .chat-bubble:not(.chat-bubble-primary)) {
+:root[data-theme][data-glass='on'] :is(ptah-chat-transcript, ptah-lane-transcript) .chat-scroll-content:has(> .chat-msg-slot) :is([data-glass-surface='content'], .chat-bubble:not(.chat-bubble-primary):not(.cs-user-bubble)) {
   background: transparent;
   box-shadow: none;
 }
@@ -3748,18 +3748,6 @@ END OF ANUBIS DESIGN SYSTEM
   background: transparent;
 }
 :root[data-glass='on'] [data-glass-surface='content'] { background: var(--glass-scrim-text); }
-/* Assistant answers are a content card with no inset of their own. User
-   bubbles already use this padding (.chat-bubble, sidebar scale). Apply it
-   only while glass paints the card, so non-glass transcript spacing stays. */
-:root[data-glass='on'] .cs-answer[data-glass-surface='content'] {
-  padding: var(--sidebar-spacing-sm) var(--sidebar-spacing-md);
-}
-/* The existing pt-4 marker denotes an answer following a work log. Glass
-   replaces that inset above; keep separation outside the painted card. */
-:root[data-glass='on'] .cs-answer[data-glass-surface='content'].pt-4 {
-  margin-top: var(--sidebar-spacing-md);
-}
-
 /* Prism Tomorrow is a dark palette loaded globally. Give glass-light answer
    fences an opaque reading plane and a dark fallback for every token, including
    punctuation/comments. All foregrounds exceed 4.5:1 against #f5f3ff. */
@@ -3799,4 +3787,40 @@ END OF ANUBIS DESIGN SYSTEM
   background: oklch(var(--b1));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/* Chat bubbles and lane rows keep only an inset edge in every host. */
+ptah-message-bubble .chat-bubble:not(.cs-user-bubble),
+ptah-chat-transcript .chat-bubble:not(.cs-user-bubble),
+ptah-lane-transcript .chat-bubble:not(.cs-user-bubble),
+ptah-lane-event article {
+  box-shadow: inset 0 1px 0 var(--surface-highlight);
+}
+:root[data-glass='on'] ptah-message-bubble .chat-bubble:not(.cs-user-bubble),
+:root[data-glass='on'] ptah-chat-transcript .chat-bubble:not(.cs-user-bubble),
+:root[data-glass='on'] ptah-lane-transcript .chat-bubble:not(.cs-user-bubble),
+:root[data-glass='on'] ptah-lane-event article {
+  box-shadow: inset 0 1px 0 var(--glass-glint);
+}
+/* A lane row lifts slightly on hover and keeps its inset edge. */
+ptah-lane-event article:hover {
+  box-shadow: inset 0 1px 0 var(--surface-highlight), 0 1px 3px oklch(var(--bc) / 0.12);
+}
+:root[data-glass='on'] ptah-lane-event article:hover {
+  box-shadow: inset 0 1px 0 var(--glass-glint), 0 1px 3px oklch(var(--bc) / 0.12);
+}
+:root[data-glass='on'] ptah-message-bubble .cs-own-user-bubble {
+  background: oklch(var(--p) / 0.1);
+  border-color: oklch(var(--p) / 0.2);
+  box-shadow: none;
+}
+:root[data-glass='on'] ptah-message-bubble .cs-peer-chat .cs-user-bubble {
+  background: var(--glass-bubble-user);
+  border-color: oklch(var(--s));
+  box-shadow: inset 0 1px 0 var(--glass-glint);
+}
+ptah-message-bubble .cs-own-user-bubble,
+ptah-chat-transcript .cs-own-user-bubble,
+ptah-lane-transcript .cs-own-user-bubble {
+  box-shadow: none;
 }

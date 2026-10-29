@@ -30,6 +30,14 @@ const turn = (phase: 'generating' | 'idle' | 'awaiting-background'): FlatStreamE
 });
 
 describe('LiveMessageProjection', () => {
+  it('keeps the real turn state when an identity-only retirement arrives', () => {
+    const projection = new LiveMessageProjection();
+    const real = turn('generating');
+    projection.observe(real, 1);
+    const retirement = { ...turn('idle'), retirementOnly: true, consumedClientMessageId: 'P' };
+    projection.observe(retirement, 2);
+    expect(projection.buildSeed().events).toEqual([real]);
+  });
   it('seeds a pre-hide anchor and merged visible and hidden suffix in sequence order', () => {
     const projection = new LiveMessageProjection();
     projection.observe(turn('generating'), 1);

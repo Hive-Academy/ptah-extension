@@ -52,6 +52,7 @@ export class LiveMessageProjection {
       return false;
     }
     if (event.eventType === 'turn_state') {
+      if (event.retirementOnly) return false;
       this.turnState = { event, sequence };
       for (const context of this.contexts.values()) context.suffix.barrier();
       if (event.phase === 'idle' || event.phase === 'failed') {

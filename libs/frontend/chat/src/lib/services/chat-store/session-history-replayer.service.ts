@@ -1022,7 +1022,7 @@ export class SessionHistoryReplayer {
       return;
     const lastTurnState = [...seedEvents]
       .reverse()
-      .find((event) => event.eventType === 'turn_state');
+      .find((event) => event.eventType === 'turn_state' && !event.retirementOnly);
     if (
       lastTurnState?.eventType === 'turn_state' &&
       isTerminalTurnPhase(lastTurnState.phase)
@@ -1196,7 +1196,7 @@ export class SessionHistoryReplayer {
       if (decision !== 'keep') excluded.add(tabId);
       if (
         event.eventType === 'compaction_complete' ||
-        (event.eventType === 'turn_state' && isTerminalTurnPhase(event.phase))
+        (event.eventType === 'turn_state' && !event.retirementOnly && isTerminalTurnPhase(event.phase))
       ) {
         this.terminalFilters.add(filter);
       }

@@ -15,6 +15,8 @@
  */
 
 import 'reflect-metadata';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import type {
   Logger,
@@ -35,6 +37,88 @@ import { CompactionBoundaryGenerationRegistry } from './helpers/compaction-bound
 import { SubagentStopNotices } from './helpers/compaction/subagent-stop-notices';
 
 const SESSION_ID = 'b5399ba8-e06d-417c-bac4-aba5add0555c';
+const echoProbe = readFileSync(join(__dirname, '__fixtures__/lane-order/sdk-echo-probe.jsonl'), 'utf8')
+  .trim().split(/\r?\n/).map((line) => JSON.parse(line) as {
+    type: string; isReplay?: boolean; hasOriginKey?: boolean; uuid: string; content?: string;
+  });
+const originlessEcho = echoProbe.find((line) => line.type === 'user' && line.hasOriginKey === false);
+if (!originlessEcho?.content) throw new Error('Missing origin-less live echo fixture');
+const fixtureEcho = {
+  type: 'user', isReplay: true, uuid: originlessEcho.uuid, session_id: SESSION_ID,
+  parent_tool_use_id: null,
+  message: { role: 'user', content: JSON.parse(originlessEcho.content) as string },
+};
+
+describe('UUID echo identity from the live probe', () => {
+  function inFlight(origin: { kind: string; name?: string }, clientMessageId?: string) {
+    const h = build();
+    const rec = {
+      awaitingEcho: { message: { uuid: fixtureEcho.uuid, origin }, clientMessageId },
+      messageQueue: [] as Array<{ message: { origin: { kind: string } }; clientMessageId?: string }>,
+    };
+    h.find.mockReturnValue(rec);
+    return { ...h, rec };
+  }
+
+  it('renders an origin-less peer echo with the first queued human ordering hint', () => {
+    const { transformer, rec } = inFlight({ kind: 'peer', name: 'Glm' });
+    rec.messageQueue.push({ message: { origin: { kind: 'human' } }, clientMessageId: 'Q' });
+    const events = transformer.transform(fixtureEcho as never);
+    expect(events.map((event) => event.eventType)).toEqual(['message_start', 'text_delta', 'message_complete']);
+    expect(events[0]).toMatchObject({ inboundPeer: { label: 'Glm', beforeClientMessageId: 'Q' } });
+    expect(rec.awaitingEcho).toBeNull();
+    expect(transformer.transform(fixtureEcho as never)).toEqual([]);
+  });
+
+  it('drops an origin-less replay without a yielded entry', () => {
+    expect(build().transformer.transform(fixtureEcho as never)).toEqual([]);
+  });
+
+  it('omits the ordering hint when no human is queued', () => {
+    const { transformer } = inFlight({ kind: 'peer', name: 'Glm' });
+    const start = transformer.transform(fixtureEcho as never)[0];
+    expect(start).toMatchObject({ inboundPeer: { label: 'Glm' } });
+    expect((start as { inboundPeer?: object }).inboundPeer).not.toHaveProperty('beforeClientMessageId');
+  });
+
+  it('stamps a human echo with its client id and keeps envelope text human', () => {
+    const { transformer } = inFlight({ kind: 'human' }, 'P');
+    const events = transformer.transform({
+      ...fixtureEcho,
+      message: { role: 'user', content: '<agent-report agent-id="probe-1">body</agent-report>' },
+    } as never);
+    expect(events[0]).toMatchObject({ role: 'user', clientMessageId: 'P' });
+    expect(events[0]).not.toHaveProperty('inboundPeer');
+  });
+
+  it('retains the slot for identical historical text with a different uuid', () => {
+    const { transformer, rec } = inFlight({ kind: 'human' }, 'P');
+    expect(transformer.transform({ ...fixtureEcho, uuid: 'historical' } as never)).toEqual([]);
+    expect(rec.awaitingEcho).not.toBeNull();
+    expect(transformer.transform(fixtureEcho as never)[0]).toMatchObject({ clientMessageId: 'P' });
+  });
+
+  it('does not match the same text with different attachments and a different uuid', () => {
+    const { transformer, rec } = inFlight({ kind: 'human' }, 'P');
+    const different = {
+      ...fixtureEcho, uuid: 'different-attachment-turn',
+      message: { role: 'user', content: [
+        { type: 'text', text: fixtureEcho.message.content },
+        { type: 'image', source: { type: 'base64', data: 'AA==', media_type: 'image/png' } },
+      ] },
+    };
+    expect(transformer.transform(different as never)).toEqual([]);
+    expect(rec.awaitingEcho).not.toBeNull();
+  });
+
+  it('uses the explicit-origin path for a duplicate after its matched echo', () => {
+    const { transformer, rec } = inFlight({ kind: 'peer', name: 'Glm' });
+    const explicit = { ...fixtureEcho, origin: { kind: 'peer', name: 'Glm' } };
+    expect(transformer.transform(explicit as never)[0]).toMatchObject({ inboundPeer: { label: 'Glm' } });
+    expect(rec.awaitingEcho).toBeNull();
+    expect(transformer.transform(explicit as never)[0]).toMatchObject({ inboundPeer: { label: 'Glm' } });
+  });
+});
 
 function makeLogger(): jest.Mocked<Logger> {
   return {
@@ -48,6 +132,7 @@ function makeLogger(): jest.Mocked<Logger> {
 function build(): {
   transformer: SdkMessageTransformer;
   logger: jest.Mocked<Logger>;
+  find: jest.Mock;
 } {
   const logger = makeLogger();
   const subagentRegistry = {
@@ -64,12 +149,15 @@ function build(): {
       subscriptionCovered: false,
     })),
   } as unknown as IModelResolver;
+  const find = jest.fn().mockReturnValue(undefined);
   const lifecycle = {
     getActiveSessionIds: jest.fn().mockReturnValue([SESSION_ID]),
+    find,
   } as unknown as SessionLifecycleManager;
 
   return {
     logger,
+    find,
     transformer: new SdkMessageTransformer(
       logger,
       { provider: 'anthropic' } as unknown as AuthEnv,

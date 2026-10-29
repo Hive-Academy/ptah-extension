@@ -205,6 +205,8 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
       getSubagent: jest.fn().mockReturnValue(undefined),
       onTaskToolResult: jest.fn(),
       onBackgroundAgentStarted: jest.fn(),
+      onBackgroundAgentCompleted: jest.fn(),
+      onBackgroundAgentStopped: jest.fn(),
     } as unknown as AgentMonitorStore;
 
     TestBed.configureTestingModule({

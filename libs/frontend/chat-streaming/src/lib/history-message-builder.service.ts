@@ -12,6 +12,7 @@ import {
   createEmptyStreamingState,
   type StreamingState,
 } from '@ptah-extension/chat-types';
+import { SubagentExecutionStore } from './subagent-execution.store';
 import { AgentMonitorStore } from './agent-monitor.store';
 import { BackgroundAgentStore } from './background-agent.store';
 import { BatchedUpdateService } from './batched-update.service';
@@ -106,13 +107,15 @@ export function buildUserMessageFromStart(
     sessionId,
     timestamp: start.timestamp,
     ...(start.imageCount ? { imageCount: start.imageCount } : {}),
-    ...(start.inboundPeer ? { inboundPeer: start.inboundPeer } : {}),
+    ...(start.inboundPeer
+      ? { inboundPeer: { label: start.inboundPeer.label } }
+      : {}),
   });
 }
 
 @Injectable({ providedIn: 'root' })
 export class HistoryMessageBuilder {
-  private readonly replayOwners = new Map<string, Set<string>>();
+  private readonly subagentExecution = inject(SubagentExecutionStore);
   private readonly accumulator = inject(StreamingAccumulatorCore);
   private readonly sessionManager = inject(SessionManager);
   private readonly deduplication = inject(EventDeduplicationService);
@@ -152,31 +155,11 @@ export class HistoryMessageBuilder {
     };
 
     let accumulated = state;
-    let subagentScratch: StreamingState | undefined;
-    const subagentMessageIds =
-      this.replayOwners.get(sessionId) ?? new Set<string>();
-    this.replayOwners.set(sessionId, subagentMessageIds);
     for (const event of events) {
       const scopedEvent = event.sessionId
         ? event
         : ({ ...event, sessionId } as FlatStreamEventUnion);
-      // Root agent_start refers to the parent assistant message. The child
-      // message starts later with its own message id.
-      if (
-        scopedEvent.parentToolUseId &&
-        scopedEvent.eventType !== 'agent_start'
-      ) {
-        subagentMessageIds.add(scopedEvent.messageId);
-      }
-      if (subagentMessageIds.has(scopedEvent.messageId)) {
-        subagentScratch ??= createEmptyStreamingState();
-        subagentScratch = this.accumulateSubagentEvent(
-          subagentScratch,
-          scopedEvent,
-          context,
-        );
-        continue;
-      }
+      if (this.subagentExecution.claim(scopedEvent)) continue;
       const result = this.accumulator.process(
         accumulated,
         scopedEvent,
@@ -185,15 +168,6 @@ export class HistoryMessageBuilder {
       if (result.replacementState) accumulated = result.replacementState;
     }
     return accumulated;
-  }
-
-  private accumulateSubagentEvent(
-    state: StreamingState,
-    event: FlatStreamEventUnion,
-    context: AccumulatorContext,
-  ): StreamingState {
-    const result = this.accumulator.process(state, event, context);
-    return result.replacementState ?? state;
   }
 
   /** Build finalized transcript messages in O(events + root messages). */
@@ -209,6 +183,20 @@ export class HistoryMessageBuilder {
         );
         allTrees = allTrees.map((tree) =>
           this.markResumableAgentsAsInterrupted(tree, resumableToolCallIds),
+        );
+      }
+
+      if (options.sessionId) {
+        const keys: string[] = [];
+        const visit = (node: ExecutionNode): void => {
+          if (node.type === 'agent' && node.toolCallId)
+            keys.push(node.toolCallId);
+          node.children.forEach(visit);
+        };
+        allTrees.forEach(visit);
+        this.agentMonitorStore.registerHistoryCandidates(
+          options.sessionId,
+          keys,
         );
       }
 

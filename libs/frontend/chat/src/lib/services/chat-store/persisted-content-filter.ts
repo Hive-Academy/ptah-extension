@@ -112,7 +112,7 @@ export class PersistedContentFilter {
     }
     if (event.eventType === 'tool_result') return this.result(event);
     if (event.eventType === 'compaction_complete' ||
-      (event.eventType === 'turn_state' && isTerminalTurnPhase(event.phase))) {
+      (event.eventType === 'turn_state' && !event.retirementOnly && isTerminalTurnPhase(event.phase))) {
       this.retire();
       return 'keep';
     }

@@ -1,6 +1,10 @@
+import { signal } from '@angular/core';
+import { ClaudeRpcService, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
+  AgentMonitorStore,
+  SubagentExecutionStore,
   HistoryMessageBuilder,
   SessionManager,
   StreamingHandlerService,
@@ -261,5 +265,111 @@ describe('SessionHistoryReplayer older pages', () => {
     expect(TestBed.inject(HistoryMessageBuilder).build).not.toHaveBeenCalled();
     expect(prependHistoryMessages).not.toHaveBeenCalled();
     expect(clearCache).toHaveBeenCalledWith(`history-page-${TAB}`);
+  });
+});
+
+describe('older-page inactive subagent integration', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('settles a notification-free background agent and retains its child transcript', async () => {
+    const prepend = jest.fn();
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: SURFACE_ACTIVE, useValue: signal(true).asReadonly() },
+        SessionHistoryReplayer,
+        { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
+        {
+          provide: TabManagerService,
+          useValue: {
+            tabs: signal([]),
+            activeTabSessionId: signal(null),
+            activeTabId: signal<string | null>(null),
+            visibleTabIds: signal<ReadonlySet<string>>(new Set()),
+            findTabByIdAcrossWorkspaces: () => ({
+              tab: {
+                id: TAB,
+                claudeSessionId: SESSION,
+                olderHistoryCursor: 'cursor',
+              },
+              workspacePath: 'D:/repo',
+            }),
+            prependHistoryMessages: prepend,
+          },
+        },
+        { provide: StreamingHandlerService, useValue: {} },
+      ],
+    });
+    const base = {
+      sessionId: SESSION,
+      source: 'history' as const,
+      timestamp: 1,
+      messageId: 'parent',
+    };
+    const events: FlatStreamEventUnion[] = [
+      { ...base, id: 'parent', eventType: 'message_start', role: 'assistant' },
+      {
+        ...base,
+        id: 'tool',
+        eventType: 'tool_start',
+        toolCallId: 'tool',
+        toolName: 'Task',
+        isTaskTool: true,
+        toolInput: { run_in_background: true },
+      },
+      {
+        ...base,
+        id: 'agent',
+        eventType: 'agent_start',
+        toolCallId: 'tool',
+        parentToolUseId: 'tool',
+        agentType: 'Explore',
+      },
+      {
+        ...base,
+        id: 'child',
+        eventType: 'message_start',
+        messageId: 'child',
+        parentToolUseId: 'tool',
+        role: 'assistant',
+      },
+      {
+        ...base,
+        id: 'text',
+        eventType: 'text_delta',
+        messageId: 'child',
+        parentToolUseId: 'tool',
+        blockIndex: 0,
+        delta: 'retained child answer',
+        timestamp: 4,
+      },
+      {
+        ...base,
+        id: 'result',
+        eventType: 'tool_result',
+        toolCallId: 'tool',
+        toolName: 'Task',
+        output: 'Agent running in the background. agentId: bg-1',
+        isError: false,
+      },
+    ];
+    const replayer = TestBed.inject(SessionHistoryReplayer);
+    await expect(
+      replayer.replayOlderPage(events, TAB, SESSION, 'cursor', null, []),
+    ).resolves.toBe('prepended');
+    const monitor = TestBed.inject(AgentMonitorStore);
+    const pending = monitor.pendingHistoryCandidates()[0];
+    expect(pending.sessionId).toBe(SESSION);
+    monitor.applyHistoryEvidence(SESSION, pending.generation, 'inactive');
+    TestBed.flushEffects();
+    const execution = TestBed.inject(SubagentExecutionStore);
+    expect(monitor.getSubagent('tool')).toMatchObject({
+      status: 'stopped',
+      settledFromHistory: true,
+    });
+    expect(execution.entryFor('tool')?.live).toBe(false);
+    expect(JSON.stringify(execution.treeFor('tool'))).toContain(
+      'retained child answer',
+    );
+    expect(prepend).toHaveBeenCalledTimes(1);
   });
 });
