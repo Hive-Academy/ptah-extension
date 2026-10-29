@@ -70,6 +70,10 @@ import {
 
 const accessMock = access as jest.MockedFunction<typeof access>;
 import type {
+  ExecutionProfileRequest,
+  ResolvedExecutionProfile,
+} from '@ptah-extension/auth-providers';
+import type {
   FlatStreamEventUnion,
   IAgentAdapter,
   ProviderProfile,
@@ -347,6 +351,10 @@ interface Harness {
       Promise<ProviderProfile | undefined>,
       [string, string]
     >;
+    resolveExecutionProfile: jest.Mock<
+      Promise<ResolvedExecutionProfile>,
+      [ExecutionProfileRequest]
+    >;
   };
 }
 
@@ -430,13 +438,28 @@ function setup(options?: {
       .mockResolvedValue(options?.enhancedPromptsContent ?? null),
   };
   const permissionHandler = new FakePermissionHandler();
+  const resolveProviderProfileForWorkspace = jest
+    .fn<Promise<ProviderProfile | undefined>, [string, string]>()
+    .mockResolvedValue(options?.providerProfile);
   const providerProfileResolver: Harness['providerProfileResolver'] = {
     resolveStoredModel: jest.fn<string, [string, string]>(
       (_path, model) => model || 'default',
     ),
-    resolveProviderProfileForWorkspace: jest
-      .fn<Promise<ProviderProfile | undefined>, [string, string]>()
-      .mockResolvedValue(options?.providerProfile),
+    resolveProviderProfileForWorkspace,
+    resolveExecutionProfile: jest.fn<
+      Promise<ResolvedExecutionProfile>,
+      [ExecutionProfileRequest]
+    >(async (input) => {
+      const providerProfile = await resolveProviderProfileForWorkspace(
+        input.workspacePath,
+        input.requestedModel,
+      );
+      return {
+        runtime: 'claude-sdk',
+        model: input.requestedModel,
+        providerProfile,
+      };
+    }),
   };
 
   const ctorArgs = [

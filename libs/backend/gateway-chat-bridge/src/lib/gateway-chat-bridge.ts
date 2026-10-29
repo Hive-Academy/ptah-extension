@@ -47,10 +47,13 @@ import {
 } from '@ptah-extension/messaging-gateway';
 import {
   SessionId,
+  type AgentSessionResumeConfig,
   type IAgentAdapter,
   type FlatStreamEventUnion,
   type PermissionLevel,
   type ProviderProfile,
+  type RuntimeHostCapabilities,
+  type SessionRuntimeIdentity,
 } from '@ptah-extension/shared';
 import {
   SETTINGS_TOKENS,
@@ -60,9 +63,16 @@ import { type CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SDK_TOKENS,
   AuthRequiredError,
+  isCodexChatAdapterError,
+  resolveSessionRuntimeIdentity,
   type PermissionPromptLifecycleEvent,
   type SdkPermissionHandler,
+  type SessionRuntimeIdentityLookup,
 } from '@ptah-extension/agent-sdk';
+import {
+  CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+  isCodexResumeProfileChangedError,
+} from '@ptah-extension/codex-runtime';
 import {
   AGENT_GENERATION_TOKENS,
   type EnhancedPromptsService,
@@ -151,6 +161,42 @@ function approvalTimedOutNotice(toolName: string): string {
 }
 
 /**
+ * Typed D14a refusal: the native error itself, its cause, or the adapter's
+ * `resume-profile-changed` code. No name or message matching.
+ */
+function isGatewayResumeProfileChanged(error: unknown): boolean {
+  if (isCodexResumeProfileChangedError(error)) return true;
+  if (error instanceof Error && isCodexResumeProfileChangedError(error.cause)) {
+    return true;
+  }
+  return (
+    isCodexChatAdapterError(error) && error.code === 'resume-profile-changed'
+  );
+}
+
+/**
+ * Bound session with no native metadata. Same shape as the main chat path's
+ * empty-metadata branch (`storedChatRuntimeIdentity`): the resolver must take
+ * the Claude resume branch, never the new-session native branch.
+ */
+function legacyClaudeRuntimeIdentity(
+  sessionId: SessionId,
+  workspaceId: string,
+): SessionRuntimeIdentity {
+  return {
+    version: 1,
+    sessionId,
+    runtime: 'claude-sdk',
+    providerId: 'claude-cli',
+    workspaceId,
+  };
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+/**
  * Settings key (under the `ptah` section) for the gateway inbound permission
  * level. Read per turn via `IWorkspaceProvider.getConfiguration`, mirroring
  * `GatewayService`'s config reads.
@@ -189,11 +235,13 @@ interface SdkSessionContext {
  * workspace — the same per-workspace snapshot the webview chat path passes —
  * so a gateway session never rides the process-wide AuthEnv when another
  * workspace's provider is the active one. `providerProfile` is `undefined`
- * only when the shared AuthEnv already serves this workspace's provider.
+ * when the shared AuthEnv already serves this workspace's provider, and for
+ * every native Codex turn (no translation proxy).
  */
 interface TurnProvider {
   model: string;
   providerProfile: ProviderProfile | undefined;
+  runtime: 'claude-sdk' | 'codex-app-server';
 }
 
 /** Result of a turn's pre-session preparation (see `prepareTurn`). */
@@ -245,6 +293,12 @@ export class GatewayChatBridge {
     private readonly permissionHandler: SdkPermissionHandler,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER)
     private readonly workspaceProviderProfileResolver: WorkspaceProviderProfileResolver,
+    @inject(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES, { isOptional: true })
+    private readonly hostCapabilities: RuntimeHostCapabilities = {
+      nativeCodex: false,
+    },
+    @inject(SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP, { isOptional: true })
+    private readonly sessionIdentities?: SessionRuntimeIdentityLookup,
   ) {}
 
   start(): void {
@@ -450,10 +504,36 @@ export class GatewayChatBridge {
     // moves on. The abandoned preparation only ever produces a value nobody
     // reads — sessions start after this point — so a late completion cannot
     // start a session or touch the next turn.
+    //
+    // One identity for the whole turn. A bound session is resolved before
+    // `prepareTurn` so the profile decision is a resume decision. A throw
+    // fails closed: no profile resolve, no session, binding unchanged.
+    const identityResult = this.readBoundSessionIdentity(
+      conversation.ptahSessionId,
+      workspaceRoot,
+    );
+    if (!identityResult.ok) {
+      stopTyping();
+      this.activeRoutes.delete(tabId);
+      this.logger.error(
+        '[gateway-chat-bridge] session runtime identity lookup failed',
+        identityResult.error,
+      );
+      await this.failTurnBeforeSession(
+        route,
+        messageId,
+        'Ptah could not complete this request. Please try again.',
+        'session-identity',
+        'session runtime identity lookup failed',
+      );
+      return;
+    }
+    const boundIdentity = identityResult.identity;
+
     let prepared: TurnPreparation | null;
     let preparationTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const preparation = this.prepareTurn(workspaceRoot);
+      const preparation = this.prepareTurn(workspaceRoot, boundIdentity);
       // A rejection that lands after the deadline has no awaiting reader, so
       // it is logged here; one inside the deadline is also reported below.
       preparation.catch((error: unknown) => {
@@ -534,6 +614,7 @@ export class GatewayChatBridge {
           tabId,
           sdkContext,
           provider,
+          boundIdentity,
         );
         if (cancellation.cancelled) return;
         sessionToEnd =
@@ -545,6 +626,24 @@ export class GatewayChatBridge {
             cancellation,
           )) ?? sessionToEnd;
       } catch (error: unknown) {
+        if (
+          !cancellation.cancelled &&
+          boundIdentity?.runtime === 'codex-app-server' &&
+          isGatewayResumeProfileChanged(error)
+        ) {
+          const detail = error instanceof Error ? error.message : String(error);
+          this.logger.error(
+            '[gateway-chat-bridge] native resume refused: execution profile changed',
+            error instanceof Error ? error : new Error(detail),
+          );
+          turnFailure = 'resume-profile-changed';
+          await this.sendErrorQuietly(
+            route,
+            CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+            'resume-profile-changed',
+          );
+          return;
+        }
         const recovered = await this.tryFallbackStart(
           error,
           conversation,
@@ -555,6 +654,7 @@ export class GatewayChatBridge {
           sdkContext,
           provider,
           cancellation,
+          boundIdentity,
         );
         if (recovered.ok) {
           sessionToEnd = recovered.sessionId ?? sessionToEnd;
@@ -685,16 +785,43 @@ export class GatewayChatBridge {
    * degrade-to-defaults guards: a workspace whose provider cannot be served
    * must fail the turn closed, never silently run on whichever provider the
    * shared AuthEnv happens to hold.
+   *
+   * `existingIdentity` is set only for a bound session. Omitting it is the
+   * new-session branch; a legacy Claude binding still passes an identity so
+   * the resolver cannot start a native session for that thread.
    */
-  private async prepareTurn(workspaceRoot: string): Promise<TurnPreparation> {
+  private async prepareTurn(
+    workspaceRoot: string,
+    existingIdentity?: SessionRuntimeIdentity,
+  ): Promise<TurnPreparation> {
     const sdkContext = await this.resolveSdkContext(workspaceRoot);
-    const model = this.resolveModel(workspaceRoot);
-    const providerProfile =
-      await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-        workspaceRoot,
-        model,
-      );
-    return { sdkContext, provider: { model, providerProfile } };
+    const requestedModel = this.resolveModel(workspaceRoot);
+    const decision =
+      await this.workspaceProviderProfileResolver.resolveExecutionProfile({
+        workspacePath: workspaceRoot,
+        requestedModel,
+        consumer: 'gateway',
+        hostCapabilities: this.hostCapabilities,
+        ...(existingIdentity ? { existingIdentity } : {}),
+      });
+    if (decision.runtime === 'codex-app-server') {
+      return {
+        sdkContext,
+        provider: {
+          model: decision.seed.model,
+          providerProfile: undefined,
+          runtime: 'codex-app-server',
+        },
+      };
+    }
+    return {
+      sdkContext,
+      provider: {
+        model: decision.model,
+        providerProfile: decision.providerProfile,
+        runtime: 'claude-sdk',
+      },
+    };
   }
 
   /**
@@ -798,41 +925,35 @@ export class GatewayChatBridge {
     tabId: string,
     sdkContext: SdkSessionContext,
     provider: TurnProvider,
+    boundIdentity: SessionRuntimeIdentity | undefined,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     const persistedId = conversation.ptahSessionId;
     const canResume =
       !!persistedId &&
       this.agentAdapter.isSessionActive(SessionId.from(persistedId));
-    const { model, providerProfile } = provider;
-    const permissionLevel = this.resolvePermissionLevel();
+    const resumeConfig = this.resumeConfig(
+      body,
+      workspaceRoot,
+      tabId,
+      sdkContext,
+      provider,
+    );
     if (persistedId && canResume) {
-      return this.agentAdapter.resumeSession(SessionId.from(persistedId), {
-        prompt: body,
-        tabId,
-        projectPath: workspaceRoot,
-        model,
-        permissionLevel,
-        mcpServerRunning: sdkContext.mcpServerRunning,
-        enhancedPromptsContent: sdkContext.enhancedPromptsContent,
-        providerProfile,
-      });
+      return this.agentAdapter.resumeSession(
+        SessionId.from(persistedId),
+        resumeConfig,
+      );
     }
     if (persistedId) {
       try {
         return await this.agentAdapter.resumeSession(
           SessionId.from(persistedId),
-          {
-            prompt: body,
-            tabId,
-            projectPath: workspaceRoot,
-            model,
-            permissionLevel,
-            mcpServerRunning: sdkContext.mcpServerRunning,
-            enhancedPromptsContent: sdkContext.enhancedPromptsContent,
-            providerProfile,
-          },
+          resumeConfig,
         );
       } catch (error: unknown) {
+        if (boundIdentity?.runtime === 'codex-app-server') {
+          throw error;
+        }
         this.logger.warn(
           '[gateway-chat-bridge] resume of persisted session failed; falling back to new session',
           {
@@ -843,6 +964,26 @@ export class GatewayChatBridge {
       }
     }
     return this.startNew(body, workspaceRoot, tabId, sdkContext, provider);
+  }
+
+  private resumeConfig(
+    body: string,
+    workspaceRoot: string,
+    tabId: string,
+    sdkContext: SdkSessionContext,
+    provider: TurnProvider,
+  ): AgentSessionResumeConfig {
+    return {
+      prompt: body,
+      tabId,
+      projectPath: workspaceRoot,
+      model: provider.model,
+      permissionLevel: this.resolvePermissionLevel(),
+      mcpServerRunning: sdkContext.mcpServerRunning,
+      enhancedPromptsContent: sdkContext.enhancedPromptsContent,
+      providerProfile: provider.providerProfile,
+      consumer: 'gateway',
+    };
   }
 
   private startNew(
@@ -863,7 +1004,47 @@ export class GatewayChatBridge {
       mcpServerRunning: sdkContext.mcpServerRunning,
       enhancedPromptsContent: sdkContext.enhancedPromptsContent,
       providerProfile: provider.providerProfile,
+      consumer: 'gateway',
+      runtime: provider.runtime,
     });
+  }
+
+  /**
+   * Runtime view for this turn. An absent or empty binding carries no identity
+   * (new-session profile; legacy fallback stays available). A non-empty id that
+   * is not a `SessionId` is an existing binding, not a fresh conversation: the
+   * turn fails closed and the binding is left unchanged. A present lookup that
+   * returns no metadata is a legacy Claude session. A throw fails the turn; an
+   * absent lookup service stays on the legacy Claude identity.
+   */
+  private readBoundSessionIdentity(
+    sessionId: string | null | undefined,
+    workspaceRoot: string,
+  ):
+    | { readonly ok: true; readonly identity?: SessionRuntimeIdentity }
+    | { readonly ok: false; readonly error: Error } {
+    if (sessionId === null || sessionId === undefined || sessionId.length === 0) {
+      return { ok: true };
+    }
+    if (!SessionId.validate(sessionId)) {
+      return {
+        ok: false,
+        error: new Error('Bound gateway session id is not a valid session id'),
+      };
+    }
+    const id = SessionId.from(sessionId);
+    if (this.sessionIdentities === undefined) {
+      return { ok: true, identity: legacyClaudeRuntimeIdentity(id, workspaceRoot) };
+    }
+    try {
+      const stored = resolveSessionRuntimeIdentity(this.sessionIdentities, id);
+      return {
+        ok: true,
+        identity: stored ?? legacyClaudeRuntimeIdentity(id, workspaceRoot),
+      };
+    } catch (error: unknown) {
+      return { ok: false, error: asError(error) };
+    }
   }
 
   private resolveModel(workspaceRoot: string): string {
@@ -944,11 +1125,15 @@ export class GatewayChatBridge {
     sdkContext: SdkSessionContext,
     provider: TurnProvider,
     cancellation: TurnCancellation,
+    boundIdentity: SessionRuntimeIdentity | undefined,
   ): Promise<{ ok: boolean; sessionId: string | null }> {
     // Turn already watchdog-terminated — do not start a stray retry session or
     // touch the next turn's conversation state.
     if (cancellation.cancelled) return { ok: false, sessionId: null };
     if (!conversation.ptahSessionId) return { ok: false, sessionId: null };
+    if (boundIdentity?.runtime === 'codex-app-server') {
+      return { ok: false, sessionId: null };
+    }
     this.logger.warn(
       '[gateway-chat-bridge] resumed turn failed; retrying with a new session',
       {
