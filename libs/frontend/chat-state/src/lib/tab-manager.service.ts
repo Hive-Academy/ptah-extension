@@ -2305,22 +2305,25 @@ export class TabManagerService {
    * `message_start` event) onto the current optimistic user bubble, so
    * fork/rewind can anchor on the SDK's own id instead of reconstructing it.
    *
-   * Targets the first user message that has a client-only optimistic id (not a
-   * UUID) and no `nativeUuid` yet — for a live turn that is the bubble just
-   * sent. `id` is left unchanged (no `@for` remount / no flicker); the uuid
-   * lives in the sidecar `nativeUuid` field. Idempotent: no-op if already
-   * stamped, if the uuid is already a message id, or if there is no optimistic
-   * candidate (e.g. a history-loaded session whose ids are already uuids).
+   * Fallback for an echo without a client id (notably `chat:start`). Pending
+   * continue prompts are excluded so an unrelated echo cannot stamp one.
+   * The optimistic `id` stays unchanged; `nativeUuid` is its SDK sidecar.
    */
-  reconcileUserMessageNativeUuid(tabId: string, uuid: string): void {
+  reconcileUserMessageNativeUuid(
+    tabId: string,
+    uuid: string,
+    excludeIds: ReadonlySet<string> = new Set(),
+  ): void {
     if (!TabManagerService.LINE_UUID_PATTERN.test(uuid)) return;
-    const tab = this._tabs().find((t) => t.id === tabId);
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
     if (!tab) return;
     const messages = tab.messages;
     if (messages.some((m) => m.nativeUuid === uuid || m.id === uuid)) return;
     const index = messages.findIndex(
       (m) =>
         m.role === 'user' &&
+        !m.inboundPeer &&
+        !excludeIds.has(m.id) &&
         !m.nativeUuid &&
         !TabManagerService.LINE_UUID_PATTERN.test(m.id),
     );
@@ -2329,6 +2332,32 @@ export class TabManagerService {
       i === index ? { ...m, nativeUuid: uuid } : m,
     );
     this.updateTabInternal(tabId, { messages: updated });
+  }
+
+  /** Stamp only the optimistic prompt named by the backend's client id. */
+  acknowledgeUserPrompt(
+    tabId: string,
+    clientMessageId: string,
+    nativeUuid: string,
+  ): void {
+    if (!TabManagerService.LINE_UUID_PATTERN.test(nativeUuid)) return;
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab) return;
+    const messages = tab.messages;
+    const index = messages.findIndex(
+      (message) =>
+        message.role === 'user' &&
+        !message.inboundPeer &&
+        message.id === clientMessageId &&
+        !message.nativeUuid,
+    );
+    if (index === -1) return;
+    if (messages.some((message) => message.id === nativeUuid || message.nativeUuid === nativeUuid)) return;
+    this.updateTabInternal(tabId, {
+      messages: messages.map((message, i) =>
+        i === index ? { ...message, nativeUuid } : message,
+      ),
+    });
   }
 
   /**

@@ -1212,6 +1212,7 @@ export class SessionQueryExecutor {
       },
       resolveCapacityRoute(effectiveAuthEnv),
     );
+    rec.echoesUserMessages = enableFileCheckpointing ?? true;
     const selection = (sessionConfig as { accountSelection?: ProviderAccountSelection } | undefined)?.accountSelection;
     let named: NamedAccountQueryAdmission | undefined;
     let namedQueryFn: QueryFunction | undefined;
@@ -1263,7 +1264,7 @@ export class SessionQueryExecutor {
         if (named) { await named.dispose(); this.registry.remove(rec); abortController.abort(); }
         throw error;
       }
-      rec.messageQueue.push(sdkUserMessage);
+      rec.messageQueue.push({ message: sdkUserMessage });
       this.logger.info(
         `[SessionLifecycle] Queued initial prompt for session ${sessionId}`,
       );

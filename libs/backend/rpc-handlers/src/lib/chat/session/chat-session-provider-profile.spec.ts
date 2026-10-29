@@ -63,6 +63,7 @@ import type { ModelSettings } from '@ptah-extension/settings-core';
 import { AuthRequiredError } from '@ptah-extension/agent-sdk';
 
 import { createMockModelSettings } from '../../../test-utils/mock-settings';
+import { ChatContinueParamsSchema } from '../../handlers/chat-rpc.schema';
 import { ChatSessionService } from './chat-session.service';
 import { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
 import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
@@ -94,6 +95,8 @@ function emptyStream(): AsyncIterable<never> {
 }
 
 interface Harness {
+  sendMessageToSession: jest.Mock;
+  handleContinue: jest.Mock;
   service: ChatSessionService;
   metadataGet: jest.Mock;
   resolve: jest.Mock;
@@ -105,6 +108,10 @@ interface Harness {
 }
 
 function makeHarness(resolve: jest.Mock): Harness {
+  const sendMessageToSession = jest.fn().mockResolvedValue(undefined);
+  const handleContinue = jest
+    .fn()
+    .mockResolvedValue({ error: '__NOT_PTAH_CLI__' });
   const noop = jest.fn();
   const metadataGet = jest.fn().mockResolvedValue(null);
   const startChatSession = jest.fn().mockResolvedValue(emptyStream());
@@ -115,7 +122,7 @@ function makeHarness(resolve: jest.Mock): Harness {
     resumeSession,
     executeSlashCommand,
     isSessionActive: jest.fn().mockReturnValue(false),
-    sendMessageToSession: jest.fn().mockResolvedValue(undefined),
+    sendMessageToSession,
     endSession: jest.fn(),
     interruptSession: jest.fn().mockResolvedValue(undefined),
     interruptCurrentTurn: jest.fn().mockResolvedValue(true),
@@ -203,9 +210,7 @@ function makeHarness(resolve: jest.Mock): Harness {
     } as never,
     sdkContext,
     {
-      handleContinue: jest
-        .fn()
-        .mockResolvedValue({ error: '__NOT_PTAH_CLI__' }),
+      handleContinue,
     } as never,
     streamBroadcaster,
     {
@@ -234,6 +239,8 @@ function makeHarness(resolve: jest.Mock): Harness {
   );
 
   return {
+    sendMessageToSession,
+    handleContinue,
     service,
     metadataGet,
     resolve,
@@ -269,6 +276,91 @@ const continueParams = (prompt: string) => ({
   sessionId: SESSION_ID,
   tabId: TAB_ID,
   workspacePath: OPEN_FOLDER,
+});
+
+describe('chat:continue prompt identity', () => {
+  const clientMessageId = 'msg_123_Ab-9';
+
+  it.each([undefined, 'a', clientMessageId, 'a'.repeat(64)])(
+    'accepts an optional valid client id: %s',
+    (id) => {
+      const parsed = ChatContinueParamsSchema.parse({
+        ...continueParams('More'),
+        clientMessageId: id,
+      });
+      expect(parsed.clientMessageId).toBe(id);
+    },
+  );
+
+  it.each(['', 'a'.repeat(65), 'with space', 'a.b', 'é', null, 123])(
+    'rejects an invalid client id: %s',
+    (id) => {
+      expect(
+        ChatContinueParamsSchema.safeParse({
+          ...continueParams('More'),
+          clientMessageId: id,
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each([undefined, clientMessageId])(
+    'forwards the client id and acknowledges queue admission: %s',
+    async (id) => {
+      const h = makeHarness(jest.fn().mockResolvedValue(GLOBAL_SNAPSHOT));
+      const result = await h.service.continueSession({
+        ...continueParams('More'),
+        clientMessageId: id,
+      });
+      expect(h.sendMessageToSession).toHaveBeenCalledWith(SESSION_ID, 'More', {
+        files: [],
+        images: [],
+        clientMessageId: id,
+      });
+      expect(result).toEqual({
+        success: true,
+        sessionId: SESSION_ID,
+        enqueued: true,
+      });
+    },
+  );
+
+  it('does not acknowledge queue admission for a routed slash command', async () => {
+    const h = makeHarness(jest.fn().mockResolvedValue(GLOBAL_SNAPSHOT));
+    const result = await h.service.continueSession({
+      ...continueParams('/compact'),
+      clientMessageId,
+    });
+    expect(result.success).toBe(true);
+    expect(result).not.toHaveProperty('enqueued');
+    expect(h.sendMessageToSession).not.toHaveBeenCalled();
+  });
+
+  it('does not acknowledge queue admission for a Ptah CLI continuation', async () => {
+    const h = makeHarness(jest.fn().mockResolvedValue(GLOBAL_SNAPSHOT));
+    h.handleContinue.mockResolvedValue({
+      success: true,
+      sessionId: SESSION_ID,
+    });
+    const result = await h.service.continueSession({
+      ...continueParams('More'),
+      clientMessageId,
+    });
+    expect(result).toEqual({ success: true, sessionId: SESSION_ID });
+    expect(h.sendMessageToSession).not.toHaveBeenCalled();
+    expect(h.resumeSession).not.toHaveBeenCalled();
+  });
+
+  it('does not acknowledge queue admission when sending fails', async () => {
+    const h = makeHarness(jest.fn().mockResolvedValue(GLOBAL_SNAPSHOT));
+    h.sendMessageToSession.mockRejectedValue(new Error('Send failed'));
+    const result = await h.service.continueSession({
+      ...continueParams('More'),
+      clientMessageId,
+    });
+    expect(result).toMatchObject({ success: false, error: 'Send failed' });
+    expect(result).not.toHaveProperty('enqueued');
+  });
 });
 
 describe('chat sessions in a workspace without its own override', () => {

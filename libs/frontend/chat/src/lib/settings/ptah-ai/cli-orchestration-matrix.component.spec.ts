@@ -317,10 +317,11 @@ describe('CliOrchestrationMatrixComponent', () => {
   });
 
   describe('structure (prototype section 2, design-spec §3.5)', () => {
-    it('is a table-xs with the prototype columns', () => {
+    it('is a table-sm with the prototype columns', () => {
       const table = q('[data-testid="cli-matrix"]');
       expect(table?.tagName).toBe('TABLE');
-      expect(table?.className).toContain('table-xs');
+      expect(table?.className).toContain('table-sm');
+      expect(table?.className).not.toContain('table-xs');
       expect(
         Array.from(table?.querySelectorAll('thead th') ?? []).map((th) =>
           th.textContent?.trim(),
@@ -340,10 +341,18 @@ describe('CliOrchestrationMatrixComponent', () => {
       );
     });
 
-    it('lists installed rows by preferred order, then the Uninstalled group (#71)', () => {
+    it('lists installed system rows by preferred order, then the Uninstalled group (#71); instances below the table', () => {
       expect(
         rowIds('tbody:not([data-testid="cli-matrix-uninstalled"])'),
-      ).toEqual(['codex', 'antigravity', 'glm-1', 'copilot', 'opencode']);
+      ).toEqual(['codex', 'antigravity', 'copilot', 'opencode']);
+      expect(
+        Array.from(
+          element().querySelectorAll(
+            '[data-testid="cli-instances"] li[data-kind="instance"]',
+          ),
+        ).map((node) => node.getAttribute('data-testid')),
+      ).toEqual(['cli-matrix-row-glm-1']);
+      expect(q('table [data-testid="cli-matrix-row-glm-1"]')).toBeNull();
       expect(rowIds('[data-testid="cli-matrix-uninstalled"]')).toEqual([
         'cursor',
         'pi',
@@ -393,8 +402,8 @@ describe('CliOrchestrationMatrixComponent', () => {
       );
     });
 
-    it('uses a surface row ladder and keeps the table-xs density', () => {
-      expect(q('[data-testid="cli-matrix"]')?.className).toContain('table-xs');
+    it('uses a surface row ladder and the table-sm density', () => {
+      expect(q('[data-testid="cli-matrix"]')?.className).toContain('table-sm');
       expect(q('[data-testid="cli-matrix"]')?.className).not.toContain('py-3');
       for (const id of ['copilot', 'cursor', 'pi']) {
         expect(row(id)?.className).toContain('surface-2');
@@ -479,7 +488,7 @@ describe('CliOrchestrationMatrixComponent', () => {
   });
 
   describe('cells', () => {
-    it('shows only detection states for system CLIs (D11) and the instance status with its last latency (#43)', () => {
+    it('shows only detection states for system CLIs (D11) and the instance status, with its last latency on the card (#43)', () => {
       expect(statusOf('codex')).toBe('Ready');
       expect(statusOf('copilot')).toBe('Disabled');
       expect(statusOf('pi')).toBe('Not installed');
@@ -490,10 +499,15 @@ describe('CliOrchestrationMatrixComponent', () => {
         ready({ id: 'glm-1', success: true, latencyMs: 112, reason: null }),
       );
       fixture.detectChanges();
-      expect(statusOf('glm-1')).toBe('Ready (112ms)');
+      expect(statusOf('glm-1')).toBe('Ready');
+      expect(
+        row('glm-1')
+          ?.querySelector('[data-testid="cli-matrix-test-result"]')
+          ?.textContent?.trim(),
+      ).toBe('Passed in 112ms');
     });
 
-    it('shows the instance key status and tier badges (#44, #54) and its Ptah CLI badge', () => {
+    it('shows the instance key status and its three tier models (#44, #54) in the Ptah CLI instances section', () => {
       const subline = row('glm-1')?.querySelector(
         '[data-testid="cli-matrix-instance-subline"]',
       );
@@ -503,11 +517,13 @@ describe('CliOrchestrationMatrixComponent', () => {
           ?.textContent?.trim(),
       ).toBe('Key set');
       expect(
-        Array.from(subline?.querySelectorAll('[data-tier]') ?? []).map((node) =>
-          node.textContent?.trim(),
+        Array.from(row('glm-1')?.querySelectorAll('[data-tier]') ?? []).map(
+          (node) => node.textContent?.replace(/\s+/g, ''),
         ),
-      ).toEqual(['Sonnet: glm-5.3', 'Opus: glm-4.7', 'Haiku: glm-4.5']);
-      expect(row('glm-1')?.textContent).toContain('Ptah CLI');
+      ).toEqual(['Sonnet:glm-5.3', 'Opus:glm-4.7', 'Haiku:glm-4.5']);
+      expect(
+        row('glm-1')?.closest('[data-testid="cli-instances"]')?.textContent,
+      ).toContain('Ptah CLI instances');
     });
 
     it('shows versions, providers and the CLI defaults', () => {
@@ -1099,26 +1115,33 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(document.activeElement).toBe(toggle);
     });
 
-    it('Batch 36c.i: the On box is the centred-tick "cli-check" (about 18 px), primary, not daisyUI\'s low-tick checkbox-xs', () => {
+    it('the On box is the "cli-check" checkbox-sm (20 px, centred tick), primary, not daisyUI\'s low-tick checkbox-xs', () => {
       const box = q<HTMLInputElement>(
         '[data-testid="cli-matrix-toggle-codex"]',
       );
       const classes = box?.className.split(/\s+/) ?? [];
       expect(classes).toEqual(
-        expect.arrayContaining(['cli-check', 'checkbox', 'checkbox-primary']),
+        expect.arrayContaining([
+          'cli-check',
+          'checkbox',
+          'checkbox-primary',
+          'checkbox-sm',
+        ]),
       );
       expect(classes).not.toContain('checkbox-xs');
     });
 
     it('V36-7: narrow actions move Tiers and Test into More actions', () => {
-      const actions = q<HTMLButtonElement>(
+      const inlineTiers = q<HTMLButtonElement>(
         '[data-testid="cli-matrix-tiers-glm-1"]',
-      )?.parentElement;
-      expect(actions?.className).toContain('flex-nowrap');
-      expect(actions?.className).toContain('whitespace-nowrap');
+      );
+      // The container rule hides the inline pair and shows the More items below 28rem.
+      expect(inlineTiers?.className).toContain('inst-inline-action');
       expect(
-        actions?.querySelector('[data-testid="cli-matrix-test-glm-1"]'),
-      ).not.toBeNull();
+        inlineTiers?.parentElement?.querySelector(
+          '[data-testid="cli-matrix-test-glm-1"]',
+        )?.className,
+      ).toContain('inst-inline-action');
       const trigger = q<HTMLButtonElement>(
         '[data-testid="cli-matrix-more-glm-1"]',
       );
@@ -1137,6 +1160,8 @@ describe('CliOrchestrationMatrixComponent', () => {
       );
       expect(tiers?.getAttribute('aria-label')).toBe('Tiers for Glm');
       expect(test?.getAttribute('aria-label')).toBe('Test Glm');
+      expect(tiers?.className).toContain('inst-menu-action');
+      expect(test?.className).toContain('inst-menu-action');
       // Visual re-check N1: the items stack in a column inside the panel (the actions line is whitespace-nowrap).
       const menuClasses =
         q('[data-testid="cli-matrix-more-menu"]')?.className.split(/\s+/) ?? [];
@@ -1164,32 +1189,29 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(state.testCliConnection).toHaveBeenCalledWith('glm-1');
     });
 
-    it('fold round 2: narrow layout shows one tier summary badge with the full list as title and spoken text', () => {
-      const summary = row('glm-1')?.querySelector(
-        '[data-testid="cli-matrix-tier-summary"]',
-      ) as HTMLElement;
-      expect(summary.className).toContain('cli-narrow-only');
-      expect(summary.getAttribute('title')).toBe(
+    it('shows a tier summary with the full list as its title, and every unset tier as "Not set"', () => {
+      const summary = () =>
+        row('glm-1')?.querySelector(
+          '[data-testid="cli-matrix-tier-summary"]',
+        ) as HTMLElement;
+      expect(summary().getAttribute('title')).toBe(
         'Sonnet: glm-5.3, Opus: glm-4.7, Haiku: glm-4.5',
       );
-      expect(summary.textContent?.trim()).toBe(
-        '3 tier models: Sonnet: glm-5.3, Opus: glm-4.7, Haiku: glm-4.5',
+      expect(summary().textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Model tiers · 3 of 3 set',
       );
-      expect(summary.querySelector('.sr-only')).not.toBeNull();
-      for (const badge of Array.from(
-        row('glm-1')?.querySelectorAll('[data-tier]') ?? [],
-      ))
-        expect(badge.className).toContain('cli-wide-only');
       state.cliModels.set(
         ready({
           'glm-1': { selectedModel: '', tierMappings: { sonnet: 'glm-5.3' } },
         }),
       );
       fixture.detectChanges();
+      expect(summary().textContent).toContain('1 of 3 set');
       expect(
-        row('glm-1')?.querySelector('[data-testid="cli-matrix-tier-summary"]')
-          ?.firstChild?.textContent,
-      ).toBe('1 tier model');
+        Array.from(row('glm-1')?.querySelectorAll('[data-tier]') ?? []).map(
+          (node) => node.textContent?.replace(/\s+/g, ''),
+        ),
+      ).toEqual(['Sonnet:glm-5.3', 'Opus:Notset', 'Haiku:Notset']);
     });
 
     it('fold round 2: the narrow status and provider stay on one line with an accessible provider name', () => {
@@ -1224,6 +1246,8 @@ describe('CliOrchestrationMatrixComponent', () => {
         )?.className,
       ).toContain('text-xs');
       expect(element().innerHTML).not.toContain('text-[10px]');
+      expect(element().innerHTML).not.toContain('text-[9px]');
+      expect(element().innerHTML).not.toContain('text-[11px]');
     });
   });
 
@@ -1232,17 +1256,18 @@ describe('CliOrchestrationMatrixComponent', () => {
       row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]') ??
       null;
 
-    it('tests the instance, announces the latency in the toast, and keeps it in the status badge', async () => {
+    it('tests the instance, announces the latency in the toast, and keeps it as the card last test', async () => {
+      expect(inlineResult()?.textContent?.trim()).toBe('Not run yet');
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       await flush();
       expect(state.testCliConnection).toHaveBeenCalledWith('glm-1');
-      expect(inlineResult()).toBeNull();
       expect(feedback.toast()).toEqual({
         tone: 'status',
         message: 'Glm: Test passed in 112ms.',
         canUndo: false,
       });
-      expect(statusOf('glm-1')).toContain('112ms');
+      expect(inlineResult()?.textContent?.trim()).toBe('Passed in 112ms');
+      expect(statusOf('glm-1')).toBe('Ready');
     });
 
     it("M1: a failure is a fixed sentence, followed only by the state's own fixed reason", async () => {
@@ -1254,7 +1279,9 @@ describe('CliOrchestrationMatrixComponent', () => {
       };
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       await flush();
-      expect(inlineResult()).toBeNull();
+      expect(inlineResult()?.textContent?.trim()).toBe(
+        'The connection test failed.',
+      );
       expect(feedback.toast()).toEqual({
         tone: 'alert',
         message: 'Glm: The connection test failed.',
@@ -1314,7 +1341,7 @@ describe('CliOrchestrationMatrixComponent', () => {
       });
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       await flush();
-      expect(inlineResult()).toBeNull();
+      expect(inlineResult()?.textContent?.trim()).toBe('Not run yet');
       expect(feedback.toast()?.message).toContain('could not run');
     });
 

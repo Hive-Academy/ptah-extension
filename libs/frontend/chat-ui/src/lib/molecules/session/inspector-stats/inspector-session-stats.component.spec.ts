@@ -86,6 +86,8 @@ describe(InspectorSessionStatsComponent.name, () => {
     fixture.detectChanges();
 
     const root = fixture.nativeElement.querySelector('[data-testid="inspector-session-stats"]') as HTMLElement;
+    expect(root.getAttribute('aria-label')).toBe('Session statistics');
+    expect(root.querySelector('h3')).toBeNull();
     const label = [...root.querySelectorAll('div')].find(element => element.textContent?.trim() === 'Model');
     expect(label).toBeTruthy();
     expect(label?.classList.contains('text-base-content-muted')).toBe(true);

@@ -34,6 +34,7 @@ import {
 import { MessageFinalizationService } from './message-finalization.service';
 import { PermissionHandlerService } from './permission-handler.service';
 import { TurnStateApplier } from './turn-state-applier.service';
+import { QueuedPromptRecord } from './queued-prompt-record.service';
 
 const SESSION_ID = SessionId.create();
 const OTHER_SESSION = SessionId.create();
@@ -85,6 +86,7 @@ describe('TurnStateApplier', () => {
   let markLastAgentAsInterrupted: jest.Mock;
   let markAgentsAsInterruptedByToolCallIds: jest.Mock;
   let consumeHardDenyToolUseIds: jest.Mock;
+  let queuedPrompts: QueuedPromptRecord;
   let liveness: {
     markStreaming: jest.Mock;
     markAwaitingBackground: jest.Mock;
@@ -149,6 +151,7 @@ describe('TurnStateApplier', () => {
     markLastAgentAsInterrupted = jest.fn();
     markAgentsAsInterruptedByToolCallIds = jest.fn();
     consumeHardDenyToolUseIds = jest.fn(() => hardDeny);
+    queuedPrompts = new QueuedPromptRecord();
     liveness = {
       markStreaming: jest.fn(),
       markAwaitingBackground: jest.fn(),
@@ -184,6 +187,7 @@ describe('TurnStateApplier', () => {
           useValue: { consumeHardDenyToolUseIds },
         },
         { provide: SessionLivenessRegistry, useValue: liveness },
+        { provide: QueuedPromptRecord, useValue: queuedPrompts },
       ],
     });
     applier = TestBed.inject(TurnStateApplier);
@@ -196,6 +200,85 @@ describe('TurnStateApplier', () => {
   });
 
   describe('terminal phases', () => {
+    it('retires a displaced id without changing turn state, even if its late echo retires it again', () => {
+      const messages = [{ id: 'P', role: 'user' }, { id: 'Q', role: 'user' }] as TabState['messages'];
+      queuedPrompts.add('tab-1', 'P', messages);
+      queuedPrompts.add('tab-1', 'Q', messages);
+      const event = turnState({ consumedClientMessageId: 'P', retirementOnly: true });
+      applier.apply(event, 'tab-1');
+      queuedPrompts.remove('tab-1', 'P'); // The late echo still carries P's id.
+      expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set(['Q']));
+      expect(applyTurnState).not.toHaveBeenCalled();
+      expect(finalizeCurrentMessage).not.toHaveBeenCalled();
+    });
+    it('clears only the ended session after a tab rebind', () => {
+      const messages = [{ id: 'P', role: 'user' }, { id: 'Q', role: 'user' }] as TabState['messages'];
+      queuedPrompts.add('tab-1', 'P', messages, 'old-session');
+      queuedPrompts.add('tab-1', 'Q', messages, 'new-session');
+      queuedPrompts.clearSession('tab-1', 'old-session');
+      expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set(['Q']));
+    });
+    it.each(['confirmed session end', 'confirmed abort success'])(
+      'clears ownerless ids on %s while keeping a newer session id', () => {
+        const messages = [
+          { id: 'P', role: 'user' },
+          { id: 'Q', role: 'user' },
+        ] as TabState['messages'];
+        queuedPrompts.add('tab-1', 'P', messages);
+        queuedPrompts.add('tab-1', 'Q', messages, 'new-session');
+        queuedPrompts.clearSession('tab-1', 'old-session');
+        expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set(['Q']));
+      },
+    );
+    it('two consecutive terminals retire only their own ids', () => {
+      const messages = [
+        { id: 'first', role: 'user' },
+        { id: 'second', role: 'user' },
+      ] as TabState['messages'];
+      queuedPrompts.add('tab-1', 'first', messages);
+      queuedPrompts.add('tab-1', 'second', messages);
+
+      applier.apply(turnState({ consumedClientMessageId: 'first' }), 'tab-1');
+      expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(
+        new Set(['second']),
+      );
+
+      applier.apply(
+        turnState({ revision: 2, consumedClientMessageId: 'second' }),
+        'tab-1',
+      );
+      expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set());
+    });
+
+    it('keeps Q pending when P ends as aborted_streaming in the live session', () => {
+      const messages = [
+        { id: 'P', role: 'user' },
+        { id: 'Q', role: 'user' },
+      ] as TabState['messages'];
+      queuedPrompts.add('tab-1', 'P', messages);
+      queuedPrompts.add('tab-1', 'Q', messages);
+
+      applier.apply(turnState({
+        terminalReason: 'aborted_streaming',
+        consumedClientMessageId: 'P',
+      }), 'tab-1');
+
+      expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab-1', true);
+      expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set(['Q']));
+    });
+
+    it('retires the named id even if the terminal revision is rejected', () => {
+      const messages = [{ id: 'pending', role: 'user' }] as TabState['messages'];
+      queuedPrompts.add('tab-1', 'pending', messages);
+      canApplyTurnState.mockReturnValue(false);
+
+      applier.apply(turnState({ consumedClientMessageId: 'pending' }), 'tab-1', {
+        ordered: false,
+      });
+
+      expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set());
+      expect(finalizeCurrentMessage).not.toHaveBeenCalled();
+    });
     it('finalizes BEFORE the status flip, then applies the state to the tab', () => {
       const event = turnState({ phase: 'idle' });
 

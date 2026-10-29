@@ -141,6 +141,22 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
 
     expect(branch).not.toBeNull();
     expect(rewind).not.toBeNull();
+    const header = fixture.debugElement.query(By.css('.cs-user-header'));
+    const bubble = fixture.debugElement.query(By.css('.cs-user-bubble'));
+    expect(bubble.nativeElement.contains(header.nativeElement)).toBe(true);
+    expect(header.nativeElement.classList.contains('flex')).toBe(true);
+    expect(header.nativeElement.classList.contains('items-center')).toBe(true);
+    expect(header.nativeElement.querySelector('time')).not.toBeNull();
+    expect(branch.nativeElement.parentElement.classList.contains('ml-auto')).toBe(true);
+    expect(branch.nativeElement.parentElement.classList.contains('h-4')).toBe(true);
+    expect(branch.nativeElement.parentElement.classList.contains('group-focus-within:opacity-100')).toBe(true);
+    expect(header.nativeElement.classList.contains('chat-header')).toBe(false);
+    expect(header.nativeElement.contains(branch.nativeElement)).toBe(true);
+    expect(header.nativeElement.contains(rewind.nativeElement)).toBe(true);
+    expect(fixture.debugElement.query(By.css('.chat-footer'))).toBeNull();
+    expect(bubble.nativeElement.classList.contains('surface-2')).toBe(false);
+    expect(bubble.nativeElement.classList.contains('surface-1')).toBe(false);
+    expect(bubble.nativeElement.classList.contains('cs-own-user-bubble')).toBe(true);
   });
 
   it('does NOT render branch/rewind buttons for assistant role messages', () => {
@@ -173,6 +189,58 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     );
     fixture.detectChanges();
   }
+
+  it('shows one compact Ptah header per turn, including the turn after a lane report', () => {
+    const first = createExecutionChatMessage({ id: 'assistant-first', role: 'assistant', rawContent: 'First' });
+    const second = createExecutionChatMessage({ id: 'assistant-second', role: 'assistant', rawContent: 'Second' });
+    const laneReport = createExecutionChatMessage({ id: 'lane-report', role: 'user', rawContent: '<agent-report agent-id="lane-1">Done</agent-report>' });
+    const next = createExecutionChatMessage({ id: 'assistant-after-report', role: 'assistant', rawContent: 'Report received.' });
+    const turns = buildTurnContexts([first, second, laneReport, next]);
+    setMessage(first);
+    fixture.componentRef.setInput('turn', turns.get(first.id) ?? null);
+    fixture.detectChanges();
+    const header = fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]') as HTMLElement;
+    expect(header.textContent).toContain('Ptah');
+    expect(header.querySelector('ptah-agent-avatar')).not.toBeNull();
+    expect(header.querySelector('time')).not.toBeNull();
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="assistant-turn-header"]')).toHaveLength(1);
+    fixture.componentRef.setInput('message', second);
+    fixture.componentRef.setInput('turn', turns.get(second.id) ?? null);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')).toBeNull();
+    fixture.componentRef.setInput('message', next);
+    fixture.componentRef.setInput('turn', turns.get(next.id) ?? null);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="assistant-turn-header"]')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')?.textContent).toContain('Ptah');
+  });
+
+  it('omits the Ptah header for a lane agent while retaining it in the main transcript', () => {
+    const message = createExecutionChatMessage({ id: 'lane-answer', role: 'assistant', rawContent: 'done' });
+    setSettledTurn(message);
+    fixture.componentRef.setInput('agentTileMode', true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')).not.toBeNull();
+    fixture.componentRef.setInput('userActions', false);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')).toBeNull();
+  });
+
+  it('does not put a header above an empty assistant answer', () => {
+    setSettledTurn(createExecutionChatMessage({ id: 'empty', role: 'assistant', rawContent: '' }));
+    expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')).toBeNull();
+  });
+
+  it('renders assistant answers without a divider class or horizontal rule', () => {
+    const message = createExecutionChatMessage({
+      id: 'assistant-with-work', role: 'assistant', rawContent: 'DONE',
+    });
+    setSettledTurn(message);
+    const article = fixture.nativeElement.querySelector('article.cs-turn') as HTMLElement;
+    const answer = article.querySelector('.cs-answer') as HTMLElement;
+    expect(answer).not.toBeNull();
+    expect(article.querySelectorAll('.border-t, .border-b, hr')).toHaveLength(0);
+  });
 
   function showActivityButton(): HTMLButtonElement | null {
     return fixture.nativeElement.querySelector(
@@ -441,7 +509,7 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
           .nativeElement.textContent.trim(),
       ).toBe('reviewer');
       expect(
-        fixture.debugElement.query(By.css('.chat-header')).nativeElement
+        fixture.debugElement.query(By.css('.cs-user-header')).nativeElement
           .textContent,
       ).not.toContain('You');
     });
@@ -453,6 +521,14 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
         By.css('[data-testid="chat-peer-unverified-caption"]'),
       );
       expect(caption.nativeElement.textContent).toContain('unverified');
+      expect(
+        fixture.debugElement
+          .query(By.css('[data-testid="chat-peer-message"]'))
+          .nativeElement.classList.contains('border-secondary'),
+      ).toBe(true);
+      const bubble = fixture.nativeElement.querySelector('[data-testid="chat-peer-message"]') as HTMLElement;
+      expect(bubble.classList.contains('border-l-4')).toBe(true);
+      expect(bubble.classList.contains('cs-own-user-bubble')).toBe(false);
     });
 
     it('routes the body through <markdown>, not innerHTML', () => {
@@ -474,70 +550,6 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
           .query(By.css('[data-testid="chat-peer-label"]'))
           .nativeElement.textContent.trim(),
       ).toBe('peer session');
-    });
-
-    it('renders a lane envelope as a compact heading and its body, not the raw tags', () => {
-      setMessage(
-        createExecutionChatMessage({
-          id: 'msg-peer-envelope',
-          role: 'user',
-          rawContent:
-            '<agent-lane-completed agent-id="lane-a" agent="reviewer" cli="codex" status="completed" verdict="PASS">\nAll checks pass.\nSee the report.\n</agent-lane-completed>',
-          inboundPeer: { label: 'codex · reviewer' },
-        }),
-      );
-      const text = (selector: string): string =>
-        fixture.debugElement
-          .query(By.css(selector))
-          .nativeElement.textContent.trim();
-      const bubble = text('[data-testid="chat-peer-message"]');
-
-      expect(text('[data-testid="chat-peer-envelope-heading"]')).toBe(
-        'reviewer · completed · PASS',
-      );
-      expect(text('[data-testid="chat-peer-envelope-first-line"]')).toBe(
-        'All checks pass.',
-      );
-      expect(bubble).not.toContain('<agent-lane-completed');
-      expect(bubble).not.toContain('See the report.');
-      expect(text('[data-testid="chat-peer-unverified-caption"]')).toContain(
-        'unverified',
-      );
-
-      const toggle = fixture.debugElement.query(
-        By.css('[data-testid="chat-peer-envelope-toggle"]'),
-      );
-      expect(toggle.attributes['aria-expanded']).toBe('false');
-      toggle.nativeElement.click();
-      fixture.detectChanges();
-
-      expect(toggle.attributes['aria-expanded']).toBe('true');
-      const markdown = fixture.debugElement.query(By.css('markdown'));
-      expect(markdown.componentInstance.data).toContain('See the report.');
-      expect(markdown.componentInstance.data).not.toContain('<agent-');
-    });
-
-    it('shows a one-line report body with no expand toggle', () => {
-      setMessage(
-        createExecutionChatMessage({
-          id: 'msg-peer-report',
-          role: 'user',
-          rawContent:
-            '<agent-report agent-id="lane-b" agent="tester" cli="codex">\nAll tests pass.\n</agent-report>',
-          inboundPeer: { label: 'codex · tester' },
-        }),
-      );
-
-      expect(
-        fixture.debugElement
-          .query(By.css('[data-testid="chat-peer-envelope-heading"]'))
-          .nativeElement.textContent.trim(),
-      ).toBe('tester · report');
-      expect(
-        fixture.debugElement.query(
-          By.css('[data-testid="chat-peer-envelope-toggle"]'),
-        ),
-      ).toBeNull();
     });
 
     it('leaves an ordinary user turn on the user bubble', () => {

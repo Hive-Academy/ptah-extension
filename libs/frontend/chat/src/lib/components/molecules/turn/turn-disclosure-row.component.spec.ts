@@ -14,6 +14,8 @@ describe('TurnDisclosureRowComponent', () => {
     expect(row.getAttribute('aria-label')).toBe('Worked for 4s, 2 tools, 1 file');
     expect(row.getAttribute('aria-controls')).toBe('work-log');
     expect(row.getAttribute('aria-expanded')).toBe('false');
+    expect(row.classList.contains('border-b')).toBe(false);
+    expect(row.classList.contains('border-t')).toBe(false);
     expect(fixture.nativeElement.querySelector('[data-test="turn-disclosure-meta"]').textContent).toBe('2 tools · 1 file');
     expect(fixture.componentInstance.extraMeta()).toEqual([]);
     expect(fixture.componentInstance.metaTone()).toBe('muted');

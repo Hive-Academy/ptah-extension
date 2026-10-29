@@ -33,13 +33,12 @@ import {
   cliModelDisplay,
   isCliProcessDump,
   type CliEffortSettingKey,
+  type CliMatrixCellField,
   type CliMatrixRow,
   type CliModelSettingKey,
   type SystemCliMatrixRow,
 } from './cli-matrix-rows';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
-
-export type CliMatrixCellField = 'model' | 'effort';
 
 interface EffortOption<T extends string = string> {
   readonly value: T;

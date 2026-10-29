@@ -91,7 +91,8 @@ export class CompletionHandlerService {
       // (`chat-stream-broadcaster.service.ts:317-325`) normally finalizes first,
       // and `finalizeCurrentMessage` early-returns once `streamingState` is
       // null. This is the fallback for the case where that event was dropped or
-      // rejected as stale, not a second finalizer competing with it.
+      // rejected as stale, not a second finalizer competing with it. CHAT_ERROR
+      // alone does not prove SDK teardown after a stream has emitted events.
       this.finalization.finalizeCurrentMessage(tab.id, true);
       this.tabManager.applyStatusErrorReset(tab.id);
       this.tabManager.markTabIdle(tab.id);

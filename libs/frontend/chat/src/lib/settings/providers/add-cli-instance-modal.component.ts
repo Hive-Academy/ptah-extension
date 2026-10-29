@@ -113,7 +113,7 @@ type KeyMode = 'required' | 'optional' | 'none' | 'sign-in';
         </h2>
         <button
           type="button"
-          [class]="'btn btn-ghost btn-xs btn-square min-h-6 ' + focusRing"
+          [class]="'btn btn-ghost btn-sm btn-square ' + focusRing"
           aria-label="Close"
           (click)="requestClose()"
         >
@@ -262,7 +262,7 @@ type KeyMode = 'required' | 'optional' | 'none' | 'sign-in';
             }
             <button
               type="button"
-              [class]="'btn btn-primary btn-xs min-h-7 ' + focusRing"
+              [class]="'btn btn-primary btn-sm ' + focusRing"
               [disabled]="signingIn() || signedIn()"
               (click)="signIn()"
               data-testid="add-cli-instance-copilot-login"
@@ -301,7 +301,7 @@ type KeyMode = 'required' | 'optional' | 'none' | 'sign-in';
               <button
                 type="button"
                 [class]="
-                  'btn btn-ghost btn-xs absolute right-1 top-1 ' + focusRing
+                  'btn btn-ghost btn-sm absolute inset-y-0 right-0 h-full min-h-0 ' + focusRing
                 "
                 (click)="keyVisible.set(!keyVisible())"
                 [attr.aria-label]="

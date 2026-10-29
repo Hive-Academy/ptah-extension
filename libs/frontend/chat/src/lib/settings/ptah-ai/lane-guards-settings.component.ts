@@ -57,15 +57,16 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
     <ptah-surface-section
       tone="subtle"
       padding="md"
-      class="text-xs text-base-content"
+      glassSurface="chrome"
+      class="text-sm text-base-content"
       aria-labelledby="lane-guards-heading"
       data-testid="settings-section-lane-guards"
     >
-      <div section-header>
-        <h3 id="lane-guards-heading" class="font-bold uppercase tracking-wide">
+      <div section-header class="mb-3 border-b border-base-content/10 pb-2">
+        <h3 id="lane-guards-heading" class="text-base font-semibold text-base-content">
           Lane guards
         </h3>
-        <p class="mt-0.5 text-[11px] text-base-content-muted">
+        <p class="mt-0.5 text-xs text-base-content-muted">
           Keep background lanes from spending too long on tool calls.
         </p>
       </div>
@@ -85,7 +86,7 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
             <button
               type="button"
               [class]="
-                'btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ' +
+                'btn btn-outline btn-sm border-base-content-muted text-base-content ' +
                 focusRing
               "
               (click)="reload()"
@@ -98,7 +99,7 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
         @default {
           <p
             id="lane-guards-intro"
-            class="text-[11px] text-base-content-muted"
+            class="text-xs text-base-content-muted"
             data-testid="lane-guards-intro"
           >
             At Steer at, the lane is asked to wrap up. At Stop at, it is
@@ -107,10 +108,10 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
             Repeat-call stop at stops a lane that repeats the same call that
             many times.
           </p>
-          <div class="grid auto-rows-fr gap-4 md:grid-cols-3">
+          <div class="grid gap-x-4 gap-y-5 sm:grid-cols-2 xl:grid-cols-3">
             @for (field of fields; track field.key) {
               <div class="flex min-w-0 flex-col gap-1">
-                <label [for]="field.testId" class="font-bold">{{
+                <label [for]="field.testId" class="text-sm font-medium text-base-content">{{
                   field.label
                 }}</label>
                 <div class="join flex w-full">
@@ -119,7 +120,7 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
                     inputmode="numeric"
                     [id]="field.testId"
                     [class]="
-                      'input input-bordered input-sm join-item h-8 min-h-8 min-w-0 flex-1 text-right text-xs tabular-nums text-base-content ' +
+                      'input input-bordered input-sm join-item min-w-0 flex-1 text-right text-sm tabular-nums text-base-content ' +
                       (fieldMessage(field.key) ? 'input-error ' : '') +
                       focusRing
                     "
@@ -134,14 +135,14 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
                     [attr.data-testid]="field.testId"
                   />
                   <span
-                    class="btn btn-sm join-item h-8 min-h-8 shrink-0 cursor-default whitespace-nowrap border-base-content/10 px-2 text-[11px] font-normal text-base-content-muted"
+                    class="btn btn-sm join-item shrink-0 cursor-default whitespace-nowrap border-base-content/10 px-3 text-xs font-normal text-base-content-muted"
                     aria-hidden="true"
                     >calls</span
                   >
                 </div>
                 <p
                   [id]="field.testId + '-help'"
-                  class="text-[11px] text-base-content-muted"
+                  class="text-xs text-base-content-muted"
                 >
                   {{ field.help }} Range: {{ field.min }} or greater.
                 </p>

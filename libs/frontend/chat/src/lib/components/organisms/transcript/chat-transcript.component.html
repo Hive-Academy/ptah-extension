@@ -50,6 +50,13 @@
                constant and do not re-render each second. -->
           @let turn = turnContexts().get(slot.id) ?? null;
           @let turnLive = turn !== null && liveTurnIds().has(turn.turnId);
+          @if (laneSlots().get(slot.id); as laneSlot) {
+            @if (laneSlot.kind === 'row') {
+              <ptah-lane-event class="block pb-3" [row]="laneSlot.row" [monitorAgent]="laneMetricsForRow(laneSlot.row, newestLaneRows(), monitoredLaneAgents().get(laneSlot.row.agentId))" [monitorStatus]="monitoredLaneAgents().get(laneSlot.row.agentId)?.status ?? null" [laterCompleted]="laneRowsBeforeCompletion().has(laneSlot.row.rowKey)" [isSessionActive]="vm().isSessionActive"
+                (branchRequested)="branchRequested.emit($event)" (rewindRequested)="rewindRequested.emit($event)" />
+            }
+            <!-- A merged slot keeps its message anchor; its content appears in the preceding row. -->
+          } @else {
           <ptah-message-bubble
             class="block pb-3"
             [message]="slot.record()"
@@ -73,6 +80,7 @@
             (logToggled)="onLogToggled($event)"
             (laneRequested)="onLaneRequested($event)"
           />
+          }
         } @else {
           <div
             class="chat-msg-placeholder"

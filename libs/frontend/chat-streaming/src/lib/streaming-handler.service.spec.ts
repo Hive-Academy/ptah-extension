@@ -571,17 +571,14 @@ describe('StreamingHandlerService', () => {
       expect(result).toBeNull();
     });
 
-    it('flushes queued content on a terminal end_turn message_complete', () => {
+    it('holds queued content until turn_state even after end_turn message_complete', () => {
       service.processStreamEvent(msgStart(), TAB_ID);
       const result = service.processStreamEvent(
         messageComplete({ stopReason: 'end_turn' }),
         TAB_ID,
       );
 
-      expect(result).toEqual({
-        tabId: TAB_ID,
-        queuedContent: 'follow up question',
-      });
+      expect(result).toBeNull();
     });
   });
 

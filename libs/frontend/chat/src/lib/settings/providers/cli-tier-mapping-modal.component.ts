@@ -61,7 +61,7 @@ interface Catalogue {
       <div modal-header class="-mx-6 -mt-6 mb-4 flex items-center justify-between gap-2 border-b border-base-300 bg-base-200 px-5 py-3"
         data-testid="cli-tier-mapping-modal">
         <h2 id="cli-tier-mapping-title" class="text-sm font-bold text-base-content">{{ target()?.name ?? 'Instance' }} Tier Model Mapping</h2>
-        <button type="button" [class]="'btn btn-ghost btn-xs btn-square min-h-6 ' + focusRing" aria-label="Close" (click)="closed.emit()">
+        <button type="button" [class]="'btn btn-ghost btn-sm btn-square ' + focusRing" aria-label="Close" (click)="closed.emit()">
           <lucide-angular [img]="CloseIcon" class="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
@@ -75,14 +75,14 @@ interface Catalogue {
           @if (catalogue().status === 'error') {
             <p role="alert" class="flex flex-wrap items-center gap-1.5 text-base-content" data-testid="cli-tier-models-error">
               Could not load {{ instance.providerName }}'s model list. You can still enter a model ID.
-              <button type="button" [class]="'btn btn-link btn-xs h-auto min-h-6 px-0 text-base-content ' + focusRing" (click)="loadModels()">Retry</button>
+              <button type="button" [class]="'btn btn-link btn-sm px-0 text-xs text-base-content ' + focusRing" (click)="loadModels()">Retry</button>
             </p>
           }
           @if (mappings() === null && mappingsFailed()) {
             <!-- M5: a failed (or missing) read ends in a fixed error with its own Retry, never an endless loading line. -->
             <p role="alert" class="flex flex-wrap items-center gap-1.5 text-base-content" data-testid="cli-tier-mapping-error">
               This instance's tier mapping could not be loaded.
-              <button type="button" [class]="'btn btn-link btn-xs h-auto min-h-6 px-0 text-base-content ' + focusRing"
+              <button type="button" [class]="'btn btn-link btn-sm px-0 text-xs text-base-content ' + focusRing"
                 [disabled]="retryingMappings()" (click)="retryMappings()" data-testid="cli-tier-mapping-retry">Retry</button>
             </p>
           } @else if (mappings() === null) {
@@ -94,7 +94,7 @@ interface Catalogue {
                   <div class="flex items-center justify-between gap-2">
                     <label [for]="'cli-tier-' + row.tier" class="font-bold text-base-content">{{ row.label }} tier</label>
                     @if (own(row.tier)) {
-                      <button type="button" [class]="'btn btn-link btn-xs h-auto min-h-6 px-0 text-base-content ' + focusRing"
+                      <button type="button" [class]="'btn btn-link btn-sm px-0 text-xs text-base-content ' + focusRing"
                         [ptahBusyDisabled]="busy()" (click)="useInherited(row.tier)" [attr.data-testid]="'cli-tier-inherit-' + row.tier">Use inherited</button>
                     }
                   </div>
@@ -104,9 +104,9 @@ interface Catalogue {
                         placeholder="Model ID, e.g. vendor/model-name" [value]="manualDraft()" (input)="manualDraft.set(value($event))"
                         [attr.aria-label]="row.label + ' tier model ID'" [attr.aria-invalid]="manualInvalid()"
                         [attr.aria-describedby]="manualInvalid() ? 'cli-tier-manual-error' : null" [attr.data-testid]="'cli-tier-manual-' + row.tier" />
-                      <button type="button" [class]="'btn btn-outline btn-xs min-h-8 border-base-content-muted text-base-content ' + focusRing"
+                      <button type="button" [class]="'btn btn-outline btn-sm border-base-content-muted text-base-content ' + focusRing"
                         [ptahBusyDisabled]="busy() || !manualDraft().trim() || manualInvalid()" (click)="applyManual(row.tier)" [attr.data-testid]="'cli-tier-manual-apply-' + row.tier">Use</button>
-                      <button type="button" [class]="'btn btn-ghost btn-xs min-h-8 text-base-content ' + focusRing" (click)="closeManual(row.tier)">Cancel</button>
+                      <button type="button" [class]="'btn btn-ghost btn-sm text-base-content ' + focusRing" (click)="closeManual(row.tier)">Cancel</button>
                     </div>
                     @if (manualInvalid()) {
                       <p id="cli-tier-manual-error" role="alert" class="text-xs text-base-content" data-testid="cli-tier-manual-error">{{ manualIdError }}</p>
