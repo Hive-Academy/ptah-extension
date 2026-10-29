@@ -5,6 +5,7 @@ import {
   type SessionCardActions,
   type SessionStartGuard,
   type SessionStopHandler,
+  DisplayDockState,
 } from '@ptah-extension/chat';
 import {
   CommandLivePanelComponent,
@@ -23,6 +24,7 @@ class SessionEmbedStubComponent {
   public readonly retainRailTranscript = input(false);
   public readonly readOnly = input(false);
   public readonly stopHandler = input<SessionStopHandler | null>(null);
+  public readonly displayDock = input<DisplayDockState | null>(null);
 }
 
 describe('CommandLivePanelComponent', () => {
@@ -63,6 +65,13 @@ describe('CommandLivePanelComponent', () => {
     expect(stub?.readOnly()).toBe(true);
     expect(stub?.stopHandler()?.('root-tab')).toBe('handled');
     expect(status()).toBe('Streaming');
+  });
+
+  it('forwards the page display dock to the embed', () => {
+    const dock = new DisplayDockState();
+    fixture.componentRef.setInput('displayDock', dock);
+    render({ tabId: 'root-tab', state: 'running', summary: null });
+    expect(embed()?.displayDock()).toBe(dock);
   });
 
   it('hides the embed content while another tab covers it', () => {

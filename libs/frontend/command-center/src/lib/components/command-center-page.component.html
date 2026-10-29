@@ -240,6 +240,7 @@
             <ptah-command-rail-tabs
               [active]="activeTab()"
               [displayCount]="displayCount()"
+              [displayCountUnit]="displayCountUnit"
               (activeChange)="activeTab.set($event)"
             />
           </div>
@@ -256,9 +257,10 @@
             >
               <ptah-command-live-panel
                 [target]="liveTarget()"
-                [visible]="activeTab() === 'live'"
+                [visible]="liveContentVisible()"
                 [hasSession]="!!page.store.markedTabId()"
                 [reducedMotion]="page.store.reducedMotion()"
+                [displayDock]="displayDock"
                 (openLane)="openLane($event)"
                 (openSession)="page.store.select(null)"
               />
@@ -340,7 +342,10 @@
                   [attr.aria-labelledby]="tabId('display')"
                   [class.reduced]="page.store.reducedMotion()"
                 >
-                  <ptah-command-rail-display [tabId]="liveTarget().tabId" />
+                  <ptah-command-rail-display
+                    [tabId]="liveTarget().tabId"
+                    [dock]="displayDock"
+                  />
                 </div>
               }
             }

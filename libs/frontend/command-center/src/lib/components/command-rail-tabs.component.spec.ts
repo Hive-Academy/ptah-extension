@@ -85,6 +85,15 @@ describe('CommandRailTabsComponent', () => {
     fixture.detectChanges();
     const badge = fixture.nativeElement.querySelector('.tab-badge');
     expect(badge.textContent.trim()).toBe('3');
-    expect(badge.getAttribute('aria-label')).toBe('3 items');
+    expect(badge.getAttribute('aria-hidden')).toBe('true');
+    expect(tabs()[3].getAttribute('aria-label')).toBe('Display, 3 items');
+    expect(tabs()[0].getAttribute('aria-label')).toBeNull();
+  });
+
+  it('names held-back display updates as new', () => {
+    fixture.componentRef.setInput('displayCount', 2);
+    fixture.componentRef.setInput('displayCountUnit', 'new');
+    fixture.detectChanges();
+    expect(tabs()[3].getAttribute('aria-label')).toBe('Display, 2 new');
   });
 });

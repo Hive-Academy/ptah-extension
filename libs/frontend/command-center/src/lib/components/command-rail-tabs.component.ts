@@ -73,16 +73,15 @@ export function railPanelId(key: CommandRailTab): string {
           [class.text-base-content]="active() === tab.key"
           [class.text-base-content-muted]="active() !== tab.key"
           [attr.data-testid]="'rail-tab-' + tab.key"
+          [attr.aria-label]="ariaLabel(tab)"
           (click)="activeChange.emit(tab.key)"
           (keydown)="onKeydown($event, tab.key)"
         >
           {{ tab.label }}
           @if (tab.key === 'display' && displayCount() > 0) {
-            <span
-              class="tab-badge badge badge-sm"
-              [attr.aria-label]="displayCount() + ' items'"
-              >{{ displayCount() }}</span
-            >
+            <span class="tab-badge badge badge-sm" aria-hidden="true">{{
+              displayCount()
+            }}</span>
           }
         </button>
       }
@@ -92,11 +91,21 @@ export function railPanelId(key: CommandRailTab): string {
 export class CommandRailTabsComponent {
   public readonly active = input<CommandRailTab>('live');
   public readonly displayCount = input(0);
+  /** What the Display count counts, for its accessible name ("Display, 2 new"). */
+  public readonly displayCountUnit = input<'new' | 'items'>('items');
   public readonly activeChange = output<CommandRailTab>();
 
   protected readonly tabs = COMMAND_RAIL_TABS;
   protected readonly tabId = railTabId;
   protected readonly panelId = railPanelId;
+
+  /** The badged Display tab names its count; the others keep their text. */
+  protected ariaLabel(tab: RailTabModel): string | null {
+    const count = this.displayCount();
+    return tab.key === 'display' && count > 0
+      ? `${tab.label}, ${count} ${this.displayCountUnit()}`
+      : null;
+  }
 
   /**
    * Only reference panels that are in the DOM: the Live panel stays mounted
