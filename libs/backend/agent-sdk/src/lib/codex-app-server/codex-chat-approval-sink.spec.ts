@@ -3,6 +3,9 @@ import { SessionId } from '@ptah-extension/shared';
 import { Logger } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { CodexApprovalRequest } from '@ptah-extension/codex-runtime';
+import { mkdtemp, realpath, rmdir, unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import {
   CODEX_CHAT_APPROVAL_CHOICES,
   CodexChatApprovalSink,
@@ -83,6 +86,90 @@ function nextPresentation(presentation: ReturnType<typeof setup>['presentation']
 }
 
 describe('CodexChatApprovalSink', () => {
+  it.each([
+    ['level-not-ask', 'plan', 'command', { command: 'Get-Content secret.txt', cwd: 'C:\\repo' }],
+    ['not-command', 'ask', 'fileChange', { command: 'Get-Content secret.txt', cwd: 'C:\\repo' }],
+    ['not-command', 'plan', 'fileChange', { command: 'Get-Content secret.txt', cwd: 'C:\\repo' }],
+    ['details-gate', 'ask', 'command', {
+      command: 'Get-Content secret.txt', cwd: 'C:\\repo', environmentId: 'private',
+      networkApprovalContext: {}, proposedNetworkPolicyAmendments: [],
+    }],
+    ['cwd-uri-invalid', 'ask', 'command', { command: 'Get-Content secret.txt', cwd: 'file://%ZZ/private' }],
+    ['not-classified', 'ask', 'command', { command: 'Set-Content secret.txt data', cwd: 'C:\\repo' }],
+  ] as const)('logs names-only %s reason on card fall-through', async (reason, level, kind, details) => {
+    const { sink, presentation, logger } = setup(() => level);
+    const pending = sink.request({ ...request, kind, details }, new AbortController().signal);
+    expect(presentation.present).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith(
+      '[CodexChatApprovalSink] read-only command not accepted.',
+      { code: 'codex-read-only-not-accepted', reason, nonNull: {
+        environmentId: 'environmentId' in details,
+        networkApprovalContext: 'networkApprovalContext' in details,
+        proposedNetworkPolicyAmendments: 'proposedNetworkPolicyAmendments' in details,
+      } },
+    );
+    const logged = JSON.stringify(jest.mocked(logger.info).mock.calls);
+    expect(logged).not.toContain(details.command);
+    expect(logged).not.toContain('secret.txt');
+    expect(logged).not.toContain('C:\\\\repo');
+    expect(logged).not.toContain(String(details.cwd));
+    sink.dispose();
+    await expect(pending).resolves.toBe('decline');
+  });
+
+  it('logs path-not-inside when a realpath escapes and never logs its path', async () => {
+    const resolvePath = async (value: string) =>
+      value.endsWith('secret.txt') ? 'C:\\outside\\private.txt' : value;
+    const { sink, presentation, logger } = setup(() => 'ask', resolvePath);
+    const presented = nextPresentation(presentation);
+    const pending = sink.request({ ...request, details: {
+      command: 'Get-Content secret.txt', cwd: 'C:\\repo',
+    } }, new AbortController().signal);
+    await presented;
+    expect(logger.info).toHaveBeenCalledWith(
+      '[CodexChatApprovalSink] read-only command not accepted.',
+      { code: 'codex-read-only-not-accepted', reason: 'path-not-inside', nonNull: {
+        environmentId: false, networkApprovalContext: false,
+        proposedNetworkPolicyAmendments: false,
+      } },
+    );
+    const logged = JSON.stringify(jest.mocked(logger.info).mock.calls);
+    expect(logged).not.toContain('Get-Content secret.txt');
+    expect(logged).not.toContain('secret.txt');
+    expect(logged).not.toContain('C:\\\\repo');
+    sink.dispose();
+    await expect(pending).resolves.toBe('decline');
+  });
+
+  (process.platform === 'win32' ? it : it.skip)(
+    'accepts the live TotalCount wrapper against a real temporary README', async () => {
+      const directory = await mkdtemp(path.join(tmpdir(), 'ptah-codex-read-'));
+      const readme = path.join(directory, 'README.md');
+      try {
+        await writeFile(readme, 'read-only fixture\n', 'utf8');
+        const { sink, presentation, logger } = setup(() => 'ask', realpath, directory);
+        const command = '"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" ' +
+          "-Command 'Get-Content -LiteralPath README.md -TotalCount 40'";
+        await expect(sink.request({ ...request, details: { command, cwd: directory } },
+          new AbortController().signal)).resolves.toBe('accept');
+        expect(presentation.present).not.toHaveBeenCalled();
+        expect(logger.info).toHaveBeenCalledTimes(1);
+        expect(logger.info).toHaveBeenCalledWith(
+          '[CodexChatApprovalSink] accepted read-only command.',
+          { commands: ['Get-Content'], hasReason: false },
+        );
+        const logged = JSON.stringify(jest.mocked(logger.info).mock.calls);
+        expect(logged).not.toContain(command);
+        expect(logged).not.toContain('README.md');
+        expect(logged).not.toContain(directory);
+      } finally {
+        await unlink(readme);
+        await rmdir(directory);
+      }
+    },
+  );
+
   it('accepts one Manual read request without presentation and logs names only', async () => {
     const { sink, presentation, logger } = setup(() => 'ask');
     const read = {
@@ -222,7 +309,13 @@ describe('CodexChatApprovalSink', () => {
     const pending = sink.request({ ...request, details }, new AbortController().signal);
     await presented;
     expect(presentation.present).toHaveBeenCalledTimes(1);
-    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      '[CodexChatApprovalSink] read-only command not accepted.',
+      { code: 'codex-read-only-not-accepted', reason: 'path-not-inside', nonNull: {
+        environmentId: false, networkApprovalContext: false,
+        proposedNetworkPolicyAmendments: false,
+      } },
+    );
     sink.dispose();
     await expect(pending).resolves.toBe('decline');
   });

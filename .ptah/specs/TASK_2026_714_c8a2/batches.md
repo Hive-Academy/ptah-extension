@@ -4167,3 +4167,243 @@ data). Depends on: 8p-1, 8p-3 committed.
   over the 700-line warning; a further split is new design work, not a move.
 - code-logic-review-8p-3 M2 (optional): note in code that `normalizedHome` is the account
   boundary now that `accountId`/`consumer` left the digest.
+
+## Round 8q: p8j gaps (read grammar, saved permission level, live mode change) — IN_PROGRESS (Wave 1 started; D1-D4 accepted by the coordinator)
+
+Sources: research-p8j-gaps.md (8ea186c34), live-test-p8j.md. Backend only: no frontend Codex
+special case, no second proxy, NEVER touch MCP, Claude behaviour unchanged. Decisions in force:
+D14, D14a, D20, D23, D24(1) (the resume refusal on a policy change stays). P9 batches 9b-2..9b-7
+stay on hold until this round is committed. Prefixes: A = W/libs/backend/agent-sdk/src/lib/
+codex-app-server/, H = W/libs/backend/rpc-handlers/src/lib/chat/, R =
+W/libs/backend/codex-runtime/src/lib/.
+
+### Plan validation
+
+Status: PASSED WITH RISKS. Anchors re-checked at 8ea186c34:
+- Gap A: the only rejecting gate is the PowerShell branch of the classifier
+  (A/codex-read-only-command.ts:140-148: one value after `-LiteralPath`, no named parameters,
+  any value starting with `-` rejected). The sink falls through to the card silently
+  (A/codex-chat-approval-sink.ts:107-147; only the accept branch logs, :136). The forbidden
+  character class (:12) does not contain `*`, `?`, `[`, `]`, so wildcard path values are not
+  rejected today.
+- D14a part 1: the profile takes `config.permissionLevel ?? 'ask'` (H/codex-host/
+  codex-chat-host-ports.ts:393) and never reads `autopilot.*`. The only autopilot reader on the
+  Codex path is H/codex-host/codex-session-settings-record.ts:104-118 (through
+  `deps.scopeResolver.readForPath(name, workspacePath, true)`, :92-93). Host ports deps
+  (codex-chat-host-ports.ts:56-77) have no settings reader, so Electron must bind one.
+- D14a part 2: `updateNextTurn` throws on any level change (R/codex-context.ts:744-772,
+  :756-762); `start()` sends the frozen `profile.approvalPolicy`/`sandboxPolicy` (:481-490); the
+  bridge reads the frozen `profile.permissionLevel` (:249); the identity with the open-time
+  `profileFingerprint` is persisted once (:228-240). The adapter sets `session.settings` after a
+  successful update (A/codex-chat-adapter.ts:722-736) and the sink reads that value (:474). The
+  pure level->policy mapping and the fingerprint are inline in R/codex-execution-profile.ts
+  (:141-160, :250-292). Rollback: H/codex-host/native-session-controls.ts `change()` applies the
+  old level again when the save fails.
+
+Decisions (team-leader, session 25, reversible):
+- 8q-D1 Grammar. Per-cmdlet named parameters, exact and case-insensitive, no abbreviations, each
+  parameter at most once, ints `^\d{1,6}$`, values consumed by grammar position (not by a
+  leading `-` heuristic). Get-Content: one path (`-LiteralPath` | `-Path` | positional), at most
+  one of `-TotalCount` | `-Head` | `-First` <int>, `-Tail` <int>, `-Raw`. Get-ChildItem: zero or
+  one path (same three forms), switches `-Name`, `-File`, `-Directory`. Test-Path: one path,
+  optional `-PathType Leaf|Container`. `-Force` NOT allowed (in no live command; reveals hidden
+  files; deny by default). Rejected: `-Wait`, `-Stream`, `-Filter`, `-Include`, `-Exclude`,
+  `-Credential`, `-ReadCount`, `-Delimiter`, `-Encoding`, `-Recurse`, `-Depth`, and any unknown
+  parameter. Only path values go to `paths`. A `-Path` or positional value containing `*`, `?`,
+  `[` or `]` is rejected (wildcard expansion would read files the realpath gate never saw);
+  `-LiteralPath` values still reject `*` and `?`. Existing reject specs stay green.
+- 8q-D2 Reason log. One names-only line at every non-accept fall-through in the sink:
+  `{ code: 'codex-read-only-not-accepted', reason }`, reason from the closed enum `level-not-ask`,
+  `not-command`, `details-gate`, `cwd-uri-invalid`, `not-classified`, `path-not-inside`, plus
+  booleans for which of `environmentId`, `networkApprovalContext`,
+  `proposedNetworkPolicyAmendments` are non-null. Never the command, tokens, paths or cwd. Level
+  `info` (dev-gated runtime; settles the `environmentId` unknown on the next live read).
+- 8q-D3 Saved level helper. ONE pure helper in rpc-handlers codex-host,
+  `resolveSavedCodexPermissionLevel(read)`: `autopilot.enabled === true ?
+  autopilot.permissionLevel : 'ask'`; an invalid saved level throws the existing
+  `CodexSessionSettingsError('invalid-settings')`. codex-session-settings-record.ts uses it (no
+  third copy). The profile uses `config.permissionLevel` when set, else the helper over the
+  workspace-scoped reader. It stays in rpc-handlers, not shared: both readers live there, so no
+  shared/auth-providers verify is needed.
+- 8q-D4 Live change = defer to the next turn (Claude-like: the chip changes at once). The
+  context stores the requested level immediately; `turn/start` sends the policy of the level
+  current at that start; the bridge AND the sink read the level in force for the CURRENT turn (a
+  snapshot taken in `start()`), so an active turn never auto-accepts under a level its wire policy
+  does not have. Rejecting while a turn is active was rejected (the toggle would fail on every
+  busy chat). The fingerprint is recomputed with the extracted pure function and the identity is
+  re-persisted inside `updateNextTurn` before it resolves; a failed persist rejects and leaves the
+  settings unchanged, so the controls' rollback (`apply(old)`) restores the old level, policy and
+  fingerprint through the same path.
+
+Risks:
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| Read grammar widens the D20 auto-accept | HIGH | 8q-1 deny-by-default grammar, wildcard reject, Claude security review before commit |
+| Stale level during an active turn auto-accepts under the wrong mode | HIGH | 8q-D4 per-turn snapshot for bridge and sink; 8q-3a/3b specs; security review |
+| Every saved mode switch makes old Codex threads refuse on resume (D24(1)) | MEDIUM | intended (user choice); recorded for the live re-test |
+| The store refuses a re-persist of an existing thread's identity | MEDIUM | 8q-3b checks codex-thread-identity-store.ts and adds an update path only if needed |
+| Parallel lanes in one worktree see each other's edits during verify | MEDIUM | implement in waves; verify and commit one batch at a time in the listed order |
+| `environmentId` non-null keeps showing cards after the grammar fix | LOW | 8q-D2 boolean log settles it on the next live read |
+
+Assumptions: `-Head`/`-First` are aliases of `-TotalCount` in Windows PowerShell 5.1 (the 8q-1
+executor confirms it and records the source in the report); the plan-level sandbox is
+`read-only` and every other chat level `workspace-write`, so a plan <-> other change resends
+both fields (8q-3a spec).
+
+### Waves, reviews, gate
+
+- Wave 1 (parallel implementation, disjoint projects): 8q-1 (agent-sdk), 8q-2a (rpc-handlers),
+  8q-3a (codex-runtime). Verify and commit in the order 8q-3a (verify only; commit waits for the
+  security review) -> 8q-1 -> 8q-2a.
+- Wave 2: 8q-3b (needs 8q-3a; after 8q-1 is committed, same project) and 8q-2b (needs 8q-2a),
+  in parallel.
+- Wave 3: 8q-3c (needs 8q-3b, 8q-2b).
+- Reviews: Claude SECURITY review of the 8q-1 diff before its commit; Claude SECURITY review of
+  the combined 8q-3a + 8q-3b diff before either is committed (verify each, review once, commit
+  3a then 3b). Round code-logic review (Claude `code-logic-reviewer`) on the combined round diff
+  after 8q-3c; one fix round per the rules.
+- Round gate (coordinator): degradation-audit, di-lint, 4-host typecheck.
+- Executors: CLI lanes codex (gpt-6-sol) or grok; never gpt-6.1-terra; Glm at limit. Fallback:
+  the other of codex/grok -> subagent `backend-developer`. Lane task first lines: lanes never
+  verify, commit or push, never call ptah_get_diagnostics, never npm ci/install, never touch
+  MCP, follow W/CLAUDE.md (Electron first; no any / as unknown as / ts-ignore / eslint-disable),
+  strip any UTF-8 BOM, do not edit batches.md/task.md/decisions.md, edit only the listed files,
+  write the report to the given absolute path.
+
+## Batch 8q-1: Bounded PowerShell read grammar and reason log (agent-sdk) — COMPLETE (commit: the "batch 8q-1" commit; security-review-8q-1.md APPROVE 8.5/10; Wave 1 verify: agent-sdk lint/test/typecheck PASS)
+
+- Recommended executor: CLI lane codex (gpt-6-sol) | sequential | Depends on: none
+- Review: Claude security review (D20) before commit; round code-logic review later
+- Verify: `npm run verify -- -p @ptah-extension/agent-sdk`
+- Files: MODIFY A/codex-read-only-command.ts, A/codex-read-only-command.spec.ts,
+  A/codex-chat-approval-sink.ts, A/codex-chat-approval-sink.spec.ts
+- Report: T/batch-8q-1-report.md
+
+### Task 8q-1.1: per-cmdlet grammar (8q-D1) — COMPLETE
+- Replace the PowerShell branch at :140-148. Specs accept, in the live wrapper:
+  `Get-Content -LiteralPath README.md -TotalCount 40`, `... package.json -TotalCount 3`,
+  `Get-ChildItem -LiteralPath . -Name`, `-Tail 5`, `-Raw`, swapped order, a positional path plus
+  `-TotalCount`, `Test-Path x -PathType Leaf`. Specs reject: `-TotalCount abc`, `-TotalCount -1`,
+  a missing value, a repeated `-LiteralPath`, `-TotalCount 3 -Head 3`, `-Wait`, `-Stream`,
+  `-Filter *`, `-Tot 3`, `-Recurse`, `-Force`, `-Path ..\x`, `-LiteralPath C:\other`, `-Path *`,
+  a positional `a?.md`, a switch given a path value, a 7-digit int.
+### Task 8q-1.2: names-only reason log (8q-D2) — COMPLETE
+- Every fall-through to `presentRequest` in the sink (:107-147). Specs: code + reason per branch;
+  the serialized log args contain no command text, path or cwd; one end-to-end sink spec with the
+  real `-TotalCount` command in a real temp folder expects `'accept'`.
+
+## Batch 8q-2a: One saved-level helper (rpc-handlers) — IN_PROGRESS
+
+- Recommended executor: CLI lane grok | sequential | Depends on: none
+- Verify: `npm run verify -- -p @ptah-extension/rpc-handlers`
+- Files: CREATE H/codex-host/codex-saved-permission-level.ts and
+  H/codex-host/codex-saved-permission-level.spec.ts; MODIFY
+  H/codex-host/codex-session-settings-record.ts (:104-118 uses the helper; behaviour identical;
+  existing record specs stay green)
+- Report: T/batch-8q-2a-report.md
+
+### Task 8q-2a.1: helper (8q-D3) — IN_PROGRESS
+- Specs: disabled -> ask; absent `enabled` -> ask; enabled ask/plan/auto-edit/yolo -> that
+  level; enabled with an invalid or missing level -> `CodexSessionSettingsError('invalid-settings')`.
+### Task 8q-2a.2: the settings record uses the helper — IN_PROGRESS
+
+## Batch 8q-2b: The Codex profile honours the saved level (rpc-handlers, ptah-electron) — PENDING
+
+- Recommended executor: CLI lane codex (gpt-6-sol) | sequential | Depends on: 8q-2a
+- Verify: `npm run verify -- -p @ptah-extension/rpc-handlers,ptah-electron`
+- Files: MODIFY H/codex-host/codex-chat-host-ports.ts (deps :56-77 gain a required
+  `readSavedPermissionLevel(workspacePath: string): PermissionLevel`; :393 becomes
+  `config.permissionLevel ?? deps.readSavedPermissionLevel(<resolved workspace path>)`),
+  H/codex-host/codex-chat-host-ports.spec.ts, H/session/chat-session.service.spec.ts,
+  W/apps/ptah-electron/src/di/codex-runtime-composition.ts (binds the helper over the same
+  `scopeResolver.readForPath(name, workspacePath, true)` reader the settings record uses) and
+  W/apps/ptah-electron/src/di/codex-runtime-composition.spec.ts if a binding spec belongs there
+- Report: T/batch-8q-2b-report.md
+
+### Task 8q-2b.1: host ports profile — PENDING
+- Specs: Manual -> ask; enabled auto-edit/plan/yolo -> those levels; an explicit
+  `config.permissionLevel` wins; a resume (no `permissionLevel` in its config) reads the same
+  saved level.
+### Task 8q-2b.2: the resume refusal is reachable — PENDING
+- chat-session.service.spec.ts: a resume whose saved level changed maps to
+  `CODEX_RUNTIME_FAILED` with `CODEX_RESUME_PROFILE_CHANGED_MESSAGE` (the p8j D14a scenario).
+### Task 8q-2b.3: Electron binding — PENDING
+
+## Batch 8q-3a: Live level change in the runtime (codex-runtime) — IN_PROGRESS
+
+- Recommended executor: CLI lane codex (gpt-6-sol) | sequential | Depends on: none
+- Review: Claude security review on 8q-3a + 8q-3b before either commit
+- Verify: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/cli-agent-runtime,@ptah-extension/gateway-chat-bridge,@ptah-extension/agent-sdk`
+- Files: MODIFY R/codex-execution-profile.ts, R/codex-execution-profile.spec.ts,
+  R/codex-context.ts, and the runtime spec that drives `updateNextTurn` and `turn/start` frames
+  (research names R/codex-runtime.spec.ts; locate it); W/libs/backend/codex-runtime/src/index.ts
+  only if 8q-3b needs a new export
+- Report: T/batch-8q-3a-report.md
+
+### Task 8q-3a.1: extract the pure policy and fingerprint — IN_PROGRESS
+- From :141-160 and :250-292: exported pure `resolveCodexLevelPolicy(consumer, level, cwd)` ->
+  `{ approvalPolicy, sandboxPolicy }` and `codexProfileFingerprint({ permissionLevel,
+  sandboxPolicy, approvalPolicy })`; `buildCodexExecutionProfile` uses both (single source).
+  Existing profiles and fingerprints unchanged byte for byte (a spec pins a known digest).
+### Task 8q-3a.2: `updateNextTurn` applies a level (8q-D4) — IN_PROGRESS
+- R/codex-context.ts:744-772: keep the zod validation, drop the throw, store the level and its
+  policy (8q-3a.1), recompute the fingerprint and re-persist the identity
+  (`options.store.persist`) before resolving; a failed persist rejects and keeps the old state.
+- `start()` (:481-490) sends the current policy and snapshots the turn level; the bridge (:249)
+  reads the snapshot; a read-only `turnPermissionLevel` (current turn, else the stored level) is
+  exposed for the adapter's sink.
+- Specs: all four levels give the right next `turn/start` frame (plan <-> other resends both
+  fields); a change during an active turn leaves the bridge on the old level until the next
+  start; the fingerprint is re-persisted; a persist failure leaves frame and fingerprint unchanged;
+  a rollback to the old level restores both; the model/effort paths are unchanged.
+
+### 8q-3a review carry-over (security-review-8q-3a.md APPROVE 8/10; coordinator call)
+
+- Fix before the 8q-3a commit (fix round 8q-3a-fix, same files + specs): M1 the
+  `updateNextTurn` persist (codex-context.ts:803) is not tracked by `this.persistence` and has no
+  closed check after the await, so a close during it can leave the identity active for a dead
+  context and return success from a closed context (:924-946); M2 a turn started by a
+  `turn/started` notification while idle (compaction etc., :207-214, :395-402) has no level
+  snapshot, so the bridge falls back to the live level.
+- Closed by 8q-3b: M3 sink/bridge disagreement until the sink reads `turnPermissionLevel` (fails
+  closed).
+- Minors recorded, not fixed: approval requests carry the stale open-time `profileFingerprint`
+  after a live change; session approval rules are not scoped by level; no specs yet for
+  sink/bridge disagreement (8q-3b adds them).
+- Deviation from the Waves section: 8q-3a got its own security review (not combined with 8q-3b),
+  so it can commit in Wave 1; 8q-3b gets its own security review.
+
+## Batch 8q-3b: Adapter and identity store follow the live level (agent-sdk) — PENDING
+
+- Recommended executor: CLI lane grok | sequential | Depends on: 8q-3a; after 8q-1 is committed
+  (same project)
+- Review: the combined 8q-3a + 8q-3b security review
+- Verify: `npm run verify -- -p @ptah-extension/agent-sdk`
+- Files: MODIFY A/codex-chat-adapter.ts (`buildSink` :420-480 reads the context's
+  `turnPermissionLevel` instead of `session.settings`; `setSessionPermissionLevel` :722-736
+  otherwise unchanged), A/codex-chat-adapter.spec.ts, A/codex-chat-turn-lifecycle.spec.ts,
+  W/libs/backend/agent-sdk/src/lib/wiring/codex-thread-identity-store.ts and its spec (only if a
+  second `persist` of the same thread with a new fingerprint is refused today)
+- Report: T/batch-8q-3b-report.md
+
+### Task 8q-3b.1: the sink reads the turn level — PENDING
+### Task 8q-3b.2: `setSessionPermissionLevel` resolves for a different level — PENDING
+- Specs: it resolves; the next turn's sink gate uses the new level; a mid-turn change keeps the
+  active turn's level.
+### Task 8q-3b.3: the identity store accepts the re-persist — PENDING
+- Same thread, context and generation with a new fingerprint -> stored; a different thread is
+  still refused.
+
+## Batch 8q-3c: Controls contract with a live level change (rpc-handlers specs) — PENDING
+
+- Recommended executor: CLI lane grok | sequential | Depends on: 8q-3b, 8q-2b
+- Verify: `npm run verify -- -p @ptah-extension/rpc-handlers`
+- Files: MODIFY H/codex-host/codex-chat-native-contract.spec.ts,
+  H/codex-host/native-session-controls.spec.ts (specs only; a needed production change here is a
+  finding to report, not to make)
+- Report: T/batch-8q-3c-report.md
+
+### Task 8q-3c.1: setPermission on an open thread — PENDING
+- A different level: apply, save, chip value; a save failure rolls back by applying the old
+  level and the old policy. Last 8q batch -> round code-logic review.

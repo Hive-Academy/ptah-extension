@@ -66,6 +66,8 @@ export interface CodexChatApprovalFollowUp {
   failed(): void;
 }
 type Outcome = Awaited<ReturnType<ApprovalSink['request']>>;
+type ReadOnlyNotAcceptedReason = 'level-not-ask' | 'not-command' | 'details-gate' |
+  'cwd-uri-invalid' | 'not-classified' | 'path-not-inside';
 interface PendingApproval {
   readonly request: CodexApprovalRequest;
   settle(
@@ -113,15 +115,16 @@ export class CodexChatApprovalSink implements ApprovalSink {
         cwd = fileURLToPath(cwd, { windows: this.platform === 'win32' });
       } catch {
         // degradation-audit: optional-capability - an invalid cwd URI cannot prove containment; show the card.
+        this.logReadOnlyNotAccepted(request.kind === 'command' ? 'cwd-uri-invalid' : 'not-command', details);
         return this.presentRequest(request, signal, key);
       }
     }
     // A proposed exec-policy amendment is ignored: this gate only returns plain accept for this request.
-    const classified = this.permissionLevel() === 'ask' && request.kind === 'command' &&
-      (details['kind'] === undefined || details['kind'] === 'command') &&
-      details['networkApprovalContext'] == null &&
-      details['environmentId'] == null &&
-      details['proposedNetworkPolicyAmendments'] == null
+    const levelIsAsk = this.permissionLevel() === 'ask';
+    const detailsPass = (details['kind'] === undefined || details['kind'] === 'command') &&
+      details['networkApprovalContext'] == null && details['environmentId'] == null &&
+      details['proposedNetworkPolicyAmendments'] == null;
+    const classified = levelIsAsk && request.kind === 'command' && detailsPass
       ? classifyReadOnlyCommand(details['command'], cwd, this.threadCwd, this.platform, { systemRoot: this.systemRoot })
       : undefined;
     if (classified && typeof cwd === 'string' && this.threadCwd)
@@ -142,9 +145,27 @@ export class CodexChatApprovalSink implements ApprovalSink {
             });
             return 'accept';
           }
+          this.logReadOnlyNotAccepted('path-not-inside', details);
           return this.presentRequest(request, signal, key);
         });
+    const reason: ReadOnlyNotAcceptedReason = request.kind !== 'command' ? 'not-command' :
+      !levelIsAsk ? 'level-not-ask' :
+      !detailsPass ? 'details-gate' :
+      typeof cwd !== 'string' || !this.threadCwd ? 'cwd-uri-invalid' : 'not-classified';
+    this.logReadOnlyNotAccepted(reason, details);
     return this.presentRequest(request, signal, key);
+  }
+
+  private logReadOnlyNotAccepted(reason: ReadOnlyNotAcceptedReason, details: CodexApprovalRequest['details']): void {
+    this.logger.info('[CodexChatApprovalSink] read-only command not accepted.', {
+      code: 'codex-read-only-not-accepted',
+      reason,
+      nonNull: {
+        environmentId: details['environmentId'] != null,
+        networkApprovalContext: details['networkApprovalContext'] != null,
+        proposedNetworkPolicyAmendments: details['proposedNetworkPolicyAmendments'] != null,
+      },
+    });
   }
 
   private async acceptIfRealPathsStayInside(

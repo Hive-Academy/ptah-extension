@@ -93,9 +93,9 @@ export function pathWithin(candidate: string, cwd: string, platform: Platform): 
     !paths.isAbsolute(relative);
 }
 
-function insideCwd(candidate: string, cwd: string, threadCwd: string, platform: Platform): boolean {
+function insideCwd(candidate: string, cwd: string, threadCwd: string, platform: Platform, literalPath = false): boolean {
   if (!candidate || candidate.startsWith('~') || candidate.includes('*') ||
-      candidate.includes('?') || candidate.includes('[') || candidate.includes(']') ||
+      candidate.includes('?') || (!literalPath && (candidate.includes('[') || candidate.includes(']'))) ||
       (platform === 'win32' && candidate.includes(','))) return false;
   if (platform === 'win32') {
     if (candidate.split(/[\\/]/).some((segment) =>
@@ -112,6 +112,44 @@ function insideCwd(candidate: string, cwd: string, threadCwd: string, platform: 
   return pathWithin(resolved, threadCwd, platform);
 }
 
+function powerShellPaths(name: string, args: string[]): { path: string; literal: boolean }[] | undefined {
+  let pathValue: string | undefined;
+  let literal = false;
+  const seen = new Set<string>();
+  let countSeen = false;
+  for (let index = 0; index < args.length; index++) {
+    const token = args[index];
+    if (!token.startsWith('-')) {
+      if (pathValue !== undefined) return undefined;
+      pathValue = token;
+      continue;
+    }
+    const parameter = token.toLowerCase();
+    if (seen.has(parameter)) return undefined;
+    if (parameter === '-literalpath' || parameter === '-path') {
+      if (pathValue !== undefined || args[index + 1] === undefined) return undefined;
+      pathValue = args[++index];
+      literal = parameter === '-literalpath';
+    } else if (name === 'get-content' &&
+        (parameter === '-totalcount' || parameter === '-head' || parameter === '-first' || parameter === '-tail')) {
+      if ((parameter !== '-tail' && countSeen) || !/^\d{1,6}$/.test(args[index + 1] ?? '')) return undefined;
+      if (parameter !== '-tail') countSeen = true;
+      index++;
+    } else if (name === 'get-content' && parameter === '-raw') {
+      // No value: the next token is parsed as a separate path or parameter.
+    } else if (name === 'get-childitem' &&
+        (parameter === '-name' || parameter === '-file' || parameter === '-directory')) {
+      // Switches have no values.
+    } else if (name === 'test-path' && parameter === '-pathtype') {
+      if (!/^(?:leaf|container)$/i.test(args[index + 1] ?? '')) return undefined;
+      index++;
+    } else return undefined;
+    seen.add(parameter);
+  }
+  if (pathValue === undefined) return name === 'get-childitem' ? [] : undefined;
+  return [{ path: pathValue, literal }];
+}
+
 function validStage(stage: string[], cwd: string, threadCwd: string, platform: Platform): string[] | undefined {
   const [rawName, ...args] = stage;
   if (!rawName) return undefined;
@@ -119,6 +157,7 @@ function validStage(stage: string[], cwd: string, threadCwd: string, platform: P
   if (!portableCommands.has(name) &&
       !(platform === 'win32' && powerShellCommands.has(name))) return undefined;
   const paths: string[] = [];
+  let literalPath: string | undefined;
   if (name === 'rg') {
     let files = false;
     let index = 0;
@@ -138,15 +177,16 @@ function validStage(stage: string[], cwd: string, threadCwd: string, platform: P
         args[2].toLowerCase() !== '-path' || !args[1]) return undefined;
     paths.push(args[3]);
   } else if (powerShellCommands.has(name)) {
-    const values = args[0]?.toLowerCase() === '-literalpath' ? args.slice(1) : args;
-    if (values.length > 1 || (name !== 'get-childitem' && values.length !== 1)) return undefined;
-    paths.push(...values);
+    const values = powerShellPaths(name, args);
+    if (!values) return undefined;
+    paths.push(...values.map((value) => value.path));
+    literalPath = values.find((value) => value.literal)?.path;
   } else {
     if (name === 'cat' && args.length === 0) return undefined;
     paths.push(...args);
   }
   return paths.every((value) => value !== '-' && !value.startsWith('-') &&
-    insideCwd(value, cwd, threadCwd, platform)) ? paths : undefined;
+    insideCwd(value, cwd, threadCwd, platform, value === literalPath)) ? paths : undefined;
 }
 
 export interface ReadOnlyCommand {

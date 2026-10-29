@@ -1,4 +1,5 @@
 import {
+  classifyReadOnlyCommand,
   isReadOnlyCommand as classify,
   readOnlyCommandNames as commandNames,
 } from './codex-read-only-command';
@@ -13,8 +14,63 @@ const posix = '/repo/work';
 const systemRoot = { systemRoot: 'C:\\Windows' };
 const liveExecutable = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
 const liveBody = 'Get-Content -LiteralPath README.md';
+const liveCommand = (body: string) => `"${liveExecutable}" -Command '${body}'`;
 
 describe('read-only Codex command classifier', () => {
+  it.each([
+    ['Get-Content -LiteralPath README.md -TotalCount 40', ['README.md']],
+    ['Get-Content -LiteralPath package.json -TotalCount 3', ['package.json']],
+    ['Get-Content -LiteralPath README.md -Tail 5', ['README.md']],
+    ['Get-Content -LiteralPath README.md -Raw', ['README.md']],
+    ['Get-Content -Raw -TotalCount 3 -LiteralPath README.md', ['README.md']],
+    ['Get-Content README.md -TotalCount 3', ['README.md']],
+    ['Get-Content -Head 3 -Path README.md', ['README.md']],
+    ['Get-Content -First 3 -LiteralPath README.md', ['README.md']],
+    ['Get-Content -LiteralPath a[1].md', ['a[1].md']],
+    ['Get-ChildItem -LiteralPath . -Name', ['.']],
+    ['Get-ChildItem -Name -LiteralPath .', ['.']],
+    ['Get-ChildItem -Name -File -Directory', []],
+    ['Test-Path x -PathType Leaf', ['x']],
+    ['Test-Path -PathType container -LiteralPath x', ['x']],
+  ] as const)('accepts bounded Windows PowerShell read %s with path values only', (body, paths) => {
+    expect(classifyReadOnlyCommand(liveCommand(body), win, win, 'win32', systemRoot)?.paths)
+      .toEqual(paths);
+  });
+
+  it.each([
+    'Get-Content -LiteralPath README.md -TotalCount abc',
+    'Get-Content -LiteralPath README.md -TotalCount -1',
+    'Get-Content -LiteralPath README.md -TotalCount',
+    'Get-Content -LiteralPath README.md -TotalCount 1234567',
+    'Get-Content -LiteralPath README.md -LiteralPath package.json',
+    'Get-Content -LiteralPath README.md -TotalCount 3 -Head 3',
+    'Get-Content -LiteralPath README.md -Wait',
+    'Get-Content -LiteralPath README.md -Stream stream',
+    'Get-Content -LiteralPath README.md -Filter *',
+    'Get-Content -LiteralPath README.md -Include *.md',
+    'Get-Content -LiteralPath README.md -Exclude *.md',
+    'Get-Content -LiteralPath README.md -Credential user',
+    'Get-Content -LiteralPath README.md -ReadCount 2',
+    'Get-Content -LiteralPath README.md -Delimiter x',
+    'Get-Content -LiteralPath README.md -Encoding utf8',
+    'Get-Content -LiteralPath README.md -Tot 3',
+    'Get-Content -Raw README.md extra',
+    'Get-Content -Path ..\\x',
+    'Get-Content -LiteralPath C:\\other',
+    'Get-Content -Path *',
+    'Get-Content a?.md',
+    'Get-Content -Path a[1].md',
+    'Get-Content -LiteralPath a*.md',
+    'Get-ChildItem -Recurse',
+    'Get-ChildItem -Depth 2',
+    'Get-ChildItem -Force',
+    'Get-ChildItem -Name -Name',
+    'Test-Path x -PathType File',
+  ])('rejects unsafe Windows PowerShell parameter grammar %s', (body) => {
+    expect(classifyReadOnlyCommand(liveCommand(body), win, win, 'win32', systemRoot))
+      .toBeUndefined();
+  });
+
   it.each([
     'Get-Content README.md',
     'Get-ChildItem .',
