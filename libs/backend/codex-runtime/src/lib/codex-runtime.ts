@@ -746,6 +746,8 @@ class RuntimeContext implements CodexContext {
     try {
       response = ask(request, signal);
     } catch {
+      // degradation-audit: reported - the failure is logged by
+      // warnDenialFeedback and false sends the question to the text fallback.
       this.warnDenialFeedback('failed', 'user-input');
       return false;
     }

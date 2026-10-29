@@ -144,6 +144,9 @@ export class CodexChatApprovalSink implements ApprovalSink {
       }
       return true;
     } catch {
+      // degradation-audit: optional-capability - auto-accept fails closed: a
+      // path that cannot be resolved is not proven inside the thread folder,
+      // so the request goes to the normal permission card instead.
       return false;
     }
   }
