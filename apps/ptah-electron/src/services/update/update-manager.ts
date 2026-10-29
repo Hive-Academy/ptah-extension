@@ -7,6 +7,10 @@
  * newer release exists it broadcasts an `available` state carrying the platform
  * installer URL and release notes; the update dialog's Download action opens
  * that URL in the browser. No electron-updater, no in-app download/install.
+ *
+ * Microsoft Store (MSIX) installs never check: the Store delivers their
+ * updates, so `start()` and `triggerCheck()` return before any GitHub request
+ * and the state stays `idle` (the update dialog never opens).
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -17,12 +21,19 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { UpdateLifecycleState } from '@ptah-extension/shared';
-import { isLocalProductionBuild } from '../../config/build-identity';
+import {
+  isLocalProductionBuild,
+  isMicrosoftStoreBuild,
+} from '../../config/build-identity';
 
 const GITHUB_RELEASES_URL =
   'https://api.github.com/repos/Hive-Academy/ptah-extension/releases';
 
 const ELECTRON_TAG_PREFIX = 'electron-v';
+
+/** Store listing (product 9N80K3HFX0JT); the download target on Windows from v2.0.0. */
+export const MICROSOFT_STORE_URL =
+  'https://apps.microsoft.com/detail/9N80K3HFX0JT';
 
 /** 4-hour periodic check interval in milliseconds. */
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -127,6 +138,12 @@ export class UpdateManager implements IAppUpdater {
    * `PTAH_E2E_ALLOW_UPDATE_CHECK: '1'` through `launchPtah`'s `opts.env`.
    */
   async start(): Promise<void> {
+    if (isMicrosoftStoreBuild()) {
+      this.logger.info(
+        '[UpdateManager] Skipped — Microsoft Store build (updates come from the Store)',
+      );
+      return;
+    }
     if (isLocalProductionBuild()) {
       this.logger.info('[UpdateManager] Skipped — local-production build');
       return;
@@ -161,6 +178,12 @@ export class UpdateManager implements IAppUpdater {
 
   /** On-demand check (called by the update:check-now RPC handler). */
   async triggerCheck(): Promise<void> {
+    if (isMicrosoftStoreBuild()) {
+      this.logger.info(
+        '[UpdateManager] Manual check skipped — Microsoft Store build (updates come from the Store)',
+      );
+      return;
+    }
     if (isLocalProductionBuild()) {
       this.logger.info(
         '[UpdateManager] Manual check skipped — local-production build',
@@ -359,6 +382,10 @@ export class UpdateManager implements IAppUpdater {
       return n.endsWith('.appimage') || n.endsWith('.deb');
     };
     const asset = assets.find((a) => matches(a.name));
+    if (!asset && platform === 'win32') {
+      // From v2.0.0 Windows ships only through the Microsoft Store.
+      return MICROSOFT_STORE_URL;
+    }
     return asset?.browser_download_url ?? null;
   }
 

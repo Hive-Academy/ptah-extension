@@ -234,9 +234,30 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
                           </div>
                         </a>
                       } @empty {
-                        <p class="text-sm text-neutral-content/40 italic px-2">
-                          No Windows builds
-                        </p>
+                        <!-- v2.0.0+ ships Windows only through the Microsoft Store -->
+                        <a
+                          [href]="microsoftStoreUrl"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="download-link group/dl flex items-center gap-3 px-4 py-3 -mx-2 rounded-xl hover:bg-secondary/5 transition-colors"
+                          data-testid="microsoft-store-link"
+                        >
+                          <lucide-angular
+                            [img]="DownloadIcon"
+                            class="w-4 h-4 text-secondary/60 group-hover/dl:text-secondary transition-colors shrink-0"
+                            aria-hidden="true"
+                          />
+                          <div class="flex-1 min-w-0">
+                            <p
+                              class="text-sm text-neutral-content group-hover/dl:text-secondary transition-colors"
+                            >
+                              Get it from the Microsoft Store
+                            </p>
+                            <p class="text-xs text-neutral-content/40">
+                              Installs and updates through the Store
+                            </p>
+                          </div>
+                        </a>
                       }
                     </div>
 
@@ -368,6 +389,9 @@ export class DownloadPageComponent {
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronUpIcon = ChevronUp;
   readonly ExternalLinkIcon = ExternalLink;
+
+  /** Store listing for product 9N80K3HFX0JT (Windows releases from v2.0.0). */
+  protected readonly microsoftStoreUrl = 'https://apps.microsoft.com/detail/9N80K3HFX0JT';
 
   readonly releases = this.releaseService.releases;
   readonly loading = this.releaseService.loading;
