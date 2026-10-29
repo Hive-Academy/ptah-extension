@@ -57,10 +57,15 @@ import {
   SlashCommandInterceptor,
   AuthRequiredError,
   isCodexChatAdapterError,
+  type StreamlessFollowUpAdmission,
   type SessionEndCallbackRegistry,
   type SessionMcpStatusCallbackRegistry,
   type SessionBudgetService,
 } from '@ptah-extension/agent-sdk';
+import {
+  CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+  isCodexResumeProfileChangedError,
+} from '@ptah-extension/codex-runtime';
 import {
   PLATFORM_TOKENS,
   isUnsafeWorkspacePath,
@@ -254,11 +259,6 @@ function namedPreparationRefusal(): ProviderAccountPortRefusal {
 
 /** What `chat:resume` needs from the session budget (N7). */
 type ChatSessionBudget = Pick<SessionBudgetService, 'observeLoaded'>;
-
-/** The slice of `SDK_TOKENS.SESSION_RUNTIME_ROUTER` the liveness check reads. */
-interface StreamlessFollowUpAdmission {
-  acceptsFollowUpWithoutStream(sessionId: SessionId): boolean;
-}
 
 @injectable()
 export class ChatSessionService {
@@ -625,15 +625,14 @@ export class ChatSessionService {
       : adapterError?.cause instanceof CodexChatOptionError
         ? adapterError.cause
         : undefined;
+    // The adapter normally maps the refusal to its own code; the cause check
+    // also covers an adapter error that kept the typed refusal as its cause.
     const resumeProfileChanged = adapterError?.code === 'resume-profile-changed' ||
-      (adapterError?.cause instanceof Error &&
-        adapterError.cause.name === 'CodexResumeProfileChangedError' &&
-        'code' in adapterError.cause &&
-        adapterError.cause.code === 'resume-profile-changed');
+      isCodexResumeProfileChangedError(adapterError?.cause);
     let failure: RpcUserError;
     if (resumeProfileChanged) {
       failure = new RpcUserError(
-        'Codex cannot resume this chat because its execution profile has changed. Start a new chat to use the current permission policy.',
+        CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
         'CODEX_RUNTIME_FAILED',
       );
     } else if (optionError) {
@@ -1213,6 +1212,7 @@ export class ChatSessionService {
           prompt,
           { ...params, admissionDeadline },
           mcpRegisteredForSubagents,
+          { deliversFollowUp: true },
         );
         if ('error' in resumeOutcome) return resumeOutcome.error;
         justResumed = resumeOutcome.justResumed;
@@ -1734,8 +1734,8 @@ export class ChatSessionService {
    * the resolved session config and streams to the webview. `{ error }`
    * carries a structured `ChatContinueResult` on failure.
    *
-   * `promptDelivered` is set only on a successful resume, and only when the
-   * Codex app-server runtime started the turn from a non-empty prompt.
+   * `promptDelivered` is set only when chat:continue successfully resumes a
+   * Codex thread and starts its follow-up turn, including attachment-only turns.
    * Callers that ignore the field keep the previous `{ justResumed }` behavior.
    */
   private async autoResumeIfInactive(
@@ -1753,6 +1753,7 @@ export class ChatSessionService {
      * does register, passes the real answer.
      */
     mcpRegisteredForSubagents = true,
+    options: { deliversFollowUp: boolean } = { deliversFollowUp: false },
   ): Promise<
     | { justResumed: boolean; promptDelivered?: boolean }
     | { error: ChatContinueResult }
@@ -1944,9 +1945,9 @@ export class ChatSessionService {
         params.surfaceMode,
       );
       this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
-      // Native Codex resume already started the turn when the prompt is non-empty.
+      // Native Codex resume starts the follow-up turn even for an empty prompt.
       const promptDelivered =
-        execution.runtime === 'codex-app-server' && prompt.length > 0;
+        options.deliversFollowUp && execution.runtime === 'codex-app-server';
       return { justResumed: true, promptDelivered };
     } catch (resumeError) {
       const codexFailure = this.codexFailure(resumeError);

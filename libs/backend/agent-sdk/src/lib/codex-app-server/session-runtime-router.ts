@@ -19,7 +19,14 @@ export interface NativeSessionControls extends SessionRuntimeControls {
   releaseSession?(sessionId: SessionId): void;
 }
 
-export class SessionRuntimeRouter implements SessionRuntimeControls {
+/** Admission check for a native thread whose previous turn stream has ended. */
+export interface StreamlessFollowUpAdmission {
+  acceptsFollowUpWithoutStream(sessionId: SessionId): boolean;
+}
+
+export class SessionRuntimeRouter
+  implements SessionRuntimeControls, StreamlessFollowUpAdmission
+{
   constructor(
     private readonly identities: SessionRuntimeIdentityLookup,
     private readonly legacy: SessionRuntimeControls,

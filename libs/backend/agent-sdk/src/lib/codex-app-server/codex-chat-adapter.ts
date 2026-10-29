@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import type { DependencyContainer } from 'tsyringe';
 import {
   resolveGatedCodexRuntime,
+  isCodexResumeProfileChangedError,
   type ApprovalSink,
   type CodexContext,
   type CodexExecutionProfile,
@@ -242,7 +243,13 @@ export class CodexChatAdapter implements NativeChatAdapter {
       // Session-level options are not reapplied to an open thread. Differences
       // from its retained model/effort/permissionLevel are reported by name only;
       // other supported inputs (such as systemPrompt) remain unapplied.
-      return this.turn(session, { text: config.prompt ?? '' });
+      return this.turn(session, {
+        text: config.prompt ?? '',
+        attachments: [
+          ...(config.files ?? []).map((path) => ({ type: 'file' as const, path })),
+          ...(config.images ?? []).map((image) => ({ type: 'image' as const, ...image })),
+        ],
+      });
     }
     return this.open(config, id);
   }
@@ -783,9 +790,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     const failure = error instanceof CodexChatAdapterError
       ? error
       : new CodexChatAdapterError(
-          error instanceof Error &&
-          error.name === 'CodexResumeProfileChangedError' &&
-          'code' in error && error.code === 'resume-profile-changed'
+          isCodexResumeProfileChangedError(error)
             ? 'resume-profile-changed'
             : 'runtime-failed',
           operation,

@@ -4,6 +4,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { PTAH_UI_HINT_CODEX } from '@ptah-extension/agent-sdk';
+import {
+  CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+  CodexResumeProfileChangedError,
+} from '@ptah-extension/codex-runtime';
 import { createCodexChatHostPorts, type CodexChatHostPortsDeps } from '../codex-host/codex-chat-host-ports';
 import { WorkspaceProviderProfileResolver } from '@ptah-extension/auth-providers';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
@@ -348,7 +352,7 @@ describe('chat native session preparation', () => {
         tabId: 'tab',
         ptahUiFence: true,
         ...(ambient ? { thinking } : {}),
-      }),
+      }, true, { deliversFollowUp: true }),
     ).resolves.toEqual({ justResumed: true, promptDelivered: true });
     expect(h.resumeSession).toHaveBeenCalledTimes(1);
     const resumed = h.resumeSession.mock.calls[0][1] as AgentSessionResumeConfig;
@@ -428,7 +432,7 @@ describe('chat native session preparation', () => {
       h.service['autoResumeIfInactive'](sessionId, 'tab', 'continue', {
         sessionId,
         tabId: 'tab',
-      }),
+      }, true, { deliversFollowUp: true }),
     ).resolves.toEqual({ justResumed: true, promptDelivered: true });
     expect(h.prepare).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -470,7 +474,7 @@ describe('chat native session preparation', () => {
     h.publishRuntimeNotices.mockRejectedValue(new Error('private broadcast detail'));
     await expect(h.service['autoResumeIfInactive'](sessionId, 'tab', 'continue', {
       sessionId, tabId: 'tab',
-    })).resolves.toEqual({ justResumed: true, promptDelivered: true });
+    }, true, { deliversFollowUp: true })).resolves.toEqual({ justResumed: true, promptDelivered: true });
     expect(h.service['streamBroadcaster'].streamEventsToWebview).toHaveBeenCalledWith(
       sessionId, await h.resumeSession.mock.results[0].value, 'tab', undefined,
     );
@@ -680,12 +684,26 @@ describe('typed Codex RPC failures', () => {
           : await h.service.continueSession({ sessionId, tabId: 'tab', prompt: 'continue' });
       const message = method === 'resume' && 'activationError' in result
         ? result.activationError : result.error;
-      expect(message).toContain('Start a new chat to use the current permission policy.');
+      expect(message).toBe(CODEX_RESUME_PROFILE_CHANGED_MESSAGE);
       expect(result).toMatchObject(method === 'resume'
         ? { success: true, activated: false, activationErrorCode: 'CODEX_RUNTIME_FAILED' }
         : { success: false, errorCode: 'CODEX_RUNTIME_FAILED' });
     },
   );
+
+  it('uses the exported text when a typed profile error is the adapter cause', async () => {
+    const h = errorHarness(new mockCodexChatAdapterError('runtime-failed', 'open', {
+      cause: new CodexResumeProfileChangedError(),
+    }));
+
+    const result = await h.service.startSession({ prompt: 'hello', tabId: 'tab', workspacePath: workspace });
+
+    expect(result).toMatchObject({
+      success: false,
+      errorCode: 'CODEX_RUNTIME_FAILED',
+      error: CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+    });
+  });
 
   it.each(failures)('classifies chat:start $code ($key)', async ({ error, code, key }) => {
     const h = errorHarness(error);

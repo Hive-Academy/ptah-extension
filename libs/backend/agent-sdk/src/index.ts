@@ -165,7 +165,7 @@ export {
 } from './lib/codex-app-server/codex-chat-adapter';
 export type { RuntimeAdmissionPort } from './lib/codex-app-server/routing-agent-adapter';
 export type { SessionApprovalRouter } from './lib/codex-app-server/session-approval-router';
-export type { NativeSessionControls } from './lib/codex-app-server/session-runtime-router';
+export type { NativeSessionControls, StreamlessFollowUpAdmission } from './lib/codex-app-server/session-runtime-router';
 export type { SessionRuntimeIdentityLookup } from './lib/codex-app-server/session-runtime-identity';
 export type { LegacySettingsPersistence } from './lib/codex-app-server/legacy-session-controls';
 export {

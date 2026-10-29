@@ -4,6 +4,7 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import { container } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
+  CodexResumeProfileChangedError,
   CodexParityGate,
   type ApprovalSink,
   type CodexContext,
@@ -187,6 +188,39 @@ function setup(override = true) {
 }
 
 describe('CodexChatAdapter', () => {
+  it('maps the typed resume profile error to the adapter code', async () => {
+    const h = setup();
+    const cause = new CodexResumeProfileChangedError();
+    h.open.mockRejectedValueOnce(cause);
+
+    await expect(h.adapter.resumeSession(id, { tabId })).rejects.toMatchObject({
+      code: 'resume-profile-changed',
+      cause,
+    });
+  });
+
+  it('passes files and images when resuming an already open thread', async () => {
+    const h = setup();
+    await h.adapter.startChatSession({ tabId });
+
+    const stream = await h.adapter.resumeSession(id, {
+      prompt: '',
+      files: ['src/main.ts'],
+      images: [{ data: 'aGVsbG8=', mediaType: 'image/png' }],
+    });
+    for await (const event of stream) void event;
+
+    expect(h.context.startTurn).toHaveBeenCalledTimes(1);
+    expect(h.context.startTurn).toHaveBeenCalledWith(expect.objectContaining({
+      text: '',
+      attachments: [
+        { type: 'file', path: 'src/main.ts' },
+        { type: 'image', data: 'aGVsbG8=', mediaType: 'image/png' },
+      ],
+    }));
+    await h.adapter.dispose();
+  });
+
   it.each(['failed', 'interrupted'] as const)('does not count a %s native turn', async (status) => {
     const h = setup();
     h.context.events.mockImplementation(() => (async function* () {
@@ -1505,10 +1539,7 @@ it('cancels an approval on Stop and keeps the thread for a send and compact', as
 
 it('preserves the runtime refusal when a stored thread changes execution profile', async () => {
   const { adapter, open } = setup();
-  const refusal = Object.assign(new Error('profile changed'), {
-    name: 'CodexResumeProfileChangedError',
-    code: 'resume-profile-changed',
-  });
+  const refusal = new CodexResumeProfileChangedError();
   open.mockRejectedValue(refusal);
   await expect(adapter.resumeSession(id, { tabId })).rejects.toMatchObject({
     code: 'resume-profile-changed',

@@ -159,6 +159,20 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
     expect(h.sendMessageToSession).not.toHaveBeenCalled();
   });
 
+  it('resumes an attachment-only Codex follow-up as exactly one turn', async () => {
+    const h = harness('codex-app-server', false);
+
+    const result = await h.service.continueSession(params(''));
+
+    expect(result).toEqual({ success: true, sessionId: SESSION_ID });
+    expect(h.resumeSession).toHaveBeenCalledTimes(1);
+    expect(h.resumeSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ prompt: '', files: FILES, images: IMAGES }),
+    );
+    expect(h.sendMessageToSession).not.toHaveBeenCalled();
+  });
+
   it('(b) keeps the Claude resume free of attachments and still sends once', async () => {
     const h = harness('claude-sdk', false);
 
