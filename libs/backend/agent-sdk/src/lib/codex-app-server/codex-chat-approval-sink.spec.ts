@@ -34,7 +34,11 @@ function mockLogger(): Logger {
   return Object.assign(Object.create(Logger.prototype), createMockLogger());
 }
 
-function setup() {
+function setup(
+  permissionLevel: () => string | undefined = () => undefined,
+  resolvePath: (value: string) => Promise<string> = async (value) => value,
+  threadCwd: string | undefined = 'C:\\repo',
+) {
   const logger = mockLogger();
   const presentation = {
     present: jest.fn(),
@@ -62,10 +66,136 @@ function setup() {
       presentation,
       followUp,
       logger,
+      permissionLevel,
+      'win32',
+      threadCwd,
+      resolvePath,
     ),
   };
 }
+
+function nextPresentation(presentation: ReturnType<typeof setup>['presentation']): Promise<void> {
+  return new Promise<void>((resolve) => {
+    presentation.present.mockImplementationOnce(() => resolve());
+  });
+}
+
 describe('CodexChatApprovalSink', () => {
+  it('accepts one Manual read request without presentation and logs names only', async () => {
+    const { sink, presentation, logger } = setup(() => 'ask');
+    const read = {
+      ...request,
+      details: { command: 'Get-Content secret.txt | rg password', cwd: 'C:\\repo' },
+    };
+    await expect(sink.request(read, new AbortController().signal)).resolves.toBe('accept');
+    expect(presentation.present).not.toHaveBeenCalled();
+    expect(presentation.dismiss).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      '[CodexChatApprovalSink] accepted read-only command.',
+      { commands: ['Get-Content', 'rg'] },
+    );
+    expect(JSON.stringify(jest.mocked(logger.info).mock.calls)).not.toContain('secret.txt');
+    expect(JSON.stringify(jest.mocked(logger.info).mock.calls)).not.toContain('password');
+    expect(sink.respond(reply)).toBe(false);
+  });
+
+  it.each(['auto-edit', 'plan', 'yolo'])(
+    'keeps the approval card for %s read requests', (level) => {
+      const { sink, presentation } = setup(() => level);
+      const read = { ...request, details: { command: 'rg TODO .', cwd: 'C:\\repo' } };
+      const pending = sink.request(read, new AbortController().signal);
+      expect(presentation.present).toHaveBeenCalledTimes(1);
+      sink.dispose();
+      return expect(pending).resolves.toBe('decline');
+    },
+  );
+
+  it.each([
+    ['write command', { command: 'Set-Content file.txt x', cwd: 'C:\\repo' }, 'command'],
+    ['file change', { command: 'Get-Content file.txt', cwd: 'C:\\repo' }, 'fileChange'],
+    ['permissions', { command: 'Get-Content file.txt', cwd: 'C:\\repo' }, 'permissions'],
+    ['MCP elicitation', { command: 'Get-Content file.txt', cwd: 'C:\\repo' }, 'mcpElicitation'],
+    ['user input', { command: 'Get-Content file.txt', cwd: 'C:\\repo' }, 'userInput'],
+    ['network approval', { command: 'rg TODO .', cwd: 'C:\\repo', networkApprovalContext: {} }, 'command'],
+    ['stdin approval', { command: 'rg TODO .', cwd: 'C:\\repo', kind: 'writeStdin' }, 'command'],
+  ] as const)('shows the card for %s', (_case, details, kind) => {
+    const { sink, presentation } = setup(() => 'ask');
+    const pending = sink.request({ ...request, kind, details }, new AbortController().signal);
+    expect(presentation.present).toHaveBeenCalledTimes(1);
+    sink.dispose();
+    return expect(pending).resolves.toBe('decline');
+  });
+
+  it('reads the current permission level for each request', async () => {
+    let level = 'ask';
+    const { sink, presentation } = setup(() => level);
+    const read = { ...request, details: { command: 'rg TODO .', cwd: 'C:\\repo' } };
+    await expect(sink.request(read, new AbortController().signal)).resolves.toBe('accept');
+    level = 'plan';
+    const pending = sink.request({ ...read, requestId: 8 }, new AbortController().signal);
+    expect(presentation.present).toHaveBeenCalledTimes(1);
+    sink.dispose();
+    await expect(pending).resolves.toBe('decline');
+  });
+
+  it('accepts a command cwd below the profile cwd after realpath containment', async () => {
+    const { sink, presentation } = setup(() => 'ask');
+    const read = { ...request, details: { command: 'Get-Content note.txt', cwd: 'C:\\repo\\sub' } };
+    await expect(sink.request(read, new AbortController().signal)).resolves.toBe('accept');
+    expect(presentation.present).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['outside thread cwd', { command: 'cat secret.txt', cwd: 'C:\\private' }],
+    ['missing command cwd', { command: 'rg TODO .' }],
+  ])('shows the card for %s', async (_case, details) => {
+    const { sink, presentation } = setup(() => 'ask');
+    const pending = sink.request({ ...request, details }, new AbortController().signal);
+    expect(presentation.present).toHaveBeenCalledTimes(1);
+    sink.dispose();
+    await expect(pending).resolves.toBe('decline');
+  });
+
+  it('shows the card when the profile cwd is unavailable', async () => {
+    const { sink, presentation } = setup(() => 'ask', async (value) => value, '');
+    const presented = nextPresentation(presentation);
+    const pending = sink.request({ ...request, details: { command: 'rg TODO .', cwd: 'C:\\repo' } }, new AbortController().signal);
+    await presented;
+    expect(presentation.present).toHaveBeenCalledTimes(1);
+    sink.dispose();
+    await expect(pending).resolves.toBe('decline');
+  });
+
+  it.each([
+    ['file symlink', 'cat link\\secret.txt', 'C:\\repo\\link\\secret.txt'],
+    ['cwd junction', 'rg TODO .', 'C:\\repo\\link'],
+  ])('shows the card for %s escaping the profile cwd', async (_case, command, escaped) => {
+    const resolvePath = jest.fn(async (value: string) =>
+      value.toLowerCase() === escaped.toLowerCase() ? 'C:\\private\\secret.txt' : value);
+    const { sink, presentation, logger } = setup(() => 'ask', resolvePath);
+    const details = { command, cwd: command === 'rg TODO .' ? 'C:\\repo\\link' : 'C:\\repo' };
+    const presented = nextPresentation(presentation);
+    const pending = sink.request({ ...request, details }, new AbortController().signal);
+    await presented;
+    expect(presentation.present).toHaveBeenCalledTimes(1);
+    expect(logger.info).not.toHaveBeenCalled();
+    sink.dispose();
+    await expect(pending).resolves.toBe('decline');
+  });
+
+  it('shows the card when realpath cannot resolve an argument', async () => {
+    const resolvePath = jest.fn(async (value: string) => {
+      if (value.endsWith('missing.txt')) throw new Error('ENOENT');
+      return value;
+    });
+    const { sink, presentation } = setup(() => 'ask', resolvePath);
+    const presented = nextPresentation(presentation);
+    const pending = sink.request({ ...request, details: { command: 'cat missing.txt', cwd: 'C:\\repo' } }, new AbortController().signal);
+    await presented;
+    expect(presentation.present).toHaveBeenCalledTimes(1);
+    sink.dispose();
+    await expect(pending).resolves.toBe('decline');
+  });
   it('ends only approvals matching both thread and turn, exactly once', async () => {
     const { sink, presentation } = setup();
     const signal = new AbortController().signal;

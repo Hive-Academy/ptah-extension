@@ -35,7 +35,7 @@ const identity = {
 const profile: CodexExecutionProfile = {
   ...identity,
   consumer: 'chat',
-  cwd: '/workspace',
+  cwd: 'C:\\repo',
   model: 'gpt',
   permissionLevel: 'ask',
   approvalPolicy: 'on-request',
@@ -131,6 +131,7 @@ function setup(override = true) {
     checkOptions: jest.fn(),
     logger,
     platform: { platform: 'win32', arch: 'x64' },
+    resolveApprovalPath: async (value) => value,
     info: {
       id: 'ptah-cli',
       name: 'Codex',
@@ -629,6 +630,28 @@ describe('CodexChatAdapter', () => {
         new AbortController().signal,
       ),
     ).resolves.toBe('decline');
+  });
+  it('uses the live session permission level for chat read approvals', async () => {
+    const { adapter, ports, sink } = setup();
+    await adapter.startChatSession({ tabId });
+    const request = {
+      ...identity,
+      turnId: 'turn',
+      requestId: 31,
+      kind: 'command' as const,
+      message: 'Read?',
+      details: { command: 'Get-Content README.md', cwd: 'C:\\repo' },
+    };
+    await expect(sink().request(request, new AbortController().signal))
+      .resolves.toBe('accept');
+    expect(ports.presentation.present).not.toHaveBeenCalled();
+    await adapter.setSessionPermissionLevel(id, 'plan');
+    const pending = sink().request(
+      { ...request, requestId: 32 }, new AbortController().signal,
+    );
+    expect(ports.presentation.present).toHaveBeenCalledTimes(1);
+    await adapter.reset();
+    await expect(pending).resolves.toBe('decline');
   });
   it('holds approval beyond sixty seconds and releases on cancellation', async () => {
     jest.useFakeTimers();

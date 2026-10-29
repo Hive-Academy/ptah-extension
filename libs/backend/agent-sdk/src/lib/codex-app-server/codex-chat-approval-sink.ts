@@ -1,6 +1,8 @@
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SessionId } from '@ptah-extension/shared';
 import { z } from 'zod';
+import path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import type {
   ApprovalSink,
   CodexApprovalCorrelation,
@@ -10,6 +12,7 @@ import type {
   PermissionPromptCancelledPayload,
   SessionApprovalDecision,
 } from '@ptah-extension/shared';
+import { classifyReadOnlyCommand, pathWithin, type ReadOnlyCommand } from './codex-read-only-command';
 
 export const CODEX_CHAT_APPROVAL_CHOICES = [
   'deny',
@@ -82,6 +85,10 @@ export class CodexChatApprovalSink implements ApprovalSink {
     private readonly presentation: CodexChatApprovalPresentation,
     private readonly followUp: CodexChatApprovalFollowUp,
     private readonly logger: Logger,
+    private readonly permissionLevel: () => string | undefined = () => undefined,
+    private readonly platform: string = process.platform,
+    private readonly threadCwd: string | undefined = undefined,
+    private readonly resolvePath: (value: string) => Promise<string> = realpath,
   ) {}
 
   request(
@@ -97,6 +104,51 @@ export class CodexChatApprovalSink implements ApprovalSink {
     )
       return Promise.resolve('decline');
     this.seen.add(key);
+    const details = request.details;
+    const classified = this.permissionLevel() === 'ask' && request.kind === 'command' &&
+      (details['kind'] === undefined || details['kind'] === 'command') &&
+      details['networkApprovalContext'] == null &&
+      details['environmentId'] == null &&
+      details['proposedExecpolicyAmendment'] == null &&
+      details['proposedNetworkPolicyAmendments'] == null
+      ? classifyReadOnlyCommand(details['command'], details['cwd'], this.threadCwd, this.platform)
+      : undefined;
+    if (classified && typeof details['cwd'] === 'string' && this.threadCwd)
+      return this.acceptIfRealPathsStayInside(classified, details['cwd'], signal)
+        .then((accepted): Outcome | Promise<Outcome> => {
+          if (this.disposed || signal.aborted) return 'decline';
+          if (accepted) {
+            this.logger.info('[CodexChatApprovalSink] accepted read-only command.', {
+              commands: classified.names,
+            });
+            return 'accept';
+          }
+          return this.presentRequest(request, signal, key);
+        });
+    return this.presentRequest(request, signal, key);
+  }
+
+  private async acceptIfRealPathsStayInside(
+    classified: ReadOnlyCommand,
+    cwd: string,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    if (!this.threadCwd || signal.aborted) return false;
+    const paths = this.platform === 'win32' ? path.win32 : path.posix;
+    try {
+      const boundary = await this.resolvePath(this.threadCwd);
+      const targets = [cwd, ...classified.paths.map((value) => paths.resolve(cwd, value))];
+      for (const target of targets) {
+        if (signal.aborted || !pathWithin(await this.resolvePath(target), boundary, this.platform))
+          return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private presentRequest(request: CodexApprovalRequest, signal: AbortSignal, key: string): Promise<Outcome> {
     return new Promise<Outcome>((resolve) => {
       const abort = () => settle('decline', 'turn-ended');
       const settle = (

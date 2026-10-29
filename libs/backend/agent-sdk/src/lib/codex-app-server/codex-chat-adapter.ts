@@ -87,6 +87,8 @@ export interface CodexChatScope {
 export interface CodexChatAdapterPorts {
   readonly logger: Logger;
   readonly platform: CodexParityPlatform;
+  /** Injectable filesystem lookup for approval containment. Defaults to node realpath. */
+  readonly resolveApprovalPath?: (value: string) => Promise<string>;
   readonly info: ProviderInfo;
   /** Throws the host's coded option error for unreviewed keys; strips ambient keys. */
   checkOptions(config: AgentSessionResumeConfig): void;
@@ -260,7 +262,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     let scope: CodexChatScope | undefined;
     let sink: CodexChatApprovalSink | undefined;
     let context: CodexContext | undefined;
-    let session: Session | undefined;
+    let session: TrackedSession | undefined;
     let stagedId: SessionId | undefined;
     try {
       const prepared = await this.prepareProfile(config, resumeId);
@@ -271,7 +273,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       this.checkOpening(opening, generation);
       if (this.sessions.has(id))
         throw new CodexChatAdapterError('busy', 'open');
-      sink = this.buildSink(id, context, () => session);
+      sink = this.buildSink(id, context, prepared.profile.cwd, () => session);
       stagedId = id;
       this.ports.sessions?.opened(id, prepared);
       this.checkOpening(opening, generation);
@@ -416,7 +418,8 @@ export class CodexChatAdapter implements NativeChatAdapter {
   private buildSink(
     id: SessionId,
     context: CodexContext,
-    getSession: () => Session | undefined,
+    threadCwd: string,
+    getSession: () => TrackedSession | undefined,
   ): CodexChatApprovalSink {
     const releases = new Map<string, () => void>();
     const address = (request: Parameters<ApprovalSink['request']>[0]) => ({
@@ -461,6 +464,10 @@ export class CodexChatAdapter implements NativeChatAdapter {
         },
       },
       this.ports.logger,
+      () => getSession()?.settings.permissionLevel,
+      this.ports.platform.platform,
+      threadCwd,
+      this.ports.resolveApprovalPath,
     );
     return sink;
   }
