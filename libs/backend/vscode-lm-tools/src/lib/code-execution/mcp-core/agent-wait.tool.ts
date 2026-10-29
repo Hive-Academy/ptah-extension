@@ -287,14 +287,9 @@ function stopReasonOf(info: AgentProcessInfo): string {
     case 'timeout':
       return 'no output for the inactivity window, treated as hung and killed';
     case 'stopped':
-      switch (info.stopReason) {
-        case 'tool-call-budget':
-          return 'stopped by the lane budget guard: tool-call budget reached';
-        case 'repeat-call':
-          return 'stopped by the lane budget guard: repeated identical call';
-        default:
-          return 'stopped on request';
-      }
+      return info.stopReason === 'repeat-call'
+        ? 'stopped by Ptah: repeated the same call in a loop'
+        : 'stopped on request';
   }
 }
 

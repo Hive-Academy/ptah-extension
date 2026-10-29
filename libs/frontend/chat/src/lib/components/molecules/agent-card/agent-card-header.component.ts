@@ -29,11 +29,10 @@ import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import type { LaneStopReason } from '@ptah-extension/shared';
 import { ProviderAccountsStateService } from '@ptah-extension/core';
 
-/** Readable host stop reason for a lane the budget guard stopped. */
+/** Readable host stop reason for a lane the repeat-call guard stopped. */
 export function laneGuardStopText(
   reason: LaneStopReason | undefined,
 ): string | null {
-  if (reason === 'tool-call-budget') return 'Stopped: tool-call limit reached';
   if (reason === 'repeat-call') return 'Stopped: repeated the same tool call';
   return null;
 }

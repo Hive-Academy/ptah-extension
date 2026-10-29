@@ -17,7 +17,6 @@ import {
   laneGuardFieldError,
   laneGuardFromConfig,
   laneGuardKeyInError,
-  laneGuardPairError,
   laneGuardWrite,
   type LaneGuardKey,
   type LaneGuardValues,
@@ -28,23 +27,20 @@ const FOCUS =
 const RPC_TIMEOUT_MS = 5_000;
 
 const EMPTY_DRAFTS: Record<LaneGuardKey, string> = {
-  laneToolCallSteerAt: '',
-  laneToolCallStopAt: '',
   laneRepeatCallStopAt: '',
 };
 
 function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
   return {
-    laneToolCallSteerAt: String(values.laneToolCallSteerAt),
-    laneToolCallStopAt: String(values.laneToolCallStopAt),
     laneRepeatCallStopAt: String(values.laneRepeatCallStopAt),
   };
 }
 
 /**
- * Lane guards (`agentOrchestration.laneToolCall*`). Loads and saves through
- * `agent:getConfig` / `agent:setConfig`. An invalid value, including a stop
- * that is not greater than steer, is never written. A host rejection is shown
+ * Lane guards (`agentOrchestration.laneRepeatCallStopAt`). Loads and saves
+ * through `agent:getConfig` / `agent:setConfig`. Lanes have no tool-call
+ * budget; only the repeat-call loop stop is configurable. An invalid value is
+ * never written. A host rejection is shown
  * next to its field as the backend returned it; every save outcome (with Undo)
  * is reported in the page toast (`SettingsSaveFeedbackService.saveGeneric`).
  */
@@ -67,7 +63,7 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
           Lane guards
         </h3>
         <p class="mt-0.5 text-xs text-base-content-muted">
-          Keep background lanes from spending too long on tool calls.
+          Stop background lanes that are stuck in a loop.
         </p>
       </div>
 
@@ -102,13 +98,11 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
             class="text-xs text-base-content-muted"
             data-testid="lane-guards-intro"
           >
-            At Steer at, the lane is asked to wrap up. At Stop at, it is
-            stopped. Some CLIs, for example grok and Ptah CLI providers, cannot
-            receive the mid-turn steer, so they run until the stop value.
-            Repeat-call stop at stops a lane that repeats the same call that
-            many times.
+            Lanes have no tool-call limit. Ptah stops a lane only when it
+            repeats the same call this many times, which means it is stuck in a
+            loop. A stopped lane is still judged by the files it delivered.
           </p>
-          <div class="grid gap-x-4 gap-y-5 sm:grid-cols-2 xl:grid-cols-3">
+          <div class="grid max-w-sm gap-y-5">
             @for (field of fields; track field.key) {
               <div class="flex min-w-0 flex-col gap-1">
                 <label [for]="field.testId" class="text-sm font-medium text-base-content">{{
@@ -310,27 +304,11 @@ export class LaneGuardsSettingsComponent implements OnInit {
   }
 
   private applyConfig(config: AgentOrchestrationConfig): void {
-    const steer = laneGuardFromConfig(
-      'laneToolCallSteerAt',
-      config.laneToolCallSteerAt,
-    );
-    const stop = laneGuardFromConfig(
-      'laneToolCallStopAt',
-      config.laneToolCallStopAt,
-    );
-    const repeat = laneGuardFromConfig(
-      'laneRepeatCallStopAt',
-      config.laneRepeatCallStopAt,
-    );
-    const pairBroken = laneGuardPairError(steer, stop) !== null;
     const values: LaneGuardValues = {
-      laneToolCallSteerAt: pairBroken
-        ? LANE_GUARD_DEFAULTS.laneToolCallSteerAt
-        : steer,
-      laneToolCallStopAt: pairBroken
-        ? LANE_GUARD_DEFAULTS.laneToolCallStopAt
-        : stop,
-      laneRepeatCallStopAt: repeat,
+      laneRepeatCallStopAt: laneGuardFromConfig(
+        'laneRepeatCallStopAt',
+        config.laneRepeatCallStopAt,
+      ),
     };
     this.saved.set(values);
     this.drafts.set(draftsFrom(values));
