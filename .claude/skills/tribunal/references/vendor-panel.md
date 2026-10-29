@@ -6,36 +6,26 @@ Every move runs on this loop:
 panel (explicit or discovered) → announce → fan out → collect → [anonymized cross-examination] → synthesize
 ```
 
-This file owns what makes a panel a panel: explicit UI panels, families, selection, anonymization and
+This file owns what makes a panel a panel: explicit user panels, families, selection, anonymization and
 synthesis. Running each lane — addressing, prompt contract, spawn/poll/read, resume, concurrency,
 failures — is the [agent-lanes skill](../../agent-lanes/SKILL.md).
 
 ---
 
-## 0. Explicit panel from the Tribunal UI
+## 0. Explicit panel from the user
 
-The prompt carries panelist lines:
+The user may name lanes, models and roles in plain text. Keep every requested panelist in
+the stated order, including duplicate vendors or lanes. A role such as executor or judge
+pins a Crucible lane; plan, architect, implement and review pin Relay phases. Do not infer
+an omitted role from lane order. A task folder the user names in chat is used as given.
 
-```
-[tribunal:<laneId>] <displayName> — ptah_agent_spawn({ <spawnArgs> }). <objective>
-[tribunal:<laneId>] (<role>) <displayName> — ptah_agent_spawn({ <spawnArgs> }) with the objective below as the task.
-[tribunal:<laneId>] (<role>) <displayName> — ptah_agent_spawn({ <spawnArgs> }). Phase: <role>. Deliverable: <specFolder>/<file>
-```
+Call `ptah_agent_list` and resolve each pin against a live, spawnable row. Keep the
+requested model and role. Report an unavailable or AT LIMIT pin and ask the user to
+revise it; never silently substitute another lane or model. If no panel is pinned, use
+the discovery rules below.
 
-The user defined this panel. Then:
-
-- **Skip discovery and family spread.** Do not collapse duplicate vendors — several lanes of the same
-  vendor on different models is deliberate.
-- **Spawn exactly the lanes given with exactly the `spawnArgs` shown**, `model` included.
-- **A `(<role>)` token is authoritative.** `executor` / `judge` → Crucible
-  ([crucible.md](crucible.md)); `plan` / `architect` / `implement` / `review` → a Relay launch
-  ([relay.md](relay.md)). Never infer a role from lane order, and do not ask the user to confirm it.
-  A line with no token belongs to Council, Forge or Race.
-- **A `Spec folder: TASK_… (already created by the Tribunal UI)` line** means use that folder; do not
-  allocate another. No such line on a role move → allocate one per the move's reference.
-- Keep `[tribunal:<laneId>]` as the literal first line of each lane's task.
-
-Only when the prompt carries no panelist lines, build the panel below.
+Present the resolved panel with roles and models, the round count and expected paid
+call count. Get the user's confirmation before any `ptah_agent_spawn`.
 
 ## 1. Panelists and families
 
@@ -49,7 +39,7 @@ Panelist := {
 ```
 
 For a panel you assemble, ptah-cli panelists use `modelTier: 'opus'` so the provider's own mapping
-picks the model. A UI panel's raw `model` is passed through.
+picks the model. For explicit pins, use the resolved lane and the requested model.
 
 ## 2. Selection (deterministic)
 
@@ -59,7 +49,8 @@ picks the model. A UI panel's raw `model` is passed through.
 3. Take one panelist per family, in listed order.
 4. Cap at the default concurrency. Council may widen with the user's consent; Forge and Race do not.
 5. Assign `P1..Pn` in panel order.
-6. Announce labels and names before spending. Fewer than 2 families → surface it and ask.
+6. Present labels, names, rounds and expected paid call count; confirm before spawning.
+   Fewer than 2 families require asking the user.
 
 ## 3. Anonymization
 
@@ -85,5 +76,6 @@ recommendation. A panelist dropped after repeated failure is named in the verdic
 
 ## 5. Rounds
 
-One critique or review round roughly doubles the call count. Announce panel size × rounds before
-spending. Add a round only when the previous one left a genuine, unresolved split.
+One critique or review round roughly doubles the call count. Present the planned rounds and
+expected paid call count, then get confirmation before spawning. Add a round only when the
+previous one left a genuine, unresolved split.

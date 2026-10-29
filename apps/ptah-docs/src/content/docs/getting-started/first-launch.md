@@ -17,7 +17,7 @@ Ptah is workspace-centric: everything — agents, chat sessions, plugins, projec
 
 1. Click **Open Folder**.
 2. Select the root of a project (a Git repository, a package root, or any folder you want to work in).
-3. Ptah opens the workspace, and the full tab bar — Canvas, Dashboard, Thoth, Tribunal, Tasks, Setup, Marketplace, Settings — appears.
+3. Ptah opens the workspace, and the full tab bar — Canvas, Dashboard, Thoth, Tasks, Setup, Marketplace, Settings — appears.
 
 :::tip[You see this screen once]
 Ptah remembers the workspaces you open and restores them on the next launch, so the gate appears only until you open your first folder. Switch between open workspaces from the **Workspaces** sidebar on the left. It starts closed: click the **Workspaces** tab on the left edge to open it.

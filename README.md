@@ -82,7 +82,7 @@ Read more: [Memory](https://docs.ptah.live/memory/) · [Workspace analysis](http
 
 - **Sub-agent orchestration** — a main agent delegates to specialists: architect, backend developer, frontend developer, tester, and reviewer. Each specialist can use its own provider, model, and context window.
 - **Orchestra Canvas** — up to nine concurrent sessions in one drag-and-resize grid. Background agents continue while you review a single tile.
-- **Tribunal** — put several vendors on one panel. One implements, a different one reviews the diff, and a third judges the disagreement.
+- **Tribunal skill**: ask in the main chat for Council, Forge, Race, Crucible, or Relay. Review the pinned CLI lanes and paid call count before confirming the run.
 - **Skill synthesis** — when a delivery pattern succeeds, Ptah extracts the trajectory, judges its quality, and promotes it to a permanent, shareable skill file.
 - **Execution tree** — every tool call, sub-agent, token count, and cost, live.
 
@@ -100,7 +100,7 @@ Read more: [Automation](https://docs.ptah.live/automation/)
 
 ## More capabilities
 
-![Setup Hub — workspace analysis, AI team builder, new project, tribunal](https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/apps/ptah-docs/public/screenshots/setup-hub.png)
+![Setup Hub: workspace analysis, AI team builder, new project](https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/apps/ptah-docs/public/screenshots/setup-hub.png)
 
 - **Setup wizard** — scans the workspace, detects the project type and frameworks, then generates agents, rules, and skills for that project.
 - **New project scaffolding** — plan and scaffold a fresh Nx workspace with a generated roadmap and its own agent team.
