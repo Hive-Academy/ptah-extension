@@ -1,7 +1,11 @@
 import 'reflect-metadata';
 
 import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
-import { ActiveProviderResolver } from './active-provider-resolver';
+import {
+  ActiveProviderResolver,
+  createAuthCredentialProbe,
+  type AuthCredentialProbe,
+} from './active-provider-resolver';
 
 function makeResolver(values: Record<string, unknown>): {
   resolver: ActiveProviderResolver;
@@ -57,6 +61,119 @@ describe('ActiveProviderResolver', () => {
     const result = resolver.resolveActiveAuth();
     expect(result.authMethod).toBe('thirdParty');
     expect(result.providerId).toBe('openrouter');
+  });
+
+  describe('resolveActiveAuthWithDefault', () => {
+    function probe(facts: { hasKey: boolean; connected: boolean }): {
+      probe: AuthCredentialProbe;
+      hasAnthropicApiKey: jest.Mock<Promise<boolean>, []>;
+      isClaudeCliConnected: jest.Mock<Promise<boolean>, []>;
+    } {
+      const hasAnthropicApiKey = jest.fn(async () => facts.hasKey);
+      const isClaudeCliConnected = jest.fn(async () => facts.connected);
+      return {
+        probe: { hasAnthropicApiKey, isClaudeCliConnected },
+        hasAnthropicApiKey,
+        isClaudeCliConnected,
+      };
+    }
+
+    it.each([
+      ['missing', {}],
+      ['unknown', { authMethod: 'garbage' }],
+    ])(
+      'uses the connected Claude CLI login when the method is %s and no key exists, and remembers it',
+      async (_label, values: Record<string, unknown>) => {
+        const { resolver } = makeResolver(values);
+        const p = probe({ hasKey: false, connected: true });
+
+        await expect(
+          resolver.resolveActiveAuthWithDefault(p.probe),
+        ).resolves.toEqual({
+          authMethod: 'claudeCli',
+          providerId: 'anthropic',
+        });
+        expect(resolver.resolveActiveAuth().authMethod).toBe('claudeCli');
+      },
+    );
+
+    it('keeps apiKey when a key exists, without reading the login', async () => {
+      const { resolver } = makeResolver({});
+      const p = probe({ hasKey: true, connected: true });
+
+      const auth = await resolver.resolveActiveAuthWithDefault(p.probe);
+
+      expect(auth.authMethod).toBe('apiKey');
+      expect(p.isClaudeCliConnected).not.toHaveBeenCalled();
+    });
+
+    it('keeps apiKey when no key exists and the login is not connected', async () => {
+      const { resolver } = makeResolver({});
+      const p = probe({ hasKey: false, connected: false });
+
+      const auth = await resolver.resolveActiveAuthWithDefault(p.probe);
+
+      expect(auth.authMethod).toBe('apiKey');
+    });
+
+    it('honours an explicit apiKey without reading any credential', async () => {
+      const { resolver } = makeResolver({ authMethod: 'apiKey' });
+      const p = probe({ hasKey: false, connected: true });
+
+      const auth = await resolver.resolveActiveAuthWithDefault(p.probe);
+
+      expect(auth.authMethod).toBe('apiKey');
+      expect(p.hasAnthropicApiKey).not.toHaveBeenCalled();
+      expect(p.isClaudeCliConnected).not.toHaveBeenCalled();
+    });
+
+    it('reads the explicit workspace path when one is given', async () => {
+      const readForPath = jest.fn((key: string) =>
+        key === 'authMethod' ? 'claude-cli' : undefined,
+      );
+      const scope = { readForPath } as unknown as WorkspaceScopeResolver;
+      const resolver = new ActiveProviderResolver(scope);
+      const p = probe({ hasKey: true, connected: false });
+
+      const auth = await resolver.resolveActiveAuthWithDefault(
+        p.probe,
+        'D:/ws',
+      );
+
+      expect(auth.authMethod).toBe('claudeCli');
+      expect(readForPath).toHaveBeenCalledWith('authMethod', 'D:/ws', true);
+      expect(p.hasAnthropicApiKey).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createAuthCredentialProbe', () => {
+    const envApiKey = process.env['ANTHROPIC_API_KEY'];
+    afterEach(() => {
+      if (envApiKey === undefined) delete process.env['ANTHROPIC_API_KEY'];
+      else process.env['ANTHROPIC_API_KEY'] = envApiKey;
+    });
+
+    it('counts a stored key or ANTHROPIC_API_KEY, and only a connected login', async () => {
+      delete process.env['ANTHROPIC_API_KEY'];
+      const stored: { key: string | undefined } = { key: '  ' };
+      const p = createAuthCredentialProbe(
+        { getCredential: async () => stored.key },
+        {
+          read: async () => ({
+            state: 'connected',
+            checkedAt: '2026-10-29T00:00:00.000Z',
+          }),
+        },
+      );
+
+      await expect(p.hasAnthropicApiKey()).resolves.toBe(false);
+      process.env['ANTHROPIC_API_KEY'] = 'sk-ant-api03-env';
+      await expect(p.hasAnthropicApiKey()).resolves.toBe(true);
+      delete process.env['ANTHROPIC_API_KEY'];
+      stored.key = 'sk-ant-api03-stored';
+      await expect(p.hasAnthropicApiKey()).resolves.toBe(true);
+      await expect(p.isClaudeCliConnected()).resolves.toBe(true);
+    });
   });
 
   it('normalizes an unset authMethod to apiKey', () => {

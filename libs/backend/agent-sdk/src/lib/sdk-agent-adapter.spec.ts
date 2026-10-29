@@ -1074,9 +1074,11 @@ describe('SdkAgentAdapter', () => {
         await flush();
 
         expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
-        expect(h.authManager.configureAuthentication).toHaveBeenLastCalledWith(
-          'claudeCli',
-        );
+        // Each set-up pass lets the auth manager resolve the active auth
+        // itself (credential-aware default), so it passes no method.
+        expect(
+          h.authManager.configureAuthentication,
+        ).toHaveBeenLastCalledWith();
         expect(h.adapter.getHealth().status).toBe('available');
       });
 
@@ -1142,9 +1144,11 @@ describe('SdkAgentAdapter', () => {
         await flush();
 
         expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
-        expect(h.authManager.configureAuthentication).toHaveBeenLastCalledWith(
-          'claudeCli',
-        );
+        // Each set-up pass lets the auth manager resolve the active auth
+        // itself (credential-aware default), so it passes no method.
+        expect(
+          h.authManager.configureAuthentication,
+        ).toHaveBeenLastCalledWith();
         expect(h.adapter.getHealth().status).toBe('available');
       });
 

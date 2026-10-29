@@ -671,14 +671,16 @@ export class SdkAgentAdapter implements IAgentAdapter {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
+      // No argument: the auth manager resolves the active auth with its
+      // credential-aware default (a missing `authMethod` uses the connected
+      // Claude CLI login when no API key exists). `resolveActiveAuth()` then
+      // reports that same resolved method.
+      const authResult = await this.authManager.configureAuthentication();
       const active = this.authManager.resolveActiveAuth();
       this.lastConfiguredAuth = {
         authMethod: active.authMethod,
         providerId: active.providerId,
       };
-      const authResult = await this.authManager.configureAuthentication(
-        active.authMethod,
-      );
 
       if (!authResult.configured) {
         this.runtimeState.setHealth({
