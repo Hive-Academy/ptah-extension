@@ -130,7 +130,7 @@ describe(InspectorSessionStatsComponent.name, () => {
     expect(root.querySelector('[role="region"]')).toBeNull();
   });
 
-  it('formats known totals and keeps the plan-limit line under the row', () => {
+  it('formats known totals, keeps cells one height and leaves the limit notice out', () => {
     TestBed.configureTestingModule({
       imports: [InspectorSessionStatsComponent],
       providers: [{ provide: ModelStateService, useValue: { availableModels: signal([]) } }],
@@ -153,6 +153,18 @@ describe(InspectorSessionStatsComponent.name, () => {
     expect(grid.textContent).toContain('$1.20');
     expect(grid.textContent).not.toContain('2284653');
     expect(grid.textContent).not.toContain('5-hour');
-    expect(root.textContent).toContain('5-hour 94%');
+    const cells = [
+      ...root.querySelectorAll<HTMLElement>(
+        '[data-testid="inspector-stats-grid"] > div, [data-testid="inspector-stats-grid-2"] > div',
+      ),
+    ];
+    expect(cells).toHaveLength(6);
+    for (const cell of cells) {
+      expect(cell.classList.contains('min-h-[3.75rem]')).toBe(true);
+      expect(cell.classList.contains('flex-col')).toBe(true);
+    }
+    // The Plan limits section shows the limit notice; the stats do not repeat it.
+    expect(root.textContent).not.toContain('5-hour 94%');
+    expect(root.querySelector('button')?.textContent ?? '').not.toContain('Plan limits');
   });
 });

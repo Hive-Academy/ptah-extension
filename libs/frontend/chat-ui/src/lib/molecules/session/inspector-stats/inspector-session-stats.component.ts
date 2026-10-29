@@ -4,7 +4,6 @@ import {
   computed,
   inject,
   input,
-  output,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { ModelStateService } from '@ptah-extension/core';
@@ -12,7 +11,6 @@ import {
   resolveModelDisplayName,
   type SessionBudgetStage,
 } from '@ptah-extension/shared';
-import { AlertTriangle, LucideAngularModule } from 'lucide-angular';
 import {
   formatCost,
   formatDuration,
@@ -41,7 +39,7 @@ let nextSessionId = 0;
 @Component({
   selector: 'ptah-inspector-session-stats',
   standalone: true,
-  imports: [LucideAngularModule, NgTemplateOutlet, InspectorCacheTileComponent],
+  imports: [NgTemplateOutlet, InspectorCacheTileComponent],
   template: `
     @let s = stats();
     <section
@@ -56,9 +54,10 @@ let nextSessionId = 0;
           >
         </div>
       }
-      <!-- One row of totals split by vertical rules (rev 3 "B+"). -->
+      <!-- One row of totals split by vertical rules (rev 3 "B+"). Every cell has
+           the same height and its bar sits on the cell's bottom edge. -->
       <div class="grid grid-cols-3" data-testid="inspector-stats-grid">
-        <div class="min-w-0 pr-2">
+        <div class="flex min-h-[3.75rem] min-w-0 flex-col pr-2">
           <ng-container
             [ngTemplateOutlet]="label"
             [ngTemplateOutletContext]="{
@@ -78,7 +77,7 @@ let nextSessionId = 0;
           </div>
           @if (s.context.known && s.context.percent !== null) {
             <div
-              class="mt-1 h-1 rounded-full bg-[var(--surface-border-strong)]"
+              class="mt-auto h-1 shrink-0 rounded-full bg-[var(--surface-border-strong)]"
               role="progressbar"
               aria-valuemin="0"
               aria-valuemax="100"
@@ -106,7 +105,7 @@ let nextSessionId = 0;
             </p>
           }
         </div>
-        <div class="min-w-0 border-l border-surface-border px-2">
+        <div class="flex min-h-[3.75rem] min-w-0 flex-col border-l border-surface-border px-2">
           <ng-container
             [ngTemplateOutlet]="label"
             [ngTemplateOutletContext]="{
@@ -153,7 +152,7 @@ let nextSessionId = 0;
                 formatTokens(s.budget!.limit) +
                 ' token budget'
               "
-              class="mt-1 h-1 rounded-full bg-[var(--surface-border-strong)]"
+              class="mt-auto h-1 shrink-0 rounded-full bg-[var(--surface-border-strong)]"
             >
               <span
                 class="block h-full rounded-full"
@@ -163,7 +162,7 @@ let nextSessionId = 0;
             </div>
           }
         </div>
-        <div class="min-w-0 border-l border-surface-border pl-2">
+        <div class="flex min-h-[3.75rem] min-w-0 flex-col border-l border-surface-border pl-2">
           <ng-container
             [ngTemplateOutlet]="label"
             [ngTemplateOutletContext]="{
@@ -214,7 +213,7 @@ let nextSessionId = 0;
                 costBudgetSuffix(s.budget)!.slice(2) +
                 ' cost budget'
               "
-              class="mt-1 h-1 rounded-full bg-[var(--surface-border-strong)]"
+              class="mt-auto h-1 shrink-0 rounded-full bg-[var(--surface-border-strong)]"
             >
               <span
                 class="block h-full rounded-full"
@@ -234,41 +233,12 @@ let nextSessionId = 0;
           [textContent]="d.text"
         ></div>
       }
-      @if (s.limitSummary.state !== 'none') {
-        <p
-          class="mt-2 flex items-center gap-1.5 text-[11px]"
-          data-glass-surface="plate"
-          [style.color]="
-            s.limitSummary.state === 'at'
-              ? 'var(--state-ink-err)'
-              : 'var(--state-ink-need)'
-          "
-        >
-          <lucide-angular
-            [img]="AlertTriangleIcon"
-            class="size-3.5 shrink-0"
-            aria-hidden="true"
-          />
-          <span class="min-w-0 flex-1">{{ s.limitSummary.fullText }}</span>
-          <button
-            type="button"
-            class="h-6 min-w-6 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
-            (click)="
-              limitsLinkActivated.emit(
-                s.limitSummary.source === 'lane' ? 'lane' : 'session'
-              )
-            "
-          >
-            {{ s.limitSummary.source === 'lane' ? 'Lanes' : 'Plan limits' }}
-          </button>
-        </p>
-      }
       <!-- Second row: Time | Model | Cache, the same metric cells as above. -->
       <div
         class="mt-2 grid grid-cols-3 border-t border-surface-border pt-2"
         data-testid="inspector-stats-grid-2"
       >
-        <div class="min-w-0 pr-2" data-testid="inspector-session-time">
+        <div class="flex min-h-[3.75rem] min-w-0 flex-col pr-2" data-testid="inspector-session-time">
           <div class="text-[10.5px] text-base-content-muted">Time</div>
           @if (duration(); as ms) {
             <div class="text-base font-semibold leading-tight tabular-nums">
@@ -288,7 +258,7 @@ let nextSessionId = 0;
             </p>
           }
         </div>
-        <div class="min-w-0 border-l border-surface-border px-2">
+        <div class="flex min-h-[3.75rem] min-w-0 flex-col border-l border-surface-border px-2">
           @if (modelNames().length >= 2) {
             <button
               type="button"
@@ -321,7 +291,7 @@ let nextSessionId = 0;
             </p>
           }
         </div>
-        <div class="min-w-0 border-l border-surface-border pl-2">
+        <div class="flex min-h-[3.75rem] min-w-0 flex-col border-l border-surface-border pl-2">
           @if (s.cache; as cache) {
             <ptah-inspector-cache-tile [cache]="cache" />
           } @else {
@@ -424,7 +394,6 @@ let nextSessionId = 0;
 export class InspectorSessionStatsComponent {
   readonly stats = input.required<SessionStatsInputs>();
   readonly turns = input<number | null>(null);
-  readonly limitsLinkActivated = output<'session' | 'lane'>();
   private readonly modelState = inject(ModelStateService);
   private readonly expansion =
     inject(StatsTileExpansionState, { optional: true }) ??
@@ -432,7 +401,6 @@ export class InspectorSessionStatsComponent {
   private readonly instanceId = ++nextSessionId;
   protected readonly contextLabelId = `ptah-context-l-${this.instanceId}`;
   protected readonly modelsPanelId = `ptah-models-p-${this.instanceId}`;
-  protected readonly AlertTriangleIcon = AlertTriangle;
   protected readonly empty = STATS_EMPTY;
   protected readonly notReported = 'not reported';
   protected readonly formatCost = formatCost;

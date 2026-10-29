@@ -47,7 +47,10 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
           (swapPanesRequested)="swapPanesRequested.emit(paneId())"
         />
         }
+        <!-- In split, pr-10 keeps the chips clear of the floating pane controls (right-2, 28px). -->
         <ptah-canvas-lane-tabs
+          class="block"
+          [class.pr-10]="splitDisplayed()"
           [panelId]="panelId()"
           [tabId]="id"
           [laneKey]="detail.laneKeyFor(id)"
