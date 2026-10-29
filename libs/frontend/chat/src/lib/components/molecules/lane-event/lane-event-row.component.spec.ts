@@ -174,6 +174,14 @@ describe('LaneEventRowComponent', () => {
     expect(element.querySelectorAll('[data-testid="lane-event-body"] markdown')).toHaveLength(1);
   });
 
+  it('lets a 30-character one-line report expand at the narrow card width', () => {
+    const fixture = TestBed.createComponent(LaneEventRowComponent);
+    fixture.componentRef.setInput('row', { ...row, events: [{ kind: 'report', body: 'Checked alpha.md: heading only', timestamp: 1, messageId: 'mid' }] });
+    fixture.detectChanges();
+    const toggle = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="lane-event-toggle"]')!;
+    expect(toggle.disabled).toBe(false);
+  });
+
   it('has no Open lane action even when the host can open lanes', () => {
     const fixture = TestBed.createComponent(LaneEventRowComponent);
     fixture.componentRef.setInput('row', row);

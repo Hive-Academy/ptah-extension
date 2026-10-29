@@ -220,7 +220,7 @@ describe('SessionLivenessReconcilerService', () => {
   });
 
   it.each([
-    ['unknown response', rpcResult({ isActive: true, isStreaming: true }), 1],
+    ['unknown response', rpcResult({ isActive: true, isStreaming: true }), 2],
     ['failed RPC', new Error('offline'), 2],
   ] as const)(
     'bounds status probes after repeated tab updates: %s',

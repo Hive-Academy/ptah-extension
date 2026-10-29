@@ -155,16 +155,19 @@ export class CliAgentOutputComponent {
     // The store appends events in place; the revision invalidates this computed.
     this.streamRevision();
     const events = this.streamEvents();
+    const hasTextDeltas = events.some((event) => event.eventType === 'text_delta');
     const tree = events.length > 0
       ? [
           ...this.treeBuilder.buildTree(this.agentId(), events),
           // The CLI emits peer turns and terminal/crash errors as segments only.
           // Keep them beside the event tree without repeating ordinary stdout.
+          // Without text deltas, the assistant text also exists only as segments.
           ...this.treeBuilder.buildTreeFromSegments(
             this.agentId(),
             this.treeSegments().filter(
               (segment) =>
                 segment.type === 'error' ||
+                (!hasTextDeltas && segment.type === 'text') ||
                 (segment.type === 'info' &&
                   segment.content.startsWith('Message from unverified peer')),
             ),

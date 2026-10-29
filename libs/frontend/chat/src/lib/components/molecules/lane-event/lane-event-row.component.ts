@@ -8,8 +8,8 @@ import { toUserMessageMarkdown } from '../../../utils/user-message-markdown.util
 import type { LaneEventRow } from './lane-event-row.types';
 import { deriveLaneEventPresentation, laneEventTime, parseLaneCompletion, type LaneEventMetrics, type LaneEventTone } from './lane-event-row.presentation';
 
-/** About what line 2 shows before it truncates at the narrow card minimum. */
-const LONG_SUMMARY_CHARS = 40;
+/** About what line 2 shows, after its indent and caption, at the narrow card minimum. */
+const LONG_SUMMARY_CHARS = 20;
 
 @Component({
   selector: 'ptah-lane-event',

@@ -195,4 +195,20 @@ describe('raw stdout fallback', () => {
     expect(output.textContent).toContain('Please check this.');
     expect(output.textContent).not.toContain('Initializing sandbox environment');
   });
+
+  it('keeps assistant text from segments when the stream events carry no text deltas', async () => {
+    const fixture = await render(makeAgent({
+      status: 'failed',
+      stdout: 'Initializing sandbox environment',
+      streamEvents: [streamEvents[0]],
+      segments: [
+        { type: 'text', content: 'Answer without deltas' },
+        { type: 'error', content: 'CLI exited with code 1' },
+      ],
+    }));
+
+    const output = outputOf(fixture);
+    expect(output.textContent).toContain('Answer without deltas');
+    expect(output.textContent).toContain('CLI exited with code 1');
+  });
 });

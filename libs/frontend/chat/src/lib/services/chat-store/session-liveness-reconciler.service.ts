@@ -166,7 +166,8 @@ export class SessionLivenessReconcilerService {
         // Known to the backend but no turn recorded yet: live and idle.
         this.liveness.markIdle(sessionId, workspacePath);
       }
-      return true;
+      // No evidence applied: leave the generation open for the one bounded retry.
+      return generation === undefined || known;
     } catch (error: unknown) {
       // degradation-audit: reported - the failure is logged and the tab stays
       // restored; the reactive probe allows one retry per generation after a
