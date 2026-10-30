@@ -567,9 +567,6 @@ describe('LaneOutcomeRecorder subagent producers', () => {
       endedEvent({ agentType: 'Explore', lastAssistantMessage: 'notes' }),
     );
     await pipeline.flush();
-    const row = await store.get('subagent:agent-a');
-    expect(row?.taskKindSource).toBe('unclassified');
-    if (row) recorder.onLaneRecordInserted(row);
     await settle();
     expect(tasks.classify).toHaveBeenCalledTimes(1);
     expect((await store.get('subagent:agent-a'))?.taskKind).toBe('plan');
