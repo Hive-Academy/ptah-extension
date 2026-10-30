@@ -109,8 +109,8 @@ class RuntimeContext implements CodexContext {
     private readonly rules: CodexPermissionRuleStore,
     private readonly profile: CodexExecutionProfile,
     private readonly generation: number,
-    /** Resolved MCP config overrides; dropped once the start/resume frame is sent. */
-    private mcpConfig: Record<string, CodexJsonValue> | undefined,
+    /** Consumer-specific thread config; dropped once the start/resume frame is sent. */
+    private threadConfig: Record<string, CodexJsonValue> | undefined,
     private readonly release: () => void,
   ) {
     this.settings = {
@@ -228,7 +228,7 @@ class RuntimeContext implements CodexContext {
     ]
       .filter(Boolean)
       .join('\n\n');
-    const mcpConfig = this.mcpConfig;
+    const threadConfig = this.threadConfig;
     const params = codexRequestSchemas['thread/start'].params.parse({
       cwd: this.profile.cwd,
       model: this.profile.model,
@@ -239,8 +239,8 @@ class RuntimeContext implements CodexContext {
         ? { baseInstructions: this.profile.systemPrompt }
         : {}),
       ...(instructions ? { developerInstructions: instructions } : {}),
-      ...(mcpConfig && Object.keys(mcpConfig).length > 0
-        ? { config: mcpConfig }
+      ...(threadConfig && Object.keys(threadConfig).length > 0
+        ? { config: threadConfig }
         : {}),
     });
     const result = resume
@@ -250,7 +250,7 @@ class RuntimeContext implements CodexContext {
         })
       : await this.process.request('thread/start', params);
     // The sent frame was the secrets' only destination; the context drops them.
-    this.mcpConfig = undefined;
+    this.threadConfig = undefined;
     if (resume && result.thread.id !== resume.threadId)
       throw new Error('Codex resumed a different thread');
     if (this.isClosed()) throw new Error('Codex context closed');

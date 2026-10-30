@@ -104,3 +104,4 @@ export {
   CodexProcessFailureError,
   CODEX_INITIALIZE_TIMEOUT_MS,
 } from './lib/codex-app-server-process';
+export { CodexPreTurnConfigRejectedError } from './lib/codex-runtime';

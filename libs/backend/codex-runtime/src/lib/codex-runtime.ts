@@ -4,7 +4,7 @@ import {
   CodexProcessFailureError,
   CodexRequestRejectedError,
 } from './codex-app-server-process';
-import { buildCodexMcpConfigOverrides } from './codex-mcp-config';
+import { buildCodexThreadConfig } from './codex-mcp-config';
 import { CodexResumeProfileChangedError } from './codex-resume-profile-error';
 import { CodexPermissionRuleStore } from './codex-permission-rule-store';
 import { CodexProtocolError } from './codex-protocol-validator';
@@ -16,6 +16,22 @@ import type {
   CodexRuntime as RuntimePort,
   CodexThreadIdentity,
 } from './codex-runtime.types';
+
+/** Safe, pre-model signal that a lane's thread config was refused. */
+export class CodexPreTurnConfigRejectedError extends Error {
+  readonly code = 'codexPreTurnConfigRejected';
+  readonly retryEligible = true;
+
+  constructor(readonly method: 'thread/start' | 'thread/resume') {
+    super('Codex lane configuration was rejected before a turn started');
+    this.name = 'CodexPreTurnConfigRejectedError';
+  }
+}
+
+/** Only a config headline, never an RPC code alone, proves a config refusal. */
+function isPreTurnConfigRejection(stderr: string): boolean {
+  return /error loading config|failed to load (?:bootstrap )?config(?:uration)?|error parsing -c overrides|invalid override|invalid configuration|unknown (?:config(?:uration)? )?(?:key|field)|failed to (?:parse|deserialize)[^\n]*(?:config|toml)/i.test(stderr);
+}
 
 /** Host-owned instance; contexts share only the scoped, in-memory permission rules. */
 export class CodexRuntime implements RuntimePort {
@@ -53,10 +69,8 @@ export class CodexRuntime implements RuntimePort {
       this.options.logger.error(error.message, { code: error.code });
       throw error;
     }
-    // Lane budget/tool enforcement is not present at this boundary; MCP
-    // servers are applied natively as config overrides on the thread frame.
+    // Positive turn and money limits have no App Server enforcement mapping.
     if (
-      profile.lane?.suppressedTools.length ||
       profile.lane?.maxTurns ||
       profile.lane?.maxBudgetUsd ||
       profile.lane?.explicitFullAccess
@@ -65,7 +79,7 @@ export class CodexRuntime implements RuntimePort {
         'Codex profile requires unsupported runtime configuration',
       );
     // Built before any spawn; an unresolved secret reference refuses the open.
-    const mcpConfig = buildCodexMcpConfigOverrides(profile.mcpServers, secrets);
+    const mcpConfig = buildCodexThreadConfig(profile, secrets);
     const generation =
       Math.max(
         this.generations.get(profile.contextId) ?? 0,
@@ -123,6 +137,15 @@ export class CodexRuntime implements RuntimePort {
         stderrTail: context.stderrTail(2048),
       });
       if (error instanceof CodexHomeMismatchError) throw error;
+      if (
+        profile.consumer === 'lane' &&
+        (error instanceof CodexRequestRejectedError ||
+          error instanceof CodexProcessFailureError) &&
+        (error.method === 'thread/start' || error.method === 'thread/resume') &&
+        isPreTurnConfigRejection(context.stderrTail(2048))
+      ) {
+        throw new CodexPreTurnConfigRejectedError(error.method);
+      }
       throw new Error('Codex context could not be opened', { cause: error });
     }
   }

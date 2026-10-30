@@ -58,6 +58,16 @@ export interface CodexAppServerHandlers {
   ) => Promise<unknown>;
 }
 
+/**
+ * A signal death leaves exitCode null. The off-thread handle also reports
+ * signalCode and exitObserved, which the shared handle type does not declare.
+ */
+function childHasExited(child: SpawnedProcessHandle): boolean {
+  if (child.exitCode !== null) return true;
+  if ('signalCode' in child && child.signalCode != null) return true;
+  return 'exitObserved' in child && child.exitObserved === true;
+}
+
 /** One child and one handshake. Construct a new instance for a new generation. */
 export class CodexRequestRejectedError extends Error {
   readonly retryable = true;
@@ -569,6 +579,20 @@ export class CodexAppServerProcess {
   /** Stops sends immediately; forces kill and releases listeners after a one-second ceiling. */
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
+    // The context may observe child exit first and close us before our own
+    // exit/close listener runs. Preserve the outstanding RPC method then.
+    if (
+      !this.failure &&
+      this.child &&
+      childHasExited(this.child) &&
+      this.pending.size > 0
+    ) {
+      const method =
+        this.pending.size === 1
+          ? this.pending.values().next().value?.method
+          : undefined;
+      this.failure = new CodexProcessFailureError('Codex process exited', method);
+    }
     this.closePromise = new Promise<void>((resolve) => {
       this.finishClose = resolve;
     });

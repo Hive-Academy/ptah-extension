@@ -1,8 +1,10 @@
 import type {
+  CodexExecutionProfile,
   CodexJsonValue,
   CodexMcpSecrets,
   CodexMcpServer,
 } from './codex-runtime.types';
+import { buildCodexLaneThreadConfig } from './codex-lane-thread-config';
 
 type HttpMcpServer = Extract<
   CodexMcpServer,
@@ -170,4 +172,28 @@ export function buildCodexMcpConfigOverrides(
         : httpTable(server, secrets);
   }
   return overrides;
+}
+
+/** Select the one config source for each consumer before opening a process. */
+export function buildCodexThreadConfig(
+  profile: CodexExecutionProfile,
+  secrets?: CodexMcpSecrets,
+): Record<string, CodexJsonValue> {
+  if (profile.consumer !== 'lane') {
+    if (profile.lane !== undefined)
+      throw new Error('Codex lane configuration requires a lane consumer');
+    return buildCodexMcpConfigOverrides(profile.mcpServers, secrets);
+  }
+  const lane = profile.lane;
+  if (lane === undefined) throw new Error('Codex lane profile is required');
+  const disabledServers = new Set(lane.disabledUserMcpServers ?? []);
+  for (const tool of lane.suppressedTools) {
+    if (
+      tool === 'agents' || tool === 'plugins' ||
+      tool === 'apps' || tool === 'skills' ||
+      (tool.startsWith('mcp:') && disabledServers.has(tool.slice(4)) && tool !== 'mcp:ptah')
+    ) continue;
+    throw new Error('Codex profile requires unsupported runtime configuration');
+  }
+  return { ...buildCodexLaneThreadConfig(profile) };
 }

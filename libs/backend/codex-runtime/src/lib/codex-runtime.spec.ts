@@ -9,7 +9,7 @@ import {
 } from './codex-app-server-process';
 import { CodexProtocolError } from './codex-protocol-validator';
 import { CodexMcpConfigError } from './codex-mcp-config';
-import { CodexRuntime } from './codex-runtime';
+import { CodexRuntime, CodexPreTurnConfigRejectedError } from './codex-runtime';
 import { CodexContextStateError } from './codex-context-state-error';
 import {
   codexProfileFingerprint,
@@ -93,6 +93,35 @@ const ptahServer: CodexMcpServer = {
   headerReferences: {},
   toolTimeoutSec: 960,
 };
+const baseLane: NonNullable<CodexExecutionProfile['lane']> = {
+  suppressedTools: ['agents', 'plugins', 'apps', 'skills', 'mcp:user.server'],
+  disabledUserMcpServers: ['user.server'],
+  autoCompactTokens: 5000,
+  toolOutputTokenLimit: 3000,
+  webSearch: 'disabled',
+  explicitFullAccess: false,
+};
+const laneProfile: CodexExecutionProfile = {
+  ...profile,
+  contextId: 'lane',
+  consumer: 'lane',
+  approvalPolicy: 'never',
+  lane: baseLane,
+  mcpServers: [ptahServer],
+};
+const laneConfig = {
+  agents: { enabled: false },
+  features: { plugins: false, apps: false },
+  skills: { include_instructions: false },
+  model_auto_compact_token_limit: 5000,
+  tool_output_token_limit: 3000,
+  web_search: 'disabled',
+  approval_policy: 'never',
+  mcp_servers: {
+    'user.server': { enabled: false },
+    ptah: { url: ptahUrl, tool_timeout_sec: 960 },
+  },
+};
 
 class FakeChild extends EventEmitter implements SpawnedProcessHandle {
   readonly stdout = new PassThrough();
@@ -102,7 +131,9 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
   readonly whenSpawned = Promise.resolve(42);
   killed = false;
   exitCode: number | null = null;
+  signalCode: NodeJS.Signals | null = null;
   failMethod?: string;
+  failMessage?: string;
   holdMethod?: string;
   steerResultTurnId?: string;
   modelPages: unknown[] = [{ data: [catalogModel] }];
@@ -119,6 +150,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
     final: (done) => {
       done();
       queueMicrotask(() => {
+        if (this.exitCode !== null || this.signalCode !== null) return;
         this.exitCode = 0;
         this.emit('close', 0, null);
       });
@@ -181,7 +213,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
     if (method === this.failMethod) {
       this.send({
         id: frame['id'],
-        error: { code: -1, message: 'secret raw error' },
+        error: { code: -1, message: this.failMessage ?? 'secret raw error' },
       });
       return;
     }
@@ -668,7 +700,7 @@ describe('CodexRuntime', () => {
     async (consumer) => {
       const first = await runtime.open(profile);
       const second = await runtime.open({
-        ...profile,
+        ...(consumer === 'lane' ? laneProfile : profile),
         contextId: 'other',
         consumer,
       });
@@ -1326,7 +1358,7 @@ describe('CodexRuntime', () => {
   it('does not show async cards to lane consumers', async () => {
     const ask = jest.fn(async () => ({}));
     runtime = new CodexRuntime({ ...options, requestUserInput: ask });
-    const context = await runtime.open({ ...profile, consumer: 'lane' });
+    const context = await runtime.open(laneProfile);
     await context.startTurn({ text: 'go' });
     const iterator = context.events(new AbortController().signal)[Symbol.asyncIterator]();
     children[0].notify('item/completed', {
@@ -2076,14 +2108,193 @@ describe('CodexRuntime', () => {
     expect(inactive).toHaveBeenCalledWith(persist.mock.calls[0][0]);
   });
 
-  it('rejects missing approval UI and unsupported configuration before spawn', async () => {
-    await expect(
-      runtime.open({
-        ...profile,
-        lane: { suppressedTools: ['shell'], explicitFullAccess: false },
-      }),
-    ).rejects.toThrow('unsupported');
+  it('refuses unsupported lane limits and suppressions before spawn', async () => {
+    const cases: NonNullable<CodexExecutionProfile['lane']>[] = [
+      { ...baseLane, maxTurns: 1 },
+      { ...baseLane, maxBudgetUsd: 0.5 },
+      { ...baseLane, explicitFullAccess: true },
+      { ...baseLane, suppressedTools: ['shell'] },
+    ];
+    for (const lane of cases) {
+      await expect(runtime.open({ ...laneProfile, lane })).rejects.toThrow('unsupported');
+    }
     expect(children).toHaveLength(0);
+  });
+
+  it('does not send lane fields on a chat profile', async () => {
+    await expect(runtime.open({ ...profile, lane: baseLane })).rejects.toThrow('lane consumer');
+    expect(children).toHaveLength(0);
+  });
+
+  it('sends exact lane start and resume frames with only nested lane config', async () => {
+    const context = await runtime.open(laneProfile);
+    expect(children[0].frames.find((frame) => frame['method'] === 'thread/start')).toMatchObject({
+      method: 'thread/start',
+      params: {
+        cwd: '/work', model: 'model', approvalPolicy: 'never',
+        approvalsReviewer: 'user', sandbox: 'workspace-write', config: laneConfig,
+      },
+    });
+    const startParams = children[0].frames.find((frame) => frame['method'] === 'thread/start')?.['params'];
+    expect(startParams).toEqual({
+      cwd: '/work', model: 'model', approvalPolicy: 'never',
+      approvalsReviewer: 'user', sandbox: 'workspace-write', config: laneConfig,
+    });
+    const identity = context.identity;
+    await context.close();
+    const resumedRuntime = new CodexRuntime({ ...options, spawner: {
+      spawnProcess: () => {
+        const child = new FakeChild(identity.threadId);
+        children.push(child);
+        return child;
+      },
+    } });
+    try {
+      await resumedRuntime.open(laneProfile, identity);
+      const resumeParams = children[1].frames.find((frame) => frame['method'] === 'thread/resume')?.['params'];
+      expect(resumeParams).toEqual({
+        cwd: '/work', model: 'model', approvalPolicy: 'never',
+        approvalsReviewer: 'user', sandbox: 'workspace-write',
+        config: laneConfig, threadId: identity.threadId,
+      });
+    } finally {
+      await resumedRuntime.close();
+    }
+  });
+
+  it.each(['chat', 'gateway'] as const)('keeps %s start and resume frames unchanged', async (consumer) => {
+    const baseline: CodexExecutionProfile = { ...profile, consumer, mcpServers: [ptahServer] };
+    const context = await runtime.open(baseline);
+    const expected = {
+      approvalPolicy: 'untrusted', approvalsReviewer: 'user',
+      config: { 'mcp_servers.ptah': { url: ptahUrl, tool_timeout_sec: 960 } },
+      cwd: '/work', model: 'model', sandbox: 'workspace-write',
+    };
+    const startFrame = children[0].frames.find((frame) => frame['method'] === 'thread/start');
+    expect(JSON.stringify(startFrame)).toBe(JSON.stringify({ id: 2, method: 'thread/start', params: expected }));
+    const identity = context.identity;
+    await context.close();
+    const resumedRuntime = new CodexRuntime({ ...options, spawner: {
+      spawnProcess: () => {
+        const child = new FakeChild(identity.threadId);
+        children.push(child);
+        return child;
+      },
+    } });
+    try {
+      await resumedRuntime.open(baseline, identity);
+      const resumeFrame = children.at(-1)?.frames.find((frame) => frame['method'] === 'thread/resume');
+      expect(JSON.stringify(resumeFrame)).toBe(JSON.stringify({
+        id: 2, method: 'thread/resume', params: {
+          approvalPolicy: 'untrusted', approvalsReviewer: 'user',
+          config: expected.config, cwd: '/work', model: 'model',
+          sandbox: 'workspace-write', threadId: identity.threadId,
+        },
+      }));
+    } finally {
+      await resumedRuntime.close();
+    }
+  });
+
+  it('exposes a safe pre-turn config rejection after the failed context closes', async () => {
+    const opening = runtime.open(laneProfile);
+    children[0].failMethod = 'thread/start';
+    children[0].stderr.write('Error loading config.toml: invalid transport\nAuthorization: Bearer secret-key\n');
+    const failure: unknown = await opening.catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(CodexPreTurnConfigRejectedError);
+    if (!(failure instanceof CodexPreTurnConfigRejectedError)) throw new Error('Expected config rejection');
+    expect(failure.code).toBe('codexPreTurnConfigRejected');
+    expect(failure.retryEligible).toBe(true);
+    expect(JSON.stringify(failure)).not.toContain('secret-key');
+    expect(children[0].stdin.writableEnded).toBe(true);
+    expect(persist).not.toHaveBeenCalled();
+    children[0].failMethod = undefined;
+    const retry = await runtime.open(laneProfile);
+    expect(retry.identity.processGeneration).toBe(2);
+  });
+
+  it.each([
+    ['invalid override', 'Invalid override (missing "="): agents.enabled'],
+    ['unknown config key', 'Unknown config key: agents.unsupported'],
+    ['unknown field', 'Unknown field: unsupported'],
+    ['failed config parse', 'Failed to parse config.toml: invalid value'],
+  ] as const)(
+    'classifies an RPC rejection with %s before a turn',
+    async (_form, diagnostic) => {
+      const opening = runtime.open(laneProfile);
+      children[0].failMethod = 'thread/start';
+      children[0].stderr.write(`${diagnostic}\n`);
+      const failure: unknown = await opening.catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(CodexPreTurnConfigRejectedError);
+      if (!(failure instanceof CodexPreTurnConfigRejectedError))
+        throw new Error('Expected config rejection');
+      expect(failure.method).toBe('thread/start');
+      expect(children[0].stdin.writableEnded).toBe(true);
+      expect(persist).not.toHaveBeenCalled();
+    },
+  );
+
+  it('classifies a process failure with failed TOML deserialization before a turn', async () => {
+    const opening = runtime.open(laneProfile);
+    children[0].holdMethod = 'thread/start';
+    await flush();
+    children[0].stderr.write('Failed to deserialize TOML config: invalid value\n');
+    children[0].exitCode = 1;
+    children[0].stdout.end();
+    children[0].stderr.end();
+    children[0].emit('close', 1, null);
+    const failure: unknown = await opening.catch((error: unknown) => error);
+    expect(
+      children[0].frames.some((frame) => frame['method'] === 'thread/start'),
+    ).toBe(true);
+    expect(failure).toBeInstanceOf(CodexPreTurnConfigRejectedError);
+    if (!(failure instanceof CodexPreTurnConfigRejectedError))
+      throw new Error('Expected config rejection');
+    expect(failure.method).toBe('thread/start');
+    expect(children[0].stdin.writableEnded).toBe(true);
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('classifies a signal-only exit with a config diagnostic before a turn', async () => {
+    const opening = runtime.open(laneProfile);
+    children[0].holdMethod = 'thread/start';
+    await flush();
+    children[0].stderr.write('Error loading config.toml: invalid value\n');
+    children[0].signalCode = 'SIGTERM';
+    children[0].stdout.end();
+    children[0].stderr.end();
+    children[0].emit('close', null, 'SIGTERM');
+    const failure: unknown = await opening.catch((error: unknown) => error);
+    expect(children[0].exitCode).toBeNull();
+    expect(failure).toBeInstanceOf(CodexPreTurnConfigRejectedError);
+    if (!(failure instanceof CodexPreTurnConfigRejectedError))
+      throw new Error('Expected config rejection');
+    expect(failure.method).toBe('thread/start');
+    expect(children[0].stdin.writableEnded).toBe(true);
+  });
+
+  it('does not classify a model rejection as a lane config rejection', async () => {
+    const opening = runtime.open(laneProfile);
+    children[0].failMethod = 'thread/start';
+    children[0].failMessage = 'Model rejected: unavailable';
+    children[0].stderr.write('Model rejected: unavailable\n');
+    const failure: unknown = await opening.catch((error: unknown) => error);
+    expect(failure).not.toBeInstanceOf(CodexPreTurnConfigRejectedError);
+    expect(failure).toBeInstanceOf(Error);
+    if (!(failure instanceof Error)) throw new Error('Expected model rejection');
+    expect(failure.cause).toBeInstanceOf(CodexRequestRejectedError);
+  });
+
+  it('does not expose config retry after a turn has started', async () => {
+    const context = await runtime.open(laneProfile);
+    await context.startTurn({ text: 'go' });
+    children[0].complete();
+    await flush();
+    children[0].failMethod = 'turn/start';
+    children[0].stderr.write('Error loading config.toml: secret-key\n');
+    const failure: unknown = await context.startTurn({ text: 'again' }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(CodexRequestRejectedError);
+    expect(failure).not.toBeInstanceOf(CodexPreTurnConfigRejectedError);
   });
 
   it('sends profile MCP servers as native config overrides on thread/start', async () => {
