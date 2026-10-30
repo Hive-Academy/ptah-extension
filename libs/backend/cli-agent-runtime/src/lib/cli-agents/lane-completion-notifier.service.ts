@@ -32,7 +32,7 @@
  * it. The per-agent burst limits in `AgentReportRouter` exist because a model
  * chooses when to call that tool; nothing chooses when a process exits.
  */
-import { isAbsolute, resolve } from 'path';
+import { isAbsolute, relative, resolve, sep, win32 } from 'path';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import {
@@ -40,7 +40,7 @@ import {
   type IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import { SessionId } from '@ptah-extension/shared';
-import type { LaneOutcomeRecorder } from '@ptah-extension/lane-outcomes';
+import { taskKindForRole, type LaneOutcomeRecorder } from '@ptah-extension/lane-outcomes';
 import { enqueueLaneCompletionOutcome } from './lane-completion-outcome';
 import { buildLaneCompletionEnvelope } from './lane-completion-envelope';
 import type {
@@ -281,6 +281,8 @@ export interface LaneCompletionContext {
   /** Reports this lane delivered through `ptah_agent_report` before it ended. */
   readonly reportsDelivered: number;
   readonly authMatched?: boolean;
+  /** API rate-limit wording seen in this turn's bounded output; in memory only. */
+  readonly rateLimited?: boolean;
   /** Tool calls the lane guard counted for the lane's last task. */
   readonly toolCalls?: number;
   /** Caller messages a host stop discarded from the queue. */
@@ -315,10 +317,10 @@ export class LaneCompletionNotifier {
      */
     @inject(TOKENS.AGENT_ADAPTER, { isOptional: true })
     private readonly agentAdapter: IAgentAdapter | null = null,
-    private readonly outcomeRecorder: () => Pick<
-      LaneOutcomeRecorder,
-      'recordLaneCompletion'
-    > | null = () => null,
+    private readonly outcomeRecorder: () => (
+      Pick<LaneOutcomeRecorder, 'recordLaneCompletion'> &
+      Partial<Pick<LaneOutcomeRecorder, 'captureReview'>>
+    ) | null = () => null,
   ) {}
 
   /**
@@ -357,7 +359,17 @@ export class LaneCompletionNotifier {
       key,
       signal,
       context.authMatched ?? false,
+      context.rateLimited ?? false,
     );
+
+    const queueReviewCapture = (): void => {
+      if (
+        (info.taskKind === 'review' || taskKindForRole(info.role ?? null) === 'review') &&
+        info.deliverables?.length
+      ) {
+        void this.captureReview(info, key);
+      }
+    };
 
     // `safeParse`, not `from`: `parentSessionId` holds the frontend tab id
     // until the real SDK uuid arrives, so a value that is not a session id
@@ -365,6 +377,7 @@ export class LaneCompletionNotifier {
     // exception — the same rule `AgentReportRouter` follows.
     const parentSessionId = SessionId.safeParse(info.parentSessionId?.trim());
     if (!parentSessionId) {
+      queueReviewCapture();
       return this.refuse('no-parent-recorded', signal, {
         detail: info.parentSessionId
           ? 'the parent session recorded at spawn never resolved to a real session id'
@@ -373,6 +386,7 @@ export class LaneCompletionNotifier {
     }
 
     if (!this.agentAdapter) {
+      queueReviewCapture();
       return this.refuse('chat-runtime-unavailable', signal, {
         detail:
           'no agent adapter is registered in this host, so no chat session ' +
@@ -381,6 +395,7 @@ export class LaneCompletionNotifier {
     }
 
     if (!this.agentAdapter.isSessionActive(parentSessionId)) {
+      queueReviewCapture();
       return this.refuse('parent-session-not-active', signal, {
         parentSessionId,
       });
@@ -399,11 +414,14 @@ export class LaneCompletionNotifier {
         },
       );
     } catch (error: unknown) {
+      queueReviewCapture();
       return this.refuse('delivery-failed', signal, {
         parentSessionId,
         detail: error instanceof Error ? error.message : String(error),
       });
     }
+
+    queueReviewCapture();
 
     this.logger.info('[LaneCompletionNotifier] Completion signal delivered', {
       agentId: signal.agentId,
@@ -597,6 +615,7 @@ export class LaneCompletionNotifier {
         info.status,
         info.stopReason,
         deliverables,
+        context.rateLimited ?? false,
       ),
       reportsDelivered: context.reportsDelivered,
       ...(info.mcpAttachmentWarning ? { mcpAttachmentWarning: info.mcpAttachmentWarning } : {}),
@@ -668,14 +687,49 @@ export class LaneCompletionNotifier {
     status: AgentProcessInfo['status'],
     stopReason: AgentProcessInfo['stopReason'],
     deliverables: readonly LaneDeliverableCheck[],
+    rateLimited: boolean,
   ): LaneCompletionVerdict {
     const hostStopped = status === 'stopped' && stopReason !== undefined;
     if (status !== 'completed' && !hostStopped) return 'failed';
-    if (deliverables.length === 0) return 'unverified';
-    const allPresent = deliverables.every(
-      (check) => check.exists && (check.bytes ?? 0) > 0,
+    const allFresh = deliverables.length > 0 && deliverables.every(
+      (check) => check.exists && (check.bytes ?? 0) > 0 && check.writtenAfterSpawn !== false,
     );
-    return allPresent ? 'delivered' : 'no-deliverable';
+    if (rateLimited && !allFresh) return 'failed';
+    if (deliverables.length === 0) return 'unverified';
+    return allFresh ? 'delivered' : 'no-deliverable';
+  }
+
+  private async captureReview(info: AgentProcessInfo, runId: string): Promise<void> {
+    try {
+      const recorder = this.outcomeRecorder();
+      if (!recorder?.captureReview) return;
+      const root = resolve(info.workingDirectory);
+      const texts: string[] = [];
+      for (const entry of (info.deliverables ?? []).slice(0, 3)) {
+        const path = resolveDeliverablePath({
+          deliverables: [], taskFolder: info.taskFolder,
+          workingDirectory: info.workingDirectory, id: info.agentId,
+        }, entry);
+        const rel = relative(root, path);
+        if (isAbsolute(entry) || win32.isAbsolute(entry) || /^[A-Za-z]:/.test(entry) ||
+          rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+          this.logger.warn('[LaneCompletionNotifier] Review deliverable outside lane directory', { runId });
+          return;
+        }
+        const stat = await this.fileSystem.stat(path);
+        if (stat.size > 64 * 1024) {
+          this.logger.warn('[LaneCompletionNotifier] Review deliverable exceeds capture limit', { runId });
+          return;
+        }
+        texts.push(await this.fileSystem.readFile(path));
+      }
+      await recorder.captureReview({ reviewerRunId: runId, text: texts.join('\n') });
+    } catch (error: unknown) {
+      // degradation-audit: reported - review capture is optional evidence
+      this.logger.warn('[LaneCompletionNotifier] Review capture failed', {
+        runId, code: error instanceof Error ? error.name : 'UNKNOWN',
+      });
+    }
   }
 
   /**

@@ -161,6 +161,7 @@ describe('LaneCompletionNotifier.signal', () => {
         provider: null,
         model: 'lane-default',
       }),
+      { brief: info.task },
     );
   });
   it('uses the Ptah CLI spawn provider when no quota owner was discovered', async () => {
@@ -178,6 +179,7 @@ describe('LaneCompletionNotifier.signal', () => {
         family: 'z-ai',
         provider: 'z-ai',
       }),
+      { brief: 'Write the review report.\nSecond line nobody needs.' },
     );
   });
 
@@ -397,6 +399,7 @@ describe('LaneCompletionNotifier.signal', () => {
       );
 
       expect(result.signal?.deliverables[0].writtenAfterSpawn).toBe(false);
+      expect(result.signal?.verdict).toBe('no-deliverable');
       expect(h.envelope()).toContain('NOT written by this run');
     });
 
@@ -786,7 +789,7 @@ describe('LaneCompletionNotifier.signalSessionChild', () => {
       expect(result.envelope.verdict).toBe('no-deliverable');
       expect(result.envelope.text).toContain('(NOT written by this run)');
 
-      // The lane rule is unchanged: existence + non-empty is delivered.
+      // The lane applies the same freshness rule as the session child.
       const lane = createHarness({
         files: { '/ws/out.md': 10 },
         mtime: Date.parse(STARTED_AT) - 1,
@@ -794,7 +797,7 @@ describe('LaneCompletionNotifier.signalSessionChild', () => {
       const laneResult = await lane.notifier.signal(
         createInfo({ deliverables: ['out.md'] }),
       );
-      expect(laneResult.signal?.verdict).toBe('delivered');
+      expect(laneResult.signal?.verdict).toBe('no-deliverable');
     });
 
     it('counts a file whose mtime equals startedAt as written (the >= boundary)', async () => {
