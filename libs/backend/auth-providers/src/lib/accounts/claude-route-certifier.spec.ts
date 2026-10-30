@@ -255,15 +255,32 @@ describe('ClaudeRouteCertifier.certify', () => {
     expect(h.events).toEqual([]);
   });
 
-  it('refuses an uncovered win32 version after the scan, without a status child', async () => {
-    const h = harness();
-    h.version = '2.1.311';
+  it.each(['2.1.309', '2.2.0'])('refuses the uncovered win32 version %s after the scan, without a status child', async (version) => {
+    const logger = { warn: jest.fn() };
+    const h = harness('win32', Date.now, logger);
+    h.version = version;
     await expect(h.certifier.certify(certifyRequest(newRoute()))).resolves.toEqual({
       ok: false, code: 'unsupported-source', terminated: true,
     });
     expect(h.events).toContain('registry');
     expect(h.probe.certifyExecutable).toHaveBeenCalledTimes(1);
     expect(h.probe.status).not.toHaveBeenCalled();
+    expect(logger.warn.mock.calls).toEqual([
+      ['[ClaudeRouteCertifier] Claude CLI version is outside the policy coverage', { version, inspected: '2.1.310' }],
+    ]);
+  });
+
+  it('certifies a later patch build of the inspected line and warns once per version', async () => {
+    const logger = { warn: jest.fn() };
+    const h = harness('win32', Date.now, logger);
+    h.version = '2.1.312';
+    await expect(h.certifier.certify(certifyRequest(newRoute()))).resolves.toMatchObject({ ok: true });
+    await expect(h.certifier.certify(certifyRequest(newRoute()))).resolves.toMatchObject({ ok: true });
+    expect(h.probe.status).toHaveBeenCalledTimes(2);
+    expect(logger.warn.mock.calls).toEqual([
+      ['[ClaudeRouteCertifier] Claude CLI version was not inspected; using the inspected policy sources',
+        { version: '2.1.312', inspected: '2.1.310' }],
+    ]);
   });
 
   it('refuses a build below 2.1.301 as unsupported-store', async () => {
@@ -531,7 +548,7 @@ describe('ClaudeRouteCertifier.checkLaunch', () => {
     const h = harness();
     const launch = await certified(h);
     h.events.length = 0;
-    const uncovered = { ...launch, executable: { ...launch.executable, version: '2.1.311' } };
+    const uncovered = { ...launch, executable: { ...launch.executable, version: '2.2.0' } };
     await expect(h.certifier.checkLaunch(uncovered, signal())).resolves.toEqual({ ok: false, code: 'unsupported-source', terminated: true });
     expect(h.events).toEqual([]);
   });

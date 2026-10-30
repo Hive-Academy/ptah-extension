@@ -11,6 +11,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { ClaudeChildCloseReceipt } from './claude-account-command';
 import type { ClaudeAccountStatus } from './claude-account-status';
 import {
+  claudeCoverageAcceptsVersion,
   claudePolicyCoverage,
   claudeRemoteSignalsAbsent,
   scanClaudeAuthPolicy,
@@ -177,6 +178,8 @@ function withoutReceipts(refusal: ClaudeProbeRefusal): ClaudeCertificationRefusa
  */
 export class ClaudeRouteCertifier {
   private readonly reused: ClaudeCertificationCache;
+  /** Accepted versions other than the inspected one, warned about once each. */
+  private readonly warnedVersions = new Set<string>();
 
   constructor(
     private readonly probe: ClaudeCliProbe,
@@ -246,7 +249,9 @@ export class ClaudeRouteCertifier {
   private async recheckFailure(launch: ClaudeCertifiedLaunchContext,
     route: CanonicalProviderAccountRoute): Promise<'coverage' | 'env' | 'executable' | 'remote-signals' | 'route' | undefined> {
     const entry = claudePolicyCoverage(this.platform);
-    if (!entry || entry.id !== launch.policy.coverage || !entry.versions.includes(launch.executable.version)) return 'coverage';
+    if (!entry || entry.id !== launch.policy.coverage || !claudeCoverageAcceptsVersion(entry, launch.executable.version)) {
+      return 'coverage';
+    }
     let step: 'env' | 'executable' | 'remote-signals' | 'route' = 'env';
     try {
       if (certifiedEnvDigest(buildCertifiedClaudeEnv(process.env, route.canonicalPath)) !== launch.envDigest) return step;
@@ -373,7 +378,13 @@ export class ClaudeRouteCertifier {
     const version = parseVersion(probed.executable.version);
     if (!version) return refuse('identity-unproved', true);
     if (belowMinimum(version)) return refuse('unsupported-store', true);
-    if (!entry.versions.includes(probed.executable.version)) return refuse('unsupported-source', true);
+    if (!claudeCoverageAcceptsVersion(entry, probed.executable.version)) {
+      // Fixed text and the version only; no path or CLI output.
+      this.logger?.warn('[ClaudeRouteCertifier] Claude CLI version is outside the policy coverage',
+        { version: probed.executable.version, inspected: entry.inspectedVersion });
+      return refuse('unsupported-source', true);
+    }
+    this.warnUninspected(entry, probed.executable.version);
 
     let env: Readonly<Record<string, string>>;
     try {
@@ -394,6 +405,14 @@ export class ClaudeRouteCertifier {
         route,
       }),
     };
+  }
+
+  /** One warning per accepted version whose binary nobody inspected. */
+  private warnUninspected(entry: ClaudePolicyCoverageEntry, version: string): void {
+    if (version === entry.inspectedVersion || this.warnedVersions.has(version)) return;
+    this.warnedVersions.add(version);
+    this.logger?.warn('[ClaudeRouteCertifier] Claude CLI version was not inspected; using the inspected policy sources',
+      { version, inspected: entry.inspectedVersion });
   }
 
   private async scan(
