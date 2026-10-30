@@ -2,6 +2,7 @@ import type {
   ExecutionChatMessage,
   MessageTokenUsage,
 } from '@ptah-extension/shared';
+import { isValidTokenCount, messageTokenTotal } from '@ptah-extension/shared';
 import { formatAgentDuration } from '@ptah-extension/chat-ui';
 import { extractMessageSummary } from './message-summary.utils';
 import { rootHasActivity } from './turn-answer-split.utils';
@@ -87,6 +88,8 @@ export interface TurnMetricTotal {
 export interface TurnTokenTotal {
   readonly input: number;
   readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheCreation: number;
   /** Messages that contributed known token usage. */
   readonly knownCount: number;
 }
@@ -257,6 +260,8 @@ export function turnElapsedLabel(
 export function summarizeTurnMetrics(ctx: TurnContext): TurnMetricsSummary {
   let input = 0;
   let output = 0;
+  let cacheRead = 0;
+  let cacheCreation = 0;
   let tokenCount = 0;
   let cost = 0;
   let costCount = 0;
@@ -264,9 +269,11 @@ export function summarizeTurnMetrics(ctx: TurnContext): TurnMetricsSummary {
   let files = 0;
 
   for (const m of ctx.messages) {
-    if (m.tokens) {
+    if (messageTokenTotal(m.tokens) !== null && m.tokens) {
       input += m.tokens.input;
       output += m.tokens.output;
+      cacheRead += m.tokens.cacheRead ?? 0;
+      cacheCreation += m.tokens.cacheCreation ?? 0;
       tokenCount++;
     }
     if (typeof m.cost === 'number' && Number.isFinite(m.cost)) {
@@ -281,7 +288,10 @@ export function summarizeTurnMetrics(ctx: TurnContext): TurnMetricsSummary {
   return {
     messageCount,
     tokens:
-      tokenCount > 0 ? { input, output, knownCount: tokenCount } : null,
+      tokenCount > 0 &&
+      isValidTokenCount(messageTokenTotal({ input, output, cacheRead, cacheCreation }))
+        ? { input, output, cacheRead, cacheCreation, knownCount: tokenCount }
+        : null,
     cost: costCount > 0 ? { value: cost, knownCount: costCount } : null,
     toolCount: { value: tools, knownCount: messageCount },
     filesChanged: { value: files, knownCount: messageCount },
