@@ -44,3 +44,12 @@ Batch 1a fix lane f94a05b4-2c1e-42b1-9e13-8515321f9e5b (codex, fresh; resume ref
 Fix round f94a05b4 delivered (harness 771 lines; policy untrusted at all levels, yolo/auto-edit workspace-write, fatal handlers :705). Scoped re-review lane 9fdbec0d-4d94-4a4b-980e-82351db353c5 (grok, fresh). Heavy-check queue: 710 (holds) -> skill-routing -> 712 -> 714; wait for "released" from 712.
 Generator run OK with bundled 0.155.1 (offline schema export, no auth): schema 697KB + manifest; 102 requests, 10 server requests (incl. item/tool/requestUserInput, item/permissions/requestApproval, mcpServer/elicitation/request), 82 notifications (incl. item/plan/delta); decision literals include accept, acceptForSession, decline, deny. Dry run OK (ts-node compiled harness, 8 cases listed). Remaining before --run: Jest spec under heavy-check slot (queue: 710 -> skill-routing -> 712 -> 714).
 Checks passed under slot (jest 28/28, typecheck OK); slot released (710 inbox gone). Real spike run started in background (task b29h6sh0q): bundled codex 0.155.1, model gpt-5.1-codex-mini, auth copy from %USERPROFILE%/.codex/auth.json, out spike-run.md, log /tmp/spike-run.log. After: verify temp auth copy deleted (no $TEMP/ptah-codex-evidence-* left).
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane codex, verified by Claude). Title unchanged: task is in_progress.
+
+- The runtime core is on main: #809 (b73a6ff74) added `libs/backend/codex-runtime`, but its registration enables no route (`main:libs/backend/codex-runtime/src/lib/di/registration.ts:27`).
+- The old `CodexCliAdapter` is still exported (`main:libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/index.ts:22`).
+
+Remaining scope: wire the gated codex-runtime into Electron chat, session controls, gateway and CLI lanes, prove parity, then retire the proxy and SDK lane paths under the recorded rollout gates.

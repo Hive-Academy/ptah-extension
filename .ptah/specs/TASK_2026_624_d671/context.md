@@ -68,3 +68,11 @@ Evidence: `.ptah/specs/TASK_2026_659_cec4/evaluation-report.md` and `task-triage
 ## Retired sources (2026-10-30)
 
 This task cites `TASK_2026_659_cec4`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: STALE-REWRITE (lane antigravity, verified by Claude).
+
+- #788 (7a4a307e7) deleted the skill funnel, namer and trigger suites; `main:tools/mcp-bench/src/memory-skills/suites/skills/` keeps only rubric-agreement / rubric-ground-truth / rubric-panel-manifest. The skills recordings in the original scope cannot be made.
+
+New scope: per-call provenance gate + record-missing cassette mode; after user approval for paid calls, record extraction, dedup and scope-write suites and publish the first scored memory scorecard.

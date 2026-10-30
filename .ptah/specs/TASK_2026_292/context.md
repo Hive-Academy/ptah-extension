@@ -181,3 +181,13 @@ The two need to be presented to the conductor as a pair with a clear rule.
 Backlog audit after the October refactors. Still open (a cancel was proposed and rejected).
 
 ptah_agent_message delivers the follow-up path. Only one item is open: ptah_agent_status does not show if an agent can start a new turn (mcp-response-formatter.ts:1920). The task can be narrowed to that item.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane codex, verified by Claude).
+
+- The Tribunal page this task's symptom was observed on is retired (#845, 2bccac73f); the duplicate-tile symptom is out of scope.
+- The message router continues a finished live agent in place: `main:libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-message-router.service.ts:247`. No new continue verb is needed.
+- `formatAgentStatus` (`main:libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.ts:1932-1951`) lists status and CLI session id but no next-turn capability.
+
+Remaining scope: add the next-turn capability and fallback guidance to `ptah_agent_status`, keep `ptah_agent_message` as the follow-up verb.

@@ -22,3 +22,10 @@ Evidence: `.ptah/specs/TASK_2026_659_cec4/evaluation-report.md` and `task-triage
 ## Retired sources (2026-10-30)
 
 This task cites `TASK_2026_659_cec4`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane antigravity, verified by Claude).
+
+- #788 purged the skill-synthesis pipeline, so the skill parts of this epic are gone; Thoth tabs are `memory | skills | cron | gateway` (`main:libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.ts:46`).
+- Remaining children: TASK_2026_587_bffd (rewritten to read lane-outcomes), TASK_2026_572_07c4, TASK_2026_517_b90a, TASK_2026_641_bf2b, TASK_2026_457_e48b, TASK_2026_266.
