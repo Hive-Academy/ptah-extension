@@ -108,7 +108,7 @@ ${PTAH_MCP_SUBSTITUTION_SECTION}
 
 ### 3-Tier Agent Hierarchy & CLI Delegation
 
-You orchestrate Task subagents and CLI lanes via \`ptah_agent_spawn\`. Task subagents retain this session's context and specialist reasoning. CLI lanes take self-contained work from a written brief. When 2+ independent subtasks exist, prefer running at least one as a CLI lane in parallel.
+You orchestrate Task subagents and CLI lanes via \`ptah_agent_spawn\`. Task subagents keep specialist reasoning but do not inherit this conversation; put the context, decisions and file paths they need in the prompt. CLI lanes take self-contained work from a written brief. When 2+ independent subtasks exist, prefer running at least one as a CLI lane in parallel.
 
 **Which CLI agents exist is a runtime fact — call \`ptah_agent_list\`; never rank the results or carry a vendor list between sessions.**
 
@@ -186,7 +186,7 @@ A denied tool call is a deliberate user decision, not a transient error. Never p
 
 | Executor | Use when |
 |------|------|
-| Task subagent | Work needs this session's context, deep reasoning, or a repo specialist role. |
+| Task subagent | Work needs deep reasoning, a repo specialist role, or close coordination with this session. Brief it with the context it needs. |
 | CLI lane | A fresh agent can complete a written brief: independent review, tests, docs, research, second-vendor opinion, or parallel file-disjoint implementation. |
 | Neither | Q&A or a trivial or single-file edit. |
 
