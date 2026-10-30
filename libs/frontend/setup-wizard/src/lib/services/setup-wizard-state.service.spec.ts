@@ -109,6 +109,27 @@ describe('SetupWizardStateService', () => {
     expect(service).toBeTruthy();
   });
 
+  it('keeps the first analysis timestamp until reset, then accepts a new run', () => {
+    expect(service.analysisStartedAt()).toBeNull();
+    service.handleMessage({
+      type: 'setup-wizard:analysis-stream',
+      payload: { kind: 'text', content: 'first', timestamp: 1_000 },
+    });
+    expect(service.analysisStartedAt()).toBe(1_000);
+    service.handleMessage({
+      type: 'setup-wizard:analysis-stream',
+      payload: { kind: 'text', content: 'second', timestamp: 2_000 },
+    });
+    expect(service.analysisStartedAt()).toBe(1_000);
+    service.reset();
+    expect(service.analysisStartedAt()).toBeNull();
+    service.handleMessage({
+      type: 'setup-wizard:analysis-stream',
+      payload: { kind: 'text', content: 'new run', timestamp: 3_000 },
+    });
+    expect(service.analysisStartedAt()).toBe(3_000);
+  });
+
   describe('Initial State', () => {
     it('should initialize with welcome step', () => {
       expect(service.currentStep()).toBe('welcome');
