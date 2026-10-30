@@ -349,6 +349,8 @@ interface RunState {
   base: SavedCostState | null | undefined;
   /** The latest accepted cumulative value of the run. */
   current: RunUsageResult | null;
+  /** Completed turns counted by this run. */
+  turns: number;
   /** The run is known to be under-counted until a complete result covers it. */
   incomplete: boolean;
   /** A non-monotonic rejection was already reported for this run. */
@@ -598,6 +600,7 @@ export class SessionStatsOwnerService {
     let firstRejection = false;
     let turn: AcceptedTurnCost = { turnCost: null, runCostDecreased: false };
     if (outcome === 'accepted') {
+      run.turns++;
       turn = acceptedTurnCost(result, previous, run.base ?? null);
       // `duration_ms` is per turn: only a result the run accepted adds its
       // turn. A duplicate, rejected or ignored result adds nothing.
@@ -622,8 +625,9 @@ export class SessionStatsOwnerService {
 
   /**
    * A result arrived without per-model attribution: its per-turn usage is not
-   * a cumulative run total, so nothing is counted, but the run is known to be
-   * under-counted until a later complete cumulative result covers it.
+   * a cumulative run total, so its usage is not counted (its turn is), but the
+   * run is known to be under-counted until a later complete cumulative result
+   * covers it.
    */
   markRunIncomplete(
     sessionId: string,
@@ -633,6 +637,7 @@ export class SessionStatsOwnerService {
     const state = this.currentState(sessionId, generation);
     if (!state) return null;
     const run = runFor(state, runToken);
+    run.turns++;
     if (!run.incomplete) {
       run.incomplete = true;
       this.touch(state);
@@ -881,12 +886,17 @@ export class SessionStatsOwnerService {
           runContribution(
             sessionId,
             subtractRunBase(run.current, run.base ?? null),
+            run.incomplete ? undefined : run.turns,
           ),
         );
       }
       if (live && run.provisional !== null && run.provisional.length > 0) {
         contributions.push(
-          runContribution(sessionId, estimateResult(run.provisional)),
+          runContribution(
+            sessionId,
+            estimateResult(run.provisional),
+            run.incomplete ? undefined : 0,
+          ),
         );
       }
     }
@@ -895,8 +905,10 @@ export class SessionStatsOwnerService {
       contributions,
       subagentIds: [...state.agentIds],
     });
+    const { turnCount, ...withoutTurnCount } = merged;
     const snapshot: SessionStatsEntry = Object.freeze({
-      ...merged,
+      ...withoutTurnCount,
+      ...(!incomplete && turnCount !== undefined && { turnCount }),
       // Known-missing usage: what IS priced survives only as the labeled
       // subtotal; a total would claim coverage the owner does not have.
       ...(incomplete && {
@@ -979,6 +991,7 @@ function createRun(candidate: SavedCostState | null): RunState {
     candidate,
     base: undefined,
     current: null,
+    turns: 0,
     incomplete: false,
     rejectionReported: false,
     durationMs: 0,
@@ -1091,6 +1104,7 @@ async function readOrNull<T>(load: () => Promise<T | null>): Promise<T | null> {
 function runContribution(
   sessionId: string,
   result: RunUsageResult,
+  turnCount: number | undefined,
 ): SessionStatsReadEntry {
   const tokens = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
   let knownRows = 0;
@@ -1118,6 +1132,7 @@ function runContribution(
     knownCost: known ? result.totalCost : knownRows > 0 ? knownRowCost : null,
     tokens,
     tokenCount,
+    ...(turnCount !== undefined && { turnCount }),
     messageCount: 0,
     modelUsageList: result.models.map((m) => ({
       model: m.model,

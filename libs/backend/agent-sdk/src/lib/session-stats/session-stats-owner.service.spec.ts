@@ -88,6 +88,7 @@ function prefix(
   cost: number | null,
   options: {
     tokens?: number;
+    turnCount?: number;
     subagentIds?: readonly string[];
     savedCostState?: SavedCostState | null;
   } = {},
@@ -101,6 +102,7 @@ function prefix(
       knownCost: cost,
       tokens: { input: tokens, output: 0, cacheRead: 0, cacheCreation: 0 },
       tokenCount: tokens,
+      ...(options.turnCount !== undefined && { turnCount: options.turnCount }),
       messageCount: 4,
       modelUsageList: [
         {
@@ -267,6 +269,67 @@ describe('SessionStatsOwnerService', () => {
         owner.replaceRun(SESSION, prep.generation, 'run-1', r).snapshot;
       return { owner, prep, offer };
     }
+
+    it('adds accepted results to the prefix turn count', async () => {
+      const { offer } = await resumedRun(prefix(0, { turnCount: 4 }));
+      offer(run(1, [{ input: 10 }]));
+      expect(offer(run(2, [{ input: 20 }]))?.turnCount).toBe(6);
+    });
+
+    it('does not count a duplicate result twice', async () => {
+      const { owner, prep, offer } = await resumedRun(prefix(0, { turnCount: 4 }));
+      offer(run(1, [{ input: 10 }]));
+      const second = run(2, [{ input: 20 }]);
+      offer(second);
+      const duplicate = owner.replaceRun(SESSION, prep.generation, 'run-1', second);
+      expect(duplicate.outcome).toBe('duplicate');
+      expect(duplicate.snapshot?.turnCount).toBe(6);
+    });
+
+    it('keeps an in-flight live estimate out of the completed turn count', async () => {
+      const { owner, prep, offer } = await resumedRun(prefix(0, { turnCount: 4 }));
+      offer(run(1, [{ input: 10 }]));
+      offer(run(2, [{ input: 20 }]));
+      const live = owner.publishLive(
+        SESSION,
+        prep.generation,
+        'run-1',
+        run(1, [{ input: 5 }]).models,
+      );
+      expect(live?.provisional).toBe(true);
+      expect(live?.turnCount).toBe(6);
+      expect(owner.snapshot(SESSION)?.turnCount).toBe(6);
+    });
+
+    it('omits turn count after an unattributed result, including live estimates', async () => {
+      const { owner, prep } = await resumedRun(prefix(0, { turnCount: 4 }));
+      const incomplete = owner.markRunIncomplete(SESSION, prep.generation, 'run-1');
+      expect(incomplete).not.toBeNull();
+      expect('turnCount' in (incomplete ?? {})).toBe(false);
+      const live = owner.publishLive(
+        SESSION,
+        prep.generation,
+        'run-1',
+        run(1, [{ input: 5 }]).models,
+      );
+      expect(live?.provisional).toBe(true);
+      expect('turnCount' in (live ?? {})).toBe(false);
+      expect('turnCount' in (owner.snapshot(SESSION) ?? {})).toBe(false);
+    });
+
+    it('retains the unattributed completed turn when a later result restores coverage', async () => {
+      const { owner, prep, offer } = await resumedRun(prefix(0, { turnCount: 4 }));
+      offer(run(1, [{ input: 10 }]));
+      owner.markRunIncomplete(SESSION, prep.generation, 'run-1');
+      expect(offer(run(3, [{ input: 30 }]))?.turnCount).toBe(7);
+    });
+
+    it('omits turn count when the prefix cannot be read', async () => {
+      const { offer } = await resumedRun(null);
+      const snapshot = offer(run(1, [{ input: 10 }]));
+      expect(snapshot).not.toBeNull();
+      expect('turnCount' in (snapshot ?? {})).toBe(false);
+    });
 
     it('restored: prefix 10, cost-state 10, R1 13 -> 13, then 15 -> 15', async () => {
       const { offer } = await resumedRun(prefix(10, { savedCostState: SAVED_10 }));
