@@ -102,6 +102,12 @@ export class ActiveProviderResolver {
    * stored or environment API key without a connected Claude CLI login gives
    * `'apiKey'`. The answer is remembered for the synchronous readers.
    *
+   * The file-settings stores of every host return the registered default
+   * (`FILE_BASED_SETTINGS_DEFAULTS.authMethod`, `'claudeCli'`) for an unset
+   * value, so this branch runs only for a store without that default. The
+   * default is kept on purpose: the model and reasoning settings buckets read
+   * the raw value, and both must agree with the route the runtime takes.
+   *
    * @param workspacePath an explicit workspace; omitted reads the active scope.
    */
   async resolveActiveAuthWithDefault(
