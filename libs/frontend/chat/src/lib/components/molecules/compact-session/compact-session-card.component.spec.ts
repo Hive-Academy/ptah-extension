@@ -2,6 +2,7 @@ import { signal } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { TestBed } from '@angular/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
+import { WallClockService } from '@ptah-extension/core';
 import {
   ConversationRegistry,
   TabManagerService,
@@ -95,6 +96,7 @@ function question(
 }
 
 describe(CompactSessionCardComponent.name, () => {
+  const clockNow = signal(Date.now());
   const permissions = signal<readonly PermissionRequest[]>([]);
   const questions = signal<readonly AskUserQuestionRequest[]>([]);
   const agents = signal<MonitoredAgent[]>([]);
@@ -150,6 +152,7 @@ describe(CompactSessionCardComponent.name, () => {
   };
 
   beforeEach(() => {
+    clockNow.set(Date.now());
     permissions.set([]);
     questions.set([]);
     agents.set([]);
@@ -176,6 +179,10 @@ describe(CompactSessionCardComponent.name, () => {
       imports: [CompactSessionCardComponent],
       providers: [
         provideMarkdown(),
+        {
+          provide: WallClockService,
+          useValue: { now: () => clockNow, acquire: () => () => undefined },
+        },
         { provide: RAIL_TRANSCRIPT_RETENTION, useValue: false },
         { provide: PermissionHandlerService, useValue: permissionHandler },
         { provide: TabManagerService, useValue: tabManager },
@@ -651,26 +658,43 @@ describe(CompactSessionCardComponent.name, () => {
     expect(openSession).not.toHaveBeenCalled();
   });
 
-  it('runs one elapsed interval only while a lane runs and clears it on destroy', () => {
-    jest.useFakeTimers();
+  it('shares one wall-clock interval across running cards and releases it when idle', () => {
+    jest.useFakeTimers({
+      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    });
+    TestBed.overrideProvider(WallClockService, {
+      useFactory: () => new WallClockService(),
+      deps: [],
+    });
+    const clock = TestBed.inject(WallClockService);
     const interval = jest.spyOn(globalThis, 'setInterval');
     const clear = jest.spyOn(globalThis, 'clearInterval');
+    const realAcquire = clock.acquire.bind(clock);
+    const clockIntervals: Array<ReturnType<typeof setInterval>> = [];
+    const acquire = jest.spyOn(clock, 'acquire').mockImplementation((cadence) => {
+      const prior = interval.mock.results.length;
+      const release = realAcquire(cadence);
+      clockIntervals.push(...interval.mock.results.slice(prior).map((result) => result.value));
+      return release;
+    });
     try {
-      const fixture = render();
-      expect(interval).not.toHaveBeenCalled();
+      const first = render();
+      expect(acquire).not.toHaveBeenCalled();
       agents.set([lane()]);
-      fixture.detectChanges();
-      expect(interval).toHaveBeenCalledTimes(1);
-      const handle = interval.mock.results[0].value;
+      first.detectChanges();
+      expect(acquire).toHaveBeenCalledWith('second');
+      expect(clockIntervals).toHaveLength(1);
+      const second = render();
+      expect(acquire).toHaveBeenCalledTimes(2);
+      expect(clockIntervals).toHaveLength(1);
+      first.destroy();
+      expect(clear).not.toHaveBeenCalledWith(clockIntervals[0]);
       agents.set([]);
-      fixture.detectChanges();
-      expect(clear).toHaveBeenCalledWith(handle);
-      agents.set([lane()]);
-      fixture.detectChanges();
-      const nextHandle = interval.mock.results[1].value;
-      fixture.destroy();
-      expect(clear).toHaveBeenCalledWith(nextHandle);
+      second.detectChanges();
+      expect(clear).toHaveBeenCalledWith(clockIntervals[0]);
+      second.destroy();
     } finally {
+      acquire.mockRestore();
       interval.mockRestore();
       clear.mockRestore();
       jest.clearAllTimers();
@@ -678,25 +702,70 @@ describe(CompactSessionCardComponent.name, () => {
     }
   });
 
-  it('keeps the elapsed interval while streaming without a lane, then clears it', () => {
-    jest.useFakeTimers();
+  it('acquires the shared wall clock while streaming and releases it on completion', () => {
+    jest.useFakeTimers({
+      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    });
+    TestBed.overrideProvider(WallClockService, {
+      useFactory: () => new WallClockService(),
+      deps: [],
+    });
+    const clock = TestBed.inject(WallClockService);
     const interval = jest.spyOn(globalThis, 'setInterval');
     const clear = jest.spyOn(globalThis, 'clearInterval');
+    const realAcquire = clock.acquire.bind(clock);
+    let clockInterval: ReturnType<typeof setInterval> | null = null;
+    const acquire = jest.spyOn(clock, 'acquire').mockImplementation((cadence) => {
+      const prior = interval.mock.results.length;
+      const release = realAcquire(cadence);
+      const created = interval.mock.results.slice(prior);
+      expect(created).toHaveLength(1);
+      clockInterval = created[0].value;
+      return release;
+    });
     try {
       const fixture = render(
         tab({ streamingState: createEmptyStreamingState() }),
       );
-      expect(interval).toHaveBeenCalledTimes(1);
-      const handle = interval.mock.results[0].value;
+      expect(acquire).toHaveBeenCalledWith('second');
       fixture.componentRef.setInput('tab', tab());
       fixture.detectChanges();
-      expect(clear).toHaveBeenCalledWith(handle);
+      expect(clear).toHaveBeenCalledWith(clockInterval);
       fixture.destroy();
     } finally {
+      acquire.mockRestore();
       interval.mockRestore();
       clear.mockRestore();
       jest.clearAllTimers();
       jest.useRealTimers();
+    }
+  });
+
+  it('recomputes elapsed from the absolute start after remounting', () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(5_000);
+    try {
+      clockNow.set(5_000);
+      const value = tab({
+        agentOrigin: {
+          parentTabId: 'parent',
+          parentSessionId: null,
+          label: 'Child',
+          branch: 'feat/child',
+          worktreePath: 'C:\\work\\child',
+          startedAt: 1_000,
+        },
+      });
+      const first = render(value);
+      expect(first.componentInstance.elapsed()).toBe(4_000);
+      first.destroy();
+
+      now.mockReturnValue(9_000);
+      clockNow.set(9_000);
+      const remounted = render(value);
+      expect(remounted.componentInstance.elapsed()).toBe(8_000);
+      expect(remounted.componentInstance.railElapsed()).toBe('8s');
+    } finally {
+      now.mockRestore();
     }
   });
 
@@ -717,6 +786,12 @@ describe(CompactSessionCardComponent.name, () => {
           contextUsed: 25,
           contextWindow: 100,
           contextPercent: 25,
+          contextCapacity: {
+            tokens: 100,
+            source: 'sdk-native',
+            providerId: null,
+            model: 'model',
+          },
         },
       }),
     );
@@ -729,6 +804,51 @@ describe(CompactSessionCardComponent.name, () => {
       fixture.nativeElement.querySelector('[aria-label="Context usage"]')
         ?.textContent,
     ).toContain('25%');
+  });
+
+  it('shows F2 as 65% from a trusted 200,000-token context window', () => {
+    const fixture = render(tab({
+      liveModelStats: {
+        contextKnown: true,
+        model: 'model',
+        contextUsed: 130_000,
+        contextWindow: 200_000,
+        contextPercent: 0,
+        contextCapacity: {
+          tokens: 200_000,
+          source: 'sdk-native',
+          providerId: null,
+          model: 'model',
+        },
+      },
+    }));
+    expect(fixture.componentInstance.contextPercent()).toBe(65);
+    expect(
+      fixture.nativeElement.querySelector('[aria-label="Context usage"]')?.textContent,
+    ).toContain('65%');
+  });
+
+  it('hides F6 after resume when the context window is unknown', () => {
+    const fixture = render(tab({
+      liveModelStats: {
+        contextKnown: true,
+        model: 'model',
+        contextUsed: 130_000,
+        contextWindow: 0,
+        contextPercent: 0,
+        contextCapacity: {
+          tokens: null,
+          source: 'unknown',
+          providerId: null,
+          model: 'model',
+        },
+      },
+    }));
+    expect(fixture.componentInstance.contextPercent()).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('[aria-label="Context usage"]')?.textContent,
+    ).toContain('Context —');
+    expect(fixture.nativeElement.textContent).not.toContain('Context 0%');
   });
 
   it('uses router metadata before a mismatched session id', () => {

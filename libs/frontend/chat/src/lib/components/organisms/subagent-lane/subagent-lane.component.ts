@@ -11,6 +11,7 @@ import {
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { LucideAngularModule, Moon, Square } from 'lucide-angular';
+import { injectWallClock } from '@ptah-extension/core';
 import {
   AgentMonitorStore,
   SubagentExecutionStore,
@@ -266,6 +267,7 @@ export class SubagentLaneComponent {
   protected readonly live = computed(() =>
     ['running', 'pending', 'background'].includes(this.record().status),
   );
+  protected readonly now = injectWallClock('second', () => this.live());
   protected readonly finishedSummary = computed(() =>
     this.nodes().length > 0 || this.live()
       ? null
@@ -288,7 +290,6 @@ export class SubagentLaneComponent {
   protected readonly label = computed(() => {
     const record = this.record();
     const live = this.live();
-    if (live) this.monitor.tick();
     return agentRunLabel(
       {
         running: live,
@@ -296,7 +297,7 @@ export class SubagentLaneComponent {
         endedAt: record.completedAt,
         reportedMs: record.durationMs,
       },
-      Date.now(),
+      this.now(),
     );
   });
   protected readonly progress = computed(() =>
@@ -319,10 +320,9 @@ export class SubagentLaneComponent {
   );
   protected readonly stats = computed(() => {
     const record = this.record();
-    // The shared monitor tick (1s while agents run) keeps warm/cold current
-    // without a timer per lane.
-    if (this.live()) this.monitor.tick();
-    return subagentLaneStats(record, Date.now());
+    // An idle shared clock holds its last tick, so a finished lane reads the
+    // current time for its warm/cold cache state.
+    return subagentLaneStats(record, this.live() ? this.now() : Date.now());
   });
   protected readonly commandError = computed(() => {
     const error = this.monitor.subagentRpcError();

@@ -13,6 +13,7 @@ import {
   ModelStateService,
   SURFACE_ACTIVE,
   VSCodeService,
+  WallClockService,
 } from '@ptah-extension/core';
 import { createMockRpcService } from '@ptah-extension/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
@@ -33,7 +34,7 @@ describe('SubagentLaneComponent', () => {
   const contexts = signal<ReadonlyMap<string, TrayAgentContext>>(new Map());
   const rpcError =
     signal<ReturnType<AgentMonitorStore['subagentRpcError']>>(null);
-  const tick = signal(0);
+  const clockNow = signal(5_000);
   const steer = jest.fn<Promise<boolean>, [TrayAgentContext, string]>();
   const stop = jest.fn<Promise<void>, [string, string]>();
   const sendToBackground = jest.fn<Promise<boolean>, [string, string]>();
@@ -122,6 +123,7 @@ describe('SubagentLaneComponent', () => {
   beforeEach(() => {
     contexts.set(new Map());
     rpcError.set(null);
+    clockNow.set(5_000);
     steer.mockReset();
     stop.mockClear();
     sendToBackground.mockClear();
@@ -146,12 +148,15 @@ describe('SubagentLaneComponent', () => {
           },
         },
         { provide: VSCodeService, useValue: { isElectron: false } },
+        {
+          provide: WallClockService,
+          useValue: { now: () => clockNow, acquire: () => () => undefined },
+        },
         { provide: SURFACE_ACTIVE, useValue: signal(true) },
         provideMarkdown(),
         {
           provide: AgentMonitorStore,
           useValue: {
-            tick,
             subagentRpcError: rpcError,
             stopAgent: stop,
             backgroundAgent: sendToBackground,
@@ -193,6 +198,19 @@ describe('SubagentLaneComponent', () => {
         { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
       ],
     });
+  });
+
+  it('updates a running duration from the shared wall clock after a remount', () => {
+    const first = setup();
+    expect(first.componentInstance['label']()).toContain('4s');
+    first.destroy();
+
+    clockNow.set(9_000);
+    const remounted = setup();
+    expect(remounted.componentInstance['label']()).toContain('8s');
+    clockNow.set(10_000);
+    remounted.detectChanges();
+    expect(remounted.componentInstance['label']()).toContain('9s');
   });
 
   it('uses the shared header, an always-visible stats bar, and details facts', () => {
