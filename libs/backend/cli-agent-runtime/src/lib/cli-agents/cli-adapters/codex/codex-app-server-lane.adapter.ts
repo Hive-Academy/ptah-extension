@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import {
   buildCodexExecutionProfile,
   CodexPreTurnConfigRejectedError,
@@ -31,27 +30,17 @@ import {
 import {
   buildCodexLaneProfileSettings,
   type CodexLaneProfileInput,
-  type CodexLaneRequirements,
 } from './codex-lane-profile';
 import { CODEX_RESUME_RESENDS_ROLE } from './codex-lane-config.builder';
 import { CodexLaneEvents } from './codex-lane-events';
 import { withCodexLaneStartupTimeout } from './codex-app-server-lane-startup';
-
-const identitySchema = z.strictObject({
-  threadId: z.string().min(1),
-  contextId: z.string().min(1),
-  processGeneration: z.number().int().nonnegative(),
-  normalizedHome: z.string().min(1),
-  workspaceId: z.string().min(1),
-  providerId: z.string().min(1),
-  profileFingerprint: z.string().min(1),
-});
-const handledRequirements = [
-  'agentsEnabled', 'pluginsEnabled', 'appsEnabled',
-  'includeSkillInstructions', 'disabledUserMcpServers',
-  'autoCompactTokens', 'toolOutputTokenLimit', 'webSearch',
-  'ptahToolTimeoutSeconds', 'roleDelivery',
-] satisfies readonly (keyof CodexLaneRequirements)[];
+import { handledRequirements, identitySchema } from './codex-app-server-lane-profile';
+import {
+  configRejectedNotice,
+  essentialLaneSession,
+  terminalModelAdvice,
+  validatedEffort,
+} from './codex-app-server-lane-rejection';
 
 export class CodexLaneCapabilityPendingError extends Error {
   constructor(readonly capability: string) {
@@ -114,43 +103,20 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     private readonly logger: Logger,
   ) {}
 
-  capabilities(): AgentMessagingCapabilities {
-    return { steer: false, interrupt: false, continuation: true };
-  }
+  capabilities(): AgentMessagingCapabilities { return { steer: false, interrupt: false, continuation: true }; }
 
   /** 10b-2: resolve and verify the actual pinned executable and credential home. */
-  async detect(): Promise<CliDetectionResult> {
-    throw new CodexLaneCapabilityPendingError('binary detection');
-  }
+  async detect(): Promise<CliDetectionResult> { throw new CodexLaneCapabilityPendingError('binary detection'); }
 
   /** 10b-2: query CodexContext.listModels with a visible curated fallback. */
-  async listModels(): Promise<CliModelInfo[]> {
-    throw new CodexLaneCapabilityPendingError('model catalog');
-  }
+  async listModels(): Promise<CliModelInfo[]> { throw new CodexLaneCapabilityPendingError('model catalog'); }
 
-  parseOutput(raw: string): string {
-    return stripAnsiCodes(raw).replace(/\r(?!\n)/g, '');
-  }
+  parseOutput(raw: string): string { return stripAnsiCodes(raw).replace(/\r(?!\n)/g, ''); }
 
-  /** 10b-2: validate effort, pinned binary and credential freshness before open. */
+  /** Binary pin validation remains deferred to 10b-2b. */
   private assertDeferredInputs(options: CliCommandOptions): void {
-    if (options.reasoningEffort !== undefined)
-      throw new CodexLaneCapabilityPendingError('reasoning effort validation');
     if (options.binaryPath !== undefined)
       throw new CodexLaneCapabilityPendingError('pinned executable validation');
-  }
-
-  /** 10b-2: handle a pre-turn rejection with one essential-config retry and notice. */
-  private surfaceConfigRejection(error: CodexPreTurnConfigRejectedError): Error {
-    return error;
-  }
-
-  /** 10b-2: replace this refusal with source-aware, redacted model advice. */
-  private surfaceModelRejection(event: CodexRuntimeEvent): Error | undefined {
-    if (event.type === 'terminal' && event.status === 'failed' &&
-      event.error && /model/i.test(event.error.code))
-      return new CodexLaneCapabilityPendingError('model rejection advice');
-    return undefined;
   }
 
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
@@ -159,8 +125,8 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       options,
       options.resumeSessionId ? 'resume' : 'first-turn',
     );
-    if (resolved.lane.config.reasoningEffort !== undefined)
-      throw new CodexLaneCapabilityPendingError('reasoning effort validation');
+    const requestedEffort = options.reasoningEffort ?? resolved.lane.config.reasoningEffort;
+    const reasoningEffort = validatedEffort(requestedEffort);
     const projected = buildCodexLaneProfileSettings({
       ...resolved.lane,
       identity: {
@@ -169,6 +135,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       },
       config: {
         ...resolved.lane.config,
+        reasoningEffort,
         workingDirectory: options.workingDirectory,
         mcpPort: options.mcpPort,
         agentId: options.agentId,
@@ -179,7 +146,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       },
     });
     projected.assertAllRequirementsHandled(handledRequirements);
-    const profile = buildCodexExecutionProfile({
+    let profile = buildCodexExecutionProfile({
       session: projected.settings,
       paths: resolved.paths,
     });
@@ -189,8 +156,9 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     const output = createBufferedEmitter<string>();
     const segments = createBufferedEmitter<CliOutputSegment>();
     const abort = new AbortController();
+    let eventAbort = new AbortController();
     let context: CodexContext | undefined;
-    let contextClose: Promise<void> | undefined;
+    const closePromises = new WeakMap<CodexContext, Promise<void>>();
     let active: ActiveTurn | undefined;
     // True from runTurn until startTurn settles, so a second turn cannot race the first.
     let starting = false;
@@ -214,14 +182,25 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       this.logger.warn('[CodexAppServerLaneAdapter] Lane config warning', { warning });
       emit({ type: 'info', content: warning });
     }
+    if (requestedEffort !== undefined && reasoningEffort === undefined) {
+      const warning = 'Ignored invalid Codex reasoning effort; expected low, medium, high or xhigh.';
+      this.logger.warn('[CodexAppServerLaneAdapter] Lane config warning', { warning });
+      emit({ type: 'info', content: warning });
+    }
+    const configRejection = createBufferedEmitter<void>();
     const closeContext = (opened: CodexContext): Promise<void> => {
-      contextClose ??= Promise.resolve().then(() => opened.close());
-      return contextClose;
+      let closing = closePromises.get(opened);
+      if (!closing) {
+        closing = Promise.resolve().then(() => opened.close());
+        closePromises.set(opened, closing);
+      }
+      return closing;
     };
     const close = async (): Promise<void> => {
       if (closed) return;
       closed = true;
       abort.abort();
+      eventAbort.abort();
       active?.resolve(1);
       active = undefined;
       if (context) {
@@ -235,8 +214,8 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       }
     };
     abort.signal.addEventListener('abort', () => { void close(); }, { once: true });
-    try {
-      const opening = this.runtime.open(profile, resume, approvals);
+    const openContext = async (identity: CodexThreadIdentity | undefined): Promise<CodexContext> => {
+      const opening = this.runtime.open(profile, identity, approvals);
       void opening.then((late): void => {
         if (abort.signal.aborted) {
           void closeContext(late).catch(() => {
@@ -257,7 +236,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
         openedIdentity.data.workspaceId !== profile.workspaceId ||
         openedIdentity.data.providerId !== profile.providerId ||
         openedIdentity.data.profileFingerprint !== profile.profileFingerprint ||
-        (resume && openedIdentity.data.threadId !== resume.threadId))
+        (identity && openedIdentity.data.threadId !== identity.threadId))
         throw new CodexLaneResumeIdentityError();
       sessionId = context.identity.threadId;
       await this.identities.persist(context.identity);
@@ -269,18 +248,54 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
           accountBindingId: options.accountBindingId,
         }, sessionId);
       }
+      return context;
+    };
+    const retryConfig = async (error: CodexPreTurnConfigRejectedError): Promise<CodexContext> => {
+      const notice = configRejectedNotice(projected.settings, error.rejectedKey);
+      emit({ type: 'info', content: notice });
+      configRejection.emit(undefined);
+      this.logger.warn('[CodexAppServerLaneAdapter] Codex rejected lane config; retrying essential settings', {
+        method: error.method,
+      });
+      const previous = context;
+      context = undefined;
+      eventAbort.abort();
+      if (previous) await closeContext(previous);
+      eventAbort = new AbortController();
+      pending.length = 0;
+      profile = buildCodexExecutionProfile({
+        session: essentialLaneSession(projected.settings, error.rejectedKey),
+        paths: resolved.paths,
+      });
+      return openContext(previous?.identity ?? resume);
+    };
+    try {
+      await openContext(resume);
     } catch (error: unknown) {
-      await close();
-      if (error instanceof CodexPreTurnConfigRejectedError)
-        throw this.surfaceConfigRejection(error);
-      throw error;
+      if (error instanceof CodexPreTurnConfigRejectedError) {
+        try {
+          await retryConfig(error);
+        } catch (retryError: unknown) {
+          emit({ type: 'error', content: 'Codex rejected the essential lane configuration.' });
+          await close();
+          throw new Error('Codex rejected the essential lane configuration.', { cause: retryError });
+        }
+      } else {
+        await close();
+        throw error;
+      }
     }
     if (!context) throw new Error('Codex lane context did not open');
-    const opened = context;
+    const opened: CodexContext = context;
     const processEvent = (event: CodexRuntimeEvent): void => {
       if (event.type === 'approvalRequested' || event.type === 'approvalSettled') return;
       if (!active) { pending.push(event); return; }
-      const modelError = this.surfaceModelRejection(event);
+      const modelMessage = event.type === 'terminal' && event.status === 'failed' && event.error
+        ? terminalModelAdvice(`${event.error.code}: ${event.error.message}`, {
+          ...options, model: options.model ?? resolved.lane.identity.model,
+        })
+        : undefined;
+      const modelError = modelMessage ? new Error(modelMessage) : undefined;
       if (modelError) {
         emit({ type: 'error', content: modelError.message });
         const turn = active;
@@ -298,22 +313,22 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
         if (mapped.terminal !== 'completed') void close();
       }
     };
-    const pump = async (): Promise<void> => {
+    const pump = async (source: CodexContext, signal: AbortSignal): Promise<void> => {
       try {
-        for await (const event of opened.events(abort.signal)) {
-          if (closed) return;
+        for await (const event of source.events(signal)) {
+          if (closed || source !== context) return;
           processEvent(event);
         }
-        if (!closed) throw new Error('Codex lane event stream ended');
+        if (!closed && source === context) throw new Error('Codex lane event stream ended');
       } catch (error: unknown) {
-        if (closed) return;
+        if (closed || source !== context) return;
         emit({ type: 'error', content: 'Codex lane event stream failed.' });
         active?.reject(error instanceof Error ? error : new Error('Codex event stream failed'));
         active = undefined;
         await close();
       }
     };
-    void pump();
+    void pump(opened, eventAbort.signal);
     const runTurn = (text: string, onStarted?: () => void): Promise<number> => {
       if (closed) return Promise.reject(new Error('Codex lane is closed'));
       if (active || starting) return Promise.reject(new Error('Codex lane turn is already active'));
@@ -342,13 +357,9 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
             for (const event of pending.splice(0)) processEvent(event);
           } catch (error: unknown) {
             starting = false;
-            emit({ type: 'error', content: error instanceof CodexPreTurnConfigRejectedError
-              ? 'Codex rejected lane configuration before the turn.'
-              : 'Codex lane turn failed to start.' });
+            emit({ type: 'error', content: 'Codex lane turn failed to start.' });
             await close();
-            reject(error instanceof CodexPreTurnConfigRejectedError
-              ? this.surfaceConfigRejection(error)
-              : error instanceof Error ? error : new Error('Codex lane turn failed'));
+            reject(error instanceof Error ? error : new Error('Codex lane turn failed'));
           }
         };
         void start();
@@ -373,6 +384,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       getRoleDelivery: () => roleDelivery,
       onOutput: output.subscribe,
       onSegment: segments.subscribe,
+      onLaneConfigRejected: configRejection.subscribe,
       supportsContinuation: () => !closed,
       continue: (message: string): Promise<ContinuationOutcome> => {
         if (closed) return Promise.reject(new Error('Codex lane is closed'));

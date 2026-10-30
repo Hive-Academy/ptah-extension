@@ -2214,6 +2214,21 @@ describe('CodexRuntime', () => {
   });
 
   it.each([
+    ['named key', 'Error loading config.toml: invalid transport in `mcp_servers.user-server`', 'mcp_servers.user-server'],
+    ['unsafe key', 'Error loading config.toml: invalid transport in `mcp_servers./secret`', undefined],
+    ['no key', 'Error loading config.toml: invalid transport', undefined],
+  ] as const)('exposes %s safely on pre-turn config rejection', async (_case, diagnostic, expected) => {
+    const opening = runtime.open(laneProfile);
+    children[0].failMethod = 'thread/start';
+    children[0].stderr.write(`${diagnostic}\n`);
+    const failure: unknown = await opening.catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(CodexPreTurnConfigRejectedError);
+    if (!(failure instanceof CodexPreTurnConfigRejectedError)) throw new Error('Expected config rejection');
+    expect(failure.rejectedKey).toBe(expected);
+    expect(failure.message).not.toContain(diagnostic);
+  });
+
+  it.each([
     ['invalid override', 'Invalid override (missing "="): agents.enabled'],
     ['unknown config key', 'Unknown config key: agents.unsupported'],
     ['unknown field', 'Unknown field: unsupported'],

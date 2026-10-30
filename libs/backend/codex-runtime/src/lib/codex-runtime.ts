@@ -22,10 +22,19 @@ export class CodexPreTurnConfigRejectedError extends Error {
   readonly code = 'codexPreTurnConfigRejected';
   readonly retryEligible = true;
 
-  constructor(readonly method: 'thread/start' | 'thread/resume') {
+  constructor(
+    readonly method: 'thread/start' | 'thread/resume',
+    readonly rejectedKey: string | undefined = undefined,
+  ) {
     super('Codex lane configuration was rejected before a turn started');
     this.name = 'CodexPreTurnConfigRejectedError';
   }
+}
+
+/** Extract only a safe config key; never attach stderr to the public error. */
+function rejectedConfigKey(stderr: string): string | undefined {
+  const key = /\bin `([^`\n]+)`/.exec(stderr)?.[1];
+  return key && /^[A-Za-z0-9_.-]{1,128}$/.test(key) ? key : undefined;
 }
 
 /** Only a config headline, never an RPC code alone, proves a config refusal. */
@@ -144,7 +153,9 @@ export class CodexRuntime implements RuntimePort {
         (error.method === 'thread/start' || error.method === 'thread/resume') &&
         isPreTurnConfigRejection(context.stderrTail(2048))
       ) {
-        throw new CodexPreTurnConfigRejectedError(error.method);
+        throw new CodexPreTurnConfigRejectedError(
+          error.method, rejectedConfigKey(context.stderrTail(2048)),
+        );
       }
       throw new Error('Codex context could not be opened', { cause: error });
     }

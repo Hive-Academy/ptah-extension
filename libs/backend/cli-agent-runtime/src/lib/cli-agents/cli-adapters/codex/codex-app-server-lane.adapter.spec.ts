@@ -1,9 +1,11 @@
 import 'reflect-metadata';
 import {
+  buildCodexExecutionProfile,
   CodexPreTurnConfigRejectedError,
   type ApprovalSink,
   type CodexContext,
   type CodexExecutionProfile,
+  type CodexExecutionProfileInput,
   type CodexRuntimeEvent,
   type CodexThreadIdentity,
   type CodexTurnInput,
@@ -21,6 +23,7 @@ import {
   type CodexLaneRuntimeProvider,
 } from './codex-app-server-lane.adapter';
 import type { CodexLaneProfileInput } from './codex-lane-profile';
+import { essentialLaneSession } from './codex-app-server-lane-rejection';
 
 const paths = {
   platform: 'posix' as const,
@@ -111,8 +114,9 @@ type EventPart = CodexRuntimeEvent extends infer Event
     : never
   : never;
 
-function harness() {
+function harness(configure?: (context: FakeContext, attempt: number) => void) {
   let context: FakeContext | undefined;
+  const contexts: FakeContext[] = [];
   let openedProfile: CodexExecutionProfile | undefined;
   let approvalSink: ApprovalSink | undefined;
   let resumeArg: CodexThreadIdentity | undefined;
@@ -134,6 +138,8 @@ function harness() {
       resumeArg = resume;
       approvalSink = approvals;
       context = new FakeContext(profile, resume);
+      contexts.push(context);
+      configure?.(context, contexts.length);
       order.push('open');
       return context;
     }),
@@ -142,7 +148,7 @@ function harness() {
   jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
   const adapter = new CodexAppServerLaneAdapter(runtime, profiles, identities, logger);
   return {
-    adapter, runtime, profiles, identities, order,
+    adapter, runtime, profiles, identities, order, contexts,
     get context() { if (!context) throw new Error('context not opened'); return context; },
     get profile() { if (!openedProfile) throw new Error('profile not opened'); return openedProfile; },
     get approvals() { if (!approvalSink) throw new Error('sink not opened'); return approvalSink; },
@@ -329,18 +335,282 @@ describe('CodexAppServerLaneAdapter', () => {
     await expect(handle.continue?.('later task')).rejects.toThrow('Codex lane is closed');
   });
 
-  it('surfaces pre-turn config rejection as a typed failure', async () => {
+  it.each(['low', 'high', 'xhigh'])('passes %s reasoning effort through the lane profile', async (effort) => {
     const h = harness();
-    const error = new CodexPreTurnConfigRejectedError('thread/start');
-    jest.spyOn(h.runtime, 'open').mockRejectedValueOnce(error);
-    await expect(h.adapter.runSdk(options())).rejects.toBe(error);
+    const handle = await h.adapter.runSdk(options({ reasoningEffort: effort }));
+    expect(h.profile.effort).toBe(effort);
+    await terminal(h.context);
+    expect(await handle.done).toBe(0);
+    handle.abort.abort();
   });
 
-  it('fails visibly at deferred 10b-2 capability seams', async () => {
+  it('warns on invalid effort and sends no effort in the profile', async () => {
+    const h = harness();
+    const handle = await h.adapter.runSdk(options({ reasoningEffort: 'extreme' }));
+    const segments: CliOutputSegment[] = [];
+    handle.onSegment?.((segment) => segments.push(segment));
+    expect(h.profile.effort).toBeUndefined();
+    expect(segments).toContainEqual({ type: 'info', content: expect.stringContaining('invalid Codex reasoning effort') });
+    await terminal(h.context);
+    expect(await handle.done).toBe(0);
+    handle.abort.abort();
+  });
+
+  it('keeps reasoning effort on continuation turns', async () => {
+    const h = harness();
+    const handle = await h.adapter.runSdk(options({ reasoningEffort: 'high' }));
+    await terminal(h.context);
+    expect(await handle.done).toBe(0);
+    const continued = await handle.continue?.('follow up');
+    expect(h.profile.effort).toBe('high');
+    expect(h.runtime.open).toHaveBeenCalledTimes(1);
+    await terminal(h.context, 'turn-2');
+    expect(await continued?.done).toBe(0);
+    handle.abort.abort();
+  });
+
+  it('retries a pre-turn config rejection once with essential settings and one notice', async () => {
+    const h = harness();
+    jest.spyOn(h.runtime, 'open').mockRejectedValueOnce(new CodexPreTurnConfigRejectedError('thread/start'));
+    const handle = await h.adapter.runSdk(options());
+    const notices: string[] = [];
+    const segments: CliOutputSegment[] = [];
+    handle.onLaneConfigRejected?.(() => notices.push('rejected'));
+    handle.onSegment?.((segment) => segments.push(segment));
+    expect(h.runtime.open).toHaveBeenCalledTimes(2);
+    expect(h.profile.lane?.autoCompactTokens).toBeUndefined();
+    expect(h.profile.lane?.toolOutputTokenLimit).toBeUndefined();
+    expect(h.profile.lane?.agentsEnabled).toBeUndefined();
+    expect(h.profile.lane?.pluginsEnabled).toBeUndefined();
+    expect(h.profile.lane?.appsEnabled).toBeUndefined();
+    expect(h.profile.lane?.includeSkillInstructions).toBeUndefined();
+    expect(h.profile.lane?.disabledUserMcpServers).toEqual(['user-server']);
+    expect(h.profile.mcpServers[0]?.name).toBe('ptah');
+    expect(h.profile.sandboxPolicy.mode).toBe('workspace-write');
+    expect(notices).toEqual(['rejected']);
+    expect(segments).toContainEqual({ type: 'info', content: expect.stringContaining('Codex rejected the lane config') });
+    await terminal(h.context);
+    expect(await handle.done).toBe(0);
+    handle.abort.abort();
+  });
+
+  it('keeps the execution fingerprint when building an essential lane profile', () => {
+    const session: CodexExecutionProfileInput['session'] = {
+      contextId: 'lane-context', consumer: 'lane', normalizedHome: '/home',
+      providerId: 'codex', workspaceId: 'work', cwd: '/work', model: 'gpt-test',
+      permissionLevel: 'ask',
+      lane: {
+        suppressedTools: [], disabledUserMcpServers: ['user-server'],
+        explicitFullAccess: false, autoCompactTokens: 120000,
+        toolOutputTokenLimit: 2500, agentsEnabled: false,
+      },
+    };
+    const full = buildCodexExecutionProfile({ session, paths });
+    const essential = buildCodexExecutionProfile({
+      session: essentialLaneSession(session, undefined), paths,
+    });
+    expect(essential.profileFingerprint).toBe(full.profileFingerprint);
+  });
+
+  it('retries a resumed pre-turn config rejection with the same identity and fingerprint', async () => {
+    const h = harness();
+    const first = await h.adapter.runSdk(options());
+    await terminal(h.context);
+    expect(await first.done).toBe(0);
+    const firstContext = h.context;
+    const saved = firstContext.identity;
+    first.abort.abort();
+    await Promise.resolve();
+    expect(firstContext.close).toHaveBeenCalledTimes(1);
+    await firstContext.close.mock.results[0].value;
+    h.stored = saved;
+
+    const open = jest.spyOn(h.runtime, 'open');
+    open.mockRejectedValueOnce(new CodexPreTurnConfigRejectedError('thread/resume'));
+    const resumed = await h.adapter.runSdk(options({ resumeSessionId: saved.threadId }));
+    const notices: string[] = [];
+    const segments: CliOutputSegment[] = [];
+    resumed.onLaneConfigRejected?.(() => notices.push('rejected'));
+    resumed.onSegment?.((segment) => segments.push(segment));
+
+    expect(open).toHaveBeenCalledTimes(3);
+    const firstResumeCall = open.mock.calls[1];
+    const retryCall = open.mock.calls[2];
+    expect(firstResumeCall[1]).toEqual(saved);
+    expect(retryCall[1]).toEqual(saved);
+    expect(retryCall[0].profileFingerprint).toBe(firstResumeCall[0].profileFingerprint);
+    expect(h.resumeArg).toEqual(saved);
+    expect(notices).toEqual(['rejected']);
+    expect(segments.filter((segment) => segment.type === 'info' &&
+      segment.content?.includes('Codex rejected the lane config'))).toHaveLength(1);
+    await terminal(h.context);
+    expect(await resumed.done).toBe(0);
+    const resumedContext = h.context;
+    resumed.abort.abort();
+    await Promise.resolve();
+    expect(resumedContext.close).toHaveBeenCalledTimes(1);
+    await resumedContext.close.mock.results[0].value;
+  });
+
+  it('keeps reasoning effort on the essential retry profile', async () => {
+    const h = harness();
+    jest.spyOn(h.runtime, 'open').mockRejectedValueOnce(new CodexPreTurnConfigRejectedError('thread/start'));
+    const handle = await h.adapter.runSdk(options({ reasoningEffort: 'high' }));
+    expect(h.runtime.open).toHaveBeenCalledTimes(2);
+    expect(h.profile.effort).toBe('high');
+    await terminal(h.context);
+    expect(await handle.done).toBe(0);
+    handle.abort.abort();
+  });
+
+  it('closes the old context once before opening the essential retry', async () => {
+    const order: string[] = [];
+    const h = harness((context, attempt) => {
+      if (attempt === 2) order.push('open-second');
+    });
+    const originalOpen = jest.mocked(h.runtime.open).getMockImplementation();
+    if (!originalOpen) throw new Error('Missing mock runtime implementation');
+    jest.spyOn(h.runtime, 'open').mockImplementationOnce(async (...args) => {
+      const first = await originalOpen(...args);
+      await first.close();
+      order.push('close-first');
+      throw new CodexPreTurnConfigRejectedError('thread/start');
+    });
+    const handle = await h.adapter.runSdk(options());
+    expect(order).toEqual(['close-first', 'open-second']);
+    expect(h.contexts[0].close).toHaveBeenCalledTimes(1);
+    await terminal(h.context);
+    await handle.done;
+    handle.abort.abort();
+  });
+
+  it('reports a second config rejection visibly without a third attempt', async () => {
+    const h = harness();
+    jest.spyOn(h.runtime, 'open')
+      .mockRejectedValueOnce(new CodexPreTurnConfigRejectedError('thread/start'))
+      .mockRejectedValueOnce(new CodexPreTurnConfigRejectedError('thread/start'));
+    await expect(h.adapter.runSdk(options())).rejects.toThrow('Codex rejected the essential lane configuration.');
+    expect(h.runtime.open).toHaveBeenCalledTimes(2);
+    const later = await h.adapter.runSdk(options());
+    expect(h.profile.lane?.autoCompactTokens).toBe(120000);
+    await terminal(h.context);
+    expect(await later.done).toBe(0);
+    later.abort.abort();
+  });
+
+  it('does not retry a turn-start failure after an event', async () => {
+    const h = harness((context) => {
+      jest.spyOn(context, 'startTurn').mockImplementationOnce(async () => {
+        context.event('turn-1', 1, { type: 'textDelta', itemId: 'text', delta: 'started' });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        throw new Error('Turn failed');
+      });
+    });
+    const handle = await h.adapter.runSdk(options());
+    const segments: CliOutputSegment[] = [];
+    handle.onSegment?.((segment) => segments.push(segment));
+    await expect(handle.done).rejects.toThrow('Turn failed');
+    expect(h.runtime.open).toHaveBeenCalledTimes(1);
+    expect(segments).toContainEqual({ type: 'error', content: 'Codex lane turn failed to start.' });
+  });
+
+  it('mentions re-enabled user MCP servers when rejection identifies one', async () => {
+    const rejection = new CodexPreTurnConfigRejectedError('thread/start', 'mcp_servers.user-server');
+    const h = harness();
+    jest.spyOn(h.runtime, 'open').mockRejectedValueOnce(rejection);
+    const handle = await h.adapter.runSdk(options());
+    const segments: CliOutputSegment[] = [];
+    handle.onSegment?.((segment) => segments.push(segment));
+    expect(h.profile.lane?.disabledUserMcpServers).toEqual([]);
+    expect(segments).toContainEqual({ type: 'info', content: expect.stringContaining('your own MCP servers are enabled') });
+    await terminal(h.context);
+    await handle.done;
+    handle.abort.abort();
+  });
+
+  it('omits the user-server notice when the lane disabled no user servers', async () => {
+    const h = harness();
+    jest.mocked(h.profiles.resolve).mockImplementation(async (_options, variant) => {
+      const source = lane();
+      return { lane: { ...source, config: { ...source.config, variant, userMcpServerNames: [] } }, paths };
+    });
+    jest.spyOn(h.runtime, 'open').mockRejectedValueOnce(
+      new CodexPreTurnConfigRejectedError('thread/start', 'mcp_servers.user-server'));
+    const handle = await h.adapter.runSdk(options());
+    const segments: CliOutputSegment[] = [];
+    handle.onSegment?.((segment) => segments.push(segment));
+    expect(h.profile.lane?.disabledUserMcpServers).toEqual([]);
+    expect(segments).toContainEqual({ type: 'info', content: expect.stringContaining('Codex rejected the lane config') });
+    expect(segments.some((segment) => segment.content?.includes('your own MCP servers are enabled'))).toBe(false);
+    await terminal(h.context);
+    expect(await handle.done).toBe(0);
+    handle.abort.abort();
+  });
+
+  it('keeps MCP tool suppressions when no user server was disabled', () => {
+    const session = { lane: {
+      suppressedTools: ['mcp:example'], disabledUserMcpServers: [], explicitFullAccess: false,
+    } };
+    const essential = essentialLaneSession(session, 'mcp_servers.example');
+    expect(essential.lane?.suppressedTools).toEqual(['mcp:example']);
+    expect(essential.lane?.disabledUserMcpServers).toEqual([]);
+  });
+
+  it.each([
+    ['ptah-default', "Ptah's lane default"],
+    ['setting', 'set in `agentOrchestration.codexModel`'],
+    ['request', 'named by the spawn request'],
+  ] as const)('gives source-aware model rejection advice for %s', async (source, expected) => {
+    const h = harness();
+    const handle = await h.adapter.runSdk(options({ model: 'bad-model', modelSource: source }));
+    const segments: CliOutputSegment[] = [];
+    handle.onSegment?.((segment) => segments.push(segment));
+    h.context.event('turn-1', 1, { type: 'terminal', status: 'failed', error: {
+      code: 'model_not_found', message: 'The model bad-model does not exist', retryable: false,
+    } });
+    await expect(handle.done).rejects.toThrow(expected);
+    expect(segments.some((segment) => segment.type === 'error' && segment.content?.includes('Codex said:'))).toBe(true);
+    expect(h.runtime.open).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not give model advice for nonterminal wording', async () => {
+    const h = harness();
+    const handle = await h.adapter.runSdk(options({ model: 'bad-model' }));
+    const segments: CliOutputSegment[] = [];
+    handle.onSegment?.((segment) => segments.push(segment));
+    h.context.event('turn-1', 1, { type: 'textDelta', itemId: 'text', delta: 'model_not_found' });
+    await terminal(h.context);
+    expect(await handle.done).toBe(0);
+    expect(segments.some((segment) => segment.type === 'error')).toBe(false);
+    handle.abort.abort();
+  });
+
+  it('redacts the Codex excerpt in terminal model advice', async () => {
+    const previous = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = 'sensitive-test-key';
+    try {
+      const h = harness();
+      const handle = await h.adapter.runSdk(options({ model: 'bad-model', modelSource: 'request' }));
+      const segments: CliOutputSegment[] = [];
+      handle.onSegment?.((segment) => segments.push(segment));
+      h.context.event('turn-1', 1, { type: 'terminal', status: 'failed', error: {
+        code: 'model_not_found', message: 'The model bad-model does not exist: sensitive-test-key', retryable: false,
+      } });
+      await expect(handle.done).rejects.toThrow('Codex said:');
+      const message = segments.find((segment) => segment.type === 'error')?.content ?? '';
+      expect(message).not.toContain('sensitive-test-key');
+      expect(message).toContain('Codex said:');
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous;
+    }
+  });
+
+  it('keeps the deferred binary and catalog capability seams', async () => {
     const h = harness();
     await expect(h.adapter.detect()).rejects.toBeInstanceOf(CodexLaneCapabilityPendingError);
     await expect(h.adapter.listModels()).rejects.toBeInstanceOf(CodexLaneCapabilityPendingError);
-    await expect(h.adapter.runSdk(options({ reasoningEffort: 'high' })))
+    await expect(h.adapter.runSdk(options({ binaryPath: '/custom/codex' })))
       .rejects.toBeInstanceOf(CodexLaneCapabilityPendingError);
   });
 });
