@@ -318,6 +318,8 @@ export function readClaudeBuiltinOptInSettings(
         workspace.getConfiguration<unknown>('ptah', key, []),
       );
     } catch (error: unknown) {
+      // degradation-audit: reported - the failure is logged and an empty
+      // opt-in list keeps every catalog item off, the safe prefix default.
       logger?.warn(
         '[ClaudeBuiltinCatalog] Could not read a built-in opt-in setting; treating it as empty',
         { key, error: error instanceof Error ? error.message : String(error) },
