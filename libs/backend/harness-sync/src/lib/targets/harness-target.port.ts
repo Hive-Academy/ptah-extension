@@ -22,8 +22,12 @@ import type {
   HarnessCollision,
   HarnessEntryKind,
   HarnessFacetMatrix,
+  HarnessKeptRetiredPath,
+  HarnessRetiredItemId,
+  HarnessRetiredPath,
   HarnessTargetHealth,
   HarnessTargetId,
+  HarnessWriteFailure,
   McpServerConfig,
 } from '@ptah-extension/shared';
 import type { HarnessDesiredState } from '../manifest/desired-state.types';
@@ -80,6 +84,29 @@ export interface HarnessPlanRemove {
   isDirectory: boolean;
   /** `kind: 'mcp'` only: the key to delete from the config file. */
   mcpServerKey?: string;
+  /**
+   * Set when the entry is a copy of a RETIRED source: its manifest `source`
+   * lies under one of {@link HarnessRetiredSources.skillSourceRoots}, or its
+   * MCP key is one of {@link HarnessRetiredSources.mcpServerKeys}. Such a
+   * removal runs the D-2 proof policy and reports into
+   * {@link HarnessApplyResult.removedRetired} / `keptRetired`; it is never
+   * snapshot-removed. Absent for every ordinary removal.
+   */
+  retiredItemId?: HarnessRetiredItemId;
+}
+
+/**
+ * Retired sources the reconciler hands to a pass, rebuilt from the registries
+ * on every pass (D-2).
+ */
+export interface HarnessRetiredSources {
+  /**
+   * Absolute directories of retired skills.sh roots. The item id of a copy
+   * under one is `skillsShRetiredItemId(basename(root))`.
+   */
+  skillSourceRoots: readonly string[];
+  /** Retired MCP server keys; item id `mcpRetiredItemId(serverKey)`. */
+  mcpServerKeys: readonly string[];
 }
 
 /** A one-time repair of state left by the pre-reconciler implementation. */
@@ -174,7 +201,7 @@ export interface HarnessApplyResult {
   written: ManagedEntries;
   /** Relative paths successfully removed. */
   removed: string[];
-  writeFailed: Array<{ relPath: string; reason: string }>;
+  writeFailed: HarnessWriteFailure[];
   /**
    * Paths this APPLY kept although the plan scheduled a write: the copy was
    * found hand-edited only when the write was about to replace it (a save
@@ -192,6 +219,18 @@ export interface HarnessApplyResult {
    * every other producer of this type keeps compiling unchanged.
    */
   removedLocalEdit?: string[];
+  /**
+   * Copies of retired items deleted on proof. Every `relPath` here ALSO
+   * appears in {@link removed}, so manifest pruning needs no second list.
+   * Optional for the same reason as {@link removedLocalEdit}.
+   */
+  removedRetired?: HarnessRetiredPath[];
+  /**
+   * Copies of retired items kept on disk and disowned. NOT in {@link removed};
+   * the reconciler must still drop their manifest entries. A failed removal is
+   * a `writeFailed` entry carrying `itemId` instead, and stays owned.
+   */
+  keptRetired?: HarnessKeptRetiredPath[];
 }
 
 export interface IHarnessTarget {
