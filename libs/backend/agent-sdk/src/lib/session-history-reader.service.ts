@@ -1331,10 +1331,14 @@ function ledgerFromMessages(
       sessionId: msg.sessionId,
       timestamp: msg.timestamp,
       model: msg.model,
+      isMeta: msg.isMeta,
+      isSidechain: msg.isSidechain,
+      isCompactSummary: msg.isCompactSummary,
       message: {
         role: msg.message?.role,
         id: msg.message?.id,
         model: msg.message?.model,
+        content: msg.message?.content,
         usage: msg.message?.usage ?? msg.usage,
       },
     });

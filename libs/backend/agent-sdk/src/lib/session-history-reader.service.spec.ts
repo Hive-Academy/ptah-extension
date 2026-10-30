@@ -2461,6 +2461,27 @@ describe('SessionHistoryReaderService — session stats authority (TASK_2026_533
     expect(stats?.agentSessionCount).toBe(2);
   });
 
+  it('counts resume prompts and excludes a compact-summary user record', async () => {
+    const main: SessionHistoryMessage[] = [
+      { type: 'user', message: { role: 'user', content: 'first' } },
+      assistantMsg('a', { input_tokens: 1, output_tokens: 1 }),
+      {
+        type: 'user',
+        isCompactSummary: true,
+        message: {
+          role: 'user',
+          content: 'This session is being continued from a previous conversation …',
+        },
+      },
+      assistantMsg('b', { input_tokens: 1, output_tokens: 1 }),
+      { type: 'user', message: { role: 'user', content: 'second' } },
+      assistantMsg('c', { input_tokens: 1, output_tokens: 1 }),
+    ];
+    const { service } = setup(main);
+    const { stats } = await service.readSessionHistory(SESSION, '/workspace');
+    expect(stats?.turnCount).toBe(2);
+  });
+
   // Review F7: browsing history never creates a persistent owner.
   it('creates no owner for three history reads without activation', async () => {
     const { stubs, service } = setup([
