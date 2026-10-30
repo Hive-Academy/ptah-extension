@@ -55,14 +55,14 @@ const SOURCE_HINTS: Record<SessionWorkingRootSource, string> = {
         >
         @if (folder(); as folderName) {
           <span
-            class="truncate text-base-content/70"
+            class="truncate text-base-content-muted"
             data-testid="git-dock-scope-folder"
             >{{ folderName }}</span
           >
         }
         @if (branch(); as branchName) {
           <span
-            class="truncate font-mono text-base-content/70"
+            class="truncate font-mono text-base-content-muted"
             data-testid="git-dock-scope-branch"
             >{{ branchName }}</span
           >
@@ -78,7 +78,7 @@ const SOURCE_HINTS: Record<SessionWorkingRootSource, string> = {
         }
         @if (!compact() && hint(); as hintText) {
           <span
-            class="shrink-0 text-base-content/50"
+            class="shrink-0 text-base-content-muted"
             data-testid="git-dock-scope-hint"
             >{{ hintText }}</span
           >
