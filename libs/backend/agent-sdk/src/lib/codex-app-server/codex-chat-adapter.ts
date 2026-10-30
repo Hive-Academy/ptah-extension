@@ -9,7 +9,6 @@ import { randomUUID } from 'node:crypto';
 import type { DependencyContainer } from 'tsyringe';
 import {
   resolveGatedCodexRuntime,
-  CodexContextStateError,
   isCodexResumeProfileChangedError,
   type ApprovalSink,
   type CodexContext,
@@ -43,6 +42,10 @@ import {
   type SessionApprovalRouter,
 } from './session-approval-router';
 import { CodexChatAdapterError } from './codex-chat-adapter-error';
+import {
+  CodexChatSessionControls,
+  type TrackedSession,
+} from './codex-chat-session-controls';
 import { z } from 'zod';
 
 export interface CodexChatMetadataPort {
@@ -125,10 +128,6 @@ export interface CodexChatSessionLifecycle {
 }
 
 /** Thin native consumer. No SDK, proxy, transcript storage, or protocol parsing. */
-type TrackedSession = Session & {
-  settings: Pick<CodexExecutionProfile, 'model' | 'effort' | 'permissionLevel'>;
-};
-
 export class CodexChatAdapter implements NativeChatAdapter {
   private readonly sessions = new Map<SessionId, TrackedSession>();
   private readonly opening = new Map<string, { cancelled: boolean }>();
@@ -141,6 +140,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     IAgentAdapter['setCompactionStartCallback']
   >[0];
   private stats?: Parameters<IAgentAdapter['setResultStatsCallback']>[0];
+  private readonly controls: CodexChatSessionControls;
 
   constructor(
     private readonly ports: CodexChatAdapterPorts,
@@ -148,7 +148,20 @@ export class CodexChatAdapter implements NativeChatAdapter {
       SessionTurnStateRegistry,
       'markGenerating' | 'settleTurn' | 'recordFailure' | 'forceIdle'
     >,
-  ) {}
+  ) {
+    this.controls = new CodexChatSessionControls({
+      sessions: this.sessions,
+      opening: this.opening,
+      ports: this.ports,
+      session: (id) => this.session(id),
+      unsupported: (operation) => this.unsupported(operation),
+      failure: (error, operation) => this.failure(error, operation),
+      safe: (operation, action) => this.safe(operation, action),
+      close: (session) => this.close(session),
+      interruptCurrentTurn: (id) => this.interruptCurrentTurn(id),
+      compactionStart: () => this.compactionStart,
+    });
+  }
   get providerId() {
     return this.ports.info.id;
   }
@@ -505,19 +518,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
   }
 
   private notifyCompaction(session: Session, trigger: 'manual' | 'auto'): void {
-    const preTokens = session.usage?.lastRequestTotalTokens;
-    if (preTokens === undefined) {
-      this.ports.logger.debug(
-        '[CodexChatAdapter] Compaction start skipped: native last-request usage unavailable.',
-      );
-      return;
-    }
-    this.compactionStart?.({
-      sessionId: session.id,
-      trigger,
-      timestamp: Date.now(),
-      preTokens,
-    });
+    return this.controls.notifyCompaction(session, trigger);
   }
 
   private turn(
@@ -566,36 +567,22 @@ export class CodexChatAdapter implements NativeChatAdapter {
     await this.publish(this.session(id), { text, attachments }, clientMessageId);
   }
   owns(id: SessionId): boolean {
-    return this.sessions.has(id) || this.opening.has(id);
+    return this.controls.owns(id);
   }
   isSessionActive(id: SessionId): boolean {
-    return this.sessions.has(id) || this.opening.get(id)?.cancelled === false;
+    return this.controls.isSessionActive(id);
   }
   canSendFollowUp(id: SessionId): boolean {
-    const session = this.sessions.get(id);
-    return !!session && !session.busy && !session.blocked && !session.closing;
+    return this.controls.canSendFollowUp(id);
   }
   getSessionToken(id: SessionId): string | null {
-    return this.sessions.get(id)?.token ?? null;
+    return this.controls.getSessionToken(id);
   }
   endSession(id: SessionId): void {
-    const opening = this.opening.get(id);
-    if (opening) opening.cancelled = true;
-    const session = this.sessions.get(id);
-    if (session)
-      void this.close(session).catch((error) => {
-        this.failure(error, 'cleanup');
-        this.ports
-          .callbacks(id, undefined)
-          .error('[CodexChatAdapter] runtime-failed: cleanup.');
-      });
+    return this.controls.endSession(id);
   }
-  /** Explicit teardown for commands that must finish closing before returning. */
-  async closeSession(id: SessionId): Promise<void> {
-    const opening = this.opening.get(id);
-    if (opening) opening.cancelled = true;
-    const session = this.sessions.get(id);
-    if (session) await this.close(session);
+  closeSession(id: SessionId): Promise<void> {
+    return this.controls.closeSession(id);
   }
   /**
    * Never closes the native thread. The broadcaster calls this at stream exit
@@ -606,149 +593,40 @@ export class CodexChatAdapter implements NativeChatAdapter {
    * interrupts the current turn while retaining the native thread.
    * `false` makes the broadcaster clear turn state, as after the first turn.
    */
-  async endSessionIfTokenMatches(
+  endSessionIfTokenMatches(
     _id: SessionId,
     _token: string,
   ): Promise<boolean> {
-    return false;
+    return this.controls.endSessionIfTokenMatches(_id, _token);
   }
   private close(session: Session): Promise<void> {
-    if (session.closing) return session.closing;
-    if (this.sessions.get(session.id) === session) {
-      this.sessions.delete(session.id);
-      this.ports.sessions?.closed(session.id);
-    }
-    session.busy = false;
-    session.blocked = false;
-    if (session.turnId) session.sink.endTurn(session.id, session.turnId);
-    session.abort.abort();
-    session.sink.dispose();
-    session.closing = this.safe('close', async () => {
-      try {
-        await session.context.close();
-      } finally {
-        await session.scope.dispose();
-      }
-    });
-    return session.closing;
+    return this.controls.close(session);
   }
-  async interruptCurrentTurn(id: SessionId): Promise<boolean> {
-    const session = this.session(id);
-    const turnId = session.turnId;
-    if (!turnId) {
-      session.pendingInterrupt = session.busy;
-      session.blocked = session.busy;
-      return session.pendingInterrupt;
-    }
-    session.blocked = true;
-    const accepted = await this.safe('interrupt', () =>
-      session.context.interrupt(turnId),
-    );
-    if (accepted) session.blocked = false;
-    return accepted;
+  interruptCurrentTurn(id: SessionId): Promise<boolean> {
+    return this.controls.interruptCurrentTurn(id);
   }
-  async interruptSession(id: SessionId): Promise<void> {
-    const opening = this.opening.get(id);
-    if (opening) {
-      opening.cancelled = true;
-      return;
-    }
-    const session = this.sessions.get(id);
-    if (!session || !session.busy || session.stopRequested) return;
-    session.stopRequested = true;
-    try {
-      const accepted = await this.interruptCurrentTurn(id);
-      if (!accepted) {
-        if (!session.busy) return;
-        this.ports.logger.warn('[CodexChatAdapter] turn interrupt was refused; closing context.', { sessionId: id });
-        await this.close(session);
-        return;
-      }
-      if (session.turnId) session.sink.endTurn(id, session.turnId);
-    } catch (error) {
-      await this.close(session);
-      throw error;
-    }
+  interruptSession(id: SessionId): Promise<void> {
+    return this.controls.interruptSession(id);
   }
-  async executeSlashCommand(
-    ...[id, command]: Parameters<IAgentAdapter['executeSlashCommand']>
+  executeSlashCommand(
+    ...args: Parameters<IAgentAdapter['executeSlashCommand']>
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
-    if (command !== '/compact') this.unsupported('slashCommand');
-    const session = this.session(id);
-    if (session.busy) throw new CodexChatAdapterError('busy', 'compact');
-    session.compacting ??= this.compact(session).finally(() => {
-      session.compacting = undefined;
-    });
-    await session.compacting;
-    return (async function* () {
-      /* Compact has no assistant turn result. */
-    })();
+    return this.controls.executeSlashCommand(...args);
   }
-
-  private async compact(session: Session): Promise<void> {
-    this.notifyCompaction(session, 'manual');
-    try {
-      await this.safe('compact', () => session.context.compact());
-    } catch (error) {
-      await this.ports
-        .callbacks(session.id, undefined)
-        .error('Codex context compaction failed.');
-      throw error;
-    }
-    await this.ports.publish(
-      session.id,
-      (async function* (): AsyncGenerator<FlatStreamEventUnion> {
-        const messageId = `codex-compaction:${session.id}:${Date.now()}`;
-        yield {
-          id: messageId,
-          messageId,
-          sessionId: session.id,
-          timestamp: Date.now(),
-          eventType: 'compaction_complete',
-          trigger: 'manual',
-        };
-      })(),
-    );
-  }
-
-  async setSessionPermissionLevel(
+  setSessionPermissionLevel(
     ...[id, level]: Parameters<IAgentAdapter['setSessionPermissionLevel']>
   ): Promise<void> {
-    if (
-      level === 'default' ||
-      level === 'acceptEdits' ||
-      level === 'bypassPermissions'
-    )
-      this.unsupported('permissionAlias');
-    const session = this.session(id);
-    await this.safe('permission', async () => {
-      try {
-        await session.context.updateNextTurn({ permissionLevel: level });
-      } catch (error) {
-        if (error instanceof CodexContextStateError && error.state === 'closed')
-          throw new CodexChatAdapterError('unavailable', 'permission', { cause: error });
-        throw error;
-      }
-    });
-    session.settings = { ...session.settings, permissionLevel: level };
+    return this.controls.setSessionPermissionLevel(id, level);
   }
-  async setSessionModel(
+  setSessionModel(
     ...[id, model]: Parameters<IAgentAdapter['setSessionModel']>
   ): Promise<void> {
-    const session = this.session(id);
-    await this.safe('model', () =>
-      session.context.updateNextTurn({ model }),
-    );
-    session.settings = { ...session.settings, model };
+    return this.controls.setSessionModel(id, model);
   }
-  async setSessionEffort(
+  setSessionEffort(
     ...[id, effort]: Parameters<IAgentAdapter['setSessionEffort']>
   ): Promise<void> {
-    const session = this.session(id);
-    await this.safe('effort', () =>
-      session.context.updateNextTurn({ effort }),
-    );
-    session.settings = { ...session.settings, effort };
+    return this.controls.setSessionEffort(id, effort);
   }
   setSessionIdResolvedCallback(
     cb: Parameters<IAgentAdapter['setSessionIdResolvedCallback']>[0],
