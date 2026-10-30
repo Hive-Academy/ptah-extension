@@ -240,6 +240,26 @@ export interface ChatAbortResult {
   resumableSubagents?: import('../subagent-registry.types').SubagentRecord[];
 }
 
+/**
+ * Parameters for chat:dismiss-resumable-subagents RPC method.
+ *
+ * Dismissing hides the interrupted subagents from every webview read
+ * (chat:resume, chat:abort, history reads, chat:subagent-query) for good. The
+ * model still hears about them once, on the next chat:continue of the session.
+ */
+export interface ChatDismissResumableSubagentsParams {
+  /** Session that owns the interrupted subagents */
+  sessionId: SessionId;
+  /** Task tool_use ids (`SubagentRecord.toolCallId`) to dismiss */
+  toolCallIds: string[];
+}
+
+/** Response from chat:dismiss-resumable-subagents RPC method */
+export interface ChatDismissResumableSubagentsResult {
+  success: boolean;
+  error?: string;
+}
+
 /** Parameters for chat:running-agents RPC method */
 export interface ChatRunningAgentsParams {
   /** Session ID to query running agents for */

@@ -43,6 +43,8 @@ import {
 import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 
 import { ChatRuntimeProfileService } from './session/chat-runtime-profile.service';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import { CHAT_TOKENS } from './tokens';
 import { ChatSdkContextService } from './session/chat-sdk-context.service';
 import { ChatPtahCliService } from './ptah-cli/chat-ptah-cli.service';
@@ -136,9 +138,17 @@ export function registerChatServices(container: DependencyContainer): void {
       .resolve<SessionIdResolvedCallbackRegistry>(
         SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
       )
-      .register(({ tabId, realSessionId }) => {
+      .register(({ tabId, realSessionId, isNewSession }) => {
         if (tabId) {
           mcpStatus.rekey(tabId, realSessionId);
+        }
+        // A session the SDK just minted has no durable resume state to load,
+        // so its registry view is already complete. Marking it lets its
+        // session end queue the resume-state write synchronously.
+        if (isNewSession) {
+          container
+            .resolve<SubagentRegistryService>(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+            .hydrateResumeState(realSessionId, {});
         }
       });
   }

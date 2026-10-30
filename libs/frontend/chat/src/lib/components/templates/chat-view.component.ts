@@ -1470,6 +1470,15 @@ export class ChatViewComponent implements OnDestroy {
     }
   }
 
+  /**
+   * Handle Dismiss (X) on the resume banner: drop the agents from the store
+   * and the backend registry so a later session switch does not bring the
+   * banner back. The backend tells the model about them on the next turn.
+   */
+  handleDismissResumableAgents(agents: SubagentRecord[]): void {
+    void this.chatStore.dismissResumableSubagents(agents);
+  }
+
   /** Budget banner "Wrap up & hand off": one normal message to the agent. */
   protected onBudgetWrapUp(): Promise<void> {
     const reason = this._sessionStartGuard?.();

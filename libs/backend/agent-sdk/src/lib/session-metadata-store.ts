@@ -330,6 +330,15 @@ export interface SessionMetadata {
    */
   readonly resumableSdkSubagents?: readonly SubagentRecord[];
 
+  /**
+   * Task tool_use ids of interrupted SDK subagents already described to the
+   * model once (or found to have no transcript). They are retired for good:
+   * never part of {@link resumableSdkSubagents} again, and chat:resume marks
+   * them injected before replaying history so the history registrar cannot
+   * re-register them after a restart.
+   */
+  readonly retiredSubagentToolCallIds?: readonly string[];
+
   /** When true, this session is a child/subagent session (e.g., Ptah CLI agent spawned
    *  by a parent orchestrator). Child sessions are hidden from the sidebar session list. */
   readonly isChildSession?: boolean;
@@ -552,6 +561,27 @@ function preservedIndexEntry(metadata: SessionMetadata): SessionMetadata {
 }
 
 /** A session as a global-store row. */
+/**
+ * Whether a record belongs in a session's durable resume snapshot: an
+ * interrupted foreground SDK subagent of this canonical session, with the ids
+ * resume needs, that has not been retired.
+ */
+function isDurableResumable(
+  record: SubagentRecord,
+  sessionId: string,
+  retired: ReadonlySet<string>,
+): boolean {
+  return (
+    record.status === 'interrupted' &&
+    record.parentSessionId === sessionId &&
+    !record.isBackground &&
+    !record.isCliAgent &&
+    blankToUndefined(record.toolCallId) !== undefined &&
+    blankToUndefined(record.agentId) !== undefined &&
+    !retired.has(record.toolCallId)
+  );
+}
+
 export function toSessionRecordInput(
   detail: SessionMetadata,
 ): SessionRecordInput {
@@ -1257,6 +1287,10 @@ export class SessionMetadataStore {
       metadata.resumableSdkSubagents === undefined
         ? { resumableSdkSubagents: existing.resumableSdkSubagents }
         : {}),
+      ...(existing?.retiredSubagentToolCallIds &&
+      metadata.retiredSubagentToolCallIds === undefined
+        ? { retiredSubagentToolCallIds: existing.retiredSubagentToolCallIds }
+        : {}),
     };
     await this.persistMetadata(merged);
   }
@@ -1437,16 +1471,9 @@ export class SessionMetadataStore {
         return;
       }
 
+      const retired = new Set(metadata.retiredSubagentToolCallIds ?? []);
       const resumableSdkSubagents = state.resumableSdkSubagents
-        .filter(
-          (record) =>
-            record.status === 'interrupted' &&
-            record.parentSessionId === sessionId &&
-            !record.isBackground &&
-            !record.isCliAgent &&
-            blankToUndefined(record.toolCallId) !== undefined &&
-            blankToUndefined(record.agentId) !== undefined,
-        )
+        .filter((record) => isDurableResumable(record, sessionId, retired))
         .map((record) => ({ ...record }));
 
       await this._saveInternal({
@@ -1455,6 +1482,79 @@ export class SessionMetadataStore {
           ? { workingDirectory: state.workingDirectory }
           : {}),
         resumableSdkSubagents,
+      });
+    });
+  }
+
+  /**
+   * Record dismissed interrupted subagents in the durable resume snapshot.
+   *
+   * Upserts by toolCallId with `dismissed: true` instead of replacing the
+   * list, so a snapshot the registry never restored in this process is not
+   * wiped. A record that was only ever known from history lands in the
+   * snapshot here, which is what keeps it dismissed after a restart: the
+   * snapshot is restored before history is replayed, and replay skips ids the
+   * registry already holds.
+   */
+  async dismissResumableSubagents(
+    sessionId: string,
+    records: readonly SubagentRecord[],
+  ): Promise<void> {
+    await this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (!metadata) {
+        this.logger.warn(
+          `[SessionMetadataStore] Cannot save dismissed subagents for missing session ${sessionId}`,
+        );
+        return;
+      }
+      const retired = new Set(metadata.retiredSubagentToolCallIds ?? []);
+      const byId = new Map(
+        (metadata.resumableSdkSubagents ?? []).map((record) => [
+          record.toolCallId,
+          record,
+        ]),
+      );
+      for (const record of records) {
+        if (!isDurableResumable(record, sessionId, retired)) continue;
+        byId.set(record.toolCallId, { ...record, dismissed: true });
+      }
+      await this._saveInternal({
+        ...metadata,
+        resumableSdkSubagents: Array.from(byId.values()),
+      });
+    });
+  }
+
+  /**
+   * Retire interrupted subagents for good: drop them from the durable resume
+   * snapshot and remember their ids, so neither the snapshot nor history
+   * replay brings them back after a restart. Does not replace the rest of the
+   * snapshot.
+   */
+  async retireResumableSubagents(
+    sessionId: string,
+    toolCallIds: readonly string[],
+  ): Promise<void> {
+    if (toolCallIds.length === 0) return;
+    await this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (!metadata) {
+        this.logger.warn(
+          `[SessionMetadataStore] Cannot retire subagents for missing session ${sessionId}`,
+        );
+        return;
+      }
+      const retired = new Set([
+        ...(metadata.retiredSubagentToolCallIds ?? []),
+        ...toolCallIds.filter((id) => blankToUndefined(id) !== undefined),
+      ]);
+      await this._saveInternal({
+        ...metadata,
+        resumableSdkSubagents: (metadata.resumableSdkSubagents ?? []).filter(
+          (record) => !retired.has(record.toolCallId),
+        ),
+        retiredSubagentToolCallIds: Array.from(retired),
       });
     });
   }

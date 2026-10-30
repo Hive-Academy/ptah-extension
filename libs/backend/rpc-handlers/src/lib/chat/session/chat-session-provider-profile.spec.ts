@@ -194,6 +194,9 @@ function makeHarness(resolve: jest.Mock): Harness {
     } as never,
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),
+      hydrateResumeState: jest.fn().mockReturnValue(0),
+      isResumeStateHydrated: jest.fn().mockReturnValue(true),
+      getInterruptedBySession: jest.fn().mockReturnValue([]),
       registerFromHistoryEvents: jest.fn().mockReturnValue(0),
       getResumableBySession: jest.fn().mockReturnValue([]),
     } as unknown as SubagentRegistryService,
@@ -222,7 +225,12 @@ function makeHarness(resolve: jest.Mock): Harness {
     {
       injectInterruptedAgentsContext: jest
         .fn()
-        .mockImplementation(async (prompt: string) => ({ prompt })),
+        .mockImplementation(async (prompt: string) => ({
+          prompt,
+          injected: false,
+          commit: async () => undefined,
+          release: () => undefined,
+        })),
     } as never,
     // Plain prompts pass through; a slash prompt is routed for real.
     {

@@ -1697,6 +1697,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         tabId,
         realSessionId,
         ...(previousSessionId === undefined ? {} : { previousSessionId }),
+        isNewSession: true,
         timestamp: Date.now(),
       });
     };

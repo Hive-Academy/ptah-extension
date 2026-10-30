@@ -238,6 +238,7 @@ function makeHarness(
   const switchSessionMock = jest.fn().mockResolvedValue(undefined);
   const sendOrQueueMessageMock = jest.fn().mockResolvedValue({ success: true });
   const removeResumableSubagentMock = jest.fn();
+  const dismissResumableSubagentsMock = jest.fn().mockResolvedValue(undefined);
   const upsertSessionSummaryMock = jest.fn();
   const removeSessionFromListMock = jest.fn();
   const isCompactingForTabMock = jest.fn(
@@ -268,6 +269,7 @@ function makeHarness(
     switchSession: switchSessionMock,
     sendOrQueueMessage: sendOrQueueMessageMock,
     removeResumableSubagent: removeResumableSubagentMock,
+    dismissResumableSubagents: dismissResumableSubagentsMock,
     upsertSessionSummary: upsertSessionSummaryMock,
     removeSessionFromList: removeSessionFromListMock,
   } as unknown as ChatStore;
@@ -685,6 +687,7 @@ function makeHarness(
     createTabMock,
     sendOrQueueMessageMock,
     removeResumableSubagentMock,
+    dismissResumableSubagentsMock,
     requestCanvasTabMock,
     requestComposerPrefillMock,
   };
@@ -1945,6 +1948,17 @@ describe('ChatViewComponent — resolvedResumableSubagents() scoping', () => {
     ]);
 
     expect(h.component.resolvedResumableSubagents()).toHaveLength(2);
+  });
+
+  it('dismisses the banner agents through the store, not the resume path', () => {
+    const h = makeHarness();
+    const agents = [subagent('toolu_a', h.sessionId)];
+
+    h.component.handleDismissResumableAgents(agents);
+
+    expect(h.dismissResumableSubagentsMock).toHaveBeenCalledWith(agents);
+    expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
+    expect(h.removeResumableSubagentMock).not.toHaveBeenCalled();
   });
 });
 
