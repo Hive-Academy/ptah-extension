@@ -89,6 +89,7 @@ export const KNOWN_CONFIG_KEYS = [
   'agentOrchestration.codexWebSearch',
   'agentOrchestration.laneRepeatCallStopAt',
   'agentOrchestration.subagentPromptCacheTtl',
+  'agentOrchestration.hostRouting',
   'agentOrchestration.disabledClis',
   'provider.github-copilot.tokenExchangeUrl',
   'provider.github-copilot.apiEndpoint',
