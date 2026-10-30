@@ -823,6 +823,9 @@ export class SessionOrganizationService
       });
       return 'written';
     } catch (error: unknown) {
+      // degradation-audit: reported - capture is fire-and-forget and must
+      // never throw into the SDK hook; the error is logged here and the
+      // 'failed' outcome reports it to awaiting callers.
       this.log(`${call} failed for ${sessionId}: ${describe(error)}`);
       return 'failed';
     }

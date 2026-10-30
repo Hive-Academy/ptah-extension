@@ -52,6 +52,7 @@ import {
   TASK_SPECS_TOKENS,
   type TaskIndexChangeEvent,
 } from '@ptah-extension/task-specs';
+import { CARRIER_FILE } from '@ptah-extension/shared';
 import { TASK_ID_PATTERN } from '@ptah-extension/shared/schemas';
 import { SESSION_ORGANIZATION_TOKENS } from './di/tokens';
 import {
@@ -344,7 +345,7 @@ export class SessionAutoLinkService implements IDisposable {
       this.log(`autoLink R3 deferred for ${sessionId}: ${taskId} not checked`);
       return undefined;
     }
-    this.log(`autoLink R3 skipped for ${sessionId}: ${taskId} has no task.md`);
+    this.log(`autoLink R3 skipped for ${sessionId}: ${taskId} has no ${CARRIER_FILE}`);
     return undefined;
   }
 
@@ -724,7 +725,7 @@ export class SessionAutoLinkService implements IDisposable {
       if (dir === null || dir.trim().length === 0) continue;
       const key = `${dir}\u0000${taskId}`;
       if (this.existingTasks.has(key)) return 'present';
-      const file = path.join(dir, '.ptah', 'specs', taskId, 'task.md');
+      const file = path.join(dir, '.ptah', 'specs', taskId, CARRIER_FILE);
       let exists = false;
       try {
         exists = await this.fs.exists(file);

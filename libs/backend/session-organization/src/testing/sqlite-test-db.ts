@@ -59,6 +59,8 @@ function resolveOpener(): DbOpener | null {
     new DatabaseSync(':memory:').close();
     return () => new DatabaseSync(':memory:');
   } catch {
+    // degradation-audit: optional-capability - test-only driver probe; null
+    // sets sqliteAvailable=false and openTestConnection throws a clear error.
     return null;
   }
 }
