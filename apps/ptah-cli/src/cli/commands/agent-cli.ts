@@ -735,7 +735,8 @@ export function buildResumeCliSessionParams(input: {
  * Coerces:
  *   - `*AutoApprove` keys → boolean (true/false strings only).
  *   - `maxConcurrentAgents`, `mcpPort` → number.
- *   - `preferredAgentOrder`, `disabledClis`, `disabledMcpNamespaces` →
+ *   - `preferredAgentOrder`, `disabledClis`, `disabledMcpNamespaces`,
+ *     `enabledClaudeBuiltinTools`, `enabledClaudeBuiltinSkills` →
  *     CSV-split string array.
  *   - everything else (model ids, reasoning effort tiers) → string passthrough.
  */
@@ -765,9 +766,16 @@ function buildSetConfigParams(
     }
     case 'preferredAgentOrder':
     case 'disabledClis':
-    case 'disabledMcpNamespaces': {
+    case 'disabledMcpNamespaces':
+    case 'enabledClaudeBuiltinTools':
+    case 'enabledClaudeBuiltinSkills': {
       params[
-        key as 'preferredAgentOrder' | 'disabledClis' | 'disabledMcpNamespaces'
+        key as
+          | 'preferredAgentOrder'
+          | 'disabledClis'
+          | 'disabledMcpNamespaces'
+          | 'enabledClaudeBuiltinTools'
+          | 'enabledClaudeBuiltinSkills'
       ] = rawValue
         .split(',')
         .map((s) => s.trim())

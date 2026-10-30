@@ -27,10 +27,40 @@ import type {
   SdkPermissionHandler,
   SubagentHookHandler,
 } from '@ptah-extension/agent-sdk';
-import { getAnthropicProvider, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  CLAUDE_BUILTIN_SETTING_KEYS,
+  CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
+  CLAUDE_BUILTIN_TOOL_IDS,
+  getAnthropicProvider,
+  SDK_TOKENS,
+} from '@ptah-extension/agent-sdk';
 import type { DependencyContainer } from 'tsyringe';
 import type { ProviderModelsService } from '@ptah-extension/auth-providers';
-import type { IMcpServerStatus } from '@ptah-extension/platform-core';
+import type {
+  IMcpServerStatus,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+
+/**
+ * Every Claude built-in opted in (TASK_2026_853), so these specs see only the
+ * capability-policy keys. The lane built-in defaults have their own spec,
+ * `ptah-cli-spawn-options.builtins.spec.ts`.
+ */
+const ALL_BUILTINS_ENABLED: Pick<IWorkspaceProvider, 'getConfiguration'> = {
+  getConfiguration: <T>(
+    _section: string,
+    key: string,
+    defaultValue?: T,
+  ): T | undefined => {
+    if (key === CLAUDE_BUILTIN_SETTING_KEYS.tools) {
+      return [...CLAUDE_BUILTIN_TOOL_IDS] as T;
+    }
+    if (key === CLAUDE_BUILTIN_SETTING_KEYS.skills) {
+      return [...CLAUDE_BUILTIN_TERMINAL_SKILL_IDS] as T;
+    }
+    return defaultValue;
+  },
+};
 import type {
   EffectiveCapabilitySet,
   ICapabilityResolver,
@@ -177,6 +207,7 @@ function buildHarness(input: HarnessInput): Harness {
     } as unknown as EnhancedPromptsService,
     { getPort: () => MCP_PORT } as unknown as IMcpServerStatus,
     undefined,
+    ALL_BUILTINS_ENABLED as IWorkspaceProvider,
   );
   const assembleSpawnOptions = jest.spyOn(spawnOptions, 'assembleSpawnOptions');
 
