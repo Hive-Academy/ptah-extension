@@ -172,7 +172,7 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
   resolve(
     workspaceRoot?: string,
   ): HarnessSourceState | Promise<HarnessSourceState> {
-    const mcpIntents = this.readMcpIntents();
+    const mcpIntents = this.readMcpIntents(workspaceRoot);
     // Scoped once, here, so the read-failure path below and the success path
     // cannot describe two different agent directories. The scope is a pure
     // function of the root and reads nothing, so it cannot itself fail.
@@ -289,9 +289,9 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
     }
   }
 
-  private readMcpIntents(): HarnessMcpIntent[] {
+  private readMcpIntents(workspaceRoot?: string): HarnessMcpIntent[] {
     try {
-      return this.mcpIntents.list();
+      return this.mcpIntents.listFor(workspaceRoot ?? '');
     } catch {
       return [];
     }

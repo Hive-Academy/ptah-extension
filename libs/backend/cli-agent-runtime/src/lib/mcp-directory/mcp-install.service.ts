@@ -65,6 +65,7 @@ import {
 } from '@ptah-extension/harness-sync';
 import {
   classifyMcpScope,
+  type CapabilityScope,
   type HarnessTargetHealth,
   type InstalledMcpServer,
   type McpInstallResult,
@@ -159,6 +160,11 @@ export interface McpUninstallOptions {
    * gets to decide.
    */
   force?: boolean;
+  /**
+   * Which record to drop targets from. Omitted = every record this workspace
+   * sees: the global one and this workspace's own.
+   */
+  scope?: CapabilityScope;
 }
 
 export class McpInstallService {
@@ -183,13 +189,21 @@ export class McpInstallService {
   }
 
   /**
-   * Install an MCP server to one or more targets.
+   * Install an MCP server to one or more targets, recorded in one scope.
+   *
+   * `workspace` (the default) records the install against this workspace only,
+   * so no other workspace's reconcile writes it; it needs a workspace root and
+   * throws `McpIntentScopeError` before writing anything without one. `global`
+   * is the explicit opt-in that applies in every workspace. Which targets a
+   * scope may name is the caller's policy (the RPC rejects home targets for a
+   * workspace install); the store records what it is given.
    *
    * @param serverName - Registry name for tracking (e.g. `io.github.user/server`)
    * @param serverKey - Config key (e.g. `github`, `filesystem`)
    * @param config - Transport configuration
    * @param targets - Which targets to install to
-   * @param workspaceRoot - Needed by the workspace-scoped targets
+   * @param workspaceRoot - The workspace the install belongs to and reconciles
+   * @param scope - Where the intent is recorded
    */
   async install(
     serverName: string,
@@ -197,10 +211,18 @@ export class McpInstallService {
     config: McpServerConfig,
     targets: McpInstallTarget[],
     workspaceRoot?: string,
+    scope: CapabilityScope = 'workspace',
   ): Promise<McpInstallResult[]> {
     // Intent first: the reconciler's desired state IS this file, so recording
     // after reconciling would make the pass a no-op.
-    this.intents.record(serverKey, serverName, targets, config);
+    this.intents.record({
+      serverKey,
+      registryName: serverName,
+      config,
+      targets,
+      scope,
+      workspaceRoot,
+    });
     return this.reconcileTargets(
       targets,
       workspaceRoot,
@@ -210,8 +232,49 @@ export class McpInstallService {
   }
 
   /**
+   * Promote this workspace's install of `serverKey` to global, adding the
+   * opt-in home targets, then reconcile the current workspace for every
+   * global target. Throws `McpIntentScopeError` before writing when there is
+   * no workspace root or this workspace never recorded the server.
+   */
+  async makeGlobal(
+    serverKey: string,
+    workspaceRoot: string,
+    homeTargets: readonly McpInstallTarget[],
+  ): Promise<McpInstallResult[]> {
+    const targets = this.intents.makeGlobal(
+      serverKey,
+      workspaceRoot,
+      homeTargets,
+    );
+    return this.reconcileTargets(
+      targets,
+      workspaceRoot,
+      serverKey,
+      'mcp:make-global',
+    );
+  }
+
+  /**
+   * The scope this workspace sees `serverKey` in: `global`, `workspace`, or
+   * `undefined` when Ptah never recorded it for this workspace.
+   */
+  intentScopeOf(
+    serverKey: string,
+    workspaceRoot: string,
+  ): CapabilityScope | undefined {
+    return this.intents.scopeOf(serverKey, workspaceRoot);
+  }
+
+  /**
    * Uninstall an MCP server from one or more targets. With no targets given,
-   * every target the server was recorded against is visited.
+   * every target the server was recorded against in that scope is visited.
+   *
+   * The scope is `options.scope` when given. Otherwise every record this
+   * workspace sees is dropped — the global one and this workspace's own — so a
+   * bare uninstall leaves nothing that would re-add the server here. An
+   * explicit workspace scope with no root throws `McpIntentScopeError` before
+   * anything is written.
    *
    * Two paths, chosen by ownership rather than by the caller:
    *
@@ -228,7 +291,14 @@ export class McpInstallService {
     workspaceRoot?: string,
     options: McpUninstallOptions = {},
   ): Promise<McpInstallResult[]> {
-    const recorded = this.intents.targetsFor(serverKey);
+    const scopes = this.uninstallScopes(serverKey, workspaceRoot, options);
+    const recorded = [
+      ...new Set(
+        scopes.flatMap((scope) =>
+          this.intents.targetsIn(serverKey, scope, workspaceRoot),
+        ),
+      ),
+    ];
     const requested =
       targets !== undefined && targets.length > 0 ? targets : recorded;
     const visited = requested.length > 0 ? requested : ALL_TARGETS;
@@ -238,7 +308,9 @@ export class McpInstallService {
       return this.removeUnowned(visited, workspaceRoot, serverKey);
     }
 
-    this.intents.forget(serverKey, targets);
+    for (const scope of scopes) {
+      this.intents.forget(serverKey, { scope, workspaceRoot, targets });
+    }
     const results = await this.reconcileTargets(
       visited,
       workspaceRoot,
@@ -248,6 +320,25 @@ export class McpInstallService {
     return results.map((result) =>
       this.verifyRemoved(result, serverKey, workspaceRoot),
     );
+  }
+
+  /** The records an uninstall drops; see {@link uninstall}. */
+  private uninstallScopes(
+    serverKey: string,
+    workspaceRoot: string | undefined,
+    options: McpUninstallOptions,
+  ): CapabilityScope[] {
+    if (options.scope !== undefined) return [options.scope];
+    const scopes: CapabilityScope[] = [];
+    if (this.intents.targetsIn(serverKey, 'global').length > 0) {
+      scopes.push('global');
+    }
+    if (
+      this.intents.targetsIn(serverKey, 'workspace', workspaceRoot).length > 0
+    ) {
+      scopes.push('workspace');
+    }
+    return scopes;
   }
 
   /**
