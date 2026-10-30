@@ -132,3 +132,10 @@ mid-session, which is the outcome worth preventing.
 - The jest handle leak and the `copy-wasm` worktree defect — `TASK_2026_427_f669`.
 - Anything about agent OUTPUT quality. All six agents did their work correctly;
   every finding here is about reporting, not about results.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Stop the not-found message from inventing a cause and from advising a re-spawn, and surface a spawned agent that produces no output and uses no CPU instead of reporting it as running.
+- Evidence on main: Completed records now stay for COMPLETED_AGENT_TTL (comment at agent-process-manager.service.ts:1473 says thirty minutes) and restoreAgents covers a host restart. The not-found text at :1442 is unchanged: it still asserts 'never persisted' or 'older than the retention window' and still says 'spawn a new agent if the work still needs doing'. No idle-CPU stuck signal. Parent push of a real completion is TASK_2026_515 / PR #555, which does not replace this message.

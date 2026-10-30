@@ -238,7 +238,7 @@ describe('Claude lane authoritative account gate', () => {
   it('retains the original immutable route through a fresh handoff and label/default changes', async () => {
     const registry = port();
     const result = await gate().gate.evaluate({ cli: 'claude', cliSessionId: 's', accountBindings: registry,
-      accountReference: reference, lastRequestContext: { tokens: 100000, source: 'estimate' } });
+      accountReference: reference, lastRequestContext: { tokens: 200000, source: 'estimate' } });
     expect(result.decision).toBe('fresh');
     expect(result.accountReference).toEqual(reference);
     expect(Object.isFrozen(result.accountReference?.accountBinding.identity)).toBe(true);

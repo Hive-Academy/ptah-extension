@@ -36,7 +36,7 @@ export const COULD_NOT_SET_DEFAULT_PROVIDER = 'Could not set the default provide
   host: { class: 'block' },
   template: `
     @if (vscodeLmProvider(); as provider) {
-      <section class="card bg-base-200 border border-base-300 p-3" data-glass-surface="content" aria-labelledby="vscode-lm-heading">
+      <section class="border-b border-base-content/10 pb-7" aria-labelledby="vscode-lm-heading">
         <!-- Provider header row -->
         <div class="flex items-center justify-between gap-3 mb-2">
           <div class="flex flex-wrap items-center gap-2">

@@ -131,7 +131,7 @@ describe('createAcpSessionUpdateMapper', () => {
     ]);
   });
 
-  it('exposes edit and delete calls to the lane budget guard', () => {
+  it('exposes edit and delete calls to the lane guard call count', () => {
     const mapper = createAcpSessionUpdateMapper();
     const edit: SessionUpdate = {
       sessionUpdate: 'tool_call',

@@ -610,6 +610,31 @@ ANUBIS ANIMATIONS - Egyptian Mystical Effects
   }
 }
 
+/* Loader pulse (`.loading-spinner`, Tailwind `animate-spin`): a breathing
+   core and a ring that fades out from it. transform / opacity only. */
+@keyframes ptah-pulse-core {
+  0%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes ptah-pulse-ring {
+  0% {
+    transform: scale(0.45);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.15);
+    opacity: 0;
+  }
+}
+
 /* Pulse animation for streaming cursor */
 @keyframes pulse {
   0%,
@@ -2065,9 +2090,9 @@ SIDEBAR-OPTIMIZED DAISYUI COMPONENT OVERRIDES
  * visible spinner forced a full repaint + layerize per frame while streaming.
  *
  * Here the host drops the mask and a `::before` carries a STATIC SVG mask
- * (the spinner's resting open arc / the three dots), animated with
+ * (the spinner's pulse dot and ring / the three dots), animated with
  * `transform` / `opacity` only, which the compositor runs off the main thread.
- * The pseudo-element spins, not the host, because some call sites position the
+ * The pseudo-element pulses, not the host, because some call sites position the
  * spinner with `-translate-y-1/2` (a `transform`) which a host animation would
  * override.
  *
@@ -2099,9 +2124,37 @@ SIDEBAR-OPTIMIZED DAISYUI COMPONENT OVERRIDES
     mask-position: center;
   }
 
+  /* The spinner is a soft pulse: a core dot that breathes and a ring that
+     fades out from it. No mask, no rotation. */
+  .loading-spinner::before,
+  .loading-spinner::after {
+    border-radius: 9999px;
+  }
+
   .loading-spinner::before {
-    mask-image: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='12' cy='12' r='9.5' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-dasharray='42 150'/%3E%3C/svg%3E");
-    animation: cosmic-spin 0.8s linear infinite;
+    mask-image: none;
+    inset: 22%;
+    animation: ptah-pulse-core 1.4s ease-in-out infinite;
+  }
+
+  .loading-spinner::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 1.5px solid currentColor;
+    animation: ptah-pulse-ring 1.4s ease-out infinite;
+  }
+
+  /* Reduced motion: a still, dimmed dot. The global rule ends the
+     animations at their base style, which would show a solid ring. */
+  @media (prefers-reduced-motion: reduce) {
+    .loading-spinner::after {
+      display: none;
+    }
+
+    .loading-spinner::before {
+      opacity: 0.8;
+    }
   }
 
   .loading-dots::before {
@@ -3532,10 +3585,17 @@ END OF ANUBIS DESIGN SYSTEM
   box-shadow: var(--glass-rim), 0 0 0 1px rgb(36 44 72 / 0.08), 0 2px 6px -2px rgb(36 44 72 / 0.16), 0 12px 28px -12px rgb(36 44 72 / 0.36);
 }
 /* Tool-call rows and agent tiles in the transcript are list rows, not raised
-   cards: they keep the tile fill but drop the elev-1 drop shadow and rim, as
-   they have no shadow with glass off. */
+   cards: they drop the elev-1 drop shadow and rim, as they have no shadow
+   with glass off. */
 :root[data-theme][data-glass='on'] :is(ptah-tool-call-item > [data-glass-surface='tile'], ptah-execution-node [data-glass-surface='tile']:has(> ptah-subagent-tile)) {
   box-shadow: none;
+}
+/* A tool-call row has no fill with glass off either: it sits clear on the
+   transcript scrim, so each tool does not read as its own dark plate. The
+   border stays 1px wide (transparent) so the row does not shift. */
+:root[data-theme][data-glass='on'] ptah-tool-call-item > [data-glass-surface='tile'] {
+  background: transparent;
+  border-color: transparent;
 }
 /* The docked Stats pane (chrome) shows the scene like the git dock: the
    inspector's solid surface blocks (plan-limit cards, the selected agent row)

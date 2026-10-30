@@ -71,7 +71,7 @@ const LOGOUT_FAILED = 'Could not log out.';
   host: { class: 'block' },
   template: `
     @if (!isLoadingLicenseStatus()) {
-      <div class="card bg-base-200 border border-base-300 p-3" data-glass-surface="content">
+      <div class="border-b border-base-content/10 pb-7">
         <!-- Header: heading + one primary action; Export/Import are projected by the Advanced shell (A8/A9). -->
         <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
           <div class="flex items-center gap-1.5">
@@ -346,7 +346,7 @@ const LOGOUT_FAILED = 'Could not log out.';
         <!-- User profile (A3) with the inline Log out confirm (A4). -->
         @if (userEmail()) {
           <div
-            class="flex items-center gap-2 mb-2 py-1.5 px-2 bg-base-300/30 rounded"
+                class="flex items-center gap-2 mb-2 py-1.5 px-2"
             aria-label="User profile"
           >
             <div

@@ -1,12 +1,12 @@
 ---
 id: TASK_2026_466_b70b
-status: backlog
+status: done
 type: BUGFIX
 title: >-
   Agent messaging defects found by the TASK_2026_402 Batch 8 acceptance run
 depends_on: []
 created: '2026-09-17T00:00:00.000Z'
-updated: '2026-09-17T00:00:00.000Z'
+updated: "2026-10-30T01:09:07.477Z"
 description: >-
   Five defects from the live Batch 8 run. A peer SendMessage to a busy ptah-cli
   lane is accepted but never reaches the model. Two live sessions from the same

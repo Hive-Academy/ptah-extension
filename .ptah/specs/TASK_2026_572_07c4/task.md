@@ -10,8 +10,6 @@ description: 'memory:listQuarantined and memory:restoreQuarantined are reachable
 labels:
   - memory-curator
   - P2
-relates_to:
-  - TASK_2026_563_2939
 parent: TASK_2026_637_e30b
 ---
 

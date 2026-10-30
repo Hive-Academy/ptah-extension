@@ -8,7 +8,7 @@ description: >-
   about 6 files, orchestrator commits a clean batch, Sonnet for mechanical roles, short check
   output, maxTurns) from the local setup into the shipped ptah-core plugin assets and the
   generated agents, and let users view and change them in Settings.
-depends_on: [TASK_2026_597_ab22, TASK_2026_609_c495]
+depends_on: []
 created: 2026-10-04T17:00:00.000Z
 updated: 2026-10-04T17:00:00.000Z
 ---

@@ -40,9 +40,11 @@ const DOCK_KINDS: readonly AgentKind[] = [
   'background',
 ];
 /** Unselected chip in an inline roster: avatar plus a truncated name. */
-const NAMED_CHIP_CLASS = 'max-w-[140px] gap-1.5 px-1.5 text-xs text-base-content-muted';
+const NAMED_CHIP_CLASS = 'h-7 max-w-[140px] gap-1.5 px-1 text-xs text-base-content-muted';
 /** Unselected chip beside the overflow menu: a bare avatar circle. */
-const CIRCLE_CHIP_CLASS = 'w-[38px] justify-center';
+const CIRCLE_CHIP_CLASS = 'size-7 justify-center';
+/** Rail chip in the stats sidebar: the larger avatar circle. */
+const RAIL_CHIP_CLASS = 'h-[38px] w-[38px] justify-center';
 
 interface DockChipModel {
   readonly key: string;
@@ -95,13 +97,13 @@ interface DockLayout {
     `
       /* Glass on (any theme): the dock strip is part of the chat column's one
          glass surface (styles.css "Ptah chat column"): no fill, no rule and no
-         drop shadow under it, and 20px of air before the messages. The lane
+         drop shadow under it, and 8px of air before the messages. The lane
          view below is flex-1 min-h-0, so the transcript still scrolls and the
          composer stays at the bottom. The strip keeps relative z-10, so its
          card and dropdown still stack above the content. The contrast and
          forced-colours settings keep the strip's fill and rule. */
       :host-context([data-theme][data-glass='on']) > [role='tablist'] {
-        margin-bottom: 20px;
+        margin-bottom: 8px;
       }
       @media (forced-colors: none) and (prefers-contrast: no-preference) and (prefers-reduced-transparency: no-preference) {
         :host-context([data-theme][data-glass='on']) > [role='tablist'] {
@@ -134,12 +136,12 @@ interface DockLayout {
       [class.flex-col]="rail()"
       [class.px-0]="rail()"
       [class.border-0]="rail()"
-      class="relative z-10 flex min-w-0 items-center gap-0.5 flex-wrap border-b border-surface-border bg-surface-1 px-2 pb-1 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
+      class="relative z-10 flex min-w-0 items-center gap-0.5 flex-wrap border-b border-surface-border bg-surface-1 px-2 py-0.5 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
     >
       @for (group of view.groups; track group.kind; let first = $first) {
         @if (!first && !rail()) {
           <span
-            class="mx-1 h-5 w-px shrink-0 self-center bg-[var(--surface-border-strong)]"
+            class="mx-1 h-4 w-px shrink-0 self-center bg-[var(--surface-border-strong)]"
             aria-hidden="true"
             data-testid="dock-divider"
           ></span>
@@ -150,7 +152,7 @@ interface DockLayout {
               type="button"
               role="tab"
               [id]="chip.tabDomId"
-              class="inline-flex h-[38px] max-w-[180px] shrink-0 items-center gap-1.5 rounded-full border border-secondary px-1.5 text-xs text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+              class="inline-flex h-7 max-w-[180px] shrink-0 items-center gap-1.5 rounded-full border border-secondary pl-0.5 pr-2 text-xs text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
               [attr.aria-selected]="chip.selected"
               [attr.aria-controls]="panelId()"
               [attr.aria-label]="chip.label"
@@ -166,7 +168,7 @@ interface DockLayout {
               <ptah-agent-avatar
                 [kind]="chip.agent.kind"
                 [status]="chip.agent.status"
-                [size]="28"
+                [size]="rail() ? 28 : 24"
                 [cliId]="chip.agent.cliId"
                 [agentType]="chip.agent.agentType"
               />
@@ -187,7 +189,7 @@ interface DockLayout {
               type="button"
               role="tab"
               [id]="chip.tabDomId"
-              [class]="'inline-flex h-[38px] shrink-0 items-center rounded-full hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))] ' + (view.named ? namedChipClass : circleChipClass)"
+              [class]="'inline-flex shrink-0 items-center rounded-full hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))] ' + (rail() ? railChipClass : view.named ? namedChipClass : circleChipClass)"
               [attr.aria-selected]="chip.selected"
               [attr.aria-controls]="panelId()"
               [attr.aria-label]="chip.label"
@@ -203,7 +205,7 @@ interface DockLayout {
               <ptah-agent-avatar
                 [kind]="chip.agent.kind"
                 [status]="chip.agent.status"
-                [size]="28"
+                [size]="rail() ? 28 : 24"
                 [cliId]="chip.agent.cliId"
                 [agentType]="chip.agent.agentType"
               />
@@ -267,6 +269,7 @@ export class CanvasLaneTabsComponent {
   private tabHoveredKey: string | null = null;
   protected readonly namedChipClass = NAMED_CHIP_CLASS;
   protected readonly circleChipClass = CIRCLE_CHIP_CLASS;
+  protected readonly railChipClass = RAIL_CHIP_CLASS;
 
   readonly agents = computed(() => this.roster.roster(this.tabId()));
 
@@ -282,6 +285,15 @@ export class CanvasLaneTabsComponent {
     return alternateKey && keys.includes(alternateKey) ? alternateKey : 'orchestrator';
   });
 
+  /**
+   * Prefix for this dock's tab and card ids. The chat dock and the sidebar
+   * rail dock render for the same pane at once, so the rail ids differ. The
+   * lane panel's aria-labelledby points at the chat dock's tab.
+   */
+  private readonly idPrefix = computed(() =>
+    this.rail() ? `${this.panelId()}-rail` : this.panelId(),
+  );
+
   /** Inline roster: every chip is named, so none needs the hover / focus card. */
   private readonly namesInline = computed(
     () => !this.rail() && this.agents().length <= DOCK_INLINE_MAX,
@@ -290,7 +302,7 @@ export class CanvasLaneTabsComponent {
   protected readonly layout = computed((): DockLayout => {
     const now = this.now();
     const selected = this.selectedKey();
-    const panelId = this.panelId();
+    const idPrefix = this.idPrefix();
     const width = this.width();
     let { visible, hidden } = planDockOverflow(
       this.agents(),
@@ -318,7 +330,7 @@ export class CanvasLaneTabsComponent {
         }),
         durationText: agentDurationText(agent, now),
         statusInk: agentStatusInk(agent.status),
-        tabDomId: `${panelId}-tab-${agent.key}`,
+        tabDomId: `${idPrefix}-tab-${agent.key}`,
       };
       const group = chips.get(agent.kind);
       if (group) group.push(chip);
@@ -331,7 +343,7 @@ export class CanvasLaneTabsComponent {
       })),
       hidden,
       compact: Number.isFinite(width) && width < 480,
-      cardId: `${panelId}-agent-card`,
+      cardId: `${idPrefix}-agent-card`,
       named: this.namesInline(),
     };
   });
@@ -486,7 +498,7 @@ export class CanvasLaneTabsComponent {
   }
 
   private tabDomId(key: string): string {
-    return `${this.panelId()}-tab-${key}`;
+    return `${this.idPrefix()}-tab-${key}`;
   }
 
   /** A chip that already shows its name opens no hover / focus card. */
@@ -500,7 +512,7 @@ export class CanvasLaneTabsComponent {
     afterNextRender(
       () => {
         const tab = document.getElementById(this.tabDomId(key));
-        const card = document.getElementById(`${this.panelId()}-agent-card`);
+        const card = document.getElementById(`${this.idPrefix()}-agent-card`);
         if (!tab || !card) return;
         const boundary = this.dock().nativeElement.closest<HTMLElement>('[data-inspector-dock]');
         void this.floatingUI.position(tab, card, {

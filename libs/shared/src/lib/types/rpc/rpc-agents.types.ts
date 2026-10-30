@@ -280,10 +280,6 @@ export interface AgentOrchestrationConfig {
   codexAutoCompactTokens?: number;
   /** Codex lane `tool_output_token_limit` (integer >= 0; 0 = Codex runtime default). Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
   codexToolOutputTokenLimit?: number;
-  /** Lane tool-call count at which the lane is steered. Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
-  laneToolCallSteerAt?: number;
-  /** Lane tool-call count at which the lane is stopped. Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
-  laneToolCallStopAt?: number;
   /** Count of identical lane tool calls at which the lane is stopped. Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
   laneRepeatCallStopAt?: number;
   /** Codex lane web search (`web_search` "live" when true, "disabled" when false; default true). */
@@ -531,10 +527,6 @@ export interface AgentSetConfigParams {
   codexAutoCompactTokens?: number;
   /** Codex lane `tool_output_token_limit` (integer >= 0; 0 = Codex runtime default). Rejected, never clamped, when invalid. */
   codexToolOutputTokenLimit?: number;
-  /** Lane tool-call count at which the lane is steered. Rejected, never clamped, when invalid. */
-  laneToolCallSteerAt?: number;
-  /** Lane tool-call count at which the lane is stopped. Rejected, never clamped, when invalid. */
-  laneToolCallStopAt?: number;
   /** Count of identical lane tool calls at which the lane is stopped. Rejected, never clamped, when invalid. */
   laneRepeatCallStopAt?: number;
   /** Codex lane web search on/off. */

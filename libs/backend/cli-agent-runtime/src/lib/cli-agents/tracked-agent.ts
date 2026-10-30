@@ -68,6 +68,15 @@ export interface TrackedAgent {
   /** Authentication wording from the failed turn's bounded output. */
   authMatched?: boolean;
   /**
+   * Tool calls the lane guard counted, saved when the guard is released so the
+   * completion signal can still report them.
+   */
+  guardToolCalls?: number;
+  /** Caller messages a host stop discarded from the queue. */
+  queuedMessagesDropped?: number;
+  /** Times the repeated call ran when the guard stopped the lane. */
+  repeatedCalls?: number;
+  /**
    * Set only by {@link AgentProcessManager.restoreAgents}: this record was
    * rebuilt from persisted session state, not from a run this host supervised.
    * Its output is readable; nothing about it is live.

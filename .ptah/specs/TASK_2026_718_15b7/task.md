@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_718_15b7
-status: in_review
+status: done
 type: BUGFIX
 title: Test hygiene for chat unit tests and the webview session-create e2e flake
 description: >-
@@ -8,7 +8,7 @@ description: >-
   RPC and TabManager mocks) and harden the session-create e2e spec against a leftover popover.
 depends_on: []
 created: 2026-10-24T13:42:29.000Z
-updated: 2026-10-24T13:42:29.000Z
+updated: "2026-10-30T01:09:07.477Z"
 ---
 
 ## Description

@@ -538,7 +538,7 @@ export interface MonitoredAgent {
   /** Classified failure reason of the run, from `AgentProcessInfo`. */
   failureKind?: AgentFailureKind;
   /**
-   * Why the host stopped the lane (`tool-call-budget` or `repeat-call`).
+   * Why the host stopped the lane (`repeat-call`).
    * Copied from `AgentProcessInfo.stopReason`. Absent when the lane ended
    * on its own or the caller stopped it.
    */

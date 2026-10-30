@@ -747,7 +747,8 @@ describe('ProvidersSettingsComponent', () => {
     });
     it('the list takes its columns from the container width (22rem rows), and the catalog caption is one passive row under the header', async () => {
       await render();
-      expect(element.querySelector('[data-testid="connections-grid"]')?.className).toContain('grid-cols-[repeat(auto-fill,minmax(22rem,1fr))]');
+      expect(element.querySelector('[data-testid="connections-grid"]')?.className).toContain('grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))]');
+      expect(element.querySelector('[data-testid="connections-grid"]')?.className).toContain('items-start');
       const hint = element.querySelector('[data-testid="catalog-hint"]');
       // Directly under the header row (the row holding "Connect provider").
       expect(hint?.previousElementSibling?.querySelector('[data-testid="connect-provider"]')).not.toBeNull();
@@ -781,17 +782,16 @@ describe('ProvidersSettingsComponent', () => {
     fixture.componentRef.setInput('focusTarget', 'connections'); await render();
     expect(document.activeElement).toBe(element.querySelector('#providers-connections-heading'));
   });
-  it('groups the Main agent and Connections in one blurred glass card, split by a hairline', async () => {
+  it('groups the Main agent and Connections without a panel, split by a hairline', async () => {
     await render();
     const card = element.querySelector('[data-testid="providers-main-connections-card"]');
-    expect(card?.tagName.toLowerCase()).toBe('ptah-surface-section');
-    expect(card?.querySelector('section')?.getAttribute('data-glass-surface')).toBe('chrome');
-    expect(element.querySelectorAll('ptah-surface-section')).toHaveLength(1);
+    expect(card?.tagName.toLowerCase()).toBe('div');
+    expect(element.querySelectorAll('ptah-surface-section')).toHaveLength(0);
     const main = card?.querySelector('[data-testid="main-agent-section"]');
     const connections = card?.querySelector('[data-testid="providers-connections-card"]');
     expect(main?.closest('[data-testid="main-agent-region"]')).not.toBeNull();
     expect(connections?.getAttribute('aria-labelledby')).toBe('providers-connections-heading');
-    expect(connections?.className.split(/\s+/)).toEqual(expect.arrayContaining(['border-t', 'border-base-content/15', 'pt-4']));
+    expect(connections?.className.split(/\s+/)).toEqual(expect.arrayContaining(['border-t', 'border-base-content/10', 'pt-6']));
     expect(main && connections && main.compareDocumentPosition(connections) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
   it('does not mount the background roles, the CLI agents or their read states (AgentsRoutingSettingsComponent, beside it)', async () => {

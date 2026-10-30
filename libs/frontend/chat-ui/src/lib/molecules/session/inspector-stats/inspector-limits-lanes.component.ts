@@ -118,10 +118,6 @@ export class InspectorLimitsLanesComponent {
 
   protected isOpen(tileId: string): boolean { return this.expansion.isOpen(this.expansion.sessionKey(this, this.sessionId()), tileId); }
   protected toggle(tileId: string): void { this.expansion.toggle(this.expansion.sessionKey(this, this.sessionId()), tileId); }
-  public focusHeading(which: 'session' | 'lane'): void {
-    const id = which === 'session' ? this.planHeadingId : this.lanesHeadingId;
-    (this.host.nativeElement.querySelector(`#${id}`) as HTMLElement | null)?.focus();
-  }
   protected openPlanTile(tileId: string): void {
     if (!this.limits().planTiles.some(tile => tile.id === tileId)) return;
     this.expansion.setOpen(this.expansion.sessionKey(this, this.sessionId()), tileId, true);

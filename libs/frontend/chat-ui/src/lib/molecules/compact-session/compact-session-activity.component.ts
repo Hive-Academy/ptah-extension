@@ -35,9 +35,14 @@ import { ToolIconComponent } from '../../atoms/tool-icon.component';
 import { CompactSessionCalloutComponent } from './compact-session-callout.component';
 import type {
   CompactGitState,
+  CompactLinkedTask,
   CompactTodoState,
 } from './compact-session-metrics';
-import { todoTitle, gitTitle } from './compact-session-metrics';
+import {
+  todoTitle,
+  gitTitle,
+  linkedTaskTitle,
+} from './compact-session-metrics';
 import type {
   CompactSemanticMark,
   CompactSemanticMarkKind,
@@ -432,6 +437,17 @@ const FALLBACK_RECAP_HEIGHT = 180;
           <span class="shrink-0 tabular-nums" title="Elapsed">{{
             sessionElapsedLabel()
           }}</span>
+          @if (linkedTask(); as task) {
+            <span aria-hidden="true">·</span>
+            <span
+              class="truncate"
+              data-testid="compact-linked-task"
+              [class.line-through]="task.missing"
+              [title]="linkedTaskTitle(task)"
+              [attr.aria-label]="linkedTaskTitle(task)"
+              >{{ task.taskId }}</span
+            >
+          }
         </div>
       }
 
@@ -852,6 +868,7 @@ const FALLBACK_RECAP_HEIGHT = 180;
 export class CompactSessionActivityComponent {
   readonly todoTitle = todoTitle;
   readonly gitTitle = gitTitle;
+  readonly linkedTaskTitle = linkedTaskTitle;
   readonly summary = input.required<CompactSessionSummary>();
   readonly openFullView = output<void>();
 
@@ -870,6 +887,8 @@ export class CompactSessionActivityComponent {
   readonly contextPercent = input<number | null>(null);
   readonly todos = input<CompactTodoState | null>(null);
   readonly gitStats = input<CompactGitState | null>(null);
+  /** The session's primary linked task; shown on the board sub line. */
+  readonly linkedTask = input<CompactLinkedTask | null>(null);
   readonly roundedContextPercent = computed(() =>
     Math.round(this.contextPercent() ?? 0),
   );

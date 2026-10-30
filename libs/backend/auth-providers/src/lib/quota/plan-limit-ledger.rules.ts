@@ -114,6 +114,41 @@ export function carryExhaustion(
 }
 
 /**
+ * `next`'s window, keeping the held used value when `next` carries none and
+ * no reset has passed since it was read. A Claude `rate_limit_event` names
+ * only a window and its reset (its utilization is never read, G1), and it
+ * arrives on almost every turn for `five_hour`. Without this, each event
+ * replaced the `/usage` reading and the 5-hour tile fell to "usage unknown"
+ * while the weekly one kept its value. The used value keeps its own
+ * `usedObservedAt`, so it still ages by the time it was read. The held
+ * reset is kept while it is still ahead, because it bounds the same window.
+ */
+export function carryUsage(
+  prev: WindowEntry | undefined,
+  next: PlanLimitWindow,
+): PlanLimitWindow {
+  const held = prev?.window;
+  if (!held || held.used === undefined || next.used !== undefined) return next;
+  if (held.resetsAt !== undefined && held.resetsAt <= next.observedAt) {
+    return next;
+  }
+  return {
+    ...next,
+    used: held.used,
+    ...(held.usedSource !== undefined && { usedSource: held.usedSource }),
+    usedObservedAt: windowObservedAt(held),
+    ...(next.durationMins === undefined &&
+      held.durationMins !== undefined && { durationMins: held.durationMins }),
+    ...(held.resetsAt !== undefined && {
+      resetsAt: held.resetsAt,
+      ...(held.resetSource !== undefined && { resetSource: held.resetSource }),
+    }),
+    ...(next.lastResetAt === undefined &&
+      held.lastResetAt !== undefined && { lastResetAt: held.lastResetAt }),
+  };
+}
+
+/**
  * Decision 4: a full-table reading clears unknown-reset exhaustion of the
  * same allowance when it is fresh, not estimated, below the limit, and
  * observed after the exhaustion.

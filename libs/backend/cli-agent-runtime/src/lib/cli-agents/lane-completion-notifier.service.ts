@@ -281,6 +281,12 @@ export interface LaneCompletionContext {
   /** Reports this lane delivered through `ptah_agent_report` before it ended. */
   readonly reportsDelivered: number;
   readonly authMatched?: boolean;
+  /** Tool calls the lane guard counted for the lane's last task. */
+  readonly toolCalls?: number;
+  /** Caller messages a host stop discarded from the queue. */
+  readonly queuedMessagesDropped?: number;
+  /** Times the repeated call ran, for a `repeat-call` stop. */
+  readonly repeatedCalls?: number;
 }
 
 @injectable()
@@ -587,10 +593,24 @@ export class LaneCompletionNotifier {
       ...(info.taskFolder ? { taskFolder: info.taskFolder } : {}),
       taskHeadline: headline(info.task),
       deliverables,
-      verdict: LaneCompletionNotifier.verdictOf(info.status, deliverables),
+      verdict: LaneCompletionNotifier.verdictOf(
+        info.status,
+        info.stopReason,
+        deliverables,
+      ),
       reportsDelivered: context.reportsDelivered,
       ...(info.mcpAttachmentWarning ? { mcpAttachmentWarning: info.mcpAttachmentWarning } : {}),
       ...(info.cliSessionId ? { cliSessionId: info.cliSessionId } : {}),
+      ...(info.stopReason ? { stopReason: info.stopReason } : {}),
+      ...(context.toolCalls !== undefined
+        ? { toolCalls: context.toolCalls }
+        : {}),
+      ...(context.queuedMessagesDropped
+        ? { queuedMessagesDropped: context.queuedMessagesDropped }
+        : {}),
+      ...(info.stopReason && context.repeatedCalls
+        ? { repeatedCalls: context.repeatedCalls }
+        : {}),
     };
   }
 
@@ -639,12 +659,18 @@ export class LaneCompletionNotifier {
    * An existing but EMPTY deliverable counts as missing. A zero-byte file is
    * what a lane leaves behind when it opened its output and then died, and
    * calling that `delivered` would reintroduce the defect in a new shape.
+   *
+   * A lane the HOST stopped (`stopReason`, a repeat-call loop) may already
+   * have written its deliverables, so it is judged by them like a completed
+   * lane. `failed` stays for a crash, a timeout or a caller stop.
    */
   private static verdictOf(
     status: AgentProcessInfo['status'],
+    stopReason: AgentProcessInfo['stopReason'],
     deliverables: readonly LaneDeliverableCheck[],
   ): LaneCompletionVerdict {
-    if (status !== 'completed') return 'failed';
+    const hostStopped = status === 'stopped' && stopReason !== undefined;
+    if (status !== 'completed' && !hostStopped) return 'failed';
     if (deliverables.length === 0) return 'unverified';
     const allPresent = deliverables.every(
       (check) => check.exists && (check.bytes ?? 0) > 0,

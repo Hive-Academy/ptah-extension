@@ -108,7 +108,7 @@ function providerLabel(provider: ProviderId): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <section class="card bg-base-200 border border-base-300 p-3" data-glass-surface="content" aria-labelledby="web-search-heading">
+    <section class="border-b border-base-content/10 pb-7" aria-labelledby="web-search-heading">
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-1.5">
           <lucide-angular [img]="GlobeIcon" class="w-4 h-4 text-secondary" aria-hidden="true" />
@@ -277,7 +277,7 @@ function providerLabel(provider: ProviderId): string {
 
       <p class="text-xs text-base-content-muted mt-2">At least one provider must stay selected.</p>
 
-      <div class="mt-2 flex items-center gap-3 rounded border border-base-300 py-2 px-3 text-xs">
+      <div class="mt-3 flex items-center gap-3 text-xs">
         <label for="web-search-max-results" class="font-bold text-base-content whitespace-nowrap">Max results</label>
         <input id="web-search-max-results" type="range" min="1" max="20" [value]="maxResults()"
           [ptahBusyDisabled]="saving()" (change)="onMaxResultsChange($event)"

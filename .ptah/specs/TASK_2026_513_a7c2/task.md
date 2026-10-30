@@ -2,17 +2,9 @@
 id: TASK_2026_513_a7c2
 status: backlog
 type: BUGFIX
-title: >-
-  Session tile header reports the model, token count and cost of a spawned CLI
-  agent instead of the session
-description: >-
-  The Orchestra session tile header of a Claude CLI session on an Opus model
-  shows a model badge for a different vendor, together with a token count and a
-  cost figure that do not belong to that session. The observed session had
-  spawned background CLI agents from another vendor. The header appears to read
-  the model identity and the usage totals of a spawned agent, or to aggregate
-  agent usage into the session record. Find the true source of each of the four
-  header fields, then make each field report the session that owns the tile.
+title: "Decide and label whether session stats include spawned CLI lanes"
+description: "Backend session stats are authoritative since PR #587. Decide whether session totals include spawned CLI lanes, label it, reconcile the session stats header with per-message footers, and add four-field regressions for a plain session and one with a different-vendor lane."
+updated: "2026-10-30T03:38:08.921Z"
 ---
 
 # Session tile header reports the model, token count and cost of a spawned CLI agent

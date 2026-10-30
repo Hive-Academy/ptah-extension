@@ -382,6 +382,8 @@ describe('ModelResolver', () => {
       const scope = {
         read: <T>(key: string): T | undefined =>
           (configValues as Record<string, unknown>)[key] as T | undefined,
+        isStored: (key: string): boolean =>
+          (configValues as Record<string, unknown>)[key] !== undefined,
       } as unknown as WorkspaceScopeResolver;
 
       // One env object, shared — exactly as the DI container binds it.

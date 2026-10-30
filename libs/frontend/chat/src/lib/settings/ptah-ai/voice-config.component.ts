@@ -86,7 +86,7 @@ const SAVE_PROVIDER_FAILED: Record<VoiceDirection, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <section class="card bg-base-200 border border-base-300 p-3" aria-labelledby="voice-engines-heading">
+    <section class="border-b border-base-content/10 pb-7" aria-labelledby="voice-engines-heading">
       <div class="flex items-center gap-1.5 mb-2">
         <lucide-angular [img]="MicIcon" class="w-4 h-4 text-secondary" aria-hidden="true" />
         <h2 id="voice-engines-heading" class="text-xs font-bold uppercase tracking-wider text-base-content">

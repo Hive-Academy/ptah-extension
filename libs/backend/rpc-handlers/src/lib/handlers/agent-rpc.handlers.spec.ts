@@ -398,24 +398,6 @@ describe('AgentRpcHandlers — agent:resumeCliSession resume decision (G.6)', ()
 });
 
 describe('AgentRpcHandlers — agent:setConfig serialisation', () => {
-  it('validates the second of two overlapping calls against the first call’s writes', async () => {
-    const h = makeHarness();
-    // Stored pair: steer 40, stop 60 (the defaults). Each call alone is
-    // valid against it; together they would leave stop 50 <= steer 55.
-    const [raiseSteer, lowerStop] = await Promise.all([
-      call<SetConfigResult>(h, 'agent:setConfig', { laneToolCallSteerAt: 55 }),
-      call<SetConfigResult>(h, 'agent:setConfig', { laneToolCallStopAt: 50 }),
-    ]);
-
-    expect(raiseSteer).toEqual({ success: true });
-    expect(lowerStop).toEqual({
-      success: false,
-      error: 'Unsupported laneToolCallStopAt value',
-    });
-    expect(h.settings.get('agentOrchestration.laneToolCallSteerAt')).toBe(55);
-    expect(h.settings.has('agentOrchestration.laneToolCallStopAt')).toBe(false);
-  });
-
   it('starts a call only after the previous one has finished writing', async () => {
     const h = makeHarness();
     const order: string[] = [];

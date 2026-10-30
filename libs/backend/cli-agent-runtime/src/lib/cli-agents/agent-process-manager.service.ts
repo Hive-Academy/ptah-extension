@@ -317,7 +317,7 @@ export class AgentProcessManager {
     { readonly previousParent: string; signalHeld: boolean }
   >();
   /**
-   * One tool-call budget guard per running lane (TASK_2026_597, component 16),
+   * One repeat-call guard per running lane (TASK_2026_597, component 16),
    * keyed by agent id. Added in {@link trackSdkHandle}, dropped by
    * {@link releaseLaneGuard} on whichever path ends the lane.
    */
@@ -1216,7 +1216,7 @@ export class AgentProcessManager {
     }
     if (sdkHandle.onSegment) {
       // Only a handle that streams segments can show its tool calls, so only
-      // such a lane gets a budget guard.
+      // such a lane gets a guard.
       this.laneGuards.set(
         agentId,
         new LaneBudgetGuard(this.spawnEnvironment.resolveLaneGuardThresholds()),
@@ -1331,7 +1331,7 @@ export class AgentProcessManager {
   }
 
   /**
-   * Feed one segment to the lane's budget guard and carry out what it asks
+   * Feed one segment to the lane's guard and carry out what it asks
    * for. A lane that is no longer running is left alone: its ending already
    * happened on another path.
    */
@@ -1341,47 +1341,12 @@ export class AgentProcessManager {
     if (this.agents.get(agentId)?.info.status !== 'running') return;
 
     const action = guard.observe(segment);
-    if (action.kind === 'steer') {
-      this.steerLane(agentId, action.message, guard.toolCallCount);
-    } else if (action.kind === 'stop') {
-      void this.stopLaneForBudget(
+    if (action.kind === 'stop') {
+      void this.stopLaneForGuard(
         agentId,
         action.stopReason,
+        action.repeats,
         guard.toolCallCount,
-      );
-    }
-  }
-
-  /**
-   * Deliver the guard's one steer message as a mid-turn steer, and only that.
-   * It never goes through {@link sendToAgent}: a queued turn would run after
-   * the lane finished (overwriting its report), and interrupt-resume would
-   * discard the running turn's work. A handle without `steer` is logged once
-   * (the guard asks once per turn) and the stop threshold still ends the lane.
-   */
-  private steerLane(agentId: string, message: string, toolCalls: number): void {
-    const handle = this.agents.get(agentId)?.sdkHandle;
-    if (!handle?.steer) {
-      this.logger.warn(
-        '[AgentProcessManager] Lane budget steer not delivered (no mid-turn steer); the stop threshold still applies',
-        { agentId, toolCalls },
-      );
-      return;
-    }
-    try {
-      handle.steer(message);
-      this.logger.info('[AgentProcessManager] Lane budget steer sent', {
-        agentId,
-        toolCalls,
-      });
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[AgentProcessManager] Lane budget steer failed; the stop threshold still applies',
-        {
-          agentId,
-          toolCalls,
-          error: error instanceof Error ? error.message : String(error),
-        },
       );
     }
   }
@@ -1390,28 +1355,33 @@ export class AgentProcessManager {
    * Stop a lane the guard gave up on, through the ordinary {@link stop} path,
    * with `stopReason` stamped on the record.
    */
-  private async stopLaneForBudget(
+  private async stopLaneForGuard(
     agentId: string,
     stopReason: LaneStopReason,
+    repeats: number,
     toolCalls: number,
   ): Promise<void> {
     const tracked = this.agents.get(agentId);
     if (!tracked || tracked.info.status !== 'running') return;
 
-    this.logger.warn('[AgentProcessManager] Lane budget exceeded; stopping', {
+    this.logger.warn('[AgentProcessManager] Lane guard tripped; stopping', {
       agentId,
       stopReason,
+      repeats,
       toolCalls,
     });
+    tracked.repeatedCalls = repeats;
     // Stamped before `stop`, which spreads `tracked.info` into the terminal
     // record, the completion signal and `agent:exited`.
     tracked.info = { ...tracked.info, stopReason };
-    // A queued caller message must not start a new turn once the lane is stopped.
-    this.messageRouter.discardPending(agentId, tracked);
+    // A queued caller message must not start a new turn once the lane is
+    // stopped. The count goes on the completion signal, so the caller knows.
+    const dropped = this.messageRouter.discardPending(agentId, tracked);
+    if (dropped > 0) tracked.queuedMessagesDropped = dropped;
     try {
       await this.stop(agentId);
     } catch (error: unknown) {
-      this.logger.error('[AgentProcessManager] Lane budget stop failed', {
+      this.logger.error('[AgentProcessManager] Lane guard stop failed', {
         agentId,
         stopReason,
         error: error instanceof Error ? error.message : String(error),
@@ -1419,8 +1389,15 @@ export class AgentProcessManager {
     }
   }
 
-  /** Drop a lane's budget guard. Idempotent; every lane-ending path calls it. */
+  /**
+   * Drop a lane's guard, keeping its call count for the completion signal.
+   * Idempotent; every lane-ending path calls it.
+   */
   private releaseLaneGuard(agentId: string): void {
+    const guard = this.laneGuards.get(agentId);
+    if (!guard) return;
+    const tracked = this.agents.get(agentId);
+    if (tracked) tracked.guardToolCalls = guard.toolCallCount;
     this.laneGuards.delete(agentId);
   }
 
@@ -2151,7 +2128,7 @@ export class AgentProcessManager {
    * idle rule cannot apply either: the subprocess is released after
    * `SDK_IDLE_RELEASE_MS` (5 min), below the gate's 10 min idle limit, so a
    * lane idle long enough to be cold is no longer continuable and comes back
-   * through `spawn` with a resume id, where the gate runs. Only the 60k rule
+   * through `spawn` with a resume id, where the gate runs. Only the context-size rule
    * could apply here, and swapping a live lane for a fresh handoff mid
    * conversation would cost the caller its context for a token saving.
    */
@@ -2240,11 +2217,14 @@ export class AgentProcessManager {
       status: 'running',
       completedAt: undefined,
       exitCode: undefined,
+      stopReason: undefined,
     };
-    // Every turn started here carries a caller's message (the guard's steer is
-    // mid-turn only and never starts a turn), so the new task gets a fresh
-    // budget and its own steer.
+    // Every turn started here carries a caller's message, so the new task
+    // gets a fresh call count and repeat history.
     this.laneGuards.get(agentId)?.reset();
+    tracked.guardToolCalls = undefined;
+    tracked.repeatedCalls = undefined;
+    tracked.queuedMessagesDropped = undefined;
     this.armInactivityWatchdog(agentId, tracked);
 
     this.events.emit('agent:spawned', tracked.info);
@@ -3005,9 +2985,18 @@ export class AgentProcessManager {
     }
     const info = { ...tracked.info };
     const reportsDelivered = tracked.reportsDelivered;
+    // A continuation-capable lane keeps its guard past a turn's exit, so read
+    // the live count first and fall back to the one saved on release.
+    const toolCalls =
+      this.laneGuards.get(info.agentId)?.toolCallCount ?? tracked.guardToolCalls;
     void this.laneCompletion.signal(info, {
       reportsDelivered,
       authMatched: tracked.authMatched ?? false,
+      ...(toolCalls !== undefined ? { toolCalls } : {}),
+      ...(tracked.queuedMessagesDropped
+        ? { queuedMessagesDropped: tracked.queuedMessagesDropped }
+        : {}),
+      ...(tracked.repeatedCalls ? { repeatedCalls: tracked.repeatedCalls } : {}),
     });
   }
 

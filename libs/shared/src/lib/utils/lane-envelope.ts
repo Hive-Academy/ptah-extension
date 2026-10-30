@@ -1,7 +1,8 @@
 /**
  * Lane envelopes: the text a lane or a child session sends into its parent
  * session as a peer turn (`<agent-report …>` from `AgentReportRouter`,
- * `<agent-lane-completed …>` from `LaneCompletionNotifier`).
+ * `<agent-lane-completed …>` from `LaneCompletionNotifier`, or an SDK
+ * subagent's `<agent-message …>`).
  *
  * The live echo carries no `origin`; live attribution uses the yielded-entry
  * identity. The CLI does not write `origin` to the JSONL transcript, so history
@@ -16,11 +17,11 @@ export type LaneEnvelopeKind = 'report' | 'completed';
 
 export interface LaneEnvelope {
   readonly kind: LaneEnvelopeKind;
-  /** `agent-id` attribute: the lane id or the child session id. */
+  /** `agent-id` attribute, or `from` for an SDK subagent message. */
   readonly agentId: string;
-  /** `agent` attribute: the lane label a person recognizes. */
+  /** The lane label, or a short sender id for an SDK subagent message. */
   readonly agent: string;
-  /** `cli` attribute; `ptah-session` for a child chat session. */
+  /** `cli` attribute; `subagent` for an SDK subagent message. */
   readonly cli: string;
   /** `status` attribute of a completion envelope. */
   readonly status?: string;
@@ -38,6 +39,14 @@ const TAG_KIND: Readonly<Record<string, LaneEnvelopeKind>> = {
 const ENVELOPE_PATTERN =
   /^\s*<(agent-report|agent-lane-completed)((?:\s+[a-z-]+="[^"]*")*)\s*>\n?([\s\S]*?)\n?<\/\1>\s*$/;
 
+// The SDK safety trailer is one paragraph: a blank line after it starts other
+// text, which must stay visible, so the whole message is then not an envelope.
+const SDK_ENVELOPE_PATTERN =
+  /^\s*(?:Another Claude session sent a message:\s*)?<agent-message\s+from\s*=\s*"([^"]+)"\s*>\n?([\s\S]*?)\n?<\/agent-message>(?:\s*That "other Claude session"[^\n]*(?:\n(?![ \t]*\n)[^\n]*)*)?\s*$/;
+// A full opening tag with a `from` attribute; a bare `<agent-message` mention in
+// the body is not a second envelope.
+const SDK_ENVELOPE_TAG_PATTERN = /<agent-message\s+from\s*=\s*"[^"]*"\s*>/g;
+
 const ATTRIBUTE_PATTERN = /([a-z-]+)="([^"]*)"/g;
 
 /** The `cli` attribute of an envelope from a child chat session. */
@@ -51,13 +60,28 @@ function unescapeAttribute(value: string): string {
     .replace(/&amp;/g, '&');
 }
 
+function parseSdkEnvelope(text: string): LaneEnvelope | null {
+  if ([...text.matchAll(SDK_ENVELOPE_TAG_PATTERN)].length !== 1) return null;
+  const match = SDK_ENVELOPE_PATTERN.exec(text);
+  if (!match) return null;
+  const agentId = unescapeAttribute(match[1]).trim();
+  if (!agentId) return null;
+  return {
+    kind: 'report',
+    agentId,
+    agent: agentId.slice(0, 8),
+    cli: 'subagent',
+    body: match[2].trim(),
+  };
+}
+
 /**
  * Parse one whole-message lane envelope. Returns `null` when the text is not
- * exactly one envelope, or when `agent-id`, `agent` or `cli` is missing.
+ * exactly one supported envelope, or when its required attributes are missing.
  */
 export function parseLaneEnvelope(text: string): LaneEnvelope | null {
   const match = ENVELOPE_PATTERN.exec(text);
-  if (!match) return null;
+  if (!match) return parseSdkEnvelope(text);
   const attributes = new Map<string, string>();
   for (const [, name, value] of match[2].matchAll(ATTRIBUTE_PATTERN)) {
     attributes.set(name, unescapeAttribute(value));
@@ -82,9 +106,11 @@ export function parseLaneEnvelope(text: string): LaneEnvelope | null {
 /**
  * The peer label the live stream shows for this envelope's sender. It is the
  * `origin.name` the senders set: `<cli> · <agent>` for a CLI lane and
- * `session · <agent>` for a child chat session.
+ * `session · <agent>` for a child chat session. SDK subagents have no CLI
+ * origin name in history, so their short sender id is the fallback.
  */
 export function laneEnvelopePeerLabel(envelope: LaneEnvelope): string {
+  if (envelope.cli === 'subagent') return envelope.agent;
   const sender = envelope.cli === SESSION_CHILD_CLI ? 'session' : envelope.cli;
   return `${sender} · ${envelope.agent}`;
 }

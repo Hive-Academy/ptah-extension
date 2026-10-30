@@ -12,8 +12,6 @@ estimate: XS
 labels:
   - electron
   - accessibility
-relates_to:
-  - TASK_2026_555
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

@@ -25,6 +25,7 @@ import type {
   SessionPrLinkSummary,
   SessionTaskLinkRole,
   SessionTaskLinkSource,
+  SessionTodoProgress,
   SessionTurnPhase,
   TaskGraph,
   TaskLinkedSession,
@@ -79,6 +80,9 @@ const SESSION_SOURCE_LABELS: Record<SessionTaskLinkSource, string> = {
   'board-start': 'started from the board',
   agent: 'linked by an agent',
   user: 'linked by you',
+  orchestrate: 'linked by /orchestrate',
+  worktree: 'linked by its worktree',
+  inherited: 'inherited from its parent or fork',
 };
 
 const NO_SESSIONS: readonly TaskLinkedSession[] = [];
@@ -117,6 +121,28 @@ interface SessionRow {
   readonly phaseLabel: string;
   readonly dotClass: string;
   readonly prs: readonly SessionPrRow[];
+  /** The session's latest todo progress; null when none was recorded. */
+  readonly todos: SessionTodoRow | null;
+}
+
+/** A linked session's todo progress as the detail renders it. */
+interface SessionTodoRow {
+  /** `done/total`. */
+  readonly count: string;
+  /** Label of the item in progress; null when none. */
+  readonly active: string | null;
+  /** Accessible name and tooltip. */
+  readonly title: string;
+}
+
+function toTodoRow(todos: SessionTodoProgress | null): SessionTodoRow | null {
+  if (!todos || todos.total <= 0) return null;
+  const done = `${todos.done} of ${todos.total} todos done`;
+  return {
+    count: `${todos.done}/${todos.total}`,
+    active: todos.inProgress,
+    title: todos.inProgress ? `${done}; in progress: ${todos.inProgress}` : done,
+  };
 }
 
 function toPrRow(link: SessionPrLinkSummary): SessionPrRow {
@@ -147,6 +173,7 @@ function toSessionRow(session: TaskLinkedSession): SessionRow {
     phaseLabel: SESSION_PHASE_LABELS[phase],
     dotClass: SESSION_PHASE_DOT_CLASSES[phase],
     prs: session.prLinks.map(toPrRow),
+    todos: toTodoRow(session.todos),
   };
 }
 
@@ -488,6 +515,16 @@ function toSessionRow(session: TaskLinkedSession): SessionRow {
                         >{{ session.role }} · {{ session.source }} ·
                         {{ session.phaseLabel }}</span
                       >
+                      @if (session.todos; as todos) {
+                        <span
+                          class="truncate text-base-content-muted tabular-nums"
+                          [title]="todos.title"
+                          [attr.aria-label]="todos.title"
+                          data-testid="task-detail-session-todos"
+                          >Todos {{ todos.count
+                          }}{{ todos.active ? ' · ' + todos.active : '' }}</span
+                        >
+                      }
                       @if (session.prs.length > 0) {
                         <span
                           class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5"

@@ -116,6 +116,15 @@ export class PtahFileSettingsManager {
   }
 
   /**
+   * Whether `key` has a stored (user-set) value. Unlike {@link get}, the
+   * registered default does not count, so a caller can tell an explicit
+   * choice from the fallback.
+   */
+  has(key: string): boolean {
+    return this.settings[key] !== undefined;
+  }
+
+  /**
    * Set a setting value. Updates in-memory cache, persists to disk atomically,
    * then fires in-process listeners registered via watch().
    *

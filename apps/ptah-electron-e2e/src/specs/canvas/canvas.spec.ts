@@ -162,8 +162,8 @@ test.describe('Canvas Rail split focus and reorder', () => {
     const railBox = await sidebarRail.boundingBox();
     for (const index of [0, 1]) {
       const pane = panes(page).nth(index);
-      // No header row and no lane strip in a pane: only the floating pane-actions group.
-      await expect(pane.locator('ptah-canvas-lane-tabs')).toHaveCount(0);
+      // No header row in a pane: the agent dock and the floating pane-actions group.
+      await expect(pane.locator('ptah-canvas-lane-tabs')).toHaveCount(1);
       await pane.hover();
       const controls = pane.getByRole('group', { name: 'Pane controls' });
       await expect(controls).toBeVisible();
@@ -171,6 +171,9 @@ test.describe('Canvas Rail split focus and reorder', () => {
       await expect(controls.getByRole('button', { name: 'Pane actions' })).toBeVisible();
       const controlsBox = await controls.boundingBox();
       expect(controlsBox && railBox && controlsBox.x + controlsBox.width <= railBox.x + 1).toBe(true);
+      // The dock's chips stop before the floating controls.
+      const dockBox = await pane.locator('ptah-canvas-lane-tabs [role="tablist"]').boundingBox();
+      expect(dockBox && controlsBox && dockBox.x + dockBox.width <= controlsBox.x + 1).toBe(true);
     }
 
     // The sidebar follows the active pane; in split its expanded form is an overlay dialog.

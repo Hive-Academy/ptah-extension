@@ -32,7 +32,11 @@ import {
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import { SESSION_ORGANIZATION_TOKENS } from '@ptah-extension/session-organization';
+import {
+  SESSION_ORGANIZATION_TOKENS,
+  SessionAutoLinkService,
+  SessionTodoProgressService,
+} from '@ptah-extension/session-organization';
 import {
   SessionOrganizationRpcHandlers,
   deriveRpcSurface,
@@ -166,6 +170,15 @@ describe('VS Code — session organization reports itself unavailable', () => {
     expect(
       c.isRegistered(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER, true),
     ).toBe(false);
+    // TASK_2026_854: no auto-link or todo-progress part either.
+    expect(
+      c.isRegistered(SESSION_ORGANIZATION_TOKENS.AUTO_LINK_STORE, true),
+    ).toBe(false);
+    expect(c.isRegistered(SESSION_ORGANIZATION_TOKENS.SIDE_TABLES, true)).toBe(
+      false,
+    );
+    expect(c.isRegistered(SessionAutoLinkService, true)).toBe(false);
+    expect(c.isRegistered(SessionTodoProgressService, true)).toBe(false);
     expect(rpc.getRegisteredMethods()).toEqual(
       expect.arrayContaining([...SessionOrganizationRpcHandlers.METHODS]),
     );

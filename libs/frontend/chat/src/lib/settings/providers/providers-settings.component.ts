@@ -64,7 +64,6 @@ import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.
 import { commitToast } from '../feedback/settings-commit-toast';
 // Rendered only inside `@defer`, so it stays out of the eager settings bundle.
 import { KimiCodeLoginProgressComponent } from './connection-drawer/kimi-code-login-progress.component';
-import { SurfaceSectionComponent } from '@ptah-extension/ui';
 
 /**
  * Deep-link sections this page owns. Background roles and CLI agents are on the same tab, in
@@ -98,7 +97,6 @@ const CONTROL =
     MainAgentReassignPopoverComponent,
     ProviderCatalogModalComponent,
     KimiCodeLoginProgressComponent,
-    SurfaceSectionComponent,
   ],
   template: `
     <div
@@ -111,10 +109,10 @@ const CONTROL =
       <!-- Order: the Main agent section, then Connections (header, catalog caption, list). Settings renders the CLI
            matrix and the background roles after this page, so the page repeats neither.
            No page title, no Refresh: the tab names the page, and every region retries its own read. -->
-      <div class="py-3 space-y-4">
+      <div class="space-y-8 py-3">
         <!-- One card: the Main agent block, a hairline, then Connections (the divider pattern of the CLI matrix card
              between the system lanes and the Ptah CLI instances). -->
-        <ptah-surface-section tone="subtle" padding="md" glassSurface="chrome" data-testid="providers-main-connections-card">
+        <div class="space-y-8" data-testid="providers-main-connections-card">
           <!-- Main-agent region. Loading shows as the section's skeleton (aria-busy here keeps captures waiting). -->
           <div [attr.aria-busy]="mainReadsLoading()" data-testid="main-agent-region">
             <!-- The Main agent section holds the D16 badges and opens the Main Agent popover (provider, model, effort).
@@ -213,8 +211,7 @@ const CONTROL =
               </ptah-main-agent-section>
             } @placeholder {
               <div
-                class="min-h-[150px] rounded-xl border border-base-300 bg-base-200/40 p-3"
-                data-glass-surface="tile"
+                class="min-h-[150px] border-b border-base-content/10 p-3"
                 aria-busy="true"
                 data-testid="main-agent-placeholder"
               ></div>
@@ -224,7 +221,7 @@ const CONTROL =
           <!-- Connections: under the Main agent, on the same card. -->
           <section
             aria-labelledby="providers-connections-heading"
-            class="space-y-3 border-t border-base-content/15 pt-4"
+            class="space-y-3 border-t border-base-content/10 pt-6"
             data-testid="providers-connections-card"
             [attr.aria-busy]="state.connections().status === 'loading'"
           >
@@ -340,7 +337,7 @@ const CONTROL =
             <!-- Compact cards (≤ 80 px): the whole card opens the drawer, which holds every per-state action but one.
                  Rows come from the CONTAINER width: one 22 rem list column in the narrow Electron page, two at 1440 px. -->
             <div
-              class="grid grid-cols-[repeat(auto-fill,minmax(22rem,1fr))] gap-2"
+              class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-2"
               data-testid="connections-grid"
             >
               @for (connection of shownConnections(); track connection.id) {
@@ -382,7 +379,7 @@ const CONTROL =
               }
             </div>
           </section>
-        </ptah-surface-section>
+        </div>
         <!-- Catalog modal: deferred (eager route at its bundle budget); the native <dialog> traps focus and returns it. -->
         @defer (on immediate) {
           <ptah-provider-catalog-modal
@@ -952,7 +949,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     ),
   );
   protected readonly readError =
-    'flex flex-wrap items-center gap-2 rounded-md border border-base-content-muted bg-base-100 px-3 py-2 text-sm';
+    'flex flex-wrap items-center gap-2 rounded-md border border-base-content/10 px-3 py-2 text-sm';
   protected readonly retryControl =
     'btn btn-outline btn-sm border-base-content-muted text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
   /** The Connections header filter: matches the connection name or id, case-insensitive. */
