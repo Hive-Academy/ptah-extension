@@ -2,7 +2,11 @@ import type {
   MonitoredAgent,
   SubagentRecord,
 } from '@ptah-extension/chat-streaming';
-import { cliLaneStats, subagentLaneStats } from './lane-stats.adapters';
+import {
+  cliLaneStats,
+  resolveCliLaneUsage,
+  subagentLaneStats,
+} from './lane-stats.adapters';
 
 const subagent = (overrides: Partial<SubagentRecord> = {}): SubagentRecord => ({
   parentToolUseId: 'toolu_1',
@@ -143,6 +147,72 @@ describe('cliLaneStats', () => {
       tokensTitle: null,
       cost: undefined,
       costPartial: false,
+    });
+  });
+});
+
+describe('resolveCliLaneUsage', () => {
+  it('prefers host totals even when retained segments disagree', () => {
+    const structured = { inputTokens: 3, outputTokens: 4, totalTokens: 7 };
+    const lane = cli({
+      usageTotals: structured,
+      segments: [
+        { type: 'info', content: '', usage: { totalTokens: 100 } },
+      ],
+    });
+    expect(resolveCliLaneUsage(lane)).toEqual({
+      usage: structured,
+      structured,
+      partial: false,
+      tokens: 7,
+      tokensExact: true,
+    });
+  });
+
+  it('marks a retained segment fold partial even with a reported total', () => {
+    const lane = cli({
+      segments: [
+        { type: 'info', content: '', usage: { totalTokens: 10 } },
+        { type: 'info', content: '', usage: { totalTokens: 5 } },
+      ],
+    });
+    expect(resolveCliLaneUsage(lane)).toEqual({
+      usage: {
+        inputTokens: undefined,
+        outputTokens: undefined,
+        totalTokens: 15,
+        costUsd: undefined,
+        partial: true,
+      },
+      structured: null,
+      partial: true,
+      tokens: 15,
+      tokensExact: true,
+    });
+    expect(cliLaneStats(lane).tokensPartial).toBe(true);
+  });
+
+  it('distinguishes an inexact host split from absent usage', () => {
+    expect(resolveCliLaneUsage(cli({ usageTotals: { inputTokens: 0, outputTokens: 4 } })))
+      .toMatchObject({ partial: false, tokens: 4, tokensExact: false });
+    expect(resolveCliLaneUsage(cli({ usageTotals: { totalTokens: 0 } })))
+      .toMatchObject({ partial: false, tokens: 0, tokensExact: true });
+    expect(resolveCliLaneUsage(cli())).toEqual({
+      usage: null,
+      structured: null,
+      partial: false,
+      tokens: null,
+      tokensExact: false,
+    });
+    expect(resolveCliLaneUsage(cli({
+      usageTotals: {},
+      segments: [{ type: 'info', content: '', usage: { totalTokens: 90 } }],
+    }))).toEqual({
+      usage: {},
+      structured: {},
+      partial: false,
+      tokens: null,
+      tokensExact: false,
     });
   });
 });
