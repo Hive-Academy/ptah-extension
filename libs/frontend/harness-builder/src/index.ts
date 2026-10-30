@@ -16,3 +16,4 @@ export { HarnessBuilderSidebarComponent } from './lib/components/harness-builder
 export { HarnessBuilderLeaveDialogComponent } from './lib/components/harness-builder-leave-dialog.component';
 export { SetupHubComponent } from './lib/components/setup-hub.component';
 export { HarnessConfigPreviewComponent } from './lib/components/harness-config-preview.component';
+export { BuilderSessionSectionComponent } from './lib/components/sidebar/builder-session-section.component';

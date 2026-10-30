@@ -24,6 +24,8 @@ export { GenerationErrorsComponent } from './lib/components/generation-errors.co
 export { GenerationStopControlComponent } from './lib/components/generation-stop-control.component';
 export { AgentGenerationStore } from './lib/services/agent-generation.store';
 export { GenerationWorkflowStore } from './lib/services/generation-workflow.store';
+export type { GenerationViewState } from './lib/services/generation-workflow.store';
+export { safeFailureCopy } from './lib/utils/safe-failure-copy';
 export { GenerationHandoffStore } from './lib/services/generation-handoff.store';
 export { GenerationRunEventAdapter } from './lib/services/generation-run-event-adapter';
 export { SetupGenerationOpenHandler } from './lib/services/setup-generation-open.handler';

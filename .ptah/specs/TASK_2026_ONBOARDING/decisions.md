@@ -37,3 +37,18 @@
   focus ring in headless captures; narrow stage-1 captures are viewport-only (command row wrapping
   below the fold not captured); settings-providers/settings-visual e2e specs with updated
   selectors were typechecked and linted but not run. No live Electron runtime validation.
+
+## B2 (shared presentational components)
+- Implementers: Codex (part A: stepper, run chip/panel, step meter, recovery screen, owner conflict
+  banner, resume banner), Grok (part B: item status card/grid, details log). Review family:
+  in-process Claude `code-logic-reviewer`. Initial review REVISE 7.5/10 (findings 1–9); revise
+  round 1 by both lanes; re-review APPROVED 8.5/10.
+- **Coordinator bounded correction** (after the re-review, Low items): resume banner reuses
+  `ptah-run-status-chip state="resumable"` (finding 3 residual); details-log mount key is
+  `tab:<id>` so a tab id `analysis`/`unavailable` cannot hit the wrong branch (new 2). Reviewed by
+  an in-process Claude subagent — same family as the coordinator; weaker evidence; reason: a
+  six-line correction of Low items, a CLI lane round costs more than the risk.
+- **Carry to B3a/B3b:** `RunPanel` offers Retry / Start over for `stop-unconfirmed` and
+  `stop-unknown` only when the page passes `[viewState]`; pages must pass it (re-review new 1).
+- Kept: `ItemStatusCard` pending uses `Clock`, the chip idle uses `CircleDashed` (different
+  concepts, reviewer accepted).
