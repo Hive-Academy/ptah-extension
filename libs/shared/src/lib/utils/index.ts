@@ -92,6 +92,11 @@ export {
 } from './cli-usage.utils';
 export { messageTokenTotal, sessionTokenTotal } from './token-usage.utils';
 export {
+  contextFillTokens,
+  trustedContextWindow,
+  contextFillPercent,
+} from './context-fill.utils';
+export {
   activeEstimatedExhaustion,
   activeWindowExhaustion,
   applicableLimits,
