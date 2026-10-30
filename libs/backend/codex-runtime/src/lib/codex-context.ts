@@ -1,5 +1,6 @@
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import { z } from 'zod';
+import { CodexContextStateError } from './codex-context-state-error';
 import {
   CodexAppServerProcess,
   CodexHomeMismatchError,
@@ -462,7 +463,7 @@ class RuntimeContext implements CodexContext {
 
   private assertOpen(): void {
     if (this.state === 'closed' || this.state === 'opening')
-      throw new Error('Codex context is not ready');
+      throw new CodexContextStateError(this.state);
   }
 
   private isClosed(): boolean {

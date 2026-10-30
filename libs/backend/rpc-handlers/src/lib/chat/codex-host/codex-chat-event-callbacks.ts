@@ -161,6 +161,16 @@ export function createCodexChatEventCallbacks(
             { ...route, filePaths: [event.path], truncated: false },
           );
       }),
-    error: (message) => safe(() => error(message)),
+    error: (message, cwd) => safe(() => cwd !== undefined
+      ? deps.delivery.publishTerminal(deps.tabId, MESSAGE_TYPES.SESSION_TURN_FAILED, {
+          sessionId: deps.sessionId,
+          cwd,
+          lastAssistantMessage: null,
+          error: 'unknown',
+          errorDetails: message,
+          terminalReason: null,
+          timestamp: (deps.now ?? Date.now)(),
+        })
+      : error(message)),
   };
 }

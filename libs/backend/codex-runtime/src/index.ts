@@ -50,6 +50,7 @@ export {
   type CodexDevRouteOverride,
 } from './lib/codex-dev-route';
 export { CodexRuntime } from './lib/codex-runtime';
+export { CodexContextStateError } from './lib/codex-context-state-error';
 export type { CodexRuntimeOptions } from './lib/codex-context';
 export {
   CodexResumeProfileChangedError,

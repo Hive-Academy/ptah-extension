@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { CodexChatAdapterError } from '@ptah-extension/agent-sdk';
 import { resolve } from 'node:path';
 import { SessionId, type FlatStreamEventUnion } from '@ptah-extension/shared';
 import type { ISettingsStore } from '@ptah-extension/settings-core';
@@ -144,6 +145,24 @@ describe('native session controls', () => {
     });
     expect(h.writeGlobal).toHaveBeenCalledTimes(1);
     expect(h.adapter.setSessionModel).not.toHaveBeenCalled();
+  });
+  it('saves the next-open permission when a stale token points at an unavailable context', async () => {
+    const h = harness();
+    h.adapter.setSessionPermissionLevel.mockRejectedValueOnce(
+      new CodexChatAdapterError('unavailable', 'permission'),
+    );
+    await expect(h.controls.setPermission(id, 'auto-edit')).resolves.toEqual({
+      timing: 'nextTurn', revision: 0,
+    });
+    expect(h.data.get('app.electron.autopilot.permissionLevel')).toBe('auto-edit');
+    expect(h.adapter.setSessionPermissionLevel).toHaveBeenCalledTimes(1);
+  });
+  it('surfaces a genuine permission update error without saving the level', async () => {
+    const h = harness();
+    const failure = new CodexChatAdapterError('runtime-failed', 'permission');
+    h.adapter.setSessionPermissionLevel.mockRejectedValueOnce(failure);
+    await expect(h.controls.setPermission(id, 'auto-edit')).rejects.toBe(failure);
+    expect(h.data.has('app.electron.autopilot.permissionLevel')).toBe(false);
   });
   it.each(['native', 'legacy'] as const)(
     'passes the tab config and publishes the compact stream on the %s route',

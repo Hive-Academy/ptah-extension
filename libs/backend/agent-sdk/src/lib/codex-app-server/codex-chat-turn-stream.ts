@@ -16,8 +16,8 @@ import type {
   CodexChatScope,
 } from './codex-chat-adapter';
 import {
+  CodexChatAdapterError,
   isCodexChatAdapterError,
-  type CodexChatAdapterError,
 } from './codex-chat-adapter-error';
 import type { CodexChatApprovalSink } from './codex-chat-approval-sink';
 import {
@@ -33,6 +33,7 @@ import {
 export interface CodexChatSession {
   readonly id: SessionId;
   readonly token: string;
+  readonly consumer?: 'chat' | 'gateway';
   readonly context: CodexContext;
   readonly sink: CodexChatApprovalSink;
   readonly scope: CodexChatScope;
@@ -51,6 +52,37 @@ export interface CodexChatSession {
   stopRequested?: boolean;
   closing?: Promise<void>;
   compacting?: Promise<void>;
+}
+
+const FAILURE_NOTICE = 'Codex reported a runtime error.';
+
+function failureNotice(
+  session: CodexChatSession,
+  turnId: string | undefined,
+): FlatStreamEventUnion[] {
+  if (session.consumer === 'gateway') return [];
+  const messageId = `codex-error:${session.id}:${turnId ?? 'start'}`;
+  const base = {
+    timestamp: Date.now(),
+    sessionId: session.id,
+    source: 'complete' as const,
+    messageId,
+  };
+  return [
+    {
+      ...base,
+      id: `${messageId}:start`,
+      eventType: 'message_start',
+      role: 'assistant',
+    },
+    {
+      ...base,
+      id: `${messageId}:text`,
+      eventType: 'text_delta',
+      delta: FAILURE_NOTICE,
+      blockIndex: 0,
+    },
+  ];
 }
 
 interface CodexChatTurnDependencies {
@@ -76,6 +108,7 @@ export async function* streamCodexChatTurn(
   session: CodexChatSession,
   input: CodexTurnInput,
   deps: CodexChatTurnDependencies,
+  clientMessageId?: string,
 ): AsyncGenerator<FlatStreamEventUnion> {
   if (session.busy) throw deps.error('busy', 'turn');
   if (session.blocked || session.closing) throw deps.error('unavailable', 'turn');
@@ -106,6 +139,9 @@ export async function* streamCodexChatTurn(
   const started = Date.now();
   let events: AsyncIterator<CodexRuntimeEvent> | undefined;
   let projection: CodexChatEvents | undefined;
+  let errorPresented = false;
+  let failureNoticeEmitted = false;
+  let terminalStateEmitted = false;
   let compactionActive = false;
   let finishCompaction: (() => void) | undefined;
   try {
@@ -126,6 +162,10 @@ export async function* streamCodexChatTurn(
     };
     projection = new CodexChatEvents(session.id, turn, {
       ...callbacks,
+      error: (message) => {
+        errorPresented = true;
+        return callbacks.error(message, session.context.identity.workspaceId);
+      },
       compaction: (phase) => {
         if (phase === 'started') {
           if (!compactionActive) {
@@ -207,6 +247,18 @@ export async function* streamCodexChatTurn(
         }
       },
     });
+    if (clientMessageId !== undefined) {
+      yield {
+        id: `codex-user:${session.id}:${receipt.turnId}`,
+        eventType: 'message_start',
+        timestamp: Date.now(),
+        sessionId: session.id,
+        source: 'complete',
+        messageId: clientMessageId,
+        role: 'user',
+        clientMessageId,
+      };
+    }
     if (session.pendingInterrupt) {
       session.pendingInterrupt = false;
       const accepted = await deps.interrupt(session.id);
@@ -248,8 +300,31 @@ export async function* streamCodexChatTurn(
         if (event.type === 'usage') session.usage = event.usage;
         if (event.type === 'terminal' && event.usage) session.usage = event.usage;
       }
-      await projection.settled();
+      let terminalError: CodexChatAdapterError | undefined;
+      try {
+        await projection.settled();
+      } catch (error) {
+        if (event.type !== 'terminal' || !isCodexChatAdapterError(error)) throw error;
+        terminalError = error;
+      }
+      if (terminalError && terminalError.code !== 'cancelled' && !failureNoticeEmitted) {
+        failureNoticeEmitted = true;
+        yield* failureNotice(session, receipt.turnId);
+      }
       for (const mapped of mappedEvents) {
+        // message_complete makes the broadcaster publish a successful chat:complete.
+        // Failed and interrupted terminals settle through turn_state instead.
+        if (terminalError && mapped.eventType === 'message_complete') {
+          const settled = settleTurn();
+          if (settled) {
+            terminalStateEmitted = true;
+            yield {
+              ...toTurnStateEvent(session.id, settled),
+              ...(clientMessageId === undefined ? {} : { consumedClientMessageId: clientMessageId }),
+            };
+          }
+          continue;
+        }
         if (mapped.eventType === 'message_start' && !mapped.parentToolUseId) {
           const generating = deps.turnState.markGenerating(session.id);
           if (generating) yield toTurnStateEvent(session.id, generating);
@@ -257,19 +332,59 @@ export async function* streamCodexChatTurn(
         yield mapped;
         if (mapped.eventType === 'message_complete') {
           const settled = settleTurn();
-          if (settled) yield toTurnStateEvent(session.id, settled);
+          if (settled) {
+            terminalStateEmitted = true;
+            yield {
+              ...toTurnStateEvent(session.id, settled),
+              ...(clientMessageId === undefined ? {} : { consumedClientMessageId: clientMessageId }),
+            };
+          }
         }
       }
+      if (terminalError) throw terminalError;
       if (terminal) return;
     }
     throw deps.error('runtime-failed', 'stream');
   } catch (error) {
-    if (session.abort.signal.aborted) throw deps.error('cancelled', 'turn');
-    if (session.stopRequested) {
-      if (!terminal && !session.closing) await deps.close(session);
-      throw deps.error('cancelled', 'turn');
+    const interrupted = session.abort.signal.aborted || session.stopRequested ||
+      (isCodexChatAdapterError(error) && error.code === 'cancelled');
+    const failure = interrupted ? deps.error('cancelled', 'turn') : deps.failure(error, 'turn');
+    if (!interrupted && !failureNoticeEmitted) {
+      failureNoticeEmitted = true;
+      yield* failureNotice(session, session.turnId);
     }
-    throw deps.failure(error, 'turn');
+    if (!terminalStateEmitted) {
+      terminalStatus = interrupted ? 'interrupted' : 'failed';
+      const settled = settleTurn();
+      if (settled) yield {
+        ...toTurnStateEvent(session.id, settled),
+        ...(clientMessageId === undefined ? {} : { consumedClientMessageId: clientMessageId }),
+      };
+    }
+    if (!interrupted) {
+      if (!errorPresented) {
+        void Promise.resolve()
+          .then(() => deps.callbacks(session.id, undefined).error(
+            FAILURE_NOTICE, session.context.identity.workspaceId,
+          ))
+          .catch((publicationError: unknown) => {
+            deps.logger.error(
+              '[CodexChatAdapter] Failed to publish turn error.',
+              publicationError instanceof Error
+                ? publicationError
+                : new Error(String(publicationError)),
+            );
+          });
+      }
+      if (!session.closing) await deps.close(session);
+    } else if (session.stopRequested && !terminal && !session.closing) {
+      await deps.close(session);
+    }
+    throw interrupted ? failure : new CodexChatAdapterError(
+      failure.code,
+      failure.operation,
+      { cause: failure, webviewReported: true },
+    );
   } finally {
     finishCompaction?.();
     // A consumer can detach between message_complete and its settlement event.
@@ -354,6 +469,7 @@ async function drainInterruptedTurn(
           (error.code === 'cancelled' || error.code === 'runtime-failed')
         ) {
           settleTurn();
+          if (error.code === 'runtime-failed') await deps.close(session);
           terminal = true;
           return;
         }

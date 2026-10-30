@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Chat stream broadcaster.
  *
  * Owns the webview broadcast loop (`streamEventsToWebview`). Moves
@@ -342,12 +342,13 @@ export class ChatStreamBroadcaster {
       }
       // The turn is over whatever happened; tell the UI IN the chunk stream so
       // the idle state lands after the chunks and before CHAT_ERROR.
-      pushTurnState(
-        this.turnState.forceIdle(
-          turnSessionId,
-          isUserAbort ? 'aborted_streaming' : undefined,
-        ),
-      );
+      if (this.turnState.get(turnSessionId)?.phase !== 'failed')
+        pushTurnState(
+          this.turnState.forceIdle(
+            turnSessionId,
+            isUserAbort ? 'aborted_streaming' : undefined,
+          ),
+        );
       await flush();
       const isZeroEventFailure = eventCount === 0 && !isUserAbort;
       const isFailedStart = isZeroEventFailure && sessionId === tabId;

@@ -257,6 +257,17 @@ describe('Codex chat event callbacks', () => {
       { tabId: 'tab', sessionId, error: 'safe runtime error' },
     );
   });
+  it('publishes one Claude turn-failed notification for a native turn failure', async () => {
+    const h = harness();
+    await h.callbacks.error('runtime error', '/workspace');
+    expect(h.delivery.publishTerminal).toHaveBeenCalledTimes(1);
+    expect(h.delivery.publishTerminal).toHaveBeenCalledWith(
+      'tab', MESSAGE_TYPES.SESSION_TURN_FAILED,
+      expect.objectContaining({
+        sessionId, cwd: '/workspace', error: 'unknown', errorDetails: 'runtime error',
+      }),
+    );
+  });
   it('contains synchronous throws and asynchronous rejection and logs the real error', async () => {
     const h = harness();
     h.delivery.publish.mockImplementation(() => {

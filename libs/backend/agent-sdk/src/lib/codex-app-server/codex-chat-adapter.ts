@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import type { DependencyContainer } from 'tsyringe';
 import {
   resolveGatedCodexRuntime,
+  CodexContextStateError,
   isCodexResumeProfileChangedError,
   type ApprovalSink,
   type CodexContext,
@@ -42,6 +43,7 @@ import {
   type SessionApprovalRouter,
 } from './session-approval-router';
 import { CodexChatAdapterError } from './codex-chat-adapter-error';
+import { z } from 'zod';
 
 export interface CodexChatMetadataPort {
   save(
@@ -248,7 +250,13 @@ export class CodexChatAdapter implements NativeChatAdapter {
     let stagedId: SessionId | undefined;
     try {
       const consumer = config.consumer ?? 'chat';
-      const prepared = await this.prepareProfile(config, resumeId);
+      const clientMessageId = z.string().min(1).optional().parse(
+        'clientMessageId' in config ? config.clientMessageId : undefined,
+      );
+      const profileConfig = 'clientMessageId' in config
+        ? (({ clientMessageId: _clientMessageId, ...rest }) => rest)(config)
+        : config;
+      const prepared = await this.prepareProfile(profileConfig, resumeId);
       this.checkOpening(opening, generation);
       scope = this.createScope(() => sink);
       context = await this.openContext(scope, prepared, consumer);
@@ -269,7 +277,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       return this.turn(session, {
         text: config.prompt ?? '',
         attachments: prepared.profile.attachments,
-      });
+      }, clientMessageId);
     } catch (error) {
       const failure = this.failure(error, 'open');
       if (session) this.sessions.delete(session.id);
@@ -366,6 +374,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       },
       id,
       token: randomUUID(),
+      consumer: profile.consumer === 'gateway' ? 'gateway' : 'chat',
       context,
       sink,
       scope,
@@ -461,8 +470,9 @@ export class CodexChatAdapter implements NativeChatAdapter {
   private async publish(
     session: Session,
     input: CodexTurnInput,
+    clientMessageId?: string,
   ): Promise<void> {
-    const iterator = this.turn(session, input)[Symbol.asyncIterator]();
+    const iterator = this.turn(session, input, clientMessageId)[Symbol.asyncIterator]();
     try {
       await this.safe('publish', () =>
         this.ports.publish(session.id, {
@@ -513,6 +523,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
   private turn(
     session: Session,
     input: CodexTurnInput,
+    clientMessageId?: string,
   ): AsyncIterable<FlatStreamEventUnion> {
     if (session.busy) throw new CodexChatAdapterError('busy', 'turn');
     if (session.blocked || session.closing)
@@ -528,18 +539,20 @@ export class CodexChatAdapter implements NativeChatAdapter {
       notifyCompaction: (active, trigger) => this.notifyCompaction(active, trigger),
       error: (code, operation) => new CodexChatAdapterError(code, operation),
       failure: (error, operation) => this.failure(error, operation),
-    });
+    }, clientMessageId);
   }
   async sendMessageToSession(
     ...[id, text, options]: Parameters<IAgentAdapter['sendMessageToSession']>
   ): Promise<void> {
-    if (
-      options &&
-      Object.keys(options).some(
-        (key) => !['files', 'images', 'admission'].includes(key),
-      )
-    )
-      this.unsupported('messageOptions');
+    if (options && Object.keys(options).some(
+      (key) => !['files', 'images', 'admission', 'clientMessageId'].includes(key),
+    )) throw this.failure(this.unsupportedError('messageOptions'), 'messageOptions');
+    let clientMessageId: string | undefined;
+    try {
+      clientMessageId = z.string().min(1).optional().parse(options?.clientMessageId);
+    } catch (error) {
+      throw this.failure(error, 'messageOptions');
+    }
     const attachments = [
       ...(options?.files ?? []).map((path) => ({
         type: 'file' as const,
@@ -550,7 +563,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
         ...image,
       })),
     ];
-    await this.publish(this.session(id), { text, attachments });
+    await this.publish(this.session(id), { text, attachments }, clientMessageId);
   }
   owns(id: SessionId): boolean {
     return this.sessions.has(id) || this.opening.has(id);
@@ -708,9 +721,15 @@ export class CodexChatAdapter implements NativeChatAdapter {
     )
       this.unsupported('permissionAlias');
     const session = this.session(id);
-    await this.safe('permission', () =>
-      session.context.updateNextTurn({ permissionLevel: level }),
-    );
+    await this.safe('permission', async () => {
+      try {
+        await session.context.updateNextTurn({ permissionLevel: level });
+      } catch (error) {
+        if (error instanceof CodexContextStateError && error.state === 'closed')
+          throw new CodexChatAdapterError('unavailable', 'permission', { cause: error });
+        throw error;
+      }
+    });
     session.settings = { ...session.settings, permissionLevel: level };
   }
   async setSessionModel(
@@ -764,6 +783,9 @@ export class CodexChatAdapter implements NativeChatAdapter {
   }
   private unsupported(operation: string): never {
     throw new CodexChatAdapterError('unsupported', operation);
+  }
+  private unsupportedError(operation: string): CodexChatAdapterError {
+    return new CodexChatAdapterError('unsupported', operation);
   }
   private failure(error: unknown, operation: string): CodexChatAdapterError {
     const failure = error instanceof CodexChatAdapterError

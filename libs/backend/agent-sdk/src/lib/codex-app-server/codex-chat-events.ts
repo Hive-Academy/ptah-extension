@@ -45,7 +45,7 @@ export interface CodexChatEventCallbacks {
     >,
   ): void;
   compaction(phase: 'started' | 'completed' | 'failed'): void;
-  error(message: string): void;
+  error(message: string, cwd?: string): void | Promise<void>;
 }
 
 /** One projection per turn. Core events are already normalized. */
@@ -53,10 +53,17 @@ export class CodexChatEvents {
   private pending: Promise<void> = Promise.resolve();
 
   async settled(): Promise<void> {
+    if (this.errorEmitted) {
+      // Failure publication is best effort. A stuck UI callback cannot retain
+      // the native session or keep the terminal state behind it.
+      // degradation-audit: reported - The host callback logs publication failures; the native turn must settle independently.
+      void this.pending.catch(() => undefined);
+      if (this.streamFailure) throw this.streamFailure;
+      return;
+    }
     await this.pending;
-    // Callbacks (the one webview error card, the turn result) have finished.
-    // Rejecting here is the Claude stream contract: the iterator throws
-    // (stream-transformer.ts) and the gateway catch sends its failure reply.
+    // Successful turns wait for their callbacks. Failed turns have already
+    // signalled the iterator without waiting for error presentation.
     if (this.streamFailure) throw this.streamFailure;
   }
 
@@ -69,8 +76,8 @@ export class CodexChatEvents {
   private terminal = false;
   private errorEmitted = false;
   /**
-   * Set on a failed or interrupted terminal. `settled()` rejects with it
-   * after callbacks finish, so the turn generator
+   * Set on a failed or interrupted terminal. `settled()` rejects with it,
+   * so the turn generator
    * (`codex-chat-turn-stream.ts`) throws before it yields
    * `message_complete`. A clean return is what the gateway seals as a
    * successful reply.
@@ -115,7 +122,12 @@ export class CodexChatEvents {
     };
     const projected = this.project(event, base);
     // Neither a card-only question nor a diagnostic opens assistant content.
-    if (event.type === 'error' || (event.type === 'userInputAsync' && event.presentation !== 'text')) return projected;
+    if (
+      event.type === 'error' ||
+      (event.type === 'userInputAsync' && event.presentation !== 'text') ||
+      (event.type === 'terminal' &&
+        (event.status !== 'completed' || event.error !== undefined))
+    ) return projected;
     if (this.started) return projected;
     this.started = true;
     return [
@@ -287,7 +299,7 @@ export class CodexChatEvents {
         if (failed) this.error();
         const usage = event.usage ?? this.usage;
         const result: CodexChatResult = {
-          status: event.status,
+          status: failed ? 'failed' : event.status,
           text: [...this.text.values()].join(''),
           ...(usage === undefined ? {} : { usage }),
           ...(failed ? { error: 'Codex reported a runtime error.' } : {}),
@@ -298,8 +310,8 @@ export class CodexChatEvents {
         this.usage = undefined;
         this.track(this.callbacks.result(result));
         // Failed and interrupted turns must not end the generator normally.
-        // `error()` above is the existing webview card; this rejection is
-        // the stream signal. A completed terminal with no error stays a
+        // `error()` above publishes the host failure notification. The stream
+        // adds the transcript notice separately. A completed terminal stays a
         // clean settlement.
         if (failed) {
           this.streamFailure = new CodexChatAdapterError('runtime-failed', 'turn', {
@@ -339,6 +351,6 @@ export class CodexChatEvents {
   private error(): void {
     if (this.errorEmitted) return;
     this.errorEmitted = true;
-    this.callbacks.error('Codex reported a runtime error.');
+    this.track(this.callbacks.error('Codex reported a runtime error.'));
   }
 }

@@ -3,6 +3,7 @@ import type {
   LegacySettingsPersistence,
   NativeSessionControls,
 } from '@ptah-extension/agent-sdk';
+import { isCodexChatAdapterError } from '@ptah-extension/agent-sdk';
 import {
   WorkspaceScopeResolver,
   providerSelectedModelDef,
@@ -185,7 +186,19 @@ export function createNativeSessionControls(
         states.set(id, state);
       }
       const old = previous(state.settings);
-      await apply(value);
+      try {
+        await apply(value);
+      } catch (error) {
+        if (
+          !isCodexChatAdapterError(error) ||
+          error.code !== 'unavailable' ||
+          error.operation !== 'permission'
+        )
+          throw error;
+        states.delete(id);
+        await save();
+        return { timing: 'nextTurn', revision: 0 };
+      }
       try {
         await save();
       } catch (saveError) {

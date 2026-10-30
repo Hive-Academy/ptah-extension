@@ -10,6 +10,7 @@ import {
 import { CodexProtocolError } from './codex-protocol-validator';
 import { CodexMcpConfigError } from './codex-mcp-config';
 import { CodexRuntime } from './codex-runtime';
+import { CodexContextStateError } from './codex-context-state-error';
 import {
   codexProfileFingerprint,
   resolveCodexLevelPolicy,
@@ -559,9 +560,24 @@ describe('CodexRuntime', () => {
     await expect(context.listModels()).rejects.toThrow(
       'Codex context is not ready',
     );
+    await expect(context.updateNextTurn({ permissionLevel: 'plan' })).rejects.toMatchObject({
+      name: 'CodexContextStateError',
+      state: 'closed',
+    });
     expect(
       children[0].frames.some((frame) => frame['method'] === 'model/list'),
     ).toBe(false);
+  });
+
+  it('distinguishes an opening context from a closed context by type and state', () => {
+    expect(new CodexContextStateError('opening')).toMatchObject({
+      name: 'CodexContextStateError', state: 'opening',
+      message: 'Codex context is not ready',
+    });
+    expect(new CodexContextStateError('closed')).toMatchObject({
+      name: 'CodexContextStateError', state: 'closed',
+      message: 'Codex context is not ready',
+    });
   });
 
   it('strictly validates model list request parameters', () => {

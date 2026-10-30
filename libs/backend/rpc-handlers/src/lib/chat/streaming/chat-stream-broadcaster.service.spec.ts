@@ -30,7 +30,7 @@ import type {
   SdkAgentAdapter,
   SessionMetadataStore,
 } from '@ptah-extension/agent-sdk';
-import { SessionTurnStateRegistry } from '@ptah-extension/agent-sdk';
+import { SessionTurnStateRegistry, toTurnStateEvent } from '@ptah-extension/agent-sdk';
 import type { PtahCliRegistry } from '@ptah-extension/cli-agent-runtime';
 import type { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
@@ -1051,6 +1051,30 @@ function turnStateChunks(h: Harness): TurnStateEvent[] {
 }
 
 describe('ChatStreamBroadcaster.streamEventsToWebview - turn state (TASK_2026_360)', () => {
+  it('preserves a reported failed terminal without publishing a second error', async () => {
+    const h = makeHarness();
+    const failure = new Error('Codex chat turn: runtime-failed');
+    Object.defineProperty(failure, 'webviewReported', { value: true });
+    h.turnState.recordFailure(SESSION_ID, {
+      error: 'unknown',
+      terminalReason: null,
+    });
+    const failed = h.turnState.settleTurn(SESSION_ID);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield toTurnStateEvent(SESSION_ID, failed);
+      throw failure;
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(turnStateChunks(h)).toEqual([
+      expect.objectContaining({ sessionId: SESSION_ID, phase: 'failed' }),
+    ]);
+    expect(broadcastsFor(h, 'chat:error')).toHaveLength(0);
+    expect(h.sdkAdapter.endSession).not.toHaveBeenCalled();
+  });
+
   it('flushes and forces idle for a webview-reported failure without another error card', async () => {
     const h = makeHarness();
     h.turnState.markGenerating(SESSION_ID);

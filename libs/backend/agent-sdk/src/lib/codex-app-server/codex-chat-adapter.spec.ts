@@ -4,6 +4,7 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import { container } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
+  CodexContextStateError,
   CodexResumeProfileChangedError,
   CodexParityGate,
   type ApprovalSink,
@@ -236,10 +237,65 @@ describe('CodexChatAdapter', () => {
       yield { ...terminal, status };
     })());
     const stream = await h.adapter.startChatSession({ tabId, prompt: 'hello' });
-    await expect(stream[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+    const iterator = stream[Symbol.asyncIterator]();
+    if (status === 'failed') {
+      expect((await iterator.next()).value).toMatchObject({
+        eventType: 'message_start', role: 'assistant', source: 'complete',
+      });
+      expect((await iterator.next()).value).toMatchObject({
+        eventType: 'text_delta', delta: 'Codex reported a runtime error.',
+      });
+    }
+    expect((await iterator.next()).value).toMatchObject({
+      eventType: 'turn_state', phase: status === 'failed' ? 'failed' : 'idle',
+    });
+    await expect(iterator.next()).rejects.toMatchObject({
       code: status === 'failed' ? 'runtime-failed' : 'cancelled',
     });
     expect(h.ports.metadata.completedTurn).not.toHaveBeenCalled();
+    await h.adapter.dispose();
+  });
+
+  it('accepts a follow-up client id, echoes it once and consumes it without forwarding it', async () => {
+    const h = setup();
+    const events: FlatStreamEventUnion[] = [];
+    jest.mocked(h.ports.publish).mockImplementation(async (_id, stream) => {
+      for await (const event of stream) events.push(event);
+    });
+    const first = await h.adapter.startChatSession({ tabId });
+    for await (const event of first) void event;
+    await h.adapter.sendMessageToSession(id, 'follow-up', {
+      clientMessageId: 'prompt-2', files: [], images: [],
+    });
+    expect(events.filter((event) => event.eventType === 'message_start' && event.role === 'user'))
+      .toEqual([expect.objectContaining({ clientMessageId: 'prompt-2', sessionId: id })]);
+    expect(events.filter((event) => event.eventType === 'turn_state' && event.consumedClientMessageId))
+      .toEqual([expect.objectContaining({ consumedClientMessageId: 'prompt-2', phase: 'idle' })]);
+    expect(h.context.startTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: 'follow-up', attachments: [],
+    }));
+    expect(jest.mocked(h.context.startTurn).mock.lastCall?.[0]).not.toHaveProperty('clientMessageId');
+    await h.adapter.dispose();
+  });
+
+  it('logs a rejected follow-up option through failure', async () => {
+    const h = setup();
+    await expect(h.adapter.sendMessageToSession(id, 'text', { model: 'gpt' }))
+      .rejects.toMatchObject({ code: 'unsupported' });
+    expect(h.ports.logger.error).toHaveBeenCalledWith(
+      '[CodexChatAdapter] unsupported: messageOptions.', expect.any(Error),
+    );
+    await h.adapter.dispose();
+  });
+
+  it('logs an invalid client message id through failure before starting a turn', async () => {
+    const h = setup();
+    await expect(h.adapter.sendMessageToSession(id, 'text', { clientMessageId: '' }))
+      .rejects.toMatchObject({ code: 'runtime-failed', operation: 'messageOptions' });
+    expect(h.ports.logger.error).toHaveBeenCalledWith(
+      '[CodexChatAdapter] runtime-failed: messageOptions.', expect.any(Error),
+    );
+    expect(h.context.startTurn).not.toHaveBeenCalled();
     await h.adapter.dispose();
   });
 
@@ -588,6 +644,24 @@ describe('CodexChatAdapter', () => {
     ).rejects.toMatchObject({ code: 'unsupported' });
     await adapter.interruptSession(id);
   });
+  it('types a closed context as unavailable while preserving a real permission failure', async () => {
+    const h = setup();
+    const stream = await h.adapter.startChatSession({ tabId });
+    for await (const event of stream) void event;
+    h.context.updateNextTurn.mockRejectedValueOnce(new CodexContextStateError('closed'));
+    await expect(h.adapter.setSessionPermissionLevel(id, 'auto-edit'))
+      .rejects.toMatchObject({ code: 'unavailable', operation: 'permission' });
+    h.context.updateNextTurn.mockRejectedValueOnce(new CodexContextStateError('opening'));
+    await expect(h.adapter.setSessionPermissionLevel(id, 'auto-edit'))
+      .rejects.toMatchObject({ code: 'runtime-failed', operation: 'permission' });
+    h.context.updateNextTurn.mockRejectedValueOnce(new Error('Codex context is not ready'));
+    await expect(h.adapter.setSessionPermissionLevel(id, 'auto-edit'))
+      .rejects.toMatchObject({ code: 'runtime-failed', operation: 'permission' });
+    h.context.updateNextTurn.mockRejectedValueOnce(new Error('disk failed'));
+    await expect(h.adapter.setSessionPermissionLevel(id, 'auto-edit'))
+      .rejects.toMatchObject({ code: 'runtime-failed', operation: 'permission' });
+    await h.adapter.dispose();
+  });
 
   it('passes resolved MCP secrets only to runtime.open on start and resume', async () => {
     // Closing the started session disposes its scope, so the resume must open
@@ -650,7 +724,7 @@ describe('CodexChatAdapter', () => {
     ])
       expect(action).toThrow(CodexChatAdapterError);
   });
-  it('keeps the session after a missing terminal error', async () => {
+  it('retires the session after a missing terminal error', async () => {
     const { adapter, context, dispose } = setup();
     context.events.mockImplementation(() =>
       (async function* () {
@@ -665,21 +739,22 @@ describe('CodexChatAdapter', () => {
       })(),
     );
     const stream = await adapter.startChatSession({ tabId });
+    const output: FlatStreamEventUnion[] = [];
     await expect(
       (async () => {
-        for await (const event of stream) void event;
+        for await (const event of stream) output.push(event);
       })(),
     ).rejects.toMatchObject({ code: 'runtime-failed' });
-    expect(context.close).not.toHaveBeenCalled();
-    expect(dispose).not.toHaveBeenCalled();
-    expect(adapter.isSessionActive(id)).toBe(true);
-    context.events.mockImplementation(() =>
-      (async function* () {
-        yield terminal;
-      })(),
-    );
-    await adapter.sendMessageToSession(id, 'retry');
-    await adapter.interruptSession(id);
+    expect(output.filter((event) => event.eventType === 'text_delta'))
+      .toEqual([
+        expect.objectContaining({ delta: 'hello' }),
+        expect.objectContaining({ delta: 'Codex reported a runtime error.' }),
+      ]);
+    expect(output.at(-1)).toMatchObject({ eventType: 'turn_state', phase: 'failed' });
+    expect(context.close).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(adapter.isSessionActive(id)).toBe(false);
+    await expect(adapter.interruptSession(id)).resolves.toBeUndefined();
   });
   it('binds approval ownership to the context and releases it on end', async () => {
     const { adapter, ports, sink } = setup();
@@ -1071,23 +1146,36 @@ it.each(['unconsumed', 'returned', 'publish-failure'] as const)(
     await adapter.interruptSession(id);
   },
 );
-it('retains context and releases busy after a transient start rejection', async () => {
+it('settles and retires a session after a start-turn rejection', async () => {
   const { adapter, context, ports } = setup();
   const error = new Error('temporary');
   context.startTurn.mockRejectedValueOnce(error);
   const stream = await adapter.startChatSession({ tabId });
-  await expect(stream[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+  const iterator = stream[Symbol.asyncIterator]();
+  expect((await iterator.next()).value).toMatchObject({
+    eventType: 'message_start', role: 'assistant', source: 'complete',
+  });
+  expect((await iterator.next()).value).toMatchObject({
+    eventType: 'text_delta', delta: 'Codex reported a runtime error.',
+  });
+  expect((await iterator.next()).value).toMatchObject({
+    eventType: 'turn_state', phase: 'failed', sessionId: id,
+  });
+  await expect(iterator.next()).rejects.toMatchObject({
     code: 'runtime-failed',
     message: 'Codex chat turn: runtime-failed',
-    cause: error,
+    cause: expect.objectContaining({ cause: error }),
+    webviewReported: true,
   });
   expect(ports.logger.error).toHaveBeenCalledWith(
     '[CodexChatAdapter] runtime-failed: turn.',
     error,
   );
-  await adapter.sendMessageToSession(id, 'retry');
-  expect(context.close).not.toHaveBeenCalled();
-  await adapter.interruptSession(id);
+  expect(context.close).toHaveBeenCalledTimes(1);
+  expect(adapter.isSessionActive(id)).toBe(false);
+  await expect(adapter.sendMessageToSession(id, 'retry'))
+    .rejects.toMatchObject({ code: 'unavailable' });
+  await expect(adapter.interruptSession(id)).resolves.toBeUndefined();
 });
 it('retains setting failures as causes and logs the original error', async () => {
   const { adapter, context, ports } = setup();

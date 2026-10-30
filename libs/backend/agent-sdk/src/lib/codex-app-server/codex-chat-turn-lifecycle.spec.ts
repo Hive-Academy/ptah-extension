@@ -17,7 +17,6 @@ import {
   CodexChatAdapter,
   type CodexChatAdapterPorts,
 } from './codex-chat-adapter';
-import { CodexChatAdapterError } from './codex-chat-adapter-error';
 import { SessionApprovalRouter } from './session-approval-router';
 import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
 
@@ -56,7 +55,7 @@ function mockLogger(): Logger {
   return Object.assign(Object.create(Logger.prototype), createMockLogger());
 }
 
-function setup(override = true) {
+function setup(override = true, consumer: 'chat' | 'gateway' = 'chat') {
   const logger = mockLogger();
   const turnState = new SessionTurnStateRegistry();
   const context: jest.Mocked<CodexContext> = {
@@ -153,7 +152,7 @@ function setup(override = true) {
       },
     },
     profile: jest.fn(async (_config, resumeId) => ({
-      profile,
+      profile: { ...profile, consumer },
       ...(resumeId ? { resume: identity } : {}),
     })),
     createScope: (value) => {
@@ -236,6 +235,39 @@ describe('Codex chat turn lifecycle', () => {
     });
     expect(states[1].revision).toBeGreaterThan(states[0].revision);
     expect(h.turnState.get(id)?.revision).toBe(states[1].revision);
+    await h.adapter.dispose();
+  });
+
+  it.each([
+    ['completed', 'idle'], ['interrupted', 'idle'], ['failed', 'failed'],
+  ] as const)('consumes a first-turn prompt on %s', async (status, phase) => {
+    const h = setup();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, status };
+    })());
+    const start = { tabId, prompt: 'hello', clientMessageId: 'prompt-1' };
+    const output: FlatStreamEventUnion[] = [];
+    let failure: unknown;
+    try {
+      for await (const event of await h.adapter.startChatSession(start)) output.push(event);
+    } catch (error) {
+      failure = error;
+    }
+    expect(output.filter((event) => event?.eventType === 'message_start' && event.role === 'user'))
+      .toEqual([expect.objectContaining({ clientMessageId: 'prompt-1' })]);
+    expect(output.at(-1)).toMatchObject({
+      eventType: 'turn_state', phase, consumedClientMessageId: 'prompt-1',
+    });
+    if (status === 'completed') expect(failure).toBeUndefined();
+    else expect(failure).toMatchObject({
+      code: status === 'failed' ? 'runtime-failed' : 'cancelled',
+    });
+    const notices = output.filter((event) =>
+      event.eventType === 'text_delta' && event.delta === 'Codex reported a runtime error.',
+    );
+    expect(notices).toHaveLength(status === 'failed' ? 1 : 0);
+    if (status === 'failed')
+      expect(output.indexOf(notices[0])).toBeLessThan(output.length - 1);
     await h.adapter.dispose();
   });
 
@@ -362,7 +394,7 @@ describe('Codex chat turn lifecycle', () => {
     ['interrupted', 'idle', 'aborted_streaming'],
     ['failed', 'failed', null],
   ] as const)(
-    'settles a %s terminal without yielding message_complete',
+    'settles a %s terminal with a consumable terminal state',
     async (status, phase, terminalReason) => {
       const h = setup();
       h.context.events.mockImplementation(() =>
@@ -371,21 +403,27 @@ describe('Codex chat turn lifecycle', () => {
           yield { ...terminal, status };
         })(),
       );
-      const iterator = (await h.adapter.startChatSession({ tabId }))[Symbol.asyncIterator]();
-      const output = [await iterator.next(), await iterator.next(), await iterator.next()];
-      expect(output.map((item) => item.value?.eventType)).toEqual([
-        'turn_state',
-        'message_start',
-        'text_delta',
-      ]);
-      await expect(iterator.next()).rejects.toMatchObject({
+      const output: FlatStreamEventUnion[] = [];
+      let failure: unknown;
+      try {
+        for await (const event of await h.adapter.startChatSession({ tabId })) output.push(event);
+      } catch (error) {
+        failure = error;
+      }
+      expect(output.map((event) => event.eventType)).toEqual(status === 'failed'
+        ? ['turn_state', 'message_start', 'text_delta', 'message_start', 'text_delta', 'turn_state']
+        : ['turn_state', 'message_start', 'text_delta', 'turn_state']);
+      expect(output.at(-1)).toMatchObject({ phase, terminalReason, sessionId: id });
+      expect(failure).toMatchObject({
         code: status === 'failed' ? 'runtime-failed' : 'cancelled',
         webviewReported: status === 'failed' ? true : undefined,
       });
+      expect(output.filter((event) => event.eventType === 'text_delta' &&
+        event.delta === 'Codex reported a runtime error.')).toHaveLength(status === 'failed' ? 1 : 0);
       expect(h.turnState.get(id)).toMatchObject({ phase, terminalReason });
       if (status === 'failed') {
         expect(h.turnState.get(id)).toMatchObject({ error: 'unknown' });
-        expect(h.callbacks.error).toHaveBeenCalledWith('Codex reported a runtime error.');
+        expect(h.callbacks.error).toHaveBeenCalledWith('Codex reported a runtime error.', '/workspace');
         expect(h.ports.logger.error).toHaveBeenCalledWith(
           expect.stringContaining('runtime-failed: turn'),
           expect.any(Error),
@@ -393,6 +431,7 @@ describe('Codex chat turn lifecycle', () => {
       } else {
         expect(h.callbacks.error).not.toHaveBeenCalled();
       }
+      if (status === 'failed') expect(h.adapter.owns(id)).toBe(false);
       await h.adapter.dispose();
     },
   );
@@ -465,12 +504,11 @@ describe('Codex chat turn lifecycle', () => {
       };
       const approval = h.sink().request(request, new AbortController().signal);
       const pending = iterator.next();
-      const rejected = expect(pending).rejects.toBeInstanceOf(
-        CodexChatAdapterError,
-      );
       await h.adapter.interruptSession(id);
-      await rejected;
-      await expect(pending).rejects.toMatchObject({
+      await expect(pending).resolves.toMatchObject({
+        value: { eventType: 'turn_state', phase: 'idle' },
+      });
+      await expect(iterator.next()).rejects.toMatchObject({
         code: 'cancelled',
         message: expect.stringMatching(/cancel/i),
       });
@@ -483,7 +521,6 @@ describe('Codex chat turn lifecycle', () => {
       expect(h.ports.presentation.dismiss).toHaveBeenCalledWith(id, request);
       expect(h.context.close).toHaveBeenCalledTimes(1);
       expect(h.adapter.isSessionActive(id)).toBe(false);
-      // The broadcaster owns forceIdle for a thrown user abort; no settle chunk is emitted here.
       await h.adapter.dispose();
     },
   );
@@ -509,6 +546,13 @@ describe('Codex chat turn lifecycle', () => {
       details: {},
     };
     const approval = h.sink().request(request, new AbortController().signal);
+    expect((await iterator.next()).value).toMatchObject({ eventType: 'message_start', role: 'assistant' });
+    expect((await iterator.next()).value).toMatchObject({
+      eventType: 'text_delta', delta: 'Codex reported a runtime error.',
+    });
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { eventType: 'turn_state', phase: 'failed', sessionId: id },
+    });
     await expect(iterator.next()).rejects.toMatchObject({
       code: 'runtime-failed',
     });
@@ -518,6 +562,94 @@ describe('Codex chat turn lifecycle', () => {
       requestId: '7',
       reason: 'turn-ended',
     });
+    await h.adapter.dispose();
+  });
+
+  it.each(['before receipt', 'after receipt'] as const)(
+    'settles a zero-content process death %s with one failure presentation',
+    async (point) => {
+      const h = setup();
+      if (point === 'before receipt')
+        h.context.startTurn.mockRejectedValueOnce(new Error('process died'));
+      else
+        h.context.events.mockImplementation(() => ({
+          [Symbol.asyncIterator]: () => ({
+            next: async () => { throw new Error('process died'); },
+          }),
+        }));
+      const start = { tabId, prompt: 'hello', clientMessageId: 'prompt-1' };
+      const stream = await h.adapter.startChatSession(start);
+      const iterator = stream[Symbol.asyncIterator]();
+      if (point === 'after receipt')
+        expect((await iterator.next()).value).toMatchObject({
+          eventType: 'message_start', role: 'user', clientMessageId: 'prompt-1',
+        });
+      expect((await iterator.next()).value).toMatchObject({
+        eventType: 'message_start', role: 'assistant', source: 'complete',
+      });
+      expect((await iterator.next()).value).toMatchObject({
+        eventType: 'text_delta', delta: 'Codex reported a runtime error.', source: 'complete',
+      });
+      expect((await iterator.next()).value).toMatchObject({
+        eventType: 'turn_state', phase: 'failed', sessionId: id,
+        consumedClientMessageId: 'prompt-1',
+      });
+      await expect(iterator.next()).rejects.toMatchObject({
+        code: 'runtime-failed', webviewReported: true,
+      });
+      expect(h.callbacks.error).toHaveBeenCalledTimes(1);
+      expect(h.callbacks.error).toHaveBeenCalledWith('Codex reported a runtime error.', '/workspace');
+      expect(h.context.close).toHaveBeenCalledTimes(1);
+      expect(h.adapter.isSessionActive(id)).toBe(false);
+      await expect(h.adapter.interruptSession(id)).resolves.toBeUndefined();
+      await h.adapter.dispose();
+    },
+  );
+
+  it.each(['before receipt', 'after receipt'] as const)(
+    'retires a failed turn %s when error publication never settles',
+    async (point) => {
+      const h = setup();
+      h.callbacks.error.mockReturnValue(new Promise<void>(() => undefined));
+      if (point === 'before receipt')
+        h.context.startTurn.mockRejectedValueOnce(new Error('process died'));
+      else
+        h.context.events.mockImplementation(() => (async function* () {
+          yield { ...terminal, status: 'failed' as const };
+        })());
+      const output: FlatStreamEventUnion[] = [];
+      let failure: unknown;
+      try {
+        for await (const event of await h.adapter.startChatSession({ tabId })) output.push(event);
+      } catch (error) {
+        failure = error;
+      }
+      expect(output.at(-1)).toMatchObject({ eventType: 'turn_state', phase: 'failed' });
+      expect(failure).toMatchObject({ code: 'runtime-failed', webviewReported: true });
+      expect(h.context.close).toHaveBeenCalledTimes(1);
+      expect(h.adapter.owns(id)).toBe(false);
+      await h.adapter.dispose();
+    },
+  );
+
+  it('keeps the gateway failure notice out of reply text', async () => {
+    const h = setup(true, 'gateway');
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, status: 'failed' as const };
+    })());
+    const output: FlatStreamEventUnion[] = [];
+    let failure: unknown;
+    try {
+      for await (const event of await h.adapter.startChatSession({
+        tabId, consumer: 'gateway',
+      })) output.push(event);
+    } catch (error) {
+      failure = error;
+    }
+    expect(output.filter((event) => event.eventType === 'text_delta')).toHaveLength(0);
+    expect(output.at(-1)).toMatchObject({ eventType: 'turn_state', phase: 'failed' });
+    expect(failure).toMatchObject({ code: 'runtime-failed' });
+    expect(h.callbacks.error).toHaveBeenCalledTimes(1);
     await h.adapter.dispose();
   });
 
