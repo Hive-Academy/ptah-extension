@@ -193,6 +193,22 @@ describe('VS Code RPC surface', () => {
     );
   });
 
+  it('serves the displayWindow namespace, answered by the desktop-only host (TASK_2026_853)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'displayWindow:open',
+        'displayWindow:close',
+        'displayWindow:status',
+        'displayWindow:publishState',
+        'displayWindow:getState',
+        'displayWindow:action',
+      ]),
+    );
+    expect(surface.excluded.some((m) => m.startsWith('displayWindow:'))).toBe(
+      false,
+    );
+  });
+
   it('serves bound guidance and generation recovery methods', () => {
     expect(surface.registered).toEqual(
       expect.arrayContaining([

@@ -27,6 +27,7 @@ import {
 import {
   SessionRpcHandlers,
   ArtifactRpcHandlers,
+  DisplayWindowRpcHandlers,
   ChatRpcHandlers,
   ConfigRpcHandlers,
   ConfigScopeRpcHandlers,
@@ -91,6 +92,7 @@ export function registerPhase4Handlers(
   registerChatServices(container);
   container.registerSingleton(SessionRpcHandlers);
   container.registerSingleton(ArtifactRpcHandlers);
+  container.registerSingleton(DisplayWindowRpcHandlers);
   container.registerSingleton(ChatRpcHandlers);
   container.registerSingleton(ConfigRpcHandlers);
   container.registerSingleton(AuthRpcHandlers);
@@ -143,6 +145,8 @@ export function registerPhase4Handlers(
   logger.info('[Electron DI] Shared RPC handler classes registered', {
     handlers: [
       'SessionRpcHandlers',
+      'ArtifactRpcHandlers',
+      'DisplayWindowRpcHandlers',
       'ChatRpcHandlers',
       'ConfigRpcHandlers',
       'AuthRpcHandlers',
