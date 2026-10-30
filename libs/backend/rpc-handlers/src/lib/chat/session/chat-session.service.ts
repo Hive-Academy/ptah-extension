@@ -18,6 +18,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { isAbsolute, resolve } from 'node:path';
 import {
   Logger,
   RpcUserError,
@@ -58,6 +59,7 @@ import {
   type SessionEndCallbackRegistry,
   type SessionMcpStatusCallbackRegistry,
   type SessionBudgetService,
+  type SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
@@ -106,6 +108,7 @@ import {
   type ChatSlashCommandRouterService,
 } from './chat-slash-command-router.service';
 import type { ChatHistoryReadService } from './chat-history-read.service';
+import { validateSessionPolicyRoot } from './session-folder';
 import {
   selectDeliveredBlockOwners,
   selectDeliveredSyntheticResults,
@@ -204,6 +207,7 @@ interface SdkSessionLaunch {
   readonly workspaceId: string;
   /** Where the session runs. */
   readonly projectPath: string;
+  readonly pluginConfigAncestorRoots?: readonly string[];
   readonly prompt?: string;
   readonly name?: string;
   readonly options?: NonNullable<ChatStartParams['options']>;
@@ -245,6 +249,14 @@ type ChatSessionBudget = Pick<SessionBudgetService, 'observeLoaded'>;
 
 @injectable()
 export class ChatSessionService {
+  private readonly pendingLineage = new Map<
+    string,
+    {
+      readonly executionRoot: string;
+      readonly roots: readonly string[];
+    }
+  >();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.WEBVIEW_MANAGER)
@@ -319,11 +331,210 @@ export class ChatSessionService {
     private readonly turnAttribution: HarnessProposalTurnAttributionService | null = null,
     @inject(ProviderAccountService, { isOptional: true })
     private readonly accounts?: ProviderAccountService,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER, { isOptional: true })
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER, {
+      isOptional: true,
+    })
     private readonly activeProvider?: ActiveProviderResolver,
+    @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY, {
+      isOptional: true,
+    })
+    private readonly sessionIdResolvedEvents?: SessionIdResolvedCallbackRegistry,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
+    this.sessionIdResolvedEvents?.register(({ tabId }) => {
+      if (tabId) this.pendingLineage.delete(tabId);
+    });
+  }
+
+  private canonicalRoot(root: string): string {
+    if (typeof root !== 'string' || !root.trim() || !isAbsolute(root)) {
+      throw new RpcUserError(
+        'Session policy root is invalid.',
+        'SESSION_FOLDER_UNAVAILABLE',
+      );
+    }
+    return resolve(root);
+  }
+
+  private async validatedLineage(
+    roots: readonly string[],
+    executionRoot: string,
+  ): Promise<string[]> {
+    const local = await validateSessionPolicyRoot(
+      executionRoot,
+      this.workspaceProvider,
+      this.platformInfo,
+    );
+    if (!Array.isArray(roots)) {
+      throw new RpcUserError(
+        'Session policy lineage is malformed.',
+        'SESSION_FOLDER_UNAVAILABLE',
+      );
+    }
+    const seen = new Set([local]);
+    const result: string[] = [];
+    for (const root of roots) {
+      const canonical = await validateSessionPolicyRoot(
+        root,
+        this.workspaceProvider,
+        this.platformInfo,
+      );
+      if (!seen.has(canonical)) {
+        seen.add(canonical);
+        result.push(canonical);
+      }
+    }
+    return result;
+  }
+
+  private async captureLineage(
+    sourceSessionId: SessionId | undefined,
+    workspaceRoot: string,
+    executionRoot: string,
+  ): Promise<readonly string[]> {
+    const immediate = await validateSessionPolicyRoot(
+      workspaceRoot,
+      this.workspaceProvider,
+      this.platformInfo,
+    );
+    if (!sourceSessionId)
+      return await this.validatedLineage([immediate], executionRoot);
+    const metadata = await this.sessionMetadataStore.get(sourceSessionId);
+    let sourceRoot: string;
+    let ancestors: readonly string[];
+    if (metadata) {
+      sourceRoot = metadata.workingDirectory || metadata.workspaceId;
+      if (!sourceRoot) {
+        throw new RpcUserError(
+          'Source session execution root is unavailable.',
+          'SESSION_FOLDER_UNAVAILABLE',
+        );
+      }
+      const state =
+        SessionMetadataStore.readPluginConfigAncestorRoots(metadata);
+      if (state.status === 'malformed') {
+        throw new RpcUserError(
+          'Source session policy lineage is malformed.',
+          'SESSION_FOLDER_UNAVAILABLE',
+        );
+      }
+      ancestors =
+        state.status === 'valid'
+          ? state.roots
+          : metadata.workingDirectory &&
+              metadata.workspaceId &&
+              this.canonicalRoot(metadata.workingDirectory) !==
+                this.canonicalRoot(metadata.workspaceId)
+            ? [metadata.workspaceId]
+            : [];
+    } else {
+      const live = this.pendingLineage.get(sourceSessionId);
+      if (!live) {
+        throw new RpcUserError(
+          'Source session policy lineage is unavailable.',
+          'SESSION_NOT_FOUND',
+        );
+      }
+      sourceRoot = live.executionRoot;
+      ancestors = live.roots;
+    }
+    if (
+      (await validateSessionPolicyRoot(
+        sourceRoot,
+        this.workspaceProvider,
+        this.platformInfo,
+      )) !== immediate
+    ) {
+      throw new RpcUserError(
+        'Source session root does not match the launch root.',
+        'SESSION_FOLDER_UNAVAILABLE',
+      );
+    }
+    const physicalExecution = await validateSessionPolicyRoot(
+      executionRoot,
+      this.workspaceProvider,
+      this.platformInfo,
+    );
+    const physicalAncestors = await Promise.all(
+      ancestors.map((root) =>
+        validateSessionPolicyRoot(
+          root,
+          this.workspaceProvider,
+          this.platformInfo,
+        ),
+      ),
+    );
+    if (physicalAncestors.includes(physicalExecution)) {
+      throw new RpcUserError(
+        'Session policy lineage would contain a cycle.',
+        'SESSION_FOLDER_UNAVAILABLE',
+      );
+    }
+    return await this.validatedLineage(
+      [sourceRoot, ...ancestors],
+      executionRoot,
+    );
+  }
+
+  private async restoreLineage(
+    sessionId: SessionId,
+    executionRoot: string,
+  ): Promise<{ roots: readonly string[]; legacy: boolean }> {
+    const metadata = await this.sessionMetadataStore.get(sessionId);
+    const state = SessionMetadataStore.readPluginConfigAncestorRoots(metadata);
+    if (state.status === 'malformed') {
+      throw new RpcUserError(
+        'Session policy lineage is malformed.',
+        'SESSION_FOLDER_UNAVAILABLE',
+      );
+    }
+    if (state.status === 'missing') {
+      await this.validatedLineage([], executionRoot);
+      return { roots: [], legacy: false };
+    }
+    if (state.status === 'valid') {
+      const physicalExecution = await validateSessionPolicyRoot(
+        executionRoot,
+        this.workspaceProvider,
+        this.platformInfo,
+      );
+      const physicalRoots = await Promise.all(
+        state.roots.map((root) =>
+          validateSessionPolicyRoot(
+            root,
+            this.workspaceProvider,
+            this.platformInfo,
+          ),
+        ),
+      );
+      if (physicalRoots.includes(physicalExecution)) {
+        throw new RpcUserError(
+          'Session policy lineage contains a cycle.',
+          'SESSION_FOLDER_UNAVAILABLE',
+        );
+      }
+      return {
+        roots: await this.validatedLineage(state.roots, executionRoot),
+        legacy: false,
+      };
+    }
+    const immediate = metadata?.workspaceId;
+    const distinct =
+      immediate &&
+      metadata?.workingDirectory &&
+      this.canonicalRoot(immediate) !== this.canonicalRoot(executionRoot);
+    const roots = await this.validatedLineage(
+      distinct ? [immediate] : [],
+      executionRoot,
+    );
+    if (roots.length) {
+      this.logger.warn(
+        '[RPC] Legacy session policy lineage has unknown earlier ancestors',
+        { sessionId },
+      );
+    }
+    return { roots, legacy: !!metadata?.workspaceId };
   }
 
   /**
@@ -360,6 +571,7 @@ export class ChatSessionService {
   /** Persist resume continuity whenever any SDK lifecycle path ends a session. */
   private subscribeToSessionEnd(): void {
     this.sessionEndEvents.register(({ sessionId, workspaceRoot }) => {
+      this.pendingLineage.delete(sessionId);
       const resumableSdkSubagents =
         this.subagentRegistry.getResumableBySession(sessionId);
       return this.sessionMetadataStore.saveResumeState(sessionId, {
@@ -488,14 +700,17 @@ export class ChatSessionService {
     const preparation = prepare();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadlinePassed = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => {
-        preparation.catch(() => {
-          this.logger.warn(
-            '[RPC] named launch preparation failed after the admission deadline',
-          );
-        });
-        reject(namedPreparationRefusal());
-      }, Math.max(0, deadline - Date.now()));
+      timer = setTimeout(
+        () => {
+          preparation.catch(() => {
+            this.logger.warn(
+              '[RPC] named launch preparation failed after the admission deadline',
+            );
+          });
+          reject(namedPreparationRefusal());
+        },
+        Math.max(0, deadline - Date.now()),
+      );
     });
     try {
       const prepared = await Promise.race([preparation, deadlinePassed]);
@@ -589,7 +804,9 @@ export class ChatSessionService {
     };
   }
 
-  async startSession(params: ChatStartParams & MainSessionAccountSelection): Promise<ChatStartResult> {
+  async startSession(
+    params: ChatStartParams & MainSessionAccountSelection,
+  ): Promise<ChatStartResult> {
     const admissionDeadline = namedAdmissionDeadline();
     try {
       const { prompt, tabId, options, name } = params;
@@ -665,7 +882,10 @@ export class ChatSessionService {
         });
         return { success: true };
       }
-      const accountSelection = await this.gateAccount({ workspacePath, accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({
+        workspacePath,
+        accountSelection: params.accountSelection,
+      });
       let mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
       this.logger.info('[ptah.main] chat:start - session config', {
@@ -746,7 +966,9 @@ export class ChatSessionService {
    */
   async startAgentChildSession(
     params: AgentChildSessionStartParams,
-  ): Promise<ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>> {
+  ): Promise<
+    ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>
+  > {
     const { tabId, workspaceRoot, worktreePath, prompt, sessionName, model } =
       params;
     try {
@@ -758,8 +980,17 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
-      const accountSelection = await this.gateAccount({ workspacePath: workspaceRoot,
-        sessionId: params.sourceSessionId, inheritedSource: true, accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({
+        workspacePath: workspaceRoot,
+        sessionId: params.sourceSessionId,
+        inheritedSource: true,
+        accountSelection: params.accountSelection,
+      });
+      const pluginConfigAncestorRoots = await this.captureLineage(
+        params.sourceSessionId,
+        workspaceRoot,
+        worktreePath,
+      );
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       const permissionLevel = this.childPermissionLevel(params.permissionLevel);
       this.logger.info('[ptah.main] agent child session - session config', {
@@ -775,6 +1006,7 @@ export class ChatSessionService {
         tabId,
         workspaceId: workspaceRoot,
         projectPath: worktreePath,
+        pluginConfigAncestorRoots,
         prompt,
         name: sessionName,
         options: model ? { model } : undefined,
@@ -841,7 +1073,9 @@ export class ChatSessionService {
    */
   async startHandoffSession(
     params: HandoffSessionStartParams,
-  ): Promise<ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>> {
+  ): Promise<
+    ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>
+  > {
     const { tabId, workspaceRoot, cwd, prompt, sessionName, model } = params;
     const { permissionLevel } = params;
     try {
@@ -853,8 +1087,17 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
-      const accountSelection = await this.gateAccount({ workspacePath: workspaceRoot,
-        sessionId: params.sourceSessionId, inheritedSource: true, accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({
+        workspacePath: workspaceRoot,
+        sessionId: params.sourceSessionId,
+        inheritedSource: true,
+        accountSelection: params.accountSelection,
+      });
+      const pluginConfigAncestorRoots = await this.captureLineage(
+        params.sourceSessionId,
+        workspaceRoot,
+        cwd,
+      );
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       this.logger.info('[ptah.main] handoff session - session config', {
         tabId,
@@ -869,6 +1112,7 @@ export class ChatSessionService {
         tabId,
         workspaceId: workspaceRoot,
         projectPath: cwd,
+        pluginConfigAncestorRoots,
         prompt,
         name: sessionName,
         options: model ? { model } : undefined,
@@ -944,6 +1188,14 @@ export class ChatSessionService {
    */
   private async launchSdkSession(input: SdkSessionLaunch): Promise<void> {
     const { logLabel, tabId, workspaceId, projectPath, options } = input;
+    if (input.pluginConfigAncestorRoots !== undefined) {
+      await validateSessionPolicyRoot(
+        workspaceId,
+        this.workspaceProvider,
+        this.platformInfo,
+      );
+      await this.validatedLineage(input.pluginConfigAncestorRoots, projectPath);
+    }
     const files = options?.files ?? [];
     const images = options?.images ?? [];
 
@@ -997,9 +1249,10 @@ export class ChatSessionService {
         // Spreads to at most one field — `outputStyleName` for the flag tier or
         // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
         // both (R3 / Req 5.3).
-        const outputStyle = await this.outputStyleActivation.resolveSessionFields({
-          workspaceRoot: workspaceId,
-        });
+        const outputStyle =
+          await this.outputStyleActivation.resolveSessionFields({
+            workspaceRoot: workspaceId,
+          });
         return {
           enhancedPromptsContent,
           mcpServersOverride,
@@ -1009,45 +1262,62 @@ export class ChatSessionService {
         };
       },
     );
-    const stream = await this.sdkAdapter.startChatSession({
-      tabId,
-      workspaceId,
-      model: currentModel,
-      systemPrompt: options?.systemPrompt,
-      projectPath,
-      name: input.name,
-      prompt: input.prompt,
-      files,
-      images, // inline pasted/dropped images
-      mcpServerRunning: input.mcpServerRunning,
-      enhancedPromptsContent,
-      thinking: options?.thinking,
-      effort: options?.effort,
-      workflowsDisabled: this.resolveWorkflowsDisabled(),
-      includePartialMessages: options?.includePartialMessages,
-      mcpServersOverride,
-      providerProfile,
-      // Only agent-started sessions pass a level; `chat:start` keeps the
-      // global default.
-      ...(input.permissionLevel
-        ? { permissionLevel: input.permissionLevel }
-        : {}),
-      ...outputStyle,
-      ...(input.mcpToolProfile ? { mcpToolProfile: input.mcpToolProfile } : {}),
-      ...(input.ptahUiFence !== undefined
-        ? { ptahUiFence: input.ptahUiFence }
-        : {}),
-      // Named only; the ambient launch config keeps its existing fields.
-      ...(input.accountSelection
-        ? { accountSelection: input.accountSelection, admissionDeadline: input.admissionDeadline }
-        : {}),
+    this.pendingLineage.set(tabId, {
+      executionRoot: this.canonicalRoot(projectPath),
+      roots: input.pluginConfigAncestorRoots ?? [],
     });
-    this.streamBroadcaster.streamEventsToWebview(
-      tabId as SessionId,
-      stream,
-      tabId,
-      input.surfaceMode,
-    );
+    try {
+      const stream = await this.sdkAdapter.startChatSession({
+        tabId,
+        workspaceId,
+        model: currentModel,
+        systemPrompt: options?.systemPrompt,
+        projectPath,
+        ...(input.pluginConfigAncestorRoots !== undefined
+          ? { pluginConfigAncestorRoots: input.pluginConfigAncestorRoots }
+          : {}),
+        name: input.name,
+        prompt: input.prompt,
+        files,
+        images, // inline pasted/dropped images
+        mcpServerRunning: input.mcpServerRunning,
+        enhancedPromptsContent,
+        thinking: options?.thinking,
+        effort: options?.effort,
+        workflowsDisabled: this.resolveWorkflowsDisabled(),
+        includePartialMessages: options?.includePartialMessages,
+        mcpServersOverride,
+        providerProfile,
+        // Only agent-started sessions pass a level; `chat:start` keeps the
+        // global default.
+        ...(input.permissionLevel
+          ? { permissionLevel: input.permissionLevel }
+          : {}),
+        ...outputStyle,
+        ...(input.mcpToolProfile
+          ? { mcpToolProfile: input.mcpToolProfile }
+          : {}),
+        ...(input.ptahUiFence !== undefined
+          ? { ptahUiFence: input.ptahUiFence }
+          : {}),
+        // Named only; the ambient launch config keeps its existing fields.
+        ...(input.accountSelection
+          ? {
+              accountSelection: input.accountSelection,
+              admissionDeadline: input.admissionDeadline,
+            }
+          : {}),
+      });
+      this.streamBroadcaster.streamEventsToWebview(
+        tabId as SessionId,
+        stream,
+        tabId,
+        input.surfaceMode,
+      );
+    } catch (error) {
+      this.pendingLineage.delete(tabId);
+      throw error;
+    }
   }
 
   /**
@@ -1069,7 +1339,10 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
-      await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+      await this.gateAccount({
+        sessionId,
+        accountSelection: params.accountSelection,
+      });
       // The session's own folder, never `params.workspacePath` or the active
       // root: with several projects open those name another repo (PTAH-37).
       const workspacePath =
@@ -1117,7 +1390,19 @@ export class ChatSessionService {
       const isSlashCommand = SlashCommandInterceptor.isSlashCommand(prompt);
 
       let justResumed = false;
+      let slashLineage: { roots: readonly string[]; legacy: boolean } | undefined;
       if (isSlashCommand) {
+        try {
+          slashLineage = await this.restoreLineage(sessionId, workspacePath);
+        } catch (error) {
+          if (!(error instanceof RpcUserError)) throw error;
+          return {
+            success: false,
+            sessionId,
+            error: error.message,
+            errorCode: error.errorCode,
+          };
+        }
         await this.endDeadRecordBeforeSlashCommand(sessionId, tabId);
       } else {
         const resumeOutcome = await this.autoResumeIfInactive(
@@ -1146,9 +1431,14 @@ export class ChatSessionService {
           sessionId,
           tabId,
           workspacePath,
-          params,
+          slashLineage
+            ? { ...params, pluginConfigAncestorRoots: slashLineage.roots }
+            : params,
         );
       if (slashResult) {
+        if (slashResult.success && slashLineage?.legacy) {
+          await this.upgradeLegacyLineage(sessionId, slashLineage.roots);
+        }
         return slashResult;
       }
       const { prompt: enhancedPrompt } =
@@ -1226,12 +1516,17 @@ export class ChatSessionService {
    * transcript in the reply (TASK_2026_437 INV-9) — plus aggregated usage
    * stats, resumable subagents, and any CLI session references.
    */
-  async resumeSession(params: ChatResumeParams & MainSessionAccountSelection): Promise<ChatResumeResult> {
+  async resumeSession(
+    params: ChatResumeParams & MainSessionAccountSelection,
+  ): Promise<ChatResumeResult> {
     const admissionDeadline = namedAdmissionDeadline();
     try {
       const { sessionId } = params;
       if (!params.ptahCliId) {
-        await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+        await this.gateAccount({
+          sessionId,
+          accountSelection: params.accountSelection,
+        });
       }
       const metadata = await this.sessionMetadataStore.get(sessionId);
       const result = await this.historyRead.readForResume(sessionId, {
@@ -1568,15 +1863,24 @@ export class ChatSessionService {
   ): Promise<
     | { alreadyActive: true }
     | { resumed: true }
-    | { resumed: false; error: string;
-        accountRefusal?: NonNullable<ReturnType<typeof mainSessionAccountFailure>>['accountRefusal'] }
+    | {
+        resumed: false;
+        error: string;
+        accountRefusal?: NonNullable<
+          ReturnType<typeof mainSessionAccountFailure>
+        >['accountRefusal'];
+      }
   > {
     try {
       await this.gateAccount({ sessionId });
     } catch (error: unknown) {
       const refusal = mainSessionAccountFailure(error);
       if (!refusal) throw error;
-      return { resumed: false, error: refusal.error, accountRefusal: refusal.accountRefusal };
+      return {
+        resumed: false,
+        error: refusal.error,
+        accountRefusal: refusal.accountRefusal,
+      };
     }
     if (this.hasLiveSessionStream(sessionId, tabId)) {
       return { alreadyActive: true };
@@ -1647,7 +1951,10 @@ export class ChatSessionService {
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
     let accountSelection: ResolvedMainAccountSelection | undefined;
     try {
-      accountSelection = await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+      accountSelection = await this.gateAccount({
+        sessionId,
+        accountSelection: params.accountSelection,
+      });
     } catch (error: unknown) {
       const refusal = mainSessionAccountFailure(error);
       if (!refusal) throw error;
@@ -1714,6 +2021,21 @@ export class ChatSessionService {
     const mcpServerRunning =
       this.sdkContext.isMcpServerRunning() && mcpRegisteredForSubagents;
 
+    let lineage: { roots: readonly string[]; legacy: boolean };
+    try {
+      lineage = await this.restoreLineage(sessionId, workspacePath);
+    } catch (error) {
+      if (!(error instanceof RpcUserError)) throw error;
+      return {
+        error: {
+          success: false,
+          sessionId,
+          error: error.message,
+          errorCode: error.errorCode,
+        },
+      };
+    }
+
     this.logger.info('[ptah.main] chat:continue resume - session config', {
       mcpServerRunning,
       mcpPort: this.codeExecutionMcp.getPort(),
@@ -1767,6 +2089,7 @@ export class ChatSessionService {
 
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
         projectPath: workspacePath,
+        pluginConfigAncestorRoots: lineage.roots,
         model: currentModel,
         mcpServerRunning,
         enhancedPromptsContent,
@@ -1795,6 +2118,8 @@ export class ChatSessionService {
         tabId,
         params.surfaceMode,
       );
+      if (lineage.legacy)
+        await this.upgradeLegacyLineage(sessionId, lineage.roots);
       this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
       return { justResumed: true };
     } catch (resumeError) {
@@ -1823,6 +2148,29 @@ export class ChatSessionService {
           ...this.authErrorFields(resumeError),
         },
       };
+    }
+  }
+
+  private async upgradeLegacyLineage(
+    sessionId: SessionId,
+    roots: readonly string[],
+  ): Promise<void> {
+    try {
+      const upgraded =
+        await this.sessionMetadataStore.upgradeLegacyPluginConfigAncestorRoots(
+          sessionId,
+          roots,
+        );
+      if (upgraded.status === 'malformed') {
+        this.logger.warn('[RPC] Legacy session policy lineage upgrade was malformed', {
+          sessionId,
+        });
+      }
+    } catch (error) {
+      this.logger.warn('[RPC] Legacy session policy lineage upgrade failed', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -1894,22 +2242,51 @@ export class ChatSessionService {
   }
 
   private async gateAccount(
-    input: MainSessionAccountSelection & { workspacePath?: string; sessionId?: string; inheritedSource?: boolean },
+    input: MainSessionAccountSelection & {
+      workspacePath?: string;
+      sessionId?: string;
+      inheritedSource?: boolean;
+    },
   ): Promise<ResolvedMainAccountSelection | undefined> {
     // A separate child/handoff inherits only on the native Claude route.
     // Resume/fork/rewind calls are not inherited launches and must always
     // validate their original binding, irrespective of today's provider.
-    if (input.inheritedSource && input.sessionId && input.workspacePath && this.activeProvider &&
-        this.activeProvider.resolveActiveAuthForPath(input.workspacePath).authMethod !== 'claudeCli') {
-      return gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
-        metadata: this.sessionMetadataStore }, { workspacePath: input.workspacePath,
-        accountSelection: input.accountSelection });
+    if (
+      input.inheritedSource &&
+      input.sessionId &&
+      input.workspacePath &&
+      this.activeProvider &&
+      this.activeProvider.resolveActiveAuthForPath(input.workspacePath)
+        .authMethod !== 'claudeCli'
+    ) {
+      return gateMainSessionAccount(
+        {
+          accounts: this.accounts,
+          activeProvider: this.activeProvider,
+          metadata: this.sessionMetadataStore,
+        },
+        {
+          workspacePath: input.workspacePath,
+          accountSelection: input.accountSelection,
+        },
+      );
     }
     // Fresh ambient hosts retain their call sequence. Existing sessions still
     // inspect local linkage if the authoritative account service is unavailable.
-    if (!this.accounts && input.accountSelection === undefined && !input.sessionId) return undefined;
-    return gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
-      metadata: this.sessionMetadataStore }, input);
+    if (
+      !this.accounts &&
+      input.accountSelection === undefined &&
+      !input.sessionId
+    )
+      return undefined;
+    return gateMainSessionAccount(
+      {
+        accounts: this.accounts,
+        activeProvider: this.activeProvider,
+        metadata: this.sessionMetadataStore,
+      },
+      input,
+    );
   }
 
   /** Per-method Sentry capture (each method result-shapes its failures, so the handler's `runRpc` won't see them). */

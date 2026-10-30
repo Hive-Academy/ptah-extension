@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 /**
  * AgentRpcHandlers — parent-session threading on `agent:resumeCliSession`
  * (TASK_2026_295).
@@ -81,13 +84,17 @@ import type { DependencyContainer } from 'tsyringe';
 
 import { AgentRpcHandlers } from './agent-rpc.handlers';
 
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-policy-fixture-'));
+afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
+mkdirSync(join(TEST_ROOT, 'ws'), { recursive: true });
+mkdirSync(join(TEST_ROOT, 'b'), { recursive: true });
 const mockReaddir = fs.readdir as unknown as jest.Mock;
 const mockAccess = fs.access as unknown as jest.Mock;
 
 /** The active folder. A resumed agent must never land here. */
-const WORKSPACE = 'D:/ws';
+const WORKSPACE = `${TEST_ROOT}/ws`;
 /** The parent session's own project. */
-const PARENT_PROJECT = '/projects/b';
+const PARENT_PROJECT = `${TEST_ROOT}/b`;
 const PARENT_SESSION_ID = 'chat-session-uuid';
 const PLATFORM_INFO = {
   type: 'electron',
@@ -409,7 +416,11 @@ describe("AgentRpcHandlers — agent:resumeCliSession runs in the parent session
 
   it("refuses when the parent's folder is gone", async () => {
     const h = makeHarness();
-    h.fileSystem.exists.mockResolvedValue(false);
+    (h.metadataStore.get as jest.Mock).mockResolvedValue({
+      sessionId: PARENT_SESSION_ID,
+      workspaceId: join(TEST_ROOT, 'removed-parent'),
+      name: 'Parent',
+    });
 
     const result = await resume(h, PARENT_SESSION_ID);
 

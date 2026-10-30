@@ -1,4 +1,8 @@
 import 'reflect-metadata';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 
 // ChatSessionService's CLI runtime import reaches a module using import.meta.url.
 jest.mock('@ptah-extension/workspace-intelligence', () => ({
@@ -14,7 +18,8 @@ import { ChatSlashCommandRouterService } from './chat-slash-command-router.servi
 
 const sessionId = '11111111-1111-4111-8111-111111111111' as SessionId;
 const tabId = '22222222-2222-4222-8222-222222222222';
-const workspacePath = '/workspace';
+const workspacePath = mkdtempSync(join(tmpdir(), 'ptah-slash-persona-'));
+afterAll(() => rmSync(workspacePath, { recursive: true, force: true }));
 const persona = 'Head of engineering persona';
 
 function harness(live: boolean) {
@@ -91,6 +96,13 @@ function harness(live: boolean) {
     // Ambient host (no account service): the gate reads local metadata only,
     // and a session without an account binding is admitted.
     sessionMetadataStore: { get: jest.fn().mockResolvedValue(undefined) },
+    workspaceProvider: createMockWorkspaceProvider({ folders: [workspacePath] }),
+    platformInfo: {
+      type: 'cli',
+      extensionPath: '/tmp/ptah-app',
+      globalStoragePath: '/tmp/ptah-storage',
+      workspaceStoragePath: '/tmp/ptah-workspace-storage',
+    },
     sentryService: { captureException: jest.fn() },
   }) as ChatSessionService;
   return { service, executeSlashCommand, resumeSession, interruptSession };
