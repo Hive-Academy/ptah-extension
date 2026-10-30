@@ -21,6 +21,7 @@ import {
   runOutcomeReport,
 } from './outcome-report.tool';
 import { handleOutcomeReportToolCall } from './outcome-report.handler';
+import { runWithMcpRequestContext } from '../mcp-request-context';
 
 const root = resolve('outcome-report-fixture');
 const logger: LaneOutcomeLogger = {
@@ -50,6 +51,7 @@ function row(runId: string, agentId = runId): LaneOutcomeRecord {
     model: 'test',
     role: null,
     taskKind: null,
+    taskKindSource: null,
     taskId: null,
     verdict: 'unverified',
     failureClass: null,
@@ -123,6 +125,13 @@ describe('ptah_outcome_report', () => {
     expect(properties['routingSource']).toMatchObject({
       enum: [...OUTCOME_ROUTING_SOURCES],
     });
+  });
+
+  it('names reviewerRunId and early review support in the tool description', () => {
+    expect(buildOutcomeReportTool().description).toContain('reviewerRunId');
+    expect(buildOutcomeReportTool().description).toContain(
+      'before that run finishes',
+    );
   });
 
   it('publishes one closed object that names the kind requiring each field', () => {
@@ -371,9 +380,13 @@ describe('ptah_outcome_report', () => {
       deliverables({ runId: 'subagent:A' }, 'a.txt'),
       f.deps,
     );
-    const b = await runOutcomeReport(
-      deliverables({ agentId: 'B' }, 'missing.txt'),
-      f.deps,
+    const b = await runWithMcpRequestContext(
+      { callerSessionId: 'ptah-session' },
+      () =>
+        runOutcomeReport(
+          deliverables({ agentId: 'B' }, 'missing.txt'),
+          f.deps,
+        ),
     );
     const review = await runOutcomeReport(
       { kind: 'review', target: { runId: 'subagent:A' }, verdict: 'revise' },
@@ -398,6 +411,96 @@ describe('ptah_outcome_report', () => {
       if ('reportId' in result)
         expect(await f.store.hasReceipt(result.reportId)).toBe(true);
     }
+    expect(await f.store.listHeldReports(Date.now())).toHaveLength(0);
+    await f.pipeline.dispose();
+  });
+
+  it('creates one subagent row for external-caller agent deliverables', async () => {
+    const f = fixture();
+    files.set(resolve(root, 'artifact.md'), { size: 4, mtime: 150 });
+    const result = await runOutcomeReport(
+      deliverables({ agentId: 'external-agent' }, 'artifact.md'),
+      f.deps,
+    );
+    expect(result.recorded).toBe('applied');
+    expect(await f.store.get('subagent:external-agent')).toMatchObject({
+      executorKind: 'subagent',
+      agentId: 'external-agent',
+      taskKindSource: 'unclassified',
+      verdict: 'delivered',
+    });
+    expect(await f.store.listHeldReports(Date.now())).toHaveLength(0);
+    await f.pipeline.dispose();
+  });
+
+  it('pairs repeated reviewer reports and retains unpaired review behavior', async () => {
+    const f = fixture();
+    f.pipeline.enqueue({ kind: 'subagent-stop', row: row('subagent:reviewed') });
+    await f.pipeline.flush();
+    const paired = {
+      kind: 'review',
+      target: { runId: 'subagent:reviewed' },
+      verdict: 'revise',
+      reviewerRunId: 'subagent:reviewer',
+    };
+    const first = await runOutcomeReport(paired, f.deps);
+    const repeat = await runOutcomeReport(paired, f.deps);
+    expect(first).toMatchObject({ recorded: 'applied' });
+    expect(repeat).toMatchObject({ recorded: 'applied' });
+    expect('reportId' in first && 'reportId' in repeat && first.reportId).toBe(
+      'reportId' in repeat ? repeat.reportId : undefined,
+    );
+    expect(await f.store.get('subagent:reviewed')).toMatchObject({
+      reviseRounds: 1,
+    });
+
+    const unpaired = {
+      kind: 'review',
+      target: { runId: 'subagent:reviewed' },
+      verdict: 'approved',
+    };
+    const a = await runOutcomeReport(unpaired, f.deps);
+    const b = await runOutcomeReport(unpaired, f.deps);
+    expect('reportId' in a && 'reportId' in b && a.reportId).not.toBe(
+      'reportId' in b ? b.reportId : undefined,
+    );
+    expect(await f.store.get('subagent:reviewed')).toMatchObject({
+      finalReview: 'approved',
+    });
+    await f.pipeline.dispose();
+  });
+
+  it('holds a paired review until the reviewed run appears', async () => {
+    const f = fixture();
+    const result = await runOutcomeReport(
+      {
+        kind: 'review',
+        target: { runId: 'lane:pending' },
+        verdict: 'revise',
+        reviewerRunId: 'subagent:reviewer',
+      },
+      f.deps,
+    );
+    expect(result.recorded).toBe('held');
+    expect(await f.store.listHeldReports(Date.now())).toHaveLength(1);
+    await f.pipeline.dispose();
+  });
+
+  it('rejects invalid review arguments before any write', async () => {
+    const f = fixture();
+    const submit = jest.spyOn(f.pipeline, 'submit');
+    const reply = await handleOutcomeReportToolCall(
+      {
+        kind: 'review',
+        target: { runId: 'subagent:A' },
+        verdict: 'revise',
+        reviewerRunId: 42,
+      },
+      () => f.deps,
+      {} as Logger,
+    );
+    expect(reply).toMatchObject({ isError: true, invalidArguments: true });
+    expect(submit).not.toHaveBeenCalled();
     expect(await f.store.listHeldReports(Date.now())).toHaveLength(0);
     await f.pipeline.dispose();
   });

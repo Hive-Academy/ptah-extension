@@ -5,11 +5,14 @@ import {
   DeliverablesPayloadSchema,
   OutcomeReportArgsSchema,
   ReviewPayloadSchema,
+  deterministicReviewReportId,
+  reportedSubagentStopRow,
   type LaneOutcomeLogger,
   type LaneOutcomeStore,
   type OutcomeWritePipeline,
 } from '@ptah-extension/lane-outcomes';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import { getCallerSessionId } from '../mcp-request-context';
 import { flattenOperationUnion } from '../surface-tools';
 import type { MCPToolDefinition } from '../types/mcp-protocol.types';
 
@@ -80,13 +83,14 @@ export function buildOutcomeReportTool(): MCPToolDefinition {
     description:
       'Declare checked deliverables for a run or attach a review verdict. ' +
       'Use the Ptah run tag when available, otherwise the Agent result agentId. ' +
+      'For reviews, supply reviewerRunId to pair the reviewer with the reviewed run; a review may be reported before that run finishes. ' +
       'A held report joins the run when its stop arrives; queued means the outcome store is temporarily unavailable.',
     inputSchema: outcomeInputSchema(),
     annotations: { readOnlyHint: false, idempotentHint: false },
   };
 }
 
-/** Parse once at the boundary; report IDs are deliberately unique per call. */
+/** Parse once at the boundary; paired reviews use a stable report ID. */
 export async function runOutcomeReport(
   input: unknown,
   deps: OutcomeReportDependencies,
@@ -98,6 +102,7 @@ export async function runOutcomeReport(
     throw new Error('session workspace root unavailable');
 
   let runId: string;
+  let externalSubagentAgentId: string | null = null;
   if ('runId' in args.target) {
     runId = args.target.runId;
   } else {
@@ -113,6 +118,13 @@ export async function runOutcomeReport(
           reason: `ambiguous agentId ${args.target.agentId}`,
         };
       runId = subagent ? subagentId : (lane?.runId ?? subagentId);
+      if (
+        args.kind === 'deliverables' &&
+        !subagent &&
+        !lane &&
+        !getCallerSessionId()
+      )
+        externalSubagentAgentId = args.target.agentId;
     } catch (error: unknown) {
       deps.logger.warn('Outcome target lookup failed', {
         agentId: args.target.agentId,
@@ -179,9 +191,17 @@ export async function runOutcomeReport(
     );
   }
 
-  const reportId = randomUUID();
+  const reportId =
+    args.kind === 'review' && args.reviewerRunId
+      ? deterministicReviewReportId(runId, args.reviewerRunId)
+      : randomUUID();
   const heldAt = Date.now();
   try {
+    if (externalSubagentAgentId)
+      deps.pipeline.enqueue({
+        kind: 'subagent-stop',
+        row: reportedSubagentStopRow(externalSubagentAgentId, heldAt),
+      });
     const result = await deps.pipeline.submit({
       kind: args.kind,
       report: {

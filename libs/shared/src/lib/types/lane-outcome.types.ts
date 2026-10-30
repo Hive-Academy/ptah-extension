@@ -87,8 +87,8 @@ export interface LaneOutcomeRecord {
   readonly role: string | null;
   /** null = not routed with one. */
   readonly taskKind: OutcomeTaskKind | null;
-  /** Optional until all outcome producers write provenance; null for older rows. */
-  readonly taskKindSource?: OutcomeTaskKindSource | null;
+  /** Null for older rows whose provenance is unknown. */
+  readonly taskKindSource: OutcomeTaskKindSource | null;
   readonly taskId: string | null;
   readonly verdict: LaneCompletionVerdict;
   readonly failureClass: LaneFailureClass | null;
