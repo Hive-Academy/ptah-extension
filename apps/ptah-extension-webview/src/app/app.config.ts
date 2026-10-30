@@ -70,6 +70,7 @@ import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
   ChatMessageHandler,
   ArtifactMessageHandler,
+  DisplayWindowSync,
   ChatAttentionSourceService,
   ChatAttentionActionDispatcherService,
   ChatAttentionHostMessageHandler,
@@ -258,6 +259,9 @@ export const appConfig: ApplicationConfig = {
     { provide: MESSAGE_HANDLERS, useExisting: AppStateManager, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatMessageHandler, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ArtifactMessageHandler, multi: true },
+    // Detached Display window (TASK_2026_853_3401): `displayWindow:closed`
+    // and child actions. It asks `displayWindow:status` on Electron at boot.
+    { provide: MESSAGE_HANDLERS, useExisting: DisplayWindowSync, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatAttentionHostMessageHandler, multi: true },
     // Late adoption of agent-started child tabs (TASK_2026_584). The
     // `agentSession:opened` push above only reaches a webview that is running

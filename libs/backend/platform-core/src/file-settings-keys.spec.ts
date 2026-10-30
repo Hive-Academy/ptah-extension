@@ -881,6 +881,7 @@ describe('isFileBasedSettingKey', () => {
       'cron.catchupWindowMs': 86400000,
       'harness.preflightTimeoutMs': 1500,
       'harness.manageGitignore': true,
+      'display.autoOpenArtifacts': true,
       'notifications.hostEnabled': true,
       'notifications.failureHostEnabled': false,
     };

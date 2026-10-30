@@ -83,8 +83,12 @@ import {
   LoggingService,
   NotificationService,
   PlanLimitsStore,
+  ElectronLayoutService,
   type PlanLimitsSurfaceScope,
 } from '@ptah-extension/core';
+import { DisplayWindowSync } from '../../services/display-window/display-window-sync.service';
+import { ArtifactStore } from '../../services/artifact.store';
+import { DisplayDockState } from '../../services/display-dock/display-dock.state';
 import type {
   PlanLimitOwnerSnapshot,
   PlanLimitsSnapshot,
@@ -508,10 +512,32 @@ function makeHarness(
     clearAuthRequiredBanner: jest.fn(),
   } as unknown as AuthStateService;
 
+  const displaySidebarWidthSig = signal<number | null>(null);
+  const layoutStub = {
+    displaySidebarWidth: displaySidebarWidthSig.asReadonly(),
+    setDisplaySidebarWidth: jest.fn((width: number | null) =>
+      displaySidebarWidthSig.set(width),
+    ),
+  };
+  const displayWindowDetachedSig = signal(false);
+  const displayWindowErrorSig = signal<string | null>(null);
+  const unbindDisplayWindowMock = jest.fn();
+  const displayWindowStub = {
+    detached: displayWindowDetachedSig.asReadonly(),
+    error: displayWindowErrorSig.asReadonly(),
+    count: signal(3).asReadonly(),
+    bindSource: jest.fn(() => unbindDisplayWindowMock),
+    detach: jest.fn(async () => undefined),
+    focus: jest.fn(async () => undefined),
+    attach: jest.fn(async () => undefined),
+  };
+
   TestBed.configureTestingModule({
     imports: [ChatViewComponent],
     providers: [
       provideSurfaceActiveTesting(),
+      { provide: ElectronLayoutService, useValue: layoutStub },
+      { provide: DisplayWindowSync, useValue: displayWindowStub },
       { provide: ChatStore, useValue: chatStoreStub },
       { provide: VSCodeService, useValue: vscodeStub },
       { provide: ClaudeRpcService, useValue: rpcStub },
@@ -607,6 +633,12 @@ function makeHarness(
     component,
     fixture,
     sessionId,
+    displaySidebarWidthSig,
+    layoutStub,
+    displayWindowStub,
+    displayWindowDetachedSig,
+    displayWindowErrorSig,
+    unbindDisplayWindowMock,
     rewindFilesMock,
     rpcCallMock,
     forkSessionMock,
@@ -2973,5 +3005,271 @@ describe('ChatViewComponent — session budget banner wiring', () => {
     view.onBudgetDismiss();
 
     expect(view.budgetDismissedStage()).toBe('handoff');
+  });
+});
+
+// TASK_2026_853_3401 batch 11: the Display sidebar wiring (auto-open,
+// persisted width, separate window). The sheet's own states are covered in
+// display-sheet.component.spec.ts.
+describe('ChatViewComponent — Display sidebar (Electron)', () => {
+  const record = (id: string, sessionId: string) =>
+    ({
+      id,
+      sessionId,
+      title: id,
+      revision: 1,
+      viewerUrl: `ptah-artifact://${id}/index.html`,
+      createdAt: '2026-10-30T00:00:00.000Z',
+    }) as unknown as Parameters<ArtifactStore['requestAutoOpen']>[0];
+
+  type Harness = ReturnType<typeof makeHarness>;
+  const dockOf = (h: Harness): DisplayDockState =>
+    h.fixture.debugElement.injector.get(DisplayDockState);
+  const keydown = (h: Harness, key: string): void => {
+    const event = new KeyboardEvent('keydown', { key, cancelable: true });
+    (h.component as unknown as {
+      onDockSeparatorKeydown(event: KeyboardEvent): void;
+    }).onDockSeparatorKeydown(event);
+  };
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('binds the separate-window sync to the main view tab and dock, and unbinds on destroy', () => {
+    const h = makeHarness({ isElectron: true, renderCompactTemplate: true });
+    h.fixture.detectChanges();
+    expect(h.displayWindowStub.bindSource).toHaveBeenCalledTimes(1);
+    const [source] = h.displayWindowStub.bindSource.mock.calls[0] as unknown as [
+      { tabId: () => string | null; dock: DisplayDockState },
+    ];
+    expect(source.tabId()).toBe('tab-abc');
+    expect(source.dock).toBe(dockOf(h));
+    h.fixture.destroy();
+    expect(h.unbindDisplayWindowMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('never binds the separate window or persists the width from a canvas tile', () => {
+    const h = makeHarness({
+      isElectron: true,
+      renderCompactTemplate: true,
+      sessionContextTabId: 'tab-1',
+    });
+    h.fixture.detectChanges();
+    expect(h.displayWindowStub.bindSource).not.toHaveBeenCalled();
+    keydown(h, 'ArrowLeft');
+    keydown(h, 'Enter');
+    expect(h.layoutStub.setDisplaySidebarWidth).not.toHaveBeenCalled();
+    expect(
+      h.fixture.nativeElement.querySelector('[data-testid="display-detached-rail"]'),
+    ).toBeNull();
+  });
+
+  it('does not touch the Electron-only services in VS Code', () => {
+    const h = makeHarness({ renderCompactTemplate: true });
+    h.fixture.detectChanges();
+    expect(h.displayWindowStub.bindSource).not.toHaveBeenCalled();
+    expect(h.fixture.nativeElement.querySelector('ptah-display-sheet')).toBeNull();
+  });
+
+  it('auto-opens a published artifact in the main view for any known tab, once per request', () => {
+    const h = makeHarness({ isElectron: true, renderCompactTemplate: true });
+    const store = TestBed.inject(ArtifactStore);
+    h.findTabByIdAcrossWorkspacesMock.mockImplementation((tabId: string) =>
+      tabId === 'tab-other' ? { tab: { id: 'tab-other' }, workspacePath: null } : null,
+    );
+    h.fixture.detectChanges();
+    const dock = dockOf(h);
+
+    store.requestAutoOpen(record('artifact_a', 'tab-other'));
+    TestBed.tick();
+    expect(dock.tab('tab-other').open).toBe(true);
+    expect(dock.tab('tab-other').selection).toEqual({
+      kind: 'artifact',
+      artifactId: 'artifact_a',
+    });
+
+    // The same request is not applied twice; an unknown tab gets no open.
+    dock.close('tab-other');
+    h.fixture.detectChanges();
+    TestBed.tick();
+    expect(dock.tab('tab-other').open).toBe(false);
+    store.requestAutoOpen(record('artifact_b', 'tab-gone'));
+    TestBed.tick();
+    expect(dock.tab('tab-gone').open).toBe(false);
+  });
+
+  it('does not replay a request made before the view existed', () => {
+    const h = makeHarness({ isElectron: true, renderCompactTemplate: true });
+    TestBed.inject(ArtifactStore).requestAutoOpen(record('artifact_a', 'tab-abc'));
+    h.findTabByIdAcrossWorkspacesMock.mockReturnValue({
+      tab: { id: 'tab-abc' },
+      workspacePath: null,
+    });
+    // The harness already created the view; build a second one after the request.
+    const later = TestBed.createComponent(ChatViewComponent);
+    later.detectChanges();
+    TestBed.tick();
+    expect(
+      later.debugElement.injector.get(DisplayDockState).tab('tab-abc').open,
+    ).toBe(false);
+    later.destroy();
+  });
+
+  it('auto-opens in a canvas tile only for its own tab', () => {
+    const h = makeHarness({
+      isElectron: true,
+      renderCompactTemplate: true,
+      sessionContextTabId: 'tab-1',
+    });
+    const store = TestBed.inject(ArtifactStore);
+    h.findTabByIdAcrossWorkspacesMock.mockReturnValue({
+      tab: { id: 'tab-2' },
+      workspacePath: null,
+    });
+    h.fixture.detectChanges();
+    const dock = dockOf(h);
+    store.requestAutoOpen(record('artifact_a', 'tab-2'));
+    TestBed.tick();
+    expect(dock.tab('tab-2').open).toBe(false);
+    store.requestAutoOpen(record('artifact_b', 'tab-1'));
+    TestBed.tick();
+    expect(dock.tab('tab-1').open).toBe(true);
+  });
+
+  it('seeds the width from the persisted layout and commits key steps and resets only', () => {
+    const h = makeHarness({
+      isElectron: true,
+      renderCompactTemplate: true,
+      realPanelResize: true,
+    });
+    const resize = h.fixture.debugElement.injector.get(PanelResizeService);
+    h.displaySidebarWidthSig.set(520);
+    h.fixture.detectChanges();
+    TestBed.tick();
+    expect(resize.customWidth()).toBe(520);
+
+    h.layoutStub.setDisplaySidebarWidth.mockClear();
+    keydown(h, 'ArrowRight');
+    expect(h.layoutStub.setDisplaySidebarWidth).toHaveBeenLastCalledWith(
+      resize.customWidth(),
+    );
+    keydown(h, 'Enter');
+    expect(h.layoutStub.setDisplaySidebarWidth).toHaveBeenLastCalledWith(null);
+    TestBed.tick();
+    expect(resize.customWidth()).toBeNull();
+
+    h.layoutStub.setDisplaySidebarWidth.mockClear();
+    h.component.onResizeReset();
+    expect(h.layoutStub.setDisplaySidebarWidth).toHaveBeenCalledWith(null);
+    // Keys the separator does not handle commit nothing.
+    h.layoutStub.setDisplaySidebarWidth.mockClear();
+    keydown(h, 'a');
+    expect(h.layoutStub.setDisplaySidebarWidth).not.toHaveBeenCalled();
+  });
+
+  it('commits a drag once on release, never per frame, and not on cancel', () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextId = 1;
+    const rafSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        frames.set(nextId, cb);
+        return nextId++;
+      });
+    const cafSpy = jest
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((id: number) => {
+        frames.delete(id);
+      });
+    try {
+      const h = makeHarness({
+        isElectron: true,
+        renderCompactTemplate: true,
+        realPanelResize: true,
+      });
+      h.fixture.detectChanges();
+      const host = h.fixture.nativeElement as HTMLElement;
+      Object.defineProperty(host, 'clientWidth', { value: 1000, configurable: true });
+      host.getBoundingClientRect = () => ({ right: 1000 }) as DOMRect;
+      const handle = document.createElement('div');
+      host.appendChild(handle);
+      Object.defineProperties(handle, {
+        setPointerCapture: { value: jest.fn(), configurable: true },
+        hasPointerCapture: { value: jest.fn(() => true), configurable: true },
+        releasePointerCapture: { value: jest.fn(), configurable: true },
+      });
+      const pointer = (type: string, clientX = 0): PointerEvent => {
+        const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, button: 0 });
+        Object.defineProperty(event, 'pointerId', { value: 1 });
+        Object.defineProperty(event, 'currentTarget', { value: handle });
+        return event as unknown as PointerEvent;
+      };
+      const flush = (): void => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const cb of pending) cb(performance.now());
+      };
+
+      h.component.onResizeStart(pointer('pointerdown', 600));
+      handle.dispatchEvent(pointer('pointermove', 500));
+      flush();
+      handle.dispatchEvent(pointer('pointermove', 450));
+      flush();
+      expect(h.layoutStub.setDisplaySidebarWidth).not.toHaveBeenCalled();
+      handle.dispatchEvent(pointer('pointerup', 450));
+      expect(h.layoutStub.setDisplaySidebarWidth).toHaveBeenCalledTimes(1);
+      expect(h.layoutStub.setDisplaySidebarWidth).toHaveBeenCalledWith(550);
+
+      h.layoutStub.setDisplaySidebarWidth.mockClear();
+      h.component.onResizeStart(pointer('pointerdown', 450));
+      handle.dispatchEvent(pointer('pointermove', 300));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      expect(h.layoutStub.setDisplaySidebarWidth).not.toHaveBeenCalled();
+    } finally {
+      rafSpy.mockRestore();
+      cafSpy.mockRestore();
+    }
+  });
+
+  it('renders the sidebar beside the session column, and the rail while detached', async () => {
+    const h = makeHarness({ isElectron: true, renderCompactTemplate: true });
+    h.fixture.detectChanges();
+    const root = h.fixture.nativeElement as HTMLElement;
+    const sheet = root.querySelector('ptah-display-sheet');
+    expect(sheet).not.toBeNull();
+    expect(sheet?.closest('ptah-chat-session-layout')).toBeNull();
+    expect(root.querySelector('[data-testid="display-detached-rail"]')).toBeNull();
+
+    h.displayWindowDetachedSig.set(true);
+    h.displayWindowErrorSig.set('Could not close the Display window.');
+    h.fixture.detectChanges();
+    expect(root.querySelector('ptah-display-sheet')).toBeNull();
+    const rail = root.querySelector('[data-testid="display-detached-rail"]');
+    expect(rail?.textContent).toContain('Display · 3');
+    expect(rail?.textContent).toContain('(separate window)');
+    expect(rail?.querySelector('[role="alert"]')?.textContent).toContain(
+      'Could not close the Display window.',
+    );
+    rail?.querySelector<HTMLButtonElement>('[data-testid="display-window-focus"]')?.click();
+    rail?.querySelector<HTMLButtonElement>('[data-testid="display-window-attach"]')?.click();
+    expect(h.displayWindowStub.focus).toHaveBeenCalledTimes(1);
+    expect(h.displayWindowStub.attach).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a keyboard separator with its bounds while the sidebar is open beside the chat', () => {
+    const h = makeHarness({ isElectron: true, renderCompactTemplate: true });
+    const host = h.fixture.nativeElement as HTMLElement;
+    Object.defineProperty(host, 'clientWidth', { value: 1200, configurable: true });
+    h.fixture.detectChanges();
+    dockOf(h).open('tab-abc');
+    h.fixture.detectChanges();
+    const separator = host.querySelector('[data-testid="display-sidebar-separator"]');
+    expect(separator).not.toBeNull();
+    expect(separator?.getAttribute('role')).toBe('separator');
+    expect(separator?.getAttribute('tabindex')).toBe('0');
+    expect(separator?.getAttribute('aria-valuenow')).not.toBeNull();
+    expect(separator?.getAttribute('aria-valuemin')).not.toBeNull();
   });
 });

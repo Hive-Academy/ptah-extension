@@ -172,4 +172,11 @@ export const PLATFORM_TOKENS = {
    * host), CliWorkspaceWatcher (worker_threads host), VscodeWorkspaceWatcher.
    */
   WORKSPACE_WATCHER: Symbol.for('PlatformWorkspaceWatcher'),
+
+  /**
+   * IDisplayWindowHost — the detached Display window. Adapters:
+   * ElectronDisplayWindowHost (ptah-electron, bound in bootstrap after the
+   * IpcBridge) / DesktopOnlyDisplayWindowHost (platform-core, VS Code and CLI).
+   */
+  DISPLAY_WINDOW_HOST: Symbol.for('PlatformDisplayWindowHost'),
 } as const;

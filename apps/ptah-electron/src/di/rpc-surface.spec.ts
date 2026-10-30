@@ -88,4 +88,17 @@ describe('Electron RPC surface', () => {
       expect.arrayContaining(['artifacts:list', 'artifacts:openLink']),
     );
   });
+
+  it('serves the detached Display window methods (TASK_2026_853)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'displayWindow:open',
+        'displayWindow:close',
+        'displayWindow:status',
+        'displayWindow:publishState',
+        'displayWindow:getState',
+        'displayWindow:action',
+      ]),
+    );
+  });
 });

@@ -11,6 +11,7 @@ import {
   FileEditRpcHandlers,
   GitWatchRpcHandlers,
   RecentWorkspacesService,
+  DisplayWindowRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 export const EXPECTED_RESOLVABLE = [
@@ -27,6 +28,7 @@ export const EXPECTED_RESOLVABLE = [
   // `git:watchRoots` (TASK_2026_855 D20); needs GIT_ROOT_WATCH_REGISTRY_TOKEN.
   GitWatchRpcHandlers,
   RecentWorkspacesService,
+  DisplayWindowRpcHandlers,
 ] as const;
 
 /**
