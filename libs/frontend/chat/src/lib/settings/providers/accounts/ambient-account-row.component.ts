@@ -2,23 +2,17 @@ import {
   ChangeDetectionStrategy,
   Component,
   DOCUMENT,
-  DestroyRef,
   ElementRef,
-  NgZone,
   afterRenderEffect,
   computed,
   inject,
   input,
   output,
-  signal,
   viewChild,
 } from '@angular/core';
-import type { ClaudeAmbientStatusView } from '@ptah-extension/core';
+import { injectWallClock, type ClaudeAmbientStatusView } from '@ptah-extension/core';
 import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
 import { ambientStatusModel, type AmbientTone } from './account-presentation';
-
-/** The age in the status hint is refreshed this often while the row is mounted (P5-D9: one timer, not one per row). */
-const AGE_REFRESH_MS = 30_000;
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
@@ -125,7 +119,7 @@ export class AmbientAccountRowComponent {
   readonly checkRequested = output<void>();
 
   protected readonly focusRing = FOCUS;
-  private readonly now = signal(Date.now());
+  private readonly now = injectWallClock('coarse');
   protected readonly model = computed(() => ambientStatusModel(this.ambient(), this.now()));
   protected readonly dot = computed(() => DOT[this.model().tone]);
   protected readonly showCheck = computed(() => this.model().word !== SIGNED_IN_WORD);
@@ -137,12 +131,6 @@ export class AmbientAccountRowComponent {
   private checkShown = false;
 
   constructor() {
-    // One timer while mounted, outside the zone; the signal write still schedules the render.
-    const timer = inject(NgZone).runOutsideAngular(() =>
-      setInterval(() => this.now.set(Date.now()), AGE_REFRESH_MS),
-    );
-    inject(DestroyRef).onDestroy(() => clearInterval(timer));
-
     // After render, so the button is already gone and focus has fallen to the body.
     afterRenderEffect(() => {
       const shown = this.showCheck();
