@@ -63,7 +63,8 @@ export type CodexMcpSecrets = ReadonlyMap<string, string>;
 /**
  * Validated and deeply frozen by buildCodexExecutionProfile (the profile-builder batch).
  * Home, identity and workspace stay fixed on resume. Secrets are excluded from the
- * fingerprint. Ask requires granular-all-true approvals and a read-only sandbox.
+ * fingerprint. Chat/usage ask can require granular approvals; native lanes
+ * always use a workspace-write sandbox scoped to their working directory.
  * Full access is an explicit, evidence-gated choice, never inferred from a consumer.
  */
 export interface CodexExecutionProfile {
@@ -88,6 +89,15 @@ export interface CodexExecutionProfile {
   readonly attachments: readonly CodexAttachment[];
   readonly lane?: {
     readonly suppressedTools: readonly string[];
+    readonly agentsEnabled?: false;
+    readonly pluginsEnabled?: false;
+    readonly appsEnabled?: false;
+    readonly includeSkillInstructions?: false;
+    readonly disabledUserMcpServers?: readonly string[];
+    readonly autoCompactTokens?: number;
+    readonly toolOutputTokenLimit?: number;
+    readonly webSearch?: 'live' | 'disabled';
+    readonly ptahToolTimeoutSeconds?: number;
     readonly maxTurns?: number;
     readonly maxBudgetUsd?: number;
     readonly explicitFullAccess: boolean;

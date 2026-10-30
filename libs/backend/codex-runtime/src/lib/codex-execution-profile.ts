@@ -87,6 +87,15 @@ const settings = z.strictObject({
   lane: z
     .strictObject({
       suppressedTools: z.array(text),
+      agentsEnabled: z.literal(false).optional(),
+      pluginsEnabled: z.literal(false).optional(),
+      appsEnabled: z.literal(false).optional(),
+      includeSkillInstructions: z.literal(false).optional(),
+      disabledUserMcpServers: z.array(text).optional(),
+      autoCompactTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+      toolOutputTokenLimit: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+      webSearch: z.enum(['live', 'disabled']).optional(),
+      ptahToolTimeoutSeconds: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
       maxTurns: z.number().int().positive().optional(),
       maxBudgetUsd: z.number().finite().nonnegative().optional(),
       explicitFullAccess: z.boolean(),
@@ -139,7 +148,7 @@ function freeze<T>(value: T): T {
   return value;
 }
 
-/** Chat and gateway use D14. Lane and usage use the pre-8m-1 approval mapping. */
+/** Chat and gateway use D14. Usage keeps the pre-8m-1 approval mapping. */
 function resolveApprovalPolicy(
   d14: boolean,
   permissionLevel: CodexProfileSettings['permissionLevel'],
@@ -163,7 +172,7 @@ function resolveApprovalPolicy(
   return 'on-request';
 }
 
-/** Resolve the policy for a single level using the existing consumer mapping. */
+/** Resolve the policy for a single level; lanes use the D26 restricted policy. */
 export function resolveCodexLevelPolicy(
   consumer: CodexExecutionProfile['consumer'],
   permissionLevel: CodexProfileSettings['permissionLevel'],
@@ -172,6 +181,16 @@ export function resolveCodexLevelPolicy(
   approvalPolicy: CodexApprovalPolicy;
   sandboxPolicy: CodexSandboxPolicy;
 } {
+  if (consumer === 'lane') {
+    return {
+      approvalPolicy: 'never',
+      sandboxPolicy: {
+        mode: 'workspace-write',
+        networkAccess: false,
+        writableRoots: [cwd],
+      },
+    };
+  }
   const d14 = consumer === 'chat' || consumer === 'gateway';
   const writable =
     permissionLevel === 'auto-edit' ||
@@ -286,8 +305,8 @@ export function buildCodexExecutionProfile(
   }
   // D14 (untrusted before edits and commands) is chat and gateway. It mirrors
   // evidence-harness policy(); Ptah auto-accepts auto-edit file changes.
-  // Lane and usage keep the pre-8m-1 mapping: ask is granular and
-  // read-only; auto-edit is on-request with workspace-write.
+  // Usage keeps the pre-8m-1 mapping. D26 fixes lane policy independently
+  // of its requested permission level.
   const levelPolicy = resolveCodexLevelPolicy(
     selected.consumer,
     selected.permissionLevel,

@@ -210,16 +210,10 @@ describe('buildCodexLaneProfileSettings', () => {
     });
     expect(profile.consumer).toBe('lane');
     expect(profile.effort).toBe('high');
-    expect(profile.approvalPolicy).toEqual({
-      granular: {
-        sandbox_approval: true,
-        rules: true,
-        skill_approval: true,
-        request_permissions: true,
-        mcp_elicitations: true,
-      },
-    });
-    expect(profile.sandboxPolicy.mode).toBe('read-only');
+    // D26: every native lane level is workspace-write in its cwd, no network.
+    expect(profile.approvalPolicy).toBe('never');
+    expect(profile.sandboxPolicy.mode).toBe('workspace-write');
+    expect(profile.sandboxPolicy.networkAccess).toBe(false);
     expect(profile.fullAccessStatus).toBe('unproved-disabled');
     // These fields trigger the core's pre-spawn refusal, even with zero budgets.
     expect(profile.lane?.suppressedTools.length).toBeGreaterThan(0);
@@ -236,10 +230,8 @@ describe('buildCodexLaneProfileSettings', () => {
         session: result.settings,
         paths,
       });
-      expect(profile.approvalPolicy).toBe('on-request');
-      expect(profile.sandboxPolicy.mode).toBe(
-        permissionLevel === 'plan' ? 'read-only' : 'workspace-write',
-      );
+      expect(profile.approvalPolicy).toBe('never');
+      expect(profile.sandboxPolicy.mode).toBe('workspace-write');
       expect(profile.sandboxPolicy.networkAccess).toBe(false);
       expect(profile.fullAccessStatus).toBe('unproved-disabled');
     },

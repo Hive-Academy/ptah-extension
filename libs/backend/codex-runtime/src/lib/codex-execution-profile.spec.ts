@@ -33,6 +33,59 @@ function input(): CodexExecutionProfileInput {
 }
 
 describe('buildCodexExecutionProfile', () => {
+  it.each(['chat', 'gateway'] as const)(
+    'keeps the pre-change %s fingerprint for the same ask inputs',
+    (consumer) => {
+      const source = input();
+      const profile = buildCodexExecutionProfile({
+        ...source,
+        session: { ...source.session, consumer },
+      });
+      // SHA-256 of the pre-change canonical D14 ask policy at /real/work.
+      expect(profile.profileFingerprint).toBe(
+        'sha256:0fbec108e7892de9508f32351f0042c4fe9fd45baf1a6cf4673ed50f5a9ad034',
+      );
+    },
+  );
+
+  it('keeps lane settings and policy isolated from chat and gateway profiles', () => {
+    const source = input();
+    const build = (consumer: 'chat' | 'gateway') =>
+      buildCodexExecutionProfile({
+        ...source,
+        session: { ...source.session, consumer },
+      });
+    const chatBefore = build('chat');
+    const gatewayBefore = build('gateway');
+    const lane = buildCodexExecutionProfile({
+      ...source,
+      session: {
+        ...source.session,
+        consumer: 'lane',
+        lane: {
+          suppressedTools: ['agents', 'plugins', 'apps', 'skills'],
+          agentsEnabled: false,
+          pluginsEnabled: false,
+          appsEnabled: false,
+          includeSkillInstructions: false,
+          disabledUserMcpServers: ['user.server'],
+          autoCompactTokens: 100,
+          toolOutputTokenLimit: 20,
+          webSearch: 'disabled',
+          explicitFullAccess: false,
+        },
+      },
+    });
+    expect(lane.sandboxPolicy).toEqual({
+      mode: 'workspace-write',
+      networkAccess: false,
+      writableRoots: ['/real/work'],
+    });
+    expect(lane.approvalPolicy).toBe('never');
+    expect(build('chat')).toEqual(chatBefore);
+    expect(build('gateway')).toEqual(gatewayBefore);
+  });
+
   it.each(
     (['chat', 'gateway', 'lane'] as const).flatMap((consumer) =>
       (['ask', 'plan', 'auto-edit', 'yolo'] as const).map(
@@ -54,10 +107,11 @@ describe('buildCodexExecutionProfile', () => {
       );
       const d14 = consumer === 'chat' || consumer === 'gateway';
       const writable =
+        consumer === 'lane' ||
         permissionLevel === 'auto-edit' ||
         permissionLevel === 'yolo' ||
         (d14 && permissionLevel === 'ask');
-      const granularAsk = !d14 && permissionLevel === 'ask';
+      const granularAsk = consumer !== 'lane' && !d14 && permissionLevel === 'ask';
       expect(resolved.approvalPolicy).toEqual(
         granularAsk
           ? {
@@ -69,7 +123,9 @@ describe('buildCodexExecutionProfile', () => {
                 mcp_elicitations: true,
               },
             }
-          : d14 &&
+          : consumer === 'lane'
+            ? 'never'
+            : d14 &&
               (permissionLevel === 'ask' || permissionLevel === 'auto-edit')
             ? 'untrusted'
             : 'on-request',
@@ -117,7 +173,7 @@ describe('buildCodexExecutionProfile', () => {
   );
 
   it.each(['lane', 'usage'] as const)(
-    'keeps the pre-8m-1 auto-edit mapping for %s',
+    'uses the consumer-specific auto-edit mapping for %s',
     (consumer) => {
       const source = input();
       const profile = buildCodexExecutionProfile({
@@ -128,7 +184,9 @@ describe('buildCodexExecutionProfile', () => {
           permissionLevel: 'auto-edit',
         },
       });
-      expect(profile.approvalPolicy).toBe('on-request');
+      expect(profile.approvalPolicy).toBe(
+        consumer === 'lane' ? 'never' : 'on-request',
+      );
       expect(profile.sandboxPolicy).toEqual({
         mode: 'workspace-write',
         networkAccess: false,
@@ -139,24 +197,32 @@ describe('buildCodexExecutionProfile', () => {
   );
 
   it.each(['lane', 'usage'] as const)(
-    'keeps the pre-8m-1 ask mapping for %s',
+    'uses the consumer-specific ask mapping for %s',
     (consumer) => {
       const source = input();
       const profile = buildCodexExecutionProfile({
         ...source,
         session: { ...source.session, consumer, permissionLevel: 'ask' },
       });
-      expect(profile.approvalPolicy).toEqual({
-        granular: {
-          sandbox_approval: true,
-          rules: true,
-          skill_approval: true,
-          request_permissions: true,
-          mcp_elicitations: true,
-        },
-      });
-      expect(profile.sandboxPolicy.mode).toBe('read-only');
-      expect(profile.sandboxPolicy.writableRoots).toEqual([]);
+      expect(profile.approvalPolicy).toEqual(
+        consumer === 'lane'
+          ? 'never'
+          : {
+              granular: {
+                sandbox_approval: true,
+                rules: true,
+                skill_approval: true,
+                request_permissions: true,
+                mcp_elicitations: true,
+              },
+            },
+      );
+      expect(profile.sandboxPolicy.mode).toBe(
+        consumer === 'lane' ? 'workspace-write' : 'read-only',
+      );
+      expect(profile.sandboxPolicy.writableRoots).toEqual(
+        consumer === 'lane' ? ['/real/work'] : [],
+      );
     },
   );
 

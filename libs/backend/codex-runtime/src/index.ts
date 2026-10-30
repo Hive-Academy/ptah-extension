@@ -79,6 +79,11 @@ export {
   type BuiltCodexExecutionProfile,
 } from './lib/codex-execution-profile';
 export {
+  buildCodexLaneThreadConfig,
+  codexLaneThreadConfigSchema,
+  type CodexLaneThreadConfig,
+} from './lib/codex-lane-thread-config';
+export {
   buildCodexMcpConfigOverrides,
   CodexMcpConfigError,
 } from './lib/codex-mcp-config';
