@@ -20,6 +20,7 @@ export {
   ReviewPayloadSchema,
   reportEffectOf,
   deliverablesVerdictOf,
+  deterministicReviewReportId,
 } from './lib/write/report-effect';
 // Stores and their persistence keys.
 export { SqliteLaneOutcomeStore } from './lib/store/sqlite-lane-outcome.store';
@@ -46,8 +47,16 @@ export type {
   OutcomeWriteResult,
   OutcomeStoreAvailability,
 } from './lib/write/outcome-write-pipeline';
-export { LaneOutcomeRecorder } from './lib/lane-outcome-recorder.service';
-export type { LaneCompletionOutcomeInput } from './lib/lane-outcome-recorder.service';
+export {
+  LaneOutcomeRecorder,
+  reportedSubagentStopRow,
+} from './lib/lane-outcome-recorder.service';
+export type {
+  LaneCompletionOutcomeInput,
+  LaneCompletionTransient,
+} from './lib/lane-outcome-recorder.service';
+export { taskKindForRole } from './lib/task-kind-mapping';
+export { parseReviewDeliverable } from './lib/review-verdict.parser';
 export { LaneOutcomeReader } from './lib/lane-outcome-reader.service';
 export type { LaneOutcomeQueries } from './lib/lane-outcome-reader.service';
 export type {
