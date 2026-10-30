@@ -51,3 +51,30 @@ describe('BuilderApplySectionComponent workspace targeting', () => {
     );
   });
 });
+
+describe('BuilderApplySectionComponent explicit config contract', () => {
+  it('uses config input and emits applied response after a successful apply', async () => {
+    const response = { appliedPaths: ['/workspace/a/CLAUDE.md'], warnings: [] };
+    const apply = jest.fn().mockResolvedValue(response);
+    TestBed.configureTestingModule({
+      imports: [BuilderApplySectionComponent],
+      providers: [
+        { provide: HarnessRpcService, useValue: { apply } },
+        { provide: HarnessProposalHydrationService, useValue: { config: signal({ name: 'Old' }), isConfigComplete: signal(true) } },
+        { provide: HarnessHealthStore, useValue: { loading: signal(false), summary: signal({ level: 'unknown', label: '' }), refresh: jest.fn() } },
+        { provide: LoggingService, useValue: { error: jest.fn() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(BuilderApplySectionComponent);
+    const applied: Array<typeof response> = [];
+    fixture.componentInstance.applied.subscribe((value) => applied.push(value));
+    fixture.componentRef.setInput('workspaceRoot', '/workspace/a');
+    fixture.componentRef.setInput('initialized', true);
+    fixture.componentRef.setInput('config', { name: 'Chosen' });
+    fixture.detectChanges();
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('button.btn-primary')?.click();
+    await fixture.whenStable();
+    expect(apply.mock.calls[0][0].config.name).toBe('Chosen');
+    expect(applied).toEqual([response]);
+  });
+});

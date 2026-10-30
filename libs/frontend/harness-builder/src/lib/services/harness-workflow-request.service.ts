@@ -1,6 +1,4 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { toObservable } from '@angular/core/rxjs-interop';
-import { ChatStore } from '@ptah-extension/chat';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   LoggingService,
@@ -13,13 +11,12 @@ import type {
   HarnessOpenWorkflowPayload,
   NewProjectIntake,
 } from '@ptah-extension/shared';
-import { firstValueFrom, filter, take, timeout } from 'rxjs';
 import {
   canonicalHarnessRoot,
   HarnessBuilderRecordsService,
   type HarnessBuilderMode,
 } from './harness-builder-records.service';
-import { HarnessRpcService } from './harness-rpc.service';
+import { HarnessSessionController } from './harness-session.controller';
 import { formatIntakeSummary } from './new-project-intake';
 
 export type HarnessWorkflowRequestOutcome =
@@ -43,14 +40,12 @@ function workflowKind(
 @Injectable({ providedIn: 'root' })
 export class HarnessWorkflowRequestService {
   private readonly tabs = inject(TabManagerService);
-  private readonly chat = inject(ChatStore);
-  private readonly rpc = inject(HarnessRpcService);
+  private readonly controller = inject(HarnessSessionController);
   private readonly records = inject(HarnessBuilderRecordsService);
   private readonly router = inject(SurfaceRouterService);
   private readonly vscode = inject(VSCodeService);
   private readonly logger = inject(LoggingService);
   private readonly appState = inject(AppStateManager);
-  private readonly visibleTabs$ = toObservable(this.tabs.visibleTabIds);
   private readonly _pendingIntent = signal<PendingHarnessIntent | null>(null);
   private readonly _hubWarning = signal<string | null>(null);
   private readonly _hubError = signal<string | null>(null);
@@ -59,16 +54,6 @@ export class HarnessWorkflowRequestService {
     tabId: string;
     text: string;
   } | null>(null);
-  private readonly pendingFirstSends = new Map<
-    string,
-    {
-      root: string;
-      content: string;
-      preamble: string;
-      failedMessageId?: string;
-    }
-  >();
-  private readonly firstSendsInFlight = new Set<string>();
   private transitioning = false;
 
   readonly pendingIntent = this._pendingIntent.asReadonly();
@@ -127,97 +112,16 @@ export class HarnessWorkflowRequestService {
     });
   }
 
-  /** Retry only the failed first send for its original tab and workspace. */
+  /** Retry after the controller reconciles the bound tab with its first turn. */
   async retryFirstSend(tabId: string): Promise<boolean> {
-    const pending = this.pendingFirstSends.get(tabId);
-    if (
-      !pending ||
-      !this._entryErrors()[tabId] ||
-      this.firstSendsInFlight.has(tabId)
-    ) {
-      return false;
+    const mode = this.controller.session('new-project');
+    if (mode.record()?.tabId !== tabId) {
+      const outcome = await mode.restore(tabId);
+      if (outcome !== 'ready') return false;
     }
-    const located = this.tabs.findTabByIdAcrossWorkspaces(tabId);
-    if (
-      located?.tab.workflow !== 'harness-new-project' ||
-      canonicalHarnessRoot(located.workspacePath ?? '') !== pending.root
-    ) {
-      this._entryErrors.update((errors) => ({
-        ...errors,
-        [tabId]:
-          'The original New Project session is no longer available. Start over.',
-      }));
-      return false;
-    }
-    if (pending.failedMessageId) {
-      const messages = located.tab.messages;
-      this.tabs.setMessages(
-        tabId,
-        messages.filter((message) => message.id !== pending.failedMessageId),
-      );
-      pending.failedMessageId = undefined;
-    }
-    if (!located.tab.firstMessagePreamble && pending.preamble) {
-      this.tabs.setFirstMessagePreamble(tabId, pending.preamble);
-    }
-    return this.sendFirstMessage(tabId, pending.content);
-  }
-
-  private async sendFirstMessage(
-    tabId: string,
-    content: string,
-  ): Promise<boolean> {
-    if (this.firstSendsInFlight.has(tabId)) return false;
-    this.firstSendsInFlight.add(tabId);
-    const beforeIds = new Set(
-      this.tabs
-        .findTabByIdAcrossWorkspaces(tabId)
-        ?.tab.messages?.map((message) => message.id) ?? [],
-    );
-    try {
-      const send = await this.chat.sendOrQueueMessage(content, { tabId });
-      if (!send.success) {
-        this.captureFailedFirstMessage(tabId, beforeIds);
-        this._entryErrors.update((errors) => ({
-          ...errors,
-          [tabId]: 'The first message could not be sent. Please retry it.',
-        }));
-        return false;
-      }
-      this.pendingFirstSends.delete(tabId);
-      this.clearEntryError(tabId);
-      return true;
-    } catch (cause: unknown) {
-      const error = cause instanceof Error ? cause : new Error(String(cause));
-      this.logger.error(
-        'HarnessWorkflowRequestService',
-        'First message send failed',
-        error,
-      );
-      this.captureFailedFirstMessage(tabId, beforeIds);
-      this._entryErrors.update((errors) => ({
-        ...errors,
-        [tabId]: 'The first message could not be sent. Please retry it.',
-      }));
-      return false;
-    } finally {
-      this.firstSendsInFlight.delete(tabId);
-    }
-  }
-
-  private captureFailedFirstMessage(
-    tabId: string,
-    beforeIds: ReadonlySet<string>,
-  ): void {
-    const pending = this.pendingFirstSends.get(tabId);
-    if (!pending) return;
-    const messages =
-      this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.messages ?? [];
-    pending.failedMessageId = messages
-      .filter(
-        (message) => message.role === 'user' && !beforeIds.has(message.id),
-      )
-      .at(-1)?.id;
+    const sent = await mode.retrySend();
+    if (sent || mode.phase() !== 'failed') this.clearEntryError(tabId);
+    return sent;
   }
 
   /** The guard is set before the first await, so a second click is ignored. */
@@ -368,113 +272,33 @@ export class HarnessWorkflowRequestService {
     root: string,
     intake?: NewProjectIntake,
   ): Promise<HarnessWorkflowRequestOutcome> {
-    let tabId: string | null = null;
-    let landed = false;
-    try {
-      const started =
-        mode === 'new-project' && intake
-          ? await this.rpc.startNewProject(intake)
-          : null;
-      if (mode === 'new-project' && (!started || !started.success)) {
-        this.reportHubError('Could not start New Project. Try again.');
-        return 'failed';
-      }
-      const preamble =
-        mode === 'configure-harness'
-          ? (
-              await this.rpc.workflowPrompt({
-                mode: 'configure-harness',
-                contextOnly: true,
-              })
-            ).prompt
-          : started?.success
-            ? started.seedPrompt
-            : '';
-      if (this.workspaceRoot !== root) {
-        this.reportHubError(
-          'The workspace changed while opening the builder. Try again.',
-        );
-        return 'failed';
-      }
-      tabId = this.tabs.createTab(
-        mode === 'new-project' ? 'New Project' : 'AI Team Builder',
-      );
-      this.tabs.setWorkflow(tabId, workflowKind(mode));
-      this.tabs.setFirstMessagePreamble(tabId, preamble);
-      if (started?.success) {
-        try {
-          if (!this.records.writeStackProfile(root, tabId, started)) {
-            this.logger.error(
-              'HarnessWorkflowRequestService',
-              'Could not save stack profile',
-              new Error('Stack profile write failed'),
-            );
-          }
-        } catch (cause: unknown) {
-          const error =
-            cause instanceof Error ? cause : new Error(String(cause));
-          this.logger.error(
-            'HarnessWorkflowRequestService',
-            'Could not save stack profile',
-            error,
-          );
-        }
-      }
-      const outcome = await this.navigateToBuilder(mode, tabId);
-      if (outcome !== 'landed') {
-        this.records.clearTab(root, tabId);
-        await this.tabs.closeTab(tabId);
-        return outcome;
-      }
-      landed = true;
-      if (mode === 'new-project' && intake) {
-        const targetId = tabId;
-        const content = formatIntakeSummary(intake);
-        this.pendingFirstSends.set(targetId, { root, content, preamble });
-        await firstValueFrom(
-          this.visibleTabs$.pipe(
-            filter((ids) => ids.has(targetId)),
-            take(1),
-            timeout({ first: 10_000 }),
-          ),
-        );
-        if (!(await this.sendFirstMessage(targetId, content))) return 'failed';
-      }
-      return 'landed';
-    } catch (cause: unknown) {
-      const error = cause instanceof Error ? cause : new Error(String(cause));
-      this.logger.error(
-        'HarnessWorkflowRequestService',
-        'Builder entry failed',
-        error,
-      );
-      if (tabId) {
-        const targetId = tabId;
-        if (!landed) {
-          this.records.clearTab(root, targetId);
-          try {
-            await this.tabs.closeTab(targetId);
-          } catch (closeCause: unknown) {
-            const closeError =
-              closeCause instanceof Error
-                ? closeCause
-                : new Error(String(closeCause));
-            this.logger.error(
-              'HarnessWorkflowRequestService',
-              'Could not roll back failed tab',
-              closeError,
-            );
-          }
-        } else {
-          this._entryErrors.update((errors) => ({
-            ...errors,
-            [targetId]: 'The builder could not finish opening. Please retry.',
-          }));
-        }
-      } else {
-        this.reportHubError('The builder could not be opened. Try again.');
-      }
+    if (mode === 'new-project' && !intake) {
+      this.reportHubError('The New Project request is missing its intake.');
       return 'failed';
     }
+    const session = this.controller.session(mode);
+    const result = await session.start(
+      mode === 'new-project'
+        ? { mode, workspaceRoot: root, intake: intake as NewProjectIntake }
+        : { mode, workspaceRoot: root, intent: '' },
+    );
+    if (result.kind === 'conflict') {
+      this.reportHubError('Another builder session is open in this workspace.');
+      return 'failed';
+    }
+    if (result.kind === 'failed') {
+      const tabId = session.record()?.tabId;
+      if (tabId) {
+        this._entryErrors.update((errors) => ({ ...errors, [tabId]: result.error }));
+        await this.navigateToBuilder(mode, tabId);
+      } else this.reportHubError(result.error);
+      return 'failed';
+    }
+    const outcome = await this.navigateToBuilder(mode, result.tabId);
+    if (outcome !== 'landed' && result.kind === 'started') {
+      const left = await this.controller.leave(mode, 'discard');
+      if (left === 'uncertain') this.reportHubError('The builder started, but navigation failed. Keep this session open and retry navigation.');
+    }
+    return outcome === 'landed' && result.kind === 'reused' ? 'resumed' : outcome;
   }
 }

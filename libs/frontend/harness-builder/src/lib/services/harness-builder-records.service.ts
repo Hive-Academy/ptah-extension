@@ -3,10 +3,11 @@ import { LoggingService } from '@ptah-extension/core';
 import {
   type HarnessConfig,
   type HarnessStartNewProjectResult,
+  type NewProjectIntake,
 } from '@ptah-extension/shared';
 import { HarnessConfigUpdatesSchema } from '@ptah-extension/shared/schemas';
 import { z } from 'zod';
-import { canonicalHarnessRoot } from './harness-workflow-utils';
+import { canonicalHarnessRoot, isNewProjectIntake } from './harness-workflow-utils';
 
 export { canonicalHarnessRoot } from './harness-workflow-utils';
 
@@ -105,12 +106,38 @@ const stackProfileSchema = z.strictObject({
   capturedAt: z.iso.datetime(),
 });
 
+const sessionSchema = z.strictObject({
+  version: z.literal(1),
+  tabId: tabSchema,
+  sessionId: z.string().min(1).optional(),
+  mode: z.enum(['configure-harness', 'new-project']),
+  workspacePath: rootSchema,
+  intake: z.custom<NewProjectIntake>((value) =>
+    isNewProjectIntake(value),
+  ).optional(),
+  teamIntent: z.string().optional(),
+  intakeHash: z.string().min(1),
+  sendAttempt: z.strictObject({
+    count: z.number().int().nonnegative(),
+    ackedAt: z.iso.datetime().optional(),
+  }),
+  lastRevisionId: z.string().optional(),
+  appliedRevisionId: z.string().optional(),
+  applyReceipt: z.strictObject({
+    revisionId: z.string(),
+    appliedPaths: z.array(z.string()),
+    warnings: z.array(z.string()),
+    appliedAt: z.iso.datetime({ offset: true }),
+  }).optional(),
+});
+
 export type HarnessUserSnapshot = z.infer<typeof snapshotSchema>;
 export type HarnessDraftPointer = z.infer<typeof draftSchema>;
 export type HarnessStackProfileRecord = z.infer<typeof stackProfileSchema>;
+export type HarnessSessionRecord = z.infer<typeof sessionSchema>;
 
 function recordKey(
-  kind: 'snapshot' | 'stack',
+  kind: 'snapshot' | 'stack' | 'session',
   root: string,
   tabId: string,
 ): string {
@@ -128,6 +155,20 @@ function keyPart(value: string): string {
 @Injectable({ providedIn: 'root' })
 export class HarnessBuilderRecordsService {
   private readonly logger = inject(LoggingService);
+
+  readSession(workspaceRoot: string, tabId: string): HarnessSessionRecord | null {
+    const root = canonicalHarnessRoot(workspaceRoot);
+    if (!root || !tabSchema.safeParse(tabId).success) return null;
+    return this.read(recordKey('session', root, tabId), sessionSchema, root, tabId);
+  }
+
+  writeSession(record: HarnessSessionRecord): boolean {
+    const parsed = sessionSchema.safeParse(record);
+    return parsed.success && this.write(
+      recordKey('session', parsed.data.workspacePath, parsed.data.tabId),
+      parsed.data,
+    );
+  }
 
   readSnapshot(
     workspaceRoot: string,
@@ -240,6 +281,7 @@ export class HarnessBuilderRecordsService {
     if (!root || !tabSchema.safeParse(tabId).success) return;
     this.remove(recordKey('snapshot', root, tabId));
     this.remove(recordKey('stack', root, tabId));
+    this.remove(recordKey('session', root, tabId));
     for (const mode of ['configure-harness', 'new-project'] as const) {
       if (this.readDraft(root, mode)?.tabId === tabId)
         this.clearDraft(root, mode);
@@ -255,7 +297,7 @@ export class HarnessBuilderRecordsService {
       for (let index = storage.length - 1; index >= 0; index--) {
         const key = storage.key(index);
         if (!key?.startsWith(prefix)) continue;
-        for (const kind of ['snapshot', 'stack'] as const) {
+        for (const kind of ['snapshot', 'stack', 'session'] as const) {
           const recordPrefix = `${prefix}${kind}.${keyPart(root)}.`;
           if (key.startsWith(recordPrefix)) {
             let tabId: string;
@@ -282,7 +324,7 @@ export class HarnessBuilderRecordsService {
     }
   }
 
-  private read<T extends { workspaceRoot: string; tabId: string }>(
+  private read<T extends { tabId: string }>(
     key: string,
     schema: z.ZodType<T>,
     root: string,
@@ -294,7 +336,9 @@ export class HarnessBuilderRecordsService {
       const parsed = schema.safeParse(JSON.parse(raw));
       if (
         parsed.success &&
-        parsed.data.workspaceRoot === root &&
+        ('workspaceRoot' in parsed.data
+          ? parsed.data.workspaceRoot === root
+          : 'workspacePath' in parsed.data && parsed.data.workspacePath === root) &&
         (tabId === undefined || parsed.data.tabId === tabId)
       )
         return parsed.data;

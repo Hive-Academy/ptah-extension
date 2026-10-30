@@ -17,3 +17,8 @@ export { HarnessBuilderLeaveDialogComponent } from './lib/components/harness-bui
 export { SetupHubComponent } from './lib/components/setup-hub.component';
 export { HarnessConfigPreviewComponent } from './lib/components/harness-config-preview.component';
 export { BuilderSessionSectionComponent } from './lib/components/sidebar/builder-session-section.component';
+export { BuilderStackProfileSectionComponent } from './lib/components/sidebar/builder-stack-profile-section.component';
+export { BuilderApplySectionComponent } from './lib/components/sidebar/builder-apply-section.component';
+export { BuilderAiHelpersSectionComponent } from './lib/components/sidebar/builder-ai-helpers-section.component';
+export { BuilderPresetsSectionComponent } from './lib/components/sidebar/builder-presets-section.component';
+export { HarnessSessionController } from './lib/services/harness-session.controller';

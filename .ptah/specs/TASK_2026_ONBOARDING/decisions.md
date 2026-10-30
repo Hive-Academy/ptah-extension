@@ -109,3 +109,14 @@
   full-page capture still viewport-sized (shell scrolls an inner container), so summary rows
   3–4 stay unverified in captures; logic M1 (`quiet`/`starting` generic copy), M2 (A5 failed
   link renders without `gen`), M3 (no-op `destroyed` guards in A4).
+
+## B4a
+- Codex lane implemented; logic review REVISE 5/10 (B1 saved draft counted as active, S1 stale
+  record, S2 no start guard, S3 thrown send read as accepted) → round 1 → APPROVE 8/10.
+  Verify 8/9 (only the webview lint cycle, fixed separately in PR #866), electron 2/2.
+- Deferred to B5b: old view leave handler ignores abort failure; leave dialog `stopUncertain`
+  has no consumer yet.
+- Deferred moderates: a throw before the `try` in `startInternal` rejects every waiting
+  `start` (add `.catch` on the awaited pending); stop skips abort on a `loaded` tab that still
+  has background agents; a cancelled navigation discards a just-started session (confirm in
+  B4b UX).

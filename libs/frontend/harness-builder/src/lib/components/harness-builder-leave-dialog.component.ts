@@ -73,6 +73,15 @@ export type HarnessLeaveChoice = 'cancel' | 'discard' | 'save';
             discard.
           </p>
         }
+        @if (stopUncertain()) {
+          <p role="alert" class="mt-3 rounded-md border border-state-err/55 bg-error/10 px-2.5 py-2 text-xs">
+            The agent may still be running. Retry stop or keep this session.
+          </p>
+          <div class="mt-5 flex justify-end gap-2">
+            <button #cancelButton type="button" class="btn btn-outline btn-sm" (click)="stopChoice.emit('keep-current')">Keep current</button>
+            <button type="button" class="btn btn-primary btn-sm" (click)="stopChoice.emit('retry-stop')">Retry stop</button>
+          </div>
+        } @else {
         <div
           class="mt-5 flex flex-col gap-2 min-[460px]:flex-row min-[460px]:justify-end"
         >
@@ -113,6 +122,7 @@ export type HarnessLeaveChoice = 'cancel' | 'discard' | 'save';
             }}
           </button>
         </div>
+        }
       </div>
     </div>
   `,
@@ -126,9 +136,11 @@ export class HarnessBuilderLeaveDialogComponent
   readonly sessionStarted = input(true);
   readonly saving = input(false);
   readonly saveFailed = input(false);
+  readonly stopUncertain = input(false);
   readonly existingDraftAt = input<string | null>(null);
   readonly trigger = input<HTMLElement | null>(null);
   readonly choice = output<HarnessLeaveChoice>();
+  readonly stopChoice = output<'retry-stop' | 'keep-current'>();
 
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
   private readonly cancelButton =
@@ -199,6 +211,10 @@ export class HarnessBuilderLeaveDialogComponent
   }
 
   protected choose(choice: HarnessLeaveChoice): void {
+    if (this.stopUncertain()) {
+      if (choice === 'cancel') this.stopChoice.emit('keep-current');
+      return;
+    }
     if (this.saving() || (choice === 'save' && !this.sessionStarted())) return;
     this.choice.emit(choice);
   }

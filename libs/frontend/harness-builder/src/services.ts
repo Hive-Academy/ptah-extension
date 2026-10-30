@@ -26,6 +26,9 @@ export { HarnessBuilderRecordsService } from './lib/services/harness-builder-rec
 export { HarnessProposalHydrationService } from './lib/services/harness-proposal-hydration.service';
 export { HarnessHelperService } from './lib/services/harness-helper.service';
 export { HarnessWorkflowRequestService } from './lib/services/harness-workflow-request.service';
+export { HarnessSessionController } from './lib/services/harness-session.controller';
+export type { HarnessSessionPhase, HarnessApplyReceipt, HarnessSessionStart, HarnessSessionStartOutcome, HarnessRestoreOutcome, HarnessModeSession } from './lib/services/harness-session.controller';
+export type { HarnessSessionRecord } from './lib/services/harness-builder-records.service';
 export { HarnessWorkflowMessageHandler } from './lib/services/harness-workflow-message.handler';
 export { HarnessBuilderFocusRouter } from './lib/services/harness-builder-focus-router.service';
 export { provideHarnessBuilderFocusRouter } from './lib/services/harness-builder-focus-router.provider';
