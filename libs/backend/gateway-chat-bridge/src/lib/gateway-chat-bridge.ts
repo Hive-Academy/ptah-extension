@@ -51,7 +51,6 @@ import {
   type IAgentAdapter,
   type FlatStreamEventUnion,
   type PermissionLevel,
-  type ProviderProfile,
   type RuntimeHostCapabilities,
   type SessionRuntimeIdentity,
 } from '@ptah-extension/shared';
@@ -63,17 +62,11 @@ import { type CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SDK_TOKENS,
   AuthRequiredError,
-  isCodexChatAdapterError,
-  legacyClaudeSessionRuntimeIdentity,
-  resolveSessionRuntimeIdentity,
   type PermissionPromptLifecycleEvent,
   type SdkPermissionHandler,
   type SessionRuntimeIdentityLookup,
 } from '@ptah-extension/agent-sdk';
-import {
-  CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
-  isCodexResumeProfileChangedError,
-} from '@ptah-extension/codex-runtime';
+import { CODEX_RESUME_PROFILE_CHANGED_MESSAGE } from '@ptah-extension/codex-runtime';
 import {
   AGENT_GENERATION_TOKENS,
   type EnhancedPromptsService,
@@ -83,6 +76,17 @@ import {
   type WorkspaceProviderProfileResolver,
 } from '@ptah-extension/auth-providers';
 import { ConversationQueue } from './conversation-queue';
+import { GatewayTurnText } from './gateway-turn-text';
+import {
+  isNativeCodexBinding,
+  isNativeResumeProfileRefusal,
+} from './gateway-native-resume-policy';
+import {
+  GatewayTurnPreparation,
+  type SdkSessionContext,
+  type TurnPreparation,
+  type TurnProvider,
+} from './gateway-turn-preparation';
 
 /**
  * Hard cap on a single gateway turn. If the SDK stream neither completes nor
@@ -162,24 +166,6 @@ function approvalTimedOutNotice(toolName: string): string {
 }
 
 /**
- * Typed D14a refusal: the native error itself, its cause, or the adapter's
- * `resume-profile-changed` code. No name or message matching.
- */
-function isGatewayResumeProfileChanged(error: unknown): boolean {
-  if (isCodexResumeProfileChangedError(error)) return true;
-  if (error instanceof Error && isCodexResumeProfileChangedError(error.cause)) {
-    return true;
-  }
-  return (
-    isCodexChatAdapterError(error) && error.code === 'resume-profile-changed'
-  );
-}
-
-function asError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
-}
-
-/**
  * Settings key (under the `ptah` section) for the gateway inbound permission
  * level. Read per turn via `IWorkspaceProvider.getConfiguration`, mirroring
  * `GatewayService`'s config reads.
@@ -204,36 +190,6 @@ const GATEWAY_PERMISSION_LEVELS = ['ask', 'auto-edit', 'yolo'] as const;
 const DEFAULT_GATEWAY_PERMISSION_LEVEL: PermissionLevel = 'ask';
 
 /**
- * Session context resolved once per turn and threaded into the start/resume
- * config so gateway sessions reach parity with the webview chat path
- * (enhanced prompts, plugins, code-exec MCP).
- */
-interface SdkSessionContext {
-  mcpServerRunning: boolean;
-  enhancedPromptsContent?: string;
-}
-
-/**
- * Provider a turn runs against, resolved once per turn for the turn's
- * workspace — the same per-workspace snapshot the webview chat path passes —
- * so a gateway session never rides the process-wide AuthEnv when another
- * workspace's provider is the active one. `providerProfile` is `undefined`
- * when the shared AuthEnv already serves this workspace's provider, and for
- * every native Codex turn (no translation proxy).
- */
-interface TurnProvider {
-  model: string;
-  providerProfile: ProviderProfile | undefined;
-  runtime: 'claude-sdk' | 'codex-app-server';
-}
-
-/** Result of a turn's pre-session preparation (see `prepareTurn`). */
-interface TurnPreparation {
-  sdkContext: SdkSessionContext;
-  provider: TurnProvider;
-}
-
-/**
  * Per-turn cancellation flag tripped by the turn watchdog. Once tripped, the
  * now-abandoned turn's background continuation must become an inert no-op: it
  * must not bind a session id, append outbound chunks, retry via a fresh
@@ -245,74 +201,10 @@ interface TurnCancellation {
   cancelled: boolean;
 }
 
-/**
- * One `text_delta` the gateway can reconcile. Field names match the shared
- * text-delta event: `messageId`, `blockIndex`, `delta`, and `source`.
- */
-interface GatewayTextDelta {
-  readonly messageId: string;
-  readonly blockIndex?: number;
-  readonly delta: string;
-  readonly source?: 'stream' | 'complete' | 'history' | 'hook';
-}
-
-/**
- * Assistant text for one gateway turn.
- *
- * The webview accumulator appends `source: 'stream'` (and a missing source)
- * and replaces the block for `complete` or `history`, including an empty
- * replacement. Messages stay in first-seen order. Blocks inside a message
- * are joined by `blockIndex`, which is how the execution tree orders them.
- * The gateway seal sends one message, so the blocks are concatenated.
- */
-class GatewayTurnText {
-  private readonly messageOrder: string[] = [];
-  private readonly blocks = new Map<string, Map<number, string>>();
-
-  /**
-   * Records message order the way the webview does: on `message_start`.
-   * `accept()` calls it too, for streams that send text without a start.
-   */
-  noteMessage(messageId: string): Map<number, string> {
-    let messageBlocks = this.blocks.get(messageId);
-    if (messageBlocks === undefined) {
-      messageBlocks = new Map<number, string>();
-      this.blocks.set(messageId, messageBlocks);
-      this.messageOrder.push(messageId);
-    }
-    return messageBlocks;
-  }
-
-  accept(event: GatewayTextDelta): void {
-    const blockIndex = event.blockIndex ?? 0;
-    const messageBlocks = this.noteMessage(event.messageId);
-    if (event.source === 'complete' || event.source === 'history') {
-      messageBlocks.set(blockIndex, event.delta);
-      return;
-    }
-    const current = messageBlocks.get(blockIndex) ?? '';
-    messageBlocks.set(blockIndex, current + event.delta);
-  }
-
-  join(): string {
-    let body = '';
-    for (const messageId of this.messageOrder) {
-      const messageBlocks = this.blocks.get(messageId);
-      if (messageBlocks === undefined) continue;
-      const indexes = [...messageBlocks.keys()].sort(
-        (left, right) => left - right,
-      );
-      for (const index of indexes) {
-        body += messageBlocks.get(index) ?? '';
-      }
-    }
-    return body;
-  }
-}
-
 @injectable()
 export class GatewayChatBridge {
   private readonly queue = new ConversationQueue();
+  private readonly turnPreparation: GatewayTurnPreparation;
   private listener: ((event: GatewayInboundEvent) => void) | null = null;
   private unsubscribePrompts: (() => void) | null = null;
   /** Route of the turn currently running under each `gw-*` tab id. */
@@ -347,7 +239,17 @@ export class GatewayChatBridge {
     },
     @inject(SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP, { isOptional: true })
     private readonly sessionIdentities?: SessionRuntimeIdentityLookup,
-  ) {}
+  ) {
+    this.turnPreparation = new GatewayTurnPreparation({
+      logger: this.logger,
+      codeExecutionMcp: this.codeExecutionMcp,
+      enhancedPrompts: this.enhancedPromptsService,
+      profileResolver: this.workspaceProviderProfileResolver,
+      readSelectedModel: () => this.modelSettings.selectedModel.get(),
+      hostCapabilities: this.hostCapabilities,
+      sessionIdentities: this.sessionIdentities,
+    });
+  }
 
   start(): void {
     if (this.listener) return;
@@ -556,7 +458,7 @@ export class GatewayChatBridge {
     // One identity for the whole turn. A bound session is resolved before
     // `prepareTurn` so the profile decision is a resume decision. A throw
     // fails closed: no profile resolve, no session, binding unchanged.
-    const identityResult = this.readBoundSessionIdentity(
+    const identityResult = this.turnPreparation.readBoundSessionIdentity(
       conversation.ptahSessionId,
       workspaceRoot,
     );
@@ -581,7 +483,10 @@ export class GatewayChatBridge {
     let prepared: TurnPreparation | null;
     let preparationTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const preparation = this.prepareTurn(workspaceRoot, boundIdentity);
+      const preparation = this.turnPreparation.prepareTurn(
+        workspaceRoot,
+        boundIdentity,
+      );
       // A rejection that lands after the deadline has no awaiting reader, so
       // it is logged here; one inside the deadline is also reported below.
       preparation.catch((error: unknown) => {
@@ -676,8 +581,7 @@ export class GatewayChatBridge {
       } catch (error: unknown) {
         if (
           !cancellation.cancelled &&
-          boundIdentity?.runtime === 'codex-app-server' &&
-          isGatewayResumeProfileChanged(error)
+          isNativeResumeProfileRefusal(error, boundIdentity)
         ) {
           const detail = error instanceof Error ? error.message : String(error);
           this.logger.error(
@@ -828,107 +732,6 @@ export class GatewayChatBridge {
   }
 
   /**
-   * Everything a turn needs before its session starts. The provider profile
-   * is resolved here, ONCE, and deliberately outside `resolveSdkContext`'s
-   * degrade-to-defaults guards: a workspace whose provider cannot be served
-   * must fail the turn closed, never silently run on whichever provider the
-   * shared AuthEnv happens to hold.
-   *
-   * `existingIdentity` is set only for a bound session. Omitting it is the
-   * new-session branch; a legacy Claude binding still passes an identity so
-   * the resolver cannot start a native session for that thread.
-   */
-  private async prepareTurn(
-    workspaceRoot: string,
-    existingIdentity?: SessionRuntimeIdentity,
-  ): Promise<TurnPreparation> {
-    const sdkContext = await this.resolveSdkContext(workspaceRoot);
-    const requestedModel = this.resolveModel(workspaceRoot);
-    const decision =
-      await this.workspaceProviderProfileResolver.resolveExecutionProfile({
-        workspacePath: workspaceRoot,
-        requestedModel,
-        consumer: 'gateway',
-        hostCapabilities: this.hostCapabilities,
-        ...(existingIdentity ? { existingIdentity } : {}),
-      });
-    if (decision.runtime === 'codex-app-server') {
-      return {
-        sdkContext,
-        provider: {
-          model: decision.seed.model,
-          providerProfile: undefined,
-          runtime: 'codex-app-server',
-        },
-      };
-    }
-    return {
-      sdkContext,
-      provider: {
-        model: decision.model,
-        providerProfile: decision.providerProfile,
-        runtime: 'claude-sdk',
-      },
-    };
-  }
-
-  /**
-   * Resolve the session context for a turn, mirroring the webview chat path
-   * (`ChatSessionService` + `ChatSdkContextService`). Every external call
-   * is guarded so a prompt/plugin/MCP failure degrades to safe defaults
-   * rather than breaking the turn.
-   */
-  private async resolveSdkContext(
-    workspaceRoot: string,
-  ): Promise<SdkSessionContext> {
-    let mcpServerRunning = false;
-    try {
-      mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
-      if (mcpServerRunning) {
-        // Awaited: the turn's session starts once this context resolves, and
-        // its subagents read `.mcp.json` (TASK_2026_318).
-        //
-        // The RESULT is read, not just awaited (TASK_2026_332). The catch below
-        // was written believing a failed write would reject through to it, and
-        // it never did: both mutation helpers absorbed every failure into a
-        // warn and resolved normally, so `mcpServerRunning` stayed `true` from
-        // the `getPort()` line above while the entry a subagent reads did not
-        // exist. The call now reports its outcome instead, and that outcome is
-        // what decides the flag.
-        const registration =
-          await this.codeExecutionMcp.ensureRegisteredForSubagents();
-        mcpServerRunning = registration.registered;
-        if (!registration.registered) {
-          this.logger.warn(
-            '[gateway-chat-bridge] MCP running but .mcp.json entry absent — subagents get no Ptah tools this turn',
-            { reason: registration.reason },
-          );
-        }
-      }
-    } catch (error: unknown) {
-      mcpServerRunning = false;
-      this.logger.debug('[gateway-chat-bridge] MCP availability check failed', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    let enhancedPromptsContent: string | undefined;
-    try {
-      enhancedPromptsContent =
-        (await this.enhancedPromptsService.getEnhancedPromptContent(
-          workspaceRoot,
-        )) ?? undefined;
-    } catch (error: unknown) {
-      this.logger.debug(
-        '[gateway-chat-bridge] enhanced prompt resolution failed',
-        { error: error instanceof Error ? error.message : String(error) },
-      );
-    }
-
-    return { mcpServerRunning, enhancedPromptsContent };
-  }
-
-  /**
    * On-disk existence gate for the resolved effective root, run once per turn
    * before any session starts. Kept out of the pure resolver
    * (`resolveEffectiveWorkspaceRoot`) so that stays synchronously testable;
@@ -999,7 +802,7 @@ export class GatewayChatBridge {
           resumeConfig,
         );
       } catch (error: unknown) {
-        if (boundIdentity?.runtime === 'codex-app-server') {
+        if (isNativeCodexBinding(boundIdentity)) {
           throw error;
         }
         this.logger.warn(
@@ -1055,62 +858,6 @@ export class GatewayChatBridge {
       consumer: 'gateway',
       runtime: provider.runtime,
     });
-  }
-
-  /**
-   * Runtime view for this turn. An absent or empty binding carries no identity
-   * (new-session profile; legacy fallback stays available). A non-empty id that
-   * is not a `SessionId` is an existing binding, not a fresh conversation: the
-   * turn fails closed and the binding is left unchanged. A present lookup that
-   * returns no metadata is a legacy Claude session. A throw fails the turn; an
-   * absent lookup service stays on the legacy Claude identity.
-   */
-  private readBoundSessionIdentity(
-    sessionId: string | null | undefined,
-    workspaceRoot: string,
-  ):
-    | { readonly ok: true; readonly identity?: SessionRuntimeIdentity }
-    | { readonly ok: false; readonly error: Error } {
-    if (sessionId === null || sessionId === undefined || sessionId.length === 0) {
-      return { ok: true };
-    }
-    if (!SessionId.validate(sessionId)) {
-      return {
-        ok: false,
-        error: new Error('Bound gateway session id is not a valid session id'),
-      };
-    }
-    const id = SessionId.from(sessionId);
-    if (this.sessionIdentities === undefined) {
-      return {
-        ok: true,
-        identity: legacyClaudeSessionRuntimeIdentity({
-          sessionId: id,
-          workspaceId: workspaceRoot,
-        }),
-      };
-    }
-    try {
-      const stored = resolveSessionRuntimeIdentity(this.sessionIdentities, id);
-      return {
-        ok: true,
-        identity:
-          stored ??
-          legacyClaudeSessionRuntimeIdentity({
-            sessionId: id,
-            workspaceId: workspaceRoot,
-          }),
-      };
-    } catch (error: unknown) {
-      return { ok: false, error: asError(error) };
-    }
-  }
-
-  private resolveModel(workspaceRoot: string): string {
-    return this.workspaceProviderProfileResolver.resolveStoredModel(
-      workspaceRoot,
-      this.modelSettings.selectedModel.get(),
-    );
   }
 
   /**
@@ -1205,7 +952,7 @@ export class GatewayChatBridge {
     // touch the next turn's conversation state.
     if (cancellation.cancelled) return { ok: false, sessionId: null };
     if (!conversation.ptahSessionId) return { ok: false, sessionId: null };
-    if (boundIdentity?.runtime === 'codex-app-server') {
+    if (isNativeCodexBinding(boundIdentity)) {
       return { ok: false, sessionId: null };
     }
     this.logger.warn(

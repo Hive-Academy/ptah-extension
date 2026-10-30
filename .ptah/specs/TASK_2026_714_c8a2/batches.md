@@ -3599,7 +3599,7 @@ Edge cases:
   message; zero-event native stream -> no fallback; permission notices still fire from a published
   lifecycle event with a `gw-` routing hint.
 
-## Batch 9c: P9 phase-review fixes — 9c-1, 9c-1b, 9c-2 COMPLETE; 9c-3 PENDING
+## Batch 9c: P9 phase-review fixes — COMPLETE (99a49b4e8, 9c-3 in the next commit)
 Source: code-logic-review-p9.md (codex, REVISE 5/10) and code-style-review-p9.md (Kimi,
 REVISE 6/10).
 - 9c-1 (grok -> Kimi): logic 1 and 2. A failed native terminal and a divergent final text
