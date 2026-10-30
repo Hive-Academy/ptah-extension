@@ -265,13 +265,9 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
    * newer switch has started — dropping the stale continuation instead of
    * clobbering the current workspace's state.
    *
-   * Residual window: a response for an older generation could still land
-   * mid-`Promise.all` (auth already re-checked, models/effort in flight). The
-   * backend resolves "current workspace" at RPC-processing time and these RPCs
-   * carry no workspace parameter, so fully closing that window would require
-   * threading the workspace path through `auth:getAuthStatus`/`config:models-list`
-   * — a larger change out of this task's scope. This guard narrows the window
-   * to that single interleaving and matches the pattern used elsewhere here.
+   * `config:models-list` carries the workspace path and `ModelStateService`
+   * drops replies for another scope; the fresh model read below supersedes any
+   * read that started before this workspace's auth resolved.
    */
   private async refreshWorkspaceProviderState(
     generation: number,
@@ -282,8 +278,12 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
       // stale continuation rather than re-resolve models/effort for a
       // workspace the user has already switched away from.
       if (generation !== this.switchGeneration) return;
+      // `fresh`: a read for this scope that started before auth resolved (a
+      // new tab) used the previous workspace's auth env. Joining it would
+      // publish that answer under this scope's key, so start a new read; the
+      // older one then drops itself on the generation check.
       await Promise.all([
-        this.modelState.refreshModels(),
+        this.modelState.refreshModels({ fresh: true }),
         this.effortState.refreshEffort(),
       ]);
     } catch (error) {

@@ -190,6 +190,7 @@ import type {
   ConfigAutopilotToggleResult,
   ConfigAutopilotGetParams,
   ConfigAutopilotGetResult,
+  ConfigModelsListParams,
   ConfigModelsListResult,
   ConfigPricingGetResult,
 } from './rpc/rpc-config.types';
@@ -977,7 +978,7 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     result: ConfigAutopilotGetResult;
   };
   'config:models-list': {
-    params: Record<string, never>;
+    params: ConfigModelsListParams;
     result: ConfigModelsListResult;
   };
   'config:effort-get': {

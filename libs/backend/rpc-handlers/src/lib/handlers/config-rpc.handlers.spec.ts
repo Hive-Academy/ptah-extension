@@ -67,12 +67,18 @@ import type {
   ProviderModelsService,
 } from '@ptah-extension/auth-providers';
 import {
+  CODEX_PROXY_TOKEN_PLACEHOLDER,
+  type AuthEnv,
+} from '@ptah-extension/shared';
+import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
+import type { IDisposable } from '@ptah-extension/platform-core';
 import {
   ModelSettings as RealModelSettings,
   WorkspaceScopeResolver,
+  type IActiveWorkspaceSource,
   type ISettingsStore,
   type ModelSettings,
   type ReasoningSettings,
@@ -181,6 +187,8 @@ interface Harness {
   sentry: MockSentryService;
   modelSettings: MockModelSettings;
   reasoningSettings: MockReasoningSettings;
+  /** The object the handler copies for either scope. */
+  authEnv: AuthEnv;
 }
 
 function makeHarness(
@@ -190,6 +198,13 @@ function makeHarness(
     reasoningEffort?: string;
     /** A real settings repository instead of the mock (storage-level specs). */
     modelSettings?: ModelSettings;
+    /** Path-scoped reads. Omitted means a workspace path cannot be answered. */
+    scopeResolver?: WorkspaceScopeResolver | null;
+    /**
+     * Shared auth env the handler copies for either scope. Omitted starts
+     * from an empty object, which is the native Claude CLI shape.
+     */
+    authEnv?: AuthEnv;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -223,6 +238,7 @@ function makeHarness(
     ),
   };
 
+  const authEnv = opts.authEnv ?? {};
   const handlers = new ConfigRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
@@ -236,6 +252,9 @@ function makeHarness(
     reasoningSettings as unknown as ReasoningSettings,
     pricingProvider,
     lifecycle as unknown as SessionLifecycleManager,
+    null,
+    opts.scopeResolver ?? null,
+    authEnv,
   );
 
   return {
@@ -252,6 +271,7 @@ function makeHarness(
     sentry,
     modelSettings,
     reasoningSettings,
+    authEnv,
   };
 }
 
@@ -269,6 +289,94 @@ async function call<TResult>(
     throw new Error(`RPC ${method} failed: ${response.error}`);
   }
   return response.data as TResult;
+}
+
+function memorySettingsStore(): ISettingsStore {
+  const data = new Map<string, unknown>();
+  const noop = (): IDisposable => ({ dispose: () => undefined });
+  return {
+    readGlobal<T>(key: string): T | undefined {
+      const value = data.get(key);
+      return value === undefined ? undefined : (value as T);
+    },
+    writeGlobal<T>(key: string, value: T): Promise<void> {
+      if (value === undefined) {
+        data.delete(key);
+      } else {
+        data.set(key, value);
+      }
+      return Promise.resolve();
+    },
+    readSecret: () => Promise.resolve(undefined),
+    writeSecret: () => Promise.resolve(),
+    deleteSecret: () => Promise.resolve(),
+    watchGlobal: () => noop(),
+    watchSecret: () => noop(),
+    flushSync: () => undefined,
+  };
+}
+
+function idleWorkspaceSource(): IActiveWorkspaceSource {
+  return {
+    getActivePath: () => undefined,
+    onDidChange: () => ({ dispose: () => undefined }),
+  };
+}
+
+/** Seed explicit-path settings. The active folder stays unset on purpose. */
+async function scopedResolver(
+  workspacePath: string,
+  entries: Readonly<Record<string, string>>,
+): Promise<WorkspaceScopeResolver> {
+  const resolver = new WorkspaceScopeResolver(
+    memorySettingsStore(),
+    idleWorkspaceSource(),
+  );
+  for (const [key, value] of Object.entries(entries)) {
+    await resolver.writeForPath(key, workspacePath, value);
+  }
+  return resolver;
+}
+
+const CODEX_BASE_LIST = [
+  { value: 'default', displayName: 'Default', description: '' },
+  { value: 'gpt-6.1-sol', displayName: 'GPT 6.1 Sol', description: '' },
+  { value: 'gpt-5.6-terra', displayName: 'GPT 5.6 Terra', description: '' },
+  { value: 'gpt-5.6-luna', displayName: 'GPT 5.6 Luna', description: '' },
+];
+
+/**
+ * Map a tier word the way `ModelResolver.resolve` does when the env carries
+ * the tier. An env with no tier var leaves the word unchanged, so a spec
+ * fails closed when the handler passes an empty or synthetic env.
+ */
+function resolveTierFromEnv(model: string, env?: AuthEnv): string {
+  const lower = model.toLowerCase();
+  if (lower === 'default' || lower === 'opus' || lower.includes('opus')) {
+    return env?.ANTHROPIC_DEFAULT_OPUS_MODEL ?? model;
+  }
+  if (lower === 'sonnet' || lower.includes('sonnet')) {
+    return env?.ANTHROPIC_DEFAULT_SONNET_MODEL ?? model;
+  }
+  if (lower === 'haiku' || lower.includes('haiku')) {
+    return env?.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? model;
+  }
+  return model;
+}
+
+/** Claude id override: a tier var replaces the saved id, as `ModelResolver` does. */
+function resolveClaudeIdFromEnv(model: string, env?: AuthEnv): string {
+  if (!model.startsWith('claude-')) return model;
+  const lower = model.toLowerCase();
+  const override = lower.includes('opus')
+    ? env?.ANTHROPIC_DEFAULT_OPUS_MODEL
+    : lower.includes('sonnet')
+      ? env?.ANTHROPIC_DEFAULT_SONNET_MODEL
+      : lower.includes('haiku')
+        ? env?.ANTHROPIC_DEFAULT_HAIKU_MODEL
+        : undefined;
+  if (override && override !== model) return override;
+  return model;
 }
 
 // ---------------------------------------------------------------------------
@@ -880,8 +988,10 @@ describe('ConfigRpcHandlers', () => {
 
       const result = await call<{
         models: Array<{ id: string; isSelected: boolean }>;
+        workspacePath: string | null;
       }>(h, 'config:models-list');
 
+      expect(result.workspacePath).toBeNull();
       const ids = result.models.map((m) => m.id);
       // Opus dedup + sonnet + haiku
       expect(ids).toContain('claude-opus-4-7');
@@ -1067,6 +1177,563 @@ describe('ConfigRpcHandlers', () => {
         expect(result.models.filter((m) => m.isSelected)).toEqual([
           expect.objectContaining({ id: 'gpt-5.6-terra' }),
         ]);
+      });
+    });
+
+    describe('workspace scope', () => {
+      const workspacePath = 'D:/projects/codex-workspace';
+
+      it('rejects a workspacePath that is not a string or null', async () => {
+        const h = makeHarness();
+        h.handlers.register();
+
+        await expect(
+          call(h, 'config:models-list', { workspacePath: 4 }),
+        ).rejects.toThrow(/workspacePath/);
+      });
+
+      it('refuses a workspace path when no scope resolver is registered', async () => {
+        const h = makeHarness({ modelSelected: 'gpt-6-astra' });
+        h.handlers.register();
+
+        await expect(
+          call(h, 'config:models-list', { workspacePath }),
+        ).rejects.toThrow(/scope resolver/);
+        expect(h.modelSettings.selectedModel.get).not.toHaveBeenCalled();
+      });
+
+      it('offers a workspace-saved model the base list omits', async () => {
+        const resolver = await scopedResolver(workspacePath, {
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openai-codex',
+          'provider.thirdParty.openai-codex.selectedModel': 'gpt-6-sol',
+        });
+        const h = makeHarness({
+          modelSelected: 'gpt-6-astra',
+          scopeResolver: resolver,
+        });
+        h.sdkAdapter.getSupportedModels.mockResolvedValue(CODEX_BASE_LIST);
+        h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        h.handlers.register();
+
+        const result = await call<{
+          workspacePath: string | null;
+          models: Array<{ id: string; name: string; isSelected: boolean }>;
+        }>(h, 'config:models-list', { workspacePath });
+
+        expect(result.workspacePath).toBe(workspacePath);
+        expect(result.models.map((model) => model.id)).toEqual([
+          'default',
+          'gpt-6.1-sol',
+          'gpt-5.6-terra',
+          'gpt-5.6-luna',
+          'gpt-6-sol',
+        ]);
+        expect(result.models.filter((model) => model.isSelected)).toEqual([
+          expect.objectContaining({ id: 'gpt-6-sol', name: 'GPT 6 Sol' }),
+        ]);
+        expect(h.modelSettings.selectedModel.get).not.toHaveBeenCalled();
+      });
+
+      it('keeps each in-flight scope when ambient selection changes before the catalog returns', async () => {
+        const resolver = await scopedResolver(workspacePath, {
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openai-codex',
+          'provider.thirdParty.openai-codex.selectedModel': 'gpt-6-sol',
+        });
+        const h = makeHarness({
+          modelSelected: 'gpt-6-astra',
+          scopeResolver: resolver,
+        });
+        let releaseCatalog: () => void = () => undefined;
+        const catalogGate = new Promise<void>((resolve) => {
+          releaseCatalog = resolve;
+        });
+        h.sdkAdapter.getSupportedModels.mockImplementation(() =>
+          catalogGate.then(() => CODEX_BASE_LIST),
+        );
+        h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        h.handlers.register();
+
+        const workspaceResult = call<{
+          workspacePath: string | null;
+          models: Array<{ id: string; isSelected: boolean }>;
+        }>(h, 'config:models-list', { workspacePath });
+        // The live catalog that arrives later does not name gpt-6-sol. The
+        // workspace request already snapped a null catalog, so the static
+        // saved-model option still offers it. The global request snaps this
+        // catalog and therefore offers gpt-6-astra.
+        h.providerModels.getCachedModelIds.mockReturnValue(['gpt-6-astra']);
+        const globalResult = call<{
+          workspacePath: string | null;
+          models: Array<{ id: string; isSelected: boolean }>;
+        }>(h, 'config:models-list', { workspacePath: null });
+
+        releaseCatalog();
+        const [workspaceAnswer, globalAnswer] = await Promise.all([
+          workspaceResult,
+          globalResult,
+        ]);
+
+        expect(workspaceAnswer.workspacePath).toBe(workspacePath);
+        expect(workspaceAnswer.models.find((model) => model.isSelected)?.id).toBe(
+          'gpt-6-sol',
+        );
+        expect(globalAnswer.workspacePath).toBeNull();
+        expect(globalAnswer.models.find((model) => model.isSelected)?.id).toBe(
+          'gpt-6-astra',
+        );
+      });
+
+      it('selects the Claude model saved for the workspace after the ambient provider changes', async () => {
+        const claudeWorkspace = 'D:/projects/claude-workspace';
+        const resolver = await scopedResolver(claudeWorkspace, {
+          authMethod: 'apiKey',
+          'provider.apiKey.selectedModel': 'claude-opus-4-7',
+        });
+        const h = makeHarness({
+          modelSelected: 'gpt-6-astra',
+          scopeResolver: resolver,
+        });
+        let releaseCatalog: () => void = () => undefined;
+        const catalogGate = new Promise<void>((resolve) => {
+          releaseCatalog = resolve;
+        });
+        h.sdkAdapter.getSupportedModels.mockImplementation(() =>
+          catalogGate.then(() => [
+            {
+              value: 'claude-opus-4-7',
+              displayName: 'Opus',
+              description: '',
+            },
+            {
+              value: 'claude-sonnet-4-6',
+              displayName: 'Sonnet',
+              description: '',
+            },
+          ]),
+        );
+        h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        h.handlers.register();
+
+        const pending = call<{
+          workspacePath: string | null;
+          models: Array<{ id: string; isSelected: boolean; providerModelId: string | null }>;
+        }>(h, 'config:models-list', { workspacePath: claudeWorkspace });
+        h.modelSettings.selectedModel.get.mockReturnValue('gpt-6-astra');
+        h.providerModels.resolveActiveProviderId.mockReturnValue('openai-codex');
+        h.providerModels.getCachedModelIds.mockReturnValue(['gpt-6-astra']);
+        releaseCatalog();
+
+        const result = await pending;
+        expect(result.workspacePath).toBe(claudeWorkspace);
+        expect(result.models.filter((model) => model.isSelected)).toEqual([
+          expect.objectContaining({
+            id: 'claude-opus-4-7',
+            providerModelId: null,
+          }),
+        ]);
+        expect(h.providerModels.getModelTiers).not.toHaveBeenCalled();
+        expect(h.providerModels.resolveActiveProviderId).not.toHaveBeenCalled();
+        expect(h.modelSettings.selectedModel.get).not.toHaveBeenCalled();
+      });
+
+      it('appends a saved Claude id the catalog omits when the null-scope env is native Claude CLI', async () => {
+        const authEnv: AuthEnv = {};
+        const h = makeHarness({
+          modelSelected: 'claude-haiku-4-5',
+          authEnv,
+        });
+        h.providerModels.resolveActiveProviderId.mockReturnValue('claude-cli');
+        h.sdkAdapter.getSupportedModels.mockResolvedValue([
+          {
+            value: 'claude-haiku-5-5',
+            displayName: 'Haiku 5.5',
+            description: '',
+          },
+          {
+            value: 'claude-sonnet-5-5',
+            displayName: 'Sonnet 5.5',
+            description: '',
+          },
+        ]);
+        h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        h.modelResolver.resolve.mockImplementation(resolveClaudeIdFromEnv);
+        h.handlers.register();
+
+        const result = await call<{
+          workspacePath: string | null;
+          models: Array<{ id: string; name: string; isSelected: boolean }>;
+        }>(h, 'config:models-list', { workspacePath: null });
+
+        expect(result.workspacePath).toBeNull();
+        expect(result.models.filter((model) => model.isSelected)).toEqual([
+          expect.objectContaining({
+            id: 'claude-haiku-4-5',
+            name: 'Claude Haiku 4.5',
+          }),
+        ]);
+        expect(h.modelResolver.resolve.mock.calls.length).toBeGreaterThan(0);
+        for (const args of h.modelResolver.resolve.mock.calls) {
+          expect(args[1]).not.toBe(authEnv);
+          expect(args[1]?.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBeUndefined();
+          expect(args[1]?.ANTHROPIC_BASE_URL).toBeUndefined();
+        }
+      });
+
+      it('appends a saved Claude id for an explicit claude-cli workspace with empty native auth env', async () => {
+        const claudeWorkspace = 'D:/projects/claude-cli-workspace';
+        const resolver = await scopedResolver(claudeWorkspace, {
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'claude-cli',
+          'provider.thirdParty.claude-cli.selectedModel': 'claude-haiku-4-5',
+        });
+        const authEnv: AuthEnv = {};
+        const h = makeHarness({
+          modelSelected: 'claude-haiku-5-5',
+          scopeResolver: resolver,
+          authEnv,
+        });
+        h.sdkAdapter.getSupportedModels.mockResolvedValue([
+          {
+            value: 'claude-haiku-5-5',
+            displayName: 'Haiku 5.5',
+            description: '',
+          },
+        ]);
+        h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        h.modelResolver.resolve.mockImplementation(resolveClaudeIdFromEnv);
+        h.handlers.register();
+
+        const result = await call<{
+          models: Array<{ id: string; name: string; isSelected: boolean }>;
+        }>(h, 'config:models-list', { workspacePath: claudeWorkspace });
+
+        expect(result.models.filter((model) => model.isSelected)).toEqual([
+          expect.objectContaining({
+            id: 'claude-haiku-4-5',
+            name: 'Claude Haiku 4.5',
+          }),
+        ]);
+        expect(h.providerModels.getCachedModelIds).toHaveBeenCalledWith('claude-cli');
+        expect(h.modelResolver.resolve.mock.calls[0]?.[0]).toBe('claude-haiku-4-5');
+        for (const args of h.modelResolver.resolve.mock.calls) {
+          expect(args[1]).not.toBe(authEnv);
+          expect(args[1]?.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBeUndefined();
+          expect(args[1]?.ANTHROPIC_BASE_URL).toBeUndefined();
+        }
+        expect(h.providerModels.resolveActiveProviderId).not.toHaveBeenCalled();
+        expect(h.modelSettings.selectedModel.get).not.toHaveBeenCalled();
+      });
+
+      it('resolves a null-scope saved alias from the live-derived tier on the shared auth env', async () => {
+        const resolver = await scopedResolver(workspacePath, {
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openai-codex',
+          'provider.thirdParty.openai-codex.selectedModel': 'haiku',
+        });
+        const authEnv: AuthEnv = {
+          ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
+          ANTHROPIC_AUTH_TOKEN: 'openrouter-token',
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'live-derived-haiku',
+        };
+        const h = makeHarness({
+          modelSelected: 'haiku',
+          scopeResolver: resolver,
+          authEnv,
+        });
+        h.providerModels.resolveActiveProviderId.mockReturnValue('openrouter');
+        h.providerModels.getModelTiers.mockReturnValue({
+          sonnet: null,
+          opus: null,
+          haiku: null,
+        });
+        h.sdkAdapter.getSupportedModels.mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'mutated-after-snapshot';
+              resolve([
+                {
+                  value: 'live-derived-haiku',
+                  displayName: 'Live haiku',
+                  description: '',
+                },
+              ]);
+            }),
+        );
+        h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        h.modelResolver.resolve.mockImplementation(resolveTierFromEnv);
+        h.handlers.register();
+
+        const result = await call<{
+          workspacePath: string | null;
+          models: Array<{ id: string; isSelected: boolean }>;
+        }>(h, 'config:models-list', { workspacePath: null });
+
+        expect(result.workspacePath).toBeNull();
+        expect(result.models.filter((model) => model.isSelected)).toEqual([
+          expect.objectContaining({ id: 'live-derived-haiku' }),
+        ]);
+        for (const args of h.modelResolver.resolve.mock.calls) {
+          expect(args[1]).not.toBe(authEnv);
+          expect(args[1]?.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe(
+            'live-derived-haiku',
+          );
+        }
+        expect(h.modelResolver.isSubscriptionCovered).toHaveBeenCalled();
+        expect(
+          h.modelResolver.isSubscriptionCovered.mock.calls[0]?.[0]
+            ?.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+        ).toBe('live-derived-haiku');
+      });
+
+      it('resolves an explicit-scope saved alias from the shared env snapshot before the catalog await', async () => {
+        const resolver = await scopedResolver(workspacePath, {
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openrouter',
+          'provider.thirdParty.openrouter.selectedModel': 'haiku',
+        });
+        const authEnv: AuthEnv = {
+          ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
+          ANTHROPIC_AUTH_TOKEN: 'openrouter-token',
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'live-derived-haiku',
+        };
+        const h = makeHarness({
+          modelSelected: 'ambient-haiku',
+          scopeResolver: resolver,
+          authEnv,
+        });
+        h.providerModels.getModelTiers.mockReturnValue({
+          sonnet: null,
+          opus: null,
+          haiku: null,
+        });
+        let releaseCatalog: () => void = () => undefined;
+        const catalogGate = new Promise<void>((resolve) => {
+          releaseCatalog = resolve;
+        });
+        h.sdkAdapter.getSupportedModels.mockImplementation(() =>
+          catalogGate.then(() => [
+            {
+              value: 'live-derived-haiku',
+              displayName: 'Live haiku',
+              description: '',
+            },
+            {
+              value: 'ambient-haiku',
+              displayName: 'Ambient haiku',
+              description: '',
+            },
+          ]),
+        );
+        h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        h.modelResolver.resolve.mockImplementation(resolveTierFromEnv);
+        h.handlers.register();
+
+        const pending = call<{
+          models: Array<{ id: string; isSelected: boolean }>;
+        }>(h, 'config:models-list', { workspacePath });
+        authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'mutated-after-snapshot';
+        releaseCatalog();
+        const result = await pending;
+
+        expect(result.models.filter((model) => model.isSelected)).toEqual([
+          expect.objectContaining({ id: 'live-derived-haiku' }),
+        ]);
+        expect(h.providerModels.getCachedModelIds).toHaveBeenCalledWith('openrouter');
+        expect(h.modelResolver.resolve.mock.calls[0]?.[0]).toBe('haiku');
+        for (const args of h.modelResolver.resolve.mock.calls) {
+          expect(args[1]?.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe(
+            'live-derived-haiku',
+          );
+          expect(args[1]).not.toBe(authEnv);
+        }
+        expect(
+          h.modelResolver.isSubscriptionCovered.mock.calls[0]?.[0]
+            ?.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+        ).toBe('live-derived-haiku');
+        expect(h.providerModels.resolveActiveProviderId).not.toHaveBeenCalled();
+        expect(h.modelSettings.selectedModel.get).not.toHaveBeenCalled();
+      });
+
+      it('resolves and prices an explicit workspace alias from the shared env while the ambient model differs', async () => {
+        const resolver = await scopedResolver(workspacePath, {
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openai-codex',
+          'provider.thirdParty.openai-codex.selectedModel': 'haiku',
+        });
+        const authEnv: AuthEnv = {
+          ANTHROPIC_API_KEY: '',
+          ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER,
+          ANTHROPIC_BASE_URL: 'http://127.0.0.1:4317',
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'gpt-4o',
+        };
+        const h = makeHarness({
+          modelSelected: 'claude-haiku-4-5',
+          scopeResolver: resolver,
+          authEnv,
+        });
+        h.providerModels.getModelTiers.mockReturnValue({
+          sonnet: 'gpt-4o-mini',
+          opus: 'gpt-4o',
+          haiku: 'gpt-4o',
+        });
+        h.sdkAdapter.getSupportedModels.mockResolvedValue([
+          { value: 'gpt-4o', displayName: 'GPT-4o', description: 'sdk' },
+        ]);
+        h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        h.modelResolver.resolve.mockImplementation(resolveTierFromEnv);
+        h.modelResolver.detectTier.mockImplementation((model: string) =>
+          model === 'gpt-4o' ? 'haiku' : undefined,
+        );
+        h.modelResolver.isSubscriptionCovered.mockImplementation(
+          (env?: AuthEnv) =>
+            env?.ANTHROPIC_AUTH_TOKEN === CODEX_PROXY_TOKEN_PLACEHOLDER,
+        );
+        h.handlers.register();
+
+        const result = await call<{
+          models: Array<{
+            id: string;
+            isSelected: boolean;
+            description: string;
+          }>;
+        }>(h, 'config:models-list', { workspacePath });
+
+        const selected = result.models.filter((model) => model.isSelected);
+        expect(selected).toEqual([
+          expect.objectContaining({ id: 'gpt-4o' }),
+        ]);
+        expect(selected[0]?.description).toContain('covered by subscription');
+        expect(h.providerModels.resolveActiveProviderId).not.toHaveBeenCalled();
+        expect(h.modelSettings.selectedModel.get).not.toHaveBeenCalled();
+        expect(h.providerModels.getCachedModelIds).toHaveBeenCalledWith('openai-codex');
+        expect(h.modelResolver.resolve.mock.calls[0]?.[0]).toBe('haiku');
+        const coverageEnv =
+          h.modelResolver.isSubscriptionCovered.mock.calls[0]?.[0];
+        expect(coverageEnv?.ANTHROPIC_AUTH_TOKEN).toBe(
+          CODEX_PROXY_TOKEN_PLACEHOLDER,
+        );
+        expect(coverageEnv?.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:4317');
+        for (const args of h.modelResolver.resolve.mock.calls) {
+          expect(args[1]?.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gpt-4o');
+          expect(args[1]?.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:4317');
+          expect(args[1]).not.toBe(authEnv);
+        }
+      });
+
+      it('uses the shared auth env and ambient model for a null scope', async () => {
+        const resolver = await scopedResolver(workspacePath, {
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openai-codex',
+          'provider.thirdParty.openai-codex.selectedModel': 'haiku',
+        });
+        const authEnv: AuthEnv = {
+          ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
+          ANTHROPIC_AUTH_TOKEN: 'shared-openrouter-token',
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'gpt-4o',
+        };
+        const h = makeHarness({
+          modelSelected: 'haiku',
+          scopeResolver: resolver,
+          authEnv,
+        });
+        h.providerModels.resolveActiveProviderId.mockReturnValue('openrouter');
+        h.providerModels.getModelTiers.mockReturnValue({
+          sonnet: 'gpt-4o-mini',
+          opus: 'gpt-4o',
+          haiku: 'gpt-4o',
+        });
+        h.sdkAdapter.getSupportedModels.mockResolvedValue([
+          { value: 'gpt-4o', displayName: 'GPT-4o', description: 'sdk' },
+          {
+            value: 'gpt-6-luna',
+            displayName: 'GPT 6 Luna',
+            description: 'sdk luna',
+          },
+        ]);
+        h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        h.modelResolver.resolve.mockImplementation(resolveTierFromEnv);
+        h.modelResolver.detectTier.mockImplementation((model: string) =>
+          model === 'gpt-4o' ? 'haiku' : undefined,
+        );
+        h.handlers.register();
+
+        const result = await call<{
+          workspacePath: string | null;
+          models: Array<{
+            id: string;
+            isSelected: boolean;
+            description: string;
+          }>;
+        }>(h, 'config:models-list', { workspacePath: null });
+
+        expect(result.workspacePath).toBeNull();
+        const selected = result.models.filter((model) => model.isSelected);
+        expect(selected).toEqual([
+          expect.objectContaining({ id: 'gpt-4o' }),
+        ]);
+        expect(selected[0]?.description).toContain('Input:');
+        expect(selected[0]?.description).not.toContain(
+          'covered by subscription',
+        );
+        expect(h.modelSettings.selectedModel.get).toHaveBeenCalled();
+        const coverageEnv =
+          h.modelResolver.isSubscriptionCovered.mock.calls[0]?.[0];
+        expect(coverageEnv?.ANTHROPIC_AUTH_TOKEN).toBe(
+          'shared-openrouter-token',
+        );
+        for (const args of h.modelResolver.resolve.mock.calls) {
+          expect(args[1]?.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gpt-4o');
+          expect(args[1]?.ANTHROPIC_AUTH_TOKEN).toBe('shared-openrouter-token');
+          expect(args[1]).not.toBe(authEnv);
+        }
+      });
+
+      it('uses the shared auth env for an explicit workspace scope', async () => {
+        const resolver = await scopedResolver(workspacePath, {
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'openrouter',
+          'provider.thirdParty.openrouter.selectedModel': 'haiku',
+        });
+        const authEnv: AuthEnv = {
+          ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'live-derived-haiku',
+        };
+        const h = makeHarness({
+          modelSelected: 'claude-haiku-4-5',
+          scopeResolver: resolver,
+          authEnv,
+        });
+        h.providerModels.getModelTiers.mockReturnValue({
+          sonnet: null,
+          opus: null,
+          haiku: null,
+        });
+        h.sdkAdapter.getSupportedModels.mockResolvedValue([
+          {
+            value: 'live-derived-haiku',
+            displayName: 'Live haiku',
+            description: '',
+          },
+        ]);
+        h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        h.modelResolver.resolve.mockImplementation(resolveTierFromEnv);
+        h.handlers.register();
+
+        const result = await call<{
+          models: Array<{ id: string; isSelected: boolean }>;
+        }>(h, 'config:models-list', { workspacePath });
+
+        expect(result.models.filter((model) => model.isSelected)).toEqual([
+          expect.objectContaining({ id: 'live-derived-haiku' }),
+        ]);
+        for (const args of h.modelResolver.resolve.mock.calls) {
+          expect(args[1]?.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe(
+            'live-derived-haiku',
+          );
+          expect(args[1]).not.toBe(authEnv);
+        }
       });
     });
   });

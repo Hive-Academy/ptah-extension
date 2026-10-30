@@ -13,7 +13,14 @@ import {
   ConfigManager,
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import { resolveAuthProviderKey } from '@ptah-extension/platform-core';
+import {
+  AUTH_METHOD_DEF,
+  ANTHROPIC_PROVIDER_ID_DEF,
+  providerSelectedModelDef,
+  SETTINGS_TOKENS,
+  WorkspaceScopeResolver,
+} from '@ptah-extension/settings-core';
 import type {
   ModelSettings,
   ReasoningSettings,
@@ -44,8 +51,12 @@ import {
   ConfigEffortSetResult,
   ConfigEffortGetResult,
   ConfigPricingGetResult,
+  ANTHROPIC_DIRECT_PROVIDER_ID,
+  DEFAULT_PROVIDER_ID,
   getModelPricingDescription,
   getPricingMap,
+  normalizeAuthMethod,
+  type AuthEnv,
   type SessionId,
   type SessionRuntimeControls,
 } from '@ptah-extension/shared';
@@ -54,9 +65,22 @@ import {
   parsePermissionLevel,
   parseEffortLevel,
   parseApplyTo,
+  parseModelsListParams,
 } from './config-rpc.schema';
 import { configRuntimeControls } from './config-runtime-controls';
 import { isTierAlias, savedModelOption } from './config-saved-model-option';
+
+/**
+ * Copy of an auth env taken for one `config:models-list` request.
+ *
+ * `ModelResolver` reads the shared `SDK_AUTH_ENV` object when no override is
+ * passed, and that object is mutated when the active provider changes. A
+ * shallow copy keeps the values from the moment of the request. The object
+ * is a flat map of strings, so the copy does not share later writes.
+ */
+function snapshotAuthEnv(env: AuthEnv): AuthEnv {
+  return { ...env };
+}
 
 /**
  * RPC handlers for configuration operations
@@ -100,6 +124,10 @@ export class ConfigRpcHandlers {
     private readonly lifecycle: SessionLifecycleManager | null = null,
     @inject(SDK_TOKENS.SESSION_RUNTIME_ROUTER, { isOptional: true })
     private readonly runtimeControls: SessionRuntimeControls | null = null,
+    @inject(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER, { isOptional: true })
+    private readonly scopeResolver: WorkspaceScopeResolver | null = null,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV, { isOptional: true })
+    private readonly authEnv: AuthEnv | null = null,
   ) {}
 
   /**
@@ -471,22 +499,31 @@ export class ConfigRpcHandlers {
    * config:models-list - Get available models with metadata
    *
    * Merges two model sources:
-   * 1. SDK's supportedModels() â€” 3 tier slots (opus/sonnet/haiku) as recommended shortcuts
-   * 2. Anthropic /v1/models API â€” ALL available models for specific version selection
+   * 1. SDK's supportedModels() — 3 tier slots (opus/sonnet/haiku) as recommended shortcuts
+   * 2. Anthropic /v1/models API — ALL available models for specific version selection
    *
    * SDK tier models appear first (as "latest" recommended options), followed by
    * additional API models not already covered by a tier. The SDK accepts any model
    * string in setModel(), so all models work regardless of source.
+   *
+   * Provider, saved model, and tier overrides are captured before those
+   * awaits. The resolution env is a copy of the shared auth env for both
+   * scopes, taken before the catalog awaits. That env belongs to the active
+   * workspace once auth has resolved; the frontend starts a fresh read after
+   * each workspace auth refresh, so a pre-auth read is superseded. Candidate matching and subscription labelling
+   * use that copy. A later change to the ambient auth env must not rewrite
+   * this answer.
    */
   private registerModelsList(): void {
-    this.rpcHandler.registerMethod<void, ConfigModelsListResult>(
+    this.rpcHandler.registerMethod<unknown, ConfigModelsListResult>(
       'config:models-list',
-      async () => {
+      async (params) => {
         try {
-          this.logger.debug('RPC: config:models-list called');
-          const savedModel =
-            this.modelSettings.selectedModel.get() || 'default';
-          const resolvedSavedModel = this.modelResolver.resolve(savedModel);
+          const requested = parseModelsListParams(params);
+          const scope = this.captureModelsListScope(requested.workspacePath);
+          this.logger.debug('RPC: config:models-list called', {
+            workspacePath: scope.workspacePath,
+          });
           const sdkModels = await this.sdkAdapter.getSupportedModels();
           const apiModels = await this.sdkAdapter.getApiModels();
 
@@ -496,30 +533,38 @@ export class ConfigRpcHandlers {
             sdkValues: sdkModels.map((m) => m.value),
             apiValues: apiModels.map((m) => m.value).slice(0, 10),
           });
-          const tierOverrides = this.getTierOverrides();
+          const {
+            savedModel,
+            resolvedSavedModel,
+            tierOverrides,
+            resolutionEnv,
+          } = scope;
 
           this.logger.info('RPC: config:models-list tier context', {
-            activeProviderId: this.providerModels.resolveActiveProviderId(),
+            activeProviderId: scope.providerId,
             tierOverrides: tierOverrides ?? 'null',
             savedModel,
+            workspacePath: scope.workspacePath,
           });
-          // Rates are the published ones either way; the active provider's
-          // billing policy only decides whether the line says they are
-          // charged per token or absorbed by a flat fee.
+          // Rates are the published ones either way. The pinned provider's
+          // billing policy decides whether the line says they are charged
+          // per token or absorbed by a flat fee.
           const pricingOptions = {
-            subscriptionCovered: this.modelResolver.isSubscriptionCovered(),
+            subscriptionCovered: scope.subscriptionCovered,
           };
           const sdkModelIds = new Set(sdkModels.map((m) => m.value));
           // A saved Claude id or bare tier alias selects the entry it
           // resolves to (Codex `haiku` -> the listed `gpt-6-luna`), so a
           // workspace saved as `haiku` no longer shows "Default".
+          // `resolutionEnv` is the snapshot from before the catalog awaits.
           const resolvesSaved =
             savedModel.startsWith('claude-') || isTierAlias(savedModel);
           const matchesSaved = (value: string): boolean =>
             value === savedModel ||
             (resolvesSaved &&
               value.toLowerCase() !== 'default' &&
-              this.modelResolver.resolve(value) === resolvedSavedModel);
+              this.modelResolver.resolve(value, resolutionEnv) ===
+                resolvedSavedModel);
           const models: SdkModelInfo[] = [];
 
           for (const m of sdkModels) {
@@ -570,7 +615,13 @@ export class ConfigRpcHandlers {
             });
           }
           if (!models.some((m) => m.isSelected)) {
-            this.appendSavedModel(models, savedModel, pricingOptions);
+            this.appendSavedModel(
+              models,
+              savedModel,
+              pricingOptions,
+              scope.providerId,
+              scope.cachedModelIds,
+            );
           }
           const exactMatchIndex = models.findIndex((m) => m.id === savedModel);
           if (exactMatchIndex !== -1) {
@@ -587,6 +638,7 @@ export class ConfigRpcHandlers {
             '[ModelDiag] config:models-list SENDING to frontend dropdown',
             {
               savedModel,
+              workspacePath: scope.workspacePath,
               tierOverrides: tierOverrides ?? 'none',
               models: models.map((m) => ({
                 id: m.id,
@@ -598,7 +650,7 @@ export class ConfigRpcHandlers {
             },
           );
 
-          return { models };
+          return { models, workspacePath: scope.workspacePath };
         } catch (error) {
           this.logger.error(
             'RPC: config:models-list failed',
@@ -615,21 +667,112 @@ export class ConfigRpcHandlers {
   }
 
   /**
+   * Provider, saved main-agent model, and catalog for one request scope.
+   * Those reads happen before `getSupportedModels` / `getApiModels` await,
+   * so a workspace switch during the catalog fetch cannot replace them.
+   *
+   * Both scopes copy the shared auth env before the first catalog await.
+   * Workspace switches make other-workspace replies stale in ModelStateService.
+   */
+  private captureModelsListScope(workspacePath: string | null): {
+    workspacePath: string | null;
+    providerId: string;
+    savedModel: string;
+    resolvedSavedModel: string;
+    cachedModelIds: readonly string[] | null;
+    tierOverrides: ReturnType<ProviderModelsService['getModelTiers']> | null;
+    subscriptionCovered: boolean;
+    resolutionEnv: AuthEnv;
+  } {
+    const pinned = workspacePath
+      ? this.readWorkspaceModelScope(workspacePath)
+      : {
+          providerId: this.providerModels.resolveActiveProviderId(),
+          savedModel: this.modelSettings.selectedModel.get() || 'default',
+        };
+    const cached = this.providerModels.getCachedModelIds(pinned.providerId);
+    const savedModel = pinned.savedModel;
+    const tierOverrides = this.getTierOverrides(pinned.providerId);
+    // The shared env belongs to the active workspace; a workspace switch
+    // makes a reply for another scope stale before ModelStateService uses it.
+    const resolutionEnv = this.snapshotSharedAuthEnv();
+    return {
+      workspacePath,
+      providerId: pinned.providerId,
+      savedModel,
+      resolvedSavedModel: this.modelResolver.resolve(
+        savedModel,
+        resolutionEnv,
+      ),
+      cachedModelIds: cached ? cached.slice() : null,
+      tierOverrides,
+      subscriptionCovered:
+        this.modelResolver.isSubscriptionCovered(resolutionEnv),
+      resolutionEnv,
+    };
+  }
+
+  /** Shallow copy of the shared auth env `ModelResolver` defaults to. */
+  private snapshotSharedAuthEnv(): AuthEnv {
+    return snapshotAuthEnv(this.authEnv ?? {});
+  }
+
+  /**
+   * Saved model and provider for an explicit workspace, not the ambient one.
+   * Resolution matches `ModelSettings.selectedModel` (app-scopable provider
+   * key) and `ActiveProviderResolver.resolveActiveAuthForPath`.
+   */
+  private readWorkspaceModelScope(workspacePath: string): {
+    providerId: string;
+    savedModel: string;
+  } {
+    const resolver = this.scopeResolver;
+    if (!resolver) {
+      throw new Error(
+        'config:models-list cannot read a workspace scope without a scope resolver',
+      );
+    }
+    const authMethod = normalizeAuthMethod(
+      resolver.readForPath<string>(AUTH_METHOD_DEF.key, workspacePath, true),
+    );
+    const storedProviderId = resolver.readForPath<string>(
+      ANTHROPIC_PROVIDER_ID_DEF.key,
+      workspacePath,
+      true,
+    );
+    const providerIdForKey = storedProviderId ?? DEFAULT_PROVIDER_ID;
+    const authKey = resolveAuthProviderKey(authMethod, providerIdForKey);
+    const providerId =
+      authMethod === 'thirdParty'
+        ? providerIdForKey
+        : ANTHROPIC_DIRECT_PROVIDER_ID;
+    const savedRaw = resolver.readForPath<string>(
+      providerSelectedModelDef(authKey).key,
+      workspacePath,
+      true,
+    );
+    const savedModel =
+      savedRaw && savedRaw.length > 0 ? savedRaw : 'default';
+    return { providerId, savedModel };
+  }
+
+  /**
    * Offer a saved model the list did not carry (D1): a concrete id the active
    * provider declares but that is not one of its tier mappings. Without this
    * the picker selected nothing and "Default" ran the turn on the opus tier.
+   *
+   * `providerId` and `cachedModelIds` are the snapshot from the start of the
+   * request. Re-reading them here would follow a workspace switch that happened
+   * while the catalog fetch was in flight.
    */
   private appendSavedModel(
     models: SdkModelInfo[],
     savedModel: string,
     pricingOptions: { subscriptionCovered: boolean },
+    providerId: string,
+    cachedModelIds: readonly string[] | null,
   ): void {
-    const providerId = this.providerModels.resolveActiveProviderId();
-    const option = savedModelOption(
-      providerId,
-      savedModel,
-      this.providerModels.getCachedModelIds(providerId),
-    );
+    const option = savedModelOption(providerId, savedModel, cachedModelIds);
     if (!option) return;
     models.push({
       id: option.id,
@@ -647,17 +790,18 @@ export class ConfigRpcHandlers {
   /**
    * Get provider tier overrides for model mapping (OpenRouter etc.).
    *
-   * Returns null for direct Anthropic â€” tierâ†’model-id remapping only applies
+   * Returns null for direct Anthropic — tier→model-id remapping only applies
    * to third-party providers that use different model IDs (e.g., OpenRouter's
    * 'anthropic/claude-sonnet-4'). For api.anthropic.com, model IDs are valid
    * as-is and the CLI/SDK handles tier resolution natively.
+   *
+   * `providerId` is the scope captured for this request, not a fresh ambient read.
    */
-  private getTierOverrides(): ReturnType<
-    ProviderModelsService['getModelTiers']
-  > | null {
+  private getTierOverrides(
+    providerId: string,
+  ): ReturnType<ProviderModelsService['getModelTiers']> | null {
     try {
-      const providerId = this.providerModels.resolveActiveProviderId();
-      if (providerId === 'anthropic') {
+      if (providerId === ANTHROPIC_DIRECT_PROVIDER_ID) {
         return null;
       }
       return this.providerModels.getModelTiers(providerId, 'mainAgent');
