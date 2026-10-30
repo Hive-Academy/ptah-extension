@@ -47,6 +47,10 @@ import {
   summarizeToolInput,
   sanitizeErrorMessage,
 } from './ptah-cli-registry.utils';
+import {
+  PTAH_API_RATE_LIMIT_SEGMENT,
+  matchesApiRateLimit,
+} from '../../cli-agents/limits/lane-rate-limit-classifier';
 
 /**
  * Label shown for a peer that sent no usable name of its own.
@@ -58,6 +62,21 @@ const UNNAMED_PEER_LABEL = 'unverified peer';
 
 /** How much of a sender-authored name is shown. A tile is narrow. */
 const MAX_PEER_NAME_LENGTH = 48;
+
+/** How much of an `is_error` result's text the rate-limit match reads. */
+const RATE_LIMIT_RESULT_CHARS = 4 * 1024;
+
+/**
+ * Whether an `is_error` success result is an API rate limit (HTTP 429): the
+ * status the SDK carries, or a 429 wording in the bounded result text.
+ */
+function isApiRateLimitResult(msg: SDKResultSuccess): boolean {
+  if (msg.api_error_status === 429) return true;
+  return (
+    typeof msg.result === 'string' &&
+    matchesApiRateLimit([msg.result.slice(0, RATE_LIMIT_RESULT_CHARS)])
+  );
+}
 
 type ModelUsageTotals = {
   readonly inputTokens: number;
@@ -623,6 +642,15 @@ export class PtahCliStreamLoop {
                 ...(usage && { usage }),
               });
               if (!msg.is_error) this.reportTurnSuccess();
+              else if (isApiRateLimitResult(msg)) {
+                // The turn still exits 0, so the process manager reads this
+                // fixed marker from the turn's error segments to tell a 429 from
+                // a delivered turn. The provider's text is never copied in.
+                emitSegment({
+                  type: 'error',
+                  content: PTAH_API_RATE_LIMIT_SEGMENT,
+                });
+              }
             } else if (isErrorResult(msg)) {
               turnExitCode = 1;
               const errorMsg =

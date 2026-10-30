@@ -121,6 +121,7 @@ import { CliDetectionService } from './cli-detection.service';
 import { AgentMessageRouter } from './agent-message-router.service';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
+import { PTAH_API_RATE_LIMIT_SEGMENT } from './limits/lane-rate-limit-classifier';
 import type {
   CliAdapter,
   SdkHandle,
@@ -1936,6 +1937,159 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         reportsDelivered: 2,
         authMatched: false,
       });
+    });
+  });
+
+  // TASK_2026_857 B10c (Req 1): a CLI can print an API 429 and still exit 0.
+  // The exit path reads the current turn's error segments for it, before the
+  // output is discarded, and hands the result to the notifier as
+  // `rateLimited`. It is not quota.
+  describe('lane completion signal: API rate limit', () => {
+    const attachSegments = (
+      controls: MockSdkHandleControls,
+    ): ((segment: CliOutputSegment) => void) => {
+      const callbacks: Array<(segment: CliOutputSegment) => void> = [];
+      Object.assign(controls.handle, {
+        onSegment: (cb: (segment: CliOutputSegment) => void) => {
+          callbacks.push(cb);
+        },
+      });
+      return (segment) => {
+        for (const cb of callbacks) cb(segment);
+      };
+    };
+
+    const spawnCodex = async (): Promise<string> =>
+      (
+        await manager.spawn({
+          task: 'Task',
+          cli: 'codex',
+          workingDirectory: '/workspace/root',
+        })
+      ).agentId;
+
+    const contextOf = (call: number): Record<string, unknown> =>
+      laneCompletion.signal.mock.calls[call][1] as Record<string, unknown>;
+
+    it('flags an exit-0 turn whose error segment is the ptah-cli marker', async () => {
+      const emit = attachSegments(sdkControls);
+      const agentId = await spawnCodex();
+
+      emit({ type: 'error', content: PTAH_API_RATE_LIMIT_SEGMENT });
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(contextOf(0)).toMatchObject({ rateLimited: true });
+      const info = laneCompletion.signal.mock.calls[0][0] as AgentProcessInfo;
+      expect(info.status).toBe('completed');
+      expect(info.failureKind).toBeUndefined();
+      expect(planLimits.recordOwnerEvidence).not.toHaveBeenCalled();
+      expect(planLimits.recordWindowEvidence).not.toHaveBeenCalled();
+      expect(logger.debug).toHaveBeenCalledWith(
+        '[AgentProcessManager] Lane turn matched an API rate-limit wording',
+        { agentId, cli: 'codex', exitCode: 0 },
+      );
+    });
+
+    it('flags an exit-0 turn with a provider 429 wording in an error segment', async () => {
+      const emit = attachSegments(sdkControls);
+      await spawnCodex();
+
+      emit({ type: 'error', content: 'API Error: Request rejected (429)' });
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(contextOf(0)).toMatchObject({ rateLimited: true });
+    });
+
+    it('does not read stdout on exit 0', async () => {
+      await spawnCodex();
+
+      sdkControls.emitOutput('Summary: handled API Error: 429 retries\n');
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(contextOf(0)).not.toHaveProperty('rateLimited');
+    });
+
+    it('flags a failed exit with a 429 rate wording in its tail', async () => {
+      await spawnCodex();
+
+      sdkControls.emitOutput('429 Too Many Requests from the API\n');
+      sdkControls.resolve(1);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(contextOf(0)).toMatchObject({ rateLimited: true });
+      const info = laneCompletion.signal.mock.calls[0][0] as AgentProcessInfo;
+      expect(info.status).toBe('failed');
+      expect(info.failureKind).toBeUndefined();
+    });
+
+    it('sets the flag before the output buffer is discarded', async () => {
+      const emit = attachSegments(sdkControls);
+      await spawnCodex();
+      const atDiscard: Array<Record<string, unknown> | undefined> = [];
+      const original = outputBuffer.discard.bind(outputBuffer);
+      jest.spyOn(outputBuffer, 'discard').mockImplementation((id: string) => {
+        atDiscard.push(
+          laneCompletion.signal.mock.calls[0]?.[1] as
+            | Record<string, unknown>
+            | undefined,
+        );
+        original(id);
+      });
+
+      emit({ type: 'error', content: PTAH_API_RATE_LIMIT_SEGMENT });
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(atDiscard[0]).toMatchObject({ rateLimited: true });
+    });
+
+    it('does not let an earlier turn 429 taint a continuation turn', async () => {
+      const continuable = createMockSdkHandle({ supportsContinuation: true });
+      const emit = attachSegments(continuable);
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(continuable.handle);
+      const agentId = await spawnCodex();
+
+      emit({ type: 'error', content: PTAH_API_RATE_LIMIT_SEGMENT });
+      continuable.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(contextOf(0)).toMatchObject({ rateLimited: true });
+
+      await manager.continueConversation(agentId, 'second turn');
+      continuable.resolveContinue(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(laneCompletion.signal).toHaveBeenCalledTimes(2);
+      expect(contextOf(1)).not.toHaveProperty('rateLimited');
+    });
+
+    it('flags a continuation turn that hits its own 429', async () => {
+      const continuable = createMockSdkHandle({ supportsContinuation: true });
+      const emit = attachSegments(continuable);
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(continuable.handle);
+      const agentId = await spawnCodex();
+
+      continuable.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(contextOf(0)).not.toHaveProperty('rateLimited');
+
+      await manager.continueConversation(agentId, 'second turn');
+      emit({ type: 'error', content: PTAH_API_RATE_LIMIT_SEGMENT });
+      continuable.resolveContinue(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(contextOf(1)).toMatchObject({ rateLimited: true });
     });
   });
 

@@ -109,6 +109,7 @@ import {
   type LaneOwnerResolver,
 } from './limits/lane-owner.resolver';
 import { matchesAuthFailure } from './limits/lane-auth-classifier';
+import { matchesApiRateLimit } from './limits/lane-rate-limit-classifier';
 import { laneRouteFingerprint } from './limits/lane-limit-lookup.service';
 
 const DEFAULT_AGENT_READ_TAIL_LINES = 200;
@@ -1128,6 +1129,7 @@ export class AgentProcessManager {
       streamCapLogged: false,
       pendingMessages: [],
       reportsDelivered: 0,
+      turnSegmentStart: 0,
     };
 
     this.agents.set(agentId, tracked);
@@ -2204,6 +2206,9 @@ export class AgentProcessManager {
     this.clearIdleRelease(tracked);
 
     tracked.hasExited = false;
+    // This turn's rate-limit match reads only the segments it produces.
+    tracked.turnSegmentStart = tracked.accumulatedSegments.length;
+    tracked.rateLimitMatched = undefined;
     if (tracked.cleanupHandle) {
       clearTimeout(tracked.cleanupHandle);
       tracked.cleanupHandle = undefined;
@@ -2766,6 +2771,9 @@ export class AgentProcessManager {
       } else {
         tracked.authMatched = false;
       }
+      // Also before the discard below. A rate limit is not quota: it never
+      // sets `failureKind` and never reaches `recordLaneLimits`.
+      tracked.rateLimitMatched = this.matchLaneRateLimit(tracked, code);
       this.recordLaneLimits(tracked, limit, observedAt);
     } else if (!tracked.info.completedAt) {
       tracked.info = {
@@ -2845,6 +2853,46 @@ export class AgentProcessManager {
       );
     }
     return limit;
+  }
+
+  /**
+   * Whether this turn's bounded output names an API rate limit (HTTP 429).
+   * An exit 0 reads only the current turn's error segments, never stdout: a
+   * lane's final summary may legitimately discuss 429s. A failed exit reads
+   * the current turn's error segments plus the stdout tail. Segments dropped
+   * by the accumulation cap are not seen, so the match fails open.
+   */
+  private matchLaneRateLimit(
+    tracked: TrackedAgent,
+    code: number | null,
+  ): boolean {
+    const errors = this.turnErrorTexts(tracked);
+    const texts =
+      code === 0
+        ? errors
+        : [...errors, tracked.stdoutBuffer.slice(-LIMIT_CLASSIFIER_TAIL_CHARS)];
+    const matched = matchesApiRateLimit(texts);
+    if (matched) {
+      this.logger.debug(
+        '[AgentProcessManager] Lane turn matched an API rate-limit wording',
+        {
+          agentId: tracked.info.agentId,
+          cli: tracked.info.cli,
+          exitCode: code,
+        },
+      );
+    }
+    return matched;
+  }
+
+  /** The current turn's newest error segments, bounded like the failure texts. */
+  private turnErrorTexts(tracked: TrackedAgent): readonly string[] {
+    return tracked.accumulatedSegments
+      .slice(tracked.turnSegmentStart ?? 0)
+      .filter((segment) => segment.type === 'error')
+      .slice(-LIMIT_CLASSIFIER_ERROR_SEGMENTS)
+      .reverse()
+      .map((segment) => segment.content.slice(-LIMIT_CLASSIFIER_SEGMENT_CHARS));
   }
 
   private laneFailureTexts(tracked: TrackedAgent): readonly string[] {
@@ -2992,6 +3040,7 @@ export class AgentProcessManager {
     void this.laneCompletion.signal(info, {
       reportsDelivered,
       authMatched: tracked.authMatched ?? false,
+      ...(tracked.rateLimitMatched ? { rateLimited: true } : {}),
       ...(toolCalls !== undefined ? { toolCalls } : {}),
       ...(tracked.queuedMessagesDropped
         ? { queuedMessagesDropped: tracked.queuedMessagesDropped }
