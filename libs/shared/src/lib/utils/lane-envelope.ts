@@ -1,8 +1,9 @@
 /**
  * Lane envelopes: the text a lane or a child session sends into its parent
  * session as a peer turn (`<agent-report …>` from `AgentReportRouter`,
- * `<agent-lane-completed …>` from `LaneCompletionNotifier`, or an SDK
- * subagent's `<agent-message …>`).
+ * `<agent-lane-completed …>` from `LaneCompletionNotifier`, an SDK
+ * subagent's `<agent-message …>`, or another Claude Code session's
+ * `<cross-session-message …>`).
  *
  * The live echo carries no `origin`; live attribution uses the yielded-entry
  * identity. The CLI does not write `origin` to the JSONL transcript, so history
@@ -29,6 +30,8 @@ export interface LaneEnvelope {
   readonly verdict?: string;
   /** The text between the opening and the closing tag, trimmed. */
   readonly body: string;
+  /** Set for a `<cross-session-message>` from another Claude Code session. */
+  readonly crossSession?: true;
 }
 
 const TAG_KIND: Readonly<Record<string, LaneEnvelopeKind>> = {
@@ -47,6 +50,15 @@ const SDK_ENVELOPE_PATTERN =
 // the body is not a second envelope.
 const SDK_ENVELOPE_TAG_PATTERN = /<agent-message\s+from\s*=\s*"[^"]*"\s*>/g;
 
+// The CLI wraps a message from another Claude Code session in a preamble, the
+// envelope and a one-paragraph safety trailer, like the SDK subagent form.
+const CROSS_SESSION_PATTERN =
+  /^\s*(?:Another Claude session sent a message:\s*)?<cross-session-message((?:\s+[a-z-]+="[^"]*")*)\s*>\n?([\s\S]*?)\n?<\/cross-session-message>(?:\s*This came from another Claude session[^\n]*(?:\n(?![ \t]*\n)[^\n]*)*)?\s*$/;
+const CROSS_SESSION_TAG_PATTERN = /<cross-session-message(?:\s[^>]*)?>/g;
+
+/** The `cli` value of a cross-session message: the sender is a Claude session. */
+const CROSS_SESSION_CLI = 'claude';
+
 const ATTRIBUTE_PATTERN = /([a-z-]+)="([^"]*)"/g;
 
 /** The `cli` attribute of an envelope from a child chat session. */
@@ -58,6 +70,31 @@ function unescapeAttribute(value: string): string {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
+}
+
+function parseAttributes(source: string): Map<string, string> {
+  const attributes = new Map<string, string>();
+  for (const [, name, value] of source.matchAll(ATTRIBUTE_PATTERN)) {
+    attributes.set(name, unescapeAttribute(value));
+  }
+  return attributes;
+}
+
+function parseCrossSessionEnvelope(text: string): LaneEnvelope | null {
+  if ([...text.matchAll(CROSS_SESSION_TAG_PATTERN)].length !== 1) return null;
+  const match = CROSS_SESSION_PATTERN.exec(text);
+  if (!match) return null;
+  const attributes = parseAttributes(match[1]);
+  const agentId = attributes.get('from')?.trim();
+  if (!agentId) return null;
+  return {
+    kind: 'report',
+    agentId,
+    agent: attributes.get('from-name')?.trim() || 'Claude session',
+    cli: CROSS_SESSION_CLI,
+    body: match[2].trim(),
+    crossSession: true,
+  };
 }
 
 function parseSdkEnvelope(text: string): LaneEnvelope | null {
@@ -81,11 +118,8 @@ function parseSdkEnvelope(text: string): LaneEnvelope | null {
  */
 export function parseLaneEnvelope(text: string): LaneEnvelope | null {
   const match = ENVELOPE_PATTERN.exec(text);
-  if (!match) return parseSdkEnvelope(text);
-  const attributes = new Map<string, string>();
-  for (const [, name, value] of match[2].matchAll(ATTRIBUTE_PATTERN)) {
-    attributes.set(name, unescapeAttribute(value));
-  }
+  if (!match) return parseSdkEnvelope(text) ?? parseCrossSessionEnvelope(text);
+  const attributes = parseAttributes(match[2]);
   const agentId = attributes.get('agent-id');
   const agent = attributes.get('agent');
   const cli = attributes.get('cli');
@@ -107,10 +141,12 @@ export function parseLaneEnvelope(text: string): LaneEnvelope | null {
  * The peer label the live stream shows for this envelope's sender. It is the
  * `origin.name` the senders set: `<cli> · <agent>` for a CLI lane and
  * `session · <agent>` for a child chat session. SDK subagents have no CLI
- * origin name in history, so their short sender id is the fallback.
+ * origin name in history, so their short sender id is the fallback. Another
+ * Claude Code session's origin name is its self-reported session name.
  */
 export function laneEnvelopePeerLabel(envelope: LaneEnvelope): string {
-  if (envelope.cli === 'subagent') return envelope.agent;
+  if (envelope.cli === 'subagent' || envelope.crossSession)
+    return envelope.agent;
   const sender = envelope.cli === SESSION_CHILD_CLI ? 'session' : envelope.cli;
   return `${sender} · ${envelope.agent}`;
 }
