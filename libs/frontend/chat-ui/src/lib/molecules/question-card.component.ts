@@ -1,13 +1,13 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  OnInit,
-  OnDestroy,
   computed,
+  inject,
   input,
   output,
   signal,
 } from '@angular/core';
+import { injectWallClock, WallClockService } from '@ptah-extension/core';
 import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
@@ -270,7 +270,7 @@ import type {
     </div>
   `,
 })
-export class QuestionCardComponent implements OnInit, OnDestroy {
+export class QuestionCardComponent {
   /** Lucide icon references */
   protected readonly HelpCircleIcon = HelpCircle;
   protected readonly ChevronLeftIcon = ChevronLeft;
@@ -297,11 +297,17 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
   /** Current step index (0-based) */
   protected readonly currentStep = signal(0);
 
-  /** Countdown timer showing seconds remaining until timeout */
-  protected readonly timeRemaining = signal(30);
+  private readonly clockNow = inject(WallClockService).now('second');
+  protected readonly expired = computed(() => {
+    const timeout = this.request().timeoutAt;
+    return timeout > 0 && this.clockNow() >= timeout;
+  });
 
-  /** Timer interval reference for cleanup */
-  private timerInterval?: ReturnType<typeof setInterval>;
+  /** Countdown timer showing seconds remaining until the host deadline. */
+  protected readonly timeRemaining = computed(() => {
+    const timeout = this.request().timeoutAt;
+    return timeout <= 0 ? -1 : Math.max(0, Math.floor((timeout - this.clockNow()) / 1000));
+  });
 
   /** Whether there are multiple questions */
   protected readonly hasMultipleQuestions = computed(
@@ -333,23 +339,8 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
     return answer !== undefined && answer.length > 0;
   });
 
-  ngOnInit(): void {
-    if (this.request().timeoutAt <= 0) {
-      this.timeRemaining.set(-1); // Sentinel: no timeout
-      return;
-    }
-
-    this.updateTimeRemaining();
-    this.timerInterval = setInterval(() => {
-      const remaining = this.updateTimeRemaining();
-      if (remaining <= 0) {
-        this.clearTimer();
-      }
-    }, 1000);
-  }
-
-  ngOnDestroy(): void {
-    this.clearTimer();
+  constructor() {
+    injectWallClock('second', () => this.request().timeoutAt > 0 && !this.expired());
   }
 
   /** Get count of answered questions */
@@ -387,22 +378,6 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
   private resetCustomState(): void {
     this.isCustomMode.set(false);
     this.customText.set('');
-  }
-
-  private updateTimeRemaining(): number {
-    const remaining = Math.max(
-      0,
-      Math.floor((this.request().timeoutAt - Date.now()) / 1000),
-    );
-    this.timeRemaining.set(remaining);
-    return remaining;
-  }
-
-  private clearTimer(): void {
-    if (this.timerInterval) {
-      clearInterval(this.timerInterval);
-      this.timerInterval = undefined;
-    }
   }
 
   /** Check if an option is currently selected (for multi-select checkboxes) */
