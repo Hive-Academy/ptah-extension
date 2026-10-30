@@ -1,12 +1,10 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   computed,
-  inject,
   input,
-  signal,
 } from '@angular/core';
+import { injectWallClock } from '@ptah-extension/core';
 import { LucideAngularModule, Check, Loader } from 'lucide-angular';
 import type {
   BackendReadiness,
@@ -23,9 +21,8 @@ import {
  * BootProgressComponent — the staged boot screen (TASK_2026_380, component 13).
  *
  * Replaces a bare spinner that said nothing with a live region that names the
- * stage the Electron host has reached. Presentational: inputs only, no RPC and
- * no service. The one timer it owns is the elapsed-seconds clock, cleared via
- * `DestroyRef`.
+ * stage the Electron host has reached. Presentational: inputs only, no RPC.
+ * Elapsed seconds use the shared wall clock.
  *
  * `settled` is deliberately NOT in the list — the screen is gone by then. An
  * unrecognised phase degrades to "Starting" with nothing checked, because a
@@ -91,9 +88,6 @@ function toStagedStep(step: BootHostStep): StagedStep {
     ...(elapsed === undefined ? {} : { detail: elapsed }),
   };
 }
-
-/** How often the elapsed counter is re-read. One second is all it shows. */
-const ELAPSED_TICK_MS = 1000;
 
 @Component({
   selector: 'ptah-boot-progress',
@@ -207,8 +201,6 @@ const ELAPSED_TICK_MS = 1000;
   ],
 })
 export class BootProgressComponent {
-  private readonly destroyRef = inject(DestroyRef);
-
   readonly phase = input.required<BootPhase>();
   readonly readiness = input.required<BackendReadiness>();
   /** Epoch ms of boot start, so elapsed time is the host's, not the view's. */
@@ -227,7 +219,7 @@ export class BootProgressComponent {
     },
   );
 
-  private readonly now = signal<number>(Date.now());
+  private readonly now = injectWallClock('second', () => this.phase() !== 'settled');
 
   /** -1 when the host reports a phase this build does not know about. */
   private readonly currentIndex = computed<number>(() =>
@@ -269,11 +261,4 @@ export class BootProgressComponent {
     const elapsedMs = Math.max(0, this.now() - this.startedAt());
     return `${Math.floor(elapsedMs / 1000)}s elapsed`;
   });
-
-  constructor() {
-    const handle = setInterval(() => {
-      this.now.set(Date.now());
-    }, ELAPSED_TICK_MS);
-    this.destroyRef.onDestroy(() => clearInterval(handle));
-  }
 }
