@@ -54,7 +54,7 @@ Lane limits at end of session 33:
   and `chat-session.service.ts` chat:continue — kept the native Codex resume path plus main's
   inject/commit/release contract; a native resume that already delivered the prompt calls
   `injection.release()`).
-- Decision D27 added to T\decisions.md (uncommitted at the time of writing, see below): native lane
+- Decision D27 added to T\decisions.md (committed with this handoff): native lane
   factory bound only when the lane parity gate admits `lane` or the host is unpackaged (dev);
   packaged + gate closed keeps the legacy lane; one host helper is the lane routing boundary.
 
