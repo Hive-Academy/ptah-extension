@@ -44,7 +44,8 @@ class Host {
         : rpcSuccess({ success: true, value: this.stored });
     }
     if (method === 'settings:set') {
-      if (this.writeFails) return rpcSuccess({ success: false, error: 'disk full' });
+      if (this.writeFails)
+        return rpcSuccess({ success: false, error: 'disk full' });
       this.stored = (params as { value: unknown }).value;
       return rpcSuccess({ success: true });
     }
@@ -63,8 +64,9 @@ describe('HostRoutingSettingComponent', () => {
   let feedback: SettingsSaveFeedbackService;
 
   const el = (): HTMLElement => fixture.nativeElement as HTMLElement;
-  const byTestId = <T extends HTMLElement = HTMLElement>(id: string): T | null =>
-    el().querySelector<T>(`[data-testid="${id}"]`);
+  const byTestId = <T extends HTMLElement = HTMLElement>(
+    id: string,
+  ): T | null => el().querySelector<T>(`[data-testid="${id}"]`);
   const toggle = () => byTestId<HTMLInputElement>('host-routing-toggle');
   async function settle(): Promise<void> {
     // A macrotask drains the whole RPC promise chain (write, re-read, toast).
@@ -103,15 +105,25 @@ describe('HostRoutingSettingComponent', () => {
 
   it('reads the default (no stored value) as on when a decision model is configured', async () => {
     await create();
-    expect(host.call).toHaveBeenCalledWith('settings:get', { key: KEY }, TIMEOUT);
-    expect(host.call).toHaveBeenCalledWith('agent:getConfig', undefined, TIMEOUT);
+    expect(host.call).toHaveBeenCalledWith(
+      'settings:get',
+      { key: KEY },
+      TIMEOUT,
+    );
+    expect(host.call).toHaveBeenCalledWith(
+      'agent:getConfig',
+      undefined,
+      TIMEOUT,
+    );
     expect(toggle()?.checked).toBe(true);
     expect(toggle()?.disabled).toBe(false);
     for (const name of ['toggle', 'toggle-xs', 'toggle-success'])
       expect(toggle()?.classList.contains(name)).toBe(true);
     expect(toggle()?.getAttribute('aria-label')).toBe('Routing suggestions');
     expect(el().textContent).toContain('Routing suggestions');
-    expect(toggle()?.getAttribute('aria-describedby')).toBe('host-routing-help');
+    expect(toggle()?.getAttribute('aria-describedby')).toBe(
+      'host-routing-help',
+    );
     expect(byTestId('host-routing-needs-model')).toBeNull();
     expect(host.writes()).toEqual([]);
   });
@@ -161,7 +173,9 @@ describe('HostRoutingSettingComponent', () => {
     expect(toggle()?.getAttribute('aria-describedby')).toBe(
       'host-routing-help host-routing-needs-model',
     );
-    await fixture.componentInstance.toggle({ target: toggle() } as unknown as Event);
+    await fixture.componentInstance.toggle({
+      target: toggle(),
+    } as unknown as Event);
     await settle();
     expect(host.writes()).toEqual([]);
     expect(host.stored).toBe(true);
@@ -177,7 +191,8 @@ describe('HostRoutingSettingComponent', () => {
     expect(toggle()?.checked).toBe(true);
     expect(feedback.toast()).toEqual({
       tone: 'alert',
-      message: 'Could not save routing suggestions. The saved setting is unchanged.',
+      message:
+        'Could not save routing suggestions. The saved setting is unchanged.',
       canUndo: false,
     });
 
@@ -197,7 +212,7 @@ describe('HostRoutingSettingComponent', () => {
     expect(toggle()?.checked).toBe(true);
   });
 
-  it('treats a write whose re-read failed as unconfirmed and offers Retry', async () => {
+  it('treats an acknowledged write whose re-read failed as unconfirmed and offers Retry', async () => {
     await create();
     host.call.mockImplementation(async (method: string) => {
       if (method === 'settings:set') return rpcSuccess({ success: true });
@@ -210,6 +225,95 @@ describe('HostRoutingSettingComponent', () => {
     expect(feedback.toast()).toEqual({
       tone: 'alert',
       message: 'Could not confirm whether routing suggestions was saved.',
+      canUndo: false,
+    });
+  });
+
+  it('treats a refused write whose re-read failed as unconfirmed, never as unchanged', async () => {
+    await create();
+    host.call.mockImplementation(async (method: string) => {
+      if (method === 'settings:set')
+        return rpcSuccess({ success: false, error: 'disk full' });
+      return rpcError('host offline');
+    });
+    toggle()?.click();
+    await settle();
+    expect(toggle()).toBeNull();
+    expect(byTestId('host-routing-retry')).not.toBeNull();
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message: 'Could not confirm whether routing suggestions was saved.',
+      canUndo: false,
+    });
+    expect(feedback.toast()?.message).not.toContain('unchanged');
+  });
+
+  it('never reports a refused write as saved, even when the read-back matches', async () => {
+    await create();
+    // The host refuses the write, but the read-back already holds the requested value.
+    host.call.mockImplementation(async (method: string) => {
+      if (method === 'settings:set')
+        return rpcSuccess({ success: false, error: 'locked' });
+      if (method === 'settings:get')
+        return rpcSuccess({ success: true, value: false });
+      return rpcSuccess({ decisionModel: MODEL_SET });
+    });
+    toggle()?.click();
+    await settle();
+    expect(toggle()?.checked).toBe(false);
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message:
+        'Could not save routing suggestions. The switch shows the saved value.',
+      canUndo: false,
+    });
+  });
+
+  it('reports an acknowledged write whose read-back differs as not saved, without Undo', async () => {
+    await create();
+    // The host acknowledges the write but the read-back still holds the old value.
+    host.call.mockImplementation(async (method: string) => {
+      if (method === 'settings:set') return rpcSuccess({ success: true });
+      if (method === 'settings:get')
+        return rpcSuccess({ success: true, value: true });
+      return rpcSuccess({ decisionModel: MODEL_SET });
+    });
+    toggle()?.click();
+    await settle();
+    expect(toggle()?.checked).toBe(true);
+    expect(byTestId('host-routing-retry')).toBeNull();
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message:
+        'Could not save routing suggestions. The switch shows the saved value.',
+      canUndo: false,
+    });
+  });
+
+  it('applies the read-back rule to Undo: a mismatched read-back fails without Undo', async () => {
+    await create();
+    toggle()?.click();
+    await settle();
+    expect(host.stored).toBe(false);
+    expect(feedback.toast()?.canUndo).toBe(true);
+    // The Undo write is acknowledged but the stored value stays off.
+    const original = host.call.getMockImplementation();
+    host.call.mockImplementation(async (method: string, params?: unknown) => {
+      if (method === 'settings:set') return rpcSuccess({ success: true });
+      return original?.(method, params);
+    });
+    await feedback.undo();
+    await settle();
+    expect(host.writes()).toEqual([
+      { key: KEY, value: false },
+      { key: KEY, value: true },
+    ]);
+    expect(host.stored).toBe(false);
+    expect(toggle()?.checked).toBe(false);
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message:
+        'Could not save routing suggestions. The switch shows the saved value.',
       canUndo: false,
     });
   });

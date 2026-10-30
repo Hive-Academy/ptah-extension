@@ -25,8 +25,11 @@ const LABEL = 'Routing suggestions';
 const TOAST_LABEL = 'routing suggestions';
 const NOT_SAVED = `${settingNotSavedMessage(TOAST_LABEL)} The saved setting is unchanged.`;
 const NOT_CONFIRMED = settingNotConfirmedMessage(TOAST_LABEL);
+/** The read-back does not prove this write: an acknowledged write read back different, or a refused write read back equal. */
+const NOT_APPLIED = `${settingNotSavedMessage(TOAST_LABEL)} The switch shows the saved value.`;
 
 type WriteResult = { ok: true } | { ok: false; message: string };
+type SetAnswer = 'acknowledged' | 'refused' | 'unknown';
 
 /**
  * Routing suggestions (`agentOrchestration.hostRouting`, TASK_2026_857 Component 19). Electron only: the parent
@@ -37,8 +40,8 @@ type WriteResult = { ok: true } | { ok: false; message: string };
  * checkbox is unchecked and disabled with a note, and nothing is written; the stored value is left as it is.
  *
  * Writes go through `settings:set` and `SettingsSaveFeedbackService.saveGeneric` (toast + Undo); every write, and its
- * Undo, re-reads `settings:get`, so the checkbox only shows a value it read back. A failed read shows Retry and takes
- * no writes until a read succeeds.
+ * Undo, re-reads `settings:get`, so the checkbox only shows a value it read back, and "Saved" needs a read-back equal
+ * to the requested value. A failed read shows Retry and takes no writes until a read succeeds.
  */
 @Component({
   selector: 'ptah-host-routing-setting',
@@ -74,7 +77,10 @@ type WriteResult = { ok: true } | { ok: false; message: string };
             />
           }
         </div>
-        <p id="host-routing-help" class="mt-0.5 text-xs text-base-content-muted">
+        <p
+          id="host-routing-help"
+          class="mt-0.5 text-xs text-base-content-muted"
+        >
           Before planning, Ptah checks whether the engineering task is agreed
           and suggests a task type, depth and available executors. Uses one
           decision-model call per message.
@@ -200,34 +206,53 @@ export class HostRoutingSettingComponent implements OnInit {
     }
   }
 
-  /** One `settings:set` write, then a `settings:get` re-read whatever the outcome. */
+  /**
+   * One `settings:set` write, then a `settings:get` re-read whatever the outcome. The read-back decides the result:
+   * only a read value equal to `value` after a `settings:set` that was not refused is a save (toast + Undo); a failed
+   * read is unconfirmed whatever `settings:set` answered; any other result is a failure without Undo, and the checkbox
+   * shows the read value.
+   */
   private async write(value: boolean): Promise<WriteResult> {
-    let result: WriteResult;
+    const answer = await this.set(value);
+    const stored = await this.readStored();
+    this.stored.set(stored);
+    if (stored === null) {
+      this.load.set('error');
+      return { ok: false, message: NOT_CONFIRMED };
+    }
+    // A refused write is never this user's save, even when the read-back matches.
+    if (answer === 'refused') {
+      return { ok: false, message: stored === value ? NOT_APPLIED : NOT_SAVED };
+    }
+    if (stored === value) return { ok: true };
+    return {
+      ok: false,
+      message: answer === 'acknowledged' ? NOT_APPLIED : NOT_SAVED,
+    };
+  }
+
+  /**
+   * The `settings:set` answer: `acknowledged` only for a literal `success: true`, `refused` for any other answer,
+   * `unknown` when the call threw (for example a timeout).
+   */
+  private async set(value: boolean): Promise<SetAnswer> {
     try {
       const response = await this.rpc.call(
         'settings:set',
         { key: SETTING_KEY, value },
         { timeout: RPC_TIMEOUT_MS },
       );
-      // The RPC boundary is untrusted at runtime: only a literal `success: true` confirms the write.
-      result =
-        response.isSuccess() && response.data.success === true
-          ? { ok: true }
-          : { ok: false, message: NOT_SAVED };
+      // The RPC boundary is untrusted at runtime: only a literal `success: true` acknowledges the write.
+      return response.isSuccess() && response.data.success === true
+        ? 'acknowledged'
+        : 'refused';
     } catch (error: unknown) {
-      // degradation-audit: reported - the toast names the unknown outcome and the re-read below shows the real value.
+      // degradation-audit: reported - the re-read in write() decides the toast and shows the real value.
       this.logger.warn('HostRoutingSetting', 'settings:set failed', {
         errorType: errorTypeOf(error),
       });
-      result = { ok: false, message: NOT_CONFIRMED };
+      return 'unknown';
     }
-    const stored = await this.readStored();
-    this.stored.set(stored);
-    if (stored === null) {
-      this.load.set('error');
-      if (result.ok) return { ok: false, message: NOT_CONFIRMED };
-    }
-    return result;
   }
 
   /** The stored flag; no stored value is the default `true`. `null` when the read failed or held another type. */
