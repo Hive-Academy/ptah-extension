@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 /**
  * ChatSessionService — `chat:continue` decides SLASH before it decides RESUME
  * (TASK_2026_350).
@@ -74,13 +77,21 @@ import { ChatSessionService } from './chat-session.service';
 import { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
 import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
-const OPEN_FOLDER = '/c/projects/qa3elhamor';
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-policy-fixture-'));
+afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
+mkdirSync(join(TEST_ROOT, 'qa3elhamor'), { recursive: true });
+const OPEN_FOLDER = `${TEST_ROOT}/qa3elhamor`;
 const SESSION_ID = 'b5399ba8-e06d-417c-bac4-aba5add0555c' as SessionId;
 const TAB_ID = 'f69cb197-0798-40bc-ac0c-6f7591e0a894';
 const SLASH_PROMPT = '/orchestrate  asset-audit';
 
 interface Harness {
   service: ChatSessionService;
+  metadataStore: {
+    get: jest.Mock;
+    upgradeLegacyPluginConfigAncestorRoots: jest.Mock;
+  };
+  streamEventsToWebview: jest.Mock;
   startChatSession: jest.Mock;
   resumeSession: jest.Mock;
   sendMessageToSession: jest.Mock;
@@ -111,10 +122,25 @@ const NO_RECORD: SessionState = { registered: false, streaming: false };
 const LIVE: SessionState = { registered: true, streaming: true };
 const DEAD_RECORD: SessionState = { registered: true, streaming: false };
 
-function makeHarness(opts: SessionState, autopilot = false): Harness {
+function makeHarness(
+  opts: SessionState,
+  autopilot = false,
+  session?: { metadata: Record<string, unknown>; folders?: string[] },
+): Harness {
   const noop = jest.fn();
   const logger = createMockLogger();
-  const provider = createMockWorkspaceProvider({ folders: [OPEN_FOLDER] });
+  const provider = createMockWorkspaceProvider({
+    folders: session?.folders ?? [OPEN_FOLDER],
+  });
+  const metadataStore = {
+    get: jest.fn().mockResolvedValue(session?.metadata ?? null),
+    getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
+    saveResumeState: jest.fn().mockResolvedValue(undefined),
+    upgradeLegacyPluginConfigAncestorRoots: jest
+      .fn()
+      .mockResolvedValue({ status: 'valid', roots: [] }),
+  };
+  const streamEventsToWebview = jest.fn();
 
   const resumeSession = jest.fn().mockResolvedValue(
     (async function* () {
@@ -185,11 +211,7 @@ function makeHarness(opts: SessionState, autopilot = false): Harness {
     {
       intercept: jest.fn().mockReturnValue({ action: 'passthrough' }),
     } as never,
-    {
-      get: jest.fn().mockResolvedValue(null),
-      getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
-      saveResumeState: jest.fn().mockResolvedValue(undefined),
-    } as never,
+    metadataStore as never,
     provider as unknown as IWorkspaceProvider,
     {
       type: 'cli',
@@ -208,7 +230,7 @@ function makeHarness(opts: SessionState, autopilot = false): Harness {
         .mockResolvedValue({ error: '__NOT_PTAH_CLI__' }),
     } as never,
     {
-      streamEventsToWebview: jest.fn(),
+      streamEventsToWebview,
       isStreaming: jest.fn().mockReturnValue(opts.streaming),
     } as never,
     {
@@ -242,6 +264,8 @@ function makeHarness(opts: SessionState, autopilot = false): Harness {
 
   return {
     service,
+    metadataStore,
+    streamEventsToWebview,
     startChatSession,
     resumeSession,
     sendMessageToSession,
@@ -262,6 +286,27 @@ function params(prompt: string): ChatContinueParams {
 }
 
 describe('chat:continue — inactive session + slash command', () => {
+  it('refuses an unavailable stored ancestor before any slash query', async () => {
+    const ancestor = join(TEST_ROOT, 'unavailable-ancestor');
+    mkdirSync(ancestor, { recursive: true });
+    const h = makeHarness(NO_RECORD, false, {
+      metadata: {
+        workspaceId: OPEN_FOLDER,
+        workingDirectory: OPEN_FOLDER,
+        pluginConfigAncestorRoots: [ancestor],
+      },
+    });
+
+    const result = await h.service.continueSession(params(SLASH_PROMPT));
+
+    expect(result).toMatchObject({
+      success: false,
+      sessionId: SESSION_ID,
+      errorCode: 'SESSION_FOLDER_UNAVAILABLE',
+    });
+    expect(h.resumeSession).not.toHaveBeenCalled();
+    expect(h.routeFollowUpSlashCommand).not.toHaveBeenCalled();
+  });
   it('routes straight to the slash-command query: no resume, exactly one launch', async () => {
     const h = makeHarness(NO_RECORD);
 
@@ -331,6 +376,38 @@ describe('chat:continue — inactive session + slash command', () => {
 });
 
 describe('chat:continue — inactive session + plain text (unchanged)', () => {
+  it.each(['throw', 'malformed'] as const)(
+    'keeps the running resume successful when legacy upgrade reports %s',
+    async (failure) => {
+      const h = makeHarness(NO_RECORD, false, {
+        metadata: { workspaceId: TEST_ROOT, workingDirectory: OPEN_FOLDER },
+        folders: [TEST_ROOT],
+      });
+      if (failure === 'throw') {
+        h.metadataStore.upgradeLegacyPluginConfigAncestorRoots.mockRejectedValue(
+          new Error('storage unavailable'),
+        );
+      } else {
+        h.metadataStore.upgradeLegacyPluginConfigAncestorRoots.mockResolvedValue({
+          status: 'malformed',
+        });
+      }
+
+      const result = await h.service.continueSession(params('continue'));
+
+      expect(result).toEqual({
+        success: true,
+        sessionId: SESSION_ID,
+        enqueued: true,
+      });
+      expect(h.resumeSession).toHaveBeenCalledTimes(1);
+      expect(h.streamEventsToWebview).toHaveBeenCalledTimes(1);
+      expect(h.metadataStore.upgradeLegacyPluginConfigAncestorRoots).toHaveBeenCalledWith(
+        SESSION_ID,
+        [TEST_ROOT],
+      );
+    },
+  );
   it('resumes exactly as before and sends the message', async () => {
     const h = makeHarness(NO_RECORD);
 
@@ -595,7 +672,10 @@ describe('Apps MCP tool profile threading', () => {
             .mockResolvedValue(undefined),
         } as never,
       );
-      const h = makeHarness(NO_RECORD);
+      const h = makeHarness(NO_RECORD, false, {
+        metadata: { workspaceId: TEST_ROOT, workingDirectory: OPEN_FOLDER },
+        folders: [TEST_ROOT],
+      });
       h.routeFollowUpSlashCommand.mockImplementation(
         router.routeFollowUpSlashCommand.bind(router),
       );
@@ -607,6 +687,11 @@ describe('Apps MCP tool profile threading', () => {
       expect(h.resumeSession).not.toHaveBeenCalled();
       expect(executeSlashCommand).toHaveBeenCalledTimes(1);
       const [, , { sessionConfig }] = executeSlashCommand.mock.calls[0];
+      expect(sessionConfig.pluginConfigAncestorRoots).toEqual([TEST_ROOT]);
+      expect(h.metadataStore.upgradeLegacyPluginConfigAncestorRoots).toHaveBeenCalledWith(
+        SESSION_ID,
+        [TEST_ROOT],
+      );
       if (mcpToolProfile) expect(sessionConfig.mcpToolProfile).toBe('apps');
       else expect(sessionConfig).not.toHaveProperty('mcpToolProfile');
     },

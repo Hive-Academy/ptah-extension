@@ -657,6 +657,7 @@ export async function resolveSessionCapabilityPolicy(
   resolver: ICapabilityResolver | null | undefined,
   cwd: string,
   logger: Pick<Logger, 'warn'>,
+  pluginConfigAncestorRoots?: readonly string[],
 ): Promise<EffectiveCapabilitySet> {
   if (!resolver) {
     logger.warn(
@@ -669,7 +670,9 @@ export async function resolveSessionCapabilityPolicy(
     );
   }
   try {
-    return await resolver.resolve(cwd);
+    return await (pluginConfigAncestorRoots === undefined
+      ? resolver.resolve(cwd)
+      : resolver.resolve(cwd, { pluginConfigAncestorRoots }));
   } catch (error: unknown) {
     logger.warn(
       '[CapabilityPolicy] The capability resolver failed; the session runs with Ptah tools only and no skills',

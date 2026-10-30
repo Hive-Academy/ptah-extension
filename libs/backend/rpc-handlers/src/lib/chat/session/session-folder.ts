@@ -1,6 +1,7 @@
+import { constants, promises as fs } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import type { SessionMetadataStore } from '@ptah-extension/agent-sdk';
 import type {
-  IFileSystemProvider,
   IPlatformInfo,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
@@ -13,28 +14,54 @@ export interface ResolveSessionFolderOptions {
   readonly sessionId: string;
   readonly metadataStore: Pick<SessionMetadataStore, 'get'>;
   readonly workspaceProvider: IWorkspaceProvider;
-  readonly fileSystemProvider: IFileSystemProvider;
   readonly platformInfo: IPlatformInfo;
   readonly logger: Logger;
 }
 
-/**
- * The folder a session acts in: its saved cwd (a worktree for agent children),
- * else its project folder. Each must still be inside a registered folder, safe
- * and present.
- *
- * Never falls back to the active folder. A session that acts in whatever
- * folder happens to be open runs its tools in the wrong repo once more than
- * one project is open (PTAH-37).
- *
- * @throws RpcUserError SESSION_NOT_FOUND for an unknown id,
- *   SESSION_FOLDER_UNAVAILABLE when no saved folder passes the checks.
- */
+/** Check both the supplied root and its physical directory before policy reads. */
+export async function validateSessionPolicyRoot(
+  root: string,
+  workspaceProvider: IWorkspaceProvider,
+  platformInfo: IPlatformInfo,
+): Promise<string> {
+  const unavailable = (cause?: unknown) => {
+    const error = new RpcUserError(
+      'Session policy root is unavailable.',
+      'SESSION_FOLDER_UNAVAILABLE',
+    );
+    if (cause !== undefined) Object.assign(error, { cause });
+    return error;
+  };
+  if (typeof root !== 'string' || !root.trim() || !isAbsolute(root))
+    throw unavailable();
+  const supplied = resolve(root);
+  if (
+    !isAuthorizedWorkspace(supplied, workspaceProvider) ||
+    !isUnsafeWorkspacePath(supplied, platformInfo).ok
+  )
+    throw unavailable();
+  try {
+    const physical = await fs.realpath(supplied);
+    const physicalStat = await fs.stat(physical);
+    if (
+      !isAuthorizedWorkspace(physical, workspaceProvider) ||
+      !isUnsafeWorkspacePath(physical, platformInfo).ok ||
+      !physicalStat.isDirectory()
+    )
+      throw unavailable();
+    await fs.access(supplied, constants.R_OK | constants.X_OK);
+    await fs.access(physical, constants.R_OK | constants.X_OK);
+    return physical;
+  } catch (error) {
+    throw unavailable(error);
+  }
+}
+
+/** A distinct saved cwd is authoritative; failure never redirects to its parent. */
 export async function resolveSessionFolder({
   sessionId,
   metadataStore,
   workspaceProvider,
-  fileSystemProvider,
   platformInfo,
   logger,
 }: ResolveSessionFolderOptions): Promise<string> {
@@ -45,48 +72,31 @@ export async function resolveSessionFolder({
       'SESSION_NOT_FOUND',
     );
   }
-
-  const candidates = [metadata.workingDirectory, metadata.workspaceId].filter(
-    (path, index, all): path is string =>
-      !!path?.trim() && all.indexOf(path) === index,
-  );
-  for (const candidate of candidates) {
-    const rejection = await checkCandidate(
-      candidate,
-      workspaceProvider,
-      fileSystemProvider,
-      platformInfo,
-    );
-    if (!rejection) return candidate;
+  const candidate = metadata.workingDirectory?.trim()
+    ? metadata.workingDirectory
+    : metadata.workspaceId;
+  try {
+    await validateSessionPolicyRoot(candidate, workspaceProvider, platformInfo);
+    return candidate;
+  } catch (error) {
+    const cause =
+      error instanceof Error && 'cause' in error ? error.cause : error;
+    const rejection = cause instanceof Error ? cause : error;
     logger.warn('[RPC] session folder candidate rejected', {
       sessionId,
       candidate,
-      reason: rejection,
+      code:
+        rejection instanceof RpcUserError
+          ? rejection.errorCode
+          : rejection instanceof Error && 'code' in rejection
+            ? String(rejection.code)
+            : 'SESSION_FOLDER_UNAVAILABLE',
+      message:
+        rejection instanceof Error ? rejection.message : 'Unknown rejection',
     });
-  }
-
-  throw new RpcUserError(
-    "This session's folder is not available. Open its project folder and try again.",
-    'SESSION_FOLDER_UNAVAILABLE',
-  );
-}
-
-async function checkCandidate(
-  candidate: string,
-  workspaceProvider: IWorkspaceProvider,
-  fileSystemProvider: IFileSystemProvider,
-  platformInfo: IPlatformInfo,
-): Promise<string | undefined> {
-  if (!isAuthorizedWorkspace(candidate, workspaceProvider)) {
-    return 'not inside a registered folder';
-  }
-  const safety = isUnsafeWorkspacePath(candidate, platformInfo);
-  if (!safety.ok) return safety.reason;
-  try {
-    return (await fileSystemProvider.exists(candidate))
-      ? undefined
-      : 'does not exist';
-  } catch (error: unknown) {
-    return `could not be checked: ${error instanceof Error ? error.message : String(error)}`;
+    throw new RpcUserError(
+      "This session's folder is not available. Open its project folder and try again.",
+      'SESSION_FOLDER_UNAVAILABLE',
+    );
   }
 }

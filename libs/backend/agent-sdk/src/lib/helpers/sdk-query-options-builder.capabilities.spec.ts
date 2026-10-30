@@ -497,6 +497,24 @@ describe('capability helpers', () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it('forwards only supplied plugin ancestor context to the resolver', async () => {
+    const resolve = jest.fn().mockResolvedValue(policy());
+    const resolver = { resolve } as never;
+    const logger = { warn: jest.fn() };
+    const roots = ['/repo/parent', '/repo/grandparent'] as const;
+
+    await resolveSessionCapabilityPolicy(resolver, PROJECT, logger);
+    await resolveSessionCapabilityPolicy(resolver, PROJECT, logger, []);
+    await resolveSessionCapabilityPolicy(resolver, PROJECT, logger, roots);
+
+    expect(resolve.mock.calls).toEqual([
+      [PROJECT],
+      [PROJECT, { pluginConfigAncestorRoots: [] }],
+      [PROJECT, { pluginConfigAncestorRoots: roots }],
+    ]);
+    expect(resolve.mock.calls[2][1].pluginConfigAncestorRoots).toBe(roots);
+  });
+
   it('resolveSessionCapabilityPolicy fails closed when the resolver throws', async () => {
     const warn = jest.fn();
     const set = await resolveSessionCapabilityPolicy(
