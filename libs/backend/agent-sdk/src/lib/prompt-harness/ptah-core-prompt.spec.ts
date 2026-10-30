@@ -13,7 +13,7 @@ import {
 
 describe('PTAH_CORE_SYSTEM_PROMPT', () => {
   it('stays within the measured token budget plus five percent', () => {
-    expect(PTAH_CORE_SYSTEM_PROMPT_TOKENS).toBeLessThanOrEqual(3301);
+    expect(PTAH_CORE_SYSTEM_PROMPT_TOKENS).toBeLessThanOrEqual(3380);
   });
 
   it('carries the MCP substitution section exactly once', () => {
@@ -38,6 +38,19 @@ describe('PTAH_CORE_SYSTEM_PROMPT', () => {
     expect(PTAH_CORE_SYSTEM_PROMPT).toContain('<agent-lane-completed>');
     expect(PTAH_CORE_SYSTEM_PROMPT).not.toContain('poll until complete');
     expect(PTAH_CORE_SYSTEM_PROMPT).toContain('Never call it in a loop');
+  });
+
+  it('keeps CLI delegation and routing guidance', () => {
+    expect(PTAH_CORE_SYSTEM_PROMPT).toContain(
+      '| CLI lane | A fresh agent can complete a written brief:',
+    );
+    expect(PTAH_CORE_SYSTEM_PROMPT).toContain(
+      'When 2+ independent subtasks exist, prefer running at least one as a CLI lane in parallel.',
+    );
+    expect(PTAH_CORE_SYSTEM_PROMPT).toContain(
+      'When a `Routing:` system reminder is present, follow its taskType, depth and executor suggestions unless the user says otherwise.',
+    );
+    expect(PTAH_CORE_SYSTEM_PROMPT).not.toContain('ptah_route_decide');
   });
 
   it('states the token-economy rules', () => {
