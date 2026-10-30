@@ -57,6 +57,7 @@ export class DecisionModelTaskKindClassifier implements LaneTaskKindClassifier {
       const kind = index === null ? undefined : OUTCOME_TASK_KINDS[index];
       return kind !== undefined && KINDS.has(kind) ? kind : null;
     } catch (error: unknown) {
+      // degradation-audit: reported - classification is best-effort learning metadata; the row stays unclassified
       this.deps.logger.warn('[lane-routing] task-kind classification failed', {
         name: loggableErrorName(error),
       });

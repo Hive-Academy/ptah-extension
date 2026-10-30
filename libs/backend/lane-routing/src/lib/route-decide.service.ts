@@ -71,6 +71,7 @@ import {
 } from './ranking/rotation.store';
 import { overallConfidence } from './reasons/confidence';
 import { compilePreflightReasons } from './reasons/compile-reasons';
+import type { PreflightReuseCache } from './scope/preflight-reuse-cache';
 import {
   MODEL_LISTING_BUDGET_MS,
   QUESTIONS_PER_REQUEST,
@@ -92,6 +93,7 @@ export interface RouteDecideDependencies {
   readonly logger: LaneRoutingLogger;
   readonly listing?: LaneModelListing;
   readonly structured?: StructuredDecisionCompleter;
+  readonly reuse?: PreflightReuseCache;
   readonly seams?: RouteDecideSeams;
 }
 
@@ -112,12 +114,33 @@ export class RouteDecideService {
   async decide(
     args: unknown,
     source: RouteCandidateSource,
+    context?: { readonly sessionKey?: string },
   ): Promise<RouteDecideResult> {
     const parsed = RouteDecideArgsSchema.safeParse(args);
     if (!parsed.success) {
       throw schemaError('invalid route decide args', parsed.error);
     }
     if (parsed.data.stage === 'pre-flight') {
+      if (context?.sessionKey !== undefined && this.deps.reuse !== undefined) {
+        const fingerprint = JSON.stringify(this.deps.config.getSelection());
+        const cached = this.deps.reuse.get(context.sessionKey, fingerprint);
+        if (cached !== null) {
+          const reused = PreflightResultSchema.safeParse({
+            ...cached,
+            reasons: [...cached.reasons, 'reused host pre-flight result'],
+            usage: {
+              requests: 0,
+              inputTokens: null,
+              outputTokens: null,
+              costUsd: null,
+            },
+          });
+          if (!reused.success) {
+            throw schemaError('route decide result failed schema', reused.error);
+          }
+          return reused.data;
+        }
+      }
       return this.decidePreflight(parsed.data);
     }
     return this.decideGate(parsed.data, source);

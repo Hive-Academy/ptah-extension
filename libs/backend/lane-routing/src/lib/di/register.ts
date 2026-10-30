@@ -30,6 +30,9 @@ import type { LaneRoutingLogger } from '../lane-routing-logger';
 import { CapabilityMatrixStore } from '../matrix/capability-matrix.store';
 import { RotationStore } from '../ranking/rotation.store';
 import { RouteDecideService } from '../route-decide.service';
+import { HostRoutingSetting } from '../scope/host-routing-setting';
+import { PreflightReuseCache } from '../scope/preflight-reuse-cache';
+import { ScopeCheckService } from '../scope/scope-check.service';
 import { DecisionModelTaskKindClassifier } from '../task-kind/decision-model-task-kind-classifier';
 import { LANE_ROUTING_TOKENS } from './tokens';
 
@@ -99,6 +102,44 @@ export function registerLaneRoutingServices(
     }),
   });
 
+  container.register(LANE_ROUTING_TOKENS.HOST_ROUTING_SETTING, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new HostRoutingSetting(
+          c.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+          c.resolve<DecisionModelConfig>(LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG),
+        ),
+    ),
+  });
+
+  container.register(LANE_ROUTING_TOKENS.PREFLIGHT_REUSE_CACHE, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new PreflightReuseCache(
+          c.resolve<HostRoutingSetting>(LANE_ROUTING_TOKENS.HOST_ROUTING_SETTING),
+        ),
+    ),
+  });
+
+  container.register(LANE_ROUTING_TOKENS.SCOPE_CHECK_SERVICE, {
+    useFactory: instanceCachingFactory((c) => {
+      const structured = optional<StructuredDecisionCompleter>(
+        c,
+        LANE_ROUTING_TOKENS.STRUCTURED_DECISION,
+      );
+      return new ScopeCheckService({
+        config: c.resolve<DecisionModelConfig>(
+          LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+        ),
+        logger: c.resolve<LaneRoutingLogger>(LANE_ROUTING_TOKENS.LOGGER),
+        setting: c.resolve<HostRoutingSetting>(
+          LANE_ROUTING_TOKENS.HOST_ROUTING_SETTING,
+        ),
+        ...(structured !== undefined ? { structured } : {}),
+      });
+    }),
+  });
+
   // The catalog reads the base URL on each `list` call; building it makes no
   // network request.
   container.register(LANE_ROUTING_TOKENS.DECISION_MODEL_CATALOG, {
@@ -132,6 +173,9 @@ export function registerLaneRoutingServices(
         ),
         rotation: c.resolve<RotationStore>(LANE_ROUTING_TOKENS.ROTATION_STORE),
         logger: c.resolve<LaneRoutingLogger>(LANE_ROUTING_TOKENS.LOGGER),
+        reuse: c.resolve<PreflightReuseCache>(
+          LANE_ROUTING_TOKENS.PREFLIGHT_REUSE_CACHE,
+        ),
         ...(listing !== undefined ? { listing } : {}),
         ...(structured !== undefined ? { structured } : {}),
       });

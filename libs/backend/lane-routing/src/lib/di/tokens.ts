@@ -33,6 +33,12 @@ export const LANE_ROUTING_TOKENS = {
   FAILURE_CLASSIFIER: Symbol.for('LaneRoutingFailureClassifier'),
   /** Lib-owned task-kind classifier. */
   TASK_KIND_CLASSIFIER: Symbol.for('LaneRoutingTaskKindClassifier'),
+  /** Lib-owned scope assessor for host routing. */
+  SCOPE_CHECK_SERVICE: Symbol.for('LaneRoutingScopeCheckService'),
+  /** Lib-owned per-session pre-flight reuse cache. */
+  PREFLIGHT_REUSE_CACHE: Symbol.for('LaneRoutingPreflightReuseCache'),
+  /** Lib-owned effective host routing setting. */
+  HOST_ROUTING_SETTING: Symbol.for('LaneRoutingHostRoutingSetting'),
   /** Lib-owned structural logger (`LaneRoutingLogger`). */
   LOGGER: Symbol.for('LaneRoutingLogger'),
 } as const;
