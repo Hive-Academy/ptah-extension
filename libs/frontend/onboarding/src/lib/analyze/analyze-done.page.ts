@@ -1,23 +1,24 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal, type WritableSignal } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES, type SetupGenerationRunState, type SetupGenerationTabBinding } from '@ptah-extension/shared';
 import { WizardRpcService, findBoundGenerationTab } from '@ptah-extension/setup-wizard';
 import { OnboardingFlagService } from '../first-run/onboarding-flag.service';
 import { OnboardingStepperComponent, type OnboardingStep } from '../shared/onboarding-stepper.component';
+import { onboardingStepLink } from '../shell/onboarding-step-link';
 
 const DONE_STEPS: readonly OnboardingStep[] = [
   { id: 'analyze', label: 'Analyze', state: 'completed' },
   { id: 'agents', label: 'Choose agents', state: 'completed' },
   { id: 'generate', label: 'Generate agents', state: 'completed' },
   { id: 'guidance', label: 'Project guidance', state: 'completed' },
-  { id: 'done', label: 'Done', state: 'current' },
+  { id: 'done', label: 'Done', state: 'current-complete' },
 ];
 
 @Component({
   selector: 'ptah-analyze-done-page', standalone: true,
-  imports: [OnboardingStepperComponent],
+  imports: [OnboardingStepperComponent, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush, host: { class: 'block' },
   template: `
     <section class="mx-auto max-w-[760px] space-y-5 p-4" aria-labelledby="analyze-done-title" data-testid="analyze-done-page">
@@ -27,18 +28,22 @@ const DONE_STEPS: readonly OnboardingStep[] = [
       <section class="rounded-[22px] border border-base-300 p-5" data-glass-surface="content" data-testid="analyze-done-facts">
         <h2 class="font-semibold">What happened</h2>
         @if (agents(); as run) {
-          <p class="mt-2 text-sm">Agents: {{ run.status }}
-            @if (run.result?.counts; as counts) { · {{ counts.written }} written, {{ counts.unchanged }} unchanged, {{ counts.failed }} failed }
+          <p class="mt-2 text-sm" [class.text-state-need]="(run.result?.counts?.failed ?? 0) > 0">Agents: {{ (run.result?.counts?.failed ?? 0) > 0 ? 'needs attention' : run.status }}
+            @if (run.result?.counts; as counts) { · {{ counts.written }} written, {{ counts.unchanged }} unchanged, <strong>{{ counts.failed }} failed</strong> }
           </p>
+          @if ((run.result?.counts?.failed ?? 0) > 0) {
+            <span class="inline-flex rounded-full border border-state-need px-2.5 py-1 text-xs font-medium text-state-need" data-testid="done-agents-warning">Needs attention</span>
+            <a class="ml-2 text-sm font-medium text-state-need underline" [routerLink]="generateLink().commands" [queryParams]="generateLink().queryParams" data-testid="done-review-agents">Review failed agents</a>
+          }
         } @else { <p class="mt-2 text-sm">Agent generation was skipped or is unavailable.</p> }
         @if (guidance(); as run) { <p class="mt-2 text-sm">Project guidance: {{ (guidanceEnabled() ?? (run.status === 'completed')) ? 'on' : 'off' }} ({{ run.status }})</p> }
         @else { <p class="mt-2 text-sm">Project guidance: off (skipped or unavailable).</p> }
       </section>
-      <nav class="flex flex-wrap gap-2" aria-label="Next steps">
-        <button type="button" class="btn btn-primary min-h-8" data-testid="done-open-chat" (click)="openChat()">Open chat</button>
-        <button type="button" class="btn min-h-8" data-testid="done-command-center" (click)="commandCenter()">Command center</button>
-        <button type="button" class="btn min-h-8" data-testid="done-tribunal" (click)="tribunal()">Ask the panel in chat</button>
-        <button type="button" class="btn btn-ghost min-h-8" data-testid="done-run-again" (click)="runAgain()">Run again</button>
+      <nav class="flex flex-col gap-2 min-[480px]:flex-row min-[480px]:flex-wrap" aria-label="Next steps">
+        <button type="button" class="btn btn-primary min-h-9 w-full min-[480px]:w-auto" data-testid="done-open-chat" (click)="openChat()">Open chat</button>
+        <button type="button" class="btn min-h-9 w-full min-[480px]:w-auto" data-testid="done-command-center" (click)="commandCenter()">Command center</button>
+        <button type="button" class="btn min-h-9 w-full min-[480px]:w-auto" data-testid="done-tribunal" (click)="tribunal()">Get a second opinion in chat</button>
+        <button type="button" class="btn btn-ghost min-h-9 w-full min-[480px]:w-auto" data-testid="done-run-again" (click)="runAgain()">Run setup again</button>
       </nav>
     </section>
   `,
@@ -48,6 +53,9 @@ export class AnalyzeDonePage implements OnInit {
   protected readonly agents = signal<SetupGenerationRunState | null>(null);
   protected readonly guidance = signal<SetupGenerationRunState | null>(null);
   protected readonly guidanceEnabled = signal<boolean | null>(null);
+  protected readonly generateLink = () => onboardingStepLink('guidance', 'generate', {
+    gen: this.route.snapshot.queryParamMap.get('gen'),
+  });
   private readonly flags = inject(OnboardingFlagService);
   private readonly vscode = inject(VSCodeService);
   private readonly appState = inject(AppStateManager);
@@ -69,7 +77,8 @@ export class AnalyzeDonePage implements OnInit {
     if (workspacePath) {
       try {
         const status = await this.rpc.getEnhancedPromptsStatus(workspacePath);
-        if (!this.destroyed && !status.error) this.guidanceEnabled.set(status.enabled);
+        if (this.destroyed) return;
+        if (!status.error) this.guidanceEnabled.set(status.enabled);
       } catch { /* The run fact still describes guidance when saved status is unavailable. */ }
     }
   }
@@ -82,11 +91,12 @@ export class AnalyzeDonePage implements OnInit {
     if (!findBoundGenerationTab(this.tabs, binding)) return;
     try {
       const run = await this.rpc.getBoundRunState(binding);
-      if (!this.destroyed && run && ['completed', 'cancelled', 'failed', 'timed-out'].includes(run.status)) target.set(run);
+      if (this.destroyed) return;
+      if (run && ['completed', 'cancelled', 'failed', 'timed-out'].includes(run.status)) target.set(run);
     } catch { /* The Done page remains useful without an optional fact lookup. */ }
   }
   protected openChat(): void { this.vscode.postMessage({ type: MESSAGE_TYPES.SETUP_WIZARD_COMPLETE }); this.appState.setCurrentView('chat'); }
-  protected async commandCenter(): Promise<void> { await this.router.navigate(['/command-center']); }
-  protected async tribunal(): Promise<void> { this.openChat(); await this.router.navigate(['/chat']); }
-  protected async runAgain(): Promise<void> { await this.router.navigate(['/onboarding', 'analyze']); }
+  protected async commandCenter(): Promise<void> { await this.router.navigate(['/command-center']); if (this.destroyed) return; }
+  protected async tribunal(): Promise<void> { this.openChat(); await this.router.navigate(['/chat']); if (this.destroyed) return; }
+  protected async runAgain(): Promise<void> { await this.router.navigate(['/onboarding', 'analyze']); if (this.destroyed) return; }
 }

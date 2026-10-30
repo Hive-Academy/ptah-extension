@@ -99,3 +99,13 @@
   A3 Start now after manual recovery silent; A4 no Start while another tab's handoff pending.
 - Capture gap: A3 countdown not capturable from restored-run fixtures.
 - Visual review REVISE 7/10 (5 serious) → separate visual-fix batch.
+
+## B3b visual fixes
+- Codex lane fixed serious 1–5, minors 6, 7, 9, 10 and the axe `aria-allowed-role` violation.
+  Visual re-check APPROVE 8/10 (88 generate + 72 analyze captures, all axe `violations: []`,
+  no analyze stepper regression). Logic review APPROVE 7.5/10.
+- Deferred: `border-state-err/70` renders near-white (opacity modifier on the `state-err`
+  token does not resolve; also used on B3a pages) — fix lib-wide later; guidance-completed
+  full-page capture still viewport-sized (shell scrolls an inner container), so summary rows
+  3–4 stay unverified in captures; logic M1 (`quiet`/`starting` generic copy), M2 (A5 failed
+  link renders without `gen`), M3 (no-op `destroyed` guards in A4).

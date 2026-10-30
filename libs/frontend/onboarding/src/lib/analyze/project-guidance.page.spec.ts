@@ -23,7 +23,7 @@ describe('ProjectGuidancePage', () => {
   const run = signal<SetupGenerationRunState | null>(null);
   const mismatch = signal(false), exhausted = signal(false);
   const rejection = signal<{ reason: 'blocked' } | null>(null);
-  const workflow = { state, run, runMismatch: mismatch, lookupExhausted: exhausted, rejection, isBound: () => false,
+  const workflow = { state, run, runMismatch: mismatch, lookupExhausted: exhausted, rejection, startError: signal<string | null>(null), isBound: () => false,
     bind: jest.fn(), refresh: jest.fn(), stop: jest.fn(), startGuidance: jest.fn(), regenerateGuidance: jest.fn() };
   const guidance = { run: signal<SetupGenerationRunState | null>(null), result: signal<{ generatedAt: string | null; enabled: boolean; cacheValid: boolean } | null>(null),
     content: signal<string | null>(null), actionFailed: signal(false), adopt: jest.fn(), refresh: jest.fn(), refreshCommitted: jest.fn(), setEnabled: jest.fn(), loadContent: jest.fn(), download: jest.fn() };
@@ -37,7 +37,7 @@ describe('ProjectGuidancePage', () => {
 
   beforeEach(() => {
     jest.clearAllMocks(); params['tab'] = 'guidance-tab'; params['run'] = 'guidance-run'; params['gen'] = 'agent-tab';
-    state.set('idle'); run.set(null); mismatch.set(false); exhausted.set(false); rejection.set(null); guidance.run.set(null); guidance.result.set(null); guidance.content.set(null);
+    state.set('idle'); run.set(null); mismatch.set(false); exhausted.set(false); rejection.set(null); workflow.startError.set(null); guidance.run.set(null); guidance.result.set(null); guidance.content.set(null);
     handoff.started.set(null); handoff.pending.set(null); handoff.inFlight.set(false); handoff.outcome.set('idle');
     workflow.refresh.mockResolvedValue(undefined); workflow.startGuidance.mockResolvedValue(undefined); workflow.regenerateGuidance.mockResolvedValue(undefined);
     guidance.refresh.mockResolvedValue(undefined); guidance.refreshCommitted.mockResolvedValue(undefined); guidance.adopt.mockImplementation((value) => guidance.run.set(value));
@@ -141,6 +141,27 @@ describe('ProjectGuidancePage', () => {
     exhausted.set(true); const element = await render();
     (element.querySelector('[data-testid="guidance-lookup-exhausted"] button') as HTMLButtonElement).click();
     expect(workflow.refresh).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    ['failed', 'Guidance failed. Retry the run or start over.'],
+    ['timed-out', 'The request timed out. Try again.'],
+    ['cancelling', 'Stopping guidance. Check its status before starting another run.'],
+    ['cancelled', 'Guidance stopped. You can try again.'],
+  ] as const)('shows state-specific copy for %s', async (status, copy) => {
+    state.set(status); const element = await render();
+    expect(element.querySelector('ptah-run-panel')?.textContent).toContain(copy);
+    expect(element.querySelector('ptah-run-panel')?.textContent).not.toContain('The run continues in its bound session.');
+  });
+  it('sanitizes a guidance failure reason', async () => {
+    state.set('failed'); workflow.startError.set('EACCES /private/key');
+    const element = await render();
+    expect(element.querySelector('ptah-run-panel')?.textContent).toContain('permission denied');
+    expect(element.textContent).not.toContain('/private/key');
+  });
+  it('keeps the saved guidance surface separate from the owner banner', async () => {
+    rejection.set({ reason: 'blocked' }); const element = await render();
+    expect(element.querySelector('[data-testid="guidance-saved-card"]')?.getAttribute('data-glass-surface')).toBe('content');
+    expect(element.querySelector('[data-testid="guidance-owner-conflict"]')?.textContent).toContain('Check again');
   });
   it('keeps Stop, owner conflict and detected stack available on reload', async () => {
     state.set('starting'); run.set({ ...completed, status: 'starting' }); rejection.set({ reason: 'blocked' });

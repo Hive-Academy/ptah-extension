@@ -19,7 +19,7 @@ describe('GenerateAgentsPage', () => {
   const current = signal<SetupGenerationRunState | null>(null);
   const mismatch = signal(false);
   const exhausted = signal(false);
-  const rejection = signal(null);
+  const rejection = signal<{ reason: 'blocked' } | null>(null);
   const pending = signal<{ agentTabId: string; workspacePath: string; guidanceStartDeadline: number } | null>(null);
   const started = signal<{ tabId: string; workspacePath: string; workflow: 'setup-project-prompt'; runId: string } | null>(null);
   const openedTab = signal<{ tabId: string; workspacePath: string } | null>(null);
@@ -86,6 +86,41 @@ describe('GenerateAgentsPage', () => {
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('[data-testid="generate-agent-file"]')?.textContent).toContain('builder.md');
     expect(element.querySelector('[data-testid="generate-facts"]')?.textContent).toContain('1 written');
+  });
+  it.each([
+    ['failed', 'Generation failed. Retry the run or start over.'],
+    ['timed-out', 'The request timed out. Try again.'],
+    ['cancelling', 'Stopping this run. Check its status before starting another.'],
+    ['cancelled', 'Generation stopped. Resume when you are ready.'],
+  ] as const)('shows state-specific copy for %s', async (status, copy) => {
+    const element = await render(status);
+    expect(element.querySelector('ptah-run-panel')?.textContent).toContain(copy);
+    expect(element.querySelector('ptah-run-panel')?.textContent).not.toContain('The run continues in its bound session.');
+  });
+  it('uses safe failure copy for a failed run and gives owner retry a clear label', async () => {
+    current.set({ ...run('failed'), result: { status: 'failed', success: false, source: run('failed').source,
+      effectiveProvider: 'unknown', effectiveModel: 'unknown',
+      agentOutcomes: [{ agentId: 'builder', status: 'failed', fileName: 'builder.md', error: 'EACCES /private/key' }] } });
+    state.set('failed'); rejection.set({ reason: 'blocked' });
+    fixture = TestBed.createComponent(GenerateAgentsPage); fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('ptah-run-panel')?.textContent).toContain('permission denied');
+    expect(element.textContent).not.toContain('/private/key');
+    expect(element.querySelector('[data-testid="generate-owner-conflict"]')?.textContent).toContain('Check again');
+  });
+  it('uses safe failure copy and highlights a failed completed agent', async () => {
+    current.set({ ...run('completed'), result: { status: 'completed', success: false, source: run('completed').source,
+      effectiveProvider: 'unknown', effectiveModel: 'unknown',
+      counts: { total: 1, written: 0, unchanged: 0, failed: 1, skipped: 0, rejected: 0 },
+      agentOutcomes: [{ agentId: 'builder', status: 'failed', fileName: 'builder.md', error: 'EACCES /private/key' }] } });
+    state.set('completed');
+    fixture = TestBed.createComponent(GenerateAgentsPage); fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('ptah-run-panel')?.textContent).toContain('Some agents failed');
+    expect(element.querySelector('[data-testid="generate-partial-warning"]')?.textContent).toContain('Needs attention');
+    expect(element.querySelector('[data-testid="generate-agent-status"]')?.className).toContain('text-state-err');
+    expect(element.textContent).not.toContain('/private/key');
+    expect(element.querySelector('ptah-run-panel button')?.textContent).toContain('Continue to guidance');
   });
   it('retries a failed completed agent against its bound run', async () => {
     current.set({ ...run('completed'), result: { status: 'completed', success: false, source: run('completed').source,

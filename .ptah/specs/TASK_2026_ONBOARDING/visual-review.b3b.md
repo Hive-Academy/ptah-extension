@@ -72,3 +72,30 @@ Total: 8 reports with a minor violation, 80 clean. No `color-contrast`, landmark
 ## Comparison with B3a
 
 Fixed: nested `main` landmarks and `.btn-link` contrast. Carried over: stepper dot-only narrow behaviour (finding 4) and h1 focus box (11). New inconsistency: card spacing/surface on A4 (5), status badge vs text (3).
+
+## Re-check (visual fixes)
+
+Round 1 of 2. Method: PNG and axe-JSON review of the recaptured `screenshots/generate/` (88 PNG + 88 axe) and `screenshots/analyze/` (72 PNG + 72 axe); Electron-config harness captures, no browser run. Deferred minors 8, 11, 12 and 14 are not re-opened.
+
+**Verdict: APPROVE - Score 8/10.** No serious or breaking items remain. Two moderate/minor leftovers (10 partial, summary rows still unverified).
+
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 1 | Failed/cancel copy | RESOLVED | `generate-failed-ptah-glass-1280x800.png`: "Generation failed. Retry the run or start over." (no "run continues"); same in `narrow-generate-failed-ptah-glass-light-464x800.png`. |
+| 2 | Done step complete + failed warning | RESOLVED | `done-facts-anubis-1280x800.png`: Done shows a tick, "Agents: needs attention ... 1 failed" in warning colour, "Needs attention" badge and "Review failed agents" link. `narrow-done-facts-anubis-light-464x800.png` same. |
+| 3 | A3 completed hides failure | RESOLVED | `generate-completed-ptah-glass-1280x800.png`: "Some agents failed" title, "Needs attention" badge, no green Done chip; failed card has a Failed badge (cut at the fold, badge visible at the edge). |
+| 4 | Narrow stepper truncation | RESOLVED | `narrow-generate-running-ptah-glass-464x800.png` and `narrow-generate-failed-ptah-glass-light-464x800.png`: full "Generate agents" label, 4 dots intact. |
+| 5 | A4 stacked card gap/surface | RESOLVED | `guidance-owner-conflict-anubis-1280x800.png` and `narrow-guidance-owner-conflict-anubis-light-464x800.png`: Saved guidance card has the same rounded surface and 20px gaps. |
+| 6 | Recovery actions | RESOLVED | `narrow-generate-lookup-exhausted-ptah-glass-light-464x800.png`: Retry primary, spaced below text, taller. Failed panel Retry/Start over larger. |
+| 7 | A5 copy | RESOLVED | "Get a second opinion in chat", "Run setup again" in `done-facts-anubis-1280x800.png`. |
+| 9 | A5 narrow actions | RESOLVED | `narrow-done-facts-anubis-light-464x800.png`: full-width stacked buttons, Run setup again as centred ghost. |
+| 10 | Owner-conflict banner | PARTIAL (moderate) | Text-first, "Check again" label, stacked at 464px (`narrow-guidance-owner-conflict-anubis-light-464x800.png`) are fixed. But in dark wide (`guidance-owner-conflict-anubis-1280x800.png`) the border still renders as near-white rgb(229,231,235), sampled at (640,476), not an error colour, so it still resembles a focus ring. Source `project-guidance.page.ts:50` and `generate-agents.page.ts:52` use `border-state-err/70`; that utility apparently does not resolve in the build (the `text-state-need` text colour does). Fix: use a token that resolves, or an existing `border-error`/`--state-err` via the page style block. |
+| Summary rows (A4 completed, rows 3-4) | OPEN (capture) | `guidance-completed-anubis-1280x800.png` and `narrow-guidance-completed-anubis-light-464x800.png` are still 1280x800 / 464x800 and cut at "Generated guidance" (rows 1-2 only). The harness full-page overwrite (`onboarding-generate-visual.e2e.spec.ts:170-175`) did not take effect, probably because the shell scrolls an inner container rather than the document. Rows 1-2 render correctly; rows 3-4 remain unverified. Not a product defect. |
+| Axe `aria-allowed-role` | RESOLVED | All 88 generate and 72 analyze axe JSON files have `"violations": []`; `grep -L '"violations": \[\]'` returns nothing. |
+
+### New regressions
+
+None serious. Analyze stepper (`narrow-agents-selection-count-ptah-glass-464x800.png`, `narrow-analyze-running-phase-2-anubis-light-464x800.png`): A1 has no stepper; A2 shows the current "Choose agents" pill with 3 dots and a skip icon, no truncation, no overflow. A3-A5 narrow strips fine. Wide stepper unchanged. No contrast or horizontal-scroll issues seen in the opened captures; the orange warning text on dark and light is legible (axe color-contrast clean). Remaining noted: h1 focus box (11) and broken header logo (14) are deferred.
+
+### Residual
+Open the summary rows via a scrollable-container capture to close that item. Fix the owner-conflict border token (moderate).

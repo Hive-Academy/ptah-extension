@@ -168,6 +168,11 @@ for (const theme of ONBOARDING_THEMES) {
         await expect(page.locator('[data-testid="guidance-summary-card"]')).toBeVisible();
         await expect(page.locator('[data-testid="guidance-summary-row"]')).toHaveCount(4);
         await shoot(page, { view: `${size.prefix}guidance-completed`, theme });
+        await page.screenshot({
+          path: resolve(CAPTURE_DIR, `${size.prefix}guidance-completed-${theme}-${size.viewport.width}x${size.viewport.height}.png`),
+          fullPage: true,
+          animations: 'disabled',
+        });
       });
 
       test(`${size.prefix}guidance-lookup-error`, async ({ page, fixtureServer }) => {

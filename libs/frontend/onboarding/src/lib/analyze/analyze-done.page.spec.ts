@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
+import { By } from '@angular/platform-browser';
+import { ActivatedRoute, Router, RouterLink, convertToParamMap, provideRouter } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
@@ -55,7 +56,20 @@ describe('AnalyzeDonePage', () => {
       element.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)?.click();
       expect(router.navigate).toHaveBeenCalledWith(expect.arrayContaining([path]));
     }
-    expect(element.querySelector('[data-testid="done-tribunal"]')?.textContent).toContain('Ask the panel in chat');
+    expect(element.querySelector('[data-testid="done-tribunal"]')?.textContent).toContain('Get a second opinion in chat');
+    expect(element.querySelector('[data-testid="done-run-again"]')?.textContent).toContain('Run setup again');
     expect(appState.setCurrentView).toHaveBeenCalledWith('chat');
+  });
+  it('marks Done complete and links failed agent facts back to Generate agents', async () => {
+    rpc.getBoundRunState.mockImplementation(async (binding) => binding.workflow === 'setup-agent-generation'
+      ? { ...agent, result: { counts: { ...agent.result.counts, failed: 1 } } } : guidance);
+    const fixture = TestBed.createComponent(AnalyzeDonePage); fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('li[data-state="current-complete"]')?.getAttribute('aria-current')).toBe('step');
+    expect(element.querySelector('li[data-state="current-complete"]')?.textContent).toContain('Done');
+    expect(element.querySelector('[data-testid="analyze-done-facts"] .text-state-need')?.textContent).toContain('1 failed');
+    const reviewLink = fixture.debugElement.query(By.css('[data-testid="done-review-agents"]'));
+    expect(reviewLink.nativeElement.textContent).toContain('Review failed agents');
+    expect(reviewLink.injector.get(RouterLink).queryParams).toEqual({ tab: 'agent-tab' });
   });
 });

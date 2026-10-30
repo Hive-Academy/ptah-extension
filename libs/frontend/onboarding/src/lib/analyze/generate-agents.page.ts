@@ -7,7 +7,6 @@ import { AgentGenerationStore, GenerationHandoffStore, GenerationWorkflowStore, 
 import { DetailsLogComponent } from '../shared/details-log.component';
 import { ItemStatusGridComponent, type ItemStatusGridRow } from '../shared/item-status-grid.component';
 import { OnboardingStepperComponent, type OnboardingStep } from '../shared/onboarding-stepper.component';
-import { OwnerConflictBannerComponent } from '../shared/owner-conflict-banner.component';
 import { RecoveryScreenComponent, type OnboardingRecoveryReason } from '../shared/recovery-screen.component';
 import { RunPanelComponent } from '../shared/run-panel.component';
 import { StepMeterComponent } from '../shared/step-meter.component';
@@ -17,8 +16,10 @@ import { GenerationStepStore } from './generation-step.store';
 
 @Component({
   selector: 'ptah-generate-agents-page', standalone: true,
-  imports: [DetailsLogComponent, ItemStatusGridComponent, OnboardingStepperComponent, OwnerConflictBannerComponent, RecoveryScreenComponent, RunPanelComponent, StepMeterComponent],
+  imports: [DetailsLogComponent, ItemStatusGridComponent, OnboardingStepperComponent, RecoveryScreenComponent, RunPanelComponent, StepMeterComponent],
   changeDetection: ChangeDetectionStrategy.OnPush, host: { class: 'block' },
+  styles: [`:host ::ng-deep .has-failed-agents ptah-run-status-chip { display: none; }
+    :host ::ng-deep ptah-run-panel button.btn-sm { min-height: 36px; }`],
   template: `
     <section class="mx-auto max-w-[760px] space-y-5 p-4" aria-labelledby="generate-agents-title" data-testid="generate-agents-page">
       <header><h1 id="generate-agents-title" tabindex="-1" class="text-2xl font-semibold">Generating your agents</h1>
@@ -30,32 +31,40 @@ import { GenerationStepStore } from './generation-step.store';
       } @else if (workflow.lookupExhausted()) {
         <section class="rounded-[22px] border border-state-err/70 p-5" role="alert" data-testid="generate-lookup-exhausted">
           <h2 class="font-semibold">Run state is unavailable</h2><p>We could not confirm this run. Try the lookup again.</p>
-          <button type="button" class="btn btn-sm min-h-8" (click)="refresh()">Retry</button>
+          <button type="button" class="btn btn-primary btn-sm mt-3 min-h-9" (click)="refresh()">Retry</button>
         </section>
       } @else {
-        <div data-testid="generate-state-chip" [attr.data-state]="workflow.state()">
-          <ptah-run-panel [state]="chipStateFor(workflow.state())" [viewState]="workflow.state()" [title]="runTitle()"
+        <div data-testid="generate-state-chip" [attr.data-state]="workflow.state()" [class.has-failed-agents]="workflow.state() === 'completed' && hasFailedAgents()">
+          <ptah-run-panel [state]="panelState()" [viewState]="workflow.state()" [title]="runTitle()"
             [message]="runMessage()" continueLabel="Continue to guidance" (stop)="workflow.stop()"
             (retry)="retryRun()" (startOver)="backToAgents()" (resumeRequested)="resume()" (continueRun)="continueGuidance()">
             @if (workflow.state() === 'starting') {
               <button type="button" class="btn btn-sm min-h-8 mt-3" data-testid="generate-stop-starting" (click)="workflow.stop()">Stop</button>
             }
             @if (progress(); as value) { <ptah-step-meter label="Agent generation progress" [percent]="value" /> }
+            @if (workflow.state() === 'completed' && hasFailedAgents()) { <span class="mt-3 inline-flex rounded-full border border-state-need px-2.5 py-1 text-xs font-medium text-state-need" data-testid="generate-partial-warning">Needs attention</span> }
             @if (workflow.run()?.result?.counts; as counts) {
               <p class="mt-3 text-sm" data-testid="generate-facts">{{ counts.written }} written · {{ counts.unchanged }} unchanged · {{ counts.failed }} failed · {{ counts.skipped }} skipped · {{ counts.rejected }} rejected</p>
             }
           </ptah-run-panel>
         </div>
         @if (workflow.rejection()?.reason === 'blocked') {
-          <ptah-owner-conflict-banner (openOwner)="openOwner()" (retry)="refresh()" />
+          <section class="flex flex-col gap-3 rounded-[14px] border border-state-err/70 p-4 text-sm sm:flex-row sm:items-center" role="status" data-testid="generate-owner-conflict">
+            <p class="min-w-0 flex-1 text-state-need"><strong>Another run is active.</strong> Open the active run before starting another.</p>
+            <div class="flex flex-wrap gap-2"><button type="button" class="btn btn-sm min-h-9" (click)="openOwner()">Open it</button>
+              <button type="button" class="btn btn-sm min-h-9" (click)="refresh()">Check again</button></div>
+          </section>
         }
         @if (workflow.run()?.result?.agentOutcomes; as outcomes) {
-          <div class="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3" role="list" aria-label="Generated agents">
+          <div class="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3" aria-label="Generated agents">
             @for (agent of outcomes; track agent.agentId) {
-              <article class="rounded-[10px] border border-base-300 p-4" data-glass-surface="tile" role="listitem" data-testid="generate-agent-card">
-                <h2 class="font-semibold">{{ agent.agentId }}</h2><p class="text-sm capitalize">{{ agent.status }}</p>
+              <article class="rounded-[10px] border border-base-300 p-4" data-glass-surface="tile" data-testid="generate-agent-card">
+                <div class="flex flex-wrap items-start justify-between gap-2"><h2 class="font-semibold">{{ agent.agentId }}</h2>
+                  <span class="inline-flex min-h-9 items-center rounded-full border border-base-300 px-2.5 py-1 text-xs font-medium capitalize"
+                    data-glass-surface="tile" data-testid="generate-agent-status" [class.text-state-err]="agent.status === 'failed'"
+                    [class.text-state-done]="agent.status === 'written'" [class.text-base-content-muted]="agent.status !== 'failed' && agent.status !== 'written'">{{ agent.status }}</span></div>
                 @if (agent.fileName) { <p class="break-all font-mono text-xs" data-testid="generate-agent-file">{{ agent.fileName }}</p> }
-                @if (agent.status === 'failed') { <button type="button" class="btn btn-sm min-h-8 mt-2" (click)="retryAgent(agent.agentId)">Retry this agent</button> }
+                @if (agent.status === 'failed') { <button type="button" class="btn btn-sm min-h-9 mt-3" (click)="retryAgent(agent.agentId)">Retry this agent</button> }
               </article>
             }
           </div>
@@ -112,8 +121,20 @@ export class GenerateAgentsPage implements OnInit {
     { id: 'guidance', label: 'Project guidance', state: 'upcoming' },
     { id: 'done', label: 'Done', state: 'upcoming' },
   ]);
-  protected readonly runTitle = computed(() => ({ starting: 'Starting generation', running: 'Generating agents', quiet: 'Checking run state', cancelling: 'Stopping generation', 'stop-unconfirmed': 'Checking stop', 'stop-unknown': 'Checking run state', completed: 'Agents generated', cancelled: 'Generation stopped', failed: 'Generation failed', 'timed-out': 'Generation timed out', idle: 'No generation run' }[this.workflow.state()]));
-  protected readonly runMessage = computed(() => this.workflow.startError() ? safeFailureCopy(this.workflow.startError()!, 'The run could not start.') : this.workflow.state() === 'completed' ? 'Review the generated agents and continue to project guidance.' : this.workflow.state() === 'idle' ? 'Choose agents to begin.' : 'The run continues in its bound session.');
+  protected readonly hasFailedAgents = computed(() => (this.workflow.run()?.result?.counts?.failed ?? 0) > 0);
+  protected readonly panelState = computed(() => chipStateFor(this.workflow.state()));
+  protected readonly runTitle = computed(() => this.workflow.state() === 'completed' && this.hasFailedAgents() ? 'Some agents failed' : ({ starting: 'Starting generation', running: 'Generating agents', quiet: 'Checking run state', cancelling: 'Stopping generation', 'stop-unconfirmed': 'Checking stop', 'stop-unknown': 'Checking run state', completed: 'Agents generated', cancelled: 'Generation stopped', failed: 'Generation failed', 'timed-out': 'Generation timed out', idle: 'No generation run' }[this.workflow.state()]));
+  protected readonly runMessage = computed(() => {
+    const state = this.workflow.state();
+    const reason = this.workflow.startError() ?? this.workflow.run()?.result?.agentOutcomes?.find((agent) => agent.status === 'failed')?.error;
+    if (state === 'failed') return safeFailureCopy(reason, 'Generation failed. Retry the run or start over.');
+    if (state === 'timed-out') return safeFailureCopy(reason ?? 'timed out', 'Generation timed out. Retry the run.');
+    if (state === 'cancelled') return 'Generation stopped. Resume when you are ready.';
+    if (state === 'cancelling' || state === 'stop-unconfirmed' || state === 'stop-unknown') return 'Stopping this run. Check its status before starting another.';
+    if (this.workflow.startError()) return safeFailureCopy(this.workflow.startError(), 'The run could not start.');
+    if (state === 'completed') return this.hasFailedAgents() ? 'Review the failed agents and retry them before continuing.' : 'Review the generated agents and continue to project guidance.';
+    return state === 'idle' ? 'Choose agents to begin.' : 'The run continues in its bound session.';
+  });
 
   constructor() {
     this.destroyRef.onDestroy(() => { this.destroyed = true; });
@@ -150,44 +171,47 @@ export class GenerateAgentsPage implements OnInit {
       try {
         const resumable = await this.rpc.getResumableRun();
         if (this.destroyed) return;
-        if (resumable.generation?.runId === run.binding.runId) await this.agents.discover();
+        if (resumable.generation?.runId === run.binding.runId) { await this.agents.discover(); if (this.destroyed) return; }
       } catch { /* Run state remains authoritative if checkpoint discovery fails. */ }
     }
   }
-  protected async refresh(): Promise<void> { await this.workflow.refresh(); }
+  protected async refresh(): Promise<void> { await this.workflow.refresh(); if (this.destroyed) return; }
   protected async openLatest(): Promise<void> {
     const binding = this.binding();
-    if (!binding) { await this.backToAgents(); return; }
+    if (!binding) { await this.backToAgents(); if (this.destroyed) return; return; }
     this.workflow.bind(binding);
     await this.workflow.refresh();
     if (this.destroyed) return;
     const run = this.workflow.run();
-    if (!run) { await this.backToAgents(); return; }
+    if (!run) { await this.backToAgents(); if (this.destroyed) return; return; }
     await this.router.navigate([], { queryParams: { tab: binding.tabId, run: run.binding.runId }, replaceUrl: true });
+    if (this.destroyed) return;
   }
-  protected async retryRun(): Promise<void> { await this.workflow.refresh(); if (!this.destroyed && !this.workflow.isBound()) await this.backToAgents(); }
-  protected async resume(): Promise<void> { await this.agents.resume(); if (!this.destroyed) await this.workflow.refresh(); }
+  protected async retryRun(): Promise<void> { await this.workflow.refresh(); if (this.destroyed) return; if (!this.workflow.isBound()) { await this.backToAgents(); if (this.destroyed) return; } }
+  protected async resume(): Promise<void> { await this.agents.resume(); if (this.destroyed) return; await this.workflow.refresh(); if (this.destroyed) return; }
   protected async retryAgent(agentId: string): Promise<void> {
     const run = this.workflow.run();
     if (!run) return;
     await this.agents.retry(agentId, run.binding);
-    if (!this.destroyed) await this.workflow.refresh();
+    if (this.destroyed) return;
+    await this.workflow.refresh();
+    if (this.destroyed) return;
   }
-  protected async startNow(): Promise<void> { await this.handoff.startNow(); if (this.destroyed) return; const started = this.handoff.started(); if (started && started.workspacePath === this.binding()?.workspacePath) await this.goGuidance(started.tabId, started.runId); }
+  protected async startNow(): Promise<void> { await this.handoff.startNow(); if (this.destroyed) return; const started = this.handoff.started(); if (started && started.workspacePath === this.binding()?.workspacePath) { await this.goGuidance(started.tabId, started.runId); if (this.destroyed) return; } }
   protected async continueGuidance(): Promise<void> {
     const binding = this.binding();
     if (!binding) return;
     this.continueError.set(null);
     const started = this.handoff.started();
     if (started?.workspacePath !== binding.workspacePath) {
-      try { await this.handoff.manualContinue(binding.workspacePath); }
+      try { await this.handoff.manualContinue(binding.workspacePath); if (this.destroyed) return; }
       catch { if (!this.destroyed) this.continueError.set('Could not open project guidance. Try again.'); return; }
     }
     if (this.destroyed) return;
     const current = this.handoff.started();
-    if (current?.workspacePath === binding.workspacePath) { await this.goGuidance(current.tabId, current.runId); return; }
+    if (current?.workspacePath === binding.workspacePath) { await this.goGuidance(current.tabId, current.runId); if (this.destroyed) return; return; }
     const opened = this.handoff.openedTab();
-    if (opened?.workspacePath === binding.workspacePath) await this.goGuidance(opened.tabId);
+    if (opened?.workspacePath === binding.workspacePath) { await this.goGuidance(opened.tabId); if (this.destroyed) return; }
     else this.continueError.set('Project guidance did not open. Try again.');
   }
   private async goGuidance(tabId: string, guidanceRun?: string): Promise<void> {
@@ -195,16 +219,19 @@ export class GenerateAgentsPage implements OnInit {
     if (!binding || this.destroyed) return;
     const link = onboardingStepLink('generate', 'guidance', { tab: tabId, gen: binding.tabId, guidanceRun });
     await this.router.navigate(link.commands, { queryParams: link.queryParams });
+    if (this.destroyed) return;
   }
   protected async skipGuidance(): Promise<void> {
     this.handoff.skip();
     const binding = this.binding();
     const link = onboardingStepLink('guidance', 'done', { gen: binding?.tabId });
     await this.router.navigate(link.commands, { queryParams: link.queryParams });
+    if (this.destroyed) return;
   }
   protected async backToAgents(): Promise<void> {
     const link = onboardingStepLink('generate', 'agents', { tab: this.binding()?.tabId });
     await this.router.navigate(link.commands, { queryParams: link.queryParams, state: { explicitBack: true } });
+    if (this.destroyed) return;
   }
-  protected async openOwner(): Promise<void> { await this.backToAgents(); }
+  protected async openOwner(): Promise<void> { await this.backToAgents(); if (this.destroyed) return; }
 }

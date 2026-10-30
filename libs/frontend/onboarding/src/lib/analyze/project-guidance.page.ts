@@ -4,10 +4,9 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import { VSCodeService } from '@ptah-extension/core';
 import type { EnhancedPromptsDetectedStack, SetupGenerationTabBinding } from '@ptah-extension/shared';
-import { GenerationHandoffStore, GenerationWorkflowStore, GuidanceGenerationStore, GuidanceResultPanelComponent, WizardRpcService, findBoundGenerationTab } from '@ptah-extension/setup-wizard';
+import { GenerationHandoffStore, GenerationWorkflowStore, GuidanceGenerationStore, GuidanceResultPanelComponent, WizardRpcService, findBoundGenerationTab, safeFailureCopy } from '@ptah-extension/setup-wizard';
 import { DetailsLogComponent } from '../shared/details-log.component';
 import { OnboardingStepperComponent, type OnboardingStep } from '../shared/onboarding-stepper.component';
-import { OwnerConflictBannerComponent } from '../shared/owner-conflict-banner.component';
 import { RecoveryScreenComponent, type OnboardingRecoveryReason } from '../shared/recovery-screen.component';
 import { RunPanelComponent } from '../shared/run-panel.component';
 import { chipStateFor } from '../shared/run-status-chip.component';
@@ -16,8 +15,11 @@ import { GenerationStepStore } from './generation-step.store';
 
 @Component({
   selector: 'ptah-project-guidance-page', standalone: true,
-  imports: [DetailsLogComponent, GuidanceResultPanelComponent, OnboardingStepperComponent, OwnerConflictBannerComponent, RecoveryScreenComponent, RunPanelComponent],
+  imports: [DetailsLogComponent, GuidanceResultPanelComponent, OnboardingStepperComponent, RecoveryScreenComponent, RunPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush, host: { class: 'block' },
+  styles: [`:host ::ng-deep [data-testid="guidance-saved-card"] > ptah-guidance-result-panel > section { border: 0; background: transparent; padding: 0; }
+    :host ::ng-deep ptah-run-panel button.btn-sm, :host ::ng-deep [data-testid="guidance-saved-card"] button.btn-sm { min-height: 36px; }
+    :host ::ng-deep [data-testid="guidance-saved-card"] button.btn-ghost { margin-top: 12px; }`],
   template: `
     <section class="mx-auto max-w-[760px] space-y-5 p-4" aria-labelledby="project-guidance-title" data-testid="project-guidance-page">
       <header><h1 id="project-guidance-title" tabindex="-1" class="text-2xl font-semibold">Project guidance</h1>
@@ -28,12 +30,12 @@ import { GenerationStepStore } from './generation-step.store';
       } @else if (workflow.lookupExhausted()) {
         <section class="rounded-[22px] border border-state-err/70 p-5" role="alert" data-testid="guidance-lookup-exhausted">
           <h2 class="font-semibold">Run state is unavailable</h2><p>We could not confirm this run. Try the lookup again.</p>
-          <button type="button" class="btn btn-sm min-h-8" (click)="refresh()">Retry</button>
+          <button type="button" class="btn btn-primary btn-sm mt-3 min-h-9" (click)="refresh()">Retry</button>
         </section>
       } @else if (lookupError()) {
         <section class="rounded-[22px] border border-state-err/70 p-5" role="alert" data-testid="guidance-lookup-error">
           <h2 class="font-semibold">Run state is unavailable</h2><p>We could not check the current guidance run.</p>
-          <button type="button" class="btn btn-sm min-h-8" (click)="retryLookup()">Retry</button>
+          <button type="button" class="btn btn-primary btn-sm mt-3 min-h-9" (click)="retryLookup()">Retry</button>
         </section>
       } @else {
         <div data-testid="guidance-state-chip" [attr.data-state]="workflow.state()">
@@ -45,7 +47,11 @@ import { GenerationStepStore } from './generation-step.store';
           </ptah-run-panel>
         </div>
         @if (workflow.rejection()?.reason === 'blocked') {
-          <div data-testid="guidance-owner-conflict"><ptah-owner-conflict-banner (openOwner)="openOwner()" (retry)="refresh()" /></div>
+          <section class="flex flex-col gap-3 rounded-[14px] border border-state-err/70 p-4 text-sm sm:flex-row sm:items-center" role="status" data-testid="guidance-owner-conflict">
+            <p class="min-w-0 flex-1 text-state-need"><strong>Another run is active.</strong> Open the active run before starting another.</p>
+            <div class="flex flex-wrap gap-2"><button type="button" class="btn btn-sm min-h-9" (click)="openOwner()">Open it</button>
+              <button type="button" class="btn btn-sm min-h-9" (click)="refresh()">Check again</button></div>
+          </section>
         }
         @if (detectedStack(); as stack) {
           <section class="rounded-[22px] border border-base-300 p-5" data-glass-surface="content" data-testid="guidance-detected-stack">
@@ -70,12 +76,14 @@ import { GenerationStepStore } from './generation-step.store';
         @if (guidance.run()?.committedState === 'unchanged' && workflow.state() === 'completed') {
           <p role="status" data-testid="guidance-unchanged">Saved guidance was already current; nothing needed changing.</p>
         }
-        <ptah-guidance-result-panel [result]="guidance.result()" [runActive]="workflow.isBound()" [showSkip]="true"
-          (enabledChanged)="setEnabled($event)" (cacheRequested)="refreshSaved()" (contentRequested)="loadContent()"
-          (downloadRequested)="download()" (regenerateRequested)="retry()" (skipRequested)="skip()" />
+        <section class="rounded-[22px] border border-base-300 p-5" data-glass-surface="content" data-testid="guidance-saved-card">
+          <ptah-guidance-result-panel [result]="guidance.result()" [runActive]="workflow.isBound()" [showSkip]="true"
+            (enabledChanged)="setEnabled($event)" (cacheRequested)="refreshSaved()" (contentRequested)="loadContent()"
+            (downloadRequested)="download()" (regenerateRequested)="retry()" (skipRequested)="skip()" />
+        </section>
         @if (guidance.content(); as content) { <section class="rounded-[22px] border border-base-300 p-5" data-testid="guidance-content"><h2 class="font-semibold">Saved guidance content</h2><pre class="whitespace-pre-wrap break-words text-sm">{{ content }}</pre></section> }
         @if (guidance.actionFailed()) { <p role="alert">The guidance action could not be completed. Try again.</p> }
-        @if (!standalone()) { <button type="button" class="btn btn-ghost min-h-8" data-testid="guidance-skip" (click)="skip()">Skip to Done</button> }
+        @if (!standalone()) { <button type="button" class="btn btn-ghost min-h-9 mt-3" data-testid="guidance-skip" (click)="skip()">Skip to Done</button> }
         @if (binding(); as bound) { <ptah-details-log mode="tab" [tabId]="bound.tabId" /> }
       }
     </section>
@@ -104,7 +112,17 @@ export class ProjectGuidancePage implements OnInit {
   protected readonly standalone = computed(() => this.route.snapshot.data['standalone'] === true);
   protected readonly panelState = computed(() => this.workflow.state() === 'cancelled' ? 'failed' : chipStateFor(this.workflow.state()));
   protected readonly runTitle = computed(() => ({ idle: 'Ready to create guidance', starting: 'Starting guidance', running: 'Creating guidance', quiet: 'Checking run state', cancelling: 'Stopping guidance', 'stop-unconfirmed': 'Checking stop', 'stop-unknown': 'Checking run state', completed: 'Guidance ready', cancelled: 'Guidance stopped', failed: 'Guidance failed', 'timed-out': 'Guidance timed out' }[this.workflow.state()]));
-  protected readonly runMessage = computed(() => this.workflow.state() === 'idle' ? 'Start when you are ready.' : this.workflow.state() === 'completed' ? 'Your saved guidance is ready to use.' : this.workflow.state() === 'cancelled' ? 'You can try again.' : 'The run continues in its bound session.');
+  protected readonly runMessage = computed(() => {
+    const state = this.workflow.state();
+    const reason = this.workflow.startError();
+    if (state === 'failed') return safeFailureCopy(reason, 'Guidance failed. Retry the run or start over.');
+    if (state === 'timed-out') return safeFailureCopy(reason ?? 'timed out', 'Guidance timed out. Retry the run.');
+    if (state === 'cancelled') return 'Guidance stopped. You can try again.';
+    if (state === 'cancelling' || state === 'stop-unconfirmed' || state === 'stop-unknown') return 'Stopping guidance. Check its status before starting another run.';
+    if (reason) return safeFailureCopy(reason, 'Guidance could not start. Try again.');
+    if (state === 'idle') return 'Start when you are ready.';
+    return state === 'completed' ? 'Your saved guidance is ready to use.' : 'The run continues in its bound session.';
+  });
   protected readonly sections = computed(() => {
     const binding = this.binding();
     const run = this.guidance.run();
@@ -144,6 +162,7 @@ export class ProjectGuidancePage implements OnInit {
     if (!tabId || !findBoundGenerationTab(this.tabs, binding)) { this.recovery.set('missing-tab'); return; }
     this.binding.set(binding);
     await this.bindRunSequence(binding);
+    if (this.destroyed) return;
   }
   private async bindRunSequence(binding: SetupGenerationTabBinding): Promise<void> {
     this.lookupPending.set(true);
@@ -169,7 +188,7 @@ export class ProjectGuidancePage implements OnInit {
     if (this.destroyed) return;
     await this.refreshStatus();
     if (this.destroyed) return;
-    if (runId && !this.route.snapshot.queryParamMap.get('run')) await this.router.navigate([], { queryParams: { ...this.route.snapshot.queryParams, run: runId }, replaceUrl: true });
+    if (runId && !this.route.snapshot.queryParamMap.get('run')) { await this.router.navigate([], { queryParams: { ...this.route.snapshot.queryParams, run: runId }, replaceUrl: true }); if (this.destroyed) return; }
     if (this.destroyed) return;
     // An idle handoff can already be inside manualContinue: only a pending
     // countdown is proof that this page may start it.
@@ -186,6 +205,7 @@ export class ProjectGuidancePage implements OnInit {
         await this.workflow.refresh();
         if (this.destroyed) return;
         await this.router.navigate([], { queryParams: { ...this.route.snapshot.queryParams, run: accepted.runId }, replaceUrl: true });
+        if (this.destroyed) return;
       }
     }
   }
@@ -201,10 +221,11 @@ export class ProjectGuidancePage implements OnInit {
     await this.refreshStatus();
     if (this.destroyed) return;
     await this.router.navigate([], { queryParams: { ...this.route.snapshot.queryParams, run: runId }, replaceUrl: true });
+    if (this.destroyed) return;
   }
   protected async retryLookup(): Promise<void> {
     const binding = this.binding();
-    if (binding) await this.bindRunSequence(binding);
+    if (binding) { await this.bindRunSequence(binding); if (this.destroyed) return; }
   }
   private async refreshStatus(): Promise<void> {
     const binding = this.binding();
@@ -214,15 +235,15 @@ export class ProjectGuidancePage implements OnInit {
       if (!this.destroyed && this.binding()?.tabId === binding.tabId && !status.error) this.detectedStack.set(status.detectedStack);
     } catch { /* The saved result panel presents status failures. */ }
   }
-  protected async refresh(): Promise<void> { await this.workflow.refresh(); if (this.destroyed) return; await this.guidance.refresh(); if (this.destroyed) return; await this.refreshStatus(); }
+  protected async refresh(): Promise<void> { await this.workflow.refresh(); if (this.destroyed) return; await this.guidance.refresh(); if (this.destroyed) return; await this.refreshStatus(); if (this.destroyed) return; }
   protected async openLatest(): Promise<void> {
     const binding = this.binding();
-    if (!binding) { await this.router.navigate(['/onboarding']); return; }
+    if (!binding) { await this.router.navigate(['/onboarding']); if (this.destroyed) return; return; }
     this.workflow.bind(binding);
     await this.refresh();
     if (this.destroyed) return;
     const run = this.workflow.run();
-    if (run) await this.router.navigate([], { queryParams: { ...this.route.snapshot.queryParams, run: run.binding.runId }, replaceUrl: true });
+    if (run) { await this.router.navigate([], { queryParams: { ...this.route.snapshot.queryParams, run: run.binding.runId }, replaceUrl: true }); if (this.destroyed) return; }
   }
   protected async start(): Promise<void> {
     const binding = this.binding();
@@ -230,23 +251,27 @@ export class ProjectGuidancePage implements OnInit {
     if (!binding || this.lookupError() || this.lookupPending() || this.handoff.inFlight() || this.handoff.pending() ||
       this.boundRunId || (started?.tabId === binding.tabId && started.workspacePath === binding.workspacePath)) return;
     await this.workflow.startGuidance();
-    if (!this.destroyed) await this.refresh();
+    if (this.destroyed) return;
+    await this.refresh();
+    if (this.destroyed) return;
   }
-  protected async retry(): Promise<void> { await this.workflow.regenerateGuidance(); if (!this.destroyed) await this.refresh(); }
-  protected async setEnabled(value: boolean): Promise<void> { await this.guidance.setEnabled(value); if (!this.destroyed) await this.refreshStatus(); }
-  protected async refreshSaved(): Promise<void> { await this.guidance.refreshCommitted(); if (!this.destroyed) await this.refreshStatus(); }
-  protected async loadContent(): Promise<void> { await this.guidance.loadContent(); }
-  protected async download(): Promise<void> { await this.guidance.download(); }
+  protected async retry(): Promise<void> { await this.workflow.regenerateGuidance(); if (this.destroyed) return; await this.refresh(); if (this.destroyed) return; }
+  protected async setEnabled(value: boolean): Promise<void> { await this.guidance.setEnabled(value); if (this.destroyed) return; await this.refreshStatus(); if (this.destroyed) return; }
+  protected async refreshSaved(): Promise<void> { await this.guidance.refreshCommitted(); if (this.destroyed) return; await this.refreshStatus(); if (this.destroyed) return; }
+  protected async loadContent(): Promise<void> { await this.guidance.loadContent(); if (this.destroyed) return; }
+  protected async download(): Promise<void> { await this.guidance.download(); if (this.destroyed) return; }
   protected async openOwner(): Promise<void> {
     const binding = this.binding();
     if (!binding) return;
     await this.launcher.open({ workspacePath: binding.workspacePath, workflow: 'setup-project-prompt', origin: 'blocked-run' });
+    if (this.destroyed) return;
   }
-  protected async skip(): Promise<void> { await this.navigateDone(); }
-  protected async continueDone(): Promise<void> { await this.navigateDone(); }
+  protected async skip(): Promise<void> { await this.navigateDone(); if (this.destroyed) return; }
+  protected async continueDone(): Promise<void> { await this.navigateDone(); if (this.destroyed) return; }
   private async navigateDone(): Promise<void> {
-    if (this.standalone()) { await this.router.navigate(['/onboarding']); return; }
+    if (this.standalone()) { await this.router.navigate(['/onboarding']); if (this.destroyed) return; return; }
     const link = onboardingStepLink('guidance', 'done', this.route.snapshot.queryParams);
     await this.router.navigate(link.commands, { queryParams: link.queryParams });
+    if (this.destroyed) return;
   }
 }

@@ -44,9 +44,22 @@ describe('OnboardingStepperComponent', () => {
     expect(el.querySelector('li[data-state="completed"] a span')?.className).toContain('max-[720px]:sr-only');
     expect(el.querySelector('li[data-state="upcoming"] span span')?.className).toContain('max-[720px]:sr-only');
     expect(el.querySelector('li[data-state="current"] span span')?.className).not.toContain('max-[720px]:sr-only');
-    expect(el.querySelector('li[data-state="current"]')?.className).toContain('shrink-0');
+    expect(el.querySelector('li[data-state="current"]')?.className).toContain('min-w-0');
     expect(el.querySelector('li[data-state="current"]')?.className).toContain('flex-1');
     expect(el.querySelector('li[data-state="current"] span span')?.className).toContain('whitespace-nowrap');
+    expect(el.querySelector('li[data-state="current"] span span')?.className).not.toContain('truncate');
+    expect(el.querySelector('li[data-state="upcoming"]')?.className).toContain('shrink');
+  });
+
+  it('shows the final current step with a completion icon and label', () => {
+    TestBed.configureTestingModule({ imports: [OnboardingStepperComponent], providers: [provideRouter([])] });
+    const fixture = TestBed.createComponent(OnboardingStepperComponent);
+    fixture.componentRef.setInput('steps', [{ id: 'done', label: 'Done', state: 'current-complete' } satisfies OnboardingStep]);
+    fixture.detectChanges();
+    const done = (fixture.nativeElement as HTMLElement).querySelector('li[data-state="current-complete"]') as HTMLElement;
+    expect(done.getAttribute('aria-current')).toBe('step');
+    expect(done.textContent).toContain('Done, completed');
+    expect(done.querySelector('svg')).not.toBeNull();
   });
 
   it('pairs the skipped glyph with correctly spaced state text', () => {
