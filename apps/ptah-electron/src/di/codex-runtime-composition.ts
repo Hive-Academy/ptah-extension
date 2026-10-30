@@ -101,6 +101,7 @@ export function resolveElectronCodexBundledRoot(
     try {
       return statSync(path).isDirectory();
     } catch {
+      // degradation-audit: optional-capability - a missing or unreadable candidate means "not a directory"; the walk tries the next ancestor
       return false;
     }
   },

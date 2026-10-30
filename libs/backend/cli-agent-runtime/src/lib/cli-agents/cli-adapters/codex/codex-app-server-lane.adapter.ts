@@ -19,6 +19,7 @@ import {
   type ContinuationOutcome,
   type SdkHandle,
 } from '../cli-adapter.interface';
+import { bestMessagingCapability } from '../cli-adapter.interface';
 import {
   buildTaskPrompt,
   createBufferedEmitter,
@@ -34,6 +35,7 @@ import {
 import { CODEX_RESUME_RESENDS_ROLE } from './codex-lane-config.builder';
 import { CodexLaneEvents } from './codex-lane-events';
 import { withCodexLaneStartupTimeout } from './codex-app-server-lane-startup';
+import { readCodexLaneCatalog } from './codex-app-server-lane-catalog';
 import { handledRequirements, identitySchema } from './codex-app-server-lane-profile';
 import {
   configRejectedNotice,
@@ -41,13 +43,20 @@ import {
   terminalModelAdvice,
   validatedEffort,
 } from './codex-app-server-lane-rejection';
-
-export class CodexLaneCapabilityPendingError extends Error {
-  constructor(readonly capability: string) {
-    super(`Codex lane ${capability} requires 10b-2 support.`);
-    this.name = 'CodexLaneCapabilityPendingError';
-  }
-}
+import {
+  NativeCodexLaneBinaryProbe,
+  type CodexLaneBinaryProbe,
+} from './codex-app-server-lane-binary';
+import {
+  FileCodexLaneCredentialProbe,
+  type CodexLaneCredentialProbe,
+} from './codex-app-server-lane-auth';
+import {
+  CODEX_LANE_DEFAULT_MODEL,
+  CODEX_LANE_FALLBACK_MODELS,
+  codexLaneModels,
+  markCodexLaneDefault,
+} from './codex-app-server-lane-models';
 
 export class CodexLaneResumeIdentityError extends Error {
   constructor() {
@@ -62,7 +71,10 @@ export interface CodexLaneRuntimeProvider {
     profile: CodexExecutionProfile,
     resume: CodexThreadIdentity | undefined,
     approvals: ApprovalSink,
+    binaryPath: string,
   ): Promise<CodexContext>;
+  /** A separate lane context for catalog reads; its owner closes it after listing. */
+  openCatalog(binaryPath: string): Promise<CodexContext>;
 }
 
 /** Host resolves account, paths, budgets and trusted user MCP names. */
@@ -101,37 +113,85 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     private readonly profiles: CodexLaneProfileResolver,
     private readonly identities: CodexLaneIdentityStore,
     private readonly logger: Logger,
+    private readonly binary: CodexLaneBinaryProbe = new NativeCodexLaneBinaryProbe(),
+    private readonly credentials: CodexLaneCredentialProbe = new FileCodexLaneCredentialProbe(),
   ) {}
+
+  private catalogProbe: {
+    readonly binaryPath: string;
+    readonly at: number;
+    readonly output: Promise<CliModelInfo[]>;
+  } | undefined;
 
   capabilities(): AgentMessagingCapabilities { return { steer: false, interrupt: false, continuation: true }; }
 
-  /** 10b-2: resolve and verify the actual pinned executable and credential home. */
-  async detect(): Promise<CliDetectionResult> { throw new CodexLaneCapabilityPendingError('binary detection'); }
+  async detect(): Promise<CliDetectionResult> {
+    const messagingMode = bestMessagingCapability(this.capabilities());
+    try {
+      const binary = await this.binary.resolve();
+      if (!binary) return { cli: 'codex', installed: false, messagingMode };
+      await this.ensureTokensFresh();
+      return { cli: 'codex', installed: true, path: binary.path,
+        version: binary.version, messagingMode };
+    } catch (error: unknown) {
+      this.logger.warn('[CodexAppServerLaneAdapter] Codex detection failed', {
+        errorClass: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      return { cli: 'codex', installed: false, messagingMode };
+    }
+  }
 
-  /** 10b-2: query CodexContext.listModels with a visible curated fallback. */
-  async listModels(): Promise<CliModelInfo[]> { throw new CodexLaneCapabilityPendingError('model catalog'); }
+  async ensureTokensFresh(): Promise<boolean> {
+    const status = await this.credentials.check();
+    if (status === 'stale' || status === 'unreadable')
+      this.logger.warn('[CodexAppServerLaneAdapter] Codex credentials are not usable', { status });
+    return status === 'fresh';
+  }
+
+  async listModels(): Promise<CliModelInfo[]> {
+    let probe = this.catalogProbe;
+    try {
+      if (!probe || Date.now() - probe.at >= 30_000) {
+        const binary = await this.binary.resolve();
+        if (!binary) throw new Error('Pinned Codex executable is unavailable');
+        const output = (async (): Promise<CliModelInfo[]> => {
+          const models = codexLaneModels(await readCodexLaneCatalog(
+            () => this.runtime.openCatalog(binary.path), this.logger,
+          ));
+          if (models.length === 0) throw new Error('Codex model catalog is empty');
+          return models;
+        })();
+        probe = { binaryPath: binary.path, at: Date.now(), output };
+        this.catalogProbe = probe;
+      }
+      return await probe.output;
+    } catch (error: unknown) {
+      if (probe && this.catalogProbe === probe) this.catalogProbe = undefined;
+      this.logger.warn('[CodexAppServerLaneAdapter] Codex model catalog failed; using curated fallback', {
+        errorClass: error instanceof Error ? error.constructor.name : typeof error,
+      });
+      return CODEX_LANE_FALLBACK_MODELS.map(markCodexLaneDefault);
+    }
+  }
 
   parseOutput(raw: string): string { return stripAnsiCodes(raw).replace(/\r(?!\n)/g, ''); }
 
-  /** Binary pin validation remains deferred to 10b-2b. */
-  private assertDeferredInputs(options: CliCommandOptions): void {
-    if (options.binaryPath !== undefined)
-      throw new CodexLaneCapabilityPendingError('pinned executable validation');
-  }
-
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
-    this.assertDeferredInputs(options);
+    const binary = await this.binary.resolve(options.binaryPath);
+    if (!binary) throw new Error('Pinned Codex executable is unavailable');
     const resolved = await this.profiles.resolve(
       options,
       options.resumeSessionId ? 'resume' : 'first-turn',
     );
     const requestedEffort = options.reasoningEffort ?? resolved.lane.config.reasoningEffort;
     const reasoningEffort = validatedEffort(requestedEffort);
+    const defaultModelApplied = !options.model && !resolved.lane.identity.model;
+    const selectedModel = options.model || resolved.lane.identity.model || CODEX_LANE_DEFAULT_MODEL;
     const projected = buildCodexLaneProfileSettings({
       ...resolved.lane,
       identity: {
         ...resolved.lane.identity,
-        model: options.model ?? resolved.lane.identity.model,
+        model: selectedModel,
       },
       config: {
         ...resolved.lane.config,
@@ -215,7 +275,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     };
     abort.signal.addEventListener('abort', () => { void close(); }, { once: true });
     const openContext = async (identity: CodexThreadIdentity | undefined): Promise<CodexContext> => {
-      const opening = this.runtime.open(profile, identity, approvals);
+      const opening = this.runtime.open(profile, identity, approvals, binary.path);
       void opening.then((late): void => {
         if (abort.signal.aborted) {
           void closeContext(late).catch(() => {
@@ -292,7 +352,8 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       if (!active) { pending.push(event); return; }
       const modelMessage = event.type === 'terminal' && event.status === 'failed' && event.error
         ? terminalModelAdvice(`${event.error.code}: ${event.error.message}`, {
-          ...options, model: options.model ?? resolved.lane.identity.model,
+          ...options, model: selectedModel,
+          modelSource: defaultModelApplied ? 'ptah-default' : options.modelSource,
         })
         : undefined;
       const modelError = modelMessage ? new Error(modelMessage) : undefined;
@@ -321,6 +382,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
         }
         if (!closed && source === context) throw new Error('Codex lane event stream ended');
       } catch (error: unknown) {
+        // degradation-audit: optional-capability - a closed or replaced context's stream error is moot; the live context reports its own
         if (closed || source !== context) return;
         emit({ type: 'error', content: 'Codex lane event stream failed.' });
         active?.reject(error instanceof Error ? error : new Error('Codex event stream failed'));
