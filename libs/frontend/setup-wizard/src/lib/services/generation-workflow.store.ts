@@ -45,6 +45,7 @@ export class GenerationWorkflowStore {
   private expectedRunId: string | undefined;
   private bindingRevision = 0;
   readonly runMismatch = signal(false);
+  readonly lookupExhausted = signal(false);
   readonly acceptedRun = signal<{ runId: string; revision: number } | null>(
     null,
   );
@@ -74,6 +75,7 @@ export class GenerationWorkflowStore {
   });
 
   bind(binding: SetupGenerationTabBinding, expectedRunId?: string): void {
+    this.lookupExhausted.set(false);
     const old = this.bindingValue();
     if (
       old?.tabId === binding.tabId &&
@@ -89,6 +91,7 @@ export class GenerationWorkflowStore {
     this.runMismatch.set(false);
     this.clearWatchdog();
     this.lookupFailures = 0;
+    this.lookupExhausted.set(false);
     this.runValue.set(null);
     this.stateValue.set('idle');
     this.rejectionValue.set(null);
@@ -104,6 +107,7 @@ export class GenerationWorkflowStore {
     this.runMismatch.set(false);
     this.clearWatchdog();
     this.lookupFailures = 0;
+    this.lookupExhausted.set(false);
     this.bindingValue.set(null);
     this.runValue.set(null);
     this.stateValue.set('idle');
@@ -312,9 +316,12 @@ export class GenerationWorkflowStore {
         const delay = 1000 * 2 ** this.lookupFailures++;
         this.clearWatchdog();
         this.watchdog = setTimeout(() => void this.refresh(), delay);
+      } else {
+        this.lookupExhausted.set(true);
       }
       return;
     }
+    if (lookup !== LOOKUP_FAILED) this.lookupExhausted.set(false);
     const run = lookup === LOOKUP_FAILED ? null : lookup;
     if (expectedRunId) {
       if (this.expectedRunId !== expectedRunId) return;

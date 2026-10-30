@@ -73,6 +73,11 @@ describe('onboardingStepLink', () => {
       }).queryParams,
     ).toEqual({ tab: 'guidance-tab', gen: 'agent-tab' });
   });
+  it('writes a handoff-started guidance run without copying the agent run', () => {
+    expect(onboardingStepLink('generate', 'guidance', {
+      tab: 'guidance-tab', gen: 'agent-tab', run: 'agent-run', guidanceRun: 'guidance-run',
+    }).queryParams).toEqual({ tab: 'guidance-tab', gen: 'agent-tab', run: 'guidance-run' });
+  });
 
   it('keeps gen and the guidance tab on guidance → done and drops run', () => {
     expect(onboardingStepLink('guidance', 'done', identity).queryParams).toEqual({

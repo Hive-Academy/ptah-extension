@@ -18,6 +18,8 @@ export class GenerationHandoffStore {
   private readonly rpc = inject(WizardRpcService);
   private readonly pendingValue = signal<GuidanceHandoff | null>(null);
   private readonly startedValue = signal<SetupGenerationRunBinding | null>(null);
+  private readonly openedTabValue = signal<{ tabId: string; workspacePath: string } | null>(null);
+  private readonly inFlightValue = signal(false);
   private readonly outcomeValue = signal<
     'idle' | 'started' | 'manual-recovery' | 'skipped'
   >('idle');
@@ -25,6 +27,8 @@ export class GenerationHandoffStore {
   private revision = 0;
   readonly pending = this.pendingValue.asReadonly();
   readonly started = this.startedValue.asReadonly();
+  readonly openedTab = this.openedTabValue.asReadonly();
+  readonly inFlight = this.inFlightValue.asReadonly();
   readonly outcome = this.outcomeValue.asReadonly();
 
   constructor() {
@@ -45,6 +49,8 @@ export class GenerationHandoffStore {
     this.revision++;
     this.clearTimer();
     this.startedValue.set(null);
+    this.openedTabValue.set(null);
+    this.inFlightValue.set(false);
     this.pendingValue.set(null);
     const handoff = {
       agentTabId,
@@ -60,6 +66,8 @@ export class GenerationHandoffStore {
     this.revision++;
     this.clearTimer();
     this.startedValue.set(null);
+    this.openedTabValue.set(null);
+    this.inFlightValue.set(false);
     this.pendingValue.set(null);
     this.outcomeValue.set('skipped');
   }
@@ -91,6 +99,7 @@ export class GenerationHandoffStore {
     this.revision++;
     this.clearTimer();
     this.startedValue.set(null);
+    this.openedTabValue.set(null);
     this.pendingValue.set(null);
     this.outcomeValue.set('idle');
     await this.openAndStart(workspacePath, true);
@@ -101,36 +110,38 @@ export class GenerationHandoffStore {
     focus: boolean,
   ): Promise<void> {
     const revision = this.revision;
-    const opened = await this.launcher.open({
-      workspacePath,
-      workflow: 'setup-project-prompt',
-      origin: focus ? 'independent-start' : 'analysis-result-continue',
-      focus,
-    });
-    if (revision !== this.revision) return;
-    if (opened.outcome !== 'landed') {
-      this.outcomeValue.set('manual-recovery');
-      return;
-    }
-    const tab = findBoundGenerationTab(this.tabs, {
-      tabId: opened.tabId,
-      workspacePath,
-    });
-    if (
-      !tab ||
-      tab.status === 'streaming' ||
-      tab.status === 'resuming' ||
-      this.tabs.isTabStreaming(opened.tabId) ||
-      (tab.streamingState?.currentMessageId != null &&
-        tab.status !== 'awaiting-background' &&
-        tab.status !== 'sleeping') ||
-      Boolean(tab.queuedContent?.trim()) ||
-      Boolean(tab.queuedOptions)
-    ) {
-      this.outcomeValue.set('manual-recovery');
-      return;
-    }
+    this.inFlightValue.set(true);
     try {
+      const opened = await this.launcher.open({
+        workspacePath,
+        workflow: 'setup-project-prompt',
+        origin: focus ? 'independent-start' : 'analysis-result-continue',
+        focus,
+      });
+      if (revision !== this.revision) return;
+      if (opened.outcome !== 'landed') {
+        this.outcomeValue.set('manual-recovery');
+        return;
+      }
+      this.openedTabValue.set({ tabId: opened.tabId, workspacePath });
+      const tab = findBoundGenerationTab(this.tabs, {
+        tabId: opened.tabId,
+        workspacePath,
+      });
+      if (
+        !tab ||
+        tab.status === 'streaming' ||
+        tab.status === 'resuming' ||
+        this.tabs.isTabStreaming(opened.tabId) ||
+        (tab.streamingState?.currentMessageId != null &&
+          tab.status !== 'awaiting-background' &&
+          tab.status !== 'sleeping') ||
+        Boolean(tab.queuedContent?.trim()) ||
+        Boolean(tab.queuedOptions)
+      ) {
+        this.outcomeValue.set('manual-recovery');
+        return;
+      }
       const response = await this.rpc.startBoundGuidance({
         workspacePath,
         tabId: opened.tabId,
@@ -143,8 +154,9 @@ export class GenerationHandoffStore {
       } : null);
       this.outcomeValue.set(response.accepted ? 'started' : 'manual-recovery');
     } catch {
-      if (revision !== this.revision) return;
-      this.outcomeValue.set('manual-recovery');
+      if (revision === this.revision) this.outcomeValue.set('manual-recovery');
+    } finally {
+      if (revision === this.revision) this.inFlightValue.set(false);
     }
   }
 }

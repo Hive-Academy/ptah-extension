@@ -108,6 +108,24 @@ describe('GenerationWorkflowStore', () => {
     store.unbind();
     jest.useRealTimers();
   });
+  it('exposes lookupExhausted after the fourth failed expected-run lookup and clears it on recovery', async () => {
+    jest.useFakeTimers();
+    const getBoundRunState = jest.fn().mockRejectedValue(new Error('offline'));
+    TestBed.configureTestingModule({ providers: [GenerationWorkflowStore, tabProvider,
+      { provide: WizardRpcService, useValue: { getBoundRunState } }] });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding, 'run');
+    await jest.advanceTimersByTimeAsync(7000);
+    expect(getBoundRunState).toHaveBeenCalledTimes(4);
+    expect(store.lookupExhausted()).toBe(true);
+    expect(store.runMismatch()).toBe(false);
+    getBoundRunState.mockResolvedValue(active);
+    await store.refresh();
+    expect(store.lookupExhausted()).toBe(false);
+    expect(store.run()?.binding.runId).toBe('run');
+    store.unbind();
+    jest.useRealTimers();
+  });
   it('keeps the held run and skips a lookup when rebinding its run id', async () => {
     const getBoundRunState = jest.fn().mockResolvedValue(active);
     TestBed.configureTestingModule({ providers: [GenerationWorkflowStore, tabProvider,

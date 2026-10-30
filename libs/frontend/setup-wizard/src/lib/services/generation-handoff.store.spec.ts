@@ -31,9 +31,12 @@ describe('GenerationHandoffStore', () => {
     ] });
     const store = TestBed.inject(GenerationHandoffStore);
     const first = store.manualContinue('/ws');
+    expect(store.inFlight()).toBe(true);
     await Promise.resolve();
+    expect(store.openedTab()).toEqual({ tabId: 'guidance', workspacePath: '/ws' });
     expect(startBoundGuidance).toHaveBeenCalledTimes(1);
     await store.manualContinue('/ws');
+    expect(store.inFlight()).toBe(false);
     expect(store.outcome()).toBe('started');
     rejectFirst(new Error('late failure'));
     await first;

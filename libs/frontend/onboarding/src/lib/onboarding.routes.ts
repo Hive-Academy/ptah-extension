@@ -1,6 +1,9 @@
 import type { Routes } from '@angular/router';
 import { AnalyzeWorkspacePage } from './analyze/analyze-workspace.page';
 import { ChooseAgentsPage } from './analyze/choose-agents.page';
+import { GenerateAgentsPage } from './analyze/generate-agents.page';
+import { ProjectGuidancePage } from './analyze/project-guidance.page';
+import { AnalyzeDonePage } from './analyze/analyze-done.page';
 import { OnboardingHomeComponent } from './home/onboarding-home.component';
 import { onboardingReadyHostGuard } from './ready/onboarding-ready-host.guard';
 import { ReadyClaudeStepPage } from './ready/ready-claude-step.page';
@@ -39,6 +42,10 @@ export const ONBOARDING_ROUTES: Routes = [
       },
       { path: 'analyze', component: AnalyzeWorkspacePage, data: { crumb: 'Analyze workspace' } },
       { path: 'analyze/agents', component: ChooseAgentsPage, data: { crumb: 'Choose agents' } },
+      { path: 'analyze/generate', component: GenerateAgentsPage, data: { crumb: 'Generate agents' } },
+      { path: 'analyze/guidance', component: ProjectGuidancePage, data: { crumb: 'Project guidance' } },
+      { path: 'analyze/done', component: AnalyzeDonePage, data: { crumb: 'Done' } },
+      { path: 'guidance', component: ProjectGuidancePage, data: { crumb: 'Project guidance', standalone: true } },
       { path: '**', redirectTo: '' },
     ],
   },

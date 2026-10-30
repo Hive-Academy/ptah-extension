@@ -88,3 +88,14 @@
   rev 2 Moderate: after 3 failed expected-run lookups the store goes silent. Phase 2 adds a
   `lookupExhausted` signal (store, with a spec for the fourth failure) and the page shows an
   error with Retry.
+
+## B3b Phase 2
+- Logic review REVISE 6.5 → round 1 fixes → APPROVE 8/10. Carries (a)(c) met; (b) met after
+  round 1 (lookup-error panel, in-flight Start guard, late `started()` rebind effect).
+- Coordinator fixed TS18047 null guard in A3 `startNow` (one line) found by own verify.
+- A5 "Tribunal" link opens chat (Tribunal view retired); label changed, wording revisited in
+  visual fixes.
+- Deferred minors: A5 marks completion on deep link; `lookupExhausted` not cleared on destroy;
+  A3 Start now after manual recovery silent; A4 no Start while another tab's handoff pending.
+- Capture gap: A3 countdown not capturable from restored-run fixtures.
+- Visual review REVISE 7/10 (5 serious) → separate visual-fix batch.

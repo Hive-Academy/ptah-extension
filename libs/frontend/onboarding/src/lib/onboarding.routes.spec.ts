@@ -33,6 +33,9 @@ jest.mock('./analyze/analyze-workspace.page', () => ({
 jest.mock('./analyze/choose-agents.page', () => ({
   ChooseAgentsPage: stubPage('ptah-choose-agents-page'),
 }));
+jest.mock('./analyze/generate-agents.page', () => ({ GenerateAgentsPage: stubPage('ptah-generate-agents-page') }));
+jest.mock('./analyze/project-guidance.page', () => ({ ProjectGuidancePage: stubPage('ptah-project-guidance-page') }));
+jest.mock('./analyze/analyze-done.page', () => ({ AnalyzeDonePage: stubPage('ptah-analyze-done-page') }));
 
 describe('ONBOARDING_ROUTES', () => {
   function configure(isElectron: boolean): Router {
@@ -75,7 +78,9 @@ describe('ONBOARDING_ROUTES', () => {
     await router.navigateByUrl('/onboarding/nowhere');
     expect(router.url).toBe('/onboarding');
   });
-  it.each(['/onboarding/analyze', '/onboarding/analyze/agents?source=catalog'])(
+  it.each(['/onboarding/analyze', '/onboarding/analyze/agents?source=catalog',
+    '/onboarding/analyze/generate?tab=t&run=r', '/onboarding/analyze/guidance?tab=t&run=r&gen=g',
+    '/onboarding/analyze/done?gen=g&tab=t', '/onboarding/guidance?tab=t&run=r'])(
     'resolves %s before the fallback', async (url) => {
       const router = configure(true);
       await router.navigateByUrl(url);

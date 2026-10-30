@@ -117,6 +117,10 @@ function agentToGuidanceQuery(
     identityValue(identity, ONBOARDING_QUERY.gen) ?? tab;
   if (tab) query[ONBOARDING_QUERY.tab] = tab;
   if (gen) query[ONBOARDING_QUERY.gen] = gen;
+  // A prepared handoff run belongs to guidance. The current agent run is
+  // deliberately never copied across owners.
+  const guidanceRun = identityValue(identity, 'guidanceRun');
+  if (guidanceRun) query[ONBOARDING_QUERY.run] = guidanceRun;
   return query;
 }
 
