@@ -19,6 +19,7 @@ import {
   EnhancedPromptsService,
   AnalysisStorageService,
   AGENT_GENERATION_TOKENS,
+  ENHANCED_PROMPTS_RUN_CEILING_MS,
 } from '@ptah-extension/agent-generation';
 import type {
   PromptDesignerInput,
@@ -84,6 +85,11 @@ import type { WebviewBroadcaster } from '../harness/streaming';
 
 @injectable()
 export class EnhancedPromptsRpcHandlers {
+  private readonly regenerationsInFlight = new Map<
+    string,
+    { startedAt: number; token: object }
+  >();
+
   static readonly METHODS = [
     'enhancedPrompts:getStatus',
     'enhancedPrompts:runWizard',
@@ -191,11 +197,15 @@ export class EnhancedPromptsRpcHandlers {
 
         const status =
           await this.enhancedPromptsService.getStatus(workspacePath);
+        const regeneration = this.liveEntry(workspacePath);
 
         return {
           enabled: status.enabled,
           hasGeneratedPrompt: status.hasGeneratedPrompt,
           generatedAt: status.generatedAt,
+          regenerationStartedAt: regeneration
+            ? new Date(regeneration.startedAt).toISOString()
+            : null,
           detectedStack: status.detectedStack,
           cacheValid: status.cacheValid,
           invalidationReason: status.invalidationReason,
@@ -522,37 +532,55 @@ export class EnhancedPromptsRpcHandlers {
           };
         }
 
-        this.logger.info('RPC: enhancedPrompts:regenerate started', {
-          workspacePath,
-          force: params.force,
-        });
-        const onStreamEvent = this.createEnhanceStreamBroadcaster();
-        const sdkConfig = this.resolveSdkConfig(onStreamEvent);
-        const result = await this.enhancedPromptsService.regenerate(
-          workspacePath,
-          {
-            force: params.force ?? true,
-            config: params.config,
-          },
-          undefined,
-          sdkConfig,
-        );
-
-        if (result.success && result.status) {
-          this.logger.info('RPC: enhancedPrompts:regenerate completed', {
-            workspacePath,
-          });
-
+        if (this.liveEntry(workspacePath)) {
           return {
-            success: true,
-            status: result.status,
+            success: false,
+            error: 'A regeneration is already running for this workspace.',
           };
         }
+        const token = {};
+        this.regenerationsInFlight.set(workspacePath, {
+          startedAt: Date.now(),
+          token,
+        });
 
-        return {
-          success: false,
-          error: result.error || 'Failed to regenerate enhanced prompt',
-        };
+        try {
+          this.logger.info('RPC: enhancedPrompts:regenerate started', {
+            workspacePath,
+            force: params.force,
+          });
+          const onStreamEvent = this.createEnhanceStreamBroadcaster();
+          const sdkConfig = this.resolveSdkConfig(onStreamEvent);
+          const result = await this.enhancedPromptsService.regenerate(
+            workspacePath,
+            {
+              force: params.force ?? true,
+              config: params.config,
+            },
+            undefined,
+            sdkConfig,
+          );
+
+          if (result.success && result.status) {
+            this.logger.info('RPC: enhancedPrompts:regenerate completed', {
+              workspacePath,
+            });
+
+            return {
+              success: true,
+              status: result.status,
+            };
+          }
+
+          return {
+            success: false,
+            error: result.error || 'Failed to regenerate enhanced prompt',
+          };
+        } finally {
+          if (this.regenerationsInFlight.get(workspacePath)?.token === token) {
+            this.regenerationsInFlight.delete(workspacePath);
+          }
+        }
       } catch (error) {
         this.logger.error(
           'RPC: enhancedPrompts:regenerate failed',
@@ -569,6 +597,18 @@ export class EnhancedPromptsRpcHandlers {
         };
       }
     });
+  }
+
+  private liveEntry(
+    workspacePath: string,
+  ): { startedAt: number; token: object } | null {
+    const entry = this.regenerationsInFlight.get(workspacePath);
+    if (!entry) return null;
+    if (Date.now() - entry.startedAt >= ENHANCED_PROMPTS_RUN_CEILING_MS) {
+      this.regenerationsInFlight.delete(workspacePath);
+      return null;
+    }
+    return this.enhancedPromptsService.generationInProgress ? entry : null;
   }
 
   private async startBoundGuidance(
