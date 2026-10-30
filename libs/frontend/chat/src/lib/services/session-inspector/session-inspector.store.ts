@@ -9,7 +9,12 @@ import {
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type { SessionStatus, TabState } from '@ptah-extension/chat-types';
-import type { ExecutionChatMessage } from '@ptah-extension/shared';
+import {
+  contextFillPercent,
+  sessionTokenTotal,
+  trustedContextWindow,
+  type ExecutionChatMessage,
+} from '@ptah-extension/shared';
 import { parseLaneKey } from '../../components/molecules/compact-session/compact-lane-rows';
 import type { SessionAgent } from '../session-agents/session-agent-roster';
 import { SessionAgentRosterService } from '../session-agents/session-agent-roster.service';
@@ -73,7 +78,7 @@ function isFinished(agent: SessionAgent): boolean {
 }
 
 /** Turns as the transcript groups them: a run of user messages opens one. */
-function countTurns(messages: readonly ExecutionChatMessage[]): number | null {
+function countTurns(messages: readonly ExecutionChatMessage[]): number {
   let turns = 0;
   let previous: ExecutionChatMessage['role'] | null = null;
   for (const message of messages) {
@@ -81,7 +86,19 @@ function countTurns(messages: readonly ExecutionChatMessage[]): number | null {
     if (message.role === 'user' && previous !== 'user') turns++;
     previous = message.role;
   }
-  return turns > 0 ? turns : null;
+  return turns;
+}
+
+function resolveTurns(tab: TabState, loadedTurns: number): number | null {
+  const hostTurns = tab.sessionStats?.turnCount;
+  if (
+    typeof hostTurns === 'number' &&
+    Number.isInteger(hostTurns) &&
+    hostTurns >= 0
+  ) {
+    return hostTurns;
+  }
+  return tab.olderHistoryCursor == null ? loadedTurns : null;
 }
 
 function finiteOrNull(value: number | null | undefined): number | null {
@@ -109,21 +126,17 @@ function orchestratorCard(
 ): OrchestratorCardModel {
   const live = tab?.liveModelStats ?? null;
   const stats = tab?.sessionStats ?? null;
-  const contextKnown = live !== null && live.contextKnown !== false;
-  const tokens =
-    stats === null
-      ? null
-      : (stats.tokenCount ??
-        stats.tokens.input +
-          stats.tokens.output +
-          stats.tokens.cacheRead +
-          stats.tokens.cacheCreation);
+  const contextWindow =
+    live !== null && live.contextKnown !== false
+      ? trustedContextWindow(live.contextCapacity, live.model)
+      : null;
   return {
     model: live?.model || stats?.model || null,
     state,
-    contextPercent: contextKnown ? finiteOrNull(live.contextPercent) : null,
-    contextWindow: contextKnown ? finiteOrNull(live.contextWindow) : null,
-    tokens: finiteOrNull(tokens),
+    contextPercent:
+      live === null ? null : contextFillPercent(live.contextUsed, contextWindow),
+    contextWindow,
+    tokens: sessionTokenTotal(stats),
     cost: finiteOrNull(stats?.totalCost),
     turns,
     requests,
@@ -195,9 +208,10 @@ export class SessionInspectorStore {
   }
 
   private createModel(tabId: string): Signal<SessionInspectorModel> {
-    const tab = computed(
-      () => this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab ?? null,
-    );
+    const tab = computed(() => {
+      this.tabManager.backgroundTabsRevision();
+      return this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab ?? null;
+    });
     // Default equality: turns recount only when the message array changes,
     // not on every status or stats update of the tab.
     const messages = computed(() => tab()?.messages ?? NO_MESSAGES);
@@ -255,7 +269,7 @@ export class SessionInspectorStore {
             orchestratorRequests.length,
             liveAgents,
           ),
-          current ? turns() : null,
+          current ? resolveTurns(current, turns()) : null,
           orchestratorRequests,
         ),
         agents: current
