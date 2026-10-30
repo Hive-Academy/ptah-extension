@@ -537,6 +537,15 @@ export class ChatSessionService {
     return { roots, legacy: !!metadata?.workspaceId };
   }
 
+  /** Read the session's physical folder and validated policy ancestors without changing metadata. */
+  async readSessionPolicyRoots(
+    sessionId: SessionId,
+  ): Promise<{ folder: string; ancestorRoots: readonly string[] }> {
+    const folder = await this.historyRead.resolveSessionFolder(sessionId);
+    const { roots } = await this.restoreLineage(sessionId, folder);
+    return { folder, ancestorRoots: roots };
+  }
+
   /**
    * Fold the `agent-sdk` MCP-status fan-out into the registry and push it to
    * the webview (TASK_2026_375 B4.3).
@@ -1442,7 +1451,8 @@ export class ChatSessionService {
       const isSlashCommand = SlashCommandInterceptor.isSlashCommand(prompt);
 
       let justResumed = false;
-      let slashLineage: { roots: readonly string[]; legacy: boolean } | undefined;
+      let slashLineage:
+        { roots: readonly string[]; legacy: boolean } | undefined;
       if (isSlashCommand) {
         try {
           slashLineage = await this.restoreLineage(sessionId, workspacePath);
@@ -2246,9 +2256,12 @@ export class ChatSessionService {
           roots,
         );
       if (upgraded.status === 'malformed') {
-        this.logger.warn('[RPC] Legacy session policy lineage upgrade was malformed', {
-          sessionId,
-        });
+        this.logger.warn(
+          '[RPC] Legacy session policy lineage upgrade was malformed',
+          {
+            sessionId,
+          },
+        );
       }
     } catch (error) {
       this.logger.warn('[RPC] Legacy session policy lineage upgrade failed', {
