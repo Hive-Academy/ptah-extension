@@ -85,6 +85,9 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   'gateway:status',
   'gateway:stop',
   'gateway:test',
+  // Secondary git watcher leases (TASK_2026_855) — `gitRootWatch` capability
+  // is Electron-only, see expected-absent.ts.
+  'git:watchRoots',
   'indexing:acknowledgeDisclosure',
   'indexing:cancel',
   'indexing:dismissStale',

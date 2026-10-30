@@ -196,6 +196,10 @@ export type {
   AppUpdateState,
 } from './interfaces/app-updater.interface';
 export type {
+  IGitRootWatchRegistry,
+  GitRootWatchLeaseOutcome,
+} from './interfaces/git-root-watch-registry.interface';
+export type {
   IPlatformCommands,
   IPlatformAuthProvider,
   ISaveDialogProvider,

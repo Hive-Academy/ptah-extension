@@ -1244,7 +1244,7 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
     ).toContain('—');
     expect(
       metrics
-        ?.querySelector('[aria-label="Lines added and removed"]')
+        ?.querySelector('[data-testid="compact-session-git-cell"]')
         ?.getAttribute('title'),
     ).toBe('Git changes unknown');
     fixture.componentRef.setInput('todos', { kind: 'unknown' });
@@ -1258,7 +1258,7 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
     ).toBe('Todos unknown');
     expect(
       metrics
-        ?.querySelector('[aria-label="Lines added and removed"]')
+        ?.querySelector('[data-testid="compact-session-git-cell"]')
         ?.getAttribute('title'),
     ).toBe('Could not read git status');
   });
@@ -1277,14 +1277,39 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
       metrics?.querySelector('[aria-label="Todos"]')?.getAttribute('title'),
     ).toBe('Writing tests');
     expect(
-      metrics?.querySelector('[aria-label="Lines added and removed"]')
+      metrics?.querySelector('[data-testid="compact-session-git-cell"]')
         ?.textContent,
     ).toContain('+12 −4+');
     expect(
       metrics
-        ?.querySelector('[aria-label="Lines added and removed"]')
+        ?.querySelector('[data-testid="compact-session-git-cell"]')
         ?.getAttribute('title'),
     ).toBe('Some files could not be counted');
+  });
+
+  it('opens the git panel from the git cell without selecting the card (TASK_2026_855)', () => {
+    const fixture = renderBoard({ gitStats: { kind: 'none' } });
+    const openGit = jest.fn();
+    const openFullView = jest.fn();
+    const cardClick = jest.fn();
+    fixture.componentInstance.openGit.subscribe(openGit);
+    fixture.componentInstance.openFullView.subscribe(openFullView);
+    const root = fixture.nativeElement as HTMLElement;
+    root.addEventListener('click', cardClick);
+
+    const cell = root.querySelector<HTMLButtonElement>(
+      '[data-testid="compact-session-git-cell"]',
+    );
+    expect(cell?.tagName).toBe('BUTTON');
+    expect(cell?.getAttribute('type')).toBe('button');
+    expect(cell?.getAttribute('aria-label')).toBe(
+      "Show this session's changes in the git panel",
+    );
+    cell?.click();
+
+    expect(openGit).toHaveBeenCalledTimes(1);
+    expect(openFullView).not.toHaveBeenCalled();
+    expect(cardClick).not.toHaveBeenCalled();
   });
 
   it('shows branch, model and elapsed on the sub line', () => {

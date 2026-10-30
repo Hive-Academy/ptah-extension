@@ -828,10 +828,16 @@ const FALLBACK_RECAP_HEIGHT = 180;
               contextPercent() === null ? '—' : roundedContextPercent() + '%'
             }}</span
           >
-          <span
-            class="shrink-0 pr-3 font-mono text-[10px]"
-            aria-label="Lines added and removed"
+          <!-- An entry into the git dock, scoped to this session
+               (TASK_2026_855). Always a button: the dock opens even while the
+               line counts are unknown. -->
+          <button
+            type="button"
+            class="shrink-0 cursor-pointer rounded pr-3 font-mono text-[10px] hover:bg-base-content/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[oklch(var(--s))]"
+            aria-label="Show this session's changes in the git panel"
+            data-testid="compact-session-git-cell"
             [title]="gitTitle(git)"
+            (click)="$event.stopPropagation(); openGit.emit()"
           >
             @if (git?.kind === 'known') {
               <span class="text-success">+{{ git.additions }}</span>
@@ -842,7 +848,7 @@ const FALLBACK_RECAP_HEIGHT = 180;
             } @else {
               —
             }
-          </span>
+          </button>
         }
       </div>
     </section>
@@ -854,6 +860,8 @@ export class CompactSessionActivityComponent {
   readonly gitTitle = gitTitle;
   readonly summary = input.required<CompactSessionSummary>();
   readonly openFullView = output<void>();
+  /** The board git cell was activated: show this session in the git dock. */
+  readonly openGit = output<void>();
 
   /**
    * Lane data for the board layout. `null` keeps the original four-zone body;

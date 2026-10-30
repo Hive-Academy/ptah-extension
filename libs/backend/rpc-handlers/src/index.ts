@@ -52,6 +52,7 @@ export {
   GatewayRpcHandlers,
   VoiceRpcHandlers,
   UpdateRpcHandlers,
+  GitWatchRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,
   IndexingRpcHandlers,

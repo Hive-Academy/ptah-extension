@@ -407,11 +407,42 @@ export function createHeavyServicesBooter(
           logger,
           workspaceWatcher,
         );
-        watcher.start(workspaceRoot, (type, payload) => {
+        const broadcast = (type: string, payload: unknown): void => {
           webviewManager.broadcastMessage(type, payload);
-        });
+        };
+        watcher.start(workspaceRoot, broadcast);
         refs.gitWatcher = watcher;
         console.log('[Ptah Electron] Git file system watcher started');
+
+        // Secondary per-root watchers for `git:watchRoots` leases
+        // (TASK_2026_855). Phase 4 binds the pool; it arms leases recorded
+        // before now, and re-reconciles whenever the primary watcher re-arms
+        // so a root skipped as primary is watched once it no longer is.
+        const { GitRootWatcherPool } =
+          await import('../services/git-root-watcher-pool');
+        const pool = container.isRegistered(
+          PLATFORM_TOKENS.GIT_ROOT_WATCH_REGISTRY,
+          true,
+        )
+          ? container.resolve<unknown>(PLATFORM_TOKENS.GIT_ROOT_WATCH_REGISTRY)
+          : null;
+        if (pool instanceof GitRootWatcherPool) {
+          pool.attach({
+            createWatcher: () =>
+              new GitWatcherService(gitInfoSvc, logger, workspaceWatcher),
+            broadcast,
+            primaryRoot: () => watcher.watchedRoot(),
+          });
+          watcher.setRootChangeListener(() => pool.primaryRootChanged());
+          refs.gitRootWatchers = pool;
+        } else if (pool !== null) {
+          // Registered, but not the pool this boot knows how to arm: leases
+          // would be recorded and never watched. Say so instead of failing
+          // silently.
+          logger.warn(
+            '[Ptah Electron] GIT_ROOT_WATCH_REGISTRY is not a GitRootWatcherPool; secondary git watchers are off',
+          );
+        }
       } catch (error: unknown) {
         console.warn(
           '[Ptah Electron] Git watcher setup failed (non-fatal):',

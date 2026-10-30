@@ -459,6 +459,8 @@ import type {
   GitRemotesResult,
   GitLastCommitParams,
   GitLastCommitResult,
+  GitWatchRootsParams,
+  GitWatchRootsResult,
 } from './rpc/rpc-git.types';
 import type {
   GitTurnChangeSetsParams,
@@ -1806,6 +1808,10 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     result: { success: boolean };
   };
   'git:info': { params: GitInfoParams; result: GitInfoResult };
+  'git:watchRoots': {
+    params: GitWatchRootsParams;
+    result: GitWatchRootsResult;
+  };
   'git:reviewChanges': {
     params: GitReviewChangesParams;
     result: GitReviewChangesResult;
@@ -3375,6 +3381,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'webSearch:getConfig': true,
   'webSearch:setConfig': true,
   'git:info': true,
+  'git:watchRoots': true,
   'git:reviewChanges': true,
   'git:reviewFile': true,
   'git:worktrees': true,

@@ -34,6 +34,7 @@ import {
   MemoryPlatformLocation,
   SESSION_DATA_PROVIDER,
   WORKSPACE_COORDINATOR,
+  GIT_SESSION_SCOPE_SOURCE,
   ORCHESTRA_CANVAS_COMPONENT,
   FILE_LINK_OPENER,
   AGENT_FEEDBACK_SENDER,
@@ -79,6 +80,7 @@ import {
   ChatStore,
   UpdateDialogService,
   WorkspaceCoordinatorService,
+  ChatGitSessionScopeSource,
   FileLinkRouterService,
   VoiceDownloadProgressService,
   VoiceProviderErrorService,
@@ -295,6 +297,12 @@ export const appConfig: ApplicationConfig = {
     {
       provide: WORKSPACE_COORDINATOR,
       useExisting: WorkspaceCoordinatorService,
+    },
+    // The git dock's session scope (TASK_2026_855): git-ui reads the chat
+    // sessions through this core token and never imports chat.
+    {
+      provide: GIT_SESSION_SCOPE_SOURCE,
+      useExisting: ChatGitSessionScopeSource,
     },
     // One router behind both ports. `useExisting` (NOT `useClass`) is
     // load-bearing: two instances would mean a tool-call chip and an agent

@@ -139,6 +139,13 @@ export const PLATFORM_TOKENS = {
   APP_UPDATER: Symbol.for('PlatformAppUpdater'),
 
   /**
+   * IGitRootWatchRegistry — secondary per-root git watcher leases behind
+   * `git:watchRoots`. Registered only by hosts whose profile sets
+   * `gitRootWatch: true`.
+   */
+  GIT_ROOT_WATCH_REGISTRY: Symbol.for('PlatformGitRootWatchRegistry'),
+
+  /**
    * ICallerWorkspaceResolver — workspace root of the in-flight MCP tool call.
    * Implementation: `McpCallerWorkspaceResolver` (vscode-lm-tools), registered
    * only by hosts that run the in-process HTTP MCP server (VS Code, Electron).
