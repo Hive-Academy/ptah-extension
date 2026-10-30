@@ -4520,3 +4520,13 @@ behaviour unchanged.
   codex-chat-adapter.ts (817 lines; was 754 before 8r) — move the session-controls group
   (setSessionPermissionLevel .. close, ~:594-751) into codex-chat-session-controls.ts with
   one-line delegates (review-8r-1-r1.md minor 1).
+  COMPLETE f48351d1c (review-8r-4.md APPROVE 9/10 grok; coordinator fix: TS2554 delegate
+  arity; verify G 18/18; CI 19 pass / 4 skipped).
+- Live run p8l (live-test-p8l.md, head f48351d1c): R1 (G1) PASS, R2 (G2) PASS, R6 stream/Stop
+  PASS; R3 (G3) FAIL: one runtime notice now shows, but the tab stays `running` (skeleton, Stop,
+  Send disabled) after the app-server dies mid-turn; R4 (G6) PARTIAL (chip saved, no error);
+  R5 (G7) not reproduced: Manual -> Auto-edit keeps the D14 wire policy, so no refusal (expected,
+  research-p8k-gaps.md G5); p8l gap 2 is the same D14 mapping, not a defect. p8l gap 3 (branch
+  fork resolves a Codex message through a Claude session file) joins G8/D9.
+- Batch 8r-5 (codex -> grok): G3 settle: a Codex turn that fails with a webviewReported runtime
+  error must leave the tab idle exactly like a Claude failed turn (backend translation only).
