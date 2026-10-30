@@ -49,13 +49,48 @@ describe('onboardingStepLink', () => {
     ).toEqual({ tab: 'tab-1', rev: '3' });
   });
 
+  it('never emits the agent run on generate → guidance and always sets gen', () => {
+    const query = onboardingStepLink('generate', 'guidance', identity).queryParams;
+    expect(query).toEqual({ tab: 'tab-1', gen: 'tab-0' });
+    expect(query).not.toHaveProperty('run');
+  });
+
+  it('sets gen from the agent tab when gen is absent on generate → guidance', () => {
+    expect(
+      onboardingStepLink('generate', 'guidance', {
+        tab: 'agent-tab',
+        run: 'agent-run',
+      }).queryParams,
+    ).toEqual({ tab: 'agent-tab', gen: 'agent-tab' });
+  });
+
+  it('keeps a prepared guidance tab and drops the agent run on generate → guidance', () => {
+    expect(
+      onboardingStepLink('generate', 'guidance', {
+        tab: 'guidance-tab',
+        run: 'agent-run',
+        gen: 'agent-tab',
+      }).queryParams,
+    ).toEqual({ tab: 'guidance-tab', gen: 'agent-tab' });
+  });
+
+  it('keeps gen and the guidance tab on guidance → done and drops run', () => {
+    expect(onboardingStepLink('guidance', 'done', identity).queryParams).toEqual({
+      tab: 'tab-1',
+      gen: 'tab-0',
+    });
+  });
+
+  it('restores the agent tab from gen on backward guidance → generate and omits run', () => {
+    expect(
+      onboardingStepLink('guidance', 'generate', identity).queryParams,
+    ).toEqual({ tab: 'tab-0' });
+  });
+
   it.each([
-    ['agent generation to guidance', 'generate', 'guidance'],
     ['new project to team builder', 'new-project-review', 'team-builder-review'],
-    ['guidance to done', 'guidance', 'done'],
     ['analyze to new project', 'analyze', 'new-project'],
-  ] as const)('carries no identity across owners (%s)', (_label, from, to) => {
-    // A merged query would carry one owner's `run` into another owner's page.
+  ] as const)('carries no identity across unrelated owners (%s)', (_label, from, to) => {
     expect(onboardingStepLink(from, to, identity).queryParams).toEqual({});
   });
 

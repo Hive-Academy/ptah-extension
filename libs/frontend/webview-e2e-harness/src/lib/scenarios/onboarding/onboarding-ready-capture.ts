@@ -20,10 +20,15 @@ import { AxeBuilder } from '@axe-core/playwright';
 import { expect, type Page } from '@playwright/test';
 import type { GlassAccent, GlassScene, OnboardingTheme } from './onboarding-ready.fixtures';
 
-export const ONBOARDING_CAPTURE_DIR = resolve(
+const SCREENSHOT_ROOT = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../../../../../.ptah/specs/TASK_2026_ONBOARDING/screenshots/ready',
+  '../../../../../../../.ptah/specs/TASK_2026_ONBOARDING/screenshots',
 );
+
+export const ONBOARDING_CAPTURE_DIR = join(SCREENSHOT_ROOT, 'ready');
+
+/** A1/A2 analyze captures (TASK_2026_ONBOARDING B3a). */
+export const ONBOARDING_ANALYZE_CAPTURE_DIR = join(SCREENSHOT_ROOT, 'analyze');
 
 /** Regions whose in-progress state is the thing being captured, so they are never waited on. */
 const READINESS_REGIONS = '[data-testid="ready-claude-panel"], [data-testid="ready-strip"]';
@@ -38,6 +43,10 @@ export interface OnboardingCaptureOptions {
   readonly accent?: GlassAccent;
   /** Restrict axe to these rules (the contrast sweep runs `color-contrast` only). */
   readonly axeRules?: readonly string[];
+  /** Screenshot folder. Defaults to the Get ready `screenshots/ready` directory. */
+  readonly outputDir?: string;
+  /** Extra `closest()` exempt selector for the busy wait (running analysis). */
+  readonly busyExempt?: string;
 }
 
 export interface OnboardingCaptureResult {
@@ -69,36 +78,56 @@ export async function waitForOnboardingTheme(
 }
 
 /** Waits until no loading region is left outside the readiness panel and the strip. */
-export async function waitForSettledOutsideReadiness(page: Page): Promise<void> {
+export async function waitForSettledOutsideReadiness(
+  page: Page,
+  extraExempt?: string,
+): Promise<void> {
+  const exempt = extraExempt
+    ? `${READINESS_REGIONS}, ${extraExempt}`
+    : READINESS_REGIONS;
   await expect
     .poll(() =>
       page
         .locator(BUSY)
         .evaluateAll(
-          (nodes, exempt) => nodes.filter((node) => !node.closest(exempt)).length,
-          READINESS_REGIONS,
+          (nodes, closestExempt) =>
+            nodes.filter((node) => !node.closest(closestExempt)).length,
+          exempt,
         ),
     )
     .toBe(0);
 }
 
-export function onboardingCapturePath(view: string, theme: string, width: number, height: number): string {
-  return join(ONBOARDING_CAPTURE_DIR, `${view}-${theme}-${width}x${height}.png`);
+export function onboardingCapturePath(
+  view: string,
+  theme: string,
+  width: number,
+  height: number,
+  outputDir: string = ONBOARDING_CAPTURE_DIR,
+): string {
+  return join(outputDir, `${view}-${theme}-${width}x${height}.png`);
 }
 
 export async function captureOnboarding(
   page: Page,
   options: OnboardingCaptureOptions,
 ): Promise<OnboardingCaptureResult> {
-  mkdirSync(ONBOARDING_CAPTURE_DIR, { recursive: true });
+  const outputDir = options.outputDir ?? ONBOARDING_CAPTURE_DIR;
+  mkdirSync(outputDir, { recursive: true });
   const viewport = page.viewportSize();
   expect(viewport, 'the page has a fixed viewport').not.toBeNull();
   const width = viewport?.width ?? 0;
   const height = viewport?.height ?? 0;
   await waitForOnboardingTheme(page, options.theme, options.scene, options.accent);
-  await waitForSettledOutsideReadiness(page);
+  await waitForSettledOutsideReadiness(page, options.busyExempt);
   await page.mouse.move(0, 0);
-  const imagePath = onboardingCapturePath(options.view, options.theme, width, height);
+  const imagePath = onboardingCapturePath(
+    options.view,
+    options.theme,
+    width,
+    height,
+    outputDir,
+  );
   await page.screenshot({ path: imagePath, animations: 'disabled' });
 
   let axe = new AxeBuilder({ page });

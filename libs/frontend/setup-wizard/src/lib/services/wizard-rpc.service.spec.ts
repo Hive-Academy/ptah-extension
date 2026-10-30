@@ -63,6 +63,14 @@ describe('WizardRpcService', () => {
     error,
   });
 
+  it('lets onboarding distinguish saved-list RPC failure while legacy callers still receive an empty list', async () => {
+    rpcCall.mockResolvedValue(errResult('private host detail'));
+    await expect(service.listAnalyses()).resolves.toEqual([]);
+    await expect(service.listAnalyses({ throwOnError: true })).rejects.toThrow('Saved analyses could not be loaded.');
+    rpcCall.mockResolvedValue(okResult({ analyses: [] }));
+    await expect(service.listAnalyses({ throwOnError: true })).resolves.toEqual([]);
+  });
+
   it('uses the bound guidance tab model and preserves tabless Settings calls', async () => {
     rpcCall.mockResolvedValue(okResult({ accepted: { runId: 'r' } }));
     const binding = {
@@ -164,6 +172,12 @@ describe('WizardRpcService', () => {
   });
 
   describe('previewGeneration', () => {
+    it('sends a tab binding only when provided', async () => {
+      rpcCall.mockResolvedValue(okResult({ agents: [] }));
+      const binding = { tabId: 'agent-tab', workspacePath: '/workspace', workflow: 'setup-agent-generation' } as const;
+      await service.previewGeneration(['a'], undefined, binding);
+      expect(rpcCall).toHaveBeenCalledWith('wizard:preview-generation', { selectedAgentIds: ['a'], tabBinding: binding }, { timeout: 10_000 });
+    });
     it('calls wizard:preview-generation with selectedAgentIds and returns the preview', async () => {
       const preview = { agents: [] };
       rpcCall.mockResolvedValue(okResult(preview));

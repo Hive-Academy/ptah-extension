@@ -1,5 +1,10 @@
 export { SetupWizardStateService } from './lib/services/setup-wizard-state.service';
 export { WizardRpcService } from './lib/services/wizard-rpc.service';
+export type { BoundAgentDecisions } from './lib/services/wizard-rpc.service';
+export { GenerationPreviewStore } from './lib/services/generation-preview.store';
+export type { PreviewConfirmation } from './lib/services/generation-preview.store';
+export { WizardAnalysisRunner } from './lib/services/wizard-analysis-runner.service';
+export { findBoundGenerationTab } from './lib/services/bound-generation-tab';
 export { ToolOutputFormatterService } from './lib/services/tool-output-formatter.service';
 
 export {

@@ -253,10 +253,12 @@ export class WizardRpcService {
   public async previewGeneration(
     selectedAgentIds: string[],
     target?: GenerationTargetChoice,
+    tabBinding?: SetupGenerationTabBinding,
   ): Promise<WizardPreviewGenerationResponse> {
     const params: WizardPreviewGenerationParams = {
       selectedAgentIds,
       ...(target !== undefined ? { target } : {}),
+      ...(tabBinding !== undefined ? { tabBinding } : {}),
     };
     const result = await this.rpcService.call(
       'wizard:preview-generation',
@@ -626,7 +628,7 @@ export class WizardRpcService {
    *
    * @returns Array of saved analysis metadata sorted by date (newest first)
    */
-  public async listAnalyses(): Promise<SavedAnalysisMetadata[]> {
+  public async listAnalyses(options?: { throwOnError?: boolean }): Promise<SavedAnalysisMetadata[]> {
     const result = await this.rpcService.call(
       'wizard:list-analyses',
       {},
@@ -634,9 +636,11 @@ export class WizardRpcService {
     );
 
     if (result.isSuccess() && result.data) {
-      return (result.data as { analyses: SavedAnalysisMetadata[] }).analyses;
+      const analyses = (result.data as { analyses?: unknown }).analyses;
+      if (Array.isArray(analyses)) return analyses as SavedAnalysisMetadata[];
     }
 
+    if (options?.throwOnError) throw new Error('Saved analyses could not be loaded.');
     return [];
   }
 

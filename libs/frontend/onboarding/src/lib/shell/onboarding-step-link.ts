@@ -60,28 +60,84 @@ export interface OnboardingStepLink {
 
 /**
  * The link from step `from` to step `to`, carrying `identity` (the current
- * query) as an explicit, complete query object.
+ * query, or a caller-prepared hand-off object) as an explicit, complete query.
  *
  * Never use `queryParamsHandling: 'merge'` for step links: merging would carry
  * one owner's `run` into another owner's page. Within one owner, that owner's
- * keys are copied. Any other transition carries no identity until its rule is
- * defined here (the agent-to-guidance hand-off rules are added with those
- * pages).
+ * keys are copied. Cross-owner Analyze transitions follow the A2 table: agent
+ * `run` is never written on the way to guidance; `gen` is always written when
+ * an agent tab is known.
  */
 export function onboardingStepLink(
   from: OnboardingStepId,
   to: OnboardingStepId,
   identity: Readonly<Record<string, unknown>>,
 ): OnboardingStepLink {
-  const owner = ownerOf(from);
-  const queryParams: Record<string, string> = {};
-  if (owner && owner === ownerOf(to)) {
-    for (const key of OWNER_KEYS[owner]) {
-      const value = identity[key];
-      if (typeof value === 'string' && value !== '') queryParams[key] = value;
-    }
+  return {
+    commands: ['/onboarding', ...STEP_PATHS[to]],
+    queryParams: queryForTransition(from, to, identity),
+  };
+}
+
+function queryForTransition(
+  from: OnboardingStepId,
+  to: OnboardingStepId,
+  identity: Readonly<Record<string, unknown>>,
+): Record<string, string> {
+  if (from === 'generate' && to === 'guidance') {
+    return agentToGuidanceQuery(identity);
   }
-  return { commands: ['/onboarding', ...STEP_PATHS[to]], queryParams };
+  if (from === 'guidance' && to === 'done') {
+    return pickKeys(identity, [ONBOARDING_QUERY.tab, ONBOARDING_QUERY.gen]);
+  }
+  if (from === 'guidance' && to === 'generate') {
+    const tab = identityValue(identity, ONBOARDING_QUERY.gen);
+    return tab ? { [ONBOARDING_QUERY.tab]: tab } : {};
+  }
+  const owner = ownerOf(from);
+  if (owner && owner === ownerOf(to)) {
+    return pickKeys(identity, OWNER_KEYS[owner]);
+  }
+  return {};
+}
+
+/**
+ * A3 → A4. `tab` is the guidance tab when the caller already remapped it,
+ * otherwise the current (agent) tab. `gen` is the agent tab: a prepared
+ * `gen` wins, else the current `tab`. The agent `run` is never copied;
+ * A4 rebinds a guidance run from `?run` only when a later owner writes it,
+ * or from the handoff store / authoritative state.
+ */
+function agentToGuidanceQuery(
+  identity: Readonly<Record<string, unknown>>,
+): Record<string, string> {
+  const query: Record<string, string> = {};
+  const tab = identityValue(identity, ONBOARDING_QUERY.tab);
+  const gen =
+    identityValue(identity, ONBOARDING_QUERY.gen) ?? tab;
+  if (tab) query[ONBOARDING_QUERY.tab] = tab;
+  if (gen) query[ONBOARDING_QUERY.gen] = gen;
+  return query;
+}
+
+function pickKeys(
+  identity: Readonly<Record<string, unknown>>,
+  keys: readonly string[],
+): Record<string, string> {
+  const query: Record<string, string> = {};
+  for (const key of keys) {
+    const value = identityValue(identity, key);
+    if (value) query[key] = value;
+  }
+  return query;
+}
+
+function identityValue(
+  identity: Readonly<Record<string, unknown>>,
+  key: string,
+): string | undefined {
+  const value = identity[key];
+  return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
 function ownerOf(step: OnboardingStepId): StepOwner | null {

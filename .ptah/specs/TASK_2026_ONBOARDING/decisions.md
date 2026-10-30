@@ -52,3 +52,20 @@
   `stop-unknown` only when the page passes `[viewState]`; pages must pass it (re-review new 1).
 - Kept: `ItemStatusCard` pending uses `Clock`, the chip idle uses `CircleDashed` (different
   concepts, reviewer accepted).
+
+## B3a
+- **Match % range (coordinator, source over spec):** design-spec A2 says `round(score*100)`,
+  hidden outside 0..1, but the backend sends `relevanceScore` as 0–100
+  (`libs/shared/src/lib/types/wizard/recommendations.ts:37` example 92;
+  `agent-recommendation.service.ts:217` and `orchestrator.service.ts:716` send 100). A 0..1 rule
+  would hide the match % for every real row. Decision: show `round(score)%`, hide outside 0..100
+  or non-finite. Intent of the approved spec (show a match %, hide invalid values) is kept.
+  Reversible: one pure function.
+- **Review rounds:** implementers Codex (L1, L3) and Grok (L2, L4); reviewer in-process Claude
+  `code-logic-reviewer` (different family). Initial REVISE 6.5, round 1 REVISE 7.5 (N1–N4),
+  round 2 (final) Codex for N1–N3.
+- **Carry N4 (E2E pass):** Retry from the A1 stop-unconfirmed panel resumes a run that may still
+  be live host-side. Matches the RunPanel contract; reviewer marked it not a defect against this
+  plan. Re-check in the B5 E2E pass.
+- **Capture flake:** round-1 capture 70/72; the two failures (ptah-glass-light analyze-failed,
+  analyze-completed) were `route.fetch: read ECONNRESET` on static chunks, not assertions.
