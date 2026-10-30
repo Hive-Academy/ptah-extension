@@ -61,6 +61,17 @@ function blankDenial() {
   };
 }
 const turn = (id: string, status = 'inProgress') => ({ id, status, items: [] });
+function profileAtLevel(
+  permissionLevel: CodexPermissionLevel,
+  profileFingerprint = 'fingerprint',
+): CodexExecutionProfile {
+  return {
+    ...profile,
+    permissionLevel,
+    ...resolveCodexLevelPolicy(profile.consumer, permissionLevel, profile.cwd),
+    profileFingerprint,
+  };
+}
 const catalogModel = {
   id: 'catalog-id',
   model: 'wire-model',
@@ -144,6 +155,18 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
         startedAtMs: 1,
         command,
         cwd: '/work',
+      },
+    });
+  }
+  fileApproval(id = 'file-approval'): void {
+    this.send({
+      id,
+      method: 'item/fileChange/requestApproval',
+      params: {
+        threadId: this.threadId,
+        turnId: `turn-${this.turnNumber}`,
+        itemId: 'file',
+        startedAtMs: 1,
       },
     });
   }
@@ -296,6 +319,31 @@ describe('CodexRuntime', () => {
       expect(child.stdin.listenerCount('finish')).toBe(0);
     }
   });
+
+  async function resumeWithProfile(
+    permissionLevel: CodexPermissionLevel,
+    initialPermissionLevel: CodexPermissionLevel = 'ask',
+  ) {
+    const context = await runtime.open(profileAtLevel(initialPermissionLevel));
+    await context.updateNextTurn({ permissionLevel });
+    const identity = context.identity;
+    await context.close();
+    runtime = new CodexRuntime({
+      ...options,
+      spawner: {
+        spawnProcess: () => {
+          const child = new FakeChild(identity.threadId);
+          children.push(child);
+          return child;
+        },
+      },
+    });
+    const resumed = await runtime.open(
+      profileAtLevel(permissionLevel, identity.profileFingerprint),
+      identity,
+    );
+    return { resumed, identity, child: children[1] };
+  }
 
   it('preserves the exact open failure and reports its root cause once', async () => {
     const root = new CodexProtocolError('invalidResult', 'thread/start');
@@ -707,6 +755,90 @@ describe('CodexRuntime', () => {
       ],
     ).toMatchObject({ threadId: identity.threadId });
     await resumedRuntime.close();
+  });
+
+  it('resumes with a supplied Auto-edit profile and auto-accepts a plain file change', async () => {
+    const { resumed, identity, child } = await resumeWithProfile('auto-edit');
+    expect(persist).toHaveBeenCalledWith(identity);
+    expect(resumed.turnPermissionLevel).toBe('auto-edit');
+    await resumed.startTurn({ text: 'go' });
+    expect(resumed.turnPermissionLevel).toBe('auto-edit');
+    expect(
+      child.frames.find((frame) => frame['method'] === 'turn/start')?.[
+        'params'
+      ],
+    ).toMatchObject({
+      approvalPolicy: 'untrusted',
+      sandboxPolicy: {
+        type: 'workspaceWrite',
+        networkAccess: false,
+        writableRoots: ['/work'],
+      },
+    });
+    child.fileApproval();
+    await flush();
+    await flush();
+    expect(options.sink.request).not.toHaveBeenCalled();
+    expect(
+      child.frames.find((frame) => frame['id'] === 'file-approval'),
+    ).toEqual(
+      { id: 'file-approval', result: { decision: 'accept' } },
+    );
+    expect(child.fixtureErrors).toEqual([]);
+  });
+
+  it('resumes with a supplied Ask profile and keeps a plain file change interactive', async () => {
+    const { resumed, child } = await resumeWithProfile('ask', 'auto-edit');
+    expect(resumed.turnPermissionLevel).toBe('ask');
+    await resumed.startTurn({ text: 'go' });
+    expect(resumed.turnPermissionLevel).toBe('ask');
+    expect(
+      child.frames.find((frame) => frame['method'] === 'turn/start')?.[
+        'params'
+      ],
+    ).toMatchObject({
+      approvalPolicy: 'untrusted',
+      sandboxPolicy: {
+        type: 'workspaceWrite',
+        networkAccess: false,
+        writableRoots: ['/work'],
+      },
+    });
+    child.fileApproval();
+    await flush();
+    await flush();
+    expect(options.sink.request).toHaveBeenCalledTimes(1);
+    expect(
+      child.frames.find((frame) => frame['id'] === 'file-approval'),
+    ).toEqual(
+      { id: 'file-approval', result: { decision: 'decline' } },
+    );
+    expect(child.fixtureErrors).toEqual([]);
+  });
+
+  it('resumes with a supplied Plan profile and declines a plain file change', async () => {
+    const { resumed, child } = await resumeWithProfile('plan');
+    expect(resumed.turnPermissionLevel).toBe('plan');
+    await resumed.startTurn({ text: 'go' });
+    expect(resumed.turnPermissionLevel).toBe('plan');
+    expect(
+      child.frames.find((frame) => frame['method'] === 'turn/start')?.[
+        'params'
+      ],
+    ).toMatchObject({
+      approvalPolicy: 'on-request',
+      sandboxPolicy: { type: 'readOnly', networkAccess: false },
+    });
+    child.fileApproval();
+    await flush();
+    await flush();
+    expect(options.sink.request).not.toHaveBeenCalled();
+    expect(
+      child.frames.find((frame) => frame['id'] === 'file-approval'),
+    ).toEqual(
+      { id: 'file-approval', result: { decision: 'decline' } },
+    );
+    expect(child.fixtureErrors).toEqual([]);
   });
 
   it.each(['ask', 'auto-edit'] as const)(
