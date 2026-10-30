@@ -15,8 +15,6 @@ labels:
   - code-index
   - memory
   - P2
-relates_to:
-  - TASK_2026_473_c9f4
 parent: TASK_2026_636_0add
 ---
 

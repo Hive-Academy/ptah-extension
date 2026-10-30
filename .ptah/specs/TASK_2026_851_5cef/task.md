@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_851_5cef
-status: in_review
+status: done
 type: BUGFIX
 title: Claude named-account lease follow-ups
 description: >-
@@ -8,7 +8,7 @@ description: >-
   named-account sessions, crash recovery for provider_account_operations, safe auth method default.
 depends_on: []
 created: 2026-10-29T10:00:00.000Z
-updated: 2026-10-29T10:00:00.000Z
+updated: "2026-10-30T01:09:07.477Z"
 ---
 
 ## Description

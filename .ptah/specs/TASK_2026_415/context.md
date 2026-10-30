@@ -33,3 +33,10 @@ Remaining targets:
 
 - [ ] Single-flight guard (`pullInFlight`) on the watchdog pull in `libs/frontend/core/src/lib/services/boot-status.service.ts`.
 - [ ] Async target-side reads in `libs/backend/harness-sync/src/lib/targets/workspace-target.ts` (still `readFileSync`). Gated in the plan.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Add a single-flight guard on the boot:getReadiness watchdog pull, and replace the workspace-target readFileSync reads with async reads.
+- Evidence on main: The task's own resume says the workspace-state main-thread stall was fixed by TASK_2026_411 and TASK_2026_430_83a2. Both listed leftovers are still open: main:libs/frontend/core/src/lib/services/boot-status.service.ts has no pullInFlight, and the watchdog at :319 calls pullReadiness on every tick; main:libs/backend/harness-sync/src/lib/targets/workspace-target.ts still readFileSync at :436, :1001, :1113 and :1128.

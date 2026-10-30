@@ -10,7 +10,6 @@ updated: "2026-10-01T00:00:00.000Z"
 description: "Mount surfaces pushed through MESSAGE_TYPES.SURFACE_UPDATED inside coding-chat tabs (Revision 4 sequence C, charts in the coding chat), claim chat-tab routing ids on the generic SurfaceUpdateInbox, and add surface:release on chat-tab close."
 estimate: L
 relates_to:
-  - TASK_2026_538_3ccf
   - TASK_2026_490_583c
 ---
 

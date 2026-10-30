@@ -64,3 +64,7 @@ D:\projects\ptah-extension\node_modules`; remove it with `cmd /c rmdir`, never a
 
 Scope is now **memory only**. The skills suites measure the skill-synthesis pipeline, which is switched off and proposed for removal. Memory stays as is.
 Evidence: `.ptah/specs/TASK_2026_659_cec4/evaluation-report.md` and `task-triage.md`. Approved by the user on 2026-10-14.
+
+## Retired sources (2026-10-30)
+
+This task cites `TASK_2026_659_cec4`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.

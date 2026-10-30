@@ -12,9 +12,7 @@ labels:
   - e2e
   - electron
 relates_to:
-  - TASK_2026_556_d12d
   - TASK_2026_522_c6b1
-  - TASK_2026_389
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

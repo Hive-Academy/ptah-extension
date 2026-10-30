@@ -12,8 +12,6 @@ estimate: S
 labels:
   - e2e
   - electron
-relates_to:
-  - TASK_2026_538_3ccf
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

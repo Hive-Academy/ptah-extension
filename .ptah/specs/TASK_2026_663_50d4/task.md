@@ -10,8 +10,6 @@ description: "Carried from TASK_2026_535 §D and §E: declared deliverables must
 estimate: M
 labels:
   - lanes
-relates_to:
-  - TASK_2026_646_136a
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

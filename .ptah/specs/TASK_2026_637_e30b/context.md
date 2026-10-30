@@ -18,3 +18,7 @@ This epic takes over the last open phase of TASK_2026_439 (phase 6, TASK_2026_58
 
 Remove the skill-synthesis tabs (Recommended, Sessions, Activity, synthesis Settings) from scope. Keep memory, the Library (manual skill and agent editing) and quarantine restore.
 Evidence: `.ptah/specs/TASK_2026_659_cec4/evaluation-report.md` and `task-triage.md`. Approved by the user on 2026-10-14.
+
+## Retired sources (2026-10-30)
+
+This task cites `TASK_2026_659_cec4`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.

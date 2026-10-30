@@ -45,3 +45,10 @@ budgets and the 2 px anchor limit unchanged.
   (`perf-page-capture.ts` ~:86).
 - Match the tile that contains the generated marker, not a descendant that cannot contain it
   (`perf-session-fixture.ts` ~:467); prove it against the real rendered tile DOM.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Apply the per-tile sampleState replay point from the parked harness patch and run the idle-machine AC 2 re-measure. The other parked items (chat spec typecheck gate, Jest target for perf helpers, bubble-fade-enter) were not shown done.
+- Evidence on main: main:apps/ptah-electron-e2e/src/specs/chat/tile-open-longtask-budget.perf.spec.ts calls assertScrollSanity and writes '[AC-11 perf] measurement unusable' before several exits. git grep sampleState under apps/ptah-electron-e2e on main is empty, so the per-tile DOM sample at each tile's own replay point is not there. No in-tree record of the 3 cold + 1 production + 1 warm re-measure under a peer hold.

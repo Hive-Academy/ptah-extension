@@ -175,3 +175,9 @@ The two need to be presented to the conductor as a pair with a clear rule.
 | `apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/tribunal/references/vendor-panel.md`              | spawn/poll/read loop                                 |
 | `apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/orchestration/references/cli-agent-delegation.md` | same loop, orchestration copy                        |
 | `libs/frontend/tribunal-panel/src/lib/services/tribunal-state.service.ts`                                     | lane rebinding (item 5)                              |
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors. Still open (a cancel was proposed and rejected).
+
+ptah_agent_message delivers the follow-up path. Only one item is open: ptah_agent_status does not show if an agent can start a new turn (mcp-response-formatter.ts:1920). The task can be narrowed to that item.

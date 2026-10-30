@@ -64,3 +64,7 @@ The supplied second copy is shorter than the first; do not assume two identical 
 ## Status
 
 Backlog. Task filing only; no investigation worker launched and no product code changed.
+
+## Retired sources (2026-10-30)
+
+This task cites `TASK_2026_406`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.

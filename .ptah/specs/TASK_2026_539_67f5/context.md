@@ -40,3 +40,9 @@ Revision 4 sequence C ("charts in the coding chat"), out of scope for 494 (`TASK
 ## Depends on
 
 - TASK_2026_494_ca38 (done).
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors. Still open (a cancel was proposed and rejected).
+
+Mount SURFACE_UPDATED dashboard surfaces in chat tabs, claim and release routing IDs on SurfaceUpdateInbox, and implement the surface:release host RPC with schema, handler, cleanup and tests.

@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_719_4f64
-status: in_progress
+status: done
 type: FEATURE
 title: Enable named Claude accounts for chat and CLI lanes
 description: >-
   Real named Claude sign-in, per-account environment and admission, main chat and lane account selection, D7 hold lifted, live Electron test.
 depends_on: [TASK_2026_712_5d7c]
 created: 2026-10-25T15:45:58.000Z
-updated: 2026-10-25T15:45:58.000Z
+updated: "2026-10-30T01:09:07.477Z"
 ---
 
 ## Description

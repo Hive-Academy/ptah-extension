@@ -1,12 +1,12 @@
 ---
 id: TASK_LANE_BUDGET_WRAP_UP
-status: in-progress
+status: done
 type: BUGFIX
 title: >-
   Drop the lane tool-call budget and report lane stops honestly
 depends_on: []
 created: '2026-10-29T00:00:00.000Z'
-updated: '2026-10-29T00:00:00.000Z'
+updated: "2026-10-30T01:09:07.477Z"
 description: >-
   Background CLI lanes hit a fixed 40/60 tool-call budget that cut work before the deliverable
   existed, the completion envelope could not tell a budget stop from a crash, and the resume

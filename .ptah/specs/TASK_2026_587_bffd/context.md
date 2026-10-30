@@ -47,3 +47,7 @@ FEATURE (Thoth page + a persisted activity ledger).
 
 "Recent outcomes" reads the lane and subagent outcome record from TASK_2026_646_136a (Requirement 5), not the skill-synthesis queue. Do not build a second activity ledger.
 Evidence: `.ptah/specs/TASK_2026_659_cec4/evaluation-report.md` and `task-triage.md`. Approved by the user on 2026-10-14.
+
+## Retired sources (2026-10-30)
+
+This task cites `TASK_2026_659_cec4`, `TASK_2026_439_1310`. Those folders were retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.

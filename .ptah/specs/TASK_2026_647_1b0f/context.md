@@ -67,3 +67,10 @@ Keep `WorkflowSessionClaimService` and `StreamingSurfaceRegistry`: Tribunal and 
 
 Note: the "Proposed Removals" tables in the research predate the keep-and-fix rule. Treat any
 feature listed there as **wire, not delete**; only duplicated chat infrastructure may go.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: The epic stays open only for its remaining children: TASK_2026_651 (analysis phases as tracked chat sessions), TASK_2026_680 (sidebar opens builder page) and TASK_2026_682 (649 review leftovers).
+- Evidence on main: Phase 1 TASK_2026_648 is done; phase 2 TASK_2026_649 merged in PR #736 (01cc3bc2a builders on shared chat); phase 3 TASK_2026_650 merged in PR #763; manifest v4 + freshness + self-gathering generation merged in PR #732 (TASK_2026_652). Children TASK_2026_651, TASK_2026_680, TASK_2026_682 are still backlog.
