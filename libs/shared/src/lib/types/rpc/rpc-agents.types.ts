@@ -14,6 +14,7 @@ import type {
   ProviderAccountSelectionField,
 } from '../provider-account.types';
 import type { CapabilityPolicyStatus } from '../capability-toggle.types';
+import type { CapabilityScope } from '../mcp-directory.types';
 
 /** A skill entry from skills.sh search/browse results */
 export interface SkillShEntry {
@@ -58,18 +59,18 @@ export interface InstalledSkill {
   /** Absolute path to the skill directory INSIDE the source root. */
   path: string;
   /**
-   * Always `'global'`, and typed as the literal rather than the old
-   * `'project' | 'global'` union.
+   * Which source root the skill lives in (TASK_2026_853 Phase D).
    *
-   * A source root lives in `~/.ptah/plugins`, which is user-global; there is no
-   * project-scoped source root in the reconciler's model. The field is kept on
-   * the wire because it describes where the skill LIVES, which is a real fact,
-   * unlike the install parameter it replaced — but a union whose second member
-   * can never be produced is a lie that every consumer has to branch on. The
-   * literal is what makes a leftover `scope === 'project'` filter a compile
-   * error instead of a section that silently never renders.
+   * - `workspace`: `{ws}/.ptah/plugins/ptah-skillssh-<id>`, loaded only for that
+   *   workspace. This is where `skillsSh:install` puts a skill by default.
+   * - `global`: `~/.ptah/plugins/ptah-skillssh-<id>`, loaded in every workspace.
+   *   Only an explicit "All workspaces" install or `skillsSh:makeGlobal`
+   *   produces one.
+   *
+   * The pre-TASK_2026_288 `'project'` member stays gone: it named
+   * `{ws}/.claude/skills`, a CLI copy the reconciler owns, not a source root.
    */
-  scope: 'global';
+  scope: CapabilityScope;
   /**
    * Always empty. Which CLIs currently hold a copy is a question about
    * PROPAGATION, and `harness:health` / `ptah harness doctor` is the one
@@ -77,6 +78,45 @@ export interface InstalledSkill {
    * be a second copy of a rule `harness-sync` owns.
    */
   agents: string[];
+}
+
+/**
+ * Params for `skillsSh:install`.
+ *
+ * `scope` is optional on the wire; the handler's schema defaults it to
+ * `'workspace'`. A workspace install with no workspace open is refused and
+ * writes nothing. `'global'` must be an explicit choice.
+ */
+export interface SkillsShInstallParams {
+  /** `owner/repo` on skills.sh. */
+  source: string;
+  /** One skill inside `source`; absent installs the whole repository. */
+  skillId?: string;
+  /** Which source root receives the install. Server default: `'workspace'`. */
+  scope?: CapabilityScope;
+}
+
+/**
+ * Params for `skillsSh:makeGlobal`: convert a workspace install to a global one.
+ *
+ * The conversion moves the WHOLE workspace source root that holds `name`
+ * (every skill in it), not just the one skill. There is no reverse action.
+ */
+export interface SkillsShMakeGlobalParams {
+  /** Installed skill slug, as reported by `skillsSh:listInstalled`. */
+  name: string;
+}
+
+/** Result of `skillsSh:makeGlobal`. */
+export interface SkillsShMakeGlobalResult {
+  success: boolean;
+  /** User-facing failure text. Never carries host paths or raw errors. */
+  error?: string;
+  /**
+   * Every skill slug the converted root holds. Present on success so the UI
+   * can say which skills now load in every workspace.
+   */
+  convertedSkills?: string[];
 }
 
 /** Result of workspace skill detection */
