@@ -46,3 +46,7 @@ TASK_2026_609 shipped the per-workspace subagent setup fixes and the per-agent m
 
 Keep the subagent setup, model control and harness safety items. Drop any item that serves skill synthesis.
 Evidence: `.ptah/specs/TASK_2026_659_cec4/evaluation-report.md` and `task-triage.md`. Approved by the user on 2026-10-14.
+
+## Retired sources (2026-10-30)
+
+This task cites `TASK_2026_659_cec4`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.

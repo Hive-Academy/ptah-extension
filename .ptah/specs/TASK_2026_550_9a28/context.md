@@ -67,3 +67,7 @@ Backlog audit after the October refactors: partly delivered, still open.
 
 - Still open: Share one Electron app per Playwright worker (worker-scoped fixture), list the specs that need a fresh profile, and measure suite time before and after.
 - Evidence on main: Problem 2 (start-up hang after IpcBridge) was fixed by PR #597 (CLI MCP registration moved out of the pre-window phase, boot-trace watchdog, PTAH_E2E skips). Problem 1 is still open: main:apps/ptah-electron-e2e/src/support/fixtures.ts:57 `electronApp: async ({}, use) => { const app = await launchPtah();` has no worker scope.
+
+## Retired sources (2026-10-30)
+
+This task cites `TASK_2026_540_0940`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.
