@@ -6,13 +6,14 @@ import {
   OutcomeReportArgsSchema,
   ReviewPayloadSchema,
   deterministicReviewReportId,
+  isSelfReview,
   reportedSubagentStopRow,
   type LaneOutcomeLogger,
   type LaneOutcomeStore,
   type OutcomeWritePipeline,
 } from '@ptah-extension/lane-outcomes';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
-import { getCallerSessionId } from '../mcp-request-context';
+import { getCallerAgentId, getCallerSessionId } from '../mcp-request-context';
 import { flattenOperationUnion } from '../surface-tools';
 import type { MCPToolDefinition } from '../types/mcp-protocol.types';
 
@@ -134,6 +135,16 @@ export async function runOutcomeReport(
     }
   }
 
+  // A lane's MCP URL names the calling agent, which outranks the claimed
+  // reviewer: host capture keys the same review by that agent, so both paths
+  // share one report id, and a reviewer cannot grade its own run.
+  const reviewer =
+    args.kind === 'review'
+      ? (getCallerAgentId() ?? args.reviewerRunId)
+      : undefined;
+  if (reviewer && isSelfReview(runId, reviewer))
+    return { recorded: false, reason: 'self-review' };
+
   let payload: string;
   if (args.kind === 'deliverables') {
     const fileSystem = deps.fileSystem;
@@ -192,8 +203,8 @@ export async function runOutcomeReport(
   }
 
   const reportId =
-    args.kind === 'review' && args.reviewerRunId
-      ? deterministicReviewReportId(runId, args.reviewerRunId)
+    reviewer !== undefined
+      ? deterministicReviewReportId(runId, reviewer)
       : randomUUID();
   const heldAt = Date.now();
   try {

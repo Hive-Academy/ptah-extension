@@ -2037,8 +2037,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       jest.spyOn(outputBuffer, 'discard').mockImplementation((id: string) => {
         atDiscard.push(
           laneCompletion.signal.mock.calls[0]?.[1] as
-            | Record<string, unknown>
-            | undefined,
+            Record<string, unknown> | undefined,
         );
         original(id);
       });
@@ -2090,6 +2089,27 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       await Promise.resolve();
 
       expect(contextOf(1)).toMatchObject({ rateLimited: true });
+    });
+
+    it('does not carry an earlier turn auth match into a stopped continuation', async () => {
+      const continuable = createMockSdkHandle({ supportsContinuation: true });
+      const emit = attachSegments(continuable);
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(continuable.handle);
+      const agentId = await spawnCodex();
+
+      emit({ type: 'error', content: 'Error: invalid api key' });
+      continuable.resolve(1);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(contextOf(0)).toMatchObject({ authMatched: true });
+
+      await manager.continueConversation(agentId, 'second turn');
+      const stopped = manager.stop(agentId);
+      jest.advanceTimersByTime(600);
+      await stopped;
+
+      expect(laneCompletion.signal).toHaveBeenCalledTimes(2);
+      expect(contextOf(1)).toMatchObject({ authMatched: false });
     });
   });
 

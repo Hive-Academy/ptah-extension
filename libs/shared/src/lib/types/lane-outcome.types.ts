@@ -219,5 +219,7 @@ export interface LaneTaskKindClassificationInput {
 /** Port lane-outcomes calls to classify a task kind after insertion. */
 export interface LaneTaskKindClassifier {
   /** Never rejects; an unset model returns null after zero requests. */
-  classify(input: LaneTaskKindClassificationInput): Promise<OutcomeTaskKind | null>;
+  classify(
+    input: LaneTaskKindClassificationInput,
+  ): Promise<OutcomeTaskKind | null>;
 }

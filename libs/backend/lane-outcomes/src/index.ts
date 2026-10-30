@@ -21,6 +21,7 @@ export {
   reportEffectOf,
   deliverablesVerdictOf,
   deterministicReviewReportId,
+  isSelfReview,
 } from './lib/write/report-effect';
 // Stores and their persistence keys.
 export { SqliteLaneOutcomeStore } from './lib/store/sqlite-lane-outcome.store';
@@ -51,12 +52,13 @@ export {
   LaneOutcomeRecorder,
   reportedSubagentStopRow,
 } from './lib/lane-outcome-recorder.service';
-export type {
-  LaneCompletionOutcomeInput,
-  LaneCompletionTransient,
-} from './lib/lane-outcome-recorder.service';
-export { taskKindForRole } from './lib/task-kind-mapping';
-export { parseReviewDeliverable } from './lib/review-verdict.parser';
+export type { LaneCompletionOutcomeInput } from './lib/lane-outcome-recorder.service';
+export { resolveTaskKind } from './lib/task-kind-mapping';
+export {
+  REVIEW_DELIVERABLE_MAX_CHARS,
+  REVIEW_DELIVERABLE_MAX_FILES,
+  REVIEW_DELIVERABLE_MAX_FILE_CHARS,
+} from './lib/review-verdict.parser';
 export { LaneOutcomeReader } from './lib/lane-outcome-reader.service';
 export type { LaneOutcomeQueries } from './lib/lane-outcome-reader.service';
 export type {
@@ -73,4 +75,7 @@ export {
   startLaneOutcomes,
   startAndRegisterLaneOutcomes,
 } from './lib/di/start';
-export type { LaneOutcomesDisposer } from './lib/di/start';
+export type {
+  LaneOutcomesDisposer,
+  StartLaneOutcomesOptions,
+} from './lib/di/start';

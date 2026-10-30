@@ -10,15 +10,18 @@
  *
  * - Exactly one distinct reviewed run is required. `<runId>` is 1-200 chars of
  *   `A-Z a-z 0-9 : . _ | -`, optionally wrapped in backticks, and nothing else
- *   may follow it on the line (for example `Reviewed-Run: lane:abc123` or
- *   `- **Reviewed-Run:** `subagent:agent-7``).
+ *   may follow it on the line (for example a bare agent id
+ *   `Reviewed-Run: 3f2a9c1e`, or `- **Reviewed-Run:** `subagent:agent-7``).
+ *   The recorder resolves a bare agent id to that agent's run.
  * - One or more verdict lines are required and all must agree. The verdict
  *   label may also be a markdown heading (`## Verdict: REVISE`). Text after the
  *   verdict word is ignored.
  * - Conflicting verdicts or more than one distinct reviewed run are
  *   `ambiguous`; a reviewed run equal to the reviewer is `self-review`.
  * - Text longer than {@link REVIEW_DELIVERABLE_MAX_CHARS} is refused unread
- *   (`too-large`): the host reads at most 3 files of 64 KiB each.
+ *   (`too-large`): the host reads at most
+ *   {@link REVIEW_DELIVERABLE_MAX_FILES} files of
+ *   {@link REVIEW_DELIVERABLE_MAX_FILE_CHARS} each.
  *
  * Free-form praise or the mere existence of a file is never a verdict. The
  * parser returns identifiers and a verdict only; callers must not log or
@@ -28,18 +31,19 @@
 export type ReviewVerdict = 'approved' | 'revise' | 'rejected';
 
 export type ReviewCaptureRefusal =
-  | 'no-target'
-  | 'no-verdict'
-  | 'ambiguous'
-  | 'self-review'
-  | 'too-large';
+  'no-target' | 'no-verdict' | 'ambiguous' | 'self-review' | 'too-large';
 
 export type ReviewDeliverableParse =
   | { readonly reviewedRunId: string; readonly verdict: ReviewVerdict }
   | { readonly refusal: ReviewCaptureRefusal };
 
-/** 3 files of 64 KiB each, the most the host reads for one review run. */
-export const REVIEW_DELIVERABLE_MAX_CHARS = 3 * 64 * 1024;
+/** Most review deliverable files the host reads for one review run. */
+export const REVIEW_DELIVERABLE_MAX_FILES = 3;
+/** Largest single review deliverable file the host reads. */
+export const REVIEW_DELIVERABLE_MAX_FILE_CHARS = 64 * 1024;
+/** The most text the parser accepts for one review run. */
+export const REVIEW_DELIVERABLE_MAX_CHARS =
+  REVIEW_DELIVERABLE_MAX_FILES * REVIEW_DELIVERABLE_MAX_FILE_CHARS;
 
 const REVIEWED_RUN_LINE =
   /^\s*(?:[-*]\s*)?(?:\*\*)?Reviewed-Run(?:\*\*)?\s*:\s*(?:\*\*)?\s*`?([A-Za-z0-9:._|-]{1,200})`?\s*(?:\*\*)?\s*$/i;

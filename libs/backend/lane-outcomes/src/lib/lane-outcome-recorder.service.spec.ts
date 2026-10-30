@@ -327,9 +327,12 @@ describe('LaneOutcomeRecorder task-kind resolution', () => {
 
   it('makes zero calls without a classifier (decision model unset)', async () => {
     const { store, recorder, pipeline } = harness();
-    recorder.recordLaneCompletion(laneInput('lane:no-model', unclassifiedLane), {
-      brief: 'Do the thing',
-    });
+    recorder.recordLaneCompletion(
+      laneInput('lane:no-model', unclassifiedLane),
+      {
+        brief: 'Do the thing',
+      },
+    );
     await pipeline.flush();
     await settle();
     expect(await store.get('lane:no-model')).toMatchObject({
@@ -357,9 +360,12 @@ describe('LaneOutcomeRecorder task-kind resolution', () => {
     const tasks = kindClassifier(null);
     const { store, recorder, pipeline } = harness(undefined, tasks);
     const setKind = jest.spyOn(store, 'setClassifiedTaskKind');
-    recorder.recordLaneCompletion(laneInput('lane:null-kind', unclassifiedLane), {
-      brief: 'Something',
-    });
+    recorder.recordLaneCompletion(
+      laneInput('lane:null-kind', unclassifiedLane),
+      {
+        brief: 'Something',
+      },
+    );
     await pipeline.flush();
     await settle();
     expect(tasks.classify).toHaveBeenCalledTimes(1);
@@ -371,10 +377,15 @@ describe('LaneOutcomeRecorder task-kind resolution', () => {
 
   it('warns with identifiers only when task-kind classification rejects', async () => {
     const classify = jest.fn().mockRejectedValue(new TypeError('secret brief'));
-    const { store, recorder, pipeline, warn } = harness(undefined, { classify });
-    recorder.recordLaneCompletion(laneInput('lane:kind-reject', unclassifiedLane), {
-      brief: 'secret brief',
+    const { store, recorder, pipeline, warn } = harness(undefined, {
+      classify,
     });
+    recorder.recordLaneCompletion(
+      laneInput('lane:kind-reject', unclassifiedLane),
+      {
+        brief: 'secret brief',
+      },
+    );
     await pipeline.flush();
     await settle();
     expect(warn).toHaveBeenCalledWith('Task kind classification failed', {
@@ -572,6 +583,26 @@ describe('LaneOutcomeRecorder subagent producers', () => {
     expect((await store.get('subagent:agent-a'))?.taskKind).toBe('plan');
   });
 
+  it('classifies a run once when subagentEnded repeats after a null kind', async () => {
+    const tasks = kindClassifier(null);
+    const { store, recorder, pipeline } = harness(undefined, tasks);
+    const event = endedEvent({
+      agentType: 'Explore',
+      lastAssistantMessage: 'notes',
+    });
+    recorder.recordSubagentEnded(event);
+    await pipeline.flush();
+    await settle();
+    recorder.recordSubagentEnded(event);
+    await pipeline.flush();
+    await settle();
+    expect(tasks.classify).toHaveBeenCalledTimes(1);
+    expect(await store.get('subagent:agent-a')).toMatchObject({
+      taskKind: null,
+      taskKindSource: 'unclassified',
+    });
+  });
+
   it('does not classify a mapped subagent even with a message', async () => {
     const tasks = kindClassifier();
     const { recorder, pipeline } = harness(undefined, tasks);
@@ -634,9 +665,7 @@ describe('LaneOutcomeRecorder review capture', () => {
     await pipeline.flush();
     await settle();
     expect((await store.get('lane:target'))?.reviseRounds).toBe(1);
-    expect(
-      await store.hasReceipt('review:lane:target|subagent:reviewer-1'),
-    ).toBe(true);
+    expect(await store.hasReceipt('review:lane:target|reviewer-1')).toBe(true);
   });
 
   it('sets the final review for an approved lane review', async () => {
@@ -689,5 +718,85 @@ describe('LaneOutcomeRecorder review capture', () => {
     await pipeline.flush();
     await settle();
     expect(await store.get('lane:target')).toEqual(before);
+  });
+
+  it('resolves a bare agent id to the latest lane run of that agent', async () => {
+    const { store, recorder } = await withTarget();
+    const result = await recorder.captureReview({
+      reviewerRunId: 'reviewer-lane:2026-10-31T10:00:00.000Z',
+      text: 'Reviewed-Run: agent-a\nVerdict: REVISE',
+    });
+    expect(result).toMatchObject({ ok: true, runId: 'lane:target' });
+    expect((await store.get('lane:target'))?.reviseRounds).toBe(1);
+  });
+
+  it('resolves a bare agent id to its subagent run first', async () => {
+    const { store, recorder, pipeline } = harness();
+    recorder.recordSubagentStop(stopPayload({ agentId: 'impl-sub' }));
+    await pipeline.flush();
+    const result = await recorder.captureReview({
+      reviewerRunId: 'reviewer-lane:2026-10-31T10:00:00.000Z',
+      text: 'Reviewed-Run: impl-sub\nVerdict: REJECTED',
+    });
+    expect(result).toMatchObject({ ok: true, runId: 'subagent:impl-sub' });
+    expect((await store.get('subagent:impl-sub'))?.finalReview).toBe(
+      'rejected',
+    );
+  });
+
+  it('holds a review for an unknown id as written', async () => {
+    const { store, recorder } = await withTarget();
+    const result = await recorder.captureReview({
+      reviewerRunId: 'reviewer-lane:2026-10-31T10:00:00.000Z',
+      text: 'Reviewed-Run: ghost\nVerdict: REVISE',
+    });
+    expect(result).toMatchObject({ ok: true, state: 'held', runId: 'ghost' });
+    expect(await store.listHeldReports(Date.now())).toHaveLength(1);
+  });
+
+  it('refuses an agent id that names both a subagent and a lane run', async () => {
+    const { recorder, pipeline, warn } = await withTarget();
+    recorder.recordSubagentStop(stopPayload({ agentId: 'agent-a' }));
+    await pipeline.flush();
+    const result = await recorder.captureReview({
+      reviewerRunId: 'reviewer-lane:2026-10-31T10:00:00.000Z',
+      text: 'Reviewed-Run: agent-a\nVerdict: APPROVED',
+    });
+    expect(result.ok).toBe(false);
+    expect(warn).toHaveBeenCalledWith('Review capture refused', {
+      reviewerRunId: 'reviewer-lane:2026-10-31T10:00:00.000Z',
+      refusal: 'ambiguous',
+    });
+  });
+
+  it('refuses a bare agent id that resolves to the reviewer itself', async () => {
+    const { store, recorder } = await withTarget();
+    const before = await store.get('lane:target');
+    const result = await recorder.captureReview({
+      reviewerRunId: 'agent-a:2026-10-31T10:00:00.000Z',
+      text: 'Reviewed-Run: agent-a\nVerdict: APPROVED',
+    });
+    expect(result).toEqual({
+      ok: false,
+      error: 'review capture refused: self-review',
+    });
+    expect(await store.get('lane:target')).toEqual(before);
+  });
+
+  it('counts one review when a continuation lane ends twice over it', async () => {
+    const { store, recorder } = await withTarget();
+    const text = 'Reviewed-Run: agent-a\nVerdict: REVISE';
+    await recorder.captureReview({
+      reviewerRunId: 'reviewer-lane:2026-10-31T10:00:00.000Z',
+      text,
+    });
+    await recorder.captureReview({
+      reviewerRunId: 'reviewer-lane:2026-10-31T10:07:12.345Z',
+      text,
+    });
+    expect((await store.get('lane:target'))?.reviseRounds).toBe(1);
+    expect(await store.hasReceipt('review:lane:target|reviewer-lane')).toBe(
+      true,
+    );
   });
 });

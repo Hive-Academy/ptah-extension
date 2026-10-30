@@ -32,7 +32,7 @@
  * it. The per-agent burst limits in `AgentReportRouter` exist because a model
  * chooses when to call that tool; nothing chooses when a process exits.
  */
-import { isAbsolute, relative, resolve, sep, win32 } from 'path';
+import { isAbsolute, resolve } from 'path';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import {
@@ -40,9 +40,13 @@ import {
   type IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import { SessionId } from '@ptah-extension/shared';
-import { taskKindForRole, type LaneOutcomeRecorder } from '@ptah-extension/lane-outcomes';
+import {
+  resolveTaskKind,
+  type LaneOutcomeRecorder,
+} from '@ptah-extension/lane-outcomes';
 import { enqueueLaneCompletionOutcome } from './lane-completion-outcome';
 import { buildLaneCompletionEnvelope } from './lane-completion-envelope';
+import { readReviewDeliverables } from './review-deliverable.reader';
 import type {
   AgentProcessInfo,
   IAgentAdapter,
@@ -317,10 +321,10 @@ export class LaneCompletionNotifier {
      */
     @inject(TOKENS.AGENT_ADAPTER, { isOptional: true })
     private readonly agentAdapter: IAgentAdapter | null = null,
-    private readonly outcomeRecorder: () => (
-      Pick<LaneOutcomeRecorder, 'recordLaneCompletion'> &
-      Partial<Pick<LaneOutcomeRecorder, 'captureReview'>>
-    ) | null = () => null,
+    private readonly outcomeRecorder: () =>
+      | (Pick<LaneOutcomeRecorder, 'recordLaneCompletion'> &
+          Partial<Pick<LaneOutcomeRecorder, 'captureReview'>>)
+      | null = () => null,
   ) {}
 
   /**
@@ -363,12 +367,8 @@ export class LaneCompletionNotifier {
     );
 
     const queueReviewCapture = (): void => {
-      if (
-        (info.taskKind === 'review' || taskKindForRole(info.role ?? null) === 'review') &&
-        info.deliverables?.length
-      ) {
-        void this.captureReview(info, key);
-      }
+      if (LaneCompletionNotifier.capturesReview(info, signal))
+        void this.captureReview(info, key, signal.deliverables);
     };
 
     // `safeParse`, not `from`: `parentSessionId` holds the frontend tab id
@@ -618,7 +618,9 @@ export class LaneCompletionNotifier {
         context.rateLimited ?? false,
       ),
       reportsDelivered: context.reportsDelivered,
-      ...(info.mcpAttachmentWarning ? { mcpAttachmentWarning: info.mcpAttachmentWarning } : {}),
+      ...(info.mcpAttachmentWarning
+        ? { mcpAttachmentWarning: info.mcpAttachmentWarning }
+        : {}),
       ...(info.cliSessionId ? { cliSessionId: info.cliSessionId } : {}),
       ...(info.stopReason ? { stopReason: info.stopReason } : {}),
       ...(context.toolCalls !== undefined
@@ -691,43 +693,65 @@ export class LaneCompletionNotifier {
   ): LaneCompletionVerdict {
     const hostStopped = status === 'stopped' && stopReason !== undefined;
     if (status !== 'completed' && !hostStopped) return 'failed';
-    const allFresh = deliverables.length > 0 && deliverables.every(
-      (check) => check.exists && (check.bytes ?? 0) > 0 && check.writtenAfterSpawn !== false,
-    );
+    const allFresh =
+      deliverables.length > 0 &&
+      deliverables.every(
+        (check) =>
+          check.exists &&
+          (check.bytes ?? 0) > 0 &&
+          check.writtenAfterSpawn !== false,
+      );
     if (rateLimited && !allFresh) return 'failed';
     if (deliverables.length === 0) return 'unverified';
     return allFresh ? 'delivered' : 'no-deliverable';
   }
 
-  private async captureReview(info: AgentProcessInfo, runId: string): Promise<void> {
+  /**
+   * A review lane's run is captured only when it delivered: a failed run or
+   * one whose deliverables are missing, empty or stale left no review of its
+   * own, and a file from an earlier run must not count again under this run.
+   * Review kind is the row's own rule (explicit, then mapped from the role).
+   */
+  private static capturesReview(
+    info: AgentProcessInfo,
+    signal: LaneCompletionSignal,
+  ): boolean {
+    return (
+      resolveTaskKind(info.taskKind ?? null, info.role ?? null).taskKind ===
+        'review' &&
+      signal.verdict !== 'failed' &&
+      signal.verdict !== 'no-deliverable' &&
+      signal.deliverables.length > 0
+    );
+  }
+
+  private async captureReview(
+    info: AgentProcessInfo,
+    runId: string,
+    deliverables: readonly LaneDeliverableCheck[],
+  ): Promise<void> {
     try {
       const recorder = this.outcomeRecorder();
       if (!recorder?.captureReview) return;
-      const root = resolve(info.workingDirectory);
-      const texts: string[] = [];
-      for (const entry of (info.deliverables ?? []).slice(0, 3)) {
-        const path = resolveDeliverablePath({
-          deliverables: [], taskFolder: info.taskFolder,
-          workingDirectory: info.workingDirectory, id: info.agentId,
-        }, entry);
-        const rel = relative(root, path);
-        if (isAbsolute(entry) || win32.isAbsolute(entry) || /^[A-Za-z]:/.test(entry) ||
-          rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-          this.logger.warn('[LaneCompletionNotifier] Review deliverable outside lane directory', { runId });
-          return;
-        }
-        const stat = await this.fileSystem.stat(path);
-        if (stat.size > 64 * 1024) {
-          this.logger.warn('[LaneCompletionNotifier] Review deliverable exceeds capture limit', { runId });
-          return;
-        }
-        texts.push(await this.fileSystem.readFile(path));
-      }
-      await recorder.captureReview({ reviewerRunId: runId, text: texts.join('\n') });
+      const workingDirectory = resolve(info.workingDirectory);
+      const roots = info.taskFolder
+        ? [workingDirectory, resolve(workingDirectory, info.taskFolder)]
+        : [workingDirectory];
+      const read = await readReviewDeliverables(deliverables, roots, {
+        fileSystem: this.fileSystem,
+      });
+      if (read.skipped.length > 0)
+        this.logger.warn(
+          '[LaneCompletionNotifier] Review deliverables skipped',
+          { runId, skipped: read.skipped },
+        );
+      if (read.filesRead === 0) return;
+      await recorder.captureReview({ reviewerRunId: runId, text: read.text });
     } catch (error: unknown) {
       // degradation-audit: reported - review capture is optional evidence
       this.logger.warn('[LaneCompletionNotifier] Review capture failed', {
-        runId, code: error instanceof Error ? error.name : 'UNKNOWN',
+        runId,
+        code: error instanceof Error ? error.name : 'UNKNOWN',
       });
     }
   }

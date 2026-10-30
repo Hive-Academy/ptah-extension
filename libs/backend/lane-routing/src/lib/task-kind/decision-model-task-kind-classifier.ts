@@ -37,11 +37,13 @@ export class DecisionModelTaskKindClassifier implements LaneTaskKindClassifier {
       }
       const outcome = await runFixedRequest({
         request: `Role: ${input.role ?? 'none'}\nTask:\n${input.brief}`,
-        questions: [{
-          key: QUESTION_KEY,
-          instructions: 'Choose the task kind.',
-          criteria: criterionLabels(OUTCOME_TASK_KINDS),
-        }],
+        questions: [
+          {
+            key: QUESTION_KEY,
+            instructions: 'Choose the task kind.',
+            criteria: criterionLabels(OUTCOME_TASK_KINDS),
+          },
+        ],
         maxRequestBytes: REQUEST_SIZE_LIMIT_BYTES,
         dispatch: this.caller.dispatchFor(opened),
         logger: this.deps.logger,
@@ -50,7 +52,11 @@ export class DecisionModelTaskKindClassifier implements LaneTaskKindClassifier {
       // runFixedRequest has already validated the choice and confidence with
       // validateChoiceAnswer; only an accepted offered label can be returned.
       const answer = outcome.answers.get(QUESTION_KEY);
-      if (answer === undefined || answer.cause !== null || answer.choice === null) {
+      if (
+        answer === undefined ||
+        answer.cause !== null ||
+        answer.choice === null
+      ) {
         return null;
       }
       const index = optionIndex(answer.choice);

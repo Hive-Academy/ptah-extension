@@ -9,7 +9,17 @@
  */
 import 'reflect-metadata';
 
-import { resolve } from 'path';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
 
 import type { AgentProcessInfo } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -469,10 +479,13 @@ describe('LaneCompletionNotifier.signal', () => {
     it('omits the host-stop fields for a caller stop', async () => {
       const h = createHarness();
 
-      const result = await h.notifier.signal(createInfo({ status: 'stopped' }), {
-        reportsDelivered: 0,
-        toolCalls: 7,
-      });
+      const result = await h.notifier.signal(
+        createInfo({ status: 'stopped' }),
+        {
+          reportsDelivered: 0,
+          toolCalls: 7,
+        },
+      );
 
       expect(result.signal).not.toHaveProperty('stopReason');
       expect(result.signal).not.toHaveProperty('repeatedCalls');
@@ -1066,5 +1079,135 @@ describe('LaneCompletionNotifier.signalSessionChild', () => {
 
       expect(envelope.text).toContain('agent="a&quot;b&lt;c&gt;"');
     });
+  });
+});
+
+// TASK_2026_857 phase A review F1/F2: host review capture reads only a
+// delivered review run's own files, by absolute path, inside the lane roots.
+describe('LaneCompletionNotifier review capture', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    jest.useRealTimers();
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'review-capture-')));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function captureHarness(mtime = Date.parse(COMPLETED_AT)) {
+    const fileSystem: Pick<
+      IFileSystemProvider,
+      'exists' | 'stat' | 'readFile'
+    > = {
+      exists: jest.fn(async (path: string) => existsSync(path)),
+      stat: jest.fn(async (path: string) => ({
+        type: FileType.File,
+        ctime: mtime,
+        mtime,
+        size: statSync(path).size,
+      })),
+      readFile: jest.fn(async (path: string) => readFileSync(path, 'utf8')),
+    };
+    const captureReview = jest.fn(async () => ({
+      ok: true as const,
+      state: 'applied' as const,
+      runId: 'lane:target',
+    }));
+    const notifier = new LaneCompletionNotifier(
+      createLogger(),
+      // The capture path uses only these three methods.
+      fileSystem as IFileSystemProvider,
+      null,
+      () => ({ recordLaneCompletion: jest.fn(), captureReview }),
+    );
+    return { notifier, captureReview };
+  }
+
+  /** Real file I/O settles on the thread pool, so poll briefly for it. */
+  async function flushCapture(until?: () => boolean): Promise<void> {
+    if (!until) {
+      for (let i = 0; i < 5; i += 1)
+        await new Promise<void>((done) => setImmediate(done));
+      return;
+    }
+    for (let i = 0; i < 400 && !until(); i += 1)
+      await new Promise<void>((done) => setTimeout(done, 5));
+  }
+
+  function reviewInfo(
+    overrides: Partial<AgentProcessInfo> = {},
+  ): AgentProcessInfo {
+    return createInfo({
+      workingDirectory: dir,
+      role: 'code-logic-reviewer',
+      deliverables: [join(dir, 'review.md')],
+      ...overrides,
+    });
+  }
+
+  it('captures a delivered review from an absolute deliverable path', async () => {
+    writeFileSync(
+      join(dir, 'review.md'),
+      'Reviewed-Run: agent-x\nVerdict: REVISE',
+    );
+    const h = captureHarness();
+    await h.notifier.signal(reviewInfo());
+    await flushCapture(() => h.captureReview.mock.calls.length > 0);
+    expect(h.captureReview).toHaveBeenCalledWith({
+      reviewerRunId: `${AGENT_ID}:${COMPLETED_AT}`,
+      text: 'Reviewed-Run: agent-x\nVerdict: REVISE',
+    });
+  });
+
+  it('does not capture a failed review run', async () => {
+    writeFileSync(
+      join(dir, 'review.md'),
+      'Reviewed-Run: agent-x\nVerdict: REVISE',
+    );
+    const h = captureHarness();
+    await h.notifier.signal(reviewInfo({ status: 'failed', exitCode: 1 }));
+    await flushCapture();
+    expect(h.captureReview).not.toHaveBeenCalled();
+  });
+
+  it('does not capture a review file older than the run', async () => {
+    writeFileSync(
+      join(dir, 'review.md'),
+      'Reviewed-Run: agent-x\nVerdict: REVISE',
+    );
+    const h = captureHarness(Date.parse(STARTED_AT) - 60_000);
+    await h.notifier.signal(reviewInfo());
+    await flushCapture();
+    expect(h.captureReview).not.toHaveBeenCalled();
+  });
+
+  it('does not capture a run whose verdict is no-deliverable', async () => {
+    writeFileSync(
+      join(dir, 'review.md'),
+      'Reviewed-Run: agent-x\nVerdict: REVISE',
+    );
+    const h = captureHarness();
+    await h.notifier.signal(
+      reviewInfo({
+        deliverables: [join(dir, 'review.md'), join(dir, 'missing.md')],
+      }),
+    );
+    await flushCapture();
+    expect(h.captureReview).not.toHaveBeenCalled();
+  });
+
+  it('does not capture a lane whose kind is not review', async () => {
+    writeFileSync(
+      join(dir, 'review.md'),
+      'Reviewed-Run: agent-x\nVerdict: REVISE',
+    );
+    const h = captureHarness();
+    await h.notifier.signal(
+      reviewInfo({ role: 'code-logic-reviewer', taskKind: 'implement' }),
+    );
+    await flushCapture();
+    expect(h.captureReview).not.toHaveBeenCalled();
   });
 });

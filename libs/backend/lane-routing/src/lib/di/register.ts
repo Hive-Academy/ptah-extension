@@ -107,7 +107,9 @@ export function registerLaneRoutingServices(
       (c) =>
         new HostRoutingSetting(
           c.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-          c.resolve<DecisionModelConfig>(LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG),
+          c.resolve<DecisionModelConfig>(
+            LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+          ),
         ),
     ),
   });
@@ -116,7 +118,9 @@ export function registerLaneRoutingServices(
     useFactory: instanceCachingFactory(
       (c) =>
         new PreflightReuseCache(
-          c.resolve<HostRoutingSetting>(LANE_ROUTING_TOKENS.HOST_ROUTING_SETTING),
+          c.resolve<HostRoutingSetting>(
+            LANE_ROUTING_TOKENS.HOST_ROUTING_SETTING,
+          ),
         ),
     ),
   });

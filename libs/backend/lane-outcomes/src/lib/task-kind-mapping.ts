@@ -1,4 +1,7 @@
-import type { OutcomeTaskKind } from '@ptah-extension/shared';
+import type {
+  OutcomeTaskKind,
+  OutcomeTaskKindSource,
+} from '@ptah-extension/shared';
 
 /**
  * Known lane roles and subagent types mapped to the task kind they perform
@@ -46,4 +49,23 @@ const TASK_KIND_BY_ROLE: ReadonlyMap<string, OutcomeTaskKind> = new Map<
 export function taskKindForRole(role: string | null): OutcomeTaskKind | null {
   if (role === null) return null;
   return TASK_KIND_BY_ROLE.get(role.trim().toLowerCase()) ?? null;
+}
+
+export interface ResolvedTaskKind {
+  readonly taskKind: OutcomeTaskKind | null;
+  readonly taskKindSource: OutcomeTaskKindSource;
+}
+
+/**
+ * The row's task kind before any classification: explicit, then mapped from
+ * the role, then unclassified. Classification happens after insert.
+ */
+export function resolveTaskKind(
+  explicit: OutcomeTaskKind | null,
+  role: string | null,
+): ResolvedTaskKind {
+  if (explicit) return { taskKind: explicit, taskKindSource: 'explicit' };
+  const mapped = taskKindForRole(role);
+  if (mapped) return { taskKind: mapped, taskKindSource: 'mapped' };
+  return { taskKind: null, taskKindSource: 'unclassified' };
 }

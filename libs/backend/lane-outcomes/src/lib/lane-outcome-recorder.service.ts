@@ -9,8 +9,6 @@ import {
   type LaneTaskKindClassificationInput,
   type LaneTaskKindClassifier,
   type OutcomeExecutorKind,
-  type OutcomeTaskKind,
-  type OutcomeTaskKindSource,
 } from '@ptah-extension/shared';
 import type {
   SdkAdapterSubagentEndedEvent,
@@ -18,14 +16,18 @@ import type {
 } from '@ptah-extension/agent-sdk';
 import { LaneOutcomeRowSchema } from './lane-outcome.schema';
 import type { LaneOutcomeLogger } from './lane-outcome-logger';
-import { parseReviewDeliverable } from './review-verdict.parser';
+import {
+  parseReviewDeliverable,
+  type ReviewCaptureRefusal,
+} from './review-verdict.parser';
 import type { LaneOutcomeStore } from './store/lane-outcome.store';
 import { subagentRunId } from './subagent-join';
-import { taskKindForRole } from './task-kind-mapping';
+import { resolveTaskKind } from './task-kind-mapping';
 import {
   DeliverablesPayloadSchema,
   ReviewPayloadSchema,
   deterministicReviewReportId,
+  isSelfReview,
 } from './write/report-effect';
 import type {
   OutcomeWritePipeline,
@@ -57,22 +59,6 @@ const RECORDER_MEMORY_LIMIT = 200;
 /** Longest brief handed to the task-kind classifier. */
 const BRIEF_MAX_CHARS = 4000;
 const REPORT_HOLD_MS = 24 * 60 * 60 * 1000;
-
-interface ResolvedTaskKind {
-  readonly taskKind: OutcomeTaskKind | null;
-  readonly taskKindSource: OutcomeTaskKindSource;
-}
-
-/** Explicit → mapped → unclassified; classification happens after insert. */
-function resolveTaskKind(
-  explicit: OutcomeTaskKind | null,
-  role: string | null,
-): ResolvedTaskKind {
-  if (explicit) return { taskKind: explicit, taskKindSource: 'explicit' };
-  const mapped = taskKindForRole(role);
-  if (mapped) return { taskKind: mapped, taskKindSource: 'mapped' };
-  return { taskKind: null, taskKindSource: 'unclassified' };
-}
 
 function errorCode(error: unknown): string {
   return error instanceof Error ? error.name : 'UNKNOWN';
@@ -148,6 +134,8 @@ export class LaneOutcomeRecorder {
   private readonly briefs = new Map<string, LaneTaskKindClassificationInput>();
   /** Subagent runs a stop producer already enqueued (first writer wins). */
   private readonly subagentRuns = new Map<string, true>();
+  /** Runs whose task kind was already sent to the classifier (at most once). */
+  private readonly taskKindAttempted = new Map<string, true>();
 
   constructor(
     private readonly pipeline: OutcomeWritePipeline,
@@ -328,19 +316,23 @@ export class LaneOutcomeRecorder {
     readonly text: string;
   }): Promise<OutcomeWriteResult> {
     const parsed = parseReviewDeliverable(input.text, input.reviewerRunId);
-    if ('refusal' in parsed) {
-      this.logger.warn('Review capture refused', {
-        reviewerRunId: input.reviewerRunId,
-        refusal: parsed.refusal,
-      });
-      return { ok: false, error: `review capture refused: ${parsed.refusal}` };
-    }
+    if ('refusal' in parsed)
+      return this.refuseReview(input.reviewerRunId, parsed.refusal);
+    const target = await this.resolveReviewedRun(parsed.reviewedRunId);
+    if ('refusal' in target)
+      return this.refuseReview(input.reviewerRunId, target.refusal);
+    if (
+      isSelfReview(target.runId, input.reviewerRunId) ||
+      (target.agentId !== null &&
+        isSelfReview(target.agentId, input.reviewerRunId))
+    )
+      return this.refuseReview(input.reviewerRunId, 'self-review');
     const result = await this.attachReview(
-      { runId: parsed.reviewedRunId },
+      { runId: target.runId },
       parsed.verdict,
       {
         reportId: deterministicReviewReportId(
-          parsed.reviewedRunId,
+          target.runId,
           input.reviewerRunId,
         ),
       },
@@ -348,10 +340,52 @@ export class LaneOutcomeRecorder {
     if (!result.ok)
       this.logger.warn('Review capture not applied', {
         reviewerRunId: input.reviewerRunId,
-        reviewedRunId: parsed.reviewedRunId,
+        reviewedRunId: target.runId,
         error: result.error,
       });
     return result;
+  }
+
+  private refuseReview(
+    reviewerRunId: string,
+    refusal: ReviewCaptureRefusal,
+  ): OutcomeWriteResult {
+    this.logger.warn('Review capture refused', { reviewerRunId, refusal });
+    return { ok: false, error: `review capture refused: ${refusal}` };
+  }
+
+  /**
+   * The run a `Reviewed-Run` line names. A bare agent id resolves the way
+   * `ptah_outcome_report` resolves an agent target: its subagent run, else its
+   * latest lane run, and both at once is ambiguous. Anything else stays as
+   * written, so a review of a run that has not landed yet is held for it.
+   */
+  private async resolveReviewedRun(
+    id: string,
+  ): Promise<
+    | { readonly runId: string; readonly agentId: string | null }
+    | { readonly refusal: 'ambiguous' }
+  > {
+    const subagentId = subagentRunId(id);
+    try {
+      const [subagent, lane] = await Promise.all([
+        this.store.get(subagentId),
+        this.store.findLatestByAgent(id),
+      ]);
+      if (subagent && lane && lane.runId !== subagentId)
+        return { refusal: 'ambiguous' };
+      const row = subagent ?? lane;
+      return row
+        ? { runId: row.runId, agentId: row.agentId }
+        : { runId: id, agentId: null };
+    } catch (error: unknown) {
+      // degradation-audit: reported - an unreadable store keeps the id as written; the review is held for that run
+      this.logger.warn('Reviewed run lookup failed', {
+        reviewedRunId: id,
+        code: errorCode(error),
+      });
+      return { runId: id, agentId: null };
+    }
   }
 
   /**
@@ -425,7 +459,12 @@ export class LaneOutcomeRecorder {
     role: string | null,
     brief: string | undefined,
   ): void {
-    if (!this.taskKindClassifier || !brief?.trim() || this.briefs.has(runId))
+    if (
+      !this.taskKindClassifier ||
+      !brief?.trim() ||
+      this.briefs.has(runId) ||
+      this.taskKindAttempted.has(runId)
+    )
       return;
     rememberBounded(this.briefs, runId, {
       runId,
@@ -453,11 +492,16 @@ export class LaneOutcomeRecorder {
       );
   }
 
-  /** At most one request per run: the brief is taken before the call. */
+  /**
+   * At most one request per run: the brief is taken and the run remembered
+   * before the call, so a repeated `subagentEnded` cannot classify it again.
+   */
   private classifyTaskKind(runId: string): void {
     const input = this.briefs.get(runId);
-    if (!input || !this.taskKindClassifier) return;
     this.briefs.delete(runId);
+    if (!input || !this.taskKindClassifier || this.taskKindAttempted.has(runId))
+      return;
+    rememberBounded(this.taskKindAttempted, runId, true);
     // degradation-audit: reported - classification is optional evidence; the row stays unclassified
     void this.taskKindClassifier
       .classify(input)

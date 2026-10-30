@@ -57,11 +57,20 @@ function warnDuringShutdown(
   }
 }
 
+/** Host toggles for {@link startLaneOutcomes}. */
+export interface StartLaneOutcomesOptions {
+  /**
+   * Also record `SdkAdapterEvents.subagentEnded`, the second subagent stop
+   * producer. Off by default; a host opts in from its composition root.
+   */
+  readonly observeSubagentEnded?: boolean;
+}
+
 /** Registers missing services, attaches SDK callbacks, and returns an awaited disposer. */
 export function startLaneOutcomes(
   container: DependencyContainer,
   logger: LaneOutcomeLogger,
-  options: { observeSubagentEnded?: boolean } = {},
+  options: StartLaneOutcomesOptions = {},
 ): () => Promise<void> {
   if (!container.isRegistered(LANE_OUTCOME_TOKENS.RECORDER))
     registerLaneOutcomeServices(container, logger);
@@ -182,7 +191,7 @@ function boundedDisposer(
 export function startAndRegisterLaneOutcomes(
   container: DependencyContainer,
   logger: LaneOutcomeLogger,
-  options: { observeSubagentEnded?: boolean } = {},
+  options: StartLaneOutcomesOptions = {},
 ): void {
   let drain: () => Promise<void> = async () => undefined;
   try {
