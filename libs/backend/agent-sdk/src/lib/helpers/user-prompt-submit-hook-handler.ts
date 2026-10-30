@@ -13,6 +13,7 @@ import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import { agentIdField } from './callback-registry.base';
 import { UserPromptSubmitCallbackRegistry } from './user-prompt-submit-callback-registry';
 import type { SubagentBudgetMonitor } from './compaction/subagent-budget-monitor';
+import type { NextTurnReminderQueue } from './next-turn-reminder.queue';
 
 /**
  * Upper bound for the pending-handoff pointer of one prompt. It backs the
@@ -55,6 +56,8 @@ export class UserPromptSubmitHookHandler {
       SubagentBudgetMonitor,
       'handoffPointer'
     >,
+    @inject(SDK_TOKENS.SDK_NEXT_TURN_REMINDER_QUEUE, { isOptional: true })
+    private readonly nextTurnReminderQueue?: Pick<NextTurnReminderQueue, 'take'>,
   ) {}
 
   createHooks(
@@ -88,10 +91,21 @@ export class UserPromptSubmitHookHandler {
               if (input.agent_id || !resolvedSessionId) {
                 return { continue: true };
               }
-              const additionalContext = await this.pointer(
+              let reminder: string | null = null;
+              try {
+                reminder = this.nextTurnReminderQueue?.take(resolvedSessionId) ?? null;
+              } catch (error: unknown) {
+                // degradation-audit: reported - an optional reminder failure cannot stop a prompt.
+                this.logger.warn(
+                  '[UserPromptSubmitHookHandler] Reminder drain failed, skipping',
+                  { errorType: callbackErrorType(error) },
+                );
+              }
+              const pointer = await this.pointer(
                 resolvedSessionId,
                 resolveHookCwd(input.cwd, cwd) ?? undefined,
               );
+              const additionalContext = [pointer, reminder].filter(Boolean).join('\n\n');
               return additionalContext
                 ? {
                     continue: true,

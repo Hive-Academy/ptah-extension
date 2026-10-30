@@ -49,6 +49,67 @@ function promptInput(extra: Record<string, unknown> = {}): HookInput {
 }
 
 describe('UserPromptSubmitHookHandler', () => {
+  describe('next-turn reminders', () => {
+    it('drains once on a main prompt and joins a handoff pointer with a blank line', async () => {
+      const logger = makeLogger();
+      const registry = new UserPromptSubmitCallbackRegistry(logger);
+      const take = jest.fn().mockReturnValueOnce('Routing: use the selected lane').mockReturnValue(null);
+      const handoffPointer = jest.fn().mockResolvedValue(POINTER);
+      const handler = new UserPromptSubmitHookHandler(logger, registry, { handoffPointer }, { take });
+      const fn = getHookCallback(handler, 'closure-sess', '/ws');
+
+      expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: `${POINTER}\n\nRouting: use the selected lane`,
+        },
+      });
+      expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: POINTER,
+        },
+      });
+      expect(take).toHaveBeenCalledTimes(2);
+      expect(take).toHaveBeenCalledWith('sdk-sess');
+    });
+
+    it('leaves an empty hook output unchanged and never drains subagent prompts', async () => {
+      const logger = makeLogger();
+      const take = jest.fn().mockReturnValue('Routing: pending');
+      const handler = new UserPromptSubmitHookHandler(
+        logger,
+        new UserPromptSubmitCallbackRegistry(logger),
+        undefined,
+        { take },
+      );
+      const fn = getHookCallback(handler, 'closure-sess', '/ws');
+      expect(await fn(promptInput({ agent_id: 'subagent' }), undefined, SIGNAL)).toEqual({ continue: true });
+      expect(take).not.toHaveBeenCalled();
+      take.mockReturnValue(null);
+      expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({ continue: true });
+    });
+
+    it('keeps the prompt running when the optional queue fails', async () => {
+      const logger = makeLogger();
+      const take = jest.fn(() => { throw new TypeError('secret reminder'); });
+      const handler = new UserPromptSubmitHookHandler(
+        logger,
+        new UserPromptSubmitCallbackRegistry(logger),
+        undefined,
+        { take },
+      );
+      const fn = getHookCallback(handler, 'closure-sess', '/ws');
+      expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({ continue: true });
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[UserPromptSubmitHookHandler] Reminder drain failed, skipping',
+        { errorType: 'TypeError' },
+      );
+    });
+  });
+
   it('happy path: validated UserPromptSubmit input → registry.notifyAll with mapped payload', async () => {
     const logger = makeLogger();
     const registry = new UserPromptSubmitCallbackRegistry(logger);
