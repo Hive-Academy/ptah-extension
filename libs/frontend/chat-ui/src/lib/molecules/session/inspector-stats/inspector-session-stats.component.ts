@@ -75,6 +75,12 @@ let nextSessionId = 0;
           >
             {{ s.context.label }}
           </div>
+          @if (s.compactionCount > 0) {
+            <p class="mt-0.5 text-[10.5px] text-base-content-muted">
+              {{ s.compactionCount }}
+              {{ s.compactionCount === 1 ? 'compaction' : 'compactions' }}
+            </p>
+          }
           @if (s.context.known && s.context.percent !== null) {
             <div
               class="mt-auto h-1 shrink-0 rounded-full bg-[var(--surface-border-strong)]"
@@ -97,12 +103,6 @@ let nextSessionId = 0;
                 [style.width.%]="clampPercent(s.context.percent)"
               ></span>
             </div>
-          }
-          @if (s.compactionCount > 0) {
-            <p class="mt-0.5 text-[10.5px] text-base-content-muted">
-              {{ s.compactionCount }}
-              {{ s.compactionCount === 1 ? 'compaction' : 'compactions' }}
-            </p>
           }
         </div>
         <div class="flex min-h-[3.75rem] min-w-0 flex-col border-l border-surface-border px-2">

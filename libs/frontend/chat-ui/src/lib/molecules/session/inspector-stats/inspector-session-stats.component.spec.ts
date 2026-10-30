@@ -96,6 +96,27 @@ describe(InspectorSessionStatsComponent.name, () => {
     expect(value.classList.contains('font-semibold')).toBe(true);
   });
 
+  it('keeps the context bar on the cell bottom edge when the session has compactions', () => {
+    TestBed.configureTestingModule({
+      imports: [InspectorSessionStatsComponent],
+      providers: [{ provide: ModelStateService, useValue: { availableModels: signal([]) } }],
+    });
+    const fixture = TestBed.createComponent(InspectorSessionStatsComponent);
+    const stats: SessionStatsInputs = {
+      sessionId: 'session-1', snapshot: null, cache: null, liveModelStats: null,
+      compactionCount: 2, limits: null, budget: null,
+      context: { hasLive: true, known: true, percent: 40, label: '40%', usedTokens: 80_000 },
+      limitSummary: { state: 'none', text: null, extra: 0, source: null, fullText: null },
+    };
+    fixture.componentRef.setInput('stats', stats);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const bar = root.querySelector('[data-testid="inspector-stats-grid"] [role="progressbar"]');
+    expect(bar?.previousElementSibling?.textContent).toContain('2 compactions');
+    expect(bar?.nextElementSibling).toBeNull();
+  });
+
   it('opens the Context details from its dotted label, under the totals row', () => {
     TestBed.configureTestingModule({
       imports: [InspectorSessionStatsComponent],
