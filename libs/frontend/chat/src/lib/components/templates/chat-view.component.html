@@ -108,6 +108,7 @@
           [resumableSubagents]="resolvedResumableSubagents()"
           (resumeRequested)="handleResumeAgent($event)"
           (resumeAllRequested)="handleResumeAllAgents($event)"
+          (dismissRequested)="handleDismissResumableAgents($event)"
         />
       </div>
 

@@ -63,27 +63,49 @@ import type {
   SubagentRecord,
 } from '@ptah-extension/shared';
 import {
-  blankToUndefined, isProviderAccountOpaqueId, isProviderAccountOwnerKey,
+  blankToUndefined,
+  isProviderAccountOpaqueId,
+  isProviderAccountOwnerKey,
   type ProviderAccountBinding,
 } from '@ptah-extension/shared';
 
 // Registry migration 58 uses zero-based epochs/revisions. Strict objects reject
 // accidental directory/identity fields instead of silently stripping them.
-const accountRevision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const accountBindingSchema = z.object({
-  version: z.literal(1), provider: z.literal('claude'),
-  profileId: z.string().refine(isProviderAccountOpaqueId),
-  runId: z.string().refine(isProviderAccountOpaqueId),
-  routeFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-  routeRevision: accountRevision, authEpoch: accountRevision,
-  identity: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('unknown') }).strict(),
-    z.object({ kind: z.literal('known'), ownerKey: z.string().refine(isProviderAccountOwnerKey) }).strict(),
-  ]),
-}).strict();
+const accountRevision = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(Number.MAX_SAFE_INTEGER);
+const accountBindingSchema = z
+  .object({
+    version: z.literal(1),
+    provider: z.literal('claude'),
+    profileId: z.string().refine(isProviderAccountOpaqueId),
+    runId: z.string().refine(isProviderAccountOpaqueId),
+    routeFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    routeRevision: accountRevision,
+    authEpoch: accountRevision,
+    identity: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('unknown') }).strict(),
+      z
+        .object({
+          kind: z.literal('known'),
+          ownerKey: z.string().refine(isProviderAccountOwnerKey),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
 
 export class SessionAccountBindingError extends Error {
-  constructor(readonly code: 'invalid-bound' | 'binding-conflict' | 'linkage-incomplete' | 'identity-unproved' | 'unavailable-storage') {
+  constructor(
+    readonly code:
+      | 'invalid-bound'
+      | 'binding-conflict'
+      | 'linkage-incomplete'
+      | 'identity-unproved'
+      | 'unavailable-storage',
+  ) {
     super(`Session account linkage refused: ${code}`);
     this.name = 'SessionAccountBindingError';
   }
@@ -97,7 +119,10 @@ export type SessionAccountBindingLookup =
 function parseSessionAccountBinding(value: unknown): ProviderAccountBinding {
   const parsed = accountBindingSchema.safeParse(value);
   if (!parsed.success) throw new SessionAccountBindingError('invalid-bound');
-  return Object.freeze({ ...parsed.data, identity: Object.freeze(parsed.data.identity) });
+  return Object.freeze({
+    ...parsed.data,
+    identity: Object.freeze(parsed.data.identity),
+  });
 }
 
 function validateAccountLinkage(value: unknown): SessionMetadata {
@@ -105,8 +130,12 @@ function validateAccountLinkage(value: unknown): SessionMetadata {
     throw new SessionAccountBindingError('invalid-bound');
   }
   const metadata = value as SessionMetadata;
-  if (!Object.prototype.hasOwnProperty.call(metadata, 'accountBinding')) return metadata;
-  return { ...metadata, accountBinding: parseSessionAccountBinding(metadata.accountBinding) };
+  if (!Object.prototype.hasOwnProperty.call(metadata, 'accountBinding'))
+    return metadata;
+  return {
+    ...metadata,
+    accountBinding: parseSessionAccountBinding(metadata.accountBinding),
+  };
 }
 
 /**
@@ -116,15 +145,32 @@ function validateAccountLinkage(value: unknown): SessionMetadata {
  */
 function listAccountLinkage(value: unknown): SessionMetadata {
   const metadata = value as SessionMetadata;
-  if (typeof value !== 'object' || value === null || Array.isArray(value) ||
-      !Object.prototype.hasOwnProperty.call(metadata, 'accountBinding')) return metadata;
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    !Object.prototype.hasOwnProperty.call(metadata, 'accountBinding')
+  )
+    return metadata;
   const parsed = accountBindingSchema.safeParse(metadata.accountBinding);
   if (!parsed.success) return metadata;
-  return { ...metadata, accountBinding: Object.freeze({ ...parsed.data, identity: Object.freeze(parsed.data.identity) }) };
+  return {
+    ...metadata,
+    accountBinding: Object.freeze({
+      ...parsed.data,
+      identity: Object.freeze(parsed.data.identity),
+    }),
+  };
 }
 
-function sameAccountBinding(left: ProviderAccountBinding, right: ProviderAccountBinding): boolean {
-  return JSON.stringify(parseSessionAccountBinding(left)) === JSON.stringify(parseSessionAccountBinding(right));
+function sameAccountBinding(
+  left: ProviderAccountBinding,
+  right: ProviderAccountBinding,
+): boolean {
+  return (
+    JSON.stringify(parseSessionAccountBinding(left)) ===
+    JSON.stringify(parseSessionAccountBinding(right))
+  );
 }
 
 /**
@@ -190,6 +236,15 @@ export interface SessionMetadata {
    * Rival CLI/background/running/completed records never belong here.
    */
   readonly resumableSdkSubagents?: readonly SubagentRecord[];
+
+  /**
+   * Task tool_use ids of interrupted SDK subagents already described to the
+   * model once (or found to have no transcript). They are retired for good:
+   * never part of {@link resumableSdkSubagents} again, and chat:resume marks
+   * them injected before replaying history so the history registrar cannot
+   * re-register them after a restart.
+   */
+  readonly retiredSubagentToolCallIds?: readonly string[];
 
   /** When true, this session is a child/subagent session (e.g., Ptah CLI agent spawned
    *  by a parent orchestrator). Child sessions are hidden from the sidebar session list. */
@@ -384,6 +439,27 @@ function preservedIndexEntry(metadata: SessionMetadata): SessionMetadata {
 }
 
 /** A session as a global-store row. */
+/**
+ * Whether a record belongs in a session's durable resume snapshot: an
+ * interrupted foreground SDK subagent of this canonical session, with the ids
+ * resume needs, that has not been retired.
+ */
+function isDurableResumable(
+  record: SubagentRecord,
+  sessionId: string,
+  retired: ReadonlySet<string>,
+): boolean {
+  return (
+    record.status === 'interrupted' &&
+    record.parentSessionId === sessionId &&
+    !record.isBackground &&
+    !record.isCliAgent &&
+    blankToUndefined(record.toolCallId) !== undefined &&
+    blankToUndefined(record.agentId) !== undefined &&
+    !retired.has(record.toolCallId)
+  );
+}
+
 export function toSessionRecordInput(
   detail: SessionMetadata,
 ): SessionRecordInput {
@@ -729,20 +805,35 @@ export class SessionMetadataStore {
    * This writes metadata only; callers must commit/attach the registry binding
    * first and must not admit a query until both checkpoints have succeeded.
    */
-  async saveAccountBound(metadata: SessionMetadata, binding: ProviderAccountBinding): Promise<void> {
+  async saveAccountBound(
+    metadata: SessionMetadata,
+    binding: ProviderAccountBinding,
+  ): Promise<void> {
     const accountBinding = parseSessionAccountBinding(binding);
-    if (Object.prototype.hasOwnProperty.call(metadata, 'accountBinding') &&
-        !sameAccountBinding(parseSessionAccountBinding(metadata.accountBinding), accountBinding)) {
+    if (
+      Object.prototype.hasOwnProperty.call(metadata, 'accountBinding') &&
+      !sameAccountBinding(
+        parseSessionAccountBinding(metadata.accountBinding),
+        accountBinding,
+      )
+    ) {
       throw new SessionAccountBindingError('binding-conflict');
     }
     await this.save({ ...metadata, accountBinding });
   }
 
   /** Use before import's existing-record shortcut, so a collision cannot be skipped. */
-  async getAccountBound(sessionId: string, binding: ProviderAccountBinding): Promise<SessionMetadata | null> {
+  async getAccountBound(
+    sessionId: string,
+    binding: ProviderAccountBinding,
+  ): Promise<SessionMetadata | null> {
     const expected = parseSessionAccountBinding(binding);
     const existing = await this.get(sessionId);
-    if (existing && (!existing.accountBinding || !sameAccountBinding(existing.accountBinding, expected))) {
+    if (
+      existing &&
+      (!existing.accountBinding ||
+        !sameAccountBinding(existing.accountBinding, expected))
+    ) {
       throw new SessionAccountBindingError('binding-conflict');
     }
     return existing;
@@ -757,20 +848,26 @@ export class SessionMetadataStore {
     lookup: (sdkSessionId: string) => Promise<SessionAccountBindingLookup>,
   ): Promise<ProviderAccountBinding | null> {
     const authoritative = await lookup(sessionId);
-    if (authoritative.status === 'unavailable-storage' || authoritative.status === 'invalid-bound') {
+    if (
+      authoritative.status === 'unavailable-storage' ||
+      authoritative.status === 'invalid-bound'
+    ) {
       throw new SessionAccountBindingError(authoritative.status);
     }
     const metadata = await this.get(sessionId);
     if (authoritative.status !== 'bound') {
-      if (metadata?.accountBinding) throw new SessionAccountBindingError('invalid-bound');
+      if (metadata?.accountBinding)
+        throw new SessionAccountBindingError('invalid-bound');
       return null;
     }
     const binding = parseSessionAccountBinding(authoritative.binding);
-    if (!metadata?.accountBinding) throw new SessionAccountBindingError('linkage-incomplete');
+    if (!metadata?.accountBinding)
+      throw new SessionAccountBindingError('linkage-incomplete');
     if (!sameAccountBinding(metadata.accountBinding, binding)) {
       throw new SessionAccountBindingError('binding-conflict');
     }
-    if (binding.identity.kind === 'unknown') throw new SessionAccountBindingError('identity-unproved');
+    if (binding.identity.kind === 'unknown')
+      throw new SessionAccountBindingError('identity-unproved');
     return binding;
   }
 
@@ -785,13 +882,19 @@ export class SessionMetadataStore {
   ): Promise<void> {
     metadata = validateAccountLinkage(metadata);
     const existing = await this.get(metadata.sessionId);
-    if (metadata.accountBinding && existing &&
-        (!existing.accountBinding || !sameAccountBinding(existing.accountBinding, metadata.accountBinding))) {
+    if (
+      metadata.accountBinding &&
+      existing &&
+      (!existing.accountBinding ||
+        !sameAccountBinding(existing.accountBinding, metadata.accountBinding))
+    ) {
       throw new SessionAccountBindingError('binding-conflict');
     }
     const merged: SessionMetadata = {
       ...metadata,
-      ...(existing?.accountBinding ? { accountBinding: existing.accountBinding } : {}),
+      ...(existing?.accountBinding
+        ? { accountBinding: existing.accountBinding }
+        : {}),
       ...(existing?.isChildSession && !metadata.isChildSession
         ? { isChildSession: true }
         : {}),
@@ -807,9 +910,14 @@ export class SessionMetadataStore {
       metadata.resumableSdkSubagents === undefined
         ? { resumableSdkSubagents: existing.resumableSdkSubagents }
         : {}),
+      ...(existing?.retiredSubagentToolCallIds &&
+      metadata.retiredSubagentToolCallIds === undefined
+        ? { retiredSubagentToolCallIds: existing.retiredSubagentToolCallIds }
+        : {}),
     };
     if (this.isForeignWorkspace(merged.workspaceId)) {
-      if (merged.accountBinding) throw new SessionAccountBindingError('unavailable-storage');
+      if (merged.accountBinding)
+        throw new SessionAccountBindingError('unavailable-storage');
       if (!this.strays.has(merged.sessionId)) {
         this.logger.info(
           '[SessionMetadataStore] Session belongs to an inactive workspace; keeping its metadata in memory until that workspace is active',
@@ -936,10 +1044,12 @@ export class SessionMetadataStore {
       await this.gate?.whenReady();
       const record = await this.records.get(sessionId);
       return record
-        ? validateAccountLinkage(omitJsonPaths(
-            validateAccountLinkage(record.detail),
-            DETAIL_PROJECTION.omit,
-          ))
+        ? validateAccountLinkage(
+            omitJsonPaths(
+              validateAccountLinkage(record.detail),
+              DETAIL_PROJECTION.omit,
+            ),
+          )
         : null;
     }
     if (isAsyncStateStorage(this.storage)) {
@@ -952,7 +1062,9 @@ export class SessionMetadataStore {
     }
     const all = await this.getAll();
     const summary = all.find((m) => m.sessionId === sessionId);
-    return summary ? validateAccountLinkage(omitJsonPaths(summary, DETAIL_PROJECTION.omit)) : null;
+    return summary
+      ? validateAccountLinkage(omitJsonPaths(summary, DETAIL_PROJECTION.omit))
+      : null;
   }
 
   /**
@@ -978,16 +1090,9 @@ export class SessionMetadataStore {
         return;
       }
 
+      const retired = new Set(metadata.retiredSubagentToolCallIds ?? []);
       const resumableSdkSubagents = state.resumableSdkSubagents
-        .filter(
-          (record) =>
-            record.status === 'interrupted' &&
-            record.parentSessionId === sessionId &&
-            !record.isBackground &&
-            !record.isCliAgent &&
-            blankToUndefined(record.toolCallId) !== undefined &&
-            blankToUndefined(record.agentId) !== undefined,
-        )
+        .filter((record) => isDurableResumable(record, sessionId, retired))
         .map((record) => ({ ...record }));
 
       await this._saveInternal({
@@ -996,6 +1101,79 @@ export class SessionMetadataStore {
           ? { workingDirectory: state.workingDirectory }
           : {}),
         resumableSdkSubagents,
+      });
+    });
+  }
+
+  /**
+   * Record dismissed interrupted subagents in the durable resume snapshot.
+   *
+   * Upserts by toolCallId with `dismissed: true` instead of replacing the
+   * list, so a snapshot the registry never restored in this process is not
+   * wiped. A record that was only ever known from history lands in the
+   * snapshot here, which is what keeps it dismissed after a restart: the
+   * snapshot is restored before history is replayed, and replay skips ids the
+   * registry already holds.
+   */
+  async dismissResumableSubagents(
+    sessionId: string,
+    records: readonly SubagentRecord[],
+  ): Promise<void> {
+    await this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (!metadata) {
+        this.logger.warn(
+          `[SessionMetadataStore] Cannot save dismissed subagents for missing session ${sessionId}`,
+        );
+        return;
+      }
+      const retired = new Set(metadata.retiredSubagentToolCallIds ?? []);
+      const byId = new Map(
+        (metadata.resumableSdkSubagents ?? []).map((record) => [
+          record.toolCallId,
+          record,
+        ]),
+      );
+      for (const record of records) {
+        if (!isDurableResumable(record, sessionId, retired)) continue;
+        byId.set(record.toolCallId, { ...record, dismissed: true });
+      }
+      await this._saveInternal({
+        ...metadata,
+        resumableSdkSubagents: Array.from(byId.values()),
+      });
+    });
+  }
+
+  /**
+   * Retire interrupted subagents for good: drop them from the durable resume
+   * snapshot and remember their ids, so neither the snapshot nor history
+   * replay brings them back after a restart. Does not replace the rest of the
+   * snapshot.
+   */
+  async retireResumableSubagents(
+    sessionId: string,
+    toolCallIds: readonly string[],
+  ): Promise<void> {
+    if (toolCallIds.length === 0) return;
+    await this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (!metadata) {
+        this.logger.warn(
+          `[SessionMetadataStore] Cannot retire subagents for missing session ${sessionId}`,
+        );
+        return;
+      }
+      const retired = new Set([
+        ...(metadata.retiredSubagentToolCallIds ?? []),
+        ...toolCallIds.filter((id) => blankToUndefined(id) !== undefined),
+      ]);
+      await this._saveInternal({
+        ...metadata,
+        resumableSdkSubagents: (metadata.resumableSdkSubagents ?? []).filter(
+          (record) => !retired.has(record.toolCallId),
+        ),
+        retiredSubagentToolCallIds: Array.from(retired),
       });
     });
   }
@@ -1041,7 +1219,8 @@ export class SessionMetadataStore {
       const rows = await this.records.listAll({ includeChildren: true });
       return rows.map((r) => listAccountLinkage(r.summary));
     }
-    if (this.pendingAll) return this.withStrays([...this.pendingAll]).map(listAccountLinkage);
+    if (this.pendingAll)
+      return this.withStrays([...this.pendingAll]).map(listAccountLinkage);
     // Copied, not handed through. `_saveInternal` replaces entries in what it
     // gets back, and `IStateStorage.get` returns the adapter's own cached
     // array (`vscode.Memento` included) — so returning it directly let a

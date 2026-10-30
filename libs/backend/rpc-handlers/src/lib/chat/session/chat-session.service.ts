@@ -319,7 +319,9 @@ export class ChatSessionService {
     private readonly turnAttribution: HarnessProposalTurnAttributionService | null = null,
     @inject(ProviderAccountService, { isOptional: true })
     private readonly accounts?: ProviderAccountService,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER, { isOptional: true })
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER, {
+      isOptional: true,
+    })
     private readonly activeProvider?: ActiveProviderResolver,
   ) {
     this.subscribeToMcpStatus();
@@ -360,13 +362,65 @@ export class ChatSessionService {
   /** Persist resume continuity whenever any SDK lifecycle path ends a session. */
   private subscribeToSessionEnd(): void {
     this.sessionEndEvents.register(({ sessionId, workspaceRoot }) => {
-      const resumableSdkSubagents =
-        this.subagentRegistry.getResumableBySession(sessionId);
-      return this.sessionMetadataStore.saveResumeState(sessionId, {
-        workingDirectory: workspaceRoot,
-        resumableSdkSubagents,
-      });
+      // `notifyAll` does not await subscribers, and shutdown flushes the
+      // metadata write queue right after it. So in the normal case (the
+      // registry already holds the session's durable state: a new session,
+      // or one chat:resume / chat:continue loaded) the write is queued
+      // synchronously, before this callback returns.
+      if (this.subagentRegistry.isResumeStateHydrated(sessionId)) {
+        return this.saveSessionEndResumeState(sessionId, workspaceRoot);
+      }
+      // Cold registry: `saveResumeState` REPLACES the durable list, so load it
+      // first. If it cannot be loaded, the stored list is left as it is rather
+      // than overwritten by a partial one.
+      return this.ensureResumeStateHydrated(sessionId).then((hydrated) =>
+        hydrated
+          ? this.saveSessionEndResumeState(sessionId, workspaceRoot)
+          : undefined,
+      );
     });
+  }
+
+  /** Queue the session-end write of the durable resume state. */
+  private saveSessionEndResumeState(
+    sessionId: string,
+    workspaceRoot: string,
+  ): Promise<void> {
+    // Dismissed records are still owed one injection, so they stay durable.
+    return this.sessionMetadataStore.saveResumeState(sessionId, {
+      workingDirectory: workspaceRoot,
+      resumableSdkSubagents:
+        this.subagentRegistry.getInterruptedBySession(sessionId),
+    });
+  }
+
+  /**
+   * Load the session's durable resume state (retired ids and the interrupted
+   * subagent snapshot) into the registry once per process. chat:resume does
+   * this as part of loading history; chat:continue, session end and abort
+   * call this so they never act on, or persist, a registry that has not seen
+   * the snapshot (a follow-up sent after a restart, before chat:resume).
+   *
+   * @returns Whether the registry now holds the session's durable state. A
+   *   failed metadata read is logged and answers `false`; callers then skip
+   *   anything that would replace the durable list.
+   */
+  private async ensureResumeStateHydrated(sessionId: string): Promise<boolean> {
+    if (this.subagentRegistry.isResumeStateHydrated(sessionId)) return true;
+    try {
+      const metadata = await this.sessionMetadataStore.get(sessionId);
+      this.subagentRegistry.hydrateResumeState(sessionId, {
+        retiredToolCallIds: metadata?.retiredSubagentToolCallIds,
+        resumableSdkSubagents: metadata?.resumableSdkSubagents,
+      });
+      return true;
+    } catch (error) {
+      this.logger.error(
+        '[RPC] Could not load durable subagent resume state',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return false;
+    }
   }
 
   /** Push one session's MCP picture. Never throws into the SDK's path. */
@@ -488,14 +542,17 @@ export class ChatSessionService {
     const preparation = prepare();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadlinePassed = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => {
-        preparation.catch(() => {
-          this.logger.warn(
-            '[RPC] named launch preparation failed after the admission deadline',
-          );
-        });
-        reject(namedPreparationRefusal());
-      }, Math.max(0, deadline - Date.now()));
+      timer = setTimeout(
+        () => {
+          preparation.catch(() => {
+            this.logger.warn(
+              '[RPC] named launch preparation failed after the admission deadline',
+            );
+          });
+          reject(namedPreparationRefusal());
+        },
+        Math.max(0, deadline - Date.now()),
+      );
     });
     try {
       const prepared = await Promise.race([preparation, deadlinePassed]);
@@ -589,7 +646,9 @@ export class ChatSessionService {
     };
   }
 
-  async startSession(params: ChatStartParams & MainSessionAccountSelection): Promise<ChatStartResult> {
+  async startSession(
+    params: ChatStartParams & MainSessionAccountSelection,
+  ): Promise<ChatStartResult> {
     const admissionDeadline = namedAdmissionDeadline();
     try {
       const { prompt, tabId, options, name } = params;
@@ -665,7 +724,10 @@ export class ChatSessionService {
         });
         return { success: true };
       }
-      const accountSelection = await this.gateAccount({ workspacePath, accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({
+        workspacePath,
+        accountSelection: params.accountSelection,
+      });
       let mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
       this.logger.info('[ptah.main] chat:start - session config', {
@@ -746,7 +808,9 @@ export class ChatSessionService {
    */
   async startAgentChildSession(
     params: AgentChildSessionStartParams,
-  ): Promise<ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>> {
+  ): Promise<
+    ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>
+  > {
     const { tabId, workspaceRoot, worktreePath, prompt, sessionName, model } =
       params;
     try {
@@ -758,8 +822,12 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
-      const accountSelection = await this.gateAccount({ workspacePath: workspaceRoot,
-        sessionId: params.sourceSessionId, inheritedSource: true, accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({
+        workspacePath: workspaceRoot,
+        sessionId: params.sourceSessionId,
+        inheritedSource: true,
+        accountSelection: params.accountSelection,
+      });
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       const permissionLevel = this.childPermissionLevel(params.permissionLevel);
       this.logger.info('[ptah.main] agent child session - session config', {
@@ -841,7 +909,9 @@ export class ChatSessionService {
    */
   async startHandoffSession(
     params: HandoffSessionStartParams,
-  ): Promise<ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>> {
+  ): Promise<
+    ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>
+  > {
     const { tabId, workspaceRoot, cwd, prompt, sessionName, model } = params;
     const { permissionLevel } = params;
     try {
@@ -853,8 +923,12 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
-      const accountSelection = await this.gateAccount({ workspacePath: workspaceRoot,
-        sessionId: params.sourceSessionId, inheritedSource: true, accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({
+        workspacePath: workspaceRoot,
+        sessionId: params.sourceSessionId,
+        inheritedSource: true,
+        accountSelection: params.accountSelection,
+      });
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       this.logger.info('[ptah.main] handoff session - session config', {
         tabId,
@@ -997,9 +1071,10 @@ export class ChatSessionService {
         // Spreads to at most one field — `outputStyleName` for the flag tier or
         // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
         // both (R3 / Req 5.3).
-        const outputStyle = await this.outputStyleActivation.resolveSessionFields({
-          workspaceRoot: workspaceId,
-        });
+        const outputStyle =
+          await this.outputStyleActivation.resolveSessionFields({
+            workspaceRoot: workspaceId,
+          });
         return {
           enhancedPromptsContent,
           mcpServersOverride,
@@ -1039,7 +1114,10 @@ export class ChatSessionService {
         : {}),
       // Named only; the ambient launch config keeps its existing fields.
       ...(input.accountSelection
-        ? { accountSelection: input.accountSelection, admissionDeadline: input.admissionDeadline }
+        ? {
+            accountSelection: input.accountSelection,
+            admissionDeadline: input.admissionDeadline,
+          }
         : {}),
     });
     this.streamBroadcaster.streamEventsToWebview(
@@ -1069,7 +1147,10 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
-      await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+      await this.gateAccount({
+        sessionId,
+        accountSelection: params.accountSelection,
+      });
       // The session's own folder, never `params.workspacePath` or the active
       // root: with several projects open those name another repo (PTAH-37).
       const workspacePath =
@@ -1151,46 +1232,60 @@ export class ChatSessionService {
       if (slashResult) {
         return slashResult;
       }
-      const { prompt: enhancedPrompt } =
+      // After a restart the session's interrupted agents may live only in
+      // metadata (no chat:resume yet); load them before deciding what to inject.
+      await this.ensureResumeStateHydrated(sessionId);
+      const injection =
         await this.subagentContextInjector.injectInterruptedAgentsContext(
           prompt,
           sessionId,
           workspacePath,
         );
-      if (!justResumed && hasStopIntent(prompt)) {
-        const autopilotEnabled = this.configManager.getWithDefault<boolean>(
-          'autopilot.enabled',
-          false,
-        );
-        const permissionLevel = this.configManager.getWithDefault<string>(
-          'autopilot.permissionLevel',
-          'ask',
-        );
-        if (
-          autopilotEnabled &&
-          (permissionLevel === 'yolo' || permissionLevel === 'auto-edit')
-        ) {
-          this.logger.info(
-            'RPC: chat:continue - stop intent detected, interrupting current turn',
-            { sessionId, permissionLevel, prompt: prompt.substring(0, 80) },
+      const enhancedPrompt = injection.prompt;
+      // Injected agents are retired only once the prompt was accepted. Any
+      // early return or throw below hands them back, still resumable.
+      let sent = false;
+      try {
+        if (!justResumed && hasStopIntent(prompt)) {
+          const autopilotEnabled = this.configManager.getWithDefault<boolean>(
+            'autopilot.enabled',
+            false,
           );
-          const interrupted =
-            await this.sdkAdapter.interruptCurrentTurn(sessionId);
-          if (!interrupted) {
-            return {
-              success: false,
-              error:
-                'The current turn could not be interrupted safely. Your follow-up was not sent. Retry to resume the session.',
-            };
+          const permissionLevel = this.configManager.getWithDefault<string>(
+            'autopilot.permissionLevel',
+            'ask',
+          );
+          if (
+            autopilotEnabled &&
+            (permissionLevel === 'yolo' || permissionLevel === 'auto-edit')
+          ) {
+            this.logger.info(
+              'RPC: chat:continue - stop intent detected, interrupting current turn',
+              { sessionId, permissionLevel, prompt: prompt.substring(0, 80) },
+            );
+            const interrupted =
+              await this.sdkAdapter.interruptCurrentTurn(sessionId);
+            if (!interrupted) {
+              return {
+                success: false,
+                error:
+                  'The current turn could not be interrupted safely. Your follow-up was not sent. Retry to resume the session.',
+              };
+            }
           }
         }
+        const images = params.images ?? [];
+        await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
+          files,
+          images,
+          clientMessageId: params.clientMessageId,
+        });
+        sent = true;
+      } finally {
+        if (!sent) injection.release();
       }
-      const images = params.images ?? [];
-      await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
-        files,
-        images,
-        clientMessageId: params.clientMessageId,
-      });
+      // Only now has the model actually been told about them.
+      await injection.commit();
 
       return { success: true, sessionId, enqueued: true };
     } catch (error) {
@@ -1226,12 +1321,17 @@ export class ChatSessionService {
    * transcript in the reply (TASK_2026_437 INV-9) — plus aggregated usage
    * stats, resumable subagents, and any CLI session references.
    */
-  async resumeSession(params: ChatResumeParams & MainSessionAccountSelection): Promise<ChatResumeResult> {
+  async resumeSession(
+    params: ChatResumeParams & MainSessionAccountSelection,
+  ): Promise<ChatResumeResult> {
     const admissionDeadline = namedAdmissionDeadline();
     try {
       const { sessionId } = params;
       if (!params.ptahCliId) {
-        await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+        await this.gateAccount({
+          sessionId,
+          accountSelection: params.accountSelection,
+        });
       }
       const metadata = await this.sessionMetadataStore.get(sessionId);
       const result = await this.historyRead.readForResume(sessionId, {
@@ -1259,11 +1359,19 @@ export class ChatSessionService {
       // Recompute the stage from the resume figure (N7); no stats, no budget.
       const budget = this.sessionBudget?.observeLoaded(stats ?? null);
 
-      const restoredFromMetadata =
-        this.subagentRegistry.restoreResumableBySession(
-          sessionId,
-          metadata?.resumableSdkSubagents ?? [],
-        );
+      // Retired agents were already described to the model once; hydration
+      // marks them before restoring the snapshot or replaying history. The
+      // in-memory injected set does not survive a restart, and the history
+      // registrar would otherwise re-register them from their unmatched
+      // agent_start events. Always re-applied here (not only once per
+      // process): the injected set is TTL-pruned.
+      const restoredFromMetadata = this.subagentRegistry.hydrateResumeState(
+        sessionId,
+        {
+          retiredToolCallIds: metadata?.retiredSubagentToolCallIds,
+          resumableSdkSubagents: metadata?.resumableSdkSubagents,
+        },
+      );
       if (restoredFromMetadata > 0) {
         this.logger.info(
           '[RPC] Restored interrupted SDK agents from session metadata',
@@ -1283,8 +1391,6 @@ export class ChatSessionService {
           registeredCount: registeredFromHistory,
         });
       }
-      const resumableSubagents =
-        this.subagentRegistry.getResumableBySession(sessionId);
       let cliSessions: CliSessionReference[] | undefined;
       try {
         // Lean references only (TASK_2026_411): no segments or stream events.
@@ -1319,7 +1425,8 @@ export class ChatSessionService {
         eventCount: fullEvents.length,
         hasStats: !!stats,
         totalCost: stats?.totalCost,
-        resumableSubagentCount: resumableSubagents.length,
+        resumableSubagentCount:
+          this.subagentRegistry.getResumableBySession(sessionId).length,
         cliSessionCount: cliSessions?.length ?? 0,
       });
       let activated = false;
@@ -1364,6 +1471,10 @@ export class ChatSessionService {
         }
       }
 
+      // Read after every await above, so a dismiss (or an injection by a
+      // concurrent chat:continue) that landed meanwhile is respected.
+      const resumableSubagents =
+        this.subagentRegistry.getResumableBySession(sessionId);
       const page = params.historyPage
         ? selectHistoryPage(fullEvents, {
             endIndex: fullEvents.length,
@@ -1460,9 +1571,16 @@ export class ChatSessionService {
       // nothing changed this call, and the registry may simply never have
       // restored that list (a tab restored after a restart and closed
       // unopened), so writing its snapshot would wipe resumable agents.
-      if (hadLiveRecord) {
+      // Dismissed records are hidden from the reply below but still owed one
+      // injection, so the durable list keeps them.
+      if (
+        hadLiveRecord &&
+        (await this.ensureResumeStateHydrated(sessionId as string))
+      ) {
         await this.sessionMetadataStore.saveResumeState(sessionId, {
-          resumableSdkSubagents: resumableSubagents,
+          resumableSdkSubagents: this.subagentRegistry.getInterruptedBySession(
+            sessionId as string,
+          ),
         });
       }
 
@@ -1568,15 +1686,24 @@ export class ChatSessionService {
   ): Promise<
     | { alreadyActive: true }
     | { resumed: true }
-    | { resumed: false; error: string;
-        accountRefusal?: NonNullable<ReturnType<typeof mainSessionAccountFailure>>['accountRefusal'] }
+    | {
+        resumed: false;
+        error: string;
+        accountRefusal?: NonNullable<
+          ReturnType<typeof mainSessionAccountFailure>
+        >['accountRefusal'];
+      }
   > {
     try {
       await this.gateAccount({ sessionId });
     } catch (error: unknown) {
       const refusal = mainSessionAccountFailure(error);
       if (!refusal) throw error;
-      return { resumed: false, error: refusal.error, accountRefusal: refusal.accountRefusal };
+      return {
+        resumed: false,
+        error: refusal.error,
+        accountRefusal: refusal.accountRefusal,
+      };
     }
     if (this.hasLiveSessionStream(sessionId, tabId)) {
       return { alreadyActive: true };
@@ -1647,7 +1774,10 @@ export class ChatSessionService {
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
     let accountSelection: ResolvedMainAccountSelection | undefined;
     try {
-      accountSelection = await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+      accountSelection = await this.gateAccount({
+        sessionId,
+        accountSelection: params.accountSelection,
+      });
     } catch (error: unknown) {
       const refusal = mainSessionAccountFailure(error);
       if (!refusal) throw error;
@@ -1894,22 +2024,51 @@ export class ChatSessionService {
   }
 
   private async gateAccount(
-    input: MainSessionAccountSelection & { workspacePath?: string; sessionId?: string; inheritedSource?: boolean },
+    input: MainSessionAccountSelection & {
+      workspacePath?: string;
+      sessionId?: string;
+      inheritedSource?: boolean;
+    },
   ): Promise<ResolvedMainAccountSelection | undefined> {
     // A separate child/handoff inherits only on the native Claude route.
     // Resume/fork/rewind calls are not inherited launches and must always
     // validate their original binding, irrespective of today's provider.
-    if (input.inheritedSource && input.sessionId && input.workspacePath && this.activeProvider &&
-        this.activeProvider.resolveActiveAuthForPath(input.workspacePath).authMethod !== 'claudeCli') {
-      return gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
-        metadata: this.sessionMetadataStore }, { workspacePath: input.workspacePath,
-        accountSelection: input.accountSelection });
+    if (
+      input.inheritedSource &&
+      input.sessionId &&
+      input.workspacePath &&
+      this.activeProvider &&
+      this.activeProvider.resolveActiveAuthForPath(input.workspacePath)
+        .authMethod !== 'claudeCli'
+    ) {
+      return gateMainSessionAccount(
+        {
+          accounts: this.accounts,
+          activeProvider: this.activeProvider,
+          metadata: this.sessionMetadataStore,
+        },
+        {
+          workspacePath: input.workspacePath,
+          accountSelection: input.accountSelection,
+        },
+      );
     }
     // Fresh ambient hosts retain their call sequence. Existing sessions still
     // inspect local linkage if the authoritative account service is unavailable.
-    if (!this.accounts && input.accountSelection === undefined && !input.sessionId) return undefined;
-    return gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
-      metadata: this.sessionMetadataStore }, input);
+    if (
+      !this.accounts &&
+      input.accountSelection === undefined &&
+      !input.sessionId
+    )
+      return undefined;
+    return gateMainSessionAccount(
+      {
+        accounts: this.accounts,
+        activeProvider: this.activeProvider,
+        metadata: this.sessionMetadataStore,
+      },
+      input,
+    );
   }
 
   /** Per-method Sentry capture (each method result-shapes its failures, so the handler's `runRpc` won't see them). */

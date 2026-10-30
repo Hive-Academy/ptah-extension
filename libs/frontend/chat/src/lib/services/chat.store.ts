@@ -17,6 +17,7 @@ import type {
   SdkTurnEndedPayload,
   SdkTurnFailedPayload,
   SessionStatsLiveWire,
+  SubagentRecord,
 } from '@ptah-extension/shared';
 import {
   SessionManager,
@@ -289,6 +290,11 @@ export class ChatStore {
 
   removeResumableSubagent(toolCallId: string): void {
     this.sessionLoader.removeResumableSubagent(toolCallId);
+  }
+
+  /** Dismiss interrupted subagents for good. Delegates to SessionLoaderService. */
+  dismissResumableSubagents(agents: SubagentRecord[]): Promise<void> {
+    return this.sessionLoader.dismissResumableSubagents(agents);
   }
 
   /** License status fetch with retry. Delegates to ChatLifecycleService. */

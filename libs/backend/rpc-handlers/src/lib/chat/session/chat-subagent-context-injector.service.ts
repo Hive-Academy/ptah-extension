@@ -10,10 +10,11 @@
  * session (`resume: sessionId`, which chat:continue already does) and
  * instructing the model in plain text to resume the agent by its agentId.
  *
- * Injection is non-destructive: records stay in the registry until a resume
- * is observed (SubagentStart with the same agentId supersedes the record) or
- * MAX_INJECTION_ATTEMPTS unconsumed injections pass, after which the record
- * is dropped as abandoned.
+ * Injection is one-shot: a record described to the model once is retired for
+ * good, in the registry and in the session's durable resume snapshot, so
+ * neither a session switch nor a restart offers it again. Records the user
+ * dismissed are included — dismissing hides them from the webview but the
+ * model still hears about them this one time.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -28,11 +29,16 @@ import {
   computeSubagentCacheState,
   resolveSubagentPromptCacheTtl,
 } from '@ptah-extension/shared';
-import type { SessionId, SubagentCacheInfo } from '@ptah-extension/shared';
+import type {
+  SessionId,
+  SubagentCacheInfo,
+  SubagentRecord,
+} from '@ptah-extension/shared';
 
 import {
   SDK_TOKENS,
   adviseSubagentResume,
+  type SessionMetadataStore,
   type CompactionConfigProvider,
   type SubagentBudgetMonitor,
   type SubagentResumeAdvice,
@@ -54,13 +60,22 @@ export interface SubagentContextInjectionResult {
    * with an on-disk transcript was found and watchers were pre-warmed).
    */
   injected: boolean;
+  /**
+   * Retire the injected agents for good (registry and durable snapshot).
+   * Call once the prompt was accepted by the session. Never throws.
+   */
+  commit(): Promise<void>;
+  /**
+   * Give the injected agents back, still resumable, when the prompt was not
+   * sent. A no-op after {@link commit}.
+   */
+  release(): void;
 }
 
-/**
- * Maximum number of chat:continue prompts a record's context is injected
- * into before the record is treated as abandoned and removed.
- */
-export const MAX_INJECTION_ATTEMPTS = 3;
+const NOOP_INJECTION = {
+  commit: async (): Promise<void> => undefined,
+  release: (): void => undefined,
+} as const;
 
 @injectable()
 export class ChatSubagentContextInjectorService {
@@ -72,6 +87,8 @@ export class ChatSubagentContextInjectorService {
     private readonly ptahCli: ChatPtahCliService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
+    private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR, { isOptional: true })
     private readonly budgetMonitor?: SubagentBudgetMonitor,
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER, { isOptional: true })
@@ -79,27 +96,38 @@ export class ChatSubagentContextInjectorService {
   ) {}
 
   /**
+   * toolCallIds an in-flight chat:continue has put into its prompt but not
+   * yet committed. A concurrent continue skips them, so two follow-ups cannot
+   * both describe the same agent. Taken synchronously, before the first
+   * await; dropped by commit() or release().
+   */
+  private readonly claimedToolCallIds = new Set<string>();
+
+  /**
    * Inject the `[SYSTEM CONTEXT - INTERRUPTED AGENTS]` prefix into `prompt`
    * for any resumable subagents whose transcript files exist on disk.
    *
    * Side effects:
-   *  1. Agents whose transcript is confirmed ABSENT on disk are removed from
-   *     the registry (nothing to resume) and marked injected so history replay
-   *     does not resurrect them. Agents whose transcript state could not be
-   *     determined are left untouched — removal is permanent here, because
-   *     markAsInjected() also blocks re-registration from history.
-   *  2. Each injected agent's attempt counter is incremented; records that
-   *     reach MAX_INJECTION_ATTEMPTS without being resumed are removed.
-   *  3. Records are otherwise KEPT in the registry — successful resumes are
-   *     detected by SubagentRegistryService.register() (same agentId), which
-   *     removes the superseded interrupted record.
+   *  1. Agents whose transcript is confirmed ABSENT on disk are retired
+   *     (nothing to resume). Agents whose transcript state could not be
+   *     determined are left untouched — retirement is permanent, because it
+   *     also blocks re-registration from history.
+   *  2. Every agent injected into the prompt is claimed; the caller retires
+   *     it with `commit()` once the prompt was sent (the model has been told
+   *     once, which is all it is owed), or hands it back with `release()`.
+   *  3. Retirement is recorded in the session's durable resume snapshot so a
+   *     restart does not resurrect the record from metadata or history.
    */
   async injectInterruptedAgentsContext(
     prompt: string,
     sessionId: SessionId,
     workspacePath: string | undefined,
   ): Promise<SubagentContextInjectionResult> {
-    const allResumable = this.subagentRegistry.getResumableBySession(sessionId);
+    // Claim before the first await so a concurrent continue skips these.
+    const allResumable = this.subagentRegistry
+      .getInterruptedBySession(sessionId)
+      .filter((s) => !this.claimedToolCallIds.has(s.toolCallId));
+    for (const s of allResumable) this.claimedToolCallIds.add(s.toolCallId);
     this.logger.info('RPC: chat:continue - subagent context injection check', {
       sessionId,
       registrySize: this.subagentRegistry.size,
@@ -110,69 +138,58 @@ export class ChatSubagentContextInjectorService {
         agentType: s.agentType,
         status: s.status,
         parentSessionId: s.parentSessionId,
-        injectionAttempts: this.subagentRegistry.getInjectionAttempts(
-          s.toolCallId,
-        ),
+        dismissed: s.dismissed === true,
       })),
       workspacePath,
     });
-    const resumableSubagents: typeof allResumable = [];
-    for (const s of allResumable) {
-      if (
-        this.subagentRegistry.getInjectionAttempts(s.toolCallId) >=
-        MAX_INJECTION_ATTEMPTS
-      ) {
-        this.logger.warn(
-          'RPC: chat:continue - dropping interrupted agent after max injection attempts',
-          {
-            agentId: s.agentId,
-            agentType: s.agentType,
-            sessionId,
-            maxAttempts: MAX_INJECTION_ATTEMPTS,
-          },
-        );
-        this.subagentRegistry.markAsInjected(s.toolCallId);
-        this.subagentRegistry.remove(s.toolCallId);
-        continue;
-      }
-      // No workspace path means we cannot locate any transcript — that is
-      // "could not determine", not "absent", and must not retire the record.
-      const probe = workspacePath
-        ? await this.ptahCli.probeSubagentTranscript(
-            workspacePath,
-            sessionId,
-            s.agentId,
-          )
-        : 'indeterminate';
-
-      if (probe === 'present') {
-        resumableSubagents.push(s);
-        continue;
-      }
-
-      if (probe === 'indeterminate') {
-        // Keep the record: a later chat:continue with a resolved session id
-        // can still probe successfully. Skip injection this round rather than
-        // instruct the model to resume an agent we could not verify. No
-        // attempt is counted, so an unverifiable record ages out via TTL
-        // instead of being burned by the attempt cap.
-        this.logger.warn(
-          'RPC: chat:continue - could not determine transcript state; keeping interrupted agent',
-          { agentId: s.agentId, agentType: s.agentType, sessionId },
-        );
-        continue;
-      }
-
-      this.logger.warn(
-        'RPC: chat:continue - skipping agent without transcript on disk',
-        { agentId: s.agentId, agentType: s.agentType, sessionId },
+    try {
+      return await this.buildInjection(
+        prompt,
+        sessionId,
+        workspacePath,
+        allResumable,
       );
-      this.subagentRegistry.markAsInjected(s.toolCallId);
-      this.subagentRegistry.remove(s.toolCallId);
+    } catch (error) {
+      // Not swallowed: rethrown after handing the claims back.
+      for (const s of allResumable) {
+        this.claimedToolCallIds.delete(s.toolCallId);
+      }
+      throw error;
     }
+  }
+
+  /**
+   * Probe, retire absent transcripts and build the prefix for the records
+   * {@link injectInterruptedAgentsContext} claimed. Releases the claims of
+   * every record it does not inject.
+   */
+  private async buildInjection(
+    prompt: string,
+    sessionId: SessionId,
+    workspacePath: string | undefined,
+    allResumable: readonly SubagentRecord[],
+  ): Promise<SubagentContextInjectionResult> {
+    const resumableSubagents: SubagentRecord[] = [];
+    const retiredWithoutTranscript: string[] = [];
+    await this.probeTranscripts(
+      allResumable,
+      sessionId,
+      workspacePath,
+      resumableSubagents,
+      retiredWithoutTranscript,
+    );
+
+    const injectedIds = resumableSubagents.map((s) => s.toolCallId);
+    for (const s of allResumable) {
+      if (!injectedIds.includes(s.toolCallId)) {
+        this.claimedToolCallIds.delete(s.toolCallId);
+      }
+    }
+    // Nothing to resume from these, whether or not the prompt goes out.
+    await this.retire(sessionId, retiredWithoutTranscript);
 
     if (resumableSubagents.length === 0) {
-      return { prompt, injected: false };
+      return { prompt, injected: false, ...NOOP_INJECTION };
     }
     const effectiveTtl = this.resolveEffectiveTtl();
     const now = Date.now();
@@ -252,11 +269,105 @@ ${instructions.map((line, i) => `${i + 1}. ${line}`).join('\n')}
       effectiveTtl,
       cacheStates: agents.map((a) => a.cache.cacheState),
     });
-    for (const s of resumableSubagents) {
-      this.subagentRegistry.recordInjectionAttempt(s.toolCallId);
-    }
+    let settled = false;
+    const dropClaims = (): void => {
+      for (const id of injectedIds) this.claimedToolCallIds.delete(id);
+    };
+    return {
+      prompt: enhancedPrompt,
+      injected: true,
+      commit: async () => {
+        if (settled) return;
+        settled = true;
+        // retire() removes the records synchronously before its first await,
+        // so no concurrent continue can see them between the two steps.
+        const retiring = this.retire(sessionId, injectedIds);
+        dropClaims();
+        await retiring;
+      },
+      release: () => {
+        if (settled) return;
+        settled = true;
+        dropClaims();
+      },
+    };
+  }
 
-    return { prompt: enhancedPrompt, injected: true };
+  /**
+   * Sort claimed records by transcript probe: `present` ones go to
+   * `resumable`, confirmed `absent` ones to `absent`; `indeterminate` ones go
+   * nowhere and stay resumable.
+   */
+  private async probeTranscripts(
+    records: readonly SubagentRecord[],
+    sessionId: SessionId,
+    workspacePath: string | undefined,
+    resumable: SubagentRecord[],
+    absent: string[],
+  ): Promise<void> {
+    for (const s of records) {
+      // No workspace path means we cannot locate any transcript — that is
+      // "could not determine", not "absent", and must not retire the record.
+      const probe = workspacePath
+        ? await this.ptahCli.probeSubagentTranscript(
+            workspacePath,
+            sessionId,
+            s.agentId,
+          )
+        : 'indeterminate';
+
+      if (probe === 'present') {
+        resumable.push(s);
+        continue;
+      }
+
+      if (probe === 'indeterminate') {
+        // Keep the record: a later chat:continue with a resolved session id
+        // can still probe successfully. Skip injection this round rather than
+        // instruct the model to resume an agent we could not verify. It is
+        // not retired, so an unverifiable record ages out via TTL instead of
+        // being dropped unseen.
+        this.logger.warn(
+          'RPC: chat:continue - could not determine transcript state; keeping interrupted agent',
+          { agentId: s.agentId, agentType: s.agentType, sessionId },
+        );
+        continue;
+      }
+
+      this.logger.warn(
+        'RPC: chat:continue - skipping agent without transcript on disk',
+        { agentId: s.agentId, agentType: s.agentType, sessionId },
+      );
+      absent.push(s.toolCallId);
+    }
+  }
+
+  /**
+   * Retire records in the registry and in the durable resume snapshot.
+   *
+   * The registry part runs first and cannot fail, so this process never
+   * offers the records again. A failed metadata write is logged and does NOT
+   * fail chat:continue: the prompt is already built and the user's message
+   * must still go out. The cost of that failure is bounded — after a restart
+   * the records could be offered (and injected) one more time.
+   */
+  private async retire(
+    sessionId: SessionId,
+    toolCallIds: readonly string[],
+  ): Promise<void> {
+    if (toolCallIds.length === 0) return;
+    this.subagentRegistry.retire(toolCallIds);
+    try {
+      await this.sessionMetadataStore.retireResumableSubagents(
+        sessionId,
+        toolCallIds,
+      );
+    } catch (error) {
+      this.logger.error(
+        'RPC: chat:continue - failed to persist retired interrupted agents',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
   }
 
   /**

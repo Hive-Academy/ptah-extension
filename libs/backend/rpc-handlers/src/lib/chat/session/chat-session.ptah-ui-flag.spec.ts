@@ -84,6 +84,9 @@ function makeHarness(): Harness {
     } as never,
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),
+      hydrateResumeState: jest.fn().mockReturnValue(0),
+      isResumeStateHydrated: jest.fn().mockReturnValue(true),
+      getInterruptedBySession: jest.fn().mockReturnValue([]),
       registerFromHistoryEvents: jest.fn().mockReturnValue(0),
       getResumableBySession: jest.fn().mockReturnValue([]),
     } as unknown as SubagentRegistryService,
@@ -120,7 +123,12 @@ function makeHarness(): Harness {
     {
       injectInterruptedAgentsContext: jest
         .fn()
-        .mockImplementation(async (prompt: string) => ({ prompt })),
+        .mockImplementation(async (prompt: string) => ({
+          prompt,
+          injected: false,
+          commit: async () => undefined,
+          release: () => undefined,
+        })),
     } as never,
     { routeFollowUpSlashCommand: jest.fn().mockResolvedValue(null) } as never,
     createMockModelSettings() as unknown as ModelSettings,

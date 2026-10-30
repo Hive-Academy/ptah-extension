@@ -125,13 +125,11 @@ function harness(bound = false) {
   };
   const history = {
     resolveSessionFolder: jest.fn().mockResolvedValue(ROOT),
-    readForResume: jest
-      .fn()
-      .mockResolvedValue({
-        resolvedWorkspacePath: ROOT,
-        events: [],
-        stats: null,
-      }),
+    readForResume: jest.fn().mockResolvedValue({
+      resolvedWorkspacePath: ROOT,
+      events: [],
+      stats: null,
+    }),
   };
   const provider = {
     resolveStoredModel: jest.fn(
@@ -159,17 +157,15 @@ function harness(bound = false) {
     createMockModelSettings(),
     sdk as unknown as RouterArgs[3],
     {
-      intercept: jest
-        .fn()
-        .mockImplementation((prompt: string) =>
-          prompt.startsWith('/')
-            ? {
-                action: 'new-query',
-                commandName: 'compact',
-                rawCommand: prompt,
-              }
-            : { action: 'passthrough' },
-        ),
+      intercept: jest.fn().mockImplementation((prompt: string) =>
+        prompt.startsWith('/')
+          ? {
+              action: 'new-query',
+              commandName: 'compact',
+              rawCommand: prompt,
+            }
+          : { action: 'passthrough' },
+      ),
     } as unknown as RouterArgs[4],
     context as unknown as RouterArgs[5],
     broadcaster as unknown as RouterArgs[6],
@@ -193,6 +189,9 @@ function harness(bound = false) {
     history as unknown as Args[6],
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),
+      hydrateResumeState: jest.fn().mockReturnValue(0),
+      isResumeStateHydrated: jest.fn().mockReturnValue(true),
+      getInterruptedBySession: jest.fn().mockReturnValue([]),
       registerFromHistoryEvents: jest.fn(),
       getResumableBySession: jest.fn().mockReturnValue([]),
     } as unknown as Args[7],
@@ -217,7 +216,12 @@ function harness(bound = false) {
     {
       injectInterruptedAgentsContext: jest
         .fn()
-        .mockImplementation(async (prompt: string) => ({ prompt })),
+        .mockImplementation(async (prompt: string) => ({
+          prompt,
+          injected: false,
+          commit: async () => undefined,
+          release: () => undefined,
+        })),
     } as unknown as Args[15],
     router,
     createMockModelSettings(),
@@ -927,10 +931,12 @@ describe('named admission deadline from handler entry (D76)', () => {
       now = T0 + 5_000;
       return undefined;
     });
-    h.provider.resolveProviderProfileForWorkspace.mockImplementation(async () => {
-      now = T0 + 9_000;
-      return undefined;
-    });
+    h.provider.resolveProviderProfileForWorkspace.mockImplementation(
+      async () => {
+        now = T0 + 9_000;
+        return undefined;
+      },
+    );
 
     expect(
       await h.service.startSession({

@@ -89,11 +89,15 @@ function makeHarness(
   const readSessionHistory = jest
     .fn()
     .mockResolvedValue({ events: [], stats: null });
-  const subagentRegistry = {
+  const registryMocks = {
     restoreResumableBySession: jest.fn().mockReturnValue(0),
+    hydrateResumeState: jest.fn().mockReturnValue(0),
+    isResumeStateHydrated: jest.fn().mockReturnValue(true),
+    getInterruptedBySession: jest.fn().mockReturnValue([]),
     registerFromHistoryEvents: jest.fn().mockReturnValue(0),
     getResumableBySession: jest.fn().mockReturnValue([]),
-  } as unknown as SubagentRegistryService;
+  };
+  const subagentRegistry = registryMocks as unknown as SubagentRegistryService;
   const sessionMetadataStore = {
     get: jest
       .fn()
@@ -125,7 +129,12 @@ function makeHarness(
   const routeFollowUpSlashCommand = jest.fn().mockResolvedValue(null);
   const injectInterruptedAgentsContext = jest
     .fn()
-    .mockImplementation(async (prompt: string) => ({ prompt }));
+    .mockImplementation(async (prompt: string) => ({
+      prompt,
+      injected: false,
+      commit: async () => undefined,
+      release: () => undefined,
+    }));
   const registerResumedSession = jest.fn();
   const handleContinue = jest
     .fn()
@@ -203,8 +212,110 @@ function makeHarness(
     restoreAgents,
     captureException,
     registerResumedSession,
+    registryMocks,
+    sessionMetadataStore,
   };
 }
+
+describe('ChatSessionService — interrupted agents on chat:continue', () => {
+  function injectedResult() {
+    return {
+      prompt: '[SYSTEM CONTEXT - INTERRUPTED AGENTS] go',
+      injected: true,
+      commit: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn(),
+    };
+  }
+
+  it('loads the durable resume state before injecting when chat:resume has not run', async () => {
+    const stored = {
+      toolCallId: 'tool-1',
+      agentType: 'backend',
+      status: 'interrupted',
+      startedAt: Date.now(),
+      parentSessionId: SESSION_ID,
+      agentId: 'agent-1',
+      dismissed: true,
+    };
+    const h = makeHarness({
+      metadata: {
+        workspaceId: PROJECT_B,
+        retiredSubagentToolCallIds: ['tool-old'],
+        resumableSdkSubagents: [stored],
+      },
+    });
+    h.registryMocks.isResumeStateHydrated.mockReturnValue(false);
+
+    await h.service.continueSession({
+      prompt: 'go',
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+    });
+
+    expect(h.registryMocks.hydrateResumeState).toHaveBeenCalledWith(
+      SESSION_ID,
+      { retiredToolCallIds: ['tool-old'], resumableSdkSubagents: [stored] },
+    );
+    expect(
+      h.registryMocks.hydrateResumeState.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      h.injectInterruptedAgentsContext.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('does not reload durable state once the session is hydrated', async () => {
+    const h = makeHarness();
+
+    await h.service.continueSession({
+      prompt: 'go',
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+    });
+
+    expect(h.registryMocks.hydrateResumeState).not.toHaveBeenCalled();
+  });
+
+  it('commits the injected agents only after the prompt was sent', async () => {
+    const h = makeHarness();
+    const injection = injectedResult();
+    h.injectInterruptedAgentsContext.mockResolvedValue(injection);
+
+    const result = await h.service.continueSession({
+      prompt: 'go',
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+    });
+
+    expect(result).toMatchObject({ success: true });
+    expect(h.sendMessageToSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      injection.prompt,
+      expect.anything(),
+    );
+    expect(injection.commit).toHaveBeenCalledTimes(1);
+    expect(h.sendMessageToSession.mock.invocationCallOrder[0]).toBeLessThan(
+      injection.commit.mock.invocationCallOrder[0],
+    );
+    expect(injection.release).not.toHaveBeenCalled();
+  });
+
+  it('releases the injected agents when the prompt could not be sent', async () => {
+    const h = makeHarness();
+    const injection = injectedResult();
+    h.injectInterruptedAgentsContext.mockResolvedValue(injection);
+    h.sendMessageToSession.mockRejectedValue(new Error('queue closed'));
+
+    const result = await h.service.continueSession({
+      prompt: 'go',
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+    });
+
+    expect(result).toMatchObject({ success: false, error: 'queue closed' });
+    expect(injection.release).toHaveBeenCalledTimes(1);
+    expect(injection.commit).not.toHaveBeenCalled();
+  });
+});
 
 describe("ChatSessionService — the session's own folder (MP-3)", () => {
   describe('chat:continue', () => {
