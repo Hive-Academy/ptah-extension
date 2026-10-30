@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_630_2250
-status: pending
+status: backlog
 type: REFACTORING
 title: Display panel follow-ups from TASK_2026_623
 description: >-
@@ -8,9 +8,9 @@ description: >-
   populated-surface visual check, accessibility landmarks, shared path-link wrap, dock wiring split out of
   ChatView, dock state on tab close, optional width-aware code-output estimate, CLI lane context, display chip
   counts, Edit/Write meta data, and four partially pinned acceptance criteria.
-depends_on: [TASK_2026_623_3492]
+depends_on: []
 created: 2026-10-12T00:00:00.000Z
-updated: 2026-10-20T19:30:00.000Z
+updated: "2026-10-30T01:09:07.477Z"
 ---
 
 ## Description

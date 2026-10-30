@@ -12,10 +12,6 @@ description: >-
   compaction.
 executor: ollama cloud
 estimate: M
-relates_to:
-  - TASK_2026_414
-  - TASK_2026_411
-  - TASK_2026_430_83a2
 labels:
   - partial
 ---
