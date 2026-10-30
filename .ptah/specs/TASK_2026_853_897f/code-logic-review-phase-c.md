@@ -75,3 +75,13 @@ None found in the scoped diff. The incidental formatting in the guard spec does 
 
 1. **Approve the scoped logic diff, while leaving Phase C verification open.** Options: approve the reviewed logic or demand a code revision without a concrete defect. Evidence: the 36-row check, exact budget arithmetic, manifest script logs, and production deny-set comparison above. Reversible: yes, if the pending verification exposes a failure.
 2. **Treat R7 and R8 as explicitly removed, not LOST.** Options: require a retained prompt home or honor the inventory's intentional deletion. Evidence: PLAN:237-238 and the supplied acceptance text. Reversible: yes.
+
+## Batch 14 follow-up review
+
+Verdict: **APPROVED**. Defects: **none** in the Batch 14 diff.
+
+The revised JSDoc at `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:320-328` removes the obsolete overlap explanation and matches the current core's single substitution table, handshake summary, workspace instruction deferral, and webview guidance (`ptah-core-prompt.ts:19-23,107,204-210`). The diff changes no runtime code. The three assertions at `libs/backend/agent-sdk/src/lib/helpers/sdk-query-runner.service.spec.ts:289-309` inspect the options handed to the SDK, including `toolAccess: 'none'` and caller append ordering. Removing the core append at `sdk-query-runner.service.ts:718` would fail them. The Batch 14 report records a targeted rerun passing 2 agent-sdk suites (62 tests) and 2 vscode-lm-tools suites (127 tests); I did not run tests or diagnostics under this review's read-only, no-heavy-command constraint. The report also records a known wider-suite flake, so that evidence does not establish a clean wider gate.
+
+Five logic questions: (1) A missing core append would silently weaken the internal query; the new captured-options assertions detect it. (2) A one-shot caller selecting no tools still receives the core, as the second assertion checks. (3) A caller-provided append follows the core, as the third assertion checks. (4) Failure of the mocked SDK query would reject `runOneShot` before the captured-options assertion; no new dependency handling is introduced. (5) The assertions do not pin every word of the core prompt, which is covered by the separate core-prompt specs and Batch 13 review.
+
+Decision: approve this bounded documentation and regression-test change. Options were approve or request a revision; the current source, runner path, and captured-options tests support approval. Reversible: yes.
