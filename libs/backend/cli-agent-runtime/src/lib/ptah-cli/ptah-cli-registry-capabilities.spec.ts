@@ -13,6 +13,9 @@
  */
 
 import 'reflect-metadata';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger, IAuthSecretsService } from '@ptah-extension/vscode-core';
@@ -91,6 +94,14 @@ function providerWithBaseUrl(baseUrl: string) {
 
 // The real barrel pulls workspace-intelligence's ESM-only AST modules; the
 // spawn options need only the token.
+// `<home>/.claude` is resolved with `os.homedir()`, which a `HOME` override
+// in a Jest sandbox does not reach; the specs point it at a fixture here.
+let mockHomeDir: string | undefined;
+jest.mock('node:os', () => {
+  const actual: { homedir(): string } = jest.requireActual('node:os');
+  return { ...actual, homedir: () => mockHomeDir ?? actual.homedir() };
+});
+
 jest.mock('@ptah-extension/agent-generation', () => ({
   AGENT_GENERATION_TOKENS: {
     ENHANCED_PROMPTS_SERVICE: Symbol.for('EnhancedPromptsService'),
@@ -295,6 +306,22 @@ async function spawn(harness: Harness): Promise<void> {
   });
   expect(result).toHaveProperty('handle');
 }
+
+// The synced-skill reader (TASK_2026_853 Phase B) and the same-name skill
+// guard read the config dir the ambient lane child gets: the auth env's
+// `CLAUDE_CONFIG_DIR`, else `<home>/.claude` (the host `CLAUDE_CONFIG_DIR`
+// does not reach that child, decision #42). Point the home dir at an empty
+// temp dir so the developer's own `~/.claude` (account-synced skills) never
+// leaks in.
+let isolatedConfigRoot: string;
+beforeEach(() => {
+  isolatedConfigRoot = mkdtempSync(join(tmpdir(), 'ptah-no-claude-config-'));
+  mockHomeDir = isolatedConfigRoot;
+});
+afterEach(() => {
+  mockHomeDir = undefined;
+  rmSync(isolatedConfigRoot, { recursive: true, force: true });
+});
 
 describe('PtahCliRegistry.spawnAgent — capability policy', () => {
   beforeEach(() => {

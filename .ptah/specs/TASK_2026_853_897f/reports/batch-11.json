@@ -1,0 +1,84 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": 11,
+  "status": "IMPLEMENTED",
+  "filesChanged": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/cli-agent-runtime/src/lib/ptah-cli/helpers/ptah-cli-spawn-options.service.ts",
+      "change": "MODIFIED: launch-specific config dir (skillScope.claudeConfigDir, then authEnv, then process.env, then ~/.claude); synced reader on the verified path only; the same dir feeds the guard"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/cli-agent-runtime/src/lib/ptah-cli/helpers/ptah-cli-spawn-options.builtins.spec.ts",
+      "change": "MODIFIED: added the describe 'account-synced skills (TASK_2026_853 Phase B)'; the fixture account dir is a named variable (Phase A assertions unchanged)"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-options.spec.ts",
+      "change": "MODIFIED: assemblyFor accepts syncedSkillIds; added the describe 'account-synced skills (TASK_2026_853 Phase B)'"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/cli-agent-runtime/src/lib/ptah-cli/ptah-cli-registry-capabilities.spec.ts",
+      "change": "MODIFIED (outside the batch list, test isolation only): CLAUDE_CONFIG_DIR -> empty temp dir (decision #44)"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-options.ts",
+      "change": "NOT MODIFIED: the lane options already carry the assembly's capabilityFlags and builtinPolicy unchanged; no production edit needed"
+    }
+  ],
+  "acceptance": [
+    {
+      "item": "launch-specific config-dir synced reader",
+      "tests": [
+        "named lane: reads the launch-specific config dir from the skill scope",
+        "ambient lane: hides every synced skill of the config dir by its qualified key",
+        "auth env CLAUDE_CONFIG_DIR wins over the host env"
+      ]
+    },
+    {
+      "item": "same verified/unverified qualified policy as main",
+      "tests": [
+        "unverified policy: no synced keys, flag list as the policy built it",
+        "shows a synced skill the user opted in to",
+        "keeps a same-name workspace skill visible",
+        "a malformed manifest is not fatal: Phase A denials only",
+        "lane options: ambient lane: qualified synced keys ride the flag tier next to the Phase A denials / an opted-in synced skill gets no override / unverified policy: no synced key, skills isolated"
+      ]
+    },
+    {
+      "item": "absent override accepted on proxy",
+      "tests": [
+        "proxy route without the user tier: the qualified keys are still carried",
+        "proxied lane: the qualified keys are carried (an unloaded key is ignored)"
+      ]
+    },
+    {
+      "item": "Phase A and named certification tests kept",
+      "tests": [
+        "all Phase A lane cases unchanged",
+        "named lane: certified launch still passes with synced denials"
+      ]
+    },
+    {
+      "item": "no generic provider conversion",
+      "tests": [],
+      "note": "No provider or route code changed"
+    }
+  ],
+  "verification": {
+    "command": "npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/cli-agent-runtime,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview > /tmp/tpd-b911-verify.log 2>&1",
+    "result": "71 tasks: 70 succeeded (27 cached), 1 failed",
+    "failedTasks": [
+      "ptah-extension-webview:lint — this failure was already there: Circular dependency ptah-extension-webview <-> @ptah-extension/command-center at app.routes.ts:214 (decisions #33); git diff main for apps/ptah-extension-webview and libs/frontend/command-center is empty"
+    ],
+    "followUps": [
+      "npm run verify -- -t lint,test -p @ptah-extension/agent-sdk (after the degradation-audit comment markers): 2 tasks, 2 succeeded",
+      "npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts: exit 0, no FAIL (agent-sdk was at 6 FAIL against a baseline of 4 before the markers)"
+    ],
+    "earlierNarrowRuns": [
+      "/tmp/tpd-b911-narrow.log: agent-sdk:test and cli-agent-runtime:test failed. Causes: specs read the developer's real ~/.claude synced skills, and a HOME override does not reach os.homedir() under Jest. Fixed (decisions #42, #44)",
+      "/tmp/tpd-b911-narrow2.log: 6 tasks, 6 succeeded"
+    ]
+  },
+  "deviations": [
+    "The ambient lane keeps the Phase A host-env CLAUDE_CONFIG_DIR fallback, although buildSafeEnv does not forward it to the child (decision #42, open question)"
+  ]
+}
