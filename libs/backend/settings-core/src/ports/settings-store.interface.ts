@@ -11,6 +11,13 @@ export interface ISettingsStore {
   /** Read a global (non-secret) setting from persistent storage. */
   readGlobal<T>(key: string): T | undefined;
 
+  /**
+   * Whether `key` has a stored value, not counting a registered default that
+   * {@link readGlobal} falls back to. A store without this method is read as
+   * "stored whenever `readGlobal` returns a value".
+   */
+  hasGlobal?(key: string): boolean;
+
   /** Write a global setting to persistent storage. */
   writeGlobal<T>(key: string, value: T): Promise<void>;
 

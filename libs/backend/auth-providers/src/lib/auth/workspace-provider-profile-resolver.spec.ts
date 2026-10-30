@@ -128,10 +128,14 @@ function createHarness(opts: {
   );
 
   const settings = opts.workspaceSettings ?? {};
+  const readForPath = <T>(key: string, path: string): T | undefined =>
+    (opts.settingsByPath?.[path]?.[key] ?? settings[key]) as T | undefined;
   const scope = {
     read: <T>(key: string): T | undefined => settings[key] as T | undefined,
-    readForPath: <T>(key: string, path: string): T | undefined =>
-      (opts.settingsByPath?.[path]?.[key] ?? settings[key]) as T | undefined,
+    readForPath,
+    isStored: (key: string): boolean => settings[key] !== undefined,
+    isStoredForPath: (key: string, path: string): boolean =>
+      readForPath(key, path) !== undefined,
     hasOverrideForPath: (key: string): boolean =>
       (opts.ownOverride ?? true) && key in settings,
   } as unknown as WorkspaceScopeResolver;

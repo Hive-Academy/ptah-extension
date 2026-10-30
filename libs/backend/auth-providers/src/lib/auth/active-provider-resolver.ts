@@ -65,7 +65,7 @@ export class ActiveProviderResolver {
   ) {}
 
   resolveActiveAuth(): ActiveAuth {
-    return this.toActiveAuth(this.scope.read<string>('authMethod', true), () =>
+    return this.toActiveAuth(this.storedAuthMethod(), () =>
       this.resolveThirdPartyProviderId(),
     );
   }
@@ -86,7 +86,7 @@ export class ActiveProviderResolver {
    */
   resolveActiveAuthForPath(workspacePath: string): ActiveAuth {
     return this.toActiveAuth(
-      this.scope.readForPath<string>('authMethod', workspacePath, true),
+      this.storedAuthMethod(workspacePath),
       () => this.resolveThirdPartyProviderIdForPath(workspacePath),
     );
   }
@@ -102,11 +102,10 @@ export class ActiveProviderResolver {
    * stored or environment API key without a connected Claude CLI login gives
    * `'apiKey'`. The answer is remembered for the synchronous readers.
    *
-   * The file-settings stores of every host return the registered default
-   * (`FILE_BASED_SETTINGS_DEFAULTS.authMethod`, `'claudeCli'`) for an unset
-   * value, so this branch runs only for a store without that default. The
-   * default is kept on purpose: the model and reasoning settings buckets read
-   * the raw value, and both must agree with the route the runtime takes.
+   * "Configured" means stored at some scope: the registered default
+   * (`FILE_BASED_SETTINGS_DEFAULTS.authMethod`, `'claudeCli'`) that the
+   * file-settings stores return for an unset value does not count, so a
+   * headless run with only `ANTHROPIC_API_KEY` still takes the API key path.
    *
    * @param workspacePath an explicit workspace; omitted reads the active scope.
    */
@@ -114,11 +113,7 @@ export class ActiveProviderResolver {
     probe: AuthCredentialProbe,
     workspacePath?: string,
   ): Promise<ActiveAuth> {
-    const raw =
-      workspacePath === undefined
-        ? this.scope.read<string>('authMethod', true)
-        : this.scope.readForPath<string>('authMethod', workspacePath, true);
-    if (parseAuthMethod(raw) === undefined) {
+    if (parseAuthMethod(this.storedAuthMethod(workspacePath)) === undefined) {
       const hasApiKey = await probe.hasAnthropicApiKey();
       this.unconfiguredAuthMethod = resolveDefaultAuthMethod({
         hasApiKey,
@@ -139,6 +134,22 @@ export class ActiveProviderResolver {
         true,
       ) ?? DEFAULT_PROVIDER_ID
     );
+  }
+
+  /**
+   * The stored `authMethod` for the active scope (or `workspacePath`), or
+   * `undefined` when no scope stores one — the registered default is not a
+   * choice, so {@link toActiveAuth} applies the credential-aware default.
+   */
+  private storedAuthMethod(workspacePath?: string): string | undefined {
+    if (workspacePath === undefined) {
+      return this.scope.isStored('authMethod', true)
+        ? this.scope.read<string>('authMethod', true)
+        : undefined;
+    }
+    return this.scope.isStoredForPath('authMethod', workspacePath, true)
+      ? this.scope.readForPath<string>('authMethod', workspacePath, true)
+      : undefined;
   }
 
   private toActiveAuth(

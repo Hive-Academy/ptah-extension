@@ -62,12 +62,11 @@ export interface DefaultAuthMethodFacts {
 }
 
 /**
- * The auth method used when the configured value is missing or unknown: the
- * Claude CLI login, unless an API key is stored and that login is not
- * connected (with neither, the Claude CLI path reports what is missing).
- * Host file-settings stores already return `'claudeCli'` for an unset value
- * (`FILE_BASED_SETTINGS_DEFAULTS`), so this applies to an unknown stored
- * value or a store without registered defaults.
+ * The auth method used when no scope stores a known value: the Claude CLI
+ * login, unless an API key is stored (or set in the environment) and that
+ * login is not connected (with neither, the Claude CLI path reports what is
+ * missing). The registered store default (`FILE_BASED_SETTINGS_DEFAULTS`)
+ * does not count as a stored value.
  */
 export function resolveDefaultAuthMethod(
   facts: DefaultAuthMethodFacts,

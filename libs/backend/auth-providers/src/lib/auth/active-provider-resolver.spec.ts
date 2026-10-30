@@ -12,7 +12,9 @@ function makeResolver(values: Record<string, unknown>): {
   read: jest.Mock;
 } {
   const read = jest.fn((key: string) => values[key]);
-  const scope = { read } as unknown as WorkspaceScopeResolver;
+  // A key is stored when `read` returns a value for it.
+  const isStored = (key: string): boolean => read(key) !== undefined;
+  const scope = { read, isStored } as unknown as WorkspaceScopeResolver;
   return { resolver: new ActiveProviderResolver(scope), read };
 }
 
@@ -107,6 +109,24 @@ describe('ActiveProviderResolver', () => {
       expect(resolver.resolveActiveAuth().authMethod).toBe('apiKey');
     });
 
+    it('treats the registered claudeCli default as unset, so a key without a login gives apiKey', async () => {
+      // The file store returns its registered default, but nothing is stored.
+      const read = jest.fn((key: string) =>
+        key === 'authMethod' ? 'claudeCli' : undefined,
+      );
+      const scope = {
+        read,
+        isStored: () => false,
+      } as unknown as WorkspaceScopeResolver;
+      const resolver = new ActiveProviderResolver(scope);
+      const p = probe({ hasKey: true, connected: false });
+
+      const auth = await resolver.resolveActiveAuthWithDefault(p.probe);
+
+      expect(auth.authMethod).toBe('apiKey');
+      expect(resolver.resolveActiveAuth().authMethod).toBe('apiKey');
+    });
+
     it('prefers a connected login over a stored key', async () => {
       const { resolver } = makeResolver({});
       const p = probe({ hasKey: true, connected: true });
@@ -141,7 +161,12 @@ describe('ActiveProviderResolver', () => {
       const readForPath = jest.fn((key: string) =>
         key === 'authMethod' ? 'claude-cli' : undefined,
       );
-      const scope = { readForPath } as unknown as WorkspaceScopeResolver;
+      const isStoredForPath = (key: string): boolean =>
+        readForPath(key) !== undefined;
+      const scope = {
+        readForPath,
+        isStoredForPath,
+      } as unknown as WorkspaceScopeResolver;
       const resolver = new ActiveProviderResolver(scope);
       const p = probe({ hasKey: true, connected: false });
 

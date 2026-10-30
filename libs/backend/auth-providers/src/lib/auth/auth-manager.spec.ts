@@ -57,14 +57,16 @@ import type { ProviderModelsService } from '../provider-models.service';
  */
 type MockScopeResolver = {
   read: jest.Mock<unknown, [string]>;
+  isStored: (key: string) => boolean;
 };
 
 function createMockScopeResolver(
   values: Record<string, unknown> = {},
 ): MockScopeResolver {
-  return {
-    read: jest.fn((key: string) => values[key]),
-  };
+  const read = jest.fn((key: string) => values[key]);
+  // A key is stored when `read` (including a later mockImplementation)
+  // returns a value for it.
+  return { read, isStored: (key: string) => read(key) !== undefined };
 }
 
 function asResolver(mock: MockScopeResolver): WorkspaceScopeResolver {

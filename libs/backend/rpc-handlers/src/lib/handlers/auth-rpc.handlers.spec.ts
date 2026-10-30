@@ -105,6 +105,7 @@ import { AuthRpcHandlers } from './auth-rpc.handlers';
 
 interface MockScopeResolver {
   read: jest.Mock<unknown, [string, boolean?]>;
+  isStored: jest.Mock<boolean, [string, boolean?]>;
   hasOverride: jest.Mock<boolean, [string, boolean?]>;
   write: jest.Mock<
     Promise<void>,
@@ -144,6 +145,11 @@ function createMockScopeResolver(opts: {
     if (activePath && workspaceStore.has(key)) return workspaceStore.get(key);
     return globalStore.get(key);
   });
+
+  // Stored at some tier exactly when `read` resolves a value for the key.
+  const isStored = jest.fn(
+    (key: string, appScopable = false) => read(key, appScopable) !== undefined,
+  );
 
   const hasOverride = jest.fn((key: string, appScopable = false) => {
     if (appScopable && appStore.has(key)) return true;
@@ -201,6 +207,7 @@ function createMockScopeResolver(opts: {
 
   return {
     read,
+    isStored,
     hasOverride,
     write,
     clearOverride,
