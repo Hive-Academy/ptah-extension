@@ -3,10 +3,10 @@
  *
  * Covers the post-TASK resume-contract fix:
  *  - prefix references the real resume contract (no Task "resume" parameter)
- *  - injection is non-destructive (records stay in the registry)
- *  - records are dropped after MAX_INJECTION_ATTEMPTS unconsumed injections
- *  - records whose transcript is confirmed ABSENT are removed and marked
- *    injected
+ *  - injection is one-shot: an injected record is retired in the registry
+ *    and in the durable resume snapshot
+ *  - dismissed records are hidden from the webview but injected once
+ *  - records whose transcript is confirmed ABSENT are retired
  *  - records whose transcript state is INDETERMINATE survive untouched
  *    (TASK_2026_295)
  */
@@ -18,10 +18,8 @@ import { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { SessionId, SubagentRecord } from '@ptah-extension/shared';
 
-import {
-  ChatSubagentContextInjectorService,
-  MAX_INJECTION_ATTEMPTS,
-} from './chat-subagent-context-injector.service';
+import type { SessionMetadataStore } from '@ptah-extension/agent-sdk';
+import { ChatSubagentContextInjectorService } from './chat-subagent-context-injector.service';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
 
 function makeLogger(): jest.Mocked<Logger> {
@@ -43,6 +41,8 @@ describe('ChatSubagentContextInjectorService', () => {
   let registry: SubagentRegistryService;
   let ptahCli: { probeSubagentTranscript: jest.Mock };
   let workspace: { getConfiguration: jest.Mock };
+  let metadataStore: { retireResumableSubagents: jest.Mock };
+  let logger: jest.Mocked<Logger>;
   let injector: ChatSubagentContextInjectorService;
   let savedTtlEnv: string | undefined;
 
@@ -54,11 +54,16 @@ describe('ChatSubagentContextInjectorService', () => {
       probeSubagentTranscript: jest.fn().mockResolvedValue('present'),
     };
     workspace = { getConfiguration: jest.fn().mockReturnValue('auto') };
+    metadataStore = {
+      retireResumableSubagents: jest.fn().mockResolvedValue(undefined),
+    };
+    logger = makeLogger();
     injector = new ChatSubagentContextInjectorService(
-      makeLogger(),
+      logger,
       registry,
       ptahCli as unknown as ChatPtahCliService,
       workspace as unknown as IWorkspaceProvider,
+      metadataStore as unknown as SessionMetadataStore,
     );
   });
 
@@ -96,7 +101,7 @@ describe('ChatSubagentContextInjectorService', () => {
     expect(result.prompt).toBe('hello');
   });
 
-  it('injects the prefix with the agentId and keeps the record in the registry', async () => {
+  it('injects the prefix with the agentId and retires the record', async () => {
     registerInterrupted('tc-1', 'abc1234');
 
     const result = await injector.injectInterruptedAgentsContext(
@@ -111,36 +116,163 @@ describe('ChatSubagentContextInjectorService', () => {
     expect(result.prompt).not.toContain('"resume" parameter set to');
     expect(result.prompt.endsWith('continue please')).toBe(true);
 
+    // Nothing is retired until the caller commits (the prompt was sent).
     expect(registry.get('tc-1')).not.toBeNull();
-    expect(registry.getInjectionAttempts('tc-1')).toBe(1);
+    expect(metadataStore.retireResumableSubagents).not.toHaveBeenCalled();
+    await result.commit();
+
+    expect(registry.get('tc-1')).toBeNull();
+    expect(registry.wasInjected('tc-1')).toBe(true);
+    expect(registry.getResumableBySession(SESSION)).toEqual([]);
+    expect(metadataStore.retireResumableSubagents).toHaveBeenCalledWith(
+      SESSION,
+      ['tc-1'],
+    );
   });
 
-  it('re-injects on subsequent continues until the attempt cap', async () => {
+  it('injects an agent only once across continues', async () => {
     registerInterrupted('tc-1', 'abc1234');
 
-    for (let i = 0; i < MAX_INJECTION_ATTEMPTS; i++) {
-      const result = await injector.injectInterruptedAgentsContext(
-        'msg',
-        SESSION,
-        WORKSPACE,
-      );
-      expect(result.injected).toBe(true);
-    }
-
-    const afterCap = await injector.injectInterruptedAgentsContext(
+    const first = await injector.injectInterruptedAgentsContext(
       'msg',
       SESSION,
       WORKSPACE,
     );
-    expect(afterCap.injected).toBe(false);
-    expect(registry.get('tc-1')).toBeNull();
-    expect(registry.wasInjected('tc-1')).toBe(true);
+    await first.commit();
+    const second = await injector.injectInterruptedAgentsContext(
+      'msg',
+      SESSION,
+      WORKSPACE,
+    );
+
+    expect(first.injected).toBe(true);
+    expect(second.injected).toBe(false);
+    expect(second.prompt).toBe('msg');
   });
 
-  it('stops injecting once the agent is resumed (re-registered with same agentId)', async () => {
+  it('injects a dismissed agent once although the webview no longer sees it', async () => {
+    registerInterrupted('tc-1', 'abc1234');
+    registerInterrupted('tc-2', 'def5678');
+
+    expect(registry.dismissResumable(SESSION, ['tc-1'])).toHaveLength(1);
+    expect(
+      registry.getResumableBySession(SESSION).map((r) => r.toolCallId),
+    ).toEqual(['tc-2']);
+
+    const result = await injector.injectInterruptedAgentsContext(
+      'msg',
+      SESSION,
+      WORKSPACE,
+    );
+
+    expect(result.injected).toBe(true);
+    expect(result.prompt).toContain('agentId: abc1234');
+    expect(result.prompt).toContain('agentId: def5678');
+    await result.commit();
+    expect(registry.getInterruptedBySession(SESSION)).toEqual([]);
+    expect(metadataStore.retireResumableSubagents).toHaveBeenCalledWith(
+      SESSION,
+      ['tc-1', 'tc-2'],
+    );
+
+    const again = await injector.injectInterruptedAgentsContext(
+      'msg',
+      SESSION,
+      WORKSPACE,
+    );
+    expect(again.injected).toBe(false);
+  });
+
+  it('still injects when persisting the retirement fails, and logs the error', async () => {
+    registerInterrupted('tc-1', 'abc1234');
+    metadataStore.retireResumableSubagents.mockRejectedValue(
+      new Error('disk full'),
+    );
+
+    const result = await injector.injectInterruptedAgentsContext(
+      'msg',
+      SESSION,
+      WORKSPACE,
+    );
+
+    expect(result.injected).toBe(true);
+    await expect(result.commit()).resolves.toBeUndefined();
+    expect(registry.get('tc-1')).toBeNull();
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('failed to persist retired'),
+      expect.any(Error),
+    );
+  });
+
+  it('release hands the agents back so the next continue injects them', async () => {
     registerInterrupted('tc-1', 'abc1234');
 
-    await injector.injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);
+    const first = await injector.injectInterruptedAgentsContext(
+      'msg',
+      SESSION,
+      WORKSPACE,
+    );
+    first.release();
+    await first.commit(); // a no-op once released
+
+    expect(registry.get('tc-1')).not.toBeNull();
+    expect(metadataStore.retireResumableSubagents).not.toHaveBeenCalled();
+    const second = await injector.injectInterruptedAgentsContext(
+      'msg',
+      SESSION,
+      WORKSPACE,
+    );
+    expect(second.injected).toBe(true);
+    expect(second.prompt).toContain('agentId: abc1234');
+  });
+
+  it('two concurrent continues never inject the same agent', async () => {
+    registerInterrupted('tc-1', 'abc1234');
+    let resolveProbe: (value: 'present') => void = () => undefined;
+    ptahCli.probeSubagentTranscript.mockImplementationOnce(
+      () =>
+        new Promise<'present'>((resolve) => {
+          resolveProbe = resolve;
+        }),
+    );
+
+    const firstPending = injector.injectInterruptedAgentsContext(
+      'a',
+      SESSION,
+      WORKSPACE,
+    );
+    const second = await injector.injectInterruptedAgentsContext(
+      'b',
+      SESSION,
+      WORKSPACE,
+    );
+    resolveProbe('present');
+    const first = await firstPending;
+
+    expect(first.injected).toBe(true);
+    expect(second.injected).toBe(false);
+    expect(second.prompt).toBe('b');
+  });
+
+  it('releases the claims when a probe throws', async () => {
+    registerInterrupted('tc-1', 'abc1234');
+    ptahCli.probeSubagentTranscript.mockRejectedValueOnce(new Error('io'));
+
+    await expect(
+      injector.injectInterruptedAgentsContext('msg', SESSION, WORKSPACE),
+    ).rejects.toThrow('io');
+
+    const retry = await injector.injectInterruptedAgentsContext(
+      'msg',
+      SESSION,
+      WORKSPACE,
+    );
+    expect(retry.injected).toBe(true);
+  });
+
+  it('does not inject an agent already resumed (re-registered with same agentId)', async () => {
+    registerInterrupted('tc-1', 'abc1234');
+
     registry.register({
       toolCallId: 'tc-2',
       agentType: 'Explore',
@@ -201,15 +333,15 @@ describe('ChatSubagentContextInjectorService', () => {
     expect(registry.wasInjected('tc-1')).toBe(false);
   });
 
-  it('does not burn an injection attempt on an indeterminate probe', async () => {
+  it('does not retire anything on an indeterminate probe', async () => {
     registerInterrupted('tc-1', 'abc1234');
     ptahCli.probeSubagentTranscript.mockResolvedValue('indeterminate');
 
-    for (let i = 0; i < MAX_INJECTION_ATTEMPTS + 2; i++) {
+    for (let i = 0; i < 3; i++) {
       await injector.injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);
     }
 
-    expect(registry.getInjectionAttempts('tc-1')).toBe(0);
+    expect(metadataStore.retireResumableSubagents).not.toHaveBeenCalled();
     expect(registry.get('tc-1')).not.toBeNull();
   });
 
@@ -416,6 +548,7 @@ describe('ChatSubagentContextInjectorService', () => {
         registry,
         ptahCli as unknown as ChatPtahCliService,
         workspace as unknown as IWorkspaceProvider,
+        metadataStore as unknown as SessionMetadataStore,
         { getSnapshot: jest.fn().mockReturnValue(snapshot) } as never,
         {
           getConfig: jest.fn().mockReturnValue({
@@ -494,6 +627,8 @@ describe('ChatSubagentContextInjectorService', () => {
       ).injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);
       expect(stopped.prompt).toContain('advice: fresh (stopped)');
 
+      // Injection is one-shot, so the second case needs its own agent.
+      registerInterrupted('tc-2', 'def5678');
       const budget = await withMonitor(
         snap({ budgetReached: true }),
       ).injectInterruptedAgentsContext('msg', SESSION, WORKSPACE);

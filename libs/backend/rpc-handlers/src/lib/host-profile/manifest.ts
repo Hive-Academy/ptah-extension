@@ -78,6 +78,7 @@ import {
   SubagentRpcHandlers,
   TasksRpcHandlers,
   UpdateRpcHandlers,
+  GitWatchRpcHandlers,
   VoiceRpcHandlers,
   WebSearchRpcHandlers,
   WizardGenerationRpcHandlers,
@@ -85,6 +86,7 @@ import {
 } from '../handlers';
 import { DiagnosticsConsentRpcHandlers } from '../handlers/diagnostics-consent-rpc.handlers';
 import { ArtifactRpcHandlers } from '../handlers/artifact-rpc.handlers';
+import { DisplayWindowRpcHandlers } from '../handlers/display-window-rpc.handlers';
 import { ProviderAccountRpcHandlers } from '../handlers/provider-account-rpc.handlers';
 
 /**
@@ -115,6 +117,16 @@ export const RPC_HANDLER_MANIFEST = [
     methods: ArtifactRpcHandlers.METHODS,
     requires: [],
     handler: ArtifactRpcHandlers,
+  },
+  {
+    // Detached Display window (TASK_2026_853_3401, D2). `requires: []` on
+    // purpose: only Electron has the window, but every host serves the
+    // namespace. VS Code and the CLI bind `DesktopOnlyDisplayWindowHost`,
+    // which answers `desktop-only`, and an unbound port answers `not-ready`.
+    key: 'displayWindow',
+    methods: DisplayWindowRpcHandlers.METHODS,
+    requires: [],
+    handler: DisplayWindowRpcHandlers,
   },
   {
     key: 'configScope',
@@ -236,6 +248,14 @@ export const RPC_HANDLER_MANIFEST = [
     methods: GitRpcHandlers.METHODS,
     requires: [],
     handler: GitRpcHandlers,
+  },
+  {
+    // Secondary per-root watcher leases (TASK_2026_855): only a host that
+    // can run extra git watchers registers the registry port.
+    key: 'gitWatch',
+    methods: GitWatchRpcHandlers.METHODS,
+    requires: ['gitRootWatch'],
+    handler: GitWatchRpcHandlers,
   },
   {
     // `requires: []`: a read of workspace state, which every host has. A

@@ -3924,6 +3924,8 @@ describe('SdkAgentAdapter', () => {
         expect(seen).toHaveLength(1);
         expect(seen[0].realSessionId).toBe(REAL_ID);
         expect(seen[0]).not.toHaveProperty('previousSessionId');
+        // A fresh query: nothing can be stored under the minted id yet.
+        expect(seen[0].isNewSession).toBe(true);
       });
 
       it('names the id the record moved from when its own query rebinds it', async () => {
@@ -4016,6 +4018,7 @@ describe('SdkAgentAdapter', () => {
         expect(seen).toHaveLength(1);
         expect(seen[0].realSessionId).toBe(ROTATED_ID);
         expect(seen[0]).not.toHaveProperty('previousSessionId');
+        expect(seen[0]).not.toHaveProperty('isNewSession');
       });
 
       // Revision 2 regression guard. `bindRefused` is a truthiness check at

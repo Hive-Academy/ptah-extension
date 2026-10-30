@@ -5,6 +5,8 @@
  *
  * RPC Methods:
  * - chat:subagent-query    — Query subagents (resumable or by specific ID)
+ * - chat:dismiss-resumable-subagents — Hide interrupted subagents from the
+ *                            resume banner (the model still hears once)
  * - subagent:send-message  — Push a user message into a running subagent
  * - subagent:stop          — Stop a specific subagent by taskId
  * - subagent:interrupt     — Interrupt the entire session
@@ -41,6 +43,8 @@ import {
   SubagentCommandResult,
   SubagentHistoryPageParams,
   SubagentHistoryPageResult,
+  ChatDismissResumableSubagentsParams,
+  ChatDismissResumableSubagentsResult,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import {
@@ -50,6 +54,7 @@ import {
 import type {
   SubagentMessageDispatcher,
   SessionHistoryReaderService,
+  SessionMetadataStore,
 } from '@ptah-extension/agent-sdk';
 import {
   assembleHistoryPage,
@@ -57,6 +62,7 @@ import {
 } from './subagent-history-page';
 import {
   SubagentQuerySchema,
+  DismissResumableSubagentsSchema,
   SubagentSendMessageSchema,
   SubagentStopSchema,
   SubagentInterruptSchema,
@@ -90,6 +96,7 @@ import {
 export class SubagentRpcHandlers {
   static readonly METHODS = [
     'chat:subagent-query',
+    'chat:dismiss-resumable-subagents',
     'subagent:send-message',
     'subagent:stop',
     'subagent:interrupt',
@@ -110,6 +117,8 @@ export class SubagentRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
     private readonly historyReader: SessionHistoryReaderService,
+    @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
+    private readonly sessionMetadataStore: SessionMetadataStore,
   ) {}
 
   /**
@@ -117,6 +126,7 @@ export class SubagentRpcHandlers {
    */
   register(): void {
     this.registerSubagentQuery();
+    this.registerDismissResumable();
     this.registerSendMessage();
     this.registerStop();
     this.registerInterrupt();
@@ -156,7 +166,12 @@ export class SubagentRpcHandlers {
           });
           if (toolCallId) {
             const record = this.registry.get(toolCallId);
-            return { subagents: this.withCacheInfo(record ? [record] : []) };
+            // A dismissed record is owed to the model, not to the webview.
+            return {
+              subagents: this.withCacheInfo(
+                record && !record.dismissed ? [record] : [],
+              ),
+            };
           }
           // A sessionId that is present but empty is a scoped query whose
           // scope cannot be resolved — answer with nothing. Falling through to
@@ -194,6 +209,44 @@ export class SubagentRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * chat:dismiss-resumable-subagents - Dismiss the resume banner for good.
+   *
+   * Marks the session's interrupted records dismissed in the registry and in
+   * the durable resume snapshot. They disappear from every webview read but
+   * are still described to the model once, on the next chat:continue, which
+   * then retires them.
+   */
+  private registerDismissResumable(): void {
+    this.rpcHandler.registerMethod<
+      ChatDismissResumableSubagentsParams,
+      ChatDismissResumableSubagentsResult
+    >('chat:dismiss-resumable-subagents', async (params) => {
+      try {
+        const { sessionId, toolCallIds } =
+          DismissResumableSubagentsSchema.parse(params);
+        const dismissed = this.registry.dismissResumable(
+          sessionId,
+          toolCallIds,
+        );
+        if (dismissed.length > 0) {
+          await this.sessionMetadataStore.dismissResumableSubagents(
+            sessionId,
+            dismissed,
+          );
+        }
+        return { success: true };
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.logger.error('RPC: chat:dismiss-resumable-subagents failed', err);
+        this.sentryService.captureException(err, {
+          errorSource: 'SubagentRpcHandlers.registerDismissResumable',
+        });
+        return { success: false, error: err.message };
+      }
+    });
   }
 
   /**

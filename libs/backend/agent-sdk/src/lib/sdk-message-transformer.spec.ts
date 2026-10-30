@@ -993,3 +993,106 @@ describe('SdkMessageTransformer — background Task spawn event counts', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// task_notification after a compact boundary (background agent status)
+//
+// Documents CURRENT behaviour; this path is unchanged. `agent_completed` is
+// the stream's only terminal signal for most background spawns, and a
+// notification that omits `tool_use_id` resolves its parent through the
+// task -> parent map. A compact boundary keeps that map only for a task this
+// transformer announced as background, so an unannounced task's late
+// notification without `tool_use_id` produces no `agent_completed`; the
+// frontend then relies on the SubagentStop backstop.
+// ---------------------------------------------------------------------------
+
+describe('SdkMessageTransformer — task_notification after compact_boundary', () => {
+  const SESSION = 'sess-compact';
+
+  function build(): SdkMessageTransformer {
+    return new SdkMessageTransformer(
+      makeLogger(),
+      makeAuthEnv(),
+      makeFullSubagentRegistry() as unknown as SubagentRegistryService,
+      makeModelResolver() as unknown as IModelResolver,
+      makeSessionLifecycle([]) as unknown as SessionLifecycleManager,
+      new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
+      new CompactionBoundaryGenerationRegistry(),
+      new SubagentStopNotices(),
+    );
+  }
+
+  function notification(
+    taskId: string,
+    extra: Record<string, unknown> = {},
+  ): unknown {
+    return {
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: taskId,
+      status: 'completed',
+      summary: 'done',
+      output_file: '/tmp/out',
+      ...extra,
+    };
+  }
+
+  function completionsOf(events: unknown[]): Array<Record<string, unknown>> {
+    return events.filter(
+      (e) => (e as { eventType?: string }).eventType === 'agent_completed',
+    ) as Array<Record<string, unknown>>;
+  }
+
+  it('settles an announced background task whose notification omits tool_use_id', () => {
+    const transformer = build();
+    transformer.transform(
+      {
+        ...(makeTaskStarted({
+          taskId: 'task-bg',
+          toolUseId: 'toolu_bg',
+        }) as Record<string, unknown>),
+        task_type: 'local_agent',
+        is_backgrounded: true,
+      } as never,
+      SESSION as never,
+    );
+    transformer.transform(makeCompactBoundary({}) as never, SESSION as never);
+
+    const completed = completionsOf(
+      transformer.transform(notification('task-bg') as never, SESSION as never),
+    );
+
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({ parentToolUseId: 'toolu_bg' });
+  });
+
+  it('drops an unannounced task notification without tool_use_id (current behaviour)', () => {
+    const transformer = build();
+    transformer.transform(
+      makeTaskStarted({ taskId: 'task-fg', toolUseId: 'toolu_fg' }) as never,
+      SESSION as never,
+    );
+    transformer.transform(makeCompactBoundary({}) as never, SESSION as never);
+
+    const events = transformer.transform(
+      notification('task-fg') as never,
+      SESSION as never,
+    );
+
+    expect(completionsOf(events)).toHaveLength(0);
+  });
+
+  it('emits nothing for skip_transcript even with a tool_use_id (current behaviour)', () => {
+    const transformer = build();
+    const events = transformer.transform(
+      notification('task-skip', {
+        tool_use_id: 'toolu_skip',
+        skip_transcript: true,
+      }) as never,
+      SESSION as never,
+    );
+
+    expect(completionsOf(events)).toHaveLength(0);
+  });
+});

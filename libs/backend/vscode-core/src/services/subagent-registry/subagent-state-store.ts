@@ -119,11 +119,12 @@ export class SubagentStateStore {
   private readonly teardownSessionIds = new Set<string>();
 
   /**
-   * Number of times each toolCallId's interrupted-agent context has been
-   * injected into a chat:continue prompt. Bounds repeated injection so an
-   * agent the model never resumes doesn't nag forever.
+   * Parent session ids whose durable resume snapshot (session metadata) has
+   * been loaded into this registry in this process. Until a session is in
+   * this set, the registry's view of its interrupted agents is incomplete and
+   * must not replace the durable snapshot.
    */
-  private readonly injectionAttempts = new Map<string, number>();
+  private readonly hydratedSessionIds = new Set<string>();
 
   /**
    * Timestamp of last cleanup run.
@@ -164,7 +165,6 @@ export class SubagentStateStore {
 
   /** Delete a record; returns true if something was removed. */
   delete(toolCallId: string): boolean {
-    this.injectionAttempts.delete(toolCallId);
     return this.registry.delete(toolCallId);
   }
 
@@ -194,7 +194,18 @@ export class SubagentStateStore {
     this.pendingTaskIds.clear();
     this.heldUnboundStarts.clear();
     this.teardownSessionIds.clear();
-    this.injectionAttempts.clear();
+    this.hydratedSessionIds.clear();
+  }
+
+  /** Record that a session's durable resume snapshot has been loaded. */
+  markHydrated(parentSessionId: string): void {
+    if (!parentSessionId) return;
+    this.hydratedSessionIds.add(parentSessionId);
+  }
+
+  /** Whether a session's durable resume snapshot has been loaded. */
+  isHydrated(parentSessionId: string): boolean {
+    return this.hydratedSessionIds.has(parentSessionId);
   }
 
   /**
@@ -238,23 +249,6 @@ export class SubagentStateStore {
       return false;
     }
     return this.teardownSessionIds.has(parentSessionId);
-  }
-
-  /** Increment and return the injection-attempt count for a toolCallId. */
-  recordInjectionAttempt(toolCallId: string): number {
-    const next = (this.injectionAttempts.get(toolCallId) ?? 0) + 1;
-    this.injectionAttempts.set(toolCallId, next);
-    return next;
-  }
-
-  /** Current injection-attempt count for a toolCallId. */
-  getInjectionAttempts(toolCallId: string): number {
-    return this.injectionAttempts.get(toolCallId) ?? 0;
-  }
-
-  /** Drop injection-attempt tracking for a toolCallId. */
-  clearInjectionAttempts(toolCallId: string): void {
-    this.injectionAttempts.delete(toolCallId);
   }
 
   /** Record a toolCallId as pre-marked background. */

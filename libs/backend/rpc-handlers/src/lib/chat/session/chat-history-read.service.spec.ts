@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import 'reflect-metadata';
 
 import type { FlatStreamEventUnion, SessionId } from '@ptah-extension/shared';
@@ -11,14 +14,17 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
 import { ChatHistoryReadService } from './chat-history-read.service';
 
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-policy-fixture-'));
+afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
+mkdirSync(join(TEST_ROOT, 'repo/.claude/worktrees/task'), { recursive: true });
+mkdirSync(join(TEST_ROOT, 'other'), { recursive: true });
 const SESSION_ID = '11111111-1111-4111-8111-111111111111' as SessionId;
-const WORKSPACE = '/c/projects/repo';
+const WORKSPACE = `${TEST_ROOT}/repo`;
 
 function makeHarness(
   options: {
     folders?: string[];
     metadata?: { workspaceId: string; workingDirectory?: string } | null;
-    exists?: jest.Mock;
     lifecycle?: { find: jest.Mock };
   } = {},
 ) {
@@ -44,16 +50,12 @@ function makeHarness(
   const workspaceProvider = createMockWorkspaceProvider({
     folders: options.folders ?? [WORKSPACE],
   });
-  const fileSystemProvider = {
-    exists: options.exists ?? jest.fn().mockResolvedValue(true),
-  };
   const service = new ChatHistoryReadService(
     logger as unknown as Logger,
     historyReader as never,
     metadataStore as never,
     subagentRegistry,
     workspaceProvider as unknown as IWorkspaceProvider,
-    fileSystemProvider as never,
     {
       type: 'cli',
       extensionPath: '/tmp/ptah-app',
@@ -67,12 +69,11 @@ function makeHarness(
     historyReader,
     metadataStore,
     subagentRegistry,
-    fileSystemProvider,
   };
 }
 
 describe('ChatHistoryReadService', () => {
-  const OTHER_PROJECT = '/c/projects/other';
+  const OTHER_PROJECT = `${TEST_ROOT}/other`;
 
   it('passes the ownership option through for resume reads', async () => {
     const harness = makeHarness();
@@ -146,7 +147,9 @@ describe('ChatHistoryReadService', () => {
     const TAB_ID = 'bdf3aa78-499e-416d-b7de-f0345568f8eb' as SessionId;
     const lifecycle = {
       find: jest.fn((id: string) =>
-        id === TAB_ID ? { tabId: TAB_ID, realSessionId: SESSION_ID } : undefined,
+        id === TAB_ID
+          ? { tabId: TAB_ID, realSessionId: SESSION_ID }
+          : undefined,
       ),
     };
     const harness = makeHarness({ lifecycle });

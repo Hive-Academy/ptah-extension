@@ -16,6 +16,7 @@ import {
   TriangleAlert,
 } from 'lucide-angular';
 import { ChangeSetActionsService } from '../../../services/change-set/change-set-actions.service';
+import { SessionWorktreeLookup } from '../../../services/session-git-scope/session-worktree-lookup.service';
 import {
   SessionGitStatsStore,
   sessionBranch,
@@ -103,6 +104,7 @@ export class InspectorGitSectionComponent {
   private readonly gitStore = inject(SessionGitStatsStore);
   private readonly vscode = inject(VSCodeService);
   private readonly changeSetActions = inject(ChangeSetActionsService);
+  private readonly worktrees = inject(SessionWorktreeLookup);
 
   readonly tabId = input.required<string>();
 
@@ -126,6 +128,8 @@ export class InspectorGitSectionComponent {
           found.tab,
           found.workspacePath ?? null,
           this.vscode.config().workspaceRoot,
+          // Same organization read as the git dock scope (TASK_2026_855).
+          this.worktrees.worktreeFor(found.tab.claudeSessionId).worktreePath,
         )
       : null;
   });

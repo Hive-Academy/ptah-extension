@@ -26,7 +26,8 @@ export type AdvancedSettingGroupId =
   | 'memory-upkeep'
   | 'scheduled-jobs'
   | 'workspace-harness'
-  | 'notifications';
+  | 'notifications'
+  | 'display';
 
 /**
  * When a saved value takes effect.
@@ -117,6 +118,11 @@ export const ADVANCED_SETTING_GROUPS: readonly AdvancedSettingGroup[] = [
     id: 'notifications',
     title: 'Notifications',
     description: 'When Ptah sends notifications through the host.',
+  },
+  {
+    id: 'display',
+    title: 'Display',
+    description: 'How the Display panel shows what the agent publishes.',
   },
 ];
 
@@ -428,6 +434,16 @@ export const ADVANCED_SETTINGS: readonly AdvancedSetting[] = [
     label: 'Failure notifications',
     help: 'Shows OS or VS Code notifications when a task fails.',
     default: false,
+    apply: 'live',
+  },
+  // Display. Read by the chat artifact handler on each publish.
+  {
+    key: 'display.autoOpenArtifacts',
+    group: 'display',
+    kind: 'boolean',
+    label: 'Open artifacts when published',
+    help: 'Opens the Display panel on a newly published artifact.',
+    default: true,
     apply: 'live',
   },
 ];

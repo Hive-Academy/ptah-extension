@@ -289,7 +289,11 @@ export class SystemMessageTransformer {
       messageId,
       parentToolUseId: toolUseId,
       toolCallId: toolUseId,
-      agentType: msg.task_type ?? 'Task',
+      // `task_type` is the SDK task category (`local_agent`), not the agent's
+      // name. When task_started beats the Task tool_use, this event is the
+      // only agent_start, so the spawned `subagent_type` must win here.
+      agentType:
+        msg.subagent_type || record?.agentType || msg.task_type || 'Task',
       agentDescription: msg.description,
       agentPrompt: msg.prompt,
       // Usually still undefined here — the SubagentStart hook that mints the

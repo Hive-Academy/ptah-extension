@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import 'reflect-metadata';
 
 jest.mock('@ptah-extension/workspace-intelligence', () => ({
@@ -46,7 +49,10 @@ import { createMockModelSettings } from '../../../test-utils/mock-settings';
 import { ChatSessionService } from './chat-session.service';
 import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
-const WORKSPACE = '/c/projects/ptah-ui-flag';
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-policy-fixture-'));
+afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
+mkdirSync(join(TEST_ROOT, 'ptah-ui-flag'), { recursive: true });
+const WORKSPACE = `${TEST_ROOT}/ptah-ui-flag`;
 const SESSION_ID = 'a6f50775-3f79-4f1a-8fa1-7b9f3d374db4' as SessionId;
 const TAB_ID = '9e5af5a8-aa32-4dda-b4a8-69350d65d2da';
 
@@ -84,6 +90,9 @@ function makeHarness(): Harness {
     } as never,
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),
+      hydrateResumeState: jest.fn().mockReturnValue(0),
+      isResumeStateHydrated: jest.fn().mockReturnValue(true),
+      getInterruptedBySession: jest.fn().mockReturnValue([]),
       registerFromHistoryEvents: jest.fn().mockReturnValue(0),
       getResumableBySession: jest.fn().mockReturnValue([]),
     } as unknown as SubagentRegistryService,
@@ -120,7 +129,12 @@ function makeHarness(): Harness {
     {
       injectInterruptedAgentsContext: jest
         .fn()
-        .mockImplementation(async (prompt: string) => ({ prompt })),
+        .mockImplementation(async (prompt: string) => ({
+          prompt,
+          injected: false,
+          commit: async () => undefined,
+          release: () => undefined,
+        })),
     } as never,
     { routeFollowUpSlashCommand: jest.fn().mockResolvedValue(null) } as never,
     createMockModelSettings() as unknown as ModelSettings,

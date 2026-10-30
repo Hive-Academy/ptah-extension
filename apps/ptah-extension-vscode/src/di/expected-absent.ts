@@ -84,4 +84,7 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   // Named Claude account management (`provider:*Account*`) ships in the
   // desktop app first; this host keeps the ambient sign-in only (D30).
   'providerAccounts',
+  // Secondary per-root git watchers (`git:watchRoots`) need the desktop
+  // watcher pool; this host keeps its single workspace watcher (TASK_2026_855).
+  'gitRootWatch',
 ] as const;

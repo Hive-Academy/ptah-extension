@@ -8,7 +8,6 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
-  type IFileSystemProvider,
   type IPlatformInfo,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
@@ -40,8 +39,6 @@ export class ChatHistoryReadService {
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
-    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
-    private readonly fileSystemProvider: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
@@ -58,7 +55,6 @@ export class ChatHistoryReadService {
         this.sessionLifecycle?.find(sessionId)?.realSessionId || sessionId,
       metadataStore: this.sessionMetadataStore,
       workspaceProvider: this.workspaceProvider,
-      fileSystemProvider: this.fileSystemProvider,
       platformInfo: this.platformInfo,
       logger: this.logger,
     });

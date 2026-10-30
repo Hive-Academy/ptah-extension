@@ -54,7 +54,10 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import type { SubagentMessageDispatcher } from '@ptah-extension/agent-sdk';
-import type { SessionHistoryReaderService } from '@ptah-extension/agent-sdk';
+import type {
+  SessionHistoryReaderService,
+  SessionMetadataStore,
+} from '@ptah-extension/agent-sdk';
 import { SubagentHistoryValidationError } from '@ptah-extension/agent-sdk';
 import { SubagentRpcHandlers } from './subagent-rpc.handlers';
 import { historyCursor } from './subagent-history-page';
@@ -66,7 +69,7 @@ import { historyCursor } from './subagent-history-page';
 type MockSubagentRegistry = jest.Mocked<
   Pick<
     SubagentRegistryService,
-    'get' | 'getResumable' | 'getResumableBySession'
+    'get' | 'getResumable' | 'getResumableBySession' | 'dismissResumable'
   >
 >;
 
@@ -75,6 +78,7 @@ function createMockSubagentRegistry(): MockSubagentRegistry {
     get: jest.fn(),
     getResumable: jest.fn().mockReturnValue([]),
     getResumableBySession: jest.fn().mockReturnValue([]),
+    dismissResumable: jest.fn().mockReturnValue([]),
   };
 }
 
@@ -151,6 +155,7 @@ interface Harness {
   dispatcher: MockDispatcher;
   workspace: { getConfiguration: jest.Mock };
   historyReader: { readSubagentEvents: jest.Mock };
+  metadataStore: { dismissResumableSubagents: jest.Mock };
 }
 
 function makeHarness(): Harness {
@@ -161,14 +166,16 @@ function makeHarness(): Harness {
   const dispatcher = createMockDispatcher();
   const workspace = { getConfiguration: jest.fn().mockReturnValue('auto') };
   const historyReader = {
-    readSubagentEvents: jest
-      .fn()
-      .mockResolvedValue({
-        status: 'ok',
-        agentId: 'agent-1',
-        events: [],
-        truncated: false,
-      }),
+    readSubagentEvents: jest.fn().mockResolvedValue({
+      status: 'ok',
+      agentId: 'agent-1',
+      events: [],
+      truncated: false,
+    }),
+  };
+
+  const metadataStore = {
+    dismissResumableSubagents: jest.fn().mockResolvedValue(undefined),
   };
 
   const handlers = new SubagentRpcHandlers(
@@ -182,6 +189,7 @@ function makeHarness(): Harness {
       SessionHistoryReaderService,
       'readSubagentEvents'
     > as SessionHistoryReaderService,
+    metadataStore as unknown as SessionMetadataStore,
   );
 
   return {
@@ -193,6 +201,7 @@ function makeHarness(): Harness {
     dispatcher,
     workspace,
     historyReader,
+    metadataStore,
   };
 }
 
@@ -218,18 +227,109 @@ async function call<TResult>(
 
 describe('SubagentRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all six methods', () => {
+    it('registers all seven methods', () => {
       const h = makeHarness();
       h.handlers.register();
 
       const methods = h.rpcHandler.getRegisteredMethods();
       expect(methods).toContain('chat:subagent-query');
+      expect(methods).toContain('chat:dismiss-resumable-subagents');
       expect(methods).toContain('subagent:send-message');
       expect(methods).toContain('subagent:stop');
       expect(methods).toContain('subagent:interrupt');
       expect(methods).toContain('subagent:background');
       expect(methods).toContain('subagent:history-page');
-      expect(methods).toHaveLength(6);
+      expect(methods).toHaveLength(7);
+    });
+  });
+
+  describe('chat:dismiss-resumable-subagents', () => {
+    it('dismisses in the registry and persists the dismissed records', async () => {
+      const h = makeHarness();
+      const dismissed = { ...makeSubagentRecord(), dismissed: true };
+      h.registry.dismissResumable.mockReturnValue([dismissed]);
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'chat:dismiss-resumable-subagents',
+        { sessionId: 'sess-1', toolCallIds: ['toolu_1'] },
+      );
+
+      expect(result).toEqual({ success: true });
+      expect(h.registry.dismissResumable).toHaveBeenCalledWith('sess-1', [
+        'toolu_1',
+      ]);
+      expect(h.metadataStore.dismissResumableSubagents).toHaveBeenCalledWith(
+        'sess-1',
+        [dismissed],
+      );
+    });
+
+    it('skips the metadata write when nothing matched', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'chat:dismiss-resumable-subagents',
+        { sessionId: 'sess-1', toolCallIds: ['unknown'] },
+      );
+
+      expect(result).toEqual({ success: true });
+      expect(h.metadataStore.dismissResumableSubagents).not.toHaveBeenCalled();
+    });
+
+    it('rejects an empty sessionId without touching the registry', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'chat:dismiss-resumable-subagents',
+        { sessionId: '', toolCallIds: ['toolu_1'] },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toEqual(expect.any(String));
+      expect(h.registry.dismissResumable).not.toHaveBeenCalled();
+    });
+
+    it('reports a failed metadata write', async () => {
+      const h = makeHarness();
+      h.registry.dismissResumable.mockReturnValue([makeSubagentRecord()]);
+      h.metadataStore.dismissResumableSubagents.mockRejectedValue(
+        new Error('write failed'),
+      );
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'chat:dismiss-resumable-subagents',
+        { sessionId: 'sess-1', toolCallIds: ['toolu_1'] },
+      );
+
+      expect(result).toEqual({ success: false, error: 'write failed' });
+      expect(h.logger.error).toHaveBeenCalled();
+    });
+  });
+
+  describe('chat:subagent-query hides dismissed records', () => {
+    it('returns [] for a dismissed record queried by toolCallId', async () => {
+      const h = makeHarness();
+      h.registry.get.mockReturnValue({
+        ...makeSubagentRecord({ toolCallId: 'toolu_d' }),
+        dismissed: true,
+      });
+      h.handlers.register();
+
+      const result = await call<{ subagents: SubagentRecord[] }>(
+        h,
+        'chat:subagent-query',
+        { toolCallId: 'toolu_d' },
+      );
+
+      expect(result.subagents).toEqual([]);
     });
   });
 

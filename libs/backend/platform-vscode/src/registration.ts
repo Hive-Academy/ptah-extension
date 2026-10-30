@@ -33,6 +33,7 @@ import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
   PlatformType,
   ContentDownloadService,
+  DesktopOnlyDisplayWindowHost,
 } from '@ptah-extension/platform-core';
 
 /**
@@ -128,6 +129,11 @@ export function registerPlatformVscodeServices(
   });
   container.register(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER, {
     useValue: new VscodeHttpServerProvider(),
+  });
+  // Detached Display window is Electron-only (TASK_2026_853_3401): this host
+  // answers every `displayWindow:*` call with `desktop-only` / negatives.
+  container.register(PLATFORM_TOKENS.DISPLAY_WINDOW_HOST, {
+    useValue: new DesktopOnlyDisplayWindowHost(),
   });
 
   // OAuth redirect capture: the VS Code host prefers a native URI handler

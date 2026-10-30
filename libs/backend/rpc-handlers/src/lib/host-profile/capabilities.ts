@@ -88,6 +88,12 @@ export const RPC_CAPABILITIES = [
    * Electron only.
    */
   'providerAccounts',
+  /**
+   * Host can run secondary per-root git watchers on renderer leases
+   * (`git:watchRoots`), so a session's worktree gets live status pushes.
+   * Electron only.
+   */
+  'gitRootWatch',
 ] as const;
 
 export type Capability = (typeof RPC_CAPABILITIES)[number];

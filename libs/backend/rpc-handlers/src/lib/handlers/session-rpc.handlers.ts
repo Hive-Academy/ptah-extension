@@ -1208,7 +1208,6 @@ export class SessionRpcHandlers {
         sessionId,
         metadataStore: this.metadataStore,
         workspaceProvider: this.workspaceProvider,
-        fileSystemProvider: this.fileSystemProvider,
         platformInfo: this.platformInfo,
         logger: this.logger,
       });
