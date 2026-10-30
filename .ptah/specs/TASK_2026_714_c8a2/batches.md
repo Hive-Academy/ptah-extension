@@ -4473,3 +4473,50 @@ both fields (8q-3a spec).
 - Gate: verify codex-runtime, cli-agent-runtime, gateway-chat-bridge, agent-sdk, rpc-handlers,
   ptah-electron 24/24 PASS; degradation-audit PASS; di-lint PASS; typecheck ptah-electron,
   ptah-extension-vscode, ptah-cli, ptah-tui 4/4 PASS.
+
+## Round 8r: p8k gaps (follow-up regression, failed-turn settle, dead-context mode, D14a text, model scope) — COMPLETE (8r-1..8r-3; 8r-4 split next)
+
+Sources: live-test-p8k.md (9a3a53ac5), research-p8k-gaps.md (codex lane). Runs BEFORE P10 because
+G2/G3 break normal Codex main chat in Electron. Backend translation layer only, except G1 (generic
+models-list scope fix; Claude has the same race). No second proxy, NEVER touch MCP, Claude
+behaviour unchanged.
+
+- Batch 8r-1 (codex -> grok review): G2 clientMessageId accepted + user echo + consumed id on
+  every terminal; G3 process death settles the tab with one failed terminal + one error card;
+  G6 dead-context level change returns the no-live result and saves the level. Files: agent-sdk
+  codex-app-server adapter / turn-stream / events / adapter-error; rpc-handlers broadcaster,
+  codex-chat-event-callbacks, native-session-controls (+ specs). Report batch-8r-1-report.md.
+- Batch 8r-2 (grok -> Kimi review): G7 D14a refusal returns its exact text without
+  CODEX_RUNTIME_FAILED. File: rpc-handlers chat/session/chat-session.service.ts (+ spec).
+- Batch 8r-3 (grok -> Kimi review): G1 models-list carries the workspace scope; stale responses
+  dropped; saved model absent from the base list still offered. Files: config-rpc.handlers.ts,
+  shared rpc.types.ts, frontend core model-state.service.ts (+ specs).
+- Deferred: G4 (read auto-accept stays fail-closed: no protocol proof that a non-null
+  environmentId is local; needs a spike), G5 (refuted: D14 maps Ask and Auto-edit to the same
+  wire policy; add a pinning resume spec in a later codex-runtime batch), G8 = D9, G9/G10 minor.
+- Verify (coordinator): agent-sdk, rpc-handlers, shared, frontend core, ptah-electron; typecheck
+  ptah-extension-vscode, ptah-cli, ptah-tui; vscode-core if a *_REQUEST emission moves.
+- Re-check live (next run p8l): follow-up in place, killed process, dead-tab mode change, D14a
+  text, saved model in composer.
+- 8r-1: review-8r-1.md REVISE 5/10 -> revise 1 (bound-tab notice, typed closed-context error,
+  callback-independent settlement, lint + 7 specs) -> review-8r-1-r1.md APPROVE 8/10 (grok).
+  Coordinator bounded fix: `terminalError` typed `CodexChatAdapterError` (TS2339 at
+  codex-chat-turn-stream.ts:310 broke typecheck of agent-sdk and every dependent).
+- 8r-2: review-8r-2.md REVISE 7/10 (proposed throw REJECTED: breaks rpc-chat.types.ts:396-409
+  contract) -> revise 1 generic renderer display of activationError (Claude had the same gap) ->
+  review-8r-2-r1.md APPROVE 9/10 (Kimi). Coordinator bounded fix: missing setSessionProvider mock
+  in session-loader.service.spec.ts activationSurface.
+- 8r-3: review-8r-3.md REVISE 7/10 -> revise 1 hand-built env -> review-8r-3-r1.md REVISE 7/10
+  (native claude-cli env, live-derived tiers) -> revise 2 (FINAL lane round): snapshot of the
+  real env for the null scope, existing per-workspace builder for an explicit scope.
+  Bounded codex correction (batch-8r-3-correction.md: one sync auth-env snapshot for both
+  scopes, explicit scope pins provider and saved model) -> review-8r-3-correction.md REVISE 6/10
+  (Kimi: a pre-auth same-scope read was joined after auth) -> coordinator correction 2
+  (workspace-coordinator `refreshModels({ fresh: true })`) -> review-8r-3-correction-2.md
+  APPROVE 9/10 (Kimi).
+- Verify: C PASS 36/36 (8r-3 revise-2 state); D rpc-handlers + ptah-electron 12/12, typecheck
+  ptah-extension-vscode/ptah-cli/ptah-tui 3/3; E chat + rpc-handlers lint/typecheck (see commit).
+- Batch 8r-4 (next session, codex -> grok): behaviour-preserving split of
+  codex-chat-adapter.ts (817 lines; was 754 before 8r) — move the session-controls group
+  (setSessionPermissionLevel .. close, ~:594-751) into codex-chat-session-controls.ts with
+  one-line delegates (review-8r-1-r1.md minor 1).
