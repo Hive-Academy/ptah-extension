@@ -1,6 +1,8 @@
 import {
   AppStateManager,
   ProvidersSettingsStateService,
+  WallClockService,
+  WALL_CLOCK_COARSE_MS,
 } from '@ptah-extension/core';
 import type {
   ProvidersEffectiveRoute,
@@ -20,6 +22,7 @@ import { MemoryDiagnosticsRpcService } from '../../services/memory-diagnostics-r
 
 import { MemoryDiagnosticsAccordionComponent } from './memory-diagnostics-accordion.component';
 import { StorageHealthPanelComponent } from './storage-health-panel.component';
+import { EventFeedComponent } from './event-feed.component';
 
 /** Hoisted so a test can drive the route the accordion reads. */
 const routeSection = signal<ProvidersSettingsSection<ProvidersEffectiveRoute>>({
@@ -78,6 +81,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
   const hasActiveSession = signal<boolean>(true);
   const memoryPaused = signal<boolean>(false);
   const pausedNotice = signal<string | null>(null);
+  const clockNow = signal(1_700_000_000_000);
 
   let runNowMock: jest.Mock;
   let setTriggersMock: jest.Mock;
@@ -111,6 +115,7 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     hasActiveSession.set(true);
     memoryPaused.set(false);
     pausedNotice.set(null);
+    clockNow.set(1_700_000_000_000);
 
     runNowMock = jest.fn(() => Promise.resolve());
     setTriggersMock = jest.fn(() => Promise.resolve());
@@ -124,6 +129,10 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     await TestBed.configureTestingModule({
       imports: [MemoryDiagnosticsAccordionComponent],
       providers: [
+        {
+          provide: WallClockService,
+          useValue: { now: () => clockNow, acquire: () => () => undefined },
+        },
         {
           provide: AppStateManager,
           useValue: {
@@ -293,16 +302,57 @@ describe('MemoryDiagnosticsAccordionComponent', () => {
     if (!panelDe) {
       throw new Error('Storage health panel not found in rendered template');
     }
-    const accordion = fixture.componentInstance as unknown as {
-      now: () => number;
-    };
-
-    // The accordion's now computed feeds Date.now() (≈ 1.7e12); an unwired
-    // panel input would still hold its 0 default.
-    expect(accordion.now()).toBeGreaterThan(0);
+    const now = TestBed.inject(WallClockService).now('coarse')();
+    expect(now).toBeGreaterThan(0);
     const panelInstance =
       panelDe.componentInstance as StorageHealthPanelComponent;
-    expect(panelInstance.now()).toBe(accordion.now());
+    expect(panelInstance.now()).toBe(now);
+  });
+
+  it('advances child ages without new events and releases the coarse interval on destroy', () => {
+    jest.useFakeTimers({
+      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    }).setSystemTime(1_700_000_000_000);
+    TestBed.overrideProvider(WallClockService, {
+      useFactory: () => new WallClockService(),
+      deps: [],
+    });
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
+    const clearIntervalSpy = jest.spyOn(globalThis, 'clearInterval');
+    recentEvents.set([{ kind: 'curator-error', timestamp: Date.now() - 30_000 }]);
+    const fixture = TestBed.createComponent(MemoryDiagnosticsAccordionComponent);
+
+    try {
+      fixture.detectChanges();
+      const intervalCall = setIntervalSpy.mock.calls.findIndex(
+        ([, delay]) => delay === WALL_CLOCK_COARSE_MS,
+      );
+      expect(intervalCall).toBeGreaterThanOrEqual(0);
+      const interval = setIntervalSpy.mock.results[intervalCall].value;
+      const feed = fixture.debugElement.query(
+        (de) => de.componentInstance instanceof EventFeedComponent,
+      ).componentInstance as EventFeedComponent;
+      const panel = fixture.debugElement.query(
+        (de) => de.componentInstance instanceof StorageHealthPanelComponent,
+      ).componentInstance as StorageHealthPanelComponent;
+      expect(feed.now()).toBe(Date.now());
+      expect(panel.now()).toBe(Date.now());
+      expect((fixture.nativeElement as HTMLElement).querySelector('ptah-event-feed')?.textContent).toContain('30s ago');
+
+      jest.advanceTimersByTime(WALL_CLOCK_COARSE_MS);
+      fixture.detectChanges();
+      expect(feed.now()).toBe(Date.now());
+      expect(panel.now()).toBe(Date.now());
+      expect((fixture.nativeElement as HTMLElement).querySelector('ptah-event-feed')?.textContent).toContain('1m ago');
+      expect(recentEvents()).toHaveLength(1);
+
+      fixture.destroy();
+      expect(clearIntervalSpy).toHaveBeenCalledWith(interval);
+    } finally {
+      fixture.destroy();
+      jest.restoreAllMocks();
+      jest.useRealTimers();
+    }
   });
 
   it('Run curator now button calls state.runNow()', () => {

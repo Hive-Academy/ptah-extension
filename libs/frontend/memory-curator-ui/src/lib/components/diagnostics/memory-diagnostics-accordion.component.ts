@@ -9,6 +9,7 @@ import {
 import {
   AppStateManager,
   ProvidersSettingsStateService,
+  injectWallClock,
 } from '@ptah-extension/core';
 import { SurfaceCardComponent } from '@ptah-extension/ui';
 
@@ -252,10 +253,7 @@ export class MemoryDiagnosticsAccordionComponent implements OnInit, OnDestroy {
       : 'Open a session to run curator manually';
   });
 
-  protected readonly now = computed(() => {
-    this.recentEvents();
-    return Date.now();
-  });
+  protected readonly now = injectWallClock('coarse');
 
   protected readonly lastRunLabel = computed(() =>
     formatSnapshot(this.lastRun()),
