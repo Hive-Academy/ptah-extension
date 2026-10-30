@@ -76,11 +76,18 @@ interface PendingApproval {
   ): void;
 }
 
+interface CodexChatApprovalSinkOptions {
+  readonly systemRoot?: string;
+  readonly autoAcceptReadOnly?: boolean;
+}
+
 /** One sink per runtime context, explicitly bound by the composition owner. */
 export class CodexChatApprovalSink implements ApprovalSink {
   private readonly pending = new Map<string, PendingApproval>();
   private readonly seen = new Set<string>();
   private disposed = false;
+  private readonly systemRoot: string | undefined;
+  private readonly autoAcceptReadOnly: boolean;
 
   constructor(
     readonly sessionId: SessionId,
@@ -92,9 +99,12 @@ export class CodexChatApprovalSink implements ApprovalSink {
     private readonly platform: string = process.platform,
     private readonly threadCwd: string | undefined = undefined,
     private readonly resolvePath: (value: string) => Promise<string> = realpath,
-    private readonly systemRoot: string | undefined = process.env['SystemRoot'] ?? process.env['windir'],
-    private readonly autoAcceptReadOnly = false,
-  ) {}
+    options: CodexChatApprovalSinkOptions = {},
+  ) {
+    this.systemRoot =
+      options.systemRoot ?? process.env['SystemRoot'] ?? process.env['windir'];
+    this.autoAcceptReadOnly = options.autoAcceptReadOnly ?? false;
+  }
 
   request(
     request: CodexApprovalRequest,

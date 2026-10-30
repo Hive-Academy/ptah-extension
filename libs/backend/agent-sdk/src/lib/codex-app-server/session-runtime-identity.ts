@@ -27,6 +27,21 @@ export class SessionRuntimeRoutingError extends Error {
   }
 }
 
+/** Identity for a stored Claude session that predates native runtime metadata. */
+export function legacyClaudeSessionRuntimeIdentity(input: {
+  readonly sessionId: SessionId;
+  readonly workspaceId: string;
+  readonly providerId?: string;
+}): SessionRuntimeIdentity {
+  return {
+    version: 1,
+    sessionId: input.sessionId,
+    runtime: 'claude-sdk',
+    providerId: input.providerId ?? 'claude-cli',
+    workspaceId: input.workspaceId,
+  };
+}
+
 // Missing metadata is normal for tabs and newly created Claude sessions.
 export function resolveSessionRuntimeIdentity(
   identities: SessionRuntimeIdentityLookup,

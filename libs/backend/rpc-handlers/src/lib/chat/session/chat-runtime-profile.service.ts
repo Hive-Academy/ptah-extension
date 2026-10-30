@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { inject, injectable } from 'tsyringe';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  legacyClaudeSessionRuntimeIdentity,
+} from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
   type ResolvedExecutionProfile,
@@ -75,13 +78,11 @@ export function storedChatRuntimeIdentity(
   } | null | undefined,
   workspaceId: string,
 ): SessionRuntimeIdentity {
-  return metadata?.codexExecution ?? {
-    version: 1,
+  return metadata?.codexExecution ?? legacyClaudeSessionRuntimeIdentity({
     sessionId,
-    runtime: 'claude-sdk',
-    providerId: metadata?.providerId ?? 'claude-cli',
+    providerId: metadata?.providerId,
     workspaceId: metadata?.workspaceId ?? workspaceId,
-  };
+  });
 }
 
 @injectable()

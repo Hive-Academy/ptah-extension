@@ -161,17 +161,24 @@ export { SDK_TOKENS } from './lib/di/tokens';
 export {
   /** @internal Electron composition specs only. */
   CodexChatAdapter,
-  isCodexChatAdapterError,
-  type CodexChatAdapterErrorCode,
   type CodexChatAdapterPorts,
   type CodexChatScope,
   type CodexChatSessionLifecycle,
 } from './lib/codex-app-server/codex-chat-adapter';
+export {
+  CodexChatAdapterError,
+  isCodexChatAdapterError,
+  isWebviewReportedError,
+  type CodexChatAdapterErrorCode,
+} from './lib/codex-app-server/codex-chat-adapter-error';
 export type { RuntimeAdmissionPort } from './lib/codex-app-server/routing-agent-adapter';
 export type { SessionApprovalRouter } from './lib/codex-app-server/session-approval-router';
 export type { NativeSessionControls, StreamlessFollowUpAdmission } from './lib/codex-app-server/session-runtime-router';
 export type { SessionRuntimeIdentityLookup } from './lib/codex-app-server/session-runtime-identity';
-export { resolveSessionRuntimeIdentity } from './lib/codex-app-server/session-runtime-identity';
+export {
+  legacyClaudeSessionRuntimeIdentity,
+  resolveSessionRuntimeIdentity,
+} from './lib/codex-app-server/session-runtime-identity';
 export type { LegacySettingsPersistence } from './lib/codex-app-server/legacy-session-controls';
 export {
   type CodexChatEventCallbacks,

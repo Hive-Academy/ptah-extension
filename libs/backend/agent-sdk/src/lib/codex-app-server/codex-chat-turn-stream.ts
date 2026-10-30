@@ -12,10 +12,13 @@ import type {
 } from '@ptah-extension/shared';
 import { resolveContextCapacity } from '@ptah-extension/shared';
 import type {
-  CodexChatAdapterError,
   CodexChatAdapterPorts,
   CodexChatScope,
 } from './codex-chat-adapter';
+import {
+  isCodexChatAdapterError,
+  type CodexChatAdapterError,
+} from './codex-chat-adapter-error';
 import type { CodexChatApprovalSink } from './codex-chat-approval-sink';
 import {
   CodexChatEvents,
@@ -339,7 +342,23 @@ async function drainInterruptedTurn(
         continue;
       }
       const mapped = projection.map(next.value);
-      await projection.settled();
+      try {
+        await projection.settled();
+      } catch (error) {
+        // The terminal itself rejects settlement (interrupted -> cancelled,
+        // failed -> runtime-failed). Both are an expected end of the drained
+        // turn: settle it as before. Any other error takes the cleanup path.
+        if (
+          next.value.type === 'terminal' &&
+          isCodexChatAdapterError(error) &&
+          (error.code === 'cancelled' || error.code === 'runtime-failed')
+        ) {
+          settleTurn();
+          terminal = true;
+          return;
+        }
+        throw error;
+      }
       if (mapped.some((event) => event.eventType === 'message_complete')) {
         settleTurn();
         terminal = true;

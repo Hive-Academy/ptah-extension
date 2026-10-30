@@ -15,11 +15,13 @@ import {
 import { SessionId, type FlatStreamEventUnion } from '@ptah-extension/shared';
 import {
   CodexChatAdapter,
+  type CodexChatAdapterPorts,
+} from './codex-chat-adapter';
+import {
   CodexChatAdapterError,
   isCodexChatAdapterError,
   type CodexChatAdapterErrorCode,
-  type CodexChatAdapterPorts,
-} from './codex-chat-adapter';
+} from './codex-chat-adapter-error';
 import { SessionApprovalRouter } from './session-approval-router';
 import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
 
@@ -234,7 +236,9 @@ describe('CodexChatAdapter', () => {
       yield { ...terminal, status };
     })());
     const stream = await h.adapter.startChatSession({ tabId, prompt: 'hello' });
-    for await (const event of stream) void event;
+    await expect(stream[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+      code: status === 'failed' ? 'runtime-failed' : 'cancelled',
+    });
     expect(h.ports.metadata.completedTurn).not.toHaveBeenCalled();
     await h.adapter.dispose();
   });
@@ -419,7 +423,7 @@ describe('CodexChatAdapter', () => {
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 
-  it('opens a gateway start through the gateway gate and presents read approvals', async () => {
+  it('opens a gateway start with read auto-accept disabled and presents read approvals', async () => {
     const { adapter, ports, open, sink } = setup('gateway');
     jest.mocked(ports.profile).mockImplementation(async (_config, resumeId) => ({
       profile: { ...profile, consumer: 'gateway' },

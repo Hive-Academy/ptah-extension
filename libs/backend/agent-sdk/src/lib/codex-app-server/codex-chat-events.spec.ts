@@ -1,4 +1,5 @@
 import type { CodexRuntimeEvent } from '@ptah-extension/codex-runtime';
+import { CodexChatAdapterError } from './codex-chat-adapter-error';
 import { CodexChatEvents, tokenUsage } from './codex-chat-events';
 import { CODEX_DENIED_TOOL_RESULT_TEXT } from './codex-tool-presentation';
 
@@ -33,21 +34,20 @@ describe('CodexChatEvents', () => {
     expect(callbacks.content).not.toHaveBeenCalled();
     expect(callbacks.result).toHaveBeenCalledWith({ status: 'completed', text: 'answer' });
   });
-  it('awaits a corrected final text at the original text block after reasoning', async () => {
+  it('emits a corrected final at the original text block after reasoning without a content callback', async () => {
     const { projection, callbacks } = setup();
-    let release: (() => void) | undefined;
-    callbacks.content.mockReturnValue(new Promise<void>(resolve => { release = resolve; }));
     projection.map({ ...identity, sequence: 1, type: 'reasoning', phase: 'delta', itemId: 'r', text: 'thinking' });
     projection.map({ ...identity, sequence: 2, type: 'textDelta', itemId: 'a', delta: 'old' });
-    expect(projection.map({ ...identity, sequence: 3, type: 'textFinal', itemId: 'a', text: 'corrected' })).toEqual([]);
-    expect(callbacks.content).toHaveBeenCalledWith({ itemId: 'a', kind: 'text', blockIndex: 1, text: 'corrected' });
-    let settled = false;
-    const wait = projection.settled().then(() => { settled = true; });
-    await Promise.resolve();
-    expect(settled).toBe(false);
-    release?.();
-    await wait;
-    expect(settled).toBe(true);
+    expect(projection.map({ ...identity, sequence: 3, type: 'textFinal', itemId: 'a', text: 'corrected' })).toEqual([
+      expect.objectContaining({
+        eventType: 'text_delta',
+        delta: 'corrected',
+        source: 'complete',
+        blockIndex: 1,
+      }),
+    ]);
+    expect(callbacks.content).not.toHaveBeenCalled();
+    await expect(projection.settled()).resolves.toBeUndefined();
   });
   it('does not create an empty text block at terminal', () => {
     const { projection, callbacks } = setup();
@@ -298,6 +298,239 @@ describe('CodexChatEvents', () => {
       presentation: 'text',
     })).toEqual([]);
     expect(callbacks.content).not.toHaveBeenCalled();
+  });
+  it('rejects settlement after one error callback when the terminal failed', async () => {
+    const { projection, callbacks } = setup();
+    projection.map({
+      ...identity,
+      sequence: 1,
+      type: 'textDelta',
+      itemId: 'a',
+      delta: 'partial',
+    });
+    const mapped = projection.map({
+      ...identity,
+      sequence: 2,
+      type: 'terminal',
+      status: 'failed',
+    });
+    expect(mapped.at(-1)).toMatchObject({
+      eventType: 'message_complete',
+      stopReason: 'failed',
+    });
+    expect(callbacks.error).toHaveBeenCalledTimes(1);
+    expect(callbacks.error).toHaveBeenCalledWith('Codex reported a runtime error.');
+    expect(callbacks.result).toHaveBeenCalledWith({
+      status: 'failed',
+      text: 'partial',
+      error: 'Codex reported a runtime error.',
+    });
+    await expect(projection.settled()).rejects.toBeInstanceOf(
+      CodexChatAdapterError,
+    );
+    await expect(projection.settled()).rejects.toThrow(
+      'Codex chat turn: runtime-failed',
+    );
+    await expect(projection.settled()).rejects.toMatchObject({
+      code: 'runtime-failed',
+      webviewReported: true,
+    });
+    expect(callbacks.error).toHaveBeenCalledTimes(1);
+  });
+  it('rejects settlement when the terminal is interrupted and does not add an error callback', async () => {
+    const { projection, callbacks } = setup();
+    const mapped = projection.map({
+      ...identity,
+      sequence: 1,
+      type: 'terminal',
+      status: 'interrupted',
+    });
+    expect(mapped.at(-1)).toMatchObject({
+      eventType: 'message_complete',
+      stopReason: 'interrupted',
+    });
+    expect(callbacks.error).not.toHaveBeenCalled();
+    expect(callbacks.result).toHaveBeenCalledWith({
+      status: 'interrupted',
+      text: '',
+    });
+    await expect(projection.settled()).rejects.toBeInstanceOf(
+      CodexChatAdapterError,
+    );
+    await expect(projection.settled()).rejects.toThrow(
+      'Codex chat turn: cancelled',
+    );
+    await expect(projection.settled()).rejects.toMatchObject({
+      code: 'cancelled',
+      webviewReported: undefined,
+    });
+    expect(callbacks.error).not.toHaveBeenCalled();
+  });
+  it('emits a divergent longer final as one complete-source text delta', async () => {
+    const { projection, callbacks } = setup();
+    projection.map({
+      ...identity,
+      sequence: 1,
+      type: 'textDelta',
+      itemId: 'a',
+      delta: 'old',
+    });
+    expect(
+      projection.map({
+        ...identity,
+        sequence: 2,
+        type: 'textFinal',
+        itemId: 'a',
+        text: 'corrected answer',
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        eventType: 'text_delta',
+        delta: 'corrected answer',
+        source: 'complete',
+        blockIndex: 0,
+      }),
+    ]);
+    projection.map({
+      ...identity,
+      sequence: 3,
+      type: 'terminal',
+      status: 'completed',
+    });
+    await projection.settled();
+    expect(callbacks.content).not.toHaveBeenCalled();
+    expect(callbacks.result).toHaveBeenCalledWith({
+      status: 'completed',
+      text: 'corrected answer',
+    });
+    expect(callbacks.error).not.toHaveBeenCalled();
+  });
+  it('emits a divergent shorter final as the full shorter text', async () => {
+    const { projection, callbacks } = setup();
+    projection.map({
+      ...identity,
+      sequence: 1,
+      type: 'textDelta',
+      itemId: 'a',
+      delta: 'hello world',
+    });
+    expect(
+      projection.map({
+        ...identity,
+        sequence: 2,
+        type: 'textFinal',
+        itemId: 'a',
+        text: 'hi',
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        eventType: 'text_delta',
+        delta: 'hi',
+        source: 'complete',
+        blockIndex: 0,
+      }),
+    ]);
+    projection.map({
+      ...identity,
+      sequence: 3,
+      type: 'terminal',
+      status: 'completed',
+    });
+    await projection.settled();
+    expect(callbacks.result).toHaveBeenCalledWith({
+      status: 'completed',
+      text: 'hi',
+    });
+    expect(callbacks.error).not.toHaveBeenCalled();
+  });
+  it('replaces a streamed text block with an empty complete-source final', async () => {
+    const { projection, callbacks } = setup();
+    projection.map({
+      ...identity,
+      sequence: 1,
+      type: 'textDelta',
+      itemId: 'a',
+      delta: 'obsolete',
+    });
+    expect(projection.map({
+      ...identity,
+      sequence: 2,
+      type: 'textFinal',
+      itemId: 'a',
+      text: '',
+    })).toEqual([
+      expect.objectContaining({
+        eventType: 'text_delta',
+        source: 'complete',
+        delta: '',
+        blockIndex: 0,
+      }),
+    ]);
+    projection.map({ ...identity, sequence: 3, type: 'terminal', status: 'completed' });
+    await projection.settled();
+    expect(callbacks.content).not.toHaveBeenCalled();
+    expect(callbacks.result).toHaveBeenCalledWith({ status: 'completed', text: '' });
+  });
+  it('does not allocate a block for empty final-only text', () => {
+    const { projection, callbacks } = setup();
+    expect(projection.map({
+      ...identity,
+      sequence: 1,
+      type: 'textFinal',
+      itemId: 'empty',
+      text: '',
+    }).map((event) => event.eventType)).toEqual(['message_start']);
+    expect(projection.map({
+      ...identity,
+      sequence: 2,
+      type: 'textFinal',
+      itemId: 'first',
+      text: 'answer',
+    })).toEqual([expect.objectContaining({
+      eventType: 'text_delta',
+      blockIndex: 0,
+      delta: 'answer',
+    })]);
+    expect(callbacks.content).not.toHaveBeenCalled();
+  });
+  it('keeps a final that extends the streamed prefix as a stream suffix', async () => {
+    const { projection, callbacks } = setup();
+    projection.map({
+      ...identity,
+      sequence: 1,
+      type: 'textDelta',
+      itemId: 'a',
+      delta: 'hel',
+    });
+    expect(
+      projection.map({
+        ...identity,
+        sequence: 2,
+        type: 'textFinal',
+        itemId: 'a',
+        text: 'hello',
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        eventType: 'text_delta',
+        delta: 'lo',
+        source: 'stream',
+        blockIndex: 0,
+      }),
+    ]);
+    expect(callbacks.content).not.toHaveBeenCalled();
+    projection.map({
+      ...identity,
+      sequence: 3,
+      type: 'terminal',
+      status: 'completed',
+    });
+    await projection.settled();
+    expect(callbacks.result).toHaveBeenCalledWith({
+      status: 'completed',
+      text: 'hello',
+    });
+    expect(callbacks.error).not.toHaveBeenCalled();
   });
   it('passes normalized live and compaction events through callbacks', () => {
     const { projection, callbacks } = setup();

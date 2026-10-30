@@ -1,5 +1,6 @@
 import { SessionId, type SessionRuntimeIdentity } from '@ptah-extension/shared';
 import {
+  legacyClaudeSessionRuntimeIdentity,
   resolveSessionRuntimeIdentity,
   SessionRuntimeRoutingError,
 } from './session-runtime-identity';
@@ -20,6 +21,27 @@ const legacy: SessionRuntimeIdentity = {
   workspaceId: '/workspace',
   runtime: 'claude-sdk',
 };
+
+describe('legacyClaudeSessionRuntimeIdentity', () => {
+  it('uses the Claude CLI provider when metadata has no provider', () => {
+    expect(legacyClaudeSessionRuntimeIdentity({ sessionId: id, workspaceId: '/workspace' }))
+      .toEqual({
+        version: 1,
+        sessionId: id,
+        runtime: 'claude-sdk',
+        providerId: 'claude-cli',
+        workspaceId: '/workspace',
+      });
+  });
+
+  it('preserves a stored provider', () => {
+    expect(legacyClaudeSessionRuntimeIdentity({
+      sessionId: id,
+      workspaceId: '/workspace',
+      providerId: 'anthropic',
+    })).toEqual(legacy);
+  });
+});
 
 describe('resolveSessionRuntimeIdentity', () => {
   it('allows unknown tab and pre-metadata session ids to use legacy', () => {

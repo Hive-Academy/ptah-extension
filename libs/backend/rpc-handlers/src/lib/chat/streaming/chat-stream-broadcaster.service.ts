@@ -55,6 +55,7 @@ import {
   SessionMetadataStore,
   SessionTurnStateRegistry,
   toTurnStateEvent,
+  isWebviewReportedError,
 } from '@ptah-extension/agent-sdk';
 import type {
   IAgentAdapter,
@@ -367,7 +368,7 @@ export class ChatStreamBroadcaster {
           );
         }
       }
-      if (!isUserAbort) {
+      if (!isUserAbort && !isWebviewReportedError(error)) {
         await publishTerminal(MESSAGE_TYPES.CHAT_ERROR, {
           tabId,
           sessionId,

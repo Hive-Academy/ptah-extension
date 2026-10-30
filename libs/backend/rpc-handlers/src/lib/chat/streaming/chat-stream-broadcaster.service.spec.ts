@@ -85,6 +85,7 @@ interface Harness {
     >
   >;
   logger: jest.Mocked<Pick<Logger, 'info' | 'debug' | 'warn' | 'error'>>;
+  sentryService: SentryService;
   ptahCli: jest.Mocked<
     Pick<
       ChatPtahCliService,
@@ -173,6 +174,7 @@ function makeHarness(ptahCliOverride?: ChatPtahCliService): Harness {
     ptahCli,
     sessionMetadataStore,
     logger,
+    sentryService,
     turnState,
   };
 }
@@ -1049,6 +1051,35 @@ function turnStateChunks(h: Harness): TurnStateEvent[] {
 }
 
 describe('ChatStreamBroadcaster.streamEventsToWebview - turn state (TASK_2026_360)', () => {
+  it('flushes and forces idle for a webview-reported failure without another error card', async () => {
+    const h = makeHarness();
+    h.turnState.markGenerating(SESSION_ID);
+    const failure = new Error('Codex chat turn: runtime-failed');
+    Object.defineProperty(failure, 'webviewReported', { value: true });
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      yield makeEvent('text_delta');
+      throw failure;
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(turnStateChunks(h).at(-1)).toMatchObject({
+      phase: 'idle',
+      terminalReason: null,
+    });
+    expect(broadcastsFor(h, 'chat:chunk')).toHaveLength(3);
+    expect(broadcastsFor(h, 'chat:error')).toHaveLength(0);
+    expect(h.logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Error streaming flat events'),
+      failure,
+    );
+    expect(h.sentryService.captureException).toHaveBeenCalledWith(
+      failure,
+      { errorSource: 'ChatRpcHandlers.streamExecutionNodesToWebview' },
+    );
+  });
   it('pushes an idle turn_state AFTER the chunks and BEFORE chat:error when the stream throws', async () => {
     const h = makeHarness();
     h.turnState.markGenerating(SESSION_ID);

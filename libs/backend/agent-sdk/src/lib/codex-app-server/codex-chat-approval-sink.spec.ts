@@ -41,8 +41,10 @@ function setup(
   permissionLevel: () => string | undefined = () => undefined,
   resolvePath: (value: string) => Promise<string> = async (value) => value,
   threadCwd: string | undefined = 'C:\\repo',
-  systemRoot: string | undefined = 'C:\\Windows',
-  autoAcceptReadOnly = true,
+  options: { systemRoot?: string | undefined; autoAcceptReadOnly?: boolean } = {
+    systemRoot: 'C:\\Windows',
+    autoAcceptReadOnly: true,
+  },
 ) {
   const logger = mockLogger();
   const presentation = {
@@ -75,8 +77,7 @@ function setup(
       'win32',
       threadCwd,
       resolvePath,
-      systemRoot,
-      autoAcceptReadOnly,
+      options,
     ),
   };
 }
@@ -105,7 +106,8 @@ describe('CodexChatApprovalSink', () => {
 
   it('presents a gateway read request when auto-accept is off', async () => {
     const { sink, presentation } = setup(
-      () => 'ask', async (value) => value, 'C:\\repo', 'C:\\Windows', false,
+      () => 'ask', async (value) => value, 'C:\\repo',
+      { systemRoot: 'C:\\Windows', autoAcceptReadOnly: false },
     );
     const pending = sink.request({
       ...request,

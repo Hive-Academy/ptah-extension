@@ -3224,7 +3224,7 @@ Prefix G = W/libs/backend/gateway-chat-bridge/src/lib/.
 
 ## Batch 9a: Gateway adapter and approval sink — COMPLETE (merged in #809)
 
-## Batch 9b: Gateway profile and bridge integration — PENDING (needs 6p)
+## Batch 9b: Gateway profile and bridge integration — SUPERSEDED by Round P9
 
 - Files: CREATE G+codex-gateway-profile.ts and spec, G+gateway-chat-bridge.native.spec.ts; MODIFY
   G+gateway-chat-bridge.ts (native branch only; re-locate anchors), G+di/register.ts,
@@ -3236,7 +3236,7 @@ Prefix G = W/libs/backend/gateway-chat-bridge/src/lib/.
   Last P9 batch -> phase review.
 - Executor: CLI lane, Codex family | Review: Claude | standard fallback | Subagent reason: N/A
 
-## Round P9: gateway consumer (batch 9b re-plan) — PENDING (decomposed session 25 at cd947b54c; supersedes the Batch 9b file list above)
+## Round P9: gateway consumer (batch 9b re-plan) — COMPLETE except phase-review fixes (batch 9c) (decomposed session 25 at cd947b54c; supersedes the Batch 9b file list above)
 
 Total tasks: 7 batches (9b-1..9b-7) | Complete: 0/7. Phase: P9. Phase review after 9b-7:
 code-logic (Claude `code-logic-reviewer`, different family from the Codex/grok implementers) on
@@ -3448,7 +3448,7 @@ Edge cases:
   `nativeCodexGateway === true`; lane -> false. Specs: gateway on/off x provider codex/claude;
   chat unchanged; lane never native; Claude branch result identical to today for gateway when off.
 
-## Batch 9b-2: Gateway execution profile parity (codex-runtime) — PENDING
+## Batch 9b-2: Gateway execution profile parity (codex-runtime) — COMPLETE (3a8bd572d)
 
 - Recommended executor: CLI lane grok | Execution mode: sequential | Depends on: none
 - Subagent reason: N/A | Review family: Claude | Phase: P9
@@ -3457,15 +3457,15 @@ Edge cases:
   codex-execution-profile.spec.ts, W/libs/backend/codex-runtime/src/lib/codex-context.ts and the
   spec that covers `userInputAsync` (locate it; do not create a new spec file if one covers it)
 
-### Task 9b-2.1: D14 mapping for the gateway consumer — PENDING
+### Task 9b-2.1: D14 mapping for the gateway consumer — COMPLETE
 - codex-execution-profile.ts:141-160 and :250-258: `chat || gateway` gets D14; lane and usage
   keep the pre-8m-1 mapping. Update the comments. Specs: gateway ask/auto-edit/yolo policy and
   sandbox equal chat's; lane unchanged; the fingerprint of a gateway profile equals the chat
   profile with the same settings (assumption above).
-### Task 9b-2.2: async question card for gateway — PENDING
+### Task 9b-2.2: async question card for gateway — COMPLETE
 - codex-context.ts:404: chat or gateway. Spec: gateway emits the card like chat; lane does not.
 
-## Batch 9b-3: One gate per host for the gateway (codex-runtime, ptah-electron) — PENDING
+## Batch 9b-3: One gate per host for the gateway (codex-runtime, ptah-electron) — COMPLETE (fe9ef25ff)
 
 - Recommended executor: CLI lane codex (gpt-6-sol) | Execution mode: sequential | Depends on: 9b-1, 9b-2
 - Subagent reason: N/A | Review family: Claude | Phase: P9
@@ -3475,18 +3475,18 @@ Edge cases:
   W/apps/ptah-electron/src/di/codex-runtime-composition.ts (`createElectronCodexRouting` only),
   W/apps/ptah-electron/src/di/codex-runtime-composition.spec.ts
 
-### Task 9b-3.1: DS1 covers chat and gateway (pending R-P9-A) — PENDING
+### Task 9b-3.1: DS1 covers chat and gateway (pending R-P9-A) — COMPLETE
 - codex-dev-route.ts:1-21: the override lists the consumers it covers (`chat`, `gateway`); lane
   never; packaged builds always null. Grep every reader of the override's consumer field (apps and
   libs) and update it in this batch.
-### Task 9b-3.2: gated resolver honours the consumer — PENDING
+### Task 9b-3.2: gated resolver honours the consumer — COMPLETE
 - registration.ts:111-135: the DS1 bypass applies when the override covers `consumer`; the warn
   names the consumer once per container. Specs: gateway with/without DS1; lane always refused.
-### Task 9b-3.3: Electron capability per consumer — PENDING
+### Task 9b-3.3: Electron capability per consumer — COMPLETE
 - codex-runtime-composition.ts:72-82: `nativeCodexGateway` = gateway parity gate OR DS1 covers
   gateway; `nativeCodex` unchanged. Spec in codex-runtime-composition.spec.ts.
 
-## Batch 9b-4: Consumer-aware native routing and sink (agent-sdk) — PENDING
+## Batch 9b-4: Consumer-aware native routing and sink (agent-sdk) — COMPLETE (0461b5dd4)
 
 - Recommended executor: CLI lane codex (gpt-6-sol) | Execution mode: sequential | Depends on: 9b-1
 - Subagent reason: N/A | Review family: Claude | Phase: P9
@@ -3495,24 +3495,24 @@ Edge cases:
   routing-agent-adapter.spec.ts, codex-chat-adapter.ts, codex-chat-adapter.spec.ts,
   codex-chat-approval-sink.ts, codex-chat-approval-sink.spec.ts (same folder)
 
-### Task 9b-4.1: RoutingAgentAdapter capability by consumer — PENDING
+### Task 9b-4.1: RoutingAgentAdapter capability by consumer — COMPLETE
 - routing-agent-adapter.ts:87-115: the capability is `nativeCodexGateway` when
   `config.consumer === 'gateway'`, else `nativeCodex`, for both the prepared-runtime check and
   admission. Resume/end/etc. keep routing by stored identity (:215-229). Specs: edge cases above.
   Review carry-over (code-logic-review-9b-1.md, Moderate 2): today the adapter gates on
   `nativeCodex` only (routing-agent-adapter.ts:94, :100, :112); all three sites must read the
   consumer.
-### Task 9b-4.2: CodexChatAdapter consumer — PENDING
+### Task 9b-4.2: CodexChatAdapter consumer — COMPLETE
 - codex-chat-adapter.ts: expected consumer = `config.consumer ?? 'chat'`; `prepareProfile`
   (:316-327) requires `prepared.profile.consumer` to equal it; `openContext` (:347-357) gates with
   it; `buildSink` (:420-480) enables read-only auto-accept only for chat. Specs: gateway open
   gated as gateway; mismatch -> `identity-mismatch`; chat unchanged.
-### Task 9b-4.3: sink flag — PENDING
+### Task 9b-4.3: sink flag — COMPLETE
 - codex-chat-approval-sink.ts:83-146: explicit constructor flag for the D20 auto-accept (default
   off); the classifier runs only when on. Specs: gateway ask + `Get-Content` shows the card; chat
   ask still auto-accepts (existing specs stay green).
 
-## Batch 9b-5: Gateway consumer in host ports and unroutable prompts (rpc-handlers) — PENDING
+## Batch 9b-5: Gateway consumer in host ports and unroutable prompts (rpc-handlers) — COMPLETE (ca6580906, e3ebac212)
 
 - Recommended executor: CLI lane grok | Execution mode: sequential | Depends on: 9b-1
 - Subagent reason: N/A | Review family: Claude | Phase: P9
@@ -3521,12 +3521,12 @@ Edge cases:
   chat-runtime-profile.service.spec.ts, W/libs/backend/rpc-handlers/src/lib/chat/codex-host/
   codex-chat-host-ports.ts, codex-chat-host-ports.spec.ts
 
-### Task 9b-5.1: prepare() passes the consumer — PENDING
+### Task 9b-5.1: prepare() passes the consumer — COMPLETE
 - chat-runtime-profile.service.ts:134: `config.consumer ?? 'chat'`. Spec.
-### Task 9b-5.2: profile consumer — PENDING
+### Task 9b-5.2: profile consumer — COMPLETE
 - codex-chat-host-ports.ts:386: `consumer` from the config. Spec: gateway start carries the
   `ptah` MCP server with the `gw-` routing id when `mcpServerRunning` (P9-4).
-### Task 9b-5.3: unroutable presentation with deny window and lifecycle — PENDING
+### Task 9b-5.3: unroutable presentation with deny window and lifecycle — COMPLETE
 - codex-chat-host-ports.ts:56 (deps: optional `promptLifecycle: { publish(event:
   PermissionPromptLifecycleEvent): void }`) and :436-475: non-UUID tab -> Claude's unroutable
   payload, `timeoutAt = min(expiresAt, now + 60_000)`, timer -> `decline` with Claude's
@@ -3535,7 +3535,7 @@ Edge cases:
   every settle path (answer, dismiss, cancelPrompt, delivery failure). UUID tab: unchanged
   (`timeoutAt` as today, no timer, no lifecycle). Specs per edge case above.
 
-## Batch 9b-6: Lifecycle publish and Electron wiring (agent-sdk, ptah-electron) — PENDING
+## Batch 9b-6: Lifecycle publish and Electron wiring (agent-sdk, ptah-electron) — COMPLETE (00c21292e)
 
 - Recommended executor: CLI lane codex (gpt-6-sol) | Execution mode: sequential | Depends on: 9b-3, 9b-5
 - Subagent reason: N/A | Review family: Claude | Phase: P9
@@ -3544,13 +3544,13 @@ Edge cases:
   W/libs/backend/agent-sdk/src/index.ts, W/apps/ptah-electron/src/di/codex-runtime-composition.ts,
   codex-runtime-composition.spec.ts
 
-### Task 9b-6.1: `publishPromptLifecycle(event)` — PENDING
+### Task 9b-6.1: `publishPromptLifecycle(event)` — COMPLETE
 - sdk-permission-handler.ts:226-240: public method delegating to `emitLifecycle`; Claude
   behaviour unchanged. Spec: listener receives a published event; listener errors isolated as
   today.
-### Task 9b-6.2: export `resolveSessionRuntimeIdentity` — PENDING
+### Task 9b-6.2: export `resolveSessionRuntimeIdentity` — COMPLETE
 - agent-sdk index.ts near :169 (type already exported).
-### Task 9b-6.3: Electron binds `promptLifecycle` — PENDING
+### Task 9b-6.3: Electron binds `promptLifecycle` — COMPLETE
 - codex-runtime-composition.ts host deps (the `permissionHandler` resolve near :406): pass
   `{ publish: (e) => permissionHandler.publishPromptLifecycle(e) }`. Spec.
 ### Review carry-over before 9b-6 (code-logic-review-9b-1.md)
@@ -3565,7 +3565,7 @@ Edge cases:
 - Minor: `ExecutionProfileRequest.consumer` stays required (:122); callers that read the optional
   config field add an explicit `?? 'chat'` at the boundary (9b-5.1 already does).
 
-## Batch 9b-7: Gateway bridge consumer, resume and cleanup (gateway-chat-bridge) — PENDING
+## Batch 9b-7: Gateway bridge consumer, resume and cleanup (gateway-chat-bridge) — COMPLETE (3a2d13f6c)
 
 - Recommended executor: CLI lane codex (gpt-6-sol) | Execution mode: sequential | Depends on: 9b-1..9b-6
 - Subagent reason: N/A | Review family: Claude | Phase: P9 (last batch -> phase review)
@@ -3577,20 +3577,20 @@ Edge cases:
   change (verify; the deleted classes were never exported). Keep the codex-runtime and agent-sdk
   dependencies in package.json (used for the D14a guards).
 
-### Task 9b-7.1: one runtime decision in prepareTurn — PENDING
+### Task 9b-7.1: one runtime decision in prepareTurn — COMPLETE
 - gateway-chat-bridge.ts:688-697: `resolveExecutionProfile({ workspacePath, requestedModel,
   consumer: 'gateway', hostCapabilities })` (inject `SDK_TOKENS.RUNTIME_HOST_CAPABILITIES`
   optional, default `{ nativeCodex: false }`); Claude result -> today's provider profile; native
   -> no provider profile. Keep `TURN_PREPARATION_DEADLINE_MS` and fail-closed AuthRequiredError.
-### Task 9b-7.2: consumer and runtime on start/resume — PENDING
+### Task 9b-7.2: consumer and runtime on start/resume — COMPLETE
 - `openStream`/`startNew` (:793-866): `consumer: 'gateway'` on start and resume; `runtime` on
   start. Claude-runtime configs otherwise unchanged (spec compares with today's shape).
-### Task 9b-7.3: native resume without fallback; D14a reply — PENDING
+### Task 9b-7.3: native resume without fallback; D14a reply — COMPLETE
 - Inject `SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP` optional; native = stored runtime
   `codex-app-server`. Native: skip the fallback at :826-835 and in `tryFallbackStart`
   (:936-989); typed D14a -> the P9-3 constant via `sendError`, binding kept; other errors -> the
   existing error reply. Claude sessions keep the fallback (existing specs stay green).
-### Task 9b-7.4: delete the 9a duplicates — PENDING
+### Task 9b-7.4: delete the 9a duplicates — COMPLETE
 - P9-6 files; grep the repo for any reference first.
 ### Batch 9b-7 verification
 - gateway-chat-bridge.native.spec.ts covers: gateway off -> legacy start with a provider
@@ -3598,6 +3598,22 @@ Edge cases:
   `gw-` tab); native resume failure -> no `startNew`, one reply, binding kept; D14a -> the /new
   message; zero-event native stream -> no fallback; permission notices still fire from a published
   lifecycle event with a `gw-` routing hint.
+
+## Batch 9c: P9 phase-review fixes — 9c-1, 9c-1b, 9c-2 COMPLETE; 9c-3 PENDING
+Source: code-logic-review-p9.md (codex, REVISE 5/10) and code-style-review-p9.md (Kimi,
+REVISE 6/10).
+- 9c-1 (grok -> Kimi): logic 1 and 2. A failed native terminal and a divergent final text
+  reach the gateway the same way as Claude's. Fix in agent-sdk `codex-chat-events.ts` only.
+- 9c-2 (codex -> grok): logic 4 (a rejected approval reply publishes `aborted`); style 3
+  (one shared legacy Claude identity factory in agent-sdk); style 4 (docs); style 5 (named
+  sink options).
+- 9c-3 (codex -> grok, after 9c-1/9c-2): style 1 and 2, behavior-preserving extraction of
+  approval presentation from `createCodexChatHostPorts` and of gateway identity/native policy
+  from `GatewayChatBridge.runTurn`.
+- Logic 3 DISPUTED: a bound gateway session with no runtime metadata resolves to the legacy
+  Claude identity. This is the same rule as the chat path (`storedChatRuntimeIdentity`).
+  Native sessions always persist runtime metadata, so a missing row means a legacy Claude
+  session.
 
 ---
 

@@ -3,6 +3,7 @@ import type {
   CodexRuntimeEvent,
 } from '@ptah-extension/codex-runtime';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
+import { CodexChatAdapterError } from './codex-chat-adapter-error';
 import { presentCodexTool, presentCodexToolResult } from './codex-tool-presentation';
 
 /** Convert a whole-turn OpenAI snapshot into Ptah's disjoint token buckets. */
@@ -53,6 +54,10 @@ export class CodexChatEvents {
 
   async settled(): Promise<void> {
     await this.pending;
+    // Callbacks (the one webview error card, the turn result) have finished.
+    // Rejecting here is the Claude stream contract: the iterator throws
+    // (stream-transformer.ts) and the gateway catch sends its failure reply.
+    if (this.streamFailure) throw this.streamFailure;
   }
 
   private track(work: void | Promise<void>): void {
@@ -63,6 +68,14 @@ export class CodexChatEvents {
   private sequence = -1;
   private terminal = false;
   private errorEmitted = false;
+  /**
+   * Set on a failed or interrupted terminal. `settled()` rejects with it
+   * after callbacks finish, so the turn generator
+   * (`codex-chat-turn-stream.ts`) throws before it yields
+   * `message_complete`. A clean return is what the gateway seals as a
+   * successful reply.
+   */
+  private streamFailure?: Error;
   private usage?: CodexReportedUsage;
   private readonly text = new Map<string, string>();
   private readonly blocks = new Map<string, number>();
@@ -143,19 +156,26 @@ export class CodexChatEvents {
       case 'textFinal': {
         const previous = this.text.get(event.itemId) ?? '';
         this.text.set(event.itemId, event.text);
-        if (event.text && !event.text.startsWith(previous)) {
-          this.track(
-            this.callbacks.content({
-              itemId: event.itemId,
-              text: event.text,
-              kind: 'text',
-              blockIndex: this.block('text', event.itemId),
-            }),
-          );
+        // A final that is not an extension of the streamed prefix cannot be
+        // expressed as another append. Claude's complete assistant message
+        // carries the whole block as one `text_delta` with `source:
+        // 'complete'` (assistant-message.transformer.ts). The webview
+        // accumulator sets that block, including when the final is shorter.
+        // Empty final-only text opens no block. An empty correction replaces
+        // the existing streamed block with an empty complete-source delta.
+        if (!event.text.startsWith(previous)) {
+          const blockIndex = this.block('text', event.itemId);
+          return [
+            {
+              ...base,
+              source: 'complete',
+              eventType: 'text_delta',
+              delta: event.text,
+              blockIndex,
+            },
+          ];
         }
-        const delta = event.text.startsWith(previous)
-          ? event.text.slice(previous.length)
-          : '';
+        const delta = event.text.slice(previous.length);
         return delta
           ? [
               {
@@ -277,6 +297,17 @@ export class CodexChatEvents {
         this.tools.clear();
         this.usage = undefined;
         this.track(this.callbacks.result(result));
+        // Failed and interrupted turns must not end the generator normally.
+        // `error()` above is the existing webview card; this rejection is
+        // the stream signal. A completed terminal with no error stays a
+        // clean settlement.
+        if (failed) {
+          this.streamFailure = new CodexChatAdapterError('runtime-failed', 'turn', {
+            webviewReported: true,
+          });
+        } else if (event.status === 'interrupted') {
+          this.streamFailure = new CodexChatAdapterError('cancelled', 'turn');
+        }
         // Message usage is the SDK stream contract; result stats are a separate channel.
         return [
           {

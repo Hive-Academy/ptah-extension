@@ -15,9 +15,9 @@ import {
 import { SessionId, type FlatStreamEventUnion } from '@ptah-extension/shared';
 import {
   CodexChatAdapter,
-  CodexChatAdapterError,
   type CodexChatAdapterPorts,
 } from './codex-chat-adapter';
+import { CodexChatAdapterError } from './codex-chat-adapter-error';
 import { SessionApprovalRouter } from './session-approval-router';
 import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
 
@@ -362,29 +362,37 @@ describe('Codex chat turn lifecycle', () => {
     ['interrupted', 'idle', 'aborted_streaming'],
     ['failed', 'failed', null],
   ] as const)(
-    'settles %s using the result status',
+    'settles a %s terminal without yielding message_complete',
     async (status, phase, terminalReason) => {
       const h = setup();
       h.context.events.mockImplementation(() =>
         (async function* () {
+          yield delta;
           yield { ...terminal, status };
         })(),
       );
-      const output = await collect(await h.adapter.startChatSession({ tabId }));
-      expect(output.map((event) => event.eventType)).toEqual([
+      const iterator = (await h.adapter.startChatSession({ tabId }))[Symbol.asyncIterator]();
+      const output = [await iterator.next(), await iterator.next(), await iterator.next()];
+      expect(output.map((item) => item.value?.eventType)).toEqual([
         'turn_state',
         'message_start',
-        'message_complete',
-        'turn_state',
+        'text_delta',
       ]);
-      expect(output.at(-1)).toMatchObject({
-        eventType: 'turn_state',
-        phase,
-        terminalReason,
+      await expect(iterator.next()).rejects.toMatchObject({
+        code: status === 'failed' ? 'runtime-failed' : 'cancelled',
+        webviewReported: status === 'failed' ? true : undefined,
       });
       expect(h.turnState.get(id)).toMatchObject({ phase, terminalReason });
-      if (status === 'failed')
-        expect(output.at(-1)).toMatchObject({ error: 'unknown' });
+      if (status === 'failed') {
+        expect(h.turnState.get(id)).toMatchObject({ error: 'unknown' });
+        expect(h.callbacks.error).toHaveBeenCalledWith('Codex reported a runtime error.');
+        expect(h.ports.logger.error).toHaveBeenCalledWith(
+          expect.stringContaining('runtime-failed: turn'),
+          expect.any(Error),
+        );
+      } else {
+        expect(h.callbacks.error).not.toHaveBeenCalled();
+      }
       await h.adapter.dispose();
     },
   );
@@ -547,6 +555,13 @@ describe('Codex chat turn lifecycle', () => {
       });
       if (status === 'missing')
         expect(h.context.close).toHaveBeenCalledTimes(1);
+      if (status === 'interrupted') {
+        expect(h.context.close).not.toHaveBeenCalled();
+        expect(h.ports.logger.error).not.toHaveBeenCalledWith(
+          expect.stringContaining('detached turn cleanup'),
+          expect.any(Error),
+        );
+      }
       await h.adapter.dispose();
     },
   );
@@ -573,8 +588,17 @@ describe('Codex chat turn lifecycle', () => {
         details: {},
       };
       const approval = h.sink().request(request, new AbortController().signal);
-      while (!(await iterator.next()).done) {
-        /* Consume through settlement. */
+      const consume = async () => {
+        while (!(await iterator.next()).done) {
+          /* Consume through settlement. */
+        }
+      };
+      if (status === 'completed') {
+        await consume();
+      } else {
+        await expect(consume()).rejects.toMatchObject({
+          code: status === 'failed' ? 'runtime-failed' : 'cancelled',
+        });
       }
       await expect(approval).resolves.toBe('cancel');
       expect(h.ports.presentation.cancelPrompt).toHaveBeenCalledWith({

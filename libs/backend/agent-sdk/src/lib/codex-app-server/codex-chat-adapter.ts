@@ -41,32 +41,7 @@ import {
   sessionApprovalKey,
   type SessionApprovalRouter,
 } from './session-approval-router';
-
-export class CodexChatAdapterError extends Error {
-  constructor(
-    readonly code:
-      | 'unsupported'
-      | 'unavailable'
-      | 'busy'
-      | 'runtime-failed'
-      | 'resume-profile-changed'
-      | 'cancelled'
-      | 'identity-mismatch',
-    readonly operation: string,
-    options?: ErrorOptions,
-  ) {
-    super(`Codex chat ${operation}: ${code}`, options);
-    this.name = 'CodexChatAdapterError';
-  }
-}
-
-export type CodexChatAdapterErrorCode = CodexChatAdapterError['code'];
-
-export function isCodexChatAdapterError(
-  error: unknown,
-): error is CodexChatAdapterError {
-  return error instanceof CodexChatAdapterError;
-}
+import { CodexChatAdapterError } from './codex-chat-adapter-error';
 
 export interface CodexChatMetadataPort {
   save(
@@ -478,8 +453,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       this.ports.platform.platform,
       threadCwd,
       this.ports.resolveApprovalPath,
-      undefined,
-      consumer === 'chat',
+      { autoAcceptReadOnly: consumer === 'chat' },
     );
     return sink;
   }

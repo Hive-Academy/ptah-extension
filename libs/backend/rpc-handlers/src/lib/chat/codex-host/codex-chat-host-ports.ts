@@ -81,8 +81,8 @@ export interface CodexChatHostPortsDeps
   /** Releases the host notice the webview attention observer raised for a request. */
   hostAttention?: Pick<HostAttentionCoordinator, 'resolve'>;
   /**
-   * Gateway notices. Optional until Electron binds `SdkPermissionHandler.publishPromptLifecycle`
-   * (batch 9b-6). Unpublished events still settle locally.
+   * Gateway notices. Electron binds this to
+   * `SdkPermissionHandler.publishPromptLifecycle`; other hosts may omit it.
    */
   promptLifecycle?: {
     publish(event: PermissionPromptLifecycleEvent): void;
@@ -723,7 +723,7 @@ export function createCodexChatHostPorts(
         sessionId,
         toolName: request.toolName ?? request.kind,
       });
-      publishResolved(response.id, taken, outcome);
+      publishResolved(response.id, taken, 'aborted');
       return true;
     },
     replacement: {

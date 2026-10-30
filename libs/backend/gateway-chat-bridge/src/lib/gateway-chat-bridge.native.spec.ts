@@ -274,15 +274,26 @@ function makeEvent(
   } as GatewayInboundEvent;
 }
 
-function textDelta(sessionId: string, delta: string): FlatStreamEventUnion {
+function textDelta(
+  sessionId: string,
+  delta: string,
+  extra: {
+    source?: 'stream' | 'complete' | 'history';
+    messageId?: string;
+    blockIndex?: number;
+  } = {},
+): FlatStreamEventUnion {
+  const messageId = extra.messageId ?? 'msg-1';
+  const blockIndex = extra.blockIndex ?? 0;
   return {
-    id: `t-${delta}`,
+    id: `t-${messageId}-${blockIndex}-${delta}`,
     eventType: 'text_delta',
     timestamp: 1,
     sessionId,
-    messageId: 'msg-1',
+    ...(extra.source !== undefined ? { source: extra.source } : {}),
+    messageId,
     delta,
-    blockIndex: 0,
+    blockIndex,
   } as FlatStreamEventUnion;
 }
 
@@ -989,5 +1000,138 @@ describe('GatewayChatBridge native consumer', () => {
       ),
     ).toBe(false);
     expect(h.resumeSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps only the complete-source text when a native stream corrects the same block', async () => {
+    const h = setup({ hostCapabilities: nativeCapabilities });
+    h.startChatSession.mockResolvedValue(
+      scriptedStream([
+        textDelta(SDK_UUID, 'old', { source: 'stream' }),
+        textDelta(SDK_UUID, 'corrected answer', { source: 'complete' }),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    await runTurn(h, 'go', null);
+
+    expect(h.gateway.appendOutboundChunk.mock.calls.map(([, text]) => text)).toEqual([
+      'corrected answer',
+    ]);
+  });
+
+  it('seals a shorter native final instead of the streamed prefix', async () => {
+    const h = setup({ hostCapabilities: nativeCapabilities });
+    h.startChatSession.mockResolvedValue(
+      scriptedStream([
+        textDelta(SDK_UUID, 'hello world', { source: 'stream' }),
+        textDelta(SDK_UUID, 'hi', { source: 'complete' }),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    await runTurn(h, 'go', null);
+
+    expect(h.gateway.appendOutboundChunk.mock.calls.map(([, text]) => text)).toEqual([
+      'hi',
+    ]);
+  });
+
+  it('contributes nothing for a block a native complete delta replaces with empty text', async () => {
+    const h = setup({ hostCapabilities: nativeCapabilities });
+    h.startChatSession.mockResolvedValue(
+      scriptedStream([
+        textDelta(SDK_UUID, 'hello', { source: 'stream', blockIndex: 0 }),
+        textDelta(SDK_UUID, 'tail', { source: 'stream', blockIndex: 1 }),
+        textDelta(SDK_UUID, '', { source: 'complete', blockIndex: 0 }),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    await runTurn(h, 'go', null);
+
+    expect(h.gateway.appendOutboundChunk.mock.calls.map(([, text]) => text)).toEqual([
+      'tail',
+    ]);
+  });
+
+  it('joins native messages in arrival order and blocks by blockIndex', async () => {
+    const h = setup({ hostCapabilities: nativeCapabilities });
+    h.startChatSession.mockResolvedValue(
+      scriptedStream([
+        textDelta(SDK_UUID, 'B', {
+          source: 'stream',
+          messageId: 'm1',
+          blockIndex: 1,
+        }),
+        textDelta(SDK_UUID, 'C', {
+          source: 'stream',
+          messageId: 'm2',
+          blockIndex: 0,
+        }),
+        textDelta(SDK_UUID, 'A', {
+          source: 'complete',
+          messageId: 'm1',
+          blockIndex: 0,
+        }),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    await runTurn(h, 'go', null);
+
+    expect(h.gateway.appendOutboundChunk.mock.calls.map(([, text]) => text)).toEqual([
+      'ABC',
+    ]);
+  });
+
+  it('drains a partial native body once and sends the failure reply when the stream throws', async () => {
+    const h = setup({ hostCapabilities: nativeCapabilities });
+    h.startChatSession.mockResolvedValue({
+      async *[Symbol.asyncIterator]() {
+        yield textDelta(SDK_UUID, 'partial', { source: 'stream' });
+        throw new Error('mid-stream boom');
+      },
+    } as AsyncIterable<FlatStreamEventUnion>);
+
+    await runTurn(h, 'go', null);
+
+    const chunks = h.gateway.appendOutboundChunk.mock.calls.map(([, text]) => text);
+    expect(chunks.filter((text) => text === 'partial')).toEqual(['partial']);
+    expect(chunks).toContain(GENERIC_FAILURE);
+    expect(h.gateway.drainOutbound).toHaveBeenCalled();
+  });
+
+  it('does not append streamed native text after the watchdog cancels the turn', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = setup({ hostCapabilities: nativeCapabilities });
+      h.startChatSession.mockResolvedValue({
+        async *[Symbol.asyncIterator]() {
+          yield textDelta(SDK_UUID, 'stale prefix', { source: 'stream' });
+          await new Promise<void>(() => {
+            /* never resolves */
+          });
+        },
+      } as AsyncIterable<FlatStreamEventUnion>);
+
+      const binding = makeBinding();
+      const conversation = makeConversation(binding, null);
+      h.bridge.start();
+      h.gateway.emit('inbound', makeEvent(binding, conversation, 'hangs'));
+      await jest.advanceTimersByTimeAsync(0);
+      expect(h.startChatSession).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(10 * 60_000);
+
+      const chunks = h.gateway.appendOutboundChunk.mock.calls.map(
+        ([, text]) => text,
+      );
+      expect(chunks).not.toContain('stale prefix');
+      expect(chunks).toContain(
+        'This request took too long and was stopped. Please try again.',
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

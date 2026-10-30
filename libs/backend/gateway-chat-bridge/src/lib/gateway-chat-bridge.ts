@@ -64,6 +64,7 @@ import {
   SDK_TOKENS,
   AuthRequiredError,
   isCodexChatAdapterError,
+  legacyClaudeSessionRuntimeIdentity,
   resolveSessionRuntimeIdentity,
   type PermissionPromptLifecycleEvent,
   type SdkPermissionHandler,
@@ -174,24 +175,6 @@ function isGatewayResumeProfileChanged(error: unknown): boolean {
   );
 }
 
-/**
- * Bound session with no native metadata. Same shape as the main chat path's
- * empty-metadata branch (`storedChatRuntimeIdentity`): the resolver must take
- * the Claude resume branch, never the new-session native branch.
- */
-function legacyClaudeRuntimeIdentity(
-  sessionId: SessionId,
-  workspaceId: string,
-): SessionRuntimeIdentity {
-  return {
-    version: 1,
-    sessionId,
-    runtime: 'claude-sdk',
-    providerId: 'claude-cli',
-    workspaceId,
-  };
-}
-
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -260,6 +243,71 @@ interface TurnPreparation {
  */
 interface TurnCancellation {
   cancelled: boolean;
+}
+
+/**
+ * One `text_delta` the gateway can reconcile. Field names match the shared
+ * text-delta event: `messageId`, `blockIndex`, `delta`, and `source`.
+ */
+interface GatewayTextDelta {
+  readonly messageId: string;
+  readonly blockIndex?: number;
+  readonly delta: string;
+  readonly source?: 'stream' | 'complete' | 'history' | 'hook';
+}
+
+/**
+ * Assistant text for one gateway turn.
+ *
+ * The webview accumulator appends `source: 'stream'` (and a missing source)
+ * and replaces the block for `complete` or `history`, including an empty
+ * replacement. Messages stay in first-seen order. Blocks inside a message
+ * are joined by `blockIndex`, which is how the execution tree orders them.
+ * The gateway seal sends one message, so the blocks are concatenated.
+ */
+class GatewayTurnText {
+  private readonly messageOrder: string[] = [];
+  private readonly blocks = new Map<string, Map<number, string>>();
+
+  /**
+   * Records message order the way the webview does: on `message_start`.
+   * `accept()` calls it too, for streams that send text without a start.
+   */
+  noteMessage(messageId: string): Map<number, string> {
+    let messageBlocks = this.blocks.get(messageId);
+    if (messageBlocks === undefined) {
+      messageBlocks = new Map<number, string>();
+      this.blocks.set(messageId, messageBlocks);
+      this.messageOrder.push(messageId);
+    }
+    return messageBlocks;
+  }
+
+  accept(event: GatewayTextDelta): void {
+    const blockIndex = event.blockIndex ?? 0;
+    const messageBlocks = this.noteMessage(event.messageId);
+    if (event.source === 'complete' || event.source === 'history') {
+      messageBlocks.set(blockIndex, event.delta);
+      return;
+    }
+    const current = messageBlocks.get(blockIndex) ?? '';
+    messageBlocks.set(blockIndex, current + event.delta);
+  }
+
+  join(): string {
+    let body = '';
+    for (const messageId of this.messageOrder) {
+      const messageBlocks = this.blocks.get(messageId);
+      if (messageBlocks === undefined) continue;
+      const indexes = [...messageBlocks.keys()].sort(
+        (left, right) => left - right,
+      );
+      for (const index of indexes) {
+        body += messageBlocks.get(index) ?? '';
+      }
+    }
+    return body;
+  }
 }
 
 @injectable()
@@ -1034,13 +1082,24 @@ export class GatewayChatBridge {
     }
     const id = SessionId.from(sessionId);
     if (this.sessionIdentities === undefined) {
-      return { ok: true, identity: legacyClaudeRuntimeIdentity(id, workspaceRoot) };
+      return {
+        ok: true,
+        identity: legacyClaudeSessionRuntimeIdentity({
+          sessionId: id,
+          workspaceId: workspaceRoot,
+        }),
+      };
     }
     try {
       const stored = resolveSessionRuntimeIdentity(this.sessionIdentities, id);
       return {
         ok: true,
-        identity: stored ?? legacyClaudeRuntimeIdentity(id, workspaceRoot),
+        identity:
+          stored ??
+          legacyClaudeSessionRuntimeIdentity({
+            sessionId: id,
+            workspaceId: workspaceRoot,
+          }),
       };
     } catch (error: unknown) {
       return { ok: false, error: asError(error) };
@@ -1082,37 +1141,52 @@ export class GatewayChatBridge {
     let eventCount = 0;
     let sessionUuidBound = false;
     let resolvedSessionId: string | null = null;
+    const text = new GatewayTurnText();
 
-    // `text_delta` only accumulates into the coalescer buffer (no send). The
-    // single outbound message is flushed once at end-of-turn via `sealTurn()`
-    // → `completeOutboundTurn`. `message_complete` carries no text and is not
-    // a flush point here — flushing mid-turn would emit a partial message.
-    for await (const event of stream) {
-      // Watchdog fired mid-stream: stop consuming and touching shared state so
-      // the next dequeued turn owns the conversation exclusively.
-      if (cancellation.cancelled) break;
-      eventCount++;
-      if (!sessionUuidBound && event.sessionId && event.sessionId !== tabId) {
-        sessionUuidBound = true;
-        resolvedSessionId = event.sessionId;
-        this.bindSession(conversation, event.sessionId);
+    // Text stays in `text` until the stream exits. The coalescer only appends
+    // and this bridge seals in `complete` mode, so one `appendOutboundChunk`
+    // in `finally` is the whole reply. `message_complete` carries no text and
+    // is not a flush point — flushing mid-turn would emit a partial message.
+    try {
+      for await (const event of stream) {
+        // Watchdog fired mid-stream: stop consuming and touching shared state so
+        // the next dequeued turn owns the conversation exclusively.
+        if (cancellation.cancelled) break;
+        eventCount++;
+        if (!sessionUuidBound && event.sessionId && event.sessionId !== tabId) {
+          sessionUuidBound = true;
+          resolvedSessionId = event.sessionId;
+          this.bindSession(conversation, event.sessionId);
+        }
+        if (event.eventType === 'message_start') {
+          text.noteMessage(event.messageId);
+        } else if (event.eventType === 'text_delta') {
+          text.accept(event);
+        }
       }
-      if (event.eventType === 'text_delta' && event.delta) {
-        this.gateway.appendOutboundChunk(route, event.delta);
-      }
-    }
 
-    // A cancelled turn never throws the zero-events sentinel — that would drive
-    // the caller into `tryFallbackStart` and start a stray retry session.
-    if (cancellation.cancelled) {
+      // A cancelled turn never throws the zero-events sentinel — that would drive
+      // the caller into `tryFallbackStart` and start a stray retry session.
+      if (cancellation.cancelled) {
+        return resolvedSessionId;
+      }
+
+      if (eventCount === 0) {
+        throw new Error('gateway-chat-bridge: stream produced zero events');
+      }
+
       return resolvedSessionId;
+    } finally {
+      // Watchdog cancellation owns the outbound buffer from the moment the
+      // flag flips. Any other exit, including a throw, still publishes the
+      // reconciled body once so the caller's drain can send it.
+      if (!cancellation.cancelled) {
+        const body = text.join();
+        if (body.length > 0) {
+          this.gateway.appendOutboundChunk(route, body);
+        }
+      }
     }
-
-    if (eventCount === 0) {
-      throw new Error('gateway-chat-bridge: stream produced zero events');
-    }
-
-    return resolvedSessionId;
   }
 
   private async tryFallbackStart(

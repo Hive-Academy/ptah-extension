@@ -226,6 +226,12 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     };
   }
 
+  /**
+   * Host approval bridges publish Codex prompt requests and settlements here.
+   * Resolved outcomes are allowed, denied, timed-out, or aborted. Callers
+   * settle each request once; this method forwards events without deduplication.
+   * A throwing listener is logged and does not block other listeners or the caller.
+   */
   publishPromptLifecycle(event: PermissionPromptLifecycleEvent): void {
     this.emitLifecycle(event);
   }

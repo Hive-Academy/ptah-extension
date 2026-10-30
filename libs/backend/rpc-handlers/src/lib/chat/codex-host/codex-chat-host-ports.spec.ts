@@ -1266,6 +1266,35 @@ describe('Codex chat host ports', () => {
       },
     );
 
+    it.each(['rejects', 'throws'] as const)(
+      'publishes aborted when the approval router %s an allow response',
+      (failure) => {
+        const { h, payload } = presentGateway();
+        if (failure === 'rejects') h.respond.mockReturnValue(false);
+        else h.respond.mockImplementation(() => { throw new Error('router failed'); });
+
+        expect(h.ports.handlePermissionResponse({ id: payload.id, decision: 'allow' }))
+          .toBe(true);
+        expect(h.broadcastMessage).toHaveBeenCalledWith(
+          MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+          expect.objectContaining({ id: payload.id, sessionId: id }),
+        );
+        expect(h.broadcastMessage.mock.calls.filter(
+          ([type]) => type === MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+        )).toHaveLength(1);
+        expect(h.publish).toHaveBeenLastCalledWith({
+          phase: 'resolved',
+          requestId: payload.id,
+          routingHint: gatewayTab,
+          toolName: 'Bash',
+          outcome: 'aborted',
+        });
+        jest.advanceTimersByTime(UNROUTABLE_PERMISSION_TIMEOUT_MS);
+        expect(h.respond).toHaveBeenCalledTimes(1);
+        expect(h.publish).toHaveBeenCalledTimes(2);
+      },
+    );
+
     it('clears the deny window when the turn ends first', () => {
       const { h, payload } = presentGateway();
       h.ports.presentation.cancelPrompt({
