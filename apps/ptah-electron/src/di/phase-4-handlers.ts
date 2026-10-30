@@ -6,7 +6,8 @@
  *                plus GitInfoService.
  *   - Phase 4.2: the capability-gated classes only Electron serves, plus the
  *                host service they depend on (UpdateManager behind
- *                PLATFORM_TOKENS.APP_UPDATER). The former app-local editor
+ *                PLATFORM_TOKENS.APP_UPDATER, and GitRootWatcherPool behind
+ *                PLATFORM_TOKENS.GIT_ROOT_WATCH_REGISTRY). The former app-local editor
  *                handler (TASK_2026_173) was deleted in
  *                TASK_2026_385 Batch 4.2 — its file explorer/Monaco methods
  *                had no caller left once `libs/frontend/editor` was deleted.
@@ -64,12 +65,14 @@ import {
   FileViewRpcHandlers,
   FileEditRpcHandlers,
   UpdateRpcHandlers,
+  GitWatchRpcHandlers,
   registerHarnessServices,
   registerChatServices,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import { UpdateManager } from '../services/update/update-manager';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
+import { GitRootWatcherPool } from '../services/git-root-watcher-pool';
 
 /**
  * Phase 4: Register all RPC handler classes with the container.
@@ -194,6 +197,13 @@ export function registerPhase4Handlers(
     useToken: UPDATE_MANAGER_TOKEN,
   });
   container.registerSingleton(UpdateRpcHandlers);
+  // Secondary per-root git watchers behind `git:watchRoots` (TASK_2026_855).
+  // The pool is built here so the handler can resolve it; the heavy boot
+  // attaches the watcher factory once the primary git watcher exists.
+  container.register(PLATFORM_TOKENS.GIT_ROOT_WATCH_REGISTRY, {
+    useValue: new GitRootWatcherPool(logger),
+  });
+  container.registerSingleton(GitWatchRpcHandlers);
 
   logger.info('[Electron DI] Capability-gated RPC handler classes registered', {
     // These live in @ptah-extension/rpc-handlers and are registered here
@@ -205,6 +215,7 @@ export function registerPhase4Handlers(
       'AgentRpcHandlers',
       'SkillsShRpcHandlers',
       'UpdateRpcHandlers',
+      'GitWatchRpcHandlers',
     ],
   });
 }

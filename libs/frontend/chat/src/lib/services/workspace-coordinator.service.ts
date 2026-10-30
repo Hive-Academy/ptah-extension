@@ -23,9 +23,23 @@ import { FilePickerService } from './file-picker.service';
  * Common interface for the git services that support workspace partitioning.
  * Used to avoid a static import of `@ptah-extension/git-ui` at this layer.
  */
-interface WorkspaceAwareService {
-  switchWorkspace(workspacePath: string): void;
-  removeWorkspaceState(workspacePath: string): void;
+/**
+ * The slice of git-ui's `GitDockScopeStore` this layer drives. The store owns
+ * the git services' `switchWorkspace` fan-out (TASK_2026_855): it decides the
+ * dock's root from the workspace AND the active chat session.
+ */
+interface GitDockScopeDriver {
+  setWorkspace(workspacePath: string): void;
+  removeWorkspace(workspacePath: string): void;
+}
+
+interface GitWorkspaceServices {
+  /**
+   * The dock scope store. It owns the five workspace-aware git services:
+   * it switches them on a workspace change and tears a closed folder down
+   * in each of them, so their list and order live in one place.
+   */
+  readonly scope: GitDockScopeDriver;
 }
 
 /**
@@ -40,8 +54,13 @@ interface WorkspaceAwareService {
  * surface is on screen) and ConfirmationDialogService.
  *
  * Git services (GitStatusService, GitBranchesService, ReviewDiffService,
- * GitReviewService, ReviewNavigationService) are resolved dynamically via
- * Injector to avoid a static import of `@ptah-extension/git-ui` at this layer. Everything else —
+ * GitReviewService, ReviewNavigationService) and the git dock's scope store
+ * (GitDockScopeStore) are resolved dynamically via Injector to avoid a static
+ * import of `@ptah-extension/git-ui` at this layer. A workspace switch is
+ * handed to the scope store, which switches the five services to the dock's
+ * root — the workspace folder, or in Electron the active chat session's
+ * worktree (TASK_2026_855). A workspace removal is handed to the store too,
+ * which tears the folder down in each service. Everything else —
  * TabManagerService, SessionLoaderService, FilePickerService and the two
  * discovery facades — is injected directly and reset synchronously.
  *
@@ -86,7 +105,7 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
    * These are providedIn: 'root' services from `@ptah-extension/git-ui`,
    * resolved via dynamic import to avoid a static import at this layer.
    */
-  private gitServices: WorkspaceAwareService[] | null = null;
+  private gitServices: GitWorkspaceServices | null = null;
 
   /**
    * Monotonic switch counter. Incremented on every {@link switchWorkspace}
@@ -117,23 +136,16 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
    * a loud `console.error`, so this method lets the error propagate to them
    * instead of hiding it.
    */
-  private async resolveGitServices(): Promise<WorkspaceAwareService[]> {
-    if (this.gitServices !== null && this.gitServices.length > 0) {
-      return this.gitServices;
-    }
+  private async resolveGitServices(): Promise<GitWorkspaceServices> {
+    if (this.gitServices !== null) return this.gitServices;
 
-    // All five come from the services-only entry by dynamic import, so this
-    // layer keeps no static edge to git-ui and never loads the review shell's
-    // chunks (which the VS Code package does not ship).
+    // All of them come from the services-only entry by dynamic import, so
+    // this layer keeps no static edge to git-ui and never loads the review
+    // shell's chunks (which the VS Code package does not ship).
     const git = await import('@ptah-extension/git-ui/services');
-    this.gitServices = [
-      this.injector.get(git.GitStatusService),
-      this.injector.get(git.GitBranchesService),
-      this.injector.get(git.ReviewDiffService),
-      this.injector.get(git.GitReviewService),
-      // Last: it reads GitStatusService's new active workspace when it resets.
-      this.injector.get(git.ReviewNavigationService),
-    ];
+    this.gitServices = {
+      scope: this.injector.get(git.GitDockScopeStore),
+    };
     return this.gitServices;
   }
 
@@ -194,16 +206,17 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     });
 
     try {
-      const services = await this.resolveGitServices();
+      const git = await this.resolveGitServices();
       // The git chunk resolution above is the one `await` in this method, so
       // it is the one place a superseded switch can regain control after a
       // newer one has already applied. Dropping the stale continuation here
       // also skips its `refreshWorkspaceProviderState` below, which is correct:
       // the newer switch dispatched its own refresh under a newer generation.
       if (generation !== this.switchGeneration) return;
-      for (const svc of services) {
-        svc.switchWorkspace(newPath);
-      }
+      // The scope store switches the five git services, in order, to the
+      // dock's root for this workspace (the folder, or the active session's
+      // worktree in Electron).
+      git.scope.setWorkspace(newPath);
     } catch (error) {
       console.error(
         '[WorkspaceCoordinator] Failed to switch git services workspace:',
@@ -301,10 +314,8 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     this.appState.removeWorkspaceState(workspacePath);
 
     try {
-      const services = await this.resolveGitServices();
-      for (const svc of services) {
-        svc.removeWorkspaceState(workspacePath);
-      }
+      const git = await this.resolveGitServices();
+      git.scope.removeWorkspace(workspacePath);
     } catch (error) {
       console.error(
         '[WorkspaceCoordinator] Failed to remove git services workspace state:',

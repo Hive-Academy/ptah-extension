@@ -8,6 +8,7 @@ const STATUS_UNAVAILABLE_LABELS: Readonly<
   timeout: 'git timed out',
   locked: 'another git process is using this repository',
   error: 'git reported an error',
+  'root-unavailable': 'this worktree is no longer available',
 };
 
 /** Human wording for a status-unavailable reason (review shell, source control). */

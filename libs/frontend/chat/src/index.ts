@@ -27,6 +27,9 @@ export {
   SessionGitStatsStore,
   sessionWorkingRoot,
 } from './lib/services/session-git-stats/session-git-stats.store';
+export { ChatGitSessionScopeSource } from './lib/services/session-git-scope/chat-git-session-scope.source';
+export { SessionGitDockOpener } from './lib/services/session-git-scope/session-git-dock-opener.service';
+export { SessionWorktreeLookup } from './lib/services/session-git-scope/session-worktree-lookup.service';
 export { ChatAgentFeedbackSender } from './lib/services/agent-feedback/chat-agent-feedback-sender.service';
 export { AgentPermissionResponder } from './lib/services/agent-permission-responder';
 export {

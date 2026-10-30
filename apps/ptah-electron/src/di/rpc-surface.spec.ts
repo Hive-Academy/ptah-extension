@@ -78,6 +78,11 @@ describe('Electron RPC surface', () => {
     );
   });
 
+  it('serves git:watchRoots behind the gitRootWatch capability (TASK_2026_855 D20)', () => {
+    expect(surface.registered).toContain('git:watchRoots');
+    expect(surface.excluded).not.toContain('git:watchRoots');
+  });
+
   it('serves artifact listing and external link opening', () => {
     expect(surface.registered).toEqual(
       expect.arrayContaining(['artifacts:list', 'artifacts:openLink']),

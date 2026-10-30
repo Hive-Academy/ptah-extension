@@ -91,6 +91,7 @@ describe('ChangedFileTreeComponent', () => {
     gitRailCollapsed: railCollapsed.asReadonly(),
     setGitRailWidth: jest.fn((width: number) => railWidth.set(width)),
     commitGitRailWidth: jest.fn(),
+    workspaceFolders: signal([{ path: '/ws', name: 'ws' }]).asReadonly(),
   };
   const viewed = signal<ReadonlySet<string>>(new Set());
   const review = {
@@ -107,7 +108,9 @@ describe('ChangedFileTreeComponent', () => {
     stageFile: jest.fn(async () => ok),
     unstageFile: jest.fn(async () => ok),
     discardChanges: jest.fn(async () => ok),
-    discardAll: jest.fn(async (_paths: readonly string[]) => ok),
+    discardAll: jest.fn(
+      async (_paths: readonly string[], _workspaceRoot: string) => ok,
+    ),
     stageAll: jest.fn(async () => ok),
     unstageAll: jest.fn(async () => ok),
   };
@@ -451,9 +454,46 @@ describe('ChangedFileTreeComponent', () => {
         ) as HTMLButtonElement
       ).click();
       await settle();
-      expect(sourceControl.discardChanges).toHaveBeenCalledWith('src/util.ts');
+      expect(sourceControl.discardChanges).toHaveBeenCalledWith(
+        'src/util.ts',
+        '/ws',
+      );
       expect(gitStatus.refresh).toHaveBeenCalled();
       expect(selections).toEqual([]);
+    });
+
+    it('names the worktree in the confirmation when the root is not an open folder (TASK_2026_855)', async () => {
+      render('worktree', { workspaceRoot: '/repo/.worktrees/feature-x' });
+      (
+        item('util.ts').querySelector(
+          '[data-testid="tree-discard"]',
+        ) as HTMLButtonElement
+      ).click();
+      fixture.detectChanges();
+      const dialog = host().querySelector('[data-testid="git-confirm-dialog"]');
+      expect(dialog?.textContent).toContain('Runs in worktree «feature-x»');
+      (
+        host().querySelector(
+          '[data-testid="git-confirm-confirm"]',
+        ) as HTMLButtonElement
+      ).click();
+      await settle();
+      expect(sourceControl.discardChanges).toHaveBeenCalledWith(
+        'src/util.ts',
+        '/repo/.worktrees/feature-x',
+      );
+    });
+
+    it('does not name a worktree for an open workspace folder', () => {
+      render('worktree');
+      (
+        item('util.ts').querySelector(
+          '[data-testid="tree-discard"]',
+        ) as HTMLButtonElement
+      ).click();
+      fixture.detectChanges();
+      const dialog = host().querySelector('[data-testid="git-confirm-dialog"]');
+      expect(dialog?.textContent).not.toContain('Runs in worktree');
     });
 
     it('words an untracked discard as a deletion', () => {
@@ -568,11 +608,10 @@ describe('ChangedFileTreeComponent', () => {
         dialogButton('git-confirm-confirm').click();
         await settle();
         expect(sourceControl.discardAll).toHaveBeenCalledTimes(1);
-        expect(sourceControl.discardAll).toHaveBeenCalledWith([
-          'src/util.ts',
-          'notes.md',
-          'logo.bin',
-        ]);
+        expect(sourceControl.discardAll).toHaveBeenCalledWith(
+          ['src/util.ts', 'notes.md', 'logo.bin'],
+          '/ws',
+        );
         expect(sourceControl.discardChanges).not.toHaveBeenCalled();
         expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
       });
@@ -583,11 +622,10 @@ describe('ChangedFileTreeComponent', () => {
         fixture.detectChanges();
         dialogButton('git-confirm-confirm').click();
         await settle();
-        expect(sourceControl.discardAll).toHaveBeenCalledWith([
-          'src/util.ts',
-          'notes.md',
-          'logo.bin',
-        ]);
+        expect(sourceControl.discardAll).toHaveBeenCalledWith(
+          ['src/util.ts', 'notes.md', 'logo.bin'],
+          '/ws',
+        );
       });
 
       it('shows a failure on the Changes section and re-reads', async () => {
@@ -695,11 +733,10 @@ describe('ChangedFileTreeComponent', () => {
         expect(text).toContain('1 conflicted file is skipped.');
         dialogButton('git-confirm-confirm').click();
         await settle();
-        expect(sourceControl.discardAll).toHaveBeenCalledWith([
-          'src/util.ts',
-          'notes.md',
-          'logo.bin',
-        ]);
+        expect(sourceControl.discardAll).toHaveBeenCalledWith(
+          ['src/util.ts', 'notes.md', 'logo.bin'],
+          '/ws',
+        );
       });
     });
 

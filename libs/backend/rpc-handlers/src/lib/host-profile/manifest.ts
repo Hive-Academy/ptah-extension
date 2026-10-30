@@ -78,6 +78,7 @@ import {
   SubagentRpcHandlers,
   TasksRpcHandlers,
   UpdateRpcHandlers,
+  GitWatchRpcHandlers,
   VoiceRpcHandlers,
   WebSearchRpcHandlers,
   WizardGenerationRpcHandlers,
@@ -236,6 +237,14 @@ export const RPC_HANDLER_MANIFEST = [
     methods: GitRpcHandlers.METHODS,
     requires: [],
     handler: GitRpcHandlers,
+  },
+  {
+    // Secondary per-root watcher leases (TASK_2026_855): only a host that
+    // can run extra git watchers registers the registry port.
+    key: 'gitWatch',
+    methods: GitWatchRpcHandlers.METHODS,
+    requires: ['gitRootWatch'],
+    handler: GitWatchRpcHandlers,
   },
   {
     // `requires: []`: a read of workspace state, which every host has. A

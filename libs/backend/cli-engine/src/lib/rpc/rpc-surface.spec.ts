@@ -47,6 +47,9 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   'file:save-dialog',
   'file:saveContent',
   'file:viewContent',
+  // Secondary git watcher leases (TASK_2026_855) — `gitRootWatch` capability
+  // is Electron-only, see expected-absent.ts.
+  'git:watchRoots',
   // Claude account management (TASK_2026_712 D30) — `providerAccounts`
   // capability is Electron-only, see expected-absent.ts.
   'provider:addAccount',

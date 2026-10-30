@@ -30,6 +30,8 @@ import {
 } from './compact-session-card.component';
 import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
 import { SessionGitStatsStore } from '../../../services/session-git-stats/session-git-stats.store';
+import { SessionGitDockOpener } from '../../../services/session-git-scope/session-git-dock-opener.service';
+import { SessionWorktreeLookup } from '../../../services/session-git-scope/session-worktree-lookup.service';
 import { SessionOrganizationCache } from '../../../services/session-organization/session-organization-cache.store';
 import {
   RAIL_TRANSCRIPT_RETENTION,
@@ -106,6 +108,17 @@ describe(CompactSessionCardComponent.name, () => {
   const releaseGit = jest.fn();
   const trackGit = jest.fn(() => releaseGit);
   const gitState = signal<chatUi.CompactGitState>({ kind: 'none' });
+  const organizationWorktrees = signal<ReadonlyMap<string, string>>(new Map());
+  const worktreeLookup = {
+    worktreeFor: (sessionId: string | null) => ({
+      known: true,
+      worktreePath:
+        sessionId === null
+          ? null
+          : (organizationWorktrees().get(sessionId) ?? null),
+    }),
+  };
+  const gitDockOpener = { open: jest.fn(async () => undefined) };
   const organizations = signal<ReadonlyMap<string, SessionOrganizationSummary>>(
     new Map(),
   );
@@ -202,6 +215,8 @@ describe(CompactSessionCardComponent.name, () => {
           provide: AgentPermissionResponder,
           useValue: { respondSession, respondLane },
         },
+        { provide: SessionWorktreeLookup, useValue: worktreeLookup },
+        { provide: SessionGitDockOpener, useValue: gitDockOpener },
       ],
     });
   });
@@ -266,6 +281,30 @@ describe(CompactSessionCardComponent.name, () => {
     });
     fixture.destroy();
     expect(releaseGit).toHaveBeenCalledTimes(1);
+  });
+
+  it("tracks the session's organization worktree when it has one (TASK_2026_855)", () => {
+    const value = tab();
+    if (value.claudeSessionId === null) throw new Error('fixture tab has no session');
+    organizationWorktrees.set(
+      new Map([[value.claudeSessionId, 'C:\\work\\wt\\feature']]),
+    );
+    const fixture = render(value);
+
+    expect(trackGit).toHaveBeenCalledWith('C:\\work\\wt\\feature', 'tab-1');
+    fixture.destroy();
+    organizationWorktrees.set(new Map());
+  });
+
+  it('opens the git dock scoped to this session from the git cell (TASK_2026_855)', () => {
+    const fixture = render();
+    const activity = fixture.debugElement.query(
+      By.directive(chatUi.CompactSessionActivityComponent),
+    ).componentInstance as chatUi.CompactSessionActivityComponent;
+
+    activity.openGit.emit();
+
+    expect(gitDockOpener.open).toHaveBeenCalledWith('tab-1');
   });
 
   function organization(
@@ -779,6 +818,8 @@ describe(CompactSessionCardComponent.name, () => {
           provide: AgentPermissionResponder,
           useValue: { respondSession, respondLane },
         },
+        { provide: SessionWorktreeLookup, useValue: worktreeLookup },
+        { provide: SessionGitDockOpener, useValue: gitDockOpener },
         {
           provide: SESSION_CARD_ACTIONS,
           useValue: { openLane, openSession: jest.fn() },
