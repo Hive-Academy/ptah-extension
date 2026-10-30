@@ -13,6 +13,7 @@ import type {
   ProviderAccountBindingPresence,
   ProviderAccountSelectionField,
 } from '../provider-account.types';
+import type { CapabilityPolicyStatus } from '../capability-toggle.types';
 
 /** A skill entry from skills.sh search/browse results */
 export interface SkillShEntry {
@@ -299,12 +300,83 @@ export interface AgentOrchestrationConfig {
   browserAllowLocalhost: boolean;
   /** Kill switch for built-in SDK workflows (e.g. ultracode/workflow keywords). Default false = workflows ON. */
   workflowsDisabled: boolean;
+  /** Claude built-in tools the user turned on (default `[]`: every catalog tool off). */
+  enabledClaudeBuiltinTools: string[];
+  /** Claude built-in and synced skills the user turned on (default `[]`: every one hidden). */
+  enabledClaudeBuiltinSkills: string[];
   /**
    * Decision-model row. No API key is a field of this object;
    * `decisionModelJevApiKey` and `decisionModelCustomApiKey` are write-only
    * on `agent:setConfig`.
    */
   decisionModel: DecisionModelStatusDto;
+}
+
+// ---------------------------------------------------------------------------
+// agent:getClaudeBuiltins (TASK_2026_853)
+// ---------------------------------------------------------------------------
+
+/** A Claude built-in tool Ptah turns off unless the user opts in. */
+export interface ClaudeBuiltinToolDto {
+  id: string;
+  description: string;
+  /** Measured first-turn prefix cost; the UI rounds it. */
+  approxTokens: number;
+  /** Skills that stay hidden while this tool is off. */
+  skillsNeedingIt: string[];
+}
+
+/** A Claude skill (terminal-only or account-synced) hidden unless the user opts in. */
+export interface ClaudeBuiltinSkillDto {
+  /** Terminal skill name, or the qualified `anthropic-skills:<name>` of a synced skill. */
+  id: string;
+  /** Synced skills only: the plain skill name shown in the card (`docx`). */
+  name?: string;
+  description: string;
+  approxTokens: number;
+  /** The tool this skill needs; both must be on for the skill to load. */
+  needsTool?: string;
+}
+
+/** Parameters for `agent:getClaudeBuiltins`. */
+export type AgentGetClaudeBuiltinsParams = Record<string, never>;
+
+/** Result of `agent:getClaudeBuiltins`: the catalog plus the stored opt-ins. */
+export interface AgentGetClaudeBuiltinsResult {
+  tools: ClaudeBuiltinToolDto[];
+  terminalSkills: ClaudeBuiltinSkillDto[];
+  /** claude.ai account-synced skills found in the main session's Claude config dir. */
+  syncedSkills: ClaudeBuiltinSkillDto[];
+  enabledTools: string[];
+  enabledSkills: string[];
+  /**
+   * The active workspace's capability policy. Under `unverified` every skill
+   * is hidden anyway (`skills: []`), so a skill opt-in has no effect.
+   */
+  policyStatus: CapabilityPolicyStatus;
+}
+
+// ---------------------------------------------------------------------------
+// agent:setClaudeBuiltin (TASK_2026_853, review fix R2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parameters for `agent:setClaudeBuiltin`: turn ONE catalog tool or skill on
+ * or off. The host changes only that id in the stored list, so a concurrent
+ * change to another id from another window survives.
+ */
+export interface AgentSetClaudeBuiltinParams {
+  kind: 'tool' | 'skill';
+  id: string;
+  enabled: boolean;
+}
+
+/** Result of `agent:setClaudeBuiltin`: both stored lists after the change. */
+export interface AgentSetClaudeBuiltinResult {
+  success: boolean;
+  enabledTools: string[];
+  enabledSkills: string[];
+  error?: string;
 }
 
 /** CLI model option for agent:listCliModels */
@@ -481,6 +553,13 @@ export interface AgentSetConfigParams {
   browserAllowLocalhost?: boolean;
   /** Kill switch for built-in SDK workflows. true disables workflows; false (default) leaves them ON. */
   workflowsDisabled?: boolean;
+  /**
+   * Claude built-in tools to turn on. Replaces the stored list; unknown ids are
+   * dropped, the rest deduped and sorted. A non-string-array is refused.
+   */
+  enabledClaudeBuiltinTools?: string[];
+  /** Claude built-in and synced skills to turn on; same rules as the tools list. */
+  enabledClaudeBuiltinSkills?: string[];
   /**
    * Decision-model selection. Delegated to the lane-routing config service,
    * which stores it globally at section `ptah`, key

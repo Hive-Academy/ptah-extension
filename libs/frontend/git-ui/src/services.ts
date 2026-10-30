@@ -25,3 +25,9 @@ export { GitOperationOutputService } from './lib/services/git-operation-output.s
 export { ReviewDiffService } from './lib/services/review-diff.service';
 export { GitReviewService } from './lib/services/git-review.service';
 export { ReviewNavigationService } from './lib/services/review-navigation.service';
+export {
+  GitDockScopeStore,
+  type GitDockScope,
+  type GitDockScopeMode,
+} from './lib/services/git-dock-scope.store';
+export { GitRootWatchLeaseService } from './lib/services/git-root-watch-lease.service';

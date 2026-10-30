@@ -56,6 +56,7 @@ import { TurnSummaryChipComponent } from '@ptah-extension/chat-ui/turn-recap';
 // Same contract (see `libs/frontend/chat-ui/src/display-panel.ts`).
 import { DisplaySurfaceSyncComponent } from '@ptah-extension/chat-ui/display-panel';
 import {
+  ArtifactCardComponent,
   PTAH_UI_HOST_SOURCES,
   PtahUiLiveWindow,
 } from '@ptah-extension/chat-ui';
@@ -71,6 +72,7 @@ import {
   type ChangeSetAnchors,
 } from './transcript-change-set-anchors';
 import { TranscriptDisplayFeed } from './transcript-display-feed';
+import { TranscriptTurnArtifacts } from './transcript-turn-artifacts';
 import {
   NO_TURN_SNAPSHOTS,
   TranscriptTurnSnapshots,
@@ -259,6 +261,8 @@ function findAgentNode(
     TurnSummaryChipComponent,
     // Used only inside `@defer`, so the compiler loads it lazily.
     DisplaySurfaceSyncComponent,
+    // From the eager chat-ui barrel; rendered inside `@defer` per reply card.
+    ArtifactCardComponent,
     SingleChatSubagentViewComponent,
   ],
   providers: [
@@ -863,6 +867,16 @@ export class ChatTranscriptComponent {
     streaming: this.isStreaming,
     finalized: this.finalizedFiltered,
     marksFor: (changeSet) => this.changeSetStore.marksFor(changeSet),
+  });
+
+  /**
+   * Reply cards (TASK_2026_853_3401, plan C): one artifact card per publish of
+   * each finalized turn, on every host. Open targets this transcript's `tabId`.
+   * See `TranscriptTurnArtifacts`.
+   */
+  protected readonly turnArtifacts = new TranscriptTurnArtifacts({
+    tabId: this.tabId,
+    view: this.vm,
   });
 
   protected readonly ChangeSetErrorIcon = AlertTriangle;

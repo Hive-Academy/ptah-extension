@@ -8,7 +8,6 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
     <ng-content />
     <ng-content select="[sessionTranscript]" />
     <ng-content select="[sessionControls]" />
-    <ng-content select="[sessionSheet]" />
     <ng-content select="[sessionComposer]" />
   `,
   styles: `

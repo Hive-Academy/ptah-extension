@@ -1,0 +1,115 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": 1,
+  "scope": "A0 evidence gate only; no production edits or checks",
+  "overallStatus": "BLOCKED_UNAVAILABLE_RUNTIME_EVIDENCE",
+  "assumptions": [
+    {
+      "number": 1,
+      "status": "UNAVAILABLE",
+      "claim": "Main disallowedTools reaches generated and built-in subagents",
+      "evidence": [
+        "/home/amun/ptah-extension/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1527-1532 defines the main option but gives no inheritance contract",
+        "libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:1294 currently calls canSpawnSubagents with tools only",
+        "libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:1405 passes sessionTools without a disallowedTools option",
+        "/home/amun/.claude/projects/-home-amun-ptah-extension/0c4fd140-3ae7-496a-8af9-88a61c92315d.jsonl:21 contains an api-request-shape baseline record, not a controlled A-2 inheritance run"
+      ],
+      "missingPrerequisite": "A fresh main session launched with the proposed deny set plus generated and built-in subagent first-turn api-request-shape records, each tied to the same launch options. Existing shape records lack that controlled launch evidence."
+    },
+    {
+      "number": 2,
+      "status": "UNAVAILABLE",
+      "claim": "Bare bundled and qualified anthropic-skills:<name> off overrides hide only intended skills, preserving a same-name workspace control",
+      "evidence": [
+        "libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:484-512 maps denied names to skillOverrides off",
+        "/home/amun/ptah-extension/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:6547-6552 documents off listing semantics without qualified-name collision semantics"
+      ],
+      "missingPrerequisite": "First-turn runtime skill listings for an account with a bundled target, a synced qualified target, and a same-name workspace skill under hand-set overrides; no controlled matching transcript was found."
+    },
+    {
+      "number": 3,
+      "status": "UNAVAILABLE",
+      "claim": "Unknown qualified override key permits proxy startup and streaming without user settings",
+      "evidence": [
+        "libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts:1431-1438 drops the user setting source for a proxy and overrides it for a named route",
+        "libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-options.ts:225-227 selects certified or ambient setting sources"
+      ],
+      "missingPrerequisite": "A controlled proxied route with an unknown qualified off key and no user tier, with startup and streamed assistant output in one transcript; a separate named-route stream record is also required by Batch 1. No safe attached route or matching transcript was identified."
+    },
+    {
+      "number": 4,
+      "status": "UNAVAILABLE",
+      "claim": "Electron heavy boot happens after window creation",
+      "evidence": [
+        "apps/ptah-electron/src/activation/boot-heavy-services.ts:135-138 creates a closed window gate",
+        "apps/ptah-electron/src/activation/boot-heavy-services.ts:445-466 queues boot behind the gate and defines openWindowGate",
+        "apps/ptah-electron/src/activation/bootstrap.ts:277-591 contains bootstrap setup but no createHeavyServicesBooter/openWindowGate call"
+      ],
+      "missingPrerequisite": "The caller trace that opens the gate relative to actual BrowserWindow creation/show is outside the six-file read-only source scope; no attached Electron window was found."
+    },
+    {
+      "number": 5,
+      "status": "PASS",
+      "claim": "Bundled-origin user-layer clones are filtered by workspace enablement when overlay state is known",
+      "evidence": [
+        "libs/backend/harness-sync/src/lib/manifest/plugin-origin-gate.ts:123-145 closes over the supplied workspace source's disabled IDs and overlay basenames; a plugin-origin clone absent from a known overlay returns false",
+        "libs/backend/harness-sync/src/lib/manifest/plugin-origin-gate.ts:132-145 preserves no-origin/opt-out clones and fails open when overlay state is unknown"
+      ],
+      "limitation": "This proves gate semantics for the provided HarnessSourceState, not the excluded builder call-site or resolver's workspace-specific inputs; recheck at Batch 22."
+    },
+    {
+      "number": 6,
+      "status": "UNAVAILABLE",
+      "claim": "Harness gitignore maintenance covers workspace .ptah/ roots",
+      "evidence": [
+        "libs/backend/harness-sync/src/lib/gitignore/harness-state-store.ts:1-10 describes workspace .ptah/harness/state.json and gitignore block-deletion memory",
+        "libs/backend/harness-sync/src/lib/gitignore/harness-state-store.ts:38-46 stores block written/removed flags, not block contents"
+      ],
+      "missingPrerequisite": "The managed gitignore entries and reconciler that writes them are outside the supplied read-only source list, so .ptah/ coverage cannot be confirmed from the permitted state store."
+    }
+  ],
+  "runtimeEvidenceAudit": {
+    "localDirectory": "/home/amun/.claude/projects/-home-amun-ptah-extension",
+    "jsonlCount": 14,
+    "finding": "Existing api-request-shape records were detected, but no record was tied to hand-set A-2 options, generated and built-in subagent inheritance, qualified skill collision control, or unknown-key proxy streaming. Transcript contents and private skill text were not exported."
+  },
+  "visualReview": {
+    "status": "PENDING_VISUAL_REVIEWER",
+    "required": ["evidence/f-d4-before-dark.png", "evidence/f-d4-before-light.png"],
+    "reason": "No attached Electron window or consent dialog was available; this code-only lane did not capture substitute images. Base SHA, theme, plugin, and capture time remain unrecorded."
+  },
+  "commandsUsed": [
+    "ptah_workspace_analyze; ptah_ast_analyze on the six scoped source files; ptah_search_files for transcript and SDK paths",
+    "sed/nl narrow excerpts of batches.md Batch 1 and assumptions 1-6; implementation-plan.md:158-175,364-414; six scoped sources; installed SDK declarations",
+    "rg free-text searches for specified symbols and evidence terms; rg --files fallback after ptah_search_files returned zero usable SDK declaration paths",
+    "python3 read-only JSONL inventory and shape metadata audit; no transcript content printed",
+    "ps process check for attached Electron; no Electron process identified"
+  ],
+  "checks": "None; read-only gate and no changed projects",
+  "writtenFiles": ["/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/.ptah/specs/TASK_2026_853_897f/reports/batch-1.json"],
+  "blockers": [
+    "Assumptions 1-3 require controlled runtime transcripts before Phase A/B implementation.",
+    "Assumption 4 requires the excluded window-gate caller trace or attached Electron runtime.",
+    "Assumption 6 requires managed gitignore entry/reconciler source outside this lane's read scope.",
+    "F-D4 BEFORE dark/light screenshots require an attached Electron dialog and visual-reviewer."
+  ],
+  "decisions": [
+    {
+      "decision": "Mark runtime assumptions 1-3 UNAVAILABLE rather than infer PASS from SDK declarations or unrelated transcripts",
+      "options": ["PASS from types", "UNAVAILABLE until controlled runtime evidence"],
+      "evidence": "Batch 1 acceptance explicitly requires first-turn runtime evidence; installed sdk.d.ts documents option shapes only",
+      "reversible": true
+    },
+    {
+      "decision": "Mark assumption 5 PASS only for the scoped gate semantics and defer caller-level confirmation",
+      "options": ["PASS gate semantics", "UNAVAILABLE entire claim"],
+      "evidence": "plugin-origin-gate.ts:123-145 directly implements per-source enabled/disabled filtering with an overlay-known guard",
+      "reversible": true
+    }
+  ],
+  "coordinatorFollowUps": [
+    "Arrange safe controlled A-2-equivalent runtime launch with main, generated, built-in, named, and proxy first-turn transcripts; retain only sanitized tool/skill names and stream outcomes.",
+    "Assign visual-reviewer to capture the unchanged Electron consent dialog in dark and light themes once attached.",
+    "Inspect the allowed window-gate caller and managed gitignore entry sources or delegate expanded read scope; recheck assumptions 4 and 6."
+  ]
+}

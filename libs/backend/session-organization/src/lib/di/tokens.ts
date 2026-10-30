@@ -17,6 +17,13 @@ export const SESSION_ORGANIZATION_TOKENS = {
   STORE: Symbol.for('SessionOrganizationStore'),
   /** SessionOrganizationService — availability, roots, validation, change events. */
   SERVICE: Symbol.for('SessionOrganizationService'),
+  /** SessionAutoLinkStore — SQL for the 0063 side tables (suppressions, todos). */
+  AUTO_LINK_STORE: Symbol.for('SessionAutoLinkStore'),
+  /**
+   * SessionOrganizationSideTables — the main store's transaction participant;
+   * an alias of AUTO_LINK_STORE.
+   */
+  SIDE_TABLES: Symbol.for('SessionOrganizationSideTables'),
 } as const;
 
 export type SessionOrganizationDIToken =

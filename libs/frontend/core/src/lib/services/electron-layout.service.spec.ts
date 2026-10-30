@@ -1476,6 +1476,7 @@ describe('ElectronLayoutService — sidebar and editor panel controls', () => {
         gitRailWidth: 300,
         gitRailCollapsed: false,
         appsSplitWidth: 512,
+        displaySidebarWidth: null,
       });
     });
 
@@ -1491,6 +1492,64 @@ describe('ElectronLayoutService — sidebar and editor panel controls', () => {
         expect(value).toEqual(expect.objectContaining({ appsSplitWidth: 480 }));
       }
       expect(vscodeService.setState).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('Display sidebar width (TASK_2026_853_3401)', () => {
+    it('is null until the user commits a width', () => {
+      setup();
+      expect(service.displaySidebarWidth()).toBeNull();
+    });
+
+    it('persists each commit in the shared layout object, rounded', () => {
+      setup();
+      vscodeService.setState.mockClear();
+      service.setDisplaySidebarWidth(420.6);
+      expect(service.displaySidebarWidth()).toBe(421);
+      expect(vscodeService.setState).toHaveBeenCalledTimes(1);
+      expect(vscodeService.setState).toHaveBeenCalledWith(
+        'electron-layout',
+        expect.objectContaining({ displaySidebarWidth: 421, appsSplitWidth: 360 }),
+      );
+    });
+
+    it('raises a width under the 300px floor', () => {
+      setup();
+      service.setDisplaySidebarWidth(120);
+      expect(service.displaySidebarWidth()).toBe(300);
+    });
+
+    it('reset to null persists null', () => {
+      setup();
+      service.setDisplaySidebarWidth(500);
+      vscodeService.setState.mockClear();
+      service.setDisplaySidebarWidth(null);
+      expect(service.displaySidebarWidth()).toBeNull();
+      expect(vscodeService.setState).toHaveBeenCalledWith(
+        'electron-layout',
+        expect.objectContaining({ displaySidebarWidth: null }),
+      );
+    });
+
+    it('drops non-finite widths without persisting', () => {
+      setup();
+      service.setDisplaySidebarWidth(500);
+      vscodeService.setState.mockClear();
+      service.setDisplaySidebarWidth(Number.NaN);
+      service.setDisplaySidebarWidth(Number.POSITIVE_INFINITY);
+      expect(service.displaySidebarWidth()).toBe(500);
+      expect(vscodeService.setState).not.toHaveBeenCalled();
+    });
+
+    it('is kept when another layout writer persists afterwards', () => {
+      setup();
+      service.setDisplaySidebarWidth(480);
+      vscodeService.setState.mockClear();
+      service.toggleGitRail();
+      expect(vscodeService.setState).toHaveBeenCalledWith(
+        'electron-layout',
+        expect.objectContaining({ displaySidebarWidth: 480 }),
+      );
     });
   });
 
@@ -2652,6 +2711,45 @@ describe('ElectronLayoutService — restoreLayout with stored state', () => {
       expect(service.appsSplitWidth()).toBe(360);
     }),
   );
+
+  it('round-trips the Display sidebar width through the persisted layout object', fakeAsync(() => {
+    const first = restoreFrom(null);
+    tick(0);
+    const firstVscode = TestBed.inject(VSCodeService) as unknown as ReturnType<
+      typeof buildVscodeService
+    >;
+    firstVscode.setState.mockClear();
+    first.setDisplaySidebarWidth(540);
+    const [[key, persisted]] = firstVscode.setState.mock.calls;
+    expect(key).toBe('electron-layout');
+    TestBed.resetTestingModule();
+
+    const second = restoreFrom(persisted);
+    tick(0);
+
+    expect(second.displaySidebarWidth()).toBe(540);
+  }));
+
+  it.each([
+    ['missing', { gitRailWidth: 300 }],
+    ['a string', { displaySidebarWidth: '500' }],
+    ['NaN', { displaySidebarWidth: Number.NaN }],
+    ['Infinity', { displaySidebarWidth: Number.POSITIVE_INFINITY }],
+    ['null', { displaySidebarWidth: null }],
+  ])(
+    'keeps the null Display sidebar default when the stored width is %s',
+    fakeAsync((_label: string, stored: unknown) => {
+      const service = restoreFrom(stored);
+      tick(0);
+      expect(service.displaySidebarWidth()).toBeNull();
+    }),
+  );
+
+  it('raises a restored Display sidebar width under the floor', fakeAsync(() => {
+    const service = restoreFrom({ displaySidebarWidth: 40 });
+    tick(0);
+    expect(service.displaySidebarWidth()).toBe(300);
+  }));
 
   it('clamps a restored Apps split width that is out of range', fakeAsync(() => {
     const service = restoreFrom({ appsSplitWidth: 40 });

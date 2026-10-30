@@ -74,6 +74,7 @@ function fixture() {
       deniedSkillNames: [],
     },
     capabilityIsolation: { strictMcpConfig: true, skills: [] },
+    builtinPolicy: { disallowedTools: [], deniedSkillNames: [] },
   };
   const policy = unverifiedCapabilityPolicy('/workspace', 'fixture');
   const assembleSpawnOptions = jest.fn(async () => assembly);
@@ -204,6 +205,8 @@ describe('ClaudeCliAdapter native SDK execution', () => {
       'lane-id',
       role,
       f.policy,
+      // Ambient lane: the built-in skill guard uses the ambient defaults.
+      undefined,
     );
     const context = f.run.mock.calls[0][0];
     expect(f.query).toHaveBeenCalledWith({
@@ -713,7 +716,9 @@ describe('named Claude lane admission', () => {
     });
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
       code: 'unsupported-source',
-      message: expect.stringMatching(/^Claude account refused \(unsupported-source\): /),
+      message: expect.stringMatching(
+        /^Claude account refused \(unsupported-source\): /,
+      ),
     });
     expect(f.logger.warn).toHaveBeenCalledWith(
       '[ClaudeCliAdapter] Named lane refused',
@@ -756,6 +761,13 @@ describe('named Claude lane admission', () => {
     expect(f.assembleSpawnOptions.mock.invocationCallOrder[0]).toBeGreaterThan(
       f.children[0].close.mock.invocationCallOrder[0],
     );
+    // The built-in skill guard scans the certified cwd, config dir and
+    // setting sources the named child reads skills from (TASK_2026_853 R1/R2).
+    expect((f.assembleSpawnOptions.mock.calls[0] as unknown[])[7]).toEqual({
+      cwd: '/workspace',
+      claudeConfigDir: 'D:/accounts/selected',
+      settingSources: ['user', 'project', 'local'],
+    });
     expect(f.children[0].prompt).not.toBe(f.children[1].prompt);
     expect(
       await f.children[0].prompt[Symbol.asyncIterator]().next(),
@@ -993,7 +1005,7 @@ describe('named Claude failure and isolation regressions', () => {
       if (f.children.length === 2)
         f.children[1].accountInfo.mockResolvedValue({
           ...personalLogin,
-        email: 'other@example.test',
+          email: 'other@example.test',
         });
       return query;
     });
@@ -1283,28 +1295,31 @@ describe('named Claude lane certified launch boundaries', () => {
     ['a non-claude.ai token source', { tokenSource: 'console' }],
     ['an apiKeyHelper key source', { apiKeySource: 'apiKeyHelper' }],
     ['a team subscription', { subscriptionType: 'team' }],
-  ])('trips on %s in the final child before the gate', async (_label, change) => {
-    const f = namedFixture();
-    const invoke = f.query.getMockImplementation()!;
-    f.query.mockImplementation((args) => {
-      const query = invoke(args);
-      if (f.children.length === 2)
-        f.children[1].accountInfo.mockResolvedValue({
-          ...personalLogin,
-          email: 'owner@example.test',
-          organization: 'org',
-          ...change,
-        });
-      return query;
-    });
-    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'identity-unproved',
-    });
-    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
-    expect(
-      await f.children[1].prompt[Symbol.asyncIterator]().next(),
-    ).toMatchObject({ done: true });
-  });
+  ])(
+    'trips on %s in the final child before the gate',
+    async (_label, change) => {
+      const f = namedFixture();
+      const invoke = f.query.getMockImplementation()!;
+      f.query.mockImplementation((args) => {
+        const query = invoke(args);
+        if (f.children.length === 2)
+          f.children[1].accountInfo.mockResolvedValue({
+            ...personalLogin,
+            email: 'owner@example.test',
+            organization: 'org',
+            ...change,
+          });
+        return query;
+      });
+      await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+        code: 'identity-unproved',
+      });
+      expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+      expect(
+        await f.children[1].prompt[Symbol.asyncIterator]().next(),
+      ).toMatchObject({ done: true });
+    },
+  );
 
   it('settles once when cancelled during commitRunBinding, even if the commit lands late', async () => {
     const f = namedFixture();
@@ -1332,41 +1347,50 @@ describe('named Claude lane certified launch boundaries', () => {
   it.each<[string, ClaudeAccountAdmissionRequest['selection']]>([
     ['the same named account', { kind: 'named', profileId: 'profile' }],
     ['an omitted selection', { kind: 'omitted' }],
-  ])('resumes a bound lane on the stored run without a second binding (%s)', async (_label, selection) => {
-    const f = namedFixture();
-    const handle = await f.adapter.runSdk({
-      ...f.input,
-      ...f.binding && { accountBinding: f.binding, accountBindingId: 'run' },
-      accountAdmission: { ...f.input.accountAdmission!, selection },
-      resumeSessionId: 'sdk-session',
-    });
-    expect(f.admission.admitClaudeRoute).toHaveBeenCalledTimes(1);
-    expect(f.admission.admitClaudeRoute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runId: 'run',
-        selection: { kind: 'named', profileId: 'profile' },
-      }),
-    );
-    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
-    expect(handle.accountBinding).toEqual(f.binding);
-    f.finish(0);
-    await handle.done;
-  });
+  ])(
+    'resumes a bound lane on the stored run without a second binding (%s)',
+    async (_label, selection) => {
+      const f = namedFixture();
+      const handle = await f.adapter.runSdk({
+        ...f.input,
+        ...(f.binding && {
+          accountBinding: f.binding,
+          accountBindingId: 'run',
+        }),
+        accountAdmission: { ...f.input.accountAdmission!, selection },
+        resumeSessionId: 'sdk-session',
+      });
+      expect(f.admission.admitClaudeRoute).toHaveBeenCalledTimes(1);
+      expect(f.admission.admitClaudeRoute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId: 'run',
+          selection: { kind: 'named', profileId: 'profile' },
+        }),
+      );
+      expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+      expect(handle.accountBinding).toEqual(f.binding);
+      f.finish(0);
+      await handle.done;
+    },
+  );
 
   it.each<[string, ClaudeAccountAdmissionRequest['selection']]>([
     ['another named account', { kind: 'named', profileId: 'other-profile' }],
     ['explicit ambient', { kind: 'ambient' }],
-  ])('refuses a resume selecting %s against the stored binding with conflict', async (_label, selection) => {
-    const f = namedFixture();
-    await expect(
-      f.adapter.runSdk({
-        ...f.input,
-        accountAdmission: { ...f.input.accountAdmission!, selection },
-        resumeSessionId: 'sdk-session',
-      }),
-    ).rejects.toMatchObject({ code: 'conflict' });
-    expect(f.admission.admitClaudeRoute).not.toHaveBeenCalled();
-    expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
-    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
-  });
+  ])(
+    'refuses a resume selecting %s against the stored binding with conflict',
+    async (_label, selection) => {
+      const f = namedFixture();
+      await expect(
+        f.adapter.runSdk({
+          ...f.input,
+          accountAdmission: { ...f.input.accountAdmission!, selection },
+          resumeSessionId: 'sdk-session',
+        }),
+      ).rejects.toMatchObject({ code: 'conflict' });
+      expect(f.admission.admitClaudeRoute).not.toHaveBeenCalled();
+      expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
+      expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -49,6 +49,9 @@ export function createElectronRpcHostProfile(
       // Serves the `provider:*Account*` methods (Claude account management);
       // `ProviderAccountService` is bound by the shared auth registration.
       providerAccounts: true,
+      // Serves `git:watchRoots`; the `GitRootWatcherPool` behind it is bound
+      // in `phase-4-handlers.ts` and attached by the heavy boot.
+      gitRootWatch: true,
     }),
     hostHandlers: {
       'host.fileOpen': ElectronFileOpenRpcHandlers,

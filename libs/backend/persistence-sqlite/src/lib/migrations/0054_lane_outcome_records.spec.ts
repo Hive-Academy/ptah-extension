@@ -125,7 +125,7 @@ describe('migration 0054_lane_outcome_records — registry and static SQL', () =
   });
 
   it('keeps the bundled-version ratchet current', () => {
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(62);
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(63);
   });
 });
 

@@ -27,6 +27,7 @@ function session(
     source: 'board-start',
     livePhase: 'generating',
     prLinks: [],
+    todos: null,
     ...overrides,
   };
 }
@@ -236,6 +237,50 @@ describe('TaskSessionLinksService', () => {
     expect(service.linksFor('TASK_1')).toEqual([session()]);
     expect(service.linksFor('TASK_2')).toEqual([]);
     expect(service.linksFor('TASK_3')[0].prLinks).toEqual([]);
+  });
+
+  it('keeps a valid todo snapshot and drops a malformed one (TASK_2026_854)', async () => {
+    const todos = {
+      done: 2,
+      total: 5,
+      inProgress: 'Writing tests',
+      updatedAt: 10,
+    };
+    // An older host does not send the field at all.
+    const withoutTodos: Record<string, unknown> = {
+      ...session({ sessionId: 's-4' }),
+    };
+    delete withoutTodos['todos'];
+    rpcCall.mockResolvedValue(
+      ok({
+        available: true,
+        links: {
+          TASK_1: [session({ todos })],
+          TASK_2: [
+            session({
+              todos: { done: 6, total: 5, inProgress: null, updatedAt: 1 },
+            }),
+            session({
+              sessionId: 's-2',
+              todos: { done: 1, total: 2, inProgress: 3, updatedAt: 1 } as never,
+            }),
+            session({ sessionId: 's-3', todos: 'bogus' as never }),
+            withoutTodos,
+          ],
+        },
+      }),
+    );
+    configure();
+    service.retain();
+    await flush();
+
+    expect(service.linksFor('TASK_1')[0].todos).toEqual(todos);
+    expect(service.linksFor('TASK_2').map((s) => s.todos)).toEqual([
+      null,
+      null,
+      null,
+      null,
+    ]);
   });
 
   it('does not fetch without an open workspace', async () => {

@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import 'reflect-metadata';
 
 jest.mock('@ptah-extension/workspace-intelligence', () => ({
@@ -44,7 +47,10 @@ import {
 } from './chat-slash-command-router.service';
 import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
-const ROOT = '/c/projects/account-binding';
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-session-policy-'));
+afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
+mkdirSync(join(TEST_ROOT, 'account-binding'), { recursive: true });
+const ROOT = `${TEST_ROOT}/account-binding`;
 const SESSION = 'b5399ba8-e06d-417c-bac4-aba5add0555c' as SessionId;
 const TAB = 'f69cb197-0798-40bc-ac0c-6f7591e0a894';
 const ORIGINAL = '11111111-1111-4111-8111-111111111111';
@@ -92,13 +98,20 @@ function harness(bound = false) {
   // Exercise the real server-first/two-store resolver with an in-memory get.
   const get = jest.fn().mockImplementation(async () => {
     calls.push('metadata');
-    return bound ? { accountBinding: BINDING } : null;
+    return {
+      workspaceId: ROOT,
+      workingDirectory: ROOT,
+      ...(bound ? { accountBinding: BINDING } : {}),
+    };
   });
   const metadata = Object.assign(
     Object.create(SessionMetadataStore.prototype) as SessionMetadataStore,
     {
       get,
       getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
+      upgradeLegacyPluginConfigAncestorRoots: jest
+        .fn()
+        .mockResolvedValue({ status: 'valid', roots: [] }),
     },
   );
   const stream = async function* () {
@@ -734,6 +747,21 @@ describe('separate child account inheritance (Batch 21)', () => {
       ? h.service.startHandoffSession({ ...common, cwd: ROOT })
       : h.service.startAgentChildSession({ ...common, worktreePath: ROOT });
   };
+
+  it.each([false, true])(
+    'refuses an unresolvable source before SDK launch, handoff=%s',
+    async (handoff) => {
+      const h = harness();
+      h.get.mockResolvedValue(null);
+      expect(await launch(h, handoff)).toMatchObject({
+        success: false,
+        error: handoff
+          ? 'the session launch failed (unknown).'
+          : 'Source session policy lineage is unavailable.',
+      });
+      expect(h.sdk.startChatSession).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([false, true])(
     'inherits account A despite default B, handoff=%s',

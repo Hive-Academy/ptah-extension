@@ -16,17 +16,20 @@ import {
   CompactRailCardComponent,
   summarizeTodos,
   sameGitState,
+  todoStateFromProgress,
   summarizeFinalized,
   summarizeLive,
   type CompactCallout,
   type CompactPermissionCallout,
   type CompactPermissionDecision,
   type CompactLaneSummary,
+  type CompactLinkedTask,
   type CompactRailDensity,
   type CompactRailState,
   type CompactSessionSummary,
   type CompactSummaryContext,
   type CompactSummaryMetrics,
+  type CompactTodoState,
 } from '@ptah-extension/chat-ui';
 import { VSCodeService } from '@ptah-extension/core';
 import {
@@ -45,6 +48,9 @@ import type {
   PermissionRequest,
 } from '@ptah-extension/shared';
 import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
+import { SessionGitDockOpener } from '../../../services/session-git-scope/session-git-dock-opener.service';
+import { SessionWorktreeLookup } from '../../../services/session-git-scope/session-worktree-lookup.service';
+import { SessionOrganizationCache } from '../../../services/session-organization/session-organization-cache.store';
 import {
   SessionGitStatsStore,
   sessionWorkingRoot,
@@ -131,6 +137,7 @@ function sameLaneSummary(
         [elapsed]="railElapsed()"
         [contextPercent]="contextPercent()"
         [todos]="todos()"
+        [linkedTask]="linkedTask()"
         [gitStats]="gitStats()"
         [state]="railStateValue()"
         [density]="density()"
@@ -186,8 +193,10 @@ function sameLaneSummary(
             [elapsed]="elapsed()"
             [contextPercent]="contextPercent()"
             [todos]="todos()"
+            [linkedTask]="linkedTask()"
             [gitStats]="gitStats()"
             (openFullView)="openFullView()"
+            (openGit)="openGitScope()"
             (decide)="respond($event.callout, $event.decision, $event.reason)"
             (answer)="openFullView()"
             (openRequest)="openRequest($event)"
@@ -208,6 +217,9 @@ export class CompactSessionCardComponent {
   private readonly agentStore = inject(AgentMonitorStore);
   private readonly responder = inject(AgentPermissionResponder);
   private readonly gitStore = inject(SessionGitStatsStore);
+  private readonly worktrees = inject(SessionWorktreeLookup);
+  private readonly gitDockOpener = inject(SessionGitDockOpener);
+  private readonly organizationCache = inject(SessionOrganizationCache);
   private readonly vscode = inject(VSCodeService);
   private readonly cardActions = inject(SESSION_CARD_ACTIONS, {
     optional: true,
@@ -359,13 +371,46 @@ export class CompactSessionCardComponent {
 
   /** Last sampled stream state; `null` once the stream has ended. */
   private readonly sampledStreaming = signal<StreamingState | null>(null);
-  readonly todos = computed(
-    () =>
-      summarizeTodos(
-        this.messages(),
-        this.sampledStreaming(),
-        this.tab().lastCompactionAt ?? 0,
-      ),
+  /** Host organization of the SDK session; null while unknown or a fresh tab. */
+  private readonly organization = computed(() => {
+    const sessionId = this.tab().claudeSessionId;
+    return sessionId
+      ? this.organizationCache.organizationFor(sessionId)()
+      : null;
+  });
+  /** The primary linked task, or null. */
+  readonly linkedTask = computed<CompactLinkedTask | null>(
+    () => {
+      const primary = this.organization()?.tasks.find(
+        (task) => task.role === 'primary',
+      );
+      return primary
+        ? { taskId: primary.taskId, missing: primary.missing }
+        : null;
+    },
+    {
+      equal: (a, b) =>
+        a === b ||
+        (a !== null &&
+          b !== null &&
+          a.taskId === b.taskId &&
+          a.missing === b.missing),
+    },
+  );
+  /** Todos from the loaded stream; the host snapshot fills in when unknown. */
+  private readonly liveTodos = computed(() =>
+    summarizeTodos(
+      this.messages(),
+      this.sampledStreaming(),
+      this.tab().lastCompactionAt ?? 0,
+    ),
+  );
+  readonly todos = computed<CompactTodoState>(
+    () => {
+      const live = this.liveTodos();
+      if (live.kind === 'known') return live;
+      return todoStateFromProgress(this.organization()?.todos) ?? live;
+    },
     {
       equal: (a, b) =>
         a.kind === b.kind &&
@@ -393,6 +438,9 @@ export class CompactSessionCardComponent {
       this.tab(),
       this.tabLookup()?.workspacePath ?? null,
       this.vscode.config().workspaceRoot,
+      // The same organization read the git dock scope uses, so this card's
+      // counts and the dock's root agree (TASK_2026_855).
+      this.worktrees.worktreeFor(this.tab().claudeSessionId).worktreePath,
     ),
   );
   readonly gitStats = computed(() => this.gitStore.stateFor(this.gitRoot()), {
@@ -607,6 +655,11 @@ export class CompactSessionCardComponent {
     } else {
       this.expandToFull.emit();
     }
+  }
+
+  /** The git cell: show this session's changes in the git dock. */
+  openGitScope(): void {
+    void this.gitDockOpener.open(this.tabId());
   }
 
   openFullView(shownId?: string): void {

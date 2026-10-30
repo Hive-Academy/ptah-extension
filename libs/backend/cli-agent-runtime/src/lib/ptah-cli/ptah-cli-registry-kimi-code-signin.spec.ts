@@ -178,6 +178,7 @@ function buildHarness(
   } as unknown as never;
   const spawnOptionsService = {
     assembleSpawnOptions: jest.fn().mockResolvedValue({
+      builtinPolicy: { disallowedTools: [], deniedSkillNames: [] },
       mcpServers: {},
       hooks: undefined,
       autoCompact: {},

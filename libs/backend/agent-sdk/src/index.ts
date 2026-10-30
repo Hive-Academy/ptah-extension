@@ -305,7 +305,51 @@ export {
   filterMcpServersByPolicy,
   resolveSessionCapabilityPolicy,
   unverifiedCapabilityPolicy,
+  withClaudeBuiltinSkillDenials,
 } from './lib/helpers/sdk-query-options-builder';
+// Claude built-ins Ptah turns off by default (TASK_2026_853, A-1), shared with
+// the Claude lanes and the settings RPC so all three apply ONE catalog.
+export {
+  CLAUDE_BUILTIN_TOOLS,
+  CLAUDE_BUILTIN_TERMINAL_SKILLS,
+  CLAUDE_BUILTIN_TOOL_IDS,
+  CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
+  CLAUDE_BUILTIN_SETTING_KEYS,
+  PROTECTED_CLAUDE_TOOLS,
+  SYNCED_CLAUDE_SKILL_PREFIX,
+  isSyncedClaudeSkillId,
+  syncedClaudeSkillId,
+  normalizeClaudeBuiltinIds,
+  readClaudeBuiltinOptIns,
+  readClaudeBuiltinOptInSettings,
+  resolveClaudeBuiltinPolicy,
+  withoutCollidingBuiltinSkillDenials,
+  type ClaudeBuiltinSkillCollisionResult,
+  type ClaudeBuiltinSkillKeptVisible,
+  type ClaudeSameNameSkills,
+  type ClaudeSkillSourceKind,
+  type ClaudeBuiltinToolRow,
+  type ClaudeBuiltinSkillRow,
+  type ClaudeBuiltinPolicy,
+  type ClaudeBuiltinPolicyInput,
+  type ClaudeBuiltinOptIns,
+} from './lib/helpers/claude-builtin-catalog';
+// A bare built-in skill denial must never hide a same-name user skill
+// (TASK_2026_853 review fix R1); the three session paths share this guard.
+export {
+  discoverClaudeSkillNames,
+  guardClaudeBuiltinSkillDenials,
+  type ClaudeSkillDiscoveryInput,
+  type ClaudeSkillNameDiscovery,
+} from './lib/helpers/claude-skill-name-discovery';
+// claude.ai account-synced skills, hidden by default under their qualified
+// `anthropic-skills:<name>` key (TASK_2026_853, Phase B); shared with the
+// Claude lanes and the settings RPC.
+export {
+  readSyncedClaudeSkills,
+  resolveClaudeConfigDir,
+  type SyncedClaudeSkill,
+} from './lib/helpers/synced-claude-skills.reader';
 export { redactMcpUrl, redactMcpOverrideMap } from './lib/helpers';
 export {
   TIER_ENV_VAR_MAP,

@@ -59,7 +59,7 @@ const TABBABLE =
   'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"]';
 /** Open layers inside a pane that own their focus: Details dialog, menus, an overlay dock. */
 const PANE_OVERLAYS =
-  '[role="dialog"], [role="menu"], ptah-display-sheet [role="region"].full';
+  '[role="dialog"], [role="menu"], ptah-display-sheet [role="region"].overlay';
 // Compact the left rail before two rails crowd the session pane.
 const RAIL_AUTO_COLLAPSE_PX = 640;
 

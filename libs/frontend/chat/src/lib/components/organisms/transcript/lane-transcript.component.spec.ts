@@ -102,8 +102,8 @@ describe('LaneTranscriptComponent', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [LaneTranscriptComponent],
-      // No DisplayDockState / DisplaySheetState: only a session chat view
-      // provides them, and a canvas lane renders outside that view. Before the
+      // No DisplayDockState: only a session chat view
+      // provides it, and a canvas lane renders outside that view. Before the
       // fix ToolCallItemComponent required both, so every tool row in a lane
       // failed to create (NG0201) and left an empty node.
       providers: [
@@ -266,11 +266,12 @@ describe('LaneTranscriptComponent', () => {
     fixture.componentRef.setInput('isStreaming', true);
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('[data-testid="artifact-card-title"]')?.textContent)
-      .toContain('Report');
+    // The tool row keeps a compact read-only line; Open lives on the reply
+    // card of a session transcript (TASK_2026_853_3401, plan C).
     expect(
-      root.querySelector('[data-testid="artifact-card-status"]')?.textContent,
-    ).toContain('Preview not available here');
+      root.querySelector('[data-testid="tool-artifact-line"]')?.textContent?.trim(),
+    ).toBe('Artifact · Report');
+    expect(root.querySelector('ptah-artifact-card')).toBeNull();
     expect(root.querySelector('[data-testid="artifact-card-open"]')).toBeNull();
     expect(
       root.querySelector('[data-testid="artifact-card-fullscreen"]'),

@@ -27,6 +27,7 @@ import { getActiveProviderId } from './sdk-query-options-builder';
 import { SdkQueryRunner } from './sdk-query-runner.service';
 import type { OffThreadProcessSpawner } from './off-thread-process-spawner';
 import { SdkError } from '../errors';
+import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import type { SdkRuntimeStateService } from './sdk-runtime-state.service';
 import type { SdkModuleLoader } from './sdk-module-loader';
 import type { SubagentHookHandler } from './subagent-hook-handler';
@@ -251,6 +252,61 @@ describe('SdkQueryRunner', () => {
       expect(params.prompt).toBe('hi');
       expect(params.options.permissionMode).toBe('bypassPermissions');
       expect(params.options.persistSession).toBe(false);
+    });
+  });
+
+  /**
+   * TASK_2026_853 (C AC7): the internal one-shot query keeps the claude_code
+   * preset and still appends the full PTAH_CORE_SYSTEM_PROMPT after the core
+   * prompt was trimmed, whatever tool access the caller requests.
+   */
+  describe('runOneShot — core prompt is still appended', () => {
+    async function capturedSystemPrompt(
+      extra: {
+        toolAccess?: 'claude-code' | 'none';
+        systemPromptAppend?: string;
+      } = {},
+    ): Promise<{ type?: string; preset?: string; append?: string }> {
+      const h = makeRunner();
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work/project',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        mcpServerRunning: false,
+        ...extra,
+      });
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      return params.options.systemPrompt as {
+        type?: string;
+        preset?: string;
+        append?: string;
+      };
+    }
+
+    it('appends PTAH_CORE_SYSTEM_PROMPT to the claude_code preset', async () => {
+      const systemPrompt = await capturedSystemPrompt();
+      expect(systemPrompt.type).toBe('preset');
+      expect(systemPrompt.preset).toBe('claude_code');
+      expect(systemPrompt.append).toContain(PTAH_CORE_SYSTEM_PROMPT);
+    });
+
+    it("still appends it when toolAccess is 'none'", async () => {
+      const systemPrompt = await capturedSystemPrompt({ toolAccess: 'none' });
+      expect(systemPrompt.append).toContain(PTAH_CORE_SYSTEM_PROMPT);
+    });
+
+    it('places a caller append after the core prompt', async () => {
+      const systemPrompt = await capturedSystemPrompt({
+        systemPromptAppend: 'CALLER-APPEND-MARKER',
+      });
+      const append = systemPrompt.append ?? '';
+      expect(append.indexOf(PTAH_CORE_SYSTEM_PROMPT)).toBeGreaterThanOrEqual(0);
+      expect(append.indexOf('CALLER-APPEND-MARKER')).toBeGreaterThan(
+        append.indexOf(PTAH_CORE_SYSTEM_PROMPT),
+      );
     });
   });
 

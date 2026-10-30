@@ -14,6 +14,7 @@ import type {
 import { isPostToolUseHook } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
 import { resolveHookSessionId } from './hook-session-resolver';
+import { agentIdField } from './callback-registry.base';
 import type { ToolOutputCapper } from './compaction/tool-output-capper';
 import { PostToolUseCallbackRegistry } from './post-tool-use-callback-registry';
 import { MainThreadNoticeQueue } from './main-thread-notice-queue';
@@ -360,6 +361,7 @@ export class PostToolUseHookHandler {
         sessionId: resolvedSessionId,
         workspaceRoot: cwd,
         timestamp: Date.now(),
+        ...agentIdField(input.agent_id),
       });
     } catch (error: unknown) {
       this.logger.warn(

@@ -199,6 +199,9 @@ export interface SessionMetadata {
    */
   readonly workspaceId: string;
 
+  /** Durable governing plugin-config root identities, nearest ancestor first. */
+  readonly pluginConfigAncestorRoots?: readonly string[];
+
   /**
    * Session creation timestamp
    */
@@ -249,6 +252,32 @@ export interface SessionMetadata {
   /** When true, this session is a child/subagent session (e.g., Ptah CLI agent spawned
    *  by a parent orchestrator). Child sessions are hidden from the sidebar session list. */
   readonly isChildSession?: boolean;
+}
+
+export type SessionPluginConfigAncestorRootsRead =
+  | { readonly status: 'missing' | 'legacy' | 'malformed' }
+  | { readonly status: 'valid'; readonly roots: readonly string[] };
+
+export function isSessionPluginConfigAncestorRoots(
+  value: unknown,
+): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.every((root) => typeof root === 'string' && root.length > 0)
+  );
+}
+
+/** Keep absence distinct from an explicitly independent session and corrupt data. */
+export function readSessionPluginConfigAncestorRoots(
+  metadata: SessionMetadata | null,
+): SessionPluginConfigAncestorRootsRead {
+  if (!metadata) return { status: 'missing' };
+  const roots: unknown = metadata.pluginConfigAncestorRoots;
+  if (roots === undefined) return { status: 'legacy' };
+  if (!isSessionPluginConfigAncestorRoots(roots)) {
+    return { status: 'malformed' };
+  }
+  return { status: 'valid', roots };
 }
 
 /**
@@ -330,6 +359,7 @@ export const SESSION_METADATA_MIGRATION: StateStorageArraySplitPlan = {
     { sourcePath: ['accountBinding'] },
     { sourcePath: ['name'] },
     { sourcePath: ['workspaceId'] },
+    { sourcePath: ['pluginConfigAncestorRoots'] },
     { sourcePath: ['createdAt'] },
     { sourcePath: ['lastActiveAt'] },
     { sourcePath: ['totalCost'] },
@@ -603,6 +633,13 @@ export async function flushSessionMetadataStores(): Promise<void> {
  */
 @injectable()
 export class SessionMetadataStore {
+  /** Read a metadata row's lineage without treating legacy or malformed data as empty. */
+  static readPluginConfigAncestorRoots(
+    metadata: SessionMetadata | null,
+  ): SessionPluginConfigAncestorRootsRead {
+    return readSessionPluginConfigAncestorRoots(metadata);
+  }
+
   /**
    * WorkspaceAwareStateStorage which delegates to per-workspace storage based
    * on the active workspace. In VS Code, it resolves to the single workspace
@@ -879,6 +916,7 @@ export class SessionMetadataStore {
   private async _saveInternal(
     metadata: SessionMetadata,
     providerOverride?: string,
+    allowLineageUpgrade = false,
   ): Promise<void> {
     metadata = validateAccountLinkage(metadata);
     const existing = await this.get(metadata.sessionId);
@@ -905,6 +943,9 @@ export class SessionMetadataStore {
         ? { workingDirectory: existing.workingDirectory }
         : {}),
       ...(existing?.providerId ? { providerId: existing.providerId } : {}),
+      ...(existing && !allowLineageUpgrade
+        ? { pluginConfigAncestorRoots: existing.pluginConfigAncestorRoots }
+        : {}),
       ...(providerOverride ? { providerId: providerOverride } : {}),
       ...(existing?.resumableSdkSubagents &&
       metadata.resumableSdkSubagents === undefined
@@ -1687,6 +1728,7 @@ export class SessionMetadataStore {
     kind: SessionMetadataChangeKind = 'created',
     workingDirectory?: string,
     providerId?: string,
+    pluginConfigAncestorRoots?: readonly string[],
   ): Promise<SessionMetadata> {
     // Same invariant SessionRegistry.bindRealSessionId enforces on the same
     // value three lines away in SdkAgentAdapter. A record keyed by '' is not a
@@ -1698,7 +1740,6 @@ export class SessionMetadataStore {
         'Cannot create session metadata with an empty sessionId — the SDK session UUID from the system init message is the only valid key.',
       );
     }
-
     const existing = await this.get(sessionId);
     if (existing) {
       this.logger.info(
@@ -1717,6 +1758,15 @@ export class SessionMetadataStore {
       return updated;
     }
 
+    if (
+      pluginConfigAncestorRoots !== undefined &&
+      !isSessionPluginConfigAncestorRoots(pluginConfigAncestorRoots)
+    ) {
+      throw new SdkError(
+        'Cannot create session metadata with malformed plugin configuration lineage',
+      );
+    }
+
     const now = Date.now();
     const metadata: SessionMetadata = {
       sessionId,
@@ -1727,6 +1777,9 @@ export class SessionMetadataStore {
       lastActiveAt: now,
       totalCost: 0,
       totalTokens: { input: 0, output: 0 },
+      ...(pluginConfigAncestorRoots !== undefined
+        ? { pluginConfigAncestorRoots }
+        : {}),
       ...(blankToUndefined(providerId)
         ? { providerId: blankToUndefined(providerId) }
         : {}),
@@ -1739,6 +1792,29 @@ export class SessionMetadataStore {
     this.emitChange(kind, sessionId, workspaceId);
 
     return metadata;
+  }
+
+  /** Upgrade only a legacy record; existing lineage, including corrupt data, is immutable. */
+  async upgradeLegacyPluginConfigAncestorRoots(
+    sessionId: string,
+    roots: readonly string[],
+  ): Promise<SessionPluginConfigAncestorRootsRead> {
+    if (!isSessionPluginConfigAncestorRoots(roots)) {
+      throw new SdkError('Cannot upgrade session lineage with malformed roots');
+    }
+    let result: SessionPluginConfigAncestorRootsRead = { status: 'missing' };
+    await this.enqueueWrite(async () => {
+      const existing = await this.get(sessionId);
+      result = readSessionPluginConfigAncestorRoots(existing);
+      if (result.status !== 'legacy' || !existing) return;
+      await this._saveInternal(
+        { ...existing, pluginConfigAncestorRoots: roots },
+        undefined,
+        true,
+      );
+      result = { status: 'valid', roots };
+    });
+    return result;
   }
 
   /** Serialize a provider change with all other metadata mutations. */

@@ -10,6 +10,7 @@ import type {
 import { isUserPromptSubmitHook } from '../types/sdk-types/claude-sdk.types';
 import { SDK_TOKENS } from '../di/tokens';
 import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
+import { agentIdField } from './callback-registry.base';
 import { UserPromptSubmitCallbackRegistry } from './user-prompt-submit-callback-registry';
 import type { SubagentBudgetMonitor } from './compaction/subagent-budget-monitor';
 
@@ -76,7 +77,13 @@ export class UserPromptSubmitHookHandler {
                 input.session_id,
                 sessionId,
               );
-              this.fanOut(input.prompt, resolvedSessionId, cwd, sessionId);
+              this.fanOut(
+                input.prompt,
+                resolvedSessionId,
+                cwd,
+                sessionId,
+                input.agent_id,
+              );
               // Main thread only: a subagent's own prompt carries `agent_id`.
               if (input.agent_id || !resolvedSessionId) {
                 return { continue: true };
@@ -107,6 +114,7 @@ export class UserPromptSubmitHookHandler {
     resolvedSessionId: string | null,
     cwd: string,
     closureSessionId: string | undefined,
+    agentId: string | undefined,
   ): void {
     try {
       if (this.callbackRegistry.size === 0) {
@@ -124,6 +132,7 @@ export class UserPromptSubmitHookHandler {
         sessionId: resolvedSessionId,
         workspaceRoot: cwd,
         timestamp: Date.now(),
+        ...agentIdField(agentId),
       });
     } catch (error: unknown) {
       this.logger.warn(
