@@ -114,7 +114,6 @@ export class SessionInspectorComponent {
 
   private readonly closeButton =
     viewChild<ElementRef<HTMLElement>>('closeButton');
-  private readonly limitsLanes = viewChild(InspectorLimitsLanesComponent);
   private readonly expandButton =
     viewChild<ElementRef<HTMLButtonElement>>('expandButton');
 
@@ -219,9 +218,5 @@ export class SessionInspectorComponent {
 
   protected announce(text: string): void {
     this.announcement.set(text);
-  }
-
-  protected onLimitsLinkActivated(source: 'session' | 'lane'): void {
-    this.limitsLanes()?.focusHeading(source);
   }
 }

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_280
-status: backlog
+status: done
 type: feature
 title: >-
   Surface the harness where the user already is — settings controls, orphaned clones, and the doctor's path lists in the UI
@@ -11,7 +11,7 @@ labels:
   - P3
 relates_to:
   - TASK_2026_313
-updated: '2026-10-12T19:41:51.738Z'
+updated: "2026-10-30T01:09:07.477Z"
 ---
 
 # Harness UI surfaces

@@ -9,7 +9,6 @@ import { TestBed } from '@angular/core/testing';
 import { AppStateManager, type ChatPromptRequest } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { TaskPromptBridgeService } from './task-prompt-bridge.service';
-import { BoardTaskLinkCaptureService } from './board-task-link-capture.service';
 
 describe('TaskPromptBridgeService', () => {
   const request = signal<ChatPromptRequest | null>(null);
@@ -20,7 +19,6 @@ describe('TaskPromptBridgeService', () => {
   let createTab: jest.Mock;
   let closeTab: jest.Mock;
   let activeWorkspacePath: string | null;
-  let expectLink: jest.Mock;
 
   const flush = async (): Promise<void> => {
     TestBed.flushEffects();
@@ -37,7 +35,6 @@ describe('TaskPromptBridgeService', () => {
     createTab = jest.fn(() => 'tab-1');
     closeTab = jest.fn(() => Promise.resolve());
     activeWorkspacePath = null;
-    expectLink = jest.fn();
 
     TestBed.configureTestingModule({
       providers: [
@@ -61,10 +58,6 @@ describe('TaskPromptBridgeService', () => {
               return activeWorkspacePath;
             },
           },
-        },
-        {
-          provide: BoardTaskLinkCaptureService,
-          useValue: { expect: expectLink },
         },
       ],
     });
@@ -164,31 +157,7 @@ describe('TaskPromptBridgeService', () => {
     expect(clearChatPromptRequest).toHaveBeenCalled();
   });
 
-  it('registers the created tab with the board-task link capture when the request carries a taskId (TASK_2026_580)', async () => {
-    createTab.mockReturnValueOnce('tab-board-start');
-    request.set({
-      prompt: '/orchestrate TASK_2026_580_9f77',
-      taskId: 'TASK_2026_580_9f77',
-    });
-
-    await flush();
-
-    expect(expectLink).toHaveBeenCalledTimes(1);
-    expect(expectLink).toHaveBeenCalledWith(
-      'tab-board-start',
-      'TASK_2026_580_9f77',
-    );
-  });
-
-  it('does not register a link capture when the request has no taskId', async () => {
-    request.set({ prompt: 'do the thing' });
-
-    await flush();
-
-    expect(expectLink).not.toHaveBeenCalled();
-  });
-
-  it('at the tile cap: does not prefill, closes the new tab, skips the link capture and resolves failure', async () => {
+  it('at the tile cap: does not prefill, closes the new tab, resolves failure', async () => {
     requestCanvasTab.mockReturnValueOnce(Promise.resolve(false));
     createTab.mockReturnValueOnce('tab-refused');
     const resolve = jest.fn();
@@ -202,7 +171,6 @@ describe('TaskPromptBridgeService', () => {
 
     expect(requestComposerPrefill).not.toHaveBeenCalled();
     expect(closeTab).toHaveBeenCalledWith('tab-refused');
-    expect(expectLink).not.toHaveBeenCalled();
     expect(resolve).toHaveBeenCalledWith({
       success: false,
       error: 
@@ -211,7 +179,7 @@ describe('TaskPromptBridgeService', () => {
     expect(clearChatPromptRequest).toHaveBeenCalled();
   });
 
-  it('workspace changed during the wait: keeps the tab, no prefill, no link, resolves a workspace-changed failure', async () => {
+  it('workspace changed during the wait: keeps the tab, no prefill, resolves a workspace-changed failure', async () => {
     activeWorkspacePath = '/ws/a';
     requestCanvasTab.mockImplementationOnce(() => {
       // The user switches workspace before the canvas drains the request,
@@ -237,7 +205,6 @@ describe('TaskPromptBridgeService', () => {
     );
     expect(closeTab).not.toHaveBeenCalled();
     expect(requestComposerPrefill).not.toHaveBeenCalled();
-    expect(expectLink).not.toHaveBeenCalled();
     expect(resolve).toHaveBeenCalledWith({
       success: false,
       error:
@@ -277,7 +244,6 @@ describe('TaskPromptBridgeService', () => {
       await jest.advanceTimersByTimeAsync(1);
 
       expect(requestComposerPrefill).not.toHaveBeenCalled();
-      expect(expectLink).not.toHaveBeenCalled();
       expect(closeTab).toHaveBeenCalledWith('tab-undrained');
       expect(resolve).toHaveBeenCalledWith({
         success: false,

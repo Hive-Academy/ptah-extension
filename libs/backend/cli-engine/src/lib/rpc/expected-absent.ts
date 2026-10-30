@@ -31,6 +31,9 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   // Named Claude account management (`provider:*Account*`) ships in the
   // desktop app first; its sign-in flow needs a renderer (TASK_2026_712 D30).
   'providerAccounts',
+  // Secondary per-root git watchers (`git:watchRoots`) need the desktop
+  // watcher pool and a renderer to lease them (TASK_2026_855).
+  'gitRootWatch',
 ] as const;
 
 /**

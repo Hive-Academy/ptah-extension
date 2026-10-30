@@ -89,6 +89,34 @@
           ></div>
         }
       </div>
+      @if (turnArtifacts.byEndMessage().get(slot.id); as published) {
+        <!-- Every host: the reply cards of the artifacts this turn published.
+             Open targets this transcript's own tab. Without a dock, or until
+             the record resolves, the card is a read-only title. `when` adds
+             no per-item observer. -->
+        @defer (when published.length > 0) {
+          @for (entry of published; track entry.id + ':' + $index) {
+            <div class="pl-11 pr-2 pb-3" data-testid="chat-turn-artifact">
+              @if (turnArtifacts.openable && turnArtifacts.record(entry.id); as record) {
+                <ptah-artifact-card
+                  [artifact]="record"
+                  (open)="turnArtifacts.open($event)"
+                  (fullscreen)="turnArtifacts.fullscreen($event)"
+                />
+              } @else {
+                <article
+                  class="flex items-center gap-2 rounded-box border border-base-content/15 bg-base-200/40 p-3"
+                  data-testid="chat-turn-artifact-readonly"
+                >
+                  <p class="truncate text-sm font-semibold" [title]="entry.title">
+                    {{ entry.title }}
+                  </p>
+                </article>
+              }
+            </div>
+          }
+        }
+      }
       @if (display.enabled) {
         <!-- Electron: the turn summary chip of the turn this message ends
              replaces the change-set card and the tests row (decisions #5,

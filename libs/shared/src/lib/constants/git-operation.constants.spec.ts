@@ -20,6 +20,7 @@ const STATUS_UNAVAILABLE_REASONS: Record<GitStatusUnavailableReason, true> = {
   timeout: true,
   error: true,
   locked: true,
+  'root-unavailable': true,
 };
 
 const MUTATION_FAILURE_CODES: Record<GitMutationFailureCode, true> = {
@@ -31,11 +32,12 @@ const MUTATION_FAILURE_CODES: Record<GitMutationFailureCode, true> = {
 };
 
 describe('git operation contracts', () => {
-  it('declares exactly four status-unavailable reasons', () => {
+  it('declares exactly five status-unavailable reasons', () => {
     expect(Object.keys(STATUS_UNAVAILABLE_REASONS).sort()).toEqual([
       'error',
       'locked',
       'output-too-large',
+      'root-unavailable',
       'timeout',
     ]);
   });

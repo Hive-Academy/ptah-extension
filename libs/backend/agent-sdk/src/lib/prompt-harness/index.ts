@@ -9,7 +9,6 @@
 export {
   PTAH_CORE_SYSTEM_PROMPT,
   PTAH_CORE_SYSTEM_PROMPT_TOKENS,
-  PTAH_MCP_MANDATE_PROMPT,
   PTAH_MCP_SUBSTITUTION_SECTION,
 } from './ptah-core-prompt';
 export { PTAH_UI_HINT, PTAH_UI_HINT_CODEX } from './ptah-ui-hint';

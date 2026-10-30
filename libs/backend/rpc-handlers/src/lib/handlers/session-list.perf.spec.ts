@@ -45,6 +45,7 @@ import {
 } from '@ptah-extension/platform-core';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import {
+  SessionAutoLinkStore,
   SessionOrganizationService,
   SessionOrganizationStore,
   type SessionOrganizationMetadataReader,
@@ -204,20 +205,24 @@ describe('session:list AC1 performance (real SQLite store)', () => {
     db = withTransaction(opener(path.join(tmpDir, 'ptah.db')));
     // Seeding speed only; the measured reads do not depend on durability.
     db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = OFF;');
-    for (const migration of MIGRATIONS.filter((m) => m.version <= 50)) {
+    for (const migration of MIGRATIONS.filter(
+      (m) => m.version <= 50 || m.version === 63,
+    )) {
       if (migration.sql) db.exec(migration.sql);
     }
 
     const output = { appendLine: jest.fn() };
+    // Open AND migrated: the store reads as ready only once a migration run
+    // has finished (`lastMigrationVersion > 0`).
+    const connection = {
+      db,
+      isOpen: true,
+      lastMigrationVersion: 50,
+    } as unknown as SqliteConnectionService;
     const store = new SessionOrganizationStore(
-      // Open AND migrated: the store reads as ready only once a migration run
-      // has finished (`lastMigrationVersion > 0`).
-      {
-        db,
-        isOpen: true,
-        lastMigrationVersion: 50,
-      } as unknown as SqliteConnectionService,
+      connection,
       output as unknown as IOutputChannel,
+      new SessionAutoLinkStore(connection),
     );
     seed.forEach((row, i) => {
       store.upsertOrganization(

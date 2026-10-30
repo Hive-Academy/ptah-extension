@@ -680,6 +680,21 @@ describe('GitBranchesService (TASK_2026_111)', () => {
       expect(refreshSpy).not.toHaveBeenCalled();
     });
 
+    it('refreshes for a push whose root spells the active root differently (TASK_2026_855)', async () => {
+      const refreshSpy = jest
+        .spyOn(service, 'refreshForCauses')
+        .mockResolvedValue();
+      service.switchWorkspace('C:\\Repo\\wt');
+      refreshSpy.mockClear();
+
+      service.startListening();
+      push({ causes: ['head'], workspaceRoot: 'c:/repo/wt/' });
+
+      await Promise.resolve();
+
+      expect(refreshSpy).toHaveBeenCalledWith(['head']);
+    });
+
     it('is idempotent: calling startListening() twice does not double-handle', async () => {
       const refreshSpy = jest
         .spyOn(service, 'refreshForCauses')

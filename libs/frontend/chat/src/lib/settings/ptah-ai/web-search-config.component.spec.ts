@@ -136,6 +136,11 @@ describe('WebSearchConfigComponent', () => {
       { provider: 'tavily' }, { provider: 'serper' }, { provider: 'exa' },
     ]);
     expect(element.querySelector('table.table.table-xs')).not.toBeNull();
+    const section = element.querySelector<HTMLElement>('#web-search-heading')?.closest('section');
+    expect(section?.classList).toContain('border-base-content/10');
+    expect(section?.classList).not.toContain('card');
+    expect(section?.hasAttribute('data-glass-surface')).toBe(false);
+    expect(byTestId('settings-web-search-max-results').parentElement?.classList).not.toContain('rounded');
     for (const id of ['tavily', 'serper', 'exa']) {
       expect(checkbox(id).type).toBe('checkbox');
       expect(byTestId(`settings-web-search-key-status-${id}`).textContent).toContain('Key set');

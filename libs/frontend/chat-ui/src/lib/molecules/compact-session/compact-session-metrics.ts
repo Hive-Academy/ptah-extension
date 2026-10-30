@@ -3,6 +3,7 @@ import {
   isTodoWriteToolInput,
   type ExecutionChatMessage,
   type ExecutionNode,
+  type SessionTodoProgress,
   type TodoItem,
 } from '@ptah-extension/shared';
 import { toolInputOf } from './compact-session-summary-cache';
@@ -42,6 +43,36 @@ export function sameGitState(
     a.deletions === b.deletions &&
     a.partial === b.partial
   );
+}
+
+/** The session's primary linked task, as the compact cards show it. */
+export interface CompactLinkedTask {
+  readonly taskId: string;
+  /** True when the task folder no longer exists in the task index. */
+  readonly missing: boolean;
+}
+
+export function linkedTaskTitle(task: CompactLinkedTask): string {
+  return task.missing
+    ? `Linked task ${task.taskId} (folder missing)`
+    : `Linked task ${task.taskId}`;
+}
+
+/**
+ * The host's persisted todo snapshot as a card todo state. `null` when the
+ * host recorded none, so the caller keeps its own state.
+ */
+export function todoStateFromProgress(
+  progress: SessionTodoProgress | null | undefined,
+): CompactTodoState | null {
+  if (!progress) return null;
+  if (progress.total <= 0) return { kind: 'none' };
+  return {
+    kind: 'known',
+    done: Math.min(Math.max(progress.done, 0), progress.total),
+    total: progress.total,
+    active: progress.inProgress || null,
+  };
 }
 
 export function todoTitle(todo: CompactTodoState | null): string {

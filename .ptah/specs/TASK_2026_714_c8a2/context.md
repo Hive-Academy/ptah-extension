@@ -47,3 +47,12 @@ Checks passed under slot (jest 28/28, typecheck OK); slot released (710 inbox go
 
 - Session 32 (2026-10-30 18:13 UTC): Kimi Code (ptahCliId pc-10e5a6b5-b237-4c72-a213-3202bd30d1fe, family kimi-code) returned a 429 "rate limit exceeded" a third time on the 10b-1 review probe (lane 61d3a1e6), reset unknown. Skipped for the rest of session 32; grok reviews 10b-1.
 - Session 32 (18:28 UTC): grok (cli grok) failed the 10b-1 review (lane 76732d1e) with 402 "Grok Build usage balance exhausted"; weekly window resets 2026-11-03 17:40 UTC but the balance may need a top-up. Skipped for session 32. Fallback reviewer: Glm (ptahCliId pc-355b645d-35af-4974-84cf-9cf961ea0164, family ollama-cloud, weekly 92%).
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane codex, verified by Claude). Title unchanged: task is in_progress.
+
+- The runtime core is on main: #809 (b73a6ff74) added `libs/backend/codex-runtime`, but its registration enables no route (`main:libs/backend/codex-runtime/src/lib/di/registration.ts:27`).
+- The old `CodexCliAdapter` is still exported (`main:libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/index.ts:22`).
+
+Remaining scope: wire the gated codex-runtime into Electron chat, session controls, gateway and CLI lanes, prove parity, then retire the proxy and SDK lane paths under the recorded rollout gates.

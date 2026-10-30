@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 /**
  * ChatSessionService — SDK launch identity specs (TASK_2026_584, Task 4.2).
  *
@@ -91,9 +94,18 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
   isCodexChatAdapterError: (error: unknown) => error instanceof mockCodexChatAdapterError,
 }));
 
-const ROOT = '/c/projects/my-repo';
-const WORKTREE = '/c/projects/my-repo/.ptah/worktrees/child-1';
-const APP_PATH = '/c/projects/ptah-app';
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-session-policy-'));
+afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
+for (const part of [
+  'my-repo/.ptah/worktrees/child-1/nested',
+  'my-repo/packages/parser',
+  'my-repo/parent',
+  'my-repo/other',
+])
+  mkdirSync(join(TEST_ROOT, part), { recursive: true });
+const ROOT = `${TEST_ROOT}/my-repo`;
+const WORKTREE = `${TEST_ROOT}/my-repo/.ptah/worktrees/child-1`;
+const APP_PATH = `${TEST_ROOT}/ptah-app`;
 const CHILD_TAB = '0f1e2d3c-4b5a-4968-8776-655443322110';
 
 interface Harness {
@@ -110,6 +122,7 @@ interface Harness {
   resolveSessionFields: jest.Mock;
   captureException: jest.Mock;
   logger: ReturnType<typeof createMockLogger>;
+  metadataGet: jest.Mock;
 }
 
 function makeHarness(
@@ -118,6 +131,7 @@ function makeHarness(
     port?: number | null;
     /** What `config:autopilot-toggle` saved; absent → autopilot off. */
     autopilot?: { enabled: boolean; permissionLevel: string };
+    metadata?: Record<string, unknown> | null;
   } = {},
 ): Harness {
   const autopilotConfig: Record<string, unknown> = opts.autopilot
@@ -153,6 +167,7 @@ function makeHarness(
   }) as unknown as IWorkspaceProvider;
 
   const logger = createMockLogger();
+  const metadataGet = jest.fn().mockResolvedValue(opts.metadata ?? null);
   const service = new ChatSessionService(
     logger as unknown as Logger,
     { broadcastMessage: jest.fn().mockResolvedValue(undefined) } as never,
@@ -172,7 +187,7 @@ function makeHarness(
     stub as never,
     stub as unknown as SubagentRegistryService,
     { intercept } as never,
-    stub as never,
+    { get: metadataGet } as never,
     workspaceProvider,
     {
       type: 'cli',
@@ -227,11 +242,12 @@ function makeHarness(
     resolveSessionFields,
     captureException,
     logger,
+    metadataGet,
   };
 }
 
 const HANDOFF_TAB = '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
-const HANDOFF_CWD = '/c/projects/my-repo/packages/parser';
+const HANDOFF_CWD = `${TEST_ROOT}/my-repo/packages/parser`;
 const HANDOFF_PROMPT = 'SECRET-CONTINUATION continue the parser work';
 
 function handoffParams(
@@ -363,6 +379,115 @@ describe('ChatSessionService — SDK launch identity (TASK_2026_584)', () => {
   });
 
   describe('startAgentChildSession', () => {
+    it('deduplicates an ancestor by physical identity', async () => {
+      const alias = join(ROOT, 'parent-alias');
+      symlinkSync(join(ROOT, 'parent'), alias, 'dir');
+      const h = makeHarness({
+        metadata: {
+          workspaceId: ROOT,
+          workingDirectory: ROOT,
+          pluginConfigAncestorRoots: [alias, join(ROOT, 'parent')],
+        },
+      });
+      const result = await h.service.startAgentChildSession(
+        childParams({ sourceSessionId: 'source' as never }),
+      );
+      expect(result.success).toBe(true);
+      expect(startConfig(h)['pluginConfigAncestorRoots']).toEqual([
+        ROOT,
+        join(ROOT, 'parent'),
+      ]);
+    });
+    it('refuses a removed ancestor before the SDK launch', async () => {
+      const h = makeHarness({
+        metadata: {
+          workspaceId: ROOT,
+          workingDirectory: ROOT,
+          pluginConfigAncestorRoots: [join(ROOT, 'removed-ancestor')],
+        },
+      });
+      const result = await h.service.startAgentChildSession(
+        childParams({ sourceSessionId: 'source' as never }),
+      );
+      expect(result.success).toBe(false);
+      expect(h.startChatSession).not.toHaveBeenCalled();
+      expect(h.resolveEnhancedPromptsContent).not.toHaveBeenCalled();
+    });
+    it('captures the authoritative source root and saved ancestors in order', async () => {
+      const h = makeHarness({
+        metadata: {
+          workspaceId: ROOT,
+          workingDirectory: ROOT,
+          pluginConfigAncestorRoots: [`${TEST_ROOT}/my-repo/parent`, ROOT],
+        },
+      });
+      const result = await h.service.startAgentChildSession(
+        childParams({
+          sourceSessionId: 'source' as never,
+        }),
+      );
+      expect(result.success).toBe(true);
+      expect(startConfig(h)['pluginConfigAncestorRoots']).toEqual([
+        ROOT,
+        `${TEST_ROOT}/my-repo/parent`,
+      ]);
+    });
+
+    it('refuses an unresolved or mismatched source before SDK launch', async () => {
+      const h = makeHarness();
+      expect(
+        (
+          await h.service.startAgentChildSession(
+            childParams({ sourceSessionId: 'missing' as never }),
+          )
+        ).success,
+      ).toBe(false);
+      h.metadataGet.mockResolvedValue({
+        workspaceId: ROOT,
+        workingDirectory: `${TEST_ROOT}/my-repo/other`,
+      });
+      expect(
+        (
+          await h.service.startAgentChildSession(
+            childParams({ sourceSessionId: 'mismatch' as never }),
+          )
+        ).success,
+      ).toBe(false);
+      h.metadataGet.mockResolvedValue({
+        workspaceId: '',
+        workingDirectory: '',
+      });
+      expect(
+        (
+          await h.service.startAgentChildSession(
+            childParams({ sourceSessionId: 'missing-root' as never }),
+          )
+        ).success,
+      ).toBe(false);
+      expect(h.startChatSession).not.toHaveBeenCalled();
+    });
+
+    it('uses only the validated immediate root without a source', async () => {
+      const h = makeHarness();
+      await h.service.startAgentChildSession(childParams());
+      expect(startConfig(h)['pluginConfigAncestorRoots']).toEqual([ROOT]);
+    });
+
+    it('uses the live pre-bind source chain for a nested child', async () => {
+      const h = makeHarness();
+      await h.service.startAgentChildSession(childParams());
+      await h.service.startAgentChildSession(
+        childParams({
+          tabId: 'grandchild',
+          workspaceRoot: WORKTREE,
+          worktreePath: `${WORKTREE}/nested`,
+          sourceSessionId: CHILD_TAB as never,
+        }),
+      );
+      expect(
+        h.startChatSession.mock.calls[1][0].pluginConfigAncestorRoots,
+      ).toEqual([WORKTREE, ROOT]);
+    });
     it('passes workspaceId = root, projectPath = worktree and the parent permission level', async () => {
       const h = makeHarness();
 
@@ -528,10 +653,10 @@ describe('ChatSessionService — SDK launch identity (TASK_2026_584)', () => {
     });
 
     it('refuses an unsafe worktree path without starting', async () => {
-      const h = makeHarness({ folders: ['/c/projects'] });
+      const h = makeHarness({ folders: [`${TEST_ROOT}`] });
 
       const result = await h.service.startAgentChildSession(
-        childParams({ workspaceRoot: '/c/projects', worktreePath: APP_PATH }),
+        childParams({ workspaceRoot: `${TEST_ROOT}`, worktreePath: APP_PATH }),
       );
 
       expect(result.success).toBe(false);
@@ -551,6 +676,24 @@ describe('ChatSessionService — SDK launch identity (TASK_2026_584)', () => {
         errorSource: 'ChatSessionService.startAgentChildSession',
       });
     });
+  });
+
+  it('preserves a source chain on a same-root handoff', async () => {
+    const h = makeHarness({
+      metadata: {
+        workspaceId: ROOT,
+        workingDirectory: HANDOFF_CWD,
+        pluginConfigAncestorRoots: [ROOT],
+      },
+    });
+    const result = await h.service.startHandoffSession(
+      handoffParams({
+        workspaceRoot: HANDOFF_CWD,
+        sourceSessionId: 'source' as never,
+      }),
+    );
+    expect(result.success).toBe(true);
+    expect(startConfig(h)['pluginConfigAncestorRoots']).toEqual([ROOT]);
   });
 
   describe('startHandoffSession (TASK_2026_655)', () => {
@@ -658,10 +801,10 @@ describe('ChatSessionService — SDK launch identity (TASK_2026_584)', () => {
     });
 
     it('refuses an unsafe cwd without starting', async () => {
-      const h = makeHarness({ folders: ['/c/projects'] });
+      const h = makeHarness({ folders: [`${TEST_ROOT}`] });
 
       const result = await h.service.startHandoffSession(
-        handoffParams({ workspaceRoot: '/c/projects', cwd: APP_PATH }),
+        handoffParams({ workspaceRoot: `${TEST_ROOT}`, cwd: APP_PATH }),
       );
 
       expect(result.success).toBe(false);

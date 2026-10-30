@@ -538,7 +538,7 @@ export interface MonitoredAgent {
   /** Classified failure reason of the run, from `AgentProcessInfo`. */
   failureKind?: AgentFailureKind;
   /**
-   * Why the host stopped the lane (`tool-call-budget` or `repeat-call`).
+   * Why the host stopped the lane (`repeat-call`).
    * Copied from `AgentProcessInfo.stopReason`. Absent when the lane ended
    * on its own or the caller stopped it.
    */
@@ -581,6 +581,13 @@ export interface MonitoredAgent {
   readonly cacheReported?: boolean;
 }
 
+/** Record statuses a SubagentStop may still finish. */
+const LIVE_SUBAGENT_STATUSES: ReadonlySet<SubagentRecord['status']> = new Set([
+  'pending',
+  'running',
+  'background',
+]);
+
 /**
  * Per-subagent record for SDK task_* events.
  *
@@ -595,6 +602,12 @@ export interface MonitoredAgent {
 export interface SubagentRecord {
   /** Provisional terminal from authoritative inactive history evidence. */
   settledFromHistory?: boolean;
+  /**
+   * `completed` set by the SubagentStop hook, which fires for failed agents
+   * too and usually before the Task tool_result. The tool_result, which
+   * knows whether the agent failed, may still settle the record.
+   */
+  settledFromHook?: boolean;
   /** Parent Task tool_use ID — primary key */
   readonly parentToolUseId: string;
   /** SDK task_id, captured on `agent_start` (when present) or `agent_progress`/`agent_status` */
@@ -978,14 +991,20 @@ export class AgentMonitorStore implements OnDestroy {
       const existing = map.get(event.toolCallId);
       if (
         !existing ||
-        (this.isTerminal(existing.status) && !existing.settledFromHistory)
+        (this.isTerminal(existing.status) &&
+          !existing.settledFromHistory &&
+          !existing.settledFromHook)
       )
         return map;
       const next = new Map(map);
       next.set(event.toolCallId, {
         ...existing,
-        status: this.settledStatus(existing, status),
+        // The hook's `completed` is provisional: the real outcome wins.
+        status: existing.settledFromHook
+          ? status
+          : this.settledStatus(existing, status),
         settledFromHistory: false,
+        settledFromHook: false,
         completedAt: event.timestamp,
         durationMs:
           event.eventType === 'background_agent_completed'
@@ -2725,6 +2744,7 @@ export class AgentMonitorStore implements OnDestroy {
       if (!existing) return map;
       if (
         !existing.settledFromHistory &&
+        !existing.settledFromHook &&
         existing.status !== 'pending' &&
         existing.status !== 'running'
       ) {
@@ -2735,6 +2755,7 @@ export class AgentMonitorStore implements OnDestroy {
         ...existing,
         status: isError ? 'failed' : 'completed',
         settledFromHistory: false,
+        settledFromHook: false,
         completedAt:
           timestamp !== undefined && Number.isFinite(timestamp)
             ? timestamp
@@ -2745,15 +2766,33 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
+   * Monitor key (the Task tool_use id) of the record for an SDK `agentId`,
+   * preferring a record that is still live. The `SubagentStop` hook carries
+   * the agent id but no Task tool_use id, so the stop push finds its record
+   * through this lookup.
+   */
+  findKeyByAgentId(agentId: string): string | null {
+    if (!agentId) return null;
+    let settled: string | null = null;
+    for (const [key, record] of this._subagents()) {
+      if (record.agentId !== agentId) continue;
+      if (LIVE_SUBAGENT_STATUSES.has(record.status)) return key;
+      settled ??= key;
+    }
+    return settled;
+  }
+
+  /**
    * Terminalise a subagent from the `session:subagentEnded` push (the
-   * backend `SubagentStop` hook), keyed by its Task tool_use id.
+   * backend `SubagentStop` hook), keyed by its Task tool_use id (resolve it
+   * with {@link findKeyByAgentId}).
    *
    * Backstop for a subagent that has no other completion signal in the
    * stream: a Task the SDK backgrounded by default gets the "launched in the
    * background" placeholder tool_result (which must not terminalise it, see
    * {@link onTaskToolResult}), and its `agent_completed` can be missing. The
    * SubagentStop hook fires once the agent has actually finished, so a record
-   * still `pending`/`running` moves to `completed`.
+   * still `pending`/`running`/`background` moves to `completed`.
    *
    * Same invariant as {@link onTaskToolResult}: a terminal status already set
    * by `agent_completed` / `agent_status` / a stop is never overridden, and an
@@ -2768,13 +2807,12 @@ export class AgentMonitorStore implements OnDestroy {
     this._subagents.update((map) => {
       const existing = map.get(toolCallId);
       if (!existing) return map;
-      if (existing.status !== 'pending' && existing.status !== 'running') {
-        return map;
-      }
+      if (!LIVE_SUBAGENT_STATUSES.has(existing.status)) return map;
       const next = new Map(map);
       next.set(toolCallId, {
         ...existing,
         status: 'completed',
+        settledFromHook: true,
         latestSummary: summary || existing.latestSummary,
         completedAt:
           timestamp !== undefined && Number.isFinite(timestamp)

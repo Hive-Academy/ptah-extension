@@ -307,8 +307,6 @@ describe('isFileBasedSettingKey', () => {
       'compaction.subagentHandoffTokens': 150000,
       'compaction.rotationSuggestTokens': 300000,
       'compaction.subagentStopWeightedTokens': 3000000,
-      'agentOrchestration.laneToolCallSteerAt': 40,
-      'agentOrchestration.laneToolCallStopAt': 60,
       'agentOrchestration.laneRepeatCallStopAt': 20,
     } as const;
 
@@ -883,6 +881,7 @@ describe('isFileBasedSettingKey', () => {
       'cron.catchupWindowMs': 86400000,
       'harness.preflightTimeoutMs': 1500,
       'harness.manageGitignore': true,
+      'display.autoOpenArtifacts': true,
       'notifications.hostEnabled': true,
       'notifications.failureHostEnabled': false,
     };

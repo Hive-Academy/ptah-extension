@@ -14,6 +14,12 @@ export type RpcUserErrorCode =
   | 'SESSION_NOT_FOUND'
   /** The session exists but none of its saved folders is open, safe and present. */
   | 'SESSION_FOLDER_UNAVAILABLE'
+  /**
+   * A `git:*` call named a root that is no longer a registered workspace
+   * folder or a live worktree of one (removed, pruned, or git failed to
+   * confirm it). Never falls back to the active folder.
+   */
+  | 'GIT_ROOT_UNAVAILABLE'
   | 'INVALID_PARAMS'
   | 'TASK_NOT_FOUND'
   | 'SESSION_ENDED'

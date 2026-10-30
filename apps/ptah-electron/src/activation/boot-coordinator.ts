@@ -107,6 +107,11 @@ export interface BootRefs extends ThothRuntimeRefs {
     stop: () => void;
     switchWorkspace: (p: string) => void;
   } | null;
+  /**
+   * Secondary per-root git watchers (TASK_2026_855). Attached by the heavy
+   * boot after the primary watcher; disposed beside it.
+   */
+  gitRootWatchers: { dispose: () => void } | null;
   /** Telegram / Discord / Slack gateway. Created after the window. */
   messagingGateway: GatewayService | null;
   /** Gateway inbound -> agent session bridge. Created after the gateway. */
@@ -186,6 +191,7 @@ export function createEmptyBootRefs(): BootRefs {
     // host-owned
     diagnostics: null,
     gitWatcher: null,
+    gitRootWatchers: null,
     messagingGateway: null,
     chatBridge: null,
     updateManager: null,

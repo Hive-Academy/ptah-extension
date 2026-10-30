@@ -9,7 +9,11 @@
 
 import 'reflect-metadata';
 
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { container } from 'tsyringe';
+import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import { Logger } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import {
@@ -56,7 +60,9 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 import type { ChatContinueParams, FlatStreamEventUnion, SessionId } from '@ptah-extension/shared';
 import { ChatSessionService } from './chat-session.service';
 
-const OPEN_FOLDER = '/c/projects/qa3elhamor';
+// A real folder: the merged session-folder check resolves it on disk.
+const OPEN_FOLDER = mkdtempSync(join(tmpdir(), 'ptah-codex-resume-once-'));
+afterAll(() => rmSync(OPEN_FOLDER, { recursive: true, force: true }));
 const SESSION_ID = 'b5399ba8-e06d-417c-bac4-aba5add0555c' as SessionId;
 const TAB_ID = 'f69cb197-0798-40bc-ac0c-6f7591e0a894';
 const FILES = ['src/main.ts'];
@@ -146,7 +152,12 @@ function harness(
       },
       outputStyleActivation: { resolveSessionFields: async () => ({}) },
       modelSettings: { selectedModel: { get: () => 'default' } },
-      workspaceProvider: { getConfiguration: () => false },
+      workspaceProvider: createMockWorkspaceProvider({ folders: [OPEN_FOLDER] }),
+      platformInfo: {
+        type: 'cli',
+        extensionPath: join(tmpdir(), 'ptah-app'),
+        globalStoragePath: join(tmpdir(), 'ptah-storage'),
+      },
       slashCommandRouter: { routeFollowUpSlashCommand },
       subagentContextInjector: {
         injectInterruptedAgentsContext: async (prompt: string) => ({ prompt }),
@@ -474,7 +485,12 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
     const reply = h.service.continueSession(params('follow up'));
     // A reply held until the turn ends loses this race instead of deadlocking.
     const held = 'held until the turn ended';
-    const tick = new Promise<string>((resolve) => setImmediate(() => resolve(held)));
+    // The turn only ends after finishBroadcast(), so any bound proves the reply
+    // does not wait for it; the bound allows the real session-folder disk check.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = new Promise<string>((resolve) => {
+      timer = setTimeout(() => resolve(held), 2000);
+    });
     try {
       const outcome = await Promise.race([reply, tick]);
       // Resume has no clientMessageId, so this retires the pending prompt.
@@ -482,9 +498,9 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
       expect(h.resumeSession).toHaveBeenCalledTimes(1);
       expect(h.sendMessageToSession).not.toHaveBeenCalled();
     } finally {
+      clearTimeout(timer);
       finishBroadcast();
       await reply.catch(() => undefined);
-      await tick;
     }
   });
 

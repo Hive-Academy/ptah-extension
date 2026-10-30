@@ -63,6 +63,13 @@ export {
 } from './codex-token-freshness';
 export { NO_WORKSPACE_KEY, normalizeWorkspaceRoot } from './workspace-root-key';
 export {
+  isSameWorkingRoot,
+  resolveSessionWorkingRoot,
+  type SessionWorkingRoot,
+  type SessionWorkingRootInput,
+  type SessionWorkingRootSource,
+} from './session-working-root';
+export {
   laneFamilyOf,
   SUBAGENT_FAMILY,
   type LaneFamilyInput,

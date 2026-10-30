@@ -93,3 +93,10 @@ every one of the nine already has its own `modal-box` content and testids that
   dismissal.
 - No dialog enters the browser top layer.
 - The Electron e2e dialog specs still pass unchanged.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: One non-showModal focus trap for the dialogs that still advertise a modal and do not trap Tab, including update, tasks, harness-repair, corpus-build, bulk-rebase and skill-clones.
+- Evidence on main: No shared focus-trap primitive. These still use daisyUI modal-open without a trap: update-dialog.component.ts:48, tasks-view.component.ts:620, harness-repair-dialog.component.ts:124 (aria-modal), corpus-build-dialog.component.ts:44, bulk-rebase-confirm.component.ts:45, skill-clones-view.component.ts:466. external-consent-dialog.component.ts uses a local ModalFocusTrap. skill-suggestions-view.component.ts is gone from main. skill-synthesis-tab.component.ts no longer matches modal-open.

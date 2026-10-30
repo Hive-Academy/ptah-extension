@@ -53,11 +53,11 @@ export function createAuthCredentialProbe(
 export class ActiveProviderResolver {
   /**
    * The method a missing or unknown `authMethod` resolves to: the last answer
-   * of {@link resolveActiveAuthWithDefault}, `'apiKey'` until one is known.
+   * of {@link resolveActiveAuthWithDefault}, `'claudeCli'` until one is known.
    * The credential facts are global (one key store, one Claude login), so the
    * synchronous readers report the same method that the adapter configured.
    */
-  private unconfiguredAuthMethod: LegacyAuthMethod = 'apiKey';
+  private unconfiguredAuthMethod: LegacyAuthMethod = 'claudeCli';
 
   constructor(
     @inject(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER)
@@ -65,7 +65,7 @@ export class ActiveProviderResolver {
   ) {}
 
   resolveActiveAuth(): ActiveAuth {
-    return this.toActiveAuth(this.scope.read<string>('authMethod', true), () =>
+    return this.toActiveAuth(this.storedAuthMethod(), () =>
       this.resolveThirdPartyProviderId(),
     );
   }
@@ -86,7 +86,7 @@ export class ActiveProviderResolver {
    */
   resolveActiveAuthForPath(workspacePath: string): ActiveAuth {
     return this.toActiveAuth(
-      this.scope.readForPath<string>('authMethod', workspacePath, true),
+      this.storedAuthMethod(workspacePath),
       () => this.resolveThirdPartyProviderIdForPath(workspacePath),
     );
   }
@@ -98,10 +98,14 @@ export class ActiveProviderResolver {
    *
    * A known configured `authMethod` (the workspace override for
    * `workspacePath`, else the app or global value) is always honoured and no
-   * credential is read. Otherwise: a stored or environment API key gives
-   * `'apiKey'` without reading the login; with no key, a connected Claude CLI
-   * login gives `'claudeCli'`, else `'apiKey'` (that path then reports what is
-   * missing). The answer is remembered for the synchronous readers.
+   * credential is read. Otherwise the Claude CLI login is the default; only a
+   * stored or environment API key without a connected Claude CLI login gives
+   * `'apiKey'`. The answer is remembered for the synchronous readers.
+   *
+   * "Configured" means stored at some scope: the registered default
+   * (`FILE_BASED_SETTINGS_DEFAULTS.authMethod`, `'claudeCli'`) that the
+   * file-settings stores return for an unset value does not count, so a
+   * headless run with only `ANTHROPIC_API_KEY` still takes the API key path.
    *
    * @param workspacePath an explicit workspace; omitted reads the active scope.
    */
@@ -109,15 +113,12 @@ export class ActiveProviderResolver {
     probe: AuthCredentialProbe,
     workspacePath?: string,
   ): Promise<ActiveAuth> {
-    const raw =
-      workspacePath === undefined
-        ? this.scope.read<string>('authMethod', true)
-        : this.scope.readForPath<string>('authMethod', workspacePath, true);
-    if (parseAuthMethod(raw) === undefined) {
+    if (parseAuthMethod(this.storedAuthMethod(workspacePath)) === undefined) {
       const hasApiKey = await probe.hasAnthropicApiKey();
       this.unconfiguredAuthMethod = resolveDefaultAuthMethod({
         hasApiKey,
-        claudeCliConnected: !hasApiKey && (await probe.isClaudeCliConnected()),
+        // Without a key the answer is the Claude CLI login either way.
+        claudeCliConnected: hasApiKey && (await probe.isClaudeCliConnected()),
       });
     }
     return workspacePath === undefined
@@ -133,6 +134,22 @@ export class ActiveProviderResolver {
         true,
       ) ?? DEFAULT_PROVIDER_ID
     );
+  }
+
+  /**
+   * The stored `authMethod` for the active scope (or `workspacePath`), or
+   * `undefined` when no scope stores one — the registered default is not a
+   * choice, so {@link toActiveAuth} applies the credential-aware default.
+   */
+  private storedAuthMethod(workspacePath?: string): string | undefined {
+    if (workspacePath === undefined) {
+      return this.scope.isStored('authMethod', true)
+        ? this.scope.read<string>('authMethod', true)
+        : undefined;
+    }
+    return this.scope.isStoredForPath('authMethod', workspacePath, true)
+      ? this.scope.readForPath<string>('authMethod', workspacePath, true)
+      : undefined;
   }
 
   private toActiveAuth(

@@ -6,6 +6,7 @@ import {
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
   EditorRpcHandlers,
+  DisplayWindowRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -44,6 +45,7 @@ export const EXPECTED_RESOLVABLE = [
   EnhancedPromptsRpcHandlers,
   LlmRpcHandlers,
   EditorRpcHandlers,
+  DisplayWindowRpcHandlers,
 ] as const;
 
 /**

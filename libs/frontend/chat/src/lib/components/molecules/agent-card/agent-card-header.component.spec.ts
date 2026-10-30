@@ -58,14 +58,7 @@ describe('AgentCardHeaderComponent — prompt cache (N6)', () => {
     );
   });
 
-  it('explains a tool-call budget stop and a repeat-call stop', () => {
-    const budget = setup(
-      lane({ status: 'stopped', stopReason: 'tool-call-budget' }),
-    );
-    expect(
-      budget.querySelector('[data-testid="lane-stop-reason"]')?.textContent,
-    ).toContain('Stopped: tool-call limit reached');
-
+  it('explains a repeat-call stop', () => {
     const repeat = setup(
       lane({ status: 'stopped', stopReason: 'repeat-call' }),
     );
@@ -76,7 +69,7 @@ describe('AgentCardHeaderComponent — prompt cache (N6)', () => {
 
   it('hides the stop reason while the lane is running and when none was recorded', () => {
     const running = setup(
-      lane({ status: 'running', stopReason: 'tool-call-budget' }),
+      lane({ status: 'running', stopReason: 'repeat-call' }),
     );
     expect(
       running.querySelector('[data-testid="lane-stop-reason"]'),

@@ -40,3 +40,17 @@ Revision 4 sequence C ("charts in the coding chat"), out of scope for 494 (`TASK
 ## Depends on
 
 - TASK_2026_494_ca38 (done).
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors. Still open (a cancel was proposed and rejected).
+
+Mount SURFACE_UPDATED dashboard surfaces in chat tabs, claim and release routing IDs on SurfaceUpdateInbox, and implement the surface:release host RPC with schema, handler, cleanup and tests.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane codex, verified by Claude).
+
+- Delivered: ptah-ui blocks and turn recap in the Electron coding chat (#649, TASK_2026_610); the display panel renders surfaces through `ptah-surface-renderer` (`main:libs/frontend/chat-ui/src/lib/organisms/display-panel/display-panel.component.ts:142`).
+- Missing: SurfaceUpdateInbox claims exist only for Apps (`main:libs/frontend/mcp-apps-page/src/lib/services/apps-conversation-claims.ts:41`); `main:libs/backend/rpc-handlers/src/lib/handlers/surface-rpc.handlers.ts` has no release method.
+- Parallel branch risk: feat/artifact-display-window (TASK_2026_853_3401) is changing the display panel and adds a detachable display window; re-check this scope after it merges.

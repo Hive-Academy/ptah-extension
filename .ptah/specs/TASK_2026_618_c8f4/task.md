@@ -11,8 +11,6 @@ estimate: S
 labels:
   - flaky-test
   - ci
-relates_to:
-  - TASK_2026_616_de8a
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

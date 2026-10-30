@@ -17,6 +17,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IWorkspaceLifecycleProvider,
+  IStateStorage,
 } from '@ptah-extension/platform-core';
 import {
   TOKENS,
@@ -48,6 +49,7 @@ import { resolveInitialWorkspaceArg } from './initial-workspace-arg';
 import { runSessionStoreMigration } from './session-store-migration';
 import { IpcBridge } from '../ipc/ipc-bridge';
 import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
+import { ElectronDisplayWindowHost } from '../windows/display-window';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { IHostAttentionIngress } from '@ptah-extension/platform-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
@@ -611,6 +613,21 @@ async function runBootstrap(
       );
     }
   }
+  // Detached Display window (TASK_2026_853_3401). Bound here, beside
+  // WEBVIEW_MANAGER, because it needs the bridge; `DisplayWindowRpcHandlers`
+  // resolves the port per call, so the phase-4 registration sees it.
+  // Bounds share the storage that holds the main window's `window.bounds`.
+  container.register(PLATFORM_TOKENS.DISPLAY_WINDOW_HOST, {
+    useValue: new ElectronDisplayWindowHost({
+      getMainWindow,
+      bridge: ipcBridge,
+      resolveStateStorage: () =>
+        container.isRegistered(PLATFORM_TOKENS.STATE_STORAGE)
+          ? container.resolve<IStateStorage>(PLATFORM_TOKENS.STATE_STORAGE)
+          : undefined,
+      appDir: __dirname,
+    }),
+  });
   attachElectronHostAttention(
     () =>
       container.resolve<IHostAttentionIngress>(

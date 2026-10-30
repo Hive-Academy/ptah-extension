@@ -12,7 +12,6 @@ labels:
   - skills
   - lane-routing
 relates_to:
-  - TASK_2026_662_3eea
   - TASK_2026_701_9e4b
 ---
 

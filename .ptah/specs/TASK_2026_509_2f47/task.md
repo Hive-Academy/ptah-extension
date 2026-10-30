@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: done
 type: devops
 title: >-
   Migrate the remaining projects off the @nx/jest:jest executor
@@ -8,6 +8,7 @@ description: >-
   already moved to `nx:run-commands` during TASK_2026_499_a31f. Every other
   project still declares the executor and needs
   `nx g @nx/jest:convert-to-inferred`.
+updated: "2026-10-30T01:09:07.477Z"
 ---
 
 # Off the @nx/jest:jest executor

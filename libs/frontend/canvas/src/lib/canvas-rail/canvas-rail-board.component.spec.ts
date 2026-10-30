@@ -1022,7 +1022,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     await completeDeferBlocks(fixture);
     fixture.detectChanges();
     expect(
-      fixture.nativeElement.querySelectorAll('ptah-canvas-lane-tabs'),
+      fixture.nativeElement.querySelectorAll('ptah-canvas-lane-tabs[inspectorRailAgents]'),
     ).toHaveLength(1);
     dockParts(fixture.nativeElement).tab?.click();
     fixture.detectChanges();
@@ -1033,7 +1033,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       fixture.nativeElement.querySelector('[data-inspector-skeleton]'),
     ).not.toBeNull();
     expect(
-      fixture.nativeElement.querySelectorAll('ptah-canvas-lane-tabs'),
+      fixture.nativeElement.querySelectorAll('ptah-canvas-lane-tabs[inspectorRailAgents]'),
     ).toHaveLength(0);
     await completeDeferBlocks(fixture);
     fixture.detectChanges();
@@ -1048,7 +1048,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(inspector.selectedAgentKey()).toBe('orchestrator');
     // The expanded sidebar lists agents in its AGENTS section, not a strip.
     expect(
-      fixture.nativeElement.querySelectorAll('ptah-canvas-lane-tabs'),
+      fixture.nativeElement.querySelectorAll('ptah-canvas-lane-tabs[inspectorRailAgents]'),
     ).toHaveLength(0);
   });
 

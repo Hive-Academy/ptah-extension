@@ -73,8 +73,10 @@ function makeHarness(
 ): Harness {
   const rpcHandler = createMockRpcHandler();
   const store = new Map<string, unknown>([['authMethod', 'apiKey']]);
+  const read = jest.fn((key: string) => store.get(key));
   const scopeResolver = {
-    read: jest.fn((key: string) => store.get(key)),
+    read,
+    isStored: jest.fn((key: string) => read(key) !== undefined),
     hasOverride: jest.fn(() => false),
     write: jest.fn(async () => undefined),
     clearOverride: jest.fn(async () => undefined),

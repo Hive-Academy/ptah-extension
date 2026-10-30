@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
 import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { PTAH_UI_HINT_CODEX } from '@ptah-extension/agent-sdk';
@@ -69,13 +70,16 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
   isCodexChatAdapterError: (error: unknown) => error instanceof mockCodexChatAdapterError,
 }));
 
+const originalWorkspace = mkdtempSync(join(tmpdir(), 'ptah-codex-original-'));
+afterAll(() => rmSync(originalWorkspace, { recursive: true, force: true }));
+
 const sessionId = 'native-session' as SessionId;
 const identity: SessionRuntimeIdentity = {
   version: 1,
   sessionId,
   runtime: 'codex-app-server',
   providerId: 'openai-codex',
-  workspaceId: '/original-workspace',
+  workspaceId: originalWorkspace,
   codex: { normalizedHome: '/original-home' },
 };
 const execution: ResolvedChatExecution = {
@@ -83,13 +87,13 @@ const execution: ResolvedChatExecution = {
   seed: {
     providerId: 'openai-codex',
     consumer: 'chat',
-    workspacePath: '/original-workspace',
+    workspacePath: originalWorkspace,
     home: '/original-home',
     normalizedHome: '/original-home',
     model: 'gpt-5.4',
   },
-  workspacePath: '/original-workspace',
-  cwd: '/original-workspace',
+  workspacePath: originalWorkspace,
+  cwd: originalWorkspace,
   config: {},
   modelSubstitution: {
     requested: 'default',
@@ -99,6 +103,9 @@ const execution: ResolvedChatExecution = {
 };
 
 function harness() {
+  const pendingLineage = new Map<string, { executionRoot: string; roots: readonly string[] }>();
+  const withCodexStartLineage = jest.fn(<T>(_roots: readonly string[], launch: () => Promise<T>) => launch());
+  const upgradeLegacyPluginConfigAncestorRoots = jest.fn().mockResolvedValue({ status: 'valid', roots: [] });
   const prepare = jest.fn().mockResolvedValue(execution);
   const publishRuntimeNotices = jest.fn().mockResolvedValue(undefined);
   const startChatSession = jest.fn().mockResolvedValue([]);
@@ -123,9 +130,15 @@ function harness() {
         isSessionActive: () => false,
       },
       workspaceProviderProfileResolver: { resolveProviderProfileForWorkspace },
-      sessionMetadataStore: { get: async () => ({ codexExecution: identity }) },
-      historyRead: { resolveSessionFolder: async () => '/original-workspace' },
-      workspaceProvider: { getConfiguration: () => false },
+      sessionMetadataStore: {
+        get: async () => ({ codexExecution: identity, workspaceId: originalWorkspace, pluginConfigAncestorRoots: [] }),
+        withCodexStartLineage,
+        upgradeLegacyPluginConfigAncestorRoots,
+      },
+      historyRead: { resolveSessionFolder: async () => originalWorkspace },
+      workspaceProvider: createMockWorkspaceProvider({ folders: [originalWorkspace] }),
+      platformInfo: { extensionPath: resolve('/codex-options-app'), globalStoragePath: resolve('/codex-options-storage') },
+      pendingLineage,
       codeExecutionMcp: { getPort: () => undefined },
       outputStyleActivation: {
         resolveSessionFields: async () => ({ outputStyleBody: 'style' }),
@@ -141,6 +154,9 @@ function harness() {
     startChatSession,
     resumeSession,
     resolveProviderProfileForWorkspace,
+    pendingLineage,
+    withCodexStartLineage,
+    upgradeLegacyPluginConfigAncestorRoots,
   };
 }
 
@@ -165,7 +181,9 @@ describe('chat native session preparation', () => {
       }),
       historyRead: { resolveSessionFolder: async () => workspace },
       sessionMetadataStore: {
-        get: async () => ({ codexExecution: { ...identity, workspaceId: workspace } }),
+        get: async () => ({ codexExecution: { ...identity, workspaceId: workspace }, workspaceId: workspace, pluginConfigAncestorRoots: [] }),
+        withCodexStartLineage: h.withCodexStartLineage,
+        upgradeLegacyPluginConfigAncestorRoots: h.upgradeLegacyPluginConfigAncestorRoots,
       },
       platformInfo: {
         extensionPath: resolve('/codex-options-app'),
@@ -283,6 +301,7 @@ describe('chat native session preparation', () => {
       name: 'hello',
       prompt: 'hello',
     });
+    expect(h.withCodexStartLineage).toHaveBeenCalledWith([], expect.any(Function));
     if (ambient) {
       expect(buildSmitheryOverrides).toHaveBeenCalledTimes(1);
       expect(buildOAuthOverrides).toHaveBeenCalledTimes(1);
@@ -397,8 +416,8 @@ describe('chat native session preparation', () => {
     await h.service['launchSdkSession']({
       logLabel: 'chat:start',
       tabId: 'tab',
-      workspaceId: '/original-workspace',
-      projectPath: '/original-workspace',
+      workspaceId: originalWorkspace,
+      projectPath: originalWorkspace,
       prompt: 'hello',
       mcpServerRunning: false,
       mcpServersOverride: undefined,
@@ -426,6 +445,30 @@ describe('chat native session preparation', () => {
     expect(h.publishRuntimeNotices).toHaveBeenCalledTimes(1);
   });
 
+  it('passes child policy roots to the native metadata write without changing Codex options', async () => {
+    const h = harness();
+    const child = mkdtempSync(join(originalWorkspace, 'child-'));
+    await expect(h.service.startAgentChildSession({
+      tabId: 'tab', workspaceRoot: originalWorkspace, worktreePath: child,
+      prompt: 'hello', sessionName: 'Child',
+    })).resolves.toEqual({ success: true });
+    expect(h.withCodexStartLineage).toHaveBeenCalledWith([originalWorkspace], expect.any(Function));
+    const started = h.startChatSession.mock.calls[0][0] as AgentSessionStartConfig;
+    expect(started.pluginConfigAncestorRoots).toBeUndefined();
+    expect(classifyCodexChatOptions(started).rejected).toEqual([]);
+  });
+
+  it('clears pending lineage after a native start owns its stream', async () => {
+    const h = harness();
+    const child = mkdtempSync(join(originalWorkspace, 'child-'));
+    await expect(h.service.startAgentChildSession({
+      tabId: 'tab', workspaceRoot: originalWorkspace, worktreePath: child,
+      prompt: 'hello', sessionName: 'Child',
+    })).resolves.toEqual({ success: true });
+    expect(h.startChatSession).toHaveBeenCalledTimes(1);
+    expect(h.pendingLineage.has('tab')).toBe(false);
+  });
+
   it('resumes with the stored identity after a workspace provider switch', async () => {
     const h = harness();
     h.resumeSession.mockImplementationOnce(async () => {
@@ -440,7 +483,7 @@ describe('chat native session preparation', () => {
     ).resolves.toEqual({ justResumed: true, promptDelivered: true });
     expect(h.prepare).toHaveBeenCalledWith(
       expect.objectContaining({
-        projectPath: '/original-workspace',
+        projectPath: originalWorkspace,
         prompt: 'continue',
       }),
       identity,
@@ -461,8 +504,8 @@ describe('chat native session preparation', () => {
     const h = harness();
     h.publishRuntimeNotices.mockRejectedValue(new Error('private broadcast detail'));
     await expect(h.service['launchSdkSession']({
-      logLabel: 'chat:start', tabId: 'tab', workspaceId: '/original-workspace',
-      projectPath: '/original-workspace', prompt: 'hello', mcpServerRunning: false,
+      logLabel: 'chat:start', tabId: 'tab', workspaceId: originalWorkspace,
+      projectPath: originalWorkspace, prompt: 'hello', mcpServerRunning: false,
       mcpServersOverride: undefined, surfaceMode: undefined,
     })).resolves.toBeUndefined();
     expect(h.service['streamBroadcaster'].streamEventsToWebview).toHaveBeenCalledWith(
@@ -494,8 +537,8 @@ describe('chat native session preparation', () => {
       h.service['launchSdkSession']({
         logLabel: 'chat:start',
         tabId: 'tab',
-        workspaceId: '/original-workspace',
-        projectPath: '/original-workspace',
+        workspaceId: originalWorkspace,
+        projectPath: originalWorkspace,
         prompt: 'hello',
         mcpServerRunning: false,
         mcpServersOverride: undefined,
@@ -508,8 +551,8 @@ describe('chat native session preparation', () => {
   it('publishes after success and publishes nothing for a second busy launch on the same tab', async () => {
     const h = harness();
     const input = {
-      logLabel: 'chat:start', tabId: 'tab', workspaceId: '/original-workspace',
-      projectPath: '/original-workspace', prompt: 'hello', mcpServerRunning: false,
+      logLabel: 'chat:start', tabId: 'tab', workspaceId: originalWorkspace,
+      projectPath: originalWorkspace, prompt: 'hello', mcpServerRunning: false,
       mcpServersOverride: undefined, surfaceMode: undefined,
     };
     h.startChatSession.mockImplementationOnce(async () => {
@@ -531,7 +574,7 @@ describe('chat native session preparation', () => {
   });
 
   it('keeps a Claude session model and provider profile after switching the workspace to Codex', async () => {
-    const workspace = resolve('/original-workspace');
+    const workspace = resolve(originalWorkspace);
     const profile = { providerId: 'anthropic', model: 'claude-sonnet', authEnv: {} };
     const resolveProviderProfileForWorkspace = jest.fn().mockResolvedValue(profile);
     const resolver: WorkspaceProviderProfileResolver = Object.assign(
@@ -556,7 +599,10 @@ describe('chat native session preparation', () => {
     Object.assign(h.service, {
       runtimeProfile,
       modelSettings: { selectedModel: { get: () => 'claude-sonnet' } },
-      sessionMetadataStore: { get: async () => ({ workspaceId: workspace, providerId: 'anthropic' }) },
+      sessionMetadataStore: {
+        get: async () => ({ workspaceId: workspace, providerId: 'anthropic' }),
+        upgradeLegacyPluginConfigAncestorRoots: h.upgradeLegacyPluginConfigAncestorRoots,
+      },
       historyRead: { resolveSessionFolder: async () => workspace },
     });
     await expect(h.service['autoResumeIfInactive'](sessionId, 'tab', 'hello', {

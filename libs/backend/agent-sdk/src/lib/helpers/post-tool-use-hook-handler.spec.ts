@@ -320,6 +320,32 @@ describe('PostToolUseHookHandler', () => {
     );
   });
 
+  it('carries agentId only when the hook input has a non-empty agent_id', async () => {
+    const logger = makeLogger();
+    const registry = new PostToolUseCallbackRegistry(logger);
+    const captured: Array<Record<string, unknown>> = [];
+    registry.register((payload) => {
+      captured.push({ ...payload });
+    });
+    const handler = new PostToolUseHookHandler(logger, registry);
+    const fn = getHookCallback(handler, 'sess-1', '/workspace');
+    const base = {
+      hook_event_name: 'PostToolUse',
+      tool_name: 'TodoWrite',
+      tool_input: { todos: [] },
+      tool_response: {},
+      tool_use_id: 'tu-1',
+    };
+    const signal = { signal: new AbortController().signal };
+
+    await fn({ ...base, agent_id: 'agent-3' } as unknown as HookInput, undefined, signal);
+    await fn(base as unknown as HookInput, undefined, signal);
+
+    expect(captured).toHaveLength(2);
+    expect(captured[0]['agentId']).toBe('agent-3');
+    expect('agentId' in captured[1]).toBe(false);
+  });
+
   it('ill-typed (non-PostToolUse) input early-returns without invoking registry', async () => {
     const logger = makeLogger();
     const registry = new PostToolUseCallbackRegistry(logger);

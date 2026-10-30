@@ -11,7 +11,6 @@ labels:
   - memory-curator
   - P3
 relates_to:
-  - TASK_2026_563_2939
   - TASK_2026_572_07c4
   - TASK_2026_577_cbfb
 parent: TASK_2026_636_0add

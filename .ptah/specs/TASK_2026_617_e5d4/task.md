@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_617_e5d4
-status: backlog
+status: done
 type: FEATURE
 title: Add the Grok CLI as a system CLI agent lane
 depends_on: []
 created: "2026-10-06T00:07:06.146Z"
-updated: "2026-10-06T00:07:06.146Z"
+updated: "2026-10-30T01:09:07.477Z"
 description: "Integrate xAI's `grok` CLI (1.0.46) as a CLI lane: probe headless and ACP (`grok agent stdio`) first, then design and build a GrokCliAdapter with MCP, models and messaging."
 executor: backend-developer
 estimate: L

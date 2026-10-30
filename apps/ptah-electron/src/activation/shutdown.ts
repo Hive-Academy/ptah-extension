@@ -248,6 +248,7 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
   // killed. `killRunningChecks` never rejects; the kill is started here and
   // awaited by the caller.
   const checksKilled = killRunningChecks();
+  nonFatal('Git root watchers stop', () => refs.gitRootWatchers?.dispose());
   nonFatal('Git watcher stop', () => refs.gitWatcher?.stop());
   nonFatal('Symbol watcher close', () => refs.symbolWatcher?.close());
   nonFatal('Status bridge dispose', () =>

@@ -200,7 +200,9 @@ export class ChatSlashCommandRouterService {
     sessionId: SessionId,
     tabId: string,
     workspacePath: string | undefined,
-    params: ChatContinueParams & MainSessionAccountSelection,
+    params: ChatContinueParams & MainSessionAccountSelection & {
+      pluginConfigAncestorRoots?: readonly string[];
+    },
   ): Promise<ChatContinueResult | null> {
     const interceptResult = this.slashCommandInterceptor.intercept(prompt);
 
@@ -393,6 +395,9 @@ export class ChatSlashCommandRouterService {
                   ? execution.seed.model
                   : execution.model,
               projectPath: workspacePath,
+              ...(params.pluginConfigAncestorRoots !== undefined
+                ? { pluginConfigAncestorRoots: params.pluginConfigAncestorRoots }
+                : {}),
               ...(params.mcpToolProfile
                 ? { mcpToolProfile: params.mcpToolProfile }
                 : {}),

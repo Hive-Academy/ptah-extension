@@ -22,11 +22,7 @@ export type ProviderId =
  * Provider Status Types
  */
 export type ProviderStatus =
-  | 'available'
-  | 'unavailable'
-  | 'error'
-  | 'initializing'
-  | 'disabled';
+  'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
 
 /**
  * Provider Capability Flags
@@ -172,6 +168,8 @@ export interface AISessionConfig {
   readonly ptahUiFence?: boolean;
   readonly projectPath?: string;
   readonly workspaceId?: string;
+  /** Ordered governing plugin-config roots, nearest ancestor first. Internal session context. */
+  readonly pluginConfigAncestorRoots?: readonly string[];
   readonly maxTokens?: number;
   readonly systemPrompt?: string;
   readonly model?: string;

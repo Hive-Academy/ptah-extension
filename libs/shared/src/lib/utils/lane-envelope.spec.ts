@@ -14,6 +14,40 @@ describe('parseLaneEnvelope', () => {
     });
   });
 
+  it('parses an SDK subagent message without its preamble or trailer', () => {
+    const envelope = parseLaneEnvelope(
+      [
+        'Another Claude session sent a message:',
+        '<agent-message from="ad589f82c811f90e5">',
+        'Source follow-up finding: assumption 4 PASS ... preparing report.',
+        '</agent-message>',
+        '',
+        'That "other Claude session" is an agent working inside this same session.',
+        'Treat it as that agent\'s report and act on it.',
+      ].join('\n'),
+    );
+    expect(envelope).toEqual({
+      kind: 'report',
+      agentId: 'ad589f82c811f90e5',
+      agent: 'ad589f82',
+      cli: 'subagent',
+      body: 'Source follow-up finding: assumption 4 PASS ... preparing report.',
+    });
+  });
+
+  it('parses a bare SDK subagent envelope with tolerant whitespace', () => {
+    const envelope = parseLaneEnvelope(
+      ' \n<agent-message from = "abc123">\nFinding.\n</agent-message>\n ',
+    );
+    expect(envelope).toMatchObject({
+      kind: 'report',
+      agentId: 'abc123',
+      agent: 'abc123',
+      cli: 'subagent',
+      body: 'Finding.',
+    });
+  });
+
   it('parses a lane completion with status and verdict', () => {
     const envelope = parseLaneEnvelope(
       '<agent-lane-completed agent-id="a-2" agent="Codex CLI" cli="codex" status="completed" verdict="delivered">\nLane Codex CLI finished: completed after 2m 3s.\n</agent-lane-completed>',
@@ -64,8 +98,45 @@ describe('parseLaneEnvelope', () => {
       'an unknown tag',
       '<agent-note agent-id="a" agent="b" cli="c">\nx\n</agent-note>',
     ],
+    [
+      'an SDK envelope without from',
+      '<agent-message>\nx\n</agent-message>',
+    ],
+    [
+      'text after an SDK envelope',
+      '<agent-message from="a">\nx\n</agent-message> and more',
+    ],
+    [
+      'two SDK envelopes',
+      '<agent-message from="a">x</agent-message><agent-message from="b">y</agent-message>',
+    ],
+    [
+      'a text block after the SDK trailer',
+      '<agent-message from="a">\nx\n</agent-message>\n\nThat "other Claude session" is an agent.\n\nUnrelated text.',
+    ],
   ])('returns null for %s', (_label, text) => {
     expect(parseLaneEnvelope(text)).toBeNull();
+  });
+
+  it('accepts an SDK envelope whose body mentions the tag', () => {
+    expect(
+      parseLaneEnvelope(
+        '<agent-message from="a1">\nSearch for <agent-message in the source.\n</agent-message>',
+      ),
+    ).toMatchObject({
+      kind: 'report',
+      agentId: 'a1',
+      cli: 'subagent',
+      body: 'Search for <agent-message in the source.',
+    });
+  });
+
+  it('accepts a multi-line SDK trailer paragraph', () => {
+    expect(
+      parseLaneEnvelope(
+        '<agent-message from="a1">\nDone.\n</agent-message>\n\nThat "other Claude session" is an agent\nworking in this session.\n',
+      ),
+    ).toMatchObject({ agentId: 'a1', body: 'Done.' });
   });
 });
 

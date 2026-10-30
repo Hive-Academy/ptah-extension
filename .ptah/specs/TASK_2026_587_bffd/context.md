@@ -47,3 +47,17 @@ FEATURE (Thoth page + a persisted activity ledger).
 
 "Recent outcomes" reads the lane and subagent outcome record from TASK_2026_646_136a (Requirement 5), not the skill-synthesis queue. Do not build a second activity ledger.
 Evidence: `.ptah/specs/TASK_2026_659_cec4/evaluation-report.md` and `task-triage.md`. Approved by the user on 2026-10-14.
+
+## Retired sources (2026-10-30)
+
+This task cites `TASK_2026_659_cec4`, `TASK_2026_439_1310`. Those folders were retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: STALE-REWRITE (lane antigravity, verified by Claude).
+
+- #788 (7a4a307e7, 2026-10-21) purged the skill-synthesis pipeline: the skill funnel, candidate evidence cards and the skill activity feed this task targets no longer exist.
+- Thoth tabs on main: `memory | skills | cron | gateway` (`main:libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.ts:46`); no Overview.
+- Per the 2026-10-14 rescope above, Recent outcomes read the lane/subagent outcome record: `main:libs/backend/lane-outcomes/src/lib/lane-outcome-reader.service.ts`, table from migration `0054_lane_outcome_records.ts`. Today only `agent:outcomeSignals` is exposed over RPC.
+
+New scope: Overview tab with memory storage Health (DB size, reclaimable, last/next retention, retention fault), Needs-your-attention (reclaimable storage, quarantine to review, failed cron or gateway jobs), Recent outcomes from lane-outcomes via a new RPC. No new ledger table, no skill funnel or evidence cards.

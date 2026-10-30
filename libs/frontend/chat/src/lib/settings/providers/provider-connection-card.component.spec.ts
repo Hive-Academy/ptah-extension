@@ -156,6 +156,18 @@ describe('ProviderConnectionCardComponent', () => {
       expect(fixture.nativeElement.querySelector('ptah-native-card')?.hasAttribute('data-glass-surface')).toBe(false);
     });
 
+    it('gives a long provider name room and lets status wrap below it', () => {
+      const fixture = createComponent({ ...KIMI_CODE, providerName: 'Claude (Subscription)' });
+      const name = query(fixture, 'provider-name');
+      const status = query(fixture, 'status-badge');
+      expect(name?.textContent?.trim()).toBe('Claude (Subscription)');
+      expect(name?.parentElement?.className).toContain('min-w-[7rem]');
+      expect(name?.parentElement?.className).toContain('flex-1');
+      expect(name?.parentElement?.className).toContain('basis-0');
+      expect(status?.parentElement?.className).toContain('flex-wrap');
+      expect(fixture.nativeElement.className).toContain('self-start');
+    });
+
     it('"Used by" is hidden while the count is unknown, and shows 0 when known and unused', () => {
       expect(query(createComponent({ ...KIMI_CODE, usedByCount: null }), 'used-by-count')).toBeNull();
       expect(query(createComponent({ ...KIMI_CODE, usedByCount: 0 }), 'used-by-count')?.textContent?.trim()).toBe('Used by 0');

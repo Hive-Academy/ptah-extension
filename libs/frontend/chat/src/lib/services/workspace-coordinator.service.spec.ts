@@ -138,7 +138,15 @@ interface GitServiceStub {
  * so it is the only place a superseded switch can regain control.
  */
 interface CoordinatorInternals {
-  resolveGitServices(): Promise<GitServiceStub[]>;
+  resolveGitServices(): Promise<GitWorkspaceStub>;
+}
+
+/** Mirrors the private `GitWorkspaceServices` shape (TASK_2026_855). */
+interface GitWorkspaceStub {
+  scope: {
+    setWorkspace: jest.Mock<void, [string]>;
+    removeWorkspace: jest.Mock<void, [string]>;
+  };
 }
 
 describe('WorkspaceCoordinatorService', () => {
@@ -571,6 +579,7 @@ describe('WorkspaceCoordinatorService', () => {
 
   describe('stale-generation guard on the git fan-out (TASK_2026_195)', () => {
     let gitService: GitServiceStub;
+    let git: GitWorkspaceStub;
     let releaseResolution: Array<() => void>;
 
     beforeEach(() => {
@@ -578,33 +587,36 @@ describe('WorkspaceCoordinatorService', () => {
         switchWorkspace: jest.fn(),
         removeWorkspaceState: jest.fn(),
       };
+      git = {
+        scope: { setWorkspace: jest.fn(), removeWorkspace: jest.fn() },
+      };
       releaseResolution = [];
       const internals = service as unknown as CoordinatorInternals;
       jest.spyOn(internals, 'resolveGitServices').mockImplementation(
         () =>
-          new Promise<GitServiceStub[]>((resolve) => {
-            releaseResolution.push(() => resolve([gitService]));
+          new Promise<GitWorkspaceStub>((resolve) => {
+            releaseResolution.push(() => resolve(git));
           }),
       );
     });
 
-    it('does not apply a superseded switch to the git services when it resolves last', async () => {
+    it('does not apply a superseded switch to the git scope when it resolves last', async () => {
       void service.switchWorkspace('D:/repo/A'); // generation 1
       void service.switchWorkspace('D:/repo/B'); // generation 2 (current)
 
       // B's git chunk resolves first and applies.
       releaseResolution[1]();
       await flushMicrotasks();
-      expect(gitService.switchWorkspace).toHaveBeenCalledTimes(1);
-      expect(gitService.switchWorkspace).toHaveBeenCalledWith('D:/repo/B');
+      expect(git.scope.setWorkspace).toHaveBeenCalledTimes(1);
+      expect(git.scope.setWorkspace).toHaveBeenCalledWith('D:/repo/B');
 
       // A's resolution lands afterwards. Without the generation re-check it
       // would apply LAST and strand the git services on the workspace the
       // user already navigated away from.
       releaseResolution[0]();
       await flushMicrotasks();
-      expect(gitService.switchWorkspace).toHaveBeenCalledTimes(1);
-      expect(gitService.switchWorkspace).not.toHaveBeenCalledWith('D:/repo/A');
+      expect(git.scope.setWorkspace).toHaveBeenCalledTimes(1);
+      expect(git.scope.setWorkspace).not.toHaveBeenCalledWith('D:/repo/A');
     });
 
     it("skips the superseded switch's provider refresh too (the newer switch owns it)", async () => {
@@ -626,8 +638,21 @@ describe('WorkspaceCoordinatorService', () => {
       releaseResolution[0]();
       await pending;
 
-      expect(gitService.switchWorkspace).toHaveBeenCalledTimes(1);
-      expect(gitService.switchWorkspace).toHaveBeenCalledWith('D:/repo/solo');
+      // The scope store owns the five-service fan-out (TASK_2026_855): the
+      // coordinator hands it the workspace once and switches no service itself.
+      expect(git.scope.setWorkspace).toHaveBeenCalledTimes(1);
+      expect(git.scope.setWorkspace).toHaveBeenCalledWith('D:/repo/solo');
+      expect(gitService.switchWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('hands a removed folder to the scope store, which tears the services down', async () => {
+      const pending = service.removeWorkspaceState('D:/repo/gone');
+      releaseResolution[0]();
+      await pending;
+
+      // The store owns the five-service list (review: no second copy here).
+      expect(git.scope.removeWorkspace).toHaveBeenCalledWith('D:/repo/gone');
+      expect(gitService.removeWorkspaceState).not.toHaveBeenCalled();
     });
   });
 
@@ -839,8 +864,11 @@ describe('WorkspaceCoordinatorService', () => {
       jest
         .spyOn(service as unknown as CoordinatorInternals, 'resolveGitServices')
         .mockReturnValue(
-          new Promise<GitServiceStub[]>((resolve) => {
-            releaseGitChunk = () => resolve([]);
+          new Promise<GitWorkspaceStub>((resolve) => {
+            releaseGitChunk = () =>
+              resolve({
+                scope: { setWorkspace: jest.fn(), removeWorkspace: jest.fn() },
+              });
           }),
         );
 

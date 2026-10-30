@@ -2075,6 +2075,48 @@ describe('Codex metadata identity', () => {
   );
 
   it.each([false, true])(
+    'persists native start lineage through the Codex write and keeps it immutable (async=%s)',
+    async (asyncStorage) => {
+      const { store } = fixture(asyncStorage);
+      await store.withCodexStartLineage(['/true-parent'], () =>
+        store.updateCodexExecution(threadId, () => execution),
+      );
+      expect((await store.get(threadId))?.pluginConfigAncestorRoots).toEqual(['/true-parent']);
+
+      await store.withCodexStartLineage(['/wrong-parent'], () =>
+        store.updateCodexExecution(threadId, () => execution),
+      );
+      expect((await store.get(threadId))?.pluginConfigAncestorRoots).toEqual(['/true-parent']);
+    },
+  );
+
+  it('does not replace native roots when a stale legacy upgrade follows resume', async () => {
+    const { store } = fixture();
+    await store.withCodexStartLineage(['/true-parent'], () =>
+      store.updateCodexExecution(threadId, () => execution),
+    );
+    await expect(
+      store.upgradeLegacyPluginConfigAncestorRoots(threadId, ['/derived-parent']),
+    ).resolves.toEqual({ status: 'valid', roots: ['/true-parent'] });
+    expect((await store.get(threadId))?.pluginConfigAncestorRoots).toEqual(['/true-parent']);
+  });
+
+  it('keeps concurrent native start lineage scoped to each thread', async () => {
+    const { store } = fixture();
+    const otherId = SessionId.from('87654321-4321-4321-8321-cba987654321');
+    await Promise.all([
+      store.withCodexStartLineage(['/parent-a'], () =>
+        store.updateCodexExecution(threadId, () => execution),
+      ),
+      store.withCodexStartLineage(['/parent-b'], () =>
+        store.updateCodexExecution(otherId, () => ({ ...execution, sessionId: otherId })),
+      ),
+    ]);
+    expect((await store.get(threadId))?.pluginConfigAncestorRoots).toEqual(['/parent-a']);
+    expect((await store.get(otherId))?.pluginConfigAncestorRoots).toEqual(['/parent-b']);
+  });
+
+  it.each([false, true])(
     'preserves child references across runtime updates (async=%s)',
     async (asyncStorage) => {
       const { store } = fixture(asyncStorage);

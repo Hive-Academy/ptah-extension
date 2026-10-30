@@ -42,8 +42,8 @@ import {
 import { ChatStore } from './chat.store';
 import { StreamFlushScheduler } from './stream-flush-scheduler.service';
 import { StreamViewportController } from './stream-viewport-controller.service';
-import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-capture.service';
 import { SessionOrganizerService } from './session-list/session-organizer.service';
+import { SessionOrganizationCache } from './session-organization/session-organization-cache.store';
 import {
   AgentSessionAdoptionService,
   parseAgentSessionOpenedPayload,
@@ -80,9 +80,9 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly turnStateApplier = inject(TurnStateApplier);
   private readonly workflowClaims = inject(WorkflowSessionClaimService);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
-  private readonly boardTaskLinkCapture = inject(BoardTaskLinkCaptureService);
   private readonly agentSessionAdoption = inject(AgentSessionAdoptionService);
   private readonly organizer = inject(SessionOrganizerService);
+  private readonly organizationCache = inject(SessionOrganizationCache);
   /**
    * Authoritative StreamRouter.
    *
@@ -215,13 +215,17 @@ export class ChatMessageHandler implements MessageHandler {
       // Organization pushes carry ids only; they share the debounced
       // session-list refresh (TASK_2026_580), and the organization editor
       // re-reads a session it shows from outside the loaded list
-      // (TASK_2026_679).
-      case MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED:
+      // (TASK_2026_679), and so does the organization cache behind the
+      // session cards (TASK_2026_854).
+      case MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED: {
         this.handleSessionMetadataChanged();
-        this.organizer.onOrganizationChanged(
-          ChatMessageHandler.organizationChangedIds(message.payload),
+        const changedIds = ChatMessageHandler.organizationChangedIds(
+          message.payload,
         );
+        this.organizer.onOrganizationChanged(changedIds);
+        this.organizationCache.onOrganizationChanged(changedIds);
         break;
+      }
       case MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE:
         this.handleSessionCompactionComplete(message.payload);
         break;
@@ -846,12 +850,6 @@ export class ChatMessageHandler implements MessageHandler {
         tabId: tabId as string,
         realSessionId: realSessionId as string,
       });
-      if (tabId) {
-        void this.boardTaskLinkCapture.onSessionIdResolved(
-          tabId,
-          realSessionId,
-        );
-      }
       this.streamRouter.refreshQuestionTargetsForSession(
         realSessionId as ClaudeSessionId,
       );

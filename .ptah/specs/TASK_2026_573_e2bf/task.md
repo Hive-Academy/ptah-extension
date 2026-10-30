@@ -10,8 +10,6 @@ description: 'New real-SQLite quarantine specs ran only on better-sqlite3 (node:
 labels:
   - memory-curator
   - P3
-relates_to:
-  - TASK_2026_563_2939
 parent: TASK_2026_638_7a8e
 ---
 
