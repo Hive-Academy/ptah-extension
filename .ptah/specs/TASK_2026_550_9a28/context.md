@@ -60,3 +60,10 @@ Each run failed a different test that passed on the other runs, so the suite nee
 - Audit the 3 mocked git specs (`git-dock`, `diff-view-state`, `perf-m1-diff-redisplay`) and the
   `harness/*` and `tasks/*` families for whether their mocked-vs-real fixture choice matches what they
   claim to test. Do it as part of the per-spec isolation review this task already requires.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Share one Electron app per Playwright worker (worker-scoped fixture), list the specs that need a fresh profile, and measure suite time before and after.
+- Evidence on main: Problem 2 (start-up hang after IpcBridge) was fixed by PR #597 (CLI MCP registration moved out of the pre-window phase, boot-trace watchdog, PTAH_E2E skips). Problem 1 is still open: main:apps/ptah-electron-e2e/src/support/fixtures.ts:57 `electronApp: async ({}, use) => { const app = await launchPtah();` has no worker scope.

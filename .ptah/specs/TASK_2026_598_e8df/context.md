@@ -42,3 +42,10 @@ Option 2 or 3 needs research into what the SDK session holds (env vars pinned at
 ## Out of scope
 
 The secret store itself; the Settings layout.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Add a confirm or a session count before a key change for the active provider, and before the Copilot, Codex and Kimi logins and Cursor or Ptah CLI key changes. Either scope or explain the direct sdkAdapter.reset() calls in the interactive-login handlers.
+- Evidence on main: Option 2 (scope the reset) shipped in ea8a2c4ca ('restart only for the provider in use', PR #720). main:libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts:297-322 ends only the sessions that use the changed provider unless it is the active one. Still open: interactive logins call sdkAdapter.reset() directly (main:libs/backend/rpc-handlers/src/lib/handlers/auth/interactive-login-methods.ts:83 and :234, kimi-code-login-methods.ts:118). The credentials Delete-key confirm (credentials-tab.component.ts:358-366) does not say that running sessions end, and Replace shows the warning only for anthropic (:337-338).

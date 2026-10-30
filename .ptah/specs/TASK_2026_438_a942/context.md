@@ -125,3 +125,10 @@ part of, or before, this contract. Do not duplicate them.
 - Lane output quality (whether a deliverable is good) — that is the review step.
 - The jest handle leak and `copy-wasm` worktree defect — `TASK_2026_427_f669`.
 - Anything the Thoth tribunal itself found — that work is separate.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: After the orchestrator session is gone, a new session still cannot list lanes that finished in between, with their deliverable checks.
+- Evidence on main: Blocking wait landed as ptah_agent_wait (agent-wait.tool.ts, recent-prs.txt 2026-10-04 #642, TASK_2026_597). Parent push plus a no-deliverable verdict landed in lane-completion-notifier.service.ts (header cites TASK_2026_515; recent-prs.txt 2026-09-21 #555). agent-lanes SKILL.md documents no-deliverable. The notifier has no replay of notices into a later session. LaneOutcomeReader (dd021d709) feeds routing, not ptah_agent_status({since}).

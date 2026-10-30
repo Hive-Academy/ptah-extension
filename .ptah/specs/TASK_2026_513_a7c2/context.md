@@ -77,3 +77,9 @@ recorded.
 
 The investigation writes `investigation.md` in this folder with a table of the
 four fields, their producers and the verdict for each hypothesis.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors. Still open (a cancel was proposed and rejected).
+
+TASK_2026_533_b7e1 implementation-plan.md:318 defers "Spawned CLI tile telemetry" to this task. Open: the lane roll-up decision, header vs footer TIME/TOKENS/COST labels, MODEL identity, and four-field regression specs.
