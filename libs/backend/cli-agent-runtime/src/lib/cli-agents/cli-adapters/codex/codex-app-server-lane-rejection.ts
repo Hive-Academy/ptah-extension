@@ -64,7 +64,7 @@ export function terminalModelAdvice(
   text: string,
   options: CliCommandOptions,
 ): string | undefined {
-  const secrets = [process.env.CODEX_API_KEY, process.env.OPENAI_API_KEY]
+  const secrets = [process.env['CODEX_API_KEY'], process.env['OPENAI_API_KEY']]
     .filter((value): value is string => typeof value === 'string' && value !== '');
   return codexModelRejectionMessage(text, options.model, options.modelSource, secrets);
 }

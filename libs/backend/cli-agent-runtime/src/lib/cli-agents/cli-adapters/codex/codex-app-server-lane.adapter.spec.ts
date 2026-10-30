@@ -605,8 +605,8 @@ describe('CodexAppServerLaneAdapter', () => {
   });
 
   it('redacts the Codex excerpt in terminal model advice', async () => {
-    const previous = process.env.OPENAI_API_KEY;
-    process.env.OPENAI_API_KEY = 'sensitive-test-key';
+    const previous = process.env['OPENAI_API_KEY'];
+    process.env['OPENAI_API_KEY'] = 'sensitive-test-key';
     try {
       const h = harness();
       const handle = await h.adapter.runSdk(options({ model: 'bad-model', modelSource: 'request' }));
@@ -620,8 +620,8 @@ describe('CodexAppServerLaneAdapter', () => {
       expect(message).not.toContain('sensitive-test-key');
       expect(message).toContain('Codex said:');
     } finally {
-      if (previous === undefined) delete process.env.OPENAI_API_KEY;
-      else process.env.OPENAI_API_KEY = previous;
+      if (previous === undefined) delete process.env['OPENAI_API_KEY'];
+      else process.env['OPENAI_API_KEY'] = previous;
     }
   });
 
