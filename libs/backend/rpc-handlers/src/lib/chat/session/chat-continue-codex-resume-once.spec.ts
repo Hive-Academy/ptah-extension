@@ -51,6 +51,9 @@ interface Harness {
   resumeSession: jest.Mock;
   sendMessageToSession: jest.Mock;
   routeFollowUpSlashCommand: jest.Mock;
+  streamEventsToWebview: jest.Mock;
+  startStream: () => void;
+  completeStream: () => void;
 }
 
 function emptyStream() {
@@ -59,10 +62,20 @@ function emptyStream() {
   })();
 }
 
-function harness(runtime: 'codex-app-server' | 'claude-sdk', live: boolean): Harness {
+function harness(
+  runtime: 'codex-app-server' | 'claude-sdk',
+  live: boolean,
+  streaming = live,
+): Harness {
   const resumeSession = jest.fn().mockResolvedValue(emptyStream());
   const sendMessageToSession = jest.fn().mockResolvedValue(undefined);
   const routeFollowUpSlashCommand = jest.fn().mockResolvedValue(null);
+  let streamAttached = streaming;
+  const streamEventsToWebview = jest.fn(() => {
+    streamAttached = true;
+    if (runtime === 'codex-app-server') streamAttached = false;
+    return Promise.resolve();
+  });
   const prepare = jest.fn(async (config: object) => ({
     runtime: 'codex-app-server' as const,
     seed: { model: 'gpt-5.4' },
@@ -97,10 +110,13 @@ function harness(runtime: 'codex-app-server' | 'claude-sdk', live: boolean): Har
         interruptCurrentTurn: jest.fn().mockResolvedValue(true),
       },
       streamBroadcaster: {
-        isStreaming: () => live,
-        streamEventsToWebview: jest.fn(),
+        isStreaming: () => streamAttached,
+        streamEventsToWebview,
       },
-      sessionRuntimeRouter: null,
+      sessionRuntimeRouter: {
+        acceptsFollowUpWithoutStream: () =>
+          runtime === 'codex-app-server' && live,
+      },
       runtimeProfile:
         runtime === 'codex-app-server'
           ? {
@@ -122,7 +138,15 @@ function harness(runtime: 'codex-app-server' | 'claude-sdk', live: boolean): Har
       sentryService: { captureException: jest.fn() },
     },
   );
-  return { service, resumeSession, sendMessageToSession, routeFollowUpSlashCommand };
+  return {
+    service,
+    resumeSession,
+    sendMessageToSession,
+    routeFollowUpSlashCommand,
+    streamEventsToWebview,
+    startStream: () => { streamAttached = true; },
+    completeStream: () => { streamAttached = false; },
+  };
 }
 
 function params(prompt: string): ChatContinueParams {
@@ -142,7 +166,7 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
 
     const result = await h.service.continueSession(params('follow up'));
 
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID });
+    expect(result).toEqual({ success: true, sessionId: SESSION_ID, settled: true });
     expect(h.resumeSession).toHaveBeenCalledTimes(1);
     expect(h.resumeSession).toHaveBeenCalledWith(
       SESSION_ID,
@@ -164,7 +188,7 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
 
     const result = await h.service.continueSession(params(''));
 
-    expect(result).toEqual({ success: true, sessionId: SESSION_ID });
+    expect(result).toEqual({ success: true, sessionId: SESSION_ID, settled: true });
     expect(h.resumeSession).toHaveBeenCalledTimes(1);
     expect(h.resumeSession).toHaveBeenCalledWith(
       SESSION_ID,
@@ -203,5 +227,92 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
       files: FILES,
       images: IMAGES,
     });
+  });
+
+  it('returns settled after a failed Codex stream was consumed by the send', async () => {
+    const h = harness('codex-app-server', true, false);
+    // Native publish resolves after the broadcaster consumed the notice and
+    // failed terminal state, even though it caught the stream rejection.
+    h.sendMessageToSession.mockImplementation(async () => {
+      h.startStream();
+      h.completeStream();
+    });
+
+    const result = await h.service.continueSession(params('follow up'));
+
+    expect(result).toEqual({ success: true, sessionId: SESSION_ID, settled: true });
+    expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
+    expect(h.resumeSession).not.toHaveBeenCalled();
+  });
+
+  it('returns settled after a completed Codex send with an assistant reply', async () => {
+    const h = harness('codex-app-server', true, false);
+    h.sendMessageToSession.mockImplementation(async () => {
+      h.startStream();
+      h.completeStream();
+    });
+
+    await expect(h.service.continueSession(params('follow up'))).resolves.toEqual({
+      success: true,
+      sessionId: SESSION_ID,
+      settled: true,
+    });
+    expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
+    expect(h.resumeSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps Claude enqueued while its broadcast loop remains attached', async () => {
+    const h = harness('claude-sdk', true);
+
+    await expect(h.service.continueSession(params('follow up'))).resolves.toEqual({
+      success: true,
+      sessionId: SESSION_ID,
+      enqueued: true,
+    });
+    expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('replies without waiting for a resumed Codex turn that is still running', async () => {
+    const h = harness('codex-app-server', false);
+    let finishBroadcast: () => void = () => undefined;
+    const finished = new Promise<void>((resolve) => {
+      finishBroadcast = resolve;
+    });
+    h.streamEventsToWebview.mockImplementation(async () => {
+      h.startStream();
+      await finished;
+      h.completeStream();
+    });
+
+    const reply = h.service.continueSession(params('follow up'));
+    // A reply held until the turn ends loses this race instead of deadlocking.
+    const held = 'held until the turn ended';
+    const outcome = await Promise.race([
+      reply,
+      new Promise<string>((resolve) => setImmediate(() => resolve(held))),
+    ]);
+    finishBroadcast();
+    await reply;
+
+    // The renderer re-arms streaming; the turn's terminal state settles it.
+    expect(outcome).toEqual({ success: true, sessionId: SESSION_ID });
+    expect(h.resumeSession).toHaveBeenCalledTimes(1);
+    expect(h.sendMessageToSession).not.toHaveBeenCalled();
+  });
+
+  it('returns settled when a resumed Codex turn ends before the continue reply', async () => {
+    const h = harness('codex-app-server', false);
+    h.streamEventsToWebview.mockImplementation(async () => {
+      h.startStream();
+      h.completeStream();
+    });
+
+    await expect(h.service.continueSession(params('follow up'))).resolves.toEqual({
+      success: true,
+      sessionId: SESSION_ID,
+      settled: true,
+    });
+    expect(h.resumeSession).toHaveBeenCalledTimes(1);
+    expect(h.sendMessageToSession).not.toHaveBeenCalled();
   });
 });

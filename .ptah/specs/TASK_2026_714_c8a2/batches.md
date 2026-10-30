@@ -4530,3 +4530,21 @@ behaviour unchanged.
   fork resolves a Codex message through a Claude session file) joins G8/D9.
 - Batch 8r-5 (codex -> grok): G3 settle: a Codex turn that fails with a webviewReported runtime
   error must leave the tab idle exactly like a Claude failed turn (backend translation only).
+  Round 1 (review-8r-5.md REVISE 4/10 grok): the extra forceIdle raced the chat:continue reply
+  `enqueued: true`, which re-arms the tab. Revise 1 (codex, batch-8r-5-revise-1.md): the
+  backend returns the existing `settled: true` when the native turn ended before the reply;
+  forceIdle dropped (broadcaster back to HEAD). review-8r-5-revise-1.md REVISE 6/10 (grok):
+  the new resume-path `await broadcast` holds chat:continue past the renderer admission
+  timeout (120 s). Coordinator correction: resume path back to fire-and-forget; specs for a
+  running and an ended resumed turn -> review-8r-5-correction.md (Kimi).
+- Batch G5 (Kimi -> codex): resume keeps Auto-edit/Ask/Plan. Round 1 REVISE 5/10 (specs fed the
+  level); revise 1 adds codex-chat-host-ports.resume-permission.spec.ts (stateful identity
+  store, host profile path, no supplied level) -> REVISE 7/10 (relative cross-lib imports,
+  circular fingerprint check); coordinator correction -> review-g5-correction.md APPROVE 9/10.
+- G9 (new, pre-existing; found in review-8r-5-revise-1.md): a LIVE Codex follow-up holds
+  chat:continue for the whole turn (adapter sendMessageToSession awaits publish, which awaits
+  the broadcaster loop). A turn longer than CHAT_ADMISSION_RPC_TIMEOUT_MS (120 s) makes the
+  renderer show "Message delivery failed. RPC timeout: chat:continue" and mark the tab idle
+  while the turn still runs. Fix in the backend translation layer: resolve the Codex send at
+  turn admission (like Claude's enqueue), keep pre-admission errors thrown; the 8r-5 settled
+  check then covers a turn that ends before the reply. Planned as batch 8r-6 (codex -> grok).

@@ -1051,7 +1051,7 @@ function turnStateChunks(h: Harness): TurnStateEvent[] {
 }
 
 describe('ChatStreamBroadcaster.streamEventsToWebview - turn state (TASK_2026_360)', () => {
-  it('preserves a reported failed terminal without publishing a second error', async () => {
+  it('preserves a reported failed terminal after its notice without a second error', async () => {
     const h = makeHarness();
     const failure = new Error('Codex chat turn: runtime-failed');
     Object.defineProperty(failure, 'webviewReported', { value: true });
@@ -1062,16 +1062,37 @@ describe('ChatStreamBroadcaster.streamEventsToWebview - turn state (TASK_2026_36
     const failed = h.turnState.settleTurn(SESSION_ID);
 
     async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
-      yield toTurnStateEvent(SESSION_ID, failed);
+      yield makeEvent('message_start');
+      yield makeEvent('message_start');
+      yield makeEvent('text_delta');
+      yield {
+        ...toTurnStateEvent(SESSION_ID, failed),
+        consumedClientMessageId: 'client-1',
+      };
       throw failure;
     }
 
     await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
 
-    expect(turnStateChunks(h)).toEqual([
-      expect.objectContaining({ sessionId: SESSION_ID, phase: 'failed' }),
+    const states = turnStateChunks(h);
+    expect(states).toEqual([
+      expect.objectContaining({
+        sessionId: SESSION_ID,
+        phase: 'failed',
+        consumedClientMessageId: 'client-1',
+      }),
     ]);
+    const chunks = broadcastsFor(h, 'chat:chunk');
+    expect(chunks).toHaveLength(4);
+    expect(chunks.map((chunk) => (chunk['event'] as FlatStreamEventUnion).eventType)).toEqual([
+      'message_start',
+      'message_start',
+      'text_delta',
+      'turn_state',
+    ]);
+    expect(chunks[3]).toMatchObject({ tabId: TAB_ID, sessionId: SESSION_ID });
     expect(broadcastsFor(h, 'chat:error')).toHaveLength(0);
+    expect(broadcastsFor(h, 'chat:complete')).toHaveLength(0);
     expect(h.sdkAdapter.endSession).not.toHaveBeenCalled();
   });
 

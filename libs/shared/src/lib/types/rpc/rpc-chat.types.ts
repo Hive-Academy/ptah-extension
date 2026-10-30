@@ -213,7 +213,7 @@ export interface ChatContinueResult {
   /** The user cancelled opening the runtime; no error should be displayed. */
   cancelled?: true;
   sessionId?: SessionId;
-  /** The command completed without starting a stream; a failed settled command already broadcast its error. */
+  /** The request finished before this RPC replied; do not re-arm the renderer. */
   settled?: boolean;
   error?: string;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */

@@ -612,7 +612,7 @@ describe('chat:continue after a completed native turn', () => {
     const h = followUpHarness(true);
     await expect(
       h.service.continueSession({ sessionId, tabId: 'tab', prompt: 'next' }),
-    ).resolves.toEqual({ success: true, sessionId, enqueued: true });
+    ).resolves.toEqual({ success: true, sessionId, settled: true });
     expect(h.acceptsFollowUpWithoutStream).toHaveBeenCalledWith(sessionId);
     expect(h.sendMessageToSession).toHaveBeenCalledWith(sessionId, 'next', { files: [], images: [] });
     expect(h.interruptSession).not.toHaveBeenCalled();

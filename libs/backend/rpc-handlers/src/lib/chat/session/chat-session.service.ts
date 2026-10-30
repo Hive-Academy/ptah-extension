@@ -1252,7 +1252,11 @@ export class ChatSessionService {
       // Native Codex thread resume starts the turn (prompt and attachments).
       // Claude resume ignores them, so only that Codex turn skips the second send.
       if (promptDelivered) {
-        return { success: true, sessionId };
+        // The resumed native turn may have finished while slash routing and
+        // prompt context were prepared. Do not re-arm an ended stream.
+        return this.streamBroadcaster.isStreaming(sessionId as string)
+          ? { success: true, sessionId }
+          : { success: true, sessionId, settled: true };
       }
       if (!justResumed && hasStopIntent(prompt)) {
         const autopilotEnabled = this.configManager.getWithDefault<boolean>(
@@ -1283,12 +1287,27 @@ export class ChatSessionService {
         }
       }
       const images = params.images ?? [];
+      const nativeFollowUp =
+        !this.streamBroadcaster.isStreaming(sessionId as string) &&
+        !this.streamBroadcaster.isStreaming(tabId) &&
+        this.sessionRuntimeRouter?.acceptsFollowUpWithoutStream(sessionId) === true;
       await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
         files,
         images,
         clientMessageId: params.clientMessageId,
       });
 
+      // Native publish awaits the complete broadcaster loop. The terminal
+      // chunk can be painted before this RPC reply, so an enqueued reply would
+      // put the settled tab back into streaming. Claude's long-lived loop is
+      // still attached when its send resolves.
+      if (
+        nativeFollowUp &&
+        !this.streamBroadcaster.isStreaming(sessionId as string) &&
+        !this.streamBroadcaster.isStreaming(tabId)
+      ) {
+        return { success: true, sessionId, settled: true };
+      }
       return { success: true, sessionId, enqueued: true };
     } catch (error) {
       const codexFailure = this.codexFailure(error);
@@ -1943,6 +1962,8 @@ export class ChatSessionService {
           this.logger.warn('[RPC] Model substitution notice failed; continuing session stream');
         }
       }
+      // Not awaited: the renderer's chat:continue timeout is shorter than a
+      // turn. A turn that ends before the reply is answered `settled` below.
       this.streamBroadcaster.streamEventsToWebview(
         sessionId,
         stream,
