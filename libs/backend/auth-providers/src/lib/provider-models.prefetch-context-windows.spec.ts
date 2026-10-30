@@ -38,6 +38,7 @@ function makeService(): {
   const authEnv: AuthEnv = {};
   const scope = {
     read: <T>(): T | undefined => undefined,
+    isStored: (): boolean => false,
   } as unknown as WorkspaceScopeResolver;
   const service = new ProviderModelsService(
     logger as unknown as Logger,

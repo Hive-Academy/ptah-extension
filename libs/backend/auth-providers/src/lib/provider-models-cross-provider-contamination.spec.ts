@@ -102,6 +102,7 @@ function makeActiveProviderResolver(
 ): ActiveProviderResolver {
   const scope = {
     read: <T>(key: string): T | undefined => values[key] as T | undefined,
+    isStored: (key: string): boolean => values[key] !== undefined,
   } as unknown as WorkspaceScopeResolver;
   return new ActiveProviderResolver(scope);
 }

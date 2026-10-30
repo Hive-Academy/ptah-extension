@@ -255,12 +255,12 @@ describe('TC-4: ReactiveSettingsStore listener isolation', () => {
 // ---------------------------------------------------------------------------
 
 describe('TC-5: SettingHandle.get() returns definition default for empty store', () => {
-  it('returns the AUTH_METHOD_DEF default ("apiKey") when nothing is stored', () => {
+  it('returns the AUTH_METHOD_DEF default ("claudeCli") when nothing is stored', () => {
     class TestRepo extends BaseSettingsRepository {
       public readonly handle = this.handleFor(AUTH_METHOD_DEF);
     }
     const testRepo = new TestRepo(makeMockStore({}));
-    expect(testRepo.handle.get()).toBe('apiKey');
+    expect(testRepo.handle.get()).toBe('claudeCli');
   });
 });
 
