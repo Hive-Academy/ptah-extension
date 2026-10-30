@@ -51,7 +51,6 @@ import {
   SESSION_PR_STATES,
   SESSION_STARTED_BY,
   SESSION_TASK_LINK_ROLES,
-  SESSION_TASK_LINK_SOURCES,
   SESSION_WORKFLOW_STATUSES,
 } from '@ptah-extension/shared';
 import type {
@@ -132,6 +131,32 @@ export class SessionOrganizationInputError extends Error {
   }
 }
 
+/**
+ * Sources an explicit write may claim. The automatic sources (`orchestrate`,
+ * `worktree`, `inherited`) are written only by the auto-link reconcile,
+ * which records the owning rule with them.
+ */
+const EXPLICIT_TASK_LINK_SOURCES: readonly SessionTaskLinkSource[] = [
+  'board-start',
+  'agent',
+  'user',
+];
+
+/**
+ * How a `commitCapture` ended:
+ *  - `written`: the write committed and named sessions (a change was emitted);
+ *  - `unchanged`: the write ran and changed nothing;
+ *  - `no-metadata`: the session id has no metadata (or no workspace) yet;
+ *  - `unavailable`: the store is not open and migrated;
+ *  - `failed`: the write threw (logged).
+ */
+export type CaptureOutcome =
+  | 'written'
+  | 'unchanged'
+  | 'no-metadata'
+  | 'unavailable'
+  | 'failed';
+
 type RootResolution =
   { ok: true; root: string } | { ok: false; reason: 'no-metadata' | 'no-root' };
 
@@ -160,13 +185,18 @@ export function toSessionOrganizationSummary(
     parentSessionId: stored?.parentSessionId ?? null,
     forkOfSessionId: stored?.forkOfSessionId ?? null,
     startedBy: stored?.startedBy ?? SESSION_ORGANIZATION_DEFAULTS.startedBy,
+    // Explicit fields: the stored rule columns never reach the wire.
     tasks: (stored?.tasks ?? []).map((task) => ({
-      ...task,
+      taskId: task.taskId,
+      role: task.role,
+      source: task.source,
+      createdAt: task.createdAt,
       missing: missingTaskIds.has(task.taskId),
     })),
     prLinks: (stored?.prLinks ?? []).map((pr) => ({ ...pr })),
     childCount,
     updatedAt: stored?.updatedAt ?? null,
+    todos: stored?.todos ? { ...stored.todos } : null,
   };
 }
 
@@ -297,7 +327,7 @@ export class SessionOrganizationService
       invalidId(input.sessionId, 'sessionId') ??
       invalidText(input.taskId, 'taskId') ??
       invalidMember(SESSION_TASK_LINK_ROLES, input.role, 'role') ??
-      invalidMember(SESSION_TASK_LINK_SOURCES, input.source, 'source');
+      invalidMember(EXPLICIT_TASK_LINK_SOURCES, input.source, 'source');
     this.capture(
       'linkTask',
       input.sessionId,
@@ -448,7 +478,7 @@ export class SessionOrganizationService
       invalidId(input.sessionId, 'sessionId') ??
         invalidText(input.taskId, 'taskId') ??
         invalidMember(SESSION_TASK_LINK_ROLES, input.role, 'role') ??
-        invalidMember(SESSION_TASK_LINK_SOURCES, input.source, 'source'),
+        invalidMember(EXPLICIT_TASK_LINK_SOURCES, input.source, 'source'),
     );
     return this.mutate('linkSessionTask', input.sessionId, (root, now) => {
       this.store.linkTask(
@@ -461,7 +491,11 @@ export class SessionOrganizationService
     });
   }
 
-  /** Remove a task link. Removing an absent link is ok and changes nothing. */
+  /**
+   * Remove a task link. Removing an absent link is ok and changes nothing.
+   * The pair is suppressed in the same transaction, so the automatic rules
+   * never link it again (an explicit link lifts the suppression).
+   */
   async unlinkSessionTask(
     params: SessionUnlinkTaskParams,
   ): Promise<SessionOrganizationMutationResult> {
@@ -470,7 +504,9 @@ export class SessionOrganizationService
         invalidText(params.taskId, 'taskId'),
     );
     return this.mutate('unlinkSessionTask', params.sessionId, (root, now) =>
-      this.store.unlinkTask(root, params.sessionId, params.taskId, now),
+      this.store.unlinkTask(root, params.sessionId, params.taskId, now, {
+        suppress: true,
+      }),
     );
   }
 
@@ -751,37 +787,44 @@ export class SessionOrganizationService
       this.log(`${call} dropped: ${invalid}`);
       return;
     }
-    void this.runCapture(call, sessionId, hint, write);
+    void this.commitCapture(call, sessionId, hint, write);
   }
 
-  private async runCapture(
+  /**
+   * The recorder pipeline, awaitable (lib-internal, not exported from the
+   * index): resolve the root from metadata, check availability, run `write`
+   * and emit one `capture` change for the sessions it names. Never throws;
+   * every drop or failure is one log line, and the outcome says which.
+   */
+  async commitCapture(
     call: string,
     sessionId: string,
     hint: string | undefined,
     write: (root: string, now: number) => string[],
-  ): Promise<void> {
+  ): Promise<CaptureOutcome> {
     try {
       const resolution = await this.resolveRoot(sessionId, hint);
       if (!resolution.ok) {
         this.log(
           `${call} dropped for ${sessionId}: ${DROP_REASONS[resolution.reason]}`,
         );
-        return;
+        return 'no-metadata';
       }
       if (!this.isAvailable()) {
         this.log(`${call} dropped for ${sessionId}: store not open`);
-        return;
+        return 'unavailable';
       }
       const sessionIds = write(resolution.root, Date.now());
-      if (sessionIds.length > 0) {
-        this.emitChange({
-          workspaceRoot: resolution.root,
-          sessionIds,
-          reason: 'capture',
-        });
-      }
+      if (sessionIds.length === 0) return 'unchanged';
+      this.emitChange({
+        workspaceRoot: resolution.root,
+        sessionIds,
+        reason: 'capture',
+      });
+      return 'written';
     } catch (error: unknown) {
       this.log(`${call} failed for ${sessionId}: ${describe(error)}`);
+      return 'failed';
     }
   }
 

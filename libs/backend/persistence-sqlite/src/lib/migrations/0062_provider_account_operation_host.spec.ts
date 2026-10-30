@@ -48,14 +48,13 @@ describe('migration 0062_provider_account_operation_host', () => {
       .run(id, 'fp-' + id, host.pid, host.machine, host.prior);
   }
 
-  it('registers 0062 immediately after 0061 as the maximum version', () => {
+  it('registers 0062 immediately after 0061', () => {
     const previousIndex = MIGRATIONS.findIndex((entry) => entry.version === 61);
     expect(MIGRATIONS[previousIndex + 1]).toEqual({
       version: 62,
       name: '0062_provider_account_operation_host',
       sql,
     });
-    expect(Math.max(...MIGRATIONS.map((entry) => entry.version))).toBe(62);
     expect(sql).not.toContain('${');
   });
 

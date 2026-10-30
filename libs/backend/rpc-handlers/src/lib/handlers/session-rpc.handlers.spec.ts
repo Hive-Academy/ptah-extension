@@ -1266,6 +1266,7 @@ describe('SessionRpcHandlers', () => {
           updatedAt: 1,
           tasks: [],
           prLinks: [],
+          todos: null,
           ...overrides,
         };
       }
@@ -1294,12 +1295,16 @@ describe('SessionRpcHandlers', () => {
                   role: 'primary',
                   source: 'user',
                   createdAt: 1,
+                  autoRule: null,
+                  autoEvidence: null,
                 },
                 {
                   taskId: 'TASK_2026_GONE',
                   role: 'related',
                   source: 'agent',
                   createdAt: 2,
+                  autoRule: null,
+                  autoEvidence: null,
                 },
               ],
             }),
