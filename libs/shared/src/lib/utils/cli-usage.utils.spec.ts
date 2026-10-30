@@ -1,6 +1,7 @@
 import type { CliOutputSegment } from '../types/agent-process.types';
 import {
   addCliUsage,
+  cliUsageTokenTotal,
   hasReportedCliCacheTokens,
   type CliUsageTotals,
 } from './cli-usage.utils';
@@ -159,6 +160,57 @@ describe('addCliUsage (stats-bar oracle cases)', () => {
       cacheWriteTokens: 20,
       contextTokens: 250,
     });
+  });
+});
+
+describe('cliUsageTokenTotal', () => {
+  it('uses a reported total exactly, including zero', () => {
+    expect(
+      cliUsageTokenTotal({
+        totalTokens: 250,
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheReadTokens: 90,
+        cacheWriteTokens: 40,
+      }),
+    ).toEqual({ value: 250, exact: true });
+    expect(cliUsageTokenTotal({ totalTokens: 0 })).toEqual({
+      value: 0,
+      exact: true,
+    });
+  });
+
+  it('sums only reported input and output when total is absent', () => {
+    expect(
+      cliUsageTokenTotal({
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheReadTokens: 90,
+        cacheWriteTokens: 40,
+      }),
+    ).toEqual({ value: 120, exact: false });
+    expect(cliUsageTokenTotal({ inputTokens: 8 })).toEqual({
+      value: 8,
+      exact: false,
+    });
+    expect(cliUsageTokenTotal({ outputTokens: 0 })).toEqual({
+      value: 0,
+      exact: false,
+    });
+  });
+
+  it('returns null without token totals or with invalid counts', () => {
+    expect(cliUsageTokenTotal(null)).toBeNull();
+    expect(cliUsageTokenTotal({ cacheReadTokens: 90 })).toBeNull();
+    expect(cliUsageTokenTotal({ totalTokens: NaN, inputTokens: 8 })).toBeNull();
+    expect(cliUsageTokenTotal({ inputTokens: Infinity })).toBeNull();
+    expect(cliUsageTokenTotal({ outputTokens: -1 })).toBeNull();
+    expect(
+      cliUsageTokenTotal({
+        inputTokens: Number.MAX_VALUE,
+        outputTokens: Number.MAX_VALUE,
+      }),
+    ).toBeNull();
   });
 });
 

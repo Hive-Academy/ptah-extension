@@ -86,9 +86,11 @@ export {
 } from './agents-region.utils';
 export {
   addCliUsage,
+  cliUsageTokenTotal,
   hasReportedCliCacheTokens,
   type CliUsageTotals,
 } from './cli-usage.utils';
+export { messageTokenTotal, sessionTokenTotal } from './token-usage.utils';
 export {
   activeEstimatedExhaustion,
   activeWindowExhaustion,

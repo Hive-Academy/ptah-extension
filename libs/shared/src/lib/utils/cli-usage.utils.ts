@@ -21,6 +21,30 @@ export function hasReportedCliCacheTokens(
   );
 }
 
+/** Prefer a provider total; split input/output is an inexact fallback. */
+export function cliUsageTokenTotal(
+  usage: CliUsageTotals | null | undefined,
+): { value: number; exact: boolean } | null {
+  if (!usage) return null;
+
+  if (usage.totalTokens !== undefined) {
+    return Number.isFinite(usage.totalTokens) && usage.totalTokens >= 0
+      ? { value: usage.totalTokens, exact: true }
+      : null;
+  }
+
+  const { inputTokens, outputTokens } = usage;
+  if (inputTokens === undefined && outputTokens === undefined) return null;
+  if (
+    (inputTokens !== undefined && (!Number.isFinite(inputTokens) || inputTokens < 0)) ||
+    (outputTokens !== undefined && (!Number.isFinite(outputTokens) || outputTokens < 0))
+  ) {
+    return null;
+  }
+  const value = (inputTokens ?? 0) + (outputTokens ?? 0);
+  return Number.isFinite(value) ? { value, exact: false } : null;
+}
+
 /**
  * Fold one usage report into the running totals.
  *
