@@ -11,8 +11,8 @@ const DOCK_PADDING_PX = 16;
 const PILL_RESERVE_PX = 180;
 /** Width reserved for the group rules between the four kinds. */
 const DIVIDERS_PX = 27;
-/** One avatar chip (38 px) plus the gap before the next. */
-const CHIP_STEP_PX = 40;
+/** One avatar chip (28 px) plus the gap before the next. */
+const CHIP_STEP_PX = 30;
 /** `N agents ›` at a comfortable width, and the count badge below 480 px. */
 const MENU_WIDTH_PX = 112;
 const MENU_WIDTH_COMPACT_PX = 44;
@@ -36,7 +36,7 @@ const STATUS_INK: Readonly<Record<AgentStatusWord, string>> = {
  * How many avatar chips fit beside the selected pill and the menu.
  * A non-finite width (no `ResizeObserver`, or before the first measurement)
  * fits every agent. Zero width yields `0`: the pill and the menu only.
- * 400 px -> 3, 760 px -> 10.
+ * 400 px -> 4, 760 px -> 14.
  */
 export function dockCapacity(width: number): number {
   if (!Number.isFinite(width)) return Number.POSITIVE_INFINITY;

@@ -263,6 +263,23 @@ describe('classifyWindow — first-match order (Decision 1)', () => {
     ).toBe('not-confirmed');
   });
 
+  it('confirms a fresh provider API reading of 0% with no reset (window not started)', () => {
+    const idle = win({
+      lastResetAt: undefined,
+      resetsAt: undefined,
+      resetSource: undefined,
+      used: { kind: 'percent', percent: 0 },
+    });
+    expect(classifyWindow(idle, ctx())).toBe('ok');
+    // A non-zero reading with no reset is still not confirmed.
+    expect(
+      classifyWindow(
+        { ...idle, used: { kind: 'percent', percent: 12 } },
+        ctx(),
+      ),
+    ).toBe('not-confirmed');
+  });
+
   it('confirms a fresh provider API reading that reports its next reset', () => {
     expect(
       classifyWindow(
