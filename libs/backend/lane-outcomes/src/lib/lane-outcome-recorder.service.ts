@@ -23,7 +23,11 @@ import type {
 
 export type LaneCompletionOutcomeInput = Omit<
   LaneOutcomeRecord,
-  'executorKind' | 'telemetryJoin' | 'skillsLoaded' | 'sessionEvidenceClass'
+  | 'executorKind'
+  | 'taskKindSource'
+  | 'telemetryJoin'
+  | 'skillsLoaded'
+  | 'sessionEvidenceClass'
 > & {
   executorKind: Exclude<LaneOutcomeRecord['executorKind'], 'subagent'>;
 } & Pick<LaneFailureClassificationInput, 'status' | 'failureKind' | 'exitCode'>;
@@ -47,6 +51,7 @@ export class LaneOutcomeRecorder {
       subagentSessionId: null,
       parentSessionId: null,
       workspaceRoot: null,
+      taskKindSource: input.taskKind ? 'explicit' : 'unclassified',
       telemetryJoin: 'not-applicable',
       skillsLoaded: null,
       sessionEvidenceClass: null,
@@ -110,6 +115,7 @@ export class LaneOutcomeRecorder {
       model: LANE_DEFAULT_MODEL,
       role: payload.agentType || null,
       taskKind: null,
+      taskKindSource: 'unclassified',
       taskId: null,
       verdict: 'unverified',
       failureClass: null,

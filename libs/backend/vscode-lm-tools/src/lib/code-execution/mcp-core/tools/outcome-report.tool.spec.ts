@@ -144,6 +144,7 @@ describe('ptah_outcome_report', () => {
     expect(Object.keys(properties).sort()).toEqual([
       'kind',
       'paths',
+      'reviewerRunId',
       'routingSource',
       'target',
       'taskId',
@@ -156,6 +157,9 @@ describe('ptah_outcome_report', () => {
     );
     expect(properties['verdict']['description']).toBe(
       'Required for kind review; not allowed for any other kind.',
+    );
+    expect(properties['reviewerRunId']['description']).toBe(
+      'Optional for kind review; not allowed for any other kind.',
     );
     for (const key of ['taskKind', 'taskId', 'routingSource'])
       expect(properties[key]['description']).toBe(
