@@ -23,6 +23,7 @@ describe('context fill helpers', () => {
     };
     expect(contextFillTokens(usage)).toBe(130_000);
     expect(contextFillTokens({ input: 2_000, cacheRead: NaN })).toBe(2_000);
+    expect(contextFillTokens({ input: -1, cacheRead: Infinity, cacheCreation: 2 })).toBe(2);
     expect(contextFillTokens({})).toBe(0);
   });
 
@@ -69,6 +70,7 @@ describe('context fill helpers', () => {
     expect(contextFillPercent(0, 200_000)).toBe(0);
     expect(contextFillPercent(-1, 200_000)).toBeNull();
     expect(contextFillPercent(NaN, 200_000)).toBeNull();
+    expect(contextFillPercent(Infinity, 200_000)).toBeNull();
     expect(contextFillPercent(1, 0)).toBeNull();
     expect(contextFillPercent(1, undefined)).toBeNull();
     expect(contextFillPercent(1, Infinity)).toBeNull();

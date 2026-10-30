@@ -1,4 +1,14 @@
-import { messageTokenTotal, sessionTokenTotal } from './token-usage.utils';
+import { isValidTokenCount, messageTokenTotal, sessionTokenTotal } from './token-usage.utils';
+
+describe('isValidTokenCount', () => {
+  it.each([-1, NaN, Infinity])('rejects invalid count %s', (value) => {
+    expect(isValidTokenCount(value)).toBe(false);
+  });
+  it('accepts zero and positive finite counts', () => {
+    expect(isValidTokenCount(0)).toBe(true);
+    expect(isValidTokenCount(1)).toBe(true);
+  });
+});
 
 describe('messageTokenTotal', () => {
   it('sums input, output, cache read and cache creation', () => {
@@ -49,5 +59,6 @@ describe('sessionTokenTotal', () => {
     expect(sessionTokenTotal({})).toBeNull();
     expect(sessionTokenTotal({ tokenCount: NaN })).toBeNull();
     expect(sessionTokenTotal({ tokenCount: Infinity })).toBeNull();
+    expect(sessionTokenTotal({ tokenCount: -1 })).toBeNull();
   });
 });

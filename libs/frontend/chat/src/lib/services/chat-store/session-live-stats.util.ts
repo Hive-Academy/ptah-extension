@@ -1,6 +1,5 @@
 import {
   contextFillPercent,
-  contextFillTokens,
   pickPrimaryModel,
   trustedContextWindow,
   type ContextCapacity,
@@ -76,9 +75,7 @@ export function deriveLiveModelStats(
     typeof numerator === 'number' &&
     Number.isFinite(numerator) &&
     numerator >= 0;
-  const contextUsed = contextKnown
-    ? contextFillTokens({ input: numerator })
-    : 0;
+  const contextUsed = contextKnown ? numerator : 0;
   const capacity = primaryModel.contextCapacity;
   const contextWindow = trustedContextWindow(capacity, primaryModel.model) ?? 0;
   return {

@@ -1,4 +1,5 @@
 import type { ContextCapacity } from './pricing.utils';
+import { isValidTokenCount } from './token-usage.utils';
 
 /** Sum the three token classes that occupy the current context. */
 export function contextFillTokens(usage: {
@@ -7,7 +8,7 @@ export function contextFillTokens(usage: {
   cacheCreation?: number;
 }): number {
   const count = (value: number | undefined): number =>
-    typeof value === 'number' && Number.isFinite(value) ? value : 0;
+    isValidTokenCount(value) ? value : 0;
 
   return (
     count(usage.input) +
@@ -43,8 +44,7 @@ export function contextFillPercent(
   window?: number | null,
 ): number | null {
   if (
-    !Number.isFinite(used) ||
-    used < 0 ||
+    !isValidTokenCount(used) ||
     typeof window !== 'number' ||
     !Number.isFinite(window) ||
     window <= 0

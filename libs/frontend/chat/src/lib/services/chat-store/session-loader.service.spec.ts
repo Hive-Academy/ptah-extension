@@ -24,6 +24,7 @@ import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { TestBed } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { sessionContextCue } from '@ptah-extension/chat-ui';
 import { SessionLoaderService } from './session-loader.service';
 import { SessionHistoryReplayer } from './session-history-replayer.service';
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
@@ -143,6 +144,8 @@ describe('SessionLoaderService', () => {
   let applyLoadedSessionStats: jest.Mock;
   let setLiveModelStats: jest.Mock;
   let priorLiveModelStats: LiveModelStatsPayload | null;
+  let priorTabSessionId: string | null | undefined;
+  let priorTabLookupCount: number;
   let consoleError: jest.SpyInstance;
   let consoleWarn: jest.SpyInstance;
   let consoleLog: jest.SpyInstance;
@@ -163,6 +166,8 @@ describe('SessionLoaderService', () => {
     applyLoadedSessionStats = jest.fn();
     setLiveModelStats = jest.fn();
     priorLiveModelStats = null;
+    priorTabSessionId = undefined;
+    priorTabLookupCount = 0;
     historyPagingMock.tailRequest.mockClear();
     historyPagingMock.recordTail.mockClear();
 
@@ -174,7 +179,9 @@ describe('SessionLoaderService', () => {
       activeTabId: computed(() => activeTabIdSignal()),
       tabs: computed(() => tabBindingsSignal()),
       findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
-        const sessionId = activeTabSessionIdSignal();
+        const sessionId = priorTabSessionId !== undefined && priorTabLookupCount++ > 0
+          ? priorTabSessionId
+          : activeTabSessionIdSignal();
         return sessionId
           ? {
                tab: { id: tabId, claudeSessionId: sessionId, liveModelStats: priorLiveModelStats },
@@ -950,6 +957,40 @@ describe('SessionLoaderService', () => {
           contextUsed: expectedWindow > 0 ? 30_000 : 0,
         }),
       );
+    });
+
+    it('does not carry a trusted prior from a different tab session', async () => {
+      const restoredTabId = TabId.from('acf18347-7818-4203-a09c-247f159a66fb');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      priorLiveModelStats = priorContextReading('claude-opus-5');
+      priorTabSessionId = 'another-session';
+      const stats = {
+        sessionId: SESSION,
+        totalCost: 1,
+        tokens: { input: 30_000, output: 2, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 1,
+        model: 'claude-opus-5',
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(setLiveModelStats).toHaveBeenLastCalledWith(restoredTabId, {
+        model: 'claude-opus-5',
+        contextKnown: false,
+        contextUsed: 0,
+        contextWindow: 0,
+        contextPercent: 0,
+      });
+      expect(sessionContextCue(setLiveModelStats.mock.lastCall?.[1] ?? null).label).toBe('—');
     });
 
     it('leaves resume capacity unknown without provider evidence', async () => {

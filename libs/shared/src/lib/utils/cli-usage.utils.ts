@@ -7,6 +7,7 @@
  * losing totals.
  */
 import type { CliOutputSegment } from '../types/agent-process.types';
+import { isValidTokenCount } from './token-usage.utils';
 
 /** Accumulated usage of one CLI lane run. */
 export type CliUsageTotals = NonNullable<CliOutputSegment['usage']>;
@@ -28,7 +29,7 @@ export function cliUsageTokenTotal(
   if (!usage) return null;
 
   if (usage.totalTokens !== undefined) {
-    return Number.isFinite(usage.totalTokens) && usage.totalTokens >= 0
+    return isValidTokenCount(usage.totalTokens)
       ? { value: usage.totalTokens, exact: true }
       : null;
   }
@@ -36,8 +37,8 @@ export function cliUsageTokenTotal(
   const { inputTokens, outputTokens } = usage;
   if (inputTokens === undefined && outputTokens === undefined) return null;
   if (
-    (inputTokens !== undefined && (!Number.isFinite(inputTokens) || inputTokens < 0)) ||
-    (outputTokens !== undefined && (!Number.isFinite(outputTokens) || outputTokens < 0))
+    (inputTokens !== undefined && !isValidTokenCount(inputTokens)) ||
+    (outputTokens !== undefined && !isValidTokenCount(outputTokens))
   ) {
     return null;
   }

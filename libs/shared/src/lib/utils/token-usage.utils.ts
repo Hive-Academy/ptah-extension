@@ -1,8 +1,8 @@
 import type { MessageTokenUsage } from '../types/execution';
 import type { SessionStatsEntry } from '../types/rpc/rpc-session.types';
 
-function isValidTokenCount(value: number): boolean {
-  return Number.isFinite(value) && value >= 0;
+export function isValidTokenCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 /** Sum the four disjoint message token classes when every reported count is valid. */
@@ -28,5 +28,5 @@ export function sessionTokenTotal(
   entry: Pick<SessionStatsEntry, 'tokenCount'> | null | undefined,
 ): number | null {
   const count = entry?.tokenCount;
-  return typeof count === 'number' && Number.isFinite(count) ? count : null;
+  return isValidTokenCount(count) ? count : null;
 }

@@ -1252,9 +1252,8 @@ export class SessionLoaderService {
     // Capture before applying persisted stats: applyLoadedSessionStats creates a
     // unknown live-model placeholder, which would otherwise erase the fresh
     // post-compaction seed before this targeted-reload guard can preserve it.
-    const prior =
-      this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.liveModelStats ??
-      null;
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    const prior = tab?.claudeSessionId === sessionId ? tab.liveModelStats ?? null : null;
     const compactionContextSeed =
       options?.preserveCompactionContextSeed === true ? prior : null;
 

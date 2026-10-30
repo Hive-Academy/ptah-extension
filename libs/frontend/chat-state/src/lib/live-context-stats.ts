@@ -30,6 +30,7 @@ export function contextFillStats(
     return null;
   }
   const capacity = prior.contextCapacity;
+  // SessionStatsLiveContext needs a number: 0 with contextWindow: 0 means "window unknown"; sessionContextCue controls display (implementation-plan.md Component 19).
   const contextWindow = trustedContextWindow(capacity, prior.model) ?? 0;
   return {
     model: prior.model,

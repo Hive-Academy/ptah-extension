@@ -203,6 +203,8 @@ describe('cliUsageTokenTotal', () => {
     expect(cliUsageTokenTotal(null)).toBeNull();
     expect(cliUsageTokenTotal({ cacheReadTokens: 90 })).toBeNull();
     expect(cliUsageTokenTotal({ totalTokens: NaN, inputTokens: 8 })).toBeNull();
+    expect(cliUsageTokenTotal({ totalTokens: Infinity })).toBeNull();
+    expect(cliUsageTokenTotal({ totalTokens: -1 })).toBeNull();
     expect(cliUsageTokenTotal({ inputTokens: Infinity })).toBeNull();
     expect(cliUsageTokenTotal({ outputTokens: -1 })).toBeNull();
     expect(
