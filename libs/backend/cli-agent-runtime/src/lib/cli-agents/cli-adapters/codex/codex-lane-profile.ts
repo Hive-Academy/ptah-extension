@@ -24,9 +24,7 @@ export interface CodexLaneProfileInput {
   readonly maxBudgetUsd?: number;
 }
 
-/** Required lane settings for which the core has no execution-profile fields yet.
- * These MUST be enforced before enabling native lanes; they are not optional hints.
- */
+/** Lane requirements projected into the native execution profile. */
 export interface CodexLaneRequirements {
   readonly agentsEnabled: false;
   readonly pluginsEnabled: false;
@@ -44,27 +42,69 @@ const laneProfileBrand: unique symbol = Symbol('CodexLaneProfileSettings');
 
 export interface CodexLaneProfileSettings {
   readonly [laneProfileBrand]: true;
-  /** Throws until all requirements have been acknowledged as enforced. */
+  /** Throws until every requirement has a matching core setting. */
   readonly settings: CodexProfileSettings;
   readonly requirements: CodexLaneRequirements;
   readonly warnings: readonly string[];
-  /** Batch 10b MUST enforce each requirement and call this before opening a context.
-   * Acknowledgement does not add support to the core or bypass its refusal.
-   */
+  /** Verify every present requirement against its typed core projection. */
   assertAllRequirementsHandled(
     handledKeys: readonly (keyof CodexLaneRequirements)[],
   ): void;
 }
 
-/** Pure projection of the existing resolved lane config. No SDK overrides or retry.
- * Suppressions remain explicit in the core profile: today's runtime refuses them
- * before spawn. Never remove them to make an otherwise unsupported lane start.
- */
+type RequirementHandler = (
+  requirements: CodexLaneRequirements,
+  settings: CodexProfileSettings,
+  expectedRole: string | undefined,
+) => boolean;
+
+/** A new requirement must gain a core-field check before this map compiles. */
+const requirementHandlers = {
+  agentsEnabled: (requirements, settings) =>
+    settings.lane?.agentsEnabled === requirements.agentsEnabled,
+  pluginsEnabled: (requirements, settings) =>
+    settings.lane?.pluginsEnabled === requirements.pluginsEnabled,
+  appsEnabled: (requirements, settings) =>
+    settings.lane?.appsEnabled === requirements.appsEnabled,
+  includeSkillInstructions: (requirements, settings) =>
+    settings.lane?.includeSkillInstructions ===
+    requirements.includeSkillInstructions,
+  disabledUserMcpServers: (requirements, settings) => {
+    const actual = settings.lane?.disabledUserMcpServers;
+    return (
+      actual !== undefined &&
+      actual.length === requirements.disabledUserMcpServers.length &&
+      actual.every((name, index) =>
+        name === requirements.disabledUserMcpServers[index],
+      )
+    );
+  },
+  autoCompactTokens: (requirements, settings) =>
+    settings.lane?.autoCompactTokens === requirements.autoCompactTokens,
+  toolOutputTokenLimit: (requirements, settings) =>
+    settings.lane?.toolOutputTokenLimit === requirements.toolOutputTokenLimit,
+  webSearch: (requirements, settings) =>
+    settings.lane?.webSearch === requirements.webSearch,
+  ptahToolTimeoutSeconds: (requirements, settings) =>
+    settings.lane?.ptahToolTimeoutSeconds ===
+    requirements.ptahToolTimeoutSeconds,
+  roleDelivery: (requirements, settings, expectedRole) =>
+    requirements.roleDelivery === 'replace' &&
+    settings.developerPrompt === expectedRole,
+} satisfies Record<keyof CodexLaneRequirements, RequirementHandler>;
+
+/** Pure projection of the existing resolved lane config. No SDK overrides or retry. */
 export function buildCodexLaneProfileSettings(
   input: CodexLaneProfileInput,
 ): CodexLaneProfileSettings {
   if (input.permissionLevel === undefined) {
     throw new Error('Codex lane permissionLevel is required');
+  }
+  if (input.maxTurns !== undefined && input.maxTurns !== 0) {
+    throw new Error('Codex lane maxTurns is unsupported');
+  }
+  if (input.maxBudgetUsd !== undefined && input.maxBudgetUsd !== 0) {
+    throw new Error('Codex lane maxBudgetUsd is unsupported');
   }
   const { config } = input;
   const warnings: string[] = [];
@@ -93,6 +133,10 @@ export function buildCodexLaneProfileSettings(
     config.variant === 'first-turn' ||
     (config.resendRoleOnResume ?? CODEX_RESUME_RESENDS_ROLE);
   const effort = config.reasoningEffort?.trim();
+  const expectedRole =
+    resend && config.developerInstructions
+      ? config.developerInstructions
+      : undefined;
   const settings: CodexProfileSettings = {
     ...input.identity,
     consumer: 'lane',
@@ -100,9 +144,7 @@ export function buildCodexLaneProfileSettings(
     permissionLevel: input.permissionLevel,
     ...(effort ? { effort } : {}),
     // A fresh scalar each turn; no previous role or prompt is appended.
-    ...(resend && config.developerInstructions
-      ? { developerPrompt: config.developerInstructions }
-      : {}),
+    ...(expectedRole ? { developerPrompt: expectedRole } : {}),
     mcpServers: attach
       ? [
           {
@@ -126,12 +168,15 @@ export function buildCodexLaneProfileSettings(
         'skills',
         ...disabledUserMcpServers.map((name) => `mcp:${name}`),
       ],
-      ...(input.maxTurns === undefined || input.maxTurns === 0
-        ? {}
-        : { maxTurns: input.maxTurns }),
-      ...(input.maxBudgetUsd === undefined || input.maxBudgetUsd === 0
-        ? {}
-        : { maxBudgetUsd: input.maxBudgetUsd }),
+      agentsEnabled: false,
+      pluginsEnabled: false,
+      appsEnabled: false,
+      includeSkillInstructions: false,
+      disabledUserMcpServers,
+      ...(autoCompactTokens === undefined ? {} : { autoCompactTokens }),
+      ...(toolOutputTokenLimit === undefined ? {} : { toolOutputTokenLimit }),
+      webSearch: config.webSearch ? 'live' : 'disabled',
+      ...(attach ? { ptahToolTimeoutSeconds: CODEX_PTAH_TOOL_TIMEOUT_SEC } : {}),
       explicitFullAccess: false,
     },
   };
@@ -161,16 +206,30 @@ export function buildCodexLaneProfileSettings(
     requirements,
     warnings,
     assertAllRequirementsHandled(handledKeys) {
+      requirementsHandled = false;
       const handled = new Set<string>(handledKeys);
       const unhandled = Object.keys(requirements).filter(
         (key) => !handled.has(key),
       );
-      requirementsHandled = unhandled.length === 0;
-      if (!requirementsHandled) {
+      if (unhandled.length > 0) {
         throw new Error(
           `Unhandled Codex lane requirements: ${unhandled.join(', ')}`,
         );
       }
+      const unsupported = Object.keys(requirements).filter(
+        (key) =>
+          !requirementHandlers[key as keyof CodexLaneRequirements](
+            requirements,
+            settings,
+            expectedRole,
+          ),
+      );
+      if (unsupported.length > 0) {
+        throw new Error(
+          `Unsupported Codex lane requirements: ${unsupported.join(', ')}`,
+        );
+      }
+      requirementsHandled = true;
     },
   };
 }
