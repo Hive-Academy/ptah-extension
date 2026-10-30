@@ -29,15 +29,22 @@
  * pass. Skills are the largest artifact family by count, so this is the worst
  * available version of the failure `AgentSyncGate` exists to prevent.
  *
- * So an ABSENT mode is never a bare `'selected'`. It resolves from evidence:
+ * So an ABSENT mode is never a bare `'selected'` over owned skills. It
+ * resolves from evidence:
  *
- *   absent + any per-target manifest already owns a `skill` entry -> `'all'`
- *   absent + no manifest owns one            -> `'selected'` with no slugs
+ *   absent + per-target manifests own `skill` entries
+ *       -> `'selected'` with exactly the slugs those entries own
+ *   absent + no manifest owns one -> `'selected'` with no slugs
  *
- * Prior propagation IS prior consent — those files exist because a previous
- * version of Ptah put them there, and the user has been living with them. A
- * workspace with no skill entries has nothing to lose and starts gated, which
- * is exactly the intended behaviour for a NEW workspace: it propagates nothing
+ * Prior propagation IS prior consent — for the skills that were propagated.
+ * Those files exist because a previous version of Ptah put them there, so the
+ * derived allowlist keeps every one of them and the first reconcile reaps
+ * nothing. It does NOT derive `'all'` (TASK_2026_853 #17, D-D4): `'all'` is
+ * how a skill installed for one workspace reached every other workspace on the
+ * machine, so inferring it would keep the leak this gate exists to stop. A
+ * skill acquired later reaches this workspace only when the user selects it.
+ * A workspace with no skill entries has nothing to lose and starts gated,
+ * which is the intended behaviour for a NEW workspace: it propagates nothing
  * until asked.
  *
  * The resolved value is then PERSISTED, so the evidence walk runs exactly once
@@ -55,6 +62,7 @@
  * invent a second migration idiom.
  */
 
+import { posix } from 'path';
 import { HARNESS_TARGET_IDS } from '@ptah-extension/shared';
 import { HarnessStateStore } from '../gitignore/harness-state-store';
 import type { ManagedManifestStore } from '../manifest-store/managed-manifest';
@@ -105,11 +113,11 @@ export class SkillSyncGate {
         derived: false,
       };
     }
-    // The migration. `'all'` on evidence of prior propagation; gated only for a
-    // workspace that has nothing to lose.
+    // The migration. Keep exactly what this workspace already owns, and
+    // nothing it does not: never a derived `'all'` (#17).
     return {
-      mode: this.hasOwnedSkills(workspaceRoot) ? 'all' : 'selected',
-      slugs: [],
+      mode: 'selected',
+      slugs: normalizeSlugs(this.ownedSkillSlugs(workspaceRoot)),
       derived: true,
     };
   }
@@ -190,15 +198,21 @@ export class SkillSyncGate {
     });
   }
 
-  /** Does any per-target manifest record a skill this workspace already owns? */
-  private hasOwnedSkills(workspaceRoot: string): boolean {
+  /**
+   * The skill slugs any per-target manifest records as owned by this
+   * workspace. A skill entry is keyed `<target skills dir>/<slug>` (see
+   * `claude-target.ts` `desiredRel`), so the slug is the key's last POSIX
+   * segment, which is the same directory name the allowlist is keyed by.
+   */
+  private ownedSkillSlugs(workspaceRoot: string): string[] {
+    const slugs: string[] = [];
     for (const target of HARNESS_TARGET_IDS) {
       const manifest = this.manifestStore.load(workspaceRoot, target);
-      for (const entry of Object.values(manifest.entries)) {
-        if (entry.kind === 'skill') return true;
+      for (const [relPath, entry] of Object.entries(manifest.entries)) {
+        if (entry.kind === 'skill') slugs.push(posix.basename(relPath));
       }
     }
-    return false;
+    return slugs;
   }
 }
 
