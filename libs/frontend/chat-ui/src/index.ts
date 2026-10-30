@@ -111,7 +111,6 @@ export { CompactionMarkerComponent } from './lib/molecules/notifications/compact
 export { CompactionNotificationComponent } from './lib/molecules/notifications/compaction-notification.component';
 export { DenyMessagePopoverComponent } from './lib/molecules/permissions/deny-message-popover.component';
 export { PermissionRequestCardComponent } from './lib/molecules/permissions/permission-request-card.component';
-export { SessionCostSummaryComponent } from './lib/molecules/session/session-cost-summary.component';
 export {
   SessionStatsSummaryComponent,
   type LiveModelStats,
