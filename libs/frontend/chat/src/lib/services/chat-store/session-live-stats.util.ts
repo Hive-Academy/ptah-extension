@@ -1,5 +1,8 @@
 import {
+  contextFillPercent,
+  contextFillTokens,
   pickPrimaryModel,
+  trustedContextWindow,
   type ContextCapacity,
   type ModelUsageEntry as CostRankedModelUsage,
 } from '@ptah-extension/shared';
@@ -73,20 +76,11 @@ export function deriveLiveModelStats(
     typeof numerator === 'number' &&
     Number.isFinite(numerator) &&
     numerator >= 0;
-  const contextUsed = contextKnown ? numerator : 0;
+  const contextUsed = contextKnown
+    ? contextFillTokens({ input: numerator })
+    : 0;
   const capacity = primaryModel.contextCapacity;
-  const contextWindow =
-    capacity &&
-    capacity.model === primaryModel.model &&
-    (capacity.source === 'sdk-native' ||
-      (capacity.source === 'provider-catalog' &&
-        typeof capacity.providerId === 'string' &&
-        capacity.providerId.length > 0)) &&
-    typeof capacity.tokens === 'number' &&
-    Number.isFinite(capacity.tokens) &&
-    capacity.tokens > 0
-      ? capacity.tokens
-      : 0;
+  const contextWindow = trustedContextWindow(capacity, primaryModel.model) ?? 0;
   return {
     primaryModel,
     live: {
@@ -95,10 +89,9 @@ export function deriveLiveModelStats(
       contextCapacity: capacity,
       contextUsed,
       contextWindow,
-      contextPercent:
-        contextKnown && contextWindow > 0
-          ? Math.round((contextUsed / contextWindow) * 1000) / 10
-          : 0,
+      contextPercent: contextKnown
+        ? (contextFillPercent(contextUsed, contextWindow) ?? 0)
+        : 0,
     },
     suppressed: !contextKnown,
   };
