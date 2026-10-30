@@ -85,6 +85,27 @@ export interface SendOutcome {
 }
 
 /**
+ * Text start and continue already show for a chat RPC failure code.
+ * Resume activation uses the same mapping so a coded failure does not
+ * disagree with the bubble those sends append.
+ */
+export function mapChatSendFailureText(
+  code: string | undefined,
+  error: string | undefined,
+  fallback: string,
+): string {
+  switch (code) {
+    case 'CODEX_BUSY':
+      return 'Codex is busy, try again when the current operation finishes';
+    case 'CODEX_UNAVAILABLE':
+    case 'CODEX_RUNTIME_FAILED':
+      return 'Codex chat could not start.';
+    default:
+      return error ?? fallback;
+  }
+}
+
+/**
  * Centralized service for sending messages
  *
  * Replaces callback-based message sending with direct method calls.
@@ -156,15 +177,11 @@ export class MessageSenderService {
     result: RpcResult<{ errorCode?: string; error?: string }>,
     fallback: string,
   ): string {
-    switch (result.errorCode ?? result.data?.errorCode) {
-      case 'CODEX_BUSY':
-        return 'Codex is busy, try again when the current operation finishes';
-      case 'CODEX_UNAVAILABLE':
-      case 'CODEX_RUNTIME_FAILED':
-        return 'Codex chat could not start.';
-      default:
-        return result.data?.error ?? result.error ?? fallback;
-    }
+    return mapChatSendFailureText(
+      result.errorCode ?? result.data?.errorCode,
+      result.data?.error ?? result.error,
+      fallback,
+    );
   }
 
   /**

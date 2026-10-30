@@ -42,6 +42,9 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 import type {
   AgentSessionResumeConfig,
   AgentSessionStartConfig,
+  ChatContinueResult,
+  ChatResumeResult,
+  ChatStartResult,
   SessionId,
   SessionRuntimeIdentity,
 } from '@ptah-extension/shared';
@@ -674,37 +677,89 @@ describe('typed Codex RPC failures', () => {
     { error: new mockCodexChatAdapterError('unavailable', 'open'), code: 'CODEX_UNAVAILABLE' },
   ];
 
+  async function profileRefusal(
+    error: Error,
+    method: 'start' | 'resume' | 'continue',
+  ): Promise<ChatStartResult | ChatResumeResult | ChatContinueResult> {
+    const h = errorHarness(error);
+    if (method === 'start') {
+      return h.service.startSession({ prompt: 'hello', tabId: 'tab', workspacePath: workspace });
+    }
+    if (method === 'resume') {
+      return h.service.resumeSession({ sessionId, tabId: 'tab', activate: true });
+    }
+    return h.service.continueSession({ sessionId, tabId: 'tab', prompt: 'continue' });
+  }
+
+  function expectUncodedProfileRefusal(
+    method: 'start' | 'resume' | 'continue',
+    result: ChatStartResult | ChatResumeResult | ChatContinueResult,
+  ): void {
+    if (method === 'resume') {
+      expect(result).toMatchObject({
+        success: true,
+        activated: false,
+        activationError: CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+      });
+      expect(result).not.toHaveProperty('activationErrorCode');
+      expect(result).not.toHaveProperty('errorCode');
+    } else {
+      expect(result).toEqual({
+        success: false,
+        error: CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+      });
+    }
+    expect(JSON.stringify(result)).not.toContain('CODEX_RUNTIME_FAILED');
+  }
+
   it.each(['start', 'resume', 'continue'] as const)(
-    'explains the native execution-profile refusal in chat:%s',
+    'explains the native execution-profile refusal in chat:%s without a runtime code',
     async (method) => {
-      const h = errorHarness(new mockCodexChatAdapterError('resume-profile-changed', 'open'));
-      const result = method === 'start'
-        ? await h.service.startSession({ prompt: 'hello', tabId: 'tab', workspacePath: workspace })
-        : method === 'resume'
-          ? await h.service.resumeSession({ sessionId, tabId: 'tab', activate: true })
-          : await h.service.continueSession({ sessionId, tabId: 'tab', prompt: 'continue' });
-      const message = method === 'resume' && 'activationError' in result
-        ? result.activationError : result.error;
-      expect(message).toBe(CODEX_RESUME_PROFILE_CHANGED_MESSAGE);
-      expect(result).toMatchObject(method === 'resume'
-        ? { success: true, activated: false, activationErrorCode: 'CODEX_RUNTIME_FAILED' }
-        : { success: false, errorCode: 'CODEX_RUNTIME_FAILED' });
+      const result = await profileRefusal(
+        new mockCodexChatAdapterError('resume-profile-changed', 'open'),
+        method,
+      );
+      expectUncodedProfileRefusal(method, result);
     },
   );
 
-  it('uses the exported text when a typed profile error is the adapter cause', async () => {
-    const h = errorHarness(new mockCodexChatAdapterError('runtime-failed', 'open', {
-      cause: new CodexResumeProfileChangedError(),
-    }));
+  it.each(['start', 'resume', 'continue'] as const)(
+    'uses the exported text when a typed profile error is the adapter cause in chat:%s',
+    async (method) => {
+      const result = await profileRefusal(new mockCodexChatAdapterError('runtime-failed', 'open', {
+        cause: new CodexResumeProfileChangedError(),
+      }), method);
+      expectUncodedProfileRefusal(method, result);
+    },
+  );
 
-    const result = await h.service.startSession({ prompt: 'hello', tabId: 'tab', workspacePath: workspace });
-
-    expect(result).toMatchObject({
-      success: false,
-      errorCode: 'CODEX_RUNTIME_FAILED',
-      error: CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
-    });
-  });
+  it.each(['start', 'resume', 'continue'] as const)(
+    'leaves an unclassified launch error uncoded in chat:%s',
+    async (method) => {
+      const result = await profileRefusal(new Error('Claude launch failed'), method);
+      if (method === 'resume') {
+        expect(result).toMatchObject({
+          success: true,
+          activated: false,
+          activationError: 'Claude launch failed',
+        });
+        expect(result).not.toHaveProperty('activationErrorCode');
+        expect(result).not.toHaveProperty('errorCode');
+      } else if (method === 'continue') {
+        expect(result).toEqual({
+          success: false,
+          sessionId,
+          error: 'Claude launch failed',
+        });
+      } else {
+        expect(result).toEqual({
+          success: false,
+          error: 'Claude launch failed',
+        });
+      }
+      expect(JSON.stringify(result)).not.toContain('CODEX_RUNTIME_FAILED');
+    },
+  );
 
   it.each(failures)('classifies chat:start $code ($key)', async ({ error, code, key }) => {
     const h = errorHarness(error);

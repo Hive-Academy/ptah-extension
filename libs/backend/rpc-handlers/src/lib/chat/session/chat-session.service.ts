@@ -629,13 +629,17 @@ export class ChatSessionService {
     // also covers an adapter error that kept the typed refusal as its cause.
     const resumeProfileChanged = adapterError?.code === 'resume-profile-changed' ||
       isCodexResumeProfileChangedError(adapterError?.cause);
-    let failure: RpcUserError;
+    // Show the fixed refusal text. The chat UI prints an uncoded `error`
+    // and replaces `CODEX_RUNTIME_FAILED` with a generic sentence, so this
+    // narrow case omits that code. Real runtime failures keep it below.
     if (resumeProfileChanged) {
-      failure = new RpcUserError(
-        CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
-        'CODEX_RUNTIME_FAILED',
-      );
-    } else if (optionError) {
+      return {
+        success: false,
+        error: CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+      };
+    }
+    let failure: RpcUserError;
+    if (optionError) {
       failure = new RpcUserError(
         `Codex chat does not support the "${optionError.key}" option.`,
         'CODEX_UNSUPPORTED_OPTION',
