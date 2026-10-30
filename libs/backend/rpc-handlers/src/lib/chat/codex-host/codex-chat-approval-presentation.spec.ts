@@ -61,7 +61,7 @@ describe('Codex chat approval presentation', () => {
       logger: Logger.prototype,
       approvals,
       tabId: () => 'gw-conversation',
-      broadcastMessage,
+      webviewManager: { broadcastMessage },
       promptLifecycle: { publish },
       hostAttention: { resolve: resolveAttention },
       setTimer: (callback, delay) => setTimeout(callback, delay),

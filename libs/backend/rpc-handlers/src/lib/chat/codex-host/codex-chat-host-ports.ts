@@ -229,8 +229,7 @@ export function createCodexChatHostPorts(
       respond: (address, reply) => deps.approvals.respond(address, reply),
     },
     tabId: (sessionId) => deps.tabId(sessionId),
-    broadcastMessage: (type, payload) =>
-      deps.webviewManager.broadcastMessage(type, payload),
+    webviewManager: deps.webviewManager,
     promptLifecycle: {
       publish: (event) => deps.promptLifecycle?.publish(event),
     },

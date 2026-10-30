@@ -21,7 +21,9 @@ export interface CodexApprovalPresentationPorts {
   logger: CodexChatAdapterPorts['logger'];
   approvals: Pick<CodexChatAdapterPorts['approvals'], 'respond'>;
   tabId(sessionId: SessionId): string;
-  broadcastMessage(type: string, payload: unknown): Promise<void>;
+  webviewManager: {
+    broadcastMessage(type: string, payload: unknown): Promise<void>;
+  };
   promptLifecycle?: { publish(event: PermissionPromptLifecycleEvent): void };
   hostAttention?: Pick<HostAttentionCoordinator, 'resolve'>;
   setTimer(callback: () => void, delay: number): ReturnType<typeof setTimeout>;
@@ -53,7 +55,7 @@ export function createCodexChatApprovalPresentation(
     );
   };
   const send = (type: string, payload: unknown) => {
-    void ports.broadcastMessage(type, payload).catch(failed);
+    void ports.webviewManager.broadcastMessage(type, payload).catch(failed);
   };
   const publishLifecycle = (event: PermissionPromptLifecycleEvent): void => {
     try {
@@ -177,7 +179,8 @@ export function createCodexChatApprovalPresentation(
           }, timeoutMs);
         }
         // The manager's attention observer raises the host notice.
-        void ports.broadcastMessage(MESSAGE_TYPES.PERMISSION_REQUEST, payload)
+        void ports.webviewManager
+          .broadcastMessage(MESSAGE_TYPES.PERMISSION_REQUEST, payload)
           .catch((error: unknown) => {
             failed(error);
             const current = pending.get(id);
