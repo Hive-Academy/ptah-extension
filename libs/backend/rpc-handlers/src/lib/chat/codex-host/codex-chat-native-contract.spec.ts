@@ -439,7 +439,11 @@ function codexHarness() {
     logger: streamLogger,
     sentry,
   } = broadcasterFor(turnState, adapter, view);
-  broadcast = (...args) => broadcaster.streamEventsToWebview(...args);
+  let publishedTurn: Promise<void> | undefined;
+  broadcast = (...args) => {
+    publishedTurn = broadcaster.streamEventsToWebview(...args);
+    return publishedTurn;
+  };
   const clock: CodexClock = {
     now: () => Date.now(),
     setTimeout: (callback, ms) => {
@@ -494,9 +498,11 @@ function codexHarness() {
         TAB,
       );
     },
-    /** chat:continue on a live session: the turn is published under its id. */
-    followUp(text: string) {
-      return adapter.sendMessageToSession(THREAD, text);
+    /** Wait for the live turn's broadcaster to deliver its terminal state. */
+    async followUp(text: string) {
+      await adapter.sendMessageToSession(THREAD, text);
+      if (!publishedTurn) throw new Error('Expected a follow-up broadcaster');
+      await publishedTurn;
     },
     /** chat:continue auto-resume: the broadcaster consumes under the session id. */
     async resume(prompt: string) {

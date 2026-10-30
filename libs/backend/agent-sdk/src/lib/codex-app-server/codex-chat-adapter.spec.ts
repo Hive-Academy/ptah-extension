@@ -259,14 +259,23 @@ describe('CodexChatAdapter', () => {
   it('accepts a follow-up client id, echoes it once and consumes it without forwarding it', async () => {
     const h = setup();
     const events: FlatStreamEventUnion[] = [];
+    let finishPublish: () => void = () => undefined;
+    const published = new Promise<void>((resolve) => {
+      finishPublish = resolve;
+    });
     jest.mocked(h.ports.publish).mockImplementation(async (_id, stream) => {
-      for await (const event of stream) events.push(event);
+      try {
+        for await (const event of stream) events.push(event);
+      } finally {
+        finishPublish();
+      }
     });
     const first = await h.adapter.startChatSession({ tabId });
     for await (const event of first) void event;
     await h.adapter.sendMessageToSession(id, 'follow-up', {
       clientMessageId: 'prompt-2', files: [], images: [],
     });
+    await published;
     expect(events.filter((event) => event.eventType === 'message_start' && event.role === 'user'))
       .toEqual([expect.objectContaining({ clientMessageId: 'prompt-2', sessionId: id })]);
     expect(events.filter((event) => event.eventType === 'turn_state' && event.consumedClientMessageId))
@@ -276,6 +285,121 @@ describe('CodexChatAdapter', () => {
     }));
     expect(jest.mocked(h.context.startTurn).mock.lastCall?.[0]).not.toHaveProperty('clientMessageId');
     await h.adapter.dispose();
+  });
+
+  it('admits a live follow-up before its native event stream ends', async () => {
+    const h = setup();
+    const first = await h.adapter.startChatSession({ tabId });
+    for await (const event of first) void event;
+    const release = deferred<void>();
+    let publisherFinished = false;
+    let finishPublish: () => void = () => undefined;
+    const published = new Promise<void>((resolve) => {
+      finishPublish = resolve;
+    });
+    h.context.events.mockImplementation(() => (async function* () {
+      await release.promise;
+      yield terminal;
+    })());
+    jest.mocked(h.ports.publish).mockImplementation(async (_id, stream) => {
+      try {
+        for await (const event of stream) void event;
+      } finally {
+        publisherFinished = true;
+        finishPublish();
+      }
+    });
+
+    const send = h.adapter.sendMessageToSession(id, 'follow-up');
+    const tick = new Promise<'held'>((resolve) => setImmediate(() => resolve('held')));
+    const outcome = await Promise.race([
+      send.then(() => 'admitted' as const, () => 'rejected' as const),
+      tick,
+    ]);
+    try {
+      expect(h.context.startTurn).toHaveBeenCalledTimes(2);
+      expect(publisherFinished).toBe(false);
+      expect(h.adapter.canSendFollowUp(id)).toBe(false);
+    } finally {
+      release.resolve();
+      await published;
+      await send.catch(() => undefined);
+      await tick;
+      await h.adapter.dispose();
+    }
+    expect(outcome).toBe('admitted');
+  });
+
+  it('settles a turn/start refusal after the broadcaster publishes its notice', async () => {
+    const h = setup();
+    const first = await h.adapter.startChatSession({ tabId });
+    for await (const event of first) void event;
+    h.context.startTurn.mockRejectedValueOnce(new Error('admission refused'));
+    const notices: string[] = [];
+    jest.mocked(h.ports.publish).mockImplementation(async (_id, stream) => {
+      try {
+        for await (const event of stream) {
+          if (event.eventType === 'text_delta') notices.push(event.delta);
+        }
+      } catch {
+        // The host broadcaster already published the failure notice.
+      }
+    });
+
+    await expect(h.adapter.sendMessageToSession(id, 'follow-up')).resolves.toBeUndefined();
+    expect(notices).toEqual(['Codex reported a runtime error.']);
+    await h.adapter.dispose();
+  });
+
+  it('logs a publisher rejection after admission without rejecting the send', async () => {
+    const h = setup();
+    const first = await h.adapter.startChatSession({ tabId });
+    for await (const event of first) void event;
+    const release = deferred<void>();
+    let finishPublish: () => void = () => undefined;
+    const published = new Promise<void>((resolve) => {
+      finishPublish = resolve;
+    });
+    h.context.events.mockImplementation(() => (async function* () {
+      await release.promise;
+      yield {
+        ...identity,
+        turnId: 'turn',
+        sequence: 1,
+        type: 'textDelta' as const,
+        itemId: 'item',
+        delta: 'partial',
+      };
+      throw new Error('stream lost');
+    })());
+    jest.mocked(h.ports.publish).mockImplementation(async (_id, stream) => {
+      try {
+        for await (const event of stream) void event;
+      } finally {
+        finishPublish();
+      }
+    });
+
+    const send = h.adapter.sendMessageToSession(id, 'follow-up');
+    const tick = new Promise<'held'>((resolve) => setImmediate(() => resolve('held')));
+    const outcome = await Promise.race([
+      send.then(() => 'admitted' as const, () => 'rejected' as const),
+      tick,
+    ]);
+    try {
+      expect(outcome).toBe('admitted');
+    } finally {
+      release.resolve();
+      await published;
+      await Promise.resolve();
+      await send.catch(() => undefined);
+      await tick;
+      await h.adapter.dispose();
+      expect(h.ports.logger.error).toHaveBeenCalledWith(
+        '[CodexChatAdapter] Follow-up publisher failed after admission.',
+        expect.any(Error),
+      );
+    }
   });
 
   it('logs a rejected follow-up option through failure', async () => {
@@ -697,6 +821,7 @@ describe('CodexChatAdapter', () => {
     // The tracked session and the metadata save never see the secrets map:
     // a turn through the session carries only its input, a save only identity.
     await first.adapter.sendMessageToSession(id, 'follow-up');
+    await waitFor(() => first.adapter.canSendFollowUp(id));
     expect(second.context.startTurn).toHaveBeenLastCalledWith(
       expect.objectContaining({ text: 'follow-up', attachments: [] }),
     );
@@ -1018,7 +1143,7 @@ describe('CodexChatAdapter', () => {
     await adapter.interruptSession(id);
   });
   it('blocks overlapping turns and follow-ups after a failed interrupt', async () => {
-    const { adapter, context } = setup();
+    const { adapter, context, ports } = setup();
     context.events.mockImplementation(() =>
       (async function* () {
         yield {
@@ -1047,16 +1172,44 @@ describe('CodexChatAdapter', () => {
       /* Finish the interrupted turn. */
     }
     expect(adapter.canSendFollowUp(id)).toBe(true);
-    await expect(
-      adapter.sendMessageToSession(id, 'next'),
-    ).resolves.toBeUndefined();
-    await adapter.interruptSession(id);
+    const release = deferred<void>();
+    context.events.mockImplementation(() => (async function* () {
+      await release.promise;
+      yield terminal;
+    })());
+    let finishPublish: () => void = () => undefined;
+    const published = new Promise<void>((resolve) => {
+      finishPublish = resolve;
+    });
+    // Capture the implementation, not the mock: mockImplementation replaces
+    // what the same jest.fn would call, so calling the mock would recurse.
+    const originalPublish = jest.mocked(ports.publish).getMockImplementation();
+    jest.mocked(ports.publish).mockImplementation(async (...args) => {
+      try {
+        await originalPublish?.(...args);
+      } finally {
+        finishPublish();
+      }
+    });
+    try {
+      await expect(
+        adapter.sendMessageToSession(id, 'next'),
+      ).resolves.toBeUndefined();
+      await expect(adapter.interruptSession(id)).rejects.toMatchObject({
+        code: 'runtime-failed',
+      });
+      expect(adapter.isSessionActive(id)).toBe(false);
+    } finally {
+      release.resolve();
+      await published;
+    }
   });
   it('keeps the thread when a matching token arrives after a completed turn stream', async () => {
     const { adapter, context, dispose, lifecycle } = setup();
     const stream = await adapter.startChatSession({ tabId });
     for await (const event of stream) void event;
     await adapter.sendMessageToSession(id, 'follow-up');
+    await waitFor(() => adapter.canSendFollowUp(id));
     const token = adapter.getSessionToken(id);
     if (!token) throw new Error('Expected a token for the active session');
 
@@ -1069,6 +1222,7 @@ describe('CodexChatAdapter', () => {
     expect(lifecycle.closed).not.toHaveBeenCalled();
 
     await adapter.sendMessageToSession(id, 'third');
+    await waitFor(() => adapter.canSendFollowUp(id));
     expect(context.startTurn).toHaveBeenCalledTimes(3);
 
     adapter.endSession(id);
@@ -1697,6 +1851,7 @@ it('cancels an approval on Stop and keeps the thread for a send and compact', as
   expect(adapter.canSendFollowUp(id)).toBe(true);
   context.events.mockImplementation(() => (async function* () { yield terminal; })());
   await adapter.sendMessageToSession(id, 'next');
+  await waitFor(() => adapter.canSendFollowUp(id));
   await adapter.executeSlashCommand(id, '/compact', {});
   expect(context.compact).toHaveBeenCalledTimes(1);
   expect(open).toHaveBeenCalledTimes(1);

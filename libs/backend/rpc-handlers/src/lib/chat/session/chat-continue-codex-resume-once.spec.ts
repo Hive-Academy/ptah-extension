@@ -9,6 +9,22 @@
 
 import 'reflect-metadata';
 
+import { container } from 'tsyringe';
+import { Logger } from '@ptah-extension/vscode-core';
+import { createMockLogger } from '@ptah-extension/shared/testing';
+import {
+  CODEX_RUNTIME_TOKENS,
+  CodexParityGate,
+  type CodexContext,
+  type CodexDevRouteOverride,
+  type CodexExecutionProfile,
+} from '@ptah-extension/codex-runtime';
+import {
+  CodexChatAdapter,
+  SessionTurnStateRegistry,
+  type CodexChatAdapterPorts,
+} from '@ptah-extension/agent-sdk';
+
 jest.mock('@ptah-extension/workspace-intelligence', () => ({
   ProjectType: {},
   Framework: {},
@@ -37,7 +53,7 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
   ContextEnrichmentService: class ContextEnrichmentServiceStub {},
 }));
 
-import type { ChatContinueParams, SessionId } from '@ptah-extension/shared';
+import type { ChatContinueParams, FlatStreamEventUnion, SessionId } from '@ptah-extension/shared';
 import { ChatSessionService } from './chat-session.service';
 
 const OPEN_FOLDER = '/c/projects/qa3elhamor';
@@ -161,6 +177,178 @@ function params(prompt: string): ChatContinueParams {
 }
 
 describe('chat:continue Codex resume delivers the follow-up once', () => {
+  async function liveAdapterHarness() {
+    const h = harness('codex-app-server', true, false);
+    const publishedEvents: FlatStreamEventUnion[] = [];
+    const chatErrors: Error[] = [];
+    const scope = container.createChildContainer();
+    const identity = {
+      contextId: 'context',
+      threadId: SESSION_ID,
+      processGeneration: 1,
+      normalizedHome: '/home',
+      workspaceId: OPEN_FOLDER,
+      providerId: 'openai-codex',
+      profileFingerprint: 'fingerprint',
+    };
+    const profile: CodexExecutionProfile = {
+      ...identity,
+      consumer: 'chat',
+      cwd: OPEN_FOLDER,
+      model: 'gpt',
+      permissionLevel: 'ask',
+      approvalPolicy: 'on-request',
+      sandboxPolicy: { mode: 'read-only', networkAccess: false, writableRoots: [] },
+      instructionSources: [],
+      mcpServers: [],
+      attachments: [],
+    };
+    const terminal = {
+      ...identity,
+      turnId: 'turn',
+      sequence: 1,
+      type: 'terminal' as const,
+      status: 'completed' as const,
+    };
+    let releaseTurn: () => void = () => undefined;
+    const turnHeld = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    let finishPublish: () => void = () => undefined;
+    const published = new Promise<void>((resolve) => {
+      finishPublish = resolve;
+    });
+    const context: jest.Mocked<CodexContext> = {
+      identity,
+      turnPermissionLevel: profile.permissionLevel,
+      listModels: jest.fn(async () => []),
+      events: jest.fn<
+        ReturnType<CodexContext['events']>,
+        Parameters<CodexContext['events']>
+      >(() => (async function* () { yield terminal; })()),
+      startTurn: jest.fn<
+        ReturnType<CodexContext['startTurn']>,
+        Parameters<CodexContext['startTurn']>
+      >(async () => ({ threadId: SESSION_ID, turnId: 'turn', revision: 1 })),
+      steer: jest.fn<
+        ReturnType<CodexContext['steer']>,
+        Parameters<CodexContext['steer']>
+      >(async () => ({ threadId: SESSION_ID, turnId: 'turn', revision: 2 })),
+      interrupt: jest.fn<
+        ReturnType<CodexContext['interrupt']>,
+        Parameters<CodexContext['interrupt']>
+      >(async () => true),
+      updateNextTurn: jest.fn<
+        ReturnType<CodexContext['updateNextTurn']>,
+        Parameters<CodexContext['updateNextTurn']>
+      >(async () => ({ timing: 'nextTurn' as const, revision: 2 })),
+      compact: jest.fn(async () => undefined),
+      close: jest.fn(async () => undefined),
+    };
+    scope.register(CODEX_RUNTIME_TOKENS.ParityGate, { useValue: new CodexParityGate() });
+    scope.register(CODEX_RUNTIME_TOKENS.DevRouteOverride, {
+      useFactory: (): CodexDevRouteOverride => ({
+        consumers: ['chat'], source: 'PTAH_CODEX_RUNTIME_DEV',
+      }),
+    });
+    scope.register(CODEX_RUNTIME_TOKENS.Logger, { useValue: { warn: jest.fn() } });
+    scope.register(CODEX_RUNTIME_TOKENS.Runtime, {
+      useValue: { open: jest.fn(async () => context) },
+    });
+    const ports: CodexChatAdapterPorts = {
+      logger: Object.assign(Object.create(Logger.prototype), createMockLogger()),
+      platform: { platform: 'win32', arch: 'x64' },
+      info: {
+        id: 'ptah-cli', name: 'Codex', vendor: 'OpenAI', version: '1',
+        description: 'Native chat',
+        capabilities: {
+          streaming: true, fileAttachments: true, contextManagement: true,
+          sessionPersistence: true, multiTurn: true, codeGeneration: true,
+          imageAnalysis: true, functionCalling: true,
+        },
+      },
+      checkOptions: jest.fn(),
+      profile: async () => ({ profile }),
+      createScope: () => ({ container: scope, dispose: async () => { await scope.dispose(); } }),
+      metadata: { save: async () => undefined, completedTurn: async () => undefined },
+      approvals: {
+        register: () => () => undefined,
+        respond: () => false,
+        cancelPrompt: () => undefined,
+      },
+      presentation: { present: jest.fn(), dismiss: jest.fn(), cancelPrompt: jest.fn() },
+      replacement: { validateReplacement: jest.fn(), failed: jest.fn() },
+      callbacks: () => ({
+        result: jest.fn(), content: jest.fn(), live: jest.fn(),
+        compaction: jest.fn(), error: jest.fn(),
+      }),
+      publish: async (_id, stream) => {
+        h.startStream();
+        try {
+          for await (const event of stream) publishedEvents.push(event);
+        } catch (error) {
+          // The host has already published the failure notice in the stream.
+          if (error instanceof Error && 'webviewReported' in error &&
+              error.webviewReported === true) return;
+          chatErrors.push(error instanceof Error ? error : new Error(String(error)));
+        } finally {
+          h.completeStream();
+          finishPublish();
+        }
+      },
+    };
+    const adapter = new CodexChatAdapter(ports, new SessionTurnStateRegistry());
+    const first = await adapter.startChatSession({ tabId: TAB_ID as SessionId });
+    for await (const event of first) void event;
+    context.events.mockImplementation(() => (async function* () {
+      await turnHeld;
+      yield terminal;
+    })());
+    Object.defineProperty(h.service, 'sdkAdapter', { value: adapter, configurable: true });
+
+    return { h, context, adapter, releaseTurn, published, publishedEvents, chatErrors };
+  }
+
+  it('returns enqueued while a real Codex adapter is still publishing the follow-up', async () => {
+    const { h, adapter, releaseTurn, published } = await liveAdapterHarness();
+    const reply = h.service.continueSession(params('long running follow-up'));
+    const tick = new Promise<'held'>((resolve) => setImmediate(() => resolve('held')));
+    const outcome = await Promise.race([reply, tick]);
+    try {
+      expect(outcome).toEqual({ success: true, sessionId: SESSION_ID, enqueued: true });
+      expect(adapter.canSendFollowUp(SESSION_ID)).toBe(false);
+    } finally {
+      releaseTurn();
+      await reply.catch(() => undefined);
+      await published;
+      await tick;
+      await adapter.dispose();
+    }
+  });
+
+  it('settles a refused turn/start with one notice and no RPC delivery failure', async () => {
+    const { h, context, adapter, releaseTurn, publishedEvents, chatErrors } =
+      await liveAdapterHarness();
+    context.startTurn.mockRejectedValueOnce(new Error('turn/start refused'));
+    try {
+      await expect(h.service.continueSession(params('refused follow-up'))).resolves.toEqual({
+        success: true,
+        sessionId: SESSION_ID,
+        settled: true,
+      });
+      expect(publishedEvents.filter((event) =>
+        event.eventType === 'text_delta' && event.delta === 'Codex reported a runtime error.',
+      )).toHaveLength(1);
+      expect(publishedEvents.filter((event) =>
+        event.eventType === 'turn_state' && event.phase === 'failed',
+      )).toHaveLength(1);
+      expect(chatErrors).toHaveLength(0);
+    } finally {
+      releaseTurn();
+      await adapter.dispose();
+    }
+  });
+
   it('(a) resumes an inactive Codex session once with prompt, files, and images', async () => {
     const h = harness('codex-app-server', false);
 
@@ -231,8 +419,7 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
 
   it('returns settled after a failed Codex stream was consumed by the send', async () => {
     const h = harness('codex-app-server', true, false);
-    // Native publish resolves after the broadcaster consumed the notice and
-    // failed terminal state, even though it caught the stream rejection.
+    // A fast native turn can settle before the admitted send reply is handled.
     h.sendMessageToSession.mockImplementation(async () => {
       h.startStream();
       h.completeStream();
@@ -287,17 +474,18 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
     const reply = h.service.continueSession(params('follow up'));
     // A reply held until the turn ends loses this race instead of deadlocking.
     const held = 'held until the turn ended';
-    const outcome = await Promise.race([
-      reply,
-      new Promise<string>((resolve) => setImmediate(() => resolve(held))),
-    ]);
-    finishBroadcast();
-    await reply;
-
-    // The renderer re-arms streaming; the turn's terminal state settles it.
-    expect(outcome).toEqual({ success: true, sessionId: SESSION_ID });
-    expect(h.resumeSession).toHaveBeenCalledTimes(1);
-    expect(h.sendMessageToSession).not.toHaveBeenCalled();
+    const tick = new Promise<string>((resolve) => setImmediate(() => resolve(held)));
+    try {
+      const outcome = await Promise.race([reply, tick]);
+      // Resume has no clientMessageId, so this retires the pending prompt.
+      expect(outcome).toEqual({ success: true, sessionId: SESSION_ID });
+      expect(h.resumeSession).toHaveBeenCalledTimes(1);
+      expect(h.sendMessageToSession).not.toHaveBeenCalled();
+    } finally {
+      finishBroadcast();
+      await reply.catch(() => undefined);
+      await tick;
+    }
   });
 
   it('returns settled when a resumed Codex turn ends before the continue reply', async () => {

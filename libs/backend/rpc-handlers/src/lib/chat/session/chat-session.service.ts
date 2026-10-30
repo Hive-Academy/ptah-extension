@@ -1253,7 +1253,8 @@ export class ChatSessionService {
       // Claude resume ignores them, so only that Codex turn skips the second send.
       if (promptDelivered) {
         // The resumed native turn may have finished while slash routing and
-        // prompt context were prepared. Do not re-arm an ended stream.
+        // prompt context were prepared. A running resume has no clientMessageId,
+        // so omit enqueued to retire the pending prompt when the UI re-arms.
         return this.streamBroadcaster.isStreaming(sessionId as string)
           ? { success: true, sessionId }
           : { success: true, sessionId, settled: true };
@@ -1297,10 +1298,8 @@ export class ChatSessionService {
         clientMessageId: params.clientMessageId,
       });
 
-      // Native publish awaits the complete broadcaster loop. The terminal
-      // chunk can be painted before this RPC reply, so an enqueued reply would
-      // put the settled tab back into streaming. Claude's long-lived loop is
-      // still attached when its send resolves.
+      // The native send now resolves at turn/start admission. A fast terminal
+      // can still arrive before this reply, so do not re-arm an ended stream.
       if (
         nativeFollowUp &&
         !this.streamBroadcaster.isStreaming(sessionId as string) &&

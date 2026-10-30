@@ -47,6 +47,7 @@ import {
   type TrackedSession,
 } from './codex-chat-session-controls';
 import { z } from 'zod';
+import { publishUntilAdmitted, type CodexChatAdmission } from './codex-chat-admission';
 
 export interface CodexChatMetadataPort {
   save(
@@ -484,14 +485,18 @@ export class CodexChatAdapter implements NativeChatAdapter {
     session: Session,
     input: CodexTurnInput,
     clientMessageId?: string,
+    admission?: CodexChatAdmission,
   ): Promise<void> {
-    const iterator = this.turn(session, input, clientMessageId)[Symbol.asyncIterator]();
+    const iterator = this.turn(session, input, clientMessageId, admission)[Symbol.asyncIterator]();
     try {
       await this.safe('publish', () =>
         this.ports.publish(session.id, {
           [Symbol.asyncIterator]: () => iterator,
         }),
       );
+    } catch (error) {
+      admission?.rejected(error);
+      throw error;
     } finally {
       await iterator.return?.();
     }
@@ -525,6 +530,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     session: Session,
     input: CodexTurnInput,
     clientMessageId?: string,
+    admission?: CodexChatAdmission,
   ): AsyncIterable<FlatStreamEventUnion> {
     if (session.busy) throw new CodexChatAdapterError('busy', 'turn');
     if (session.blocked || session.closing)
@@ -540,6 +546,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       notifyCompaction: (active, trigger) => this.notifyCompaction(active, trigger),
       error: (code, operation) => new CodexChatAdapterError(code, operation),
       failure: (error, operation) => this.failure(error, operation),
+      admission,
     }, clientMessageId);
   }
   async sendMessageToSession(
@@ -564,7 +571,11 @@ export class CodexChatAdapter implements NativeChatAdapter {
         ...image,
       })),
     ];
-    await this.publish(this.session(id), { text, attachments }, clientMessageId);
+    const session = this.session(id);
+    await publishUntilAdmitted(
+      (admission) => this.publish(session, { text, attachments }, clientMessageId, admission),
+      this.ports.logger,
+    );
   }
   owns(id: SessionId): boolean {
     return this.controls.owns(id);

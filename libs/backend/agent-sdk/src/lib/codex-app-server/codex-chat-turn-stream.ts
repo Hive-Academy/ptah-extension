@@ -20,6 +20,7 @@ import {
   isCodexChatAdapterError,
 } from './codex-chat-adapter-error';
 import type { CodexChatApprovalSink } from './codex-chat-approval-sink';
+import type { CodexChatAdmission } from './codex-chat-admission';
 import {
   CodexChatEvents,
   tokenUsage,
@@ -102,6 +103,7 @@ interface CodexChatTurnDependencies {
     operation: string,
   ): CodexChatAdapterError;
   failure(error: unknown, operation: string): CodexChatAdapterError;
+  readonly admission?: CodexChatAdmission;
 }
 
 export async function* streamCodexChatTurn(
@@ -143,6 +145,7 @@ export async function* streamCodexChatTurn(
   let failureNoticeEmitted = false;
   let terminalStateEmitted = false;
   let compactionActive = false;
+  let admitted = false;
   let finishCompaction: (() => void) | undefined;
   try {
     if (session.abort.signal.aborted) throw deps.error('cancelled', 'turn');
@@ -153,6 +156,8 @@ export async function* streamCodexChatTurn(
       signal: subscription.signal,
     });
     session.turnId = receipt.turnId;
+    admitted = true;
+    deps.admission?.accepted();
     const turn = { ...session.context.identity, turnId: receipt.turnId };
     const callbacks = deps.callbacks(session.id, turn);
     finishCompaction = () => {
@@ -380,11 +385,17 @@ export async function* streamCodexChatTurn(
     } else if (session.stopRequested && !terminal && !session.closing) {
       await deps.close(session);
     }
-    throw interrupted ? failure : new CodexChatAdapterError(
+    const reported = interrupted ? failure : new CodexChatAdapterError(
       failure.code,
       failure.operation,
       { cause: failure, webviewReported: true },
     );
+    // The notice and failed turn state are already in the stream. Let the
+    // broadcaster finish before the RPC takes its settled reply path.
+    if (!admitted && !interrupted && session.consumer === 'chat')
+      deps.admission?.ended();
+    else if (!admitted) deps.admission?.rejected(reported);
+    throw reported;
   } finally {
     finishCompaction?.();
     // A consumer can detach between message_complete and its settlement event.

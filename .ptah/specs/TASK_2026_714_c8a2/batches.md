@@ -4548,3 +4548,9 @@ behaviour unchanged.
   while the turn still runs. Fix in the backend translation layer: resolve the Codex send at
   turn admission (like Claude's enqueue), keep pre-admission errors thrown; the 8r-5 settled
   check then covers a turn that ends before the reply. Planned as batch 8r-6 (codex -> grok).
+- Batch 8r-6 (codex -> grok/Kimi): G9. The Codex send resolves at turn/start admission
+  (codex-chat-admission.ts); the broadcaster continues; a later publisher rejection is logged.
+  Running live follow-up -> `enqueued: true`; running resume -> `{ success, sessionId }`;
+  ended before reply -> `settled: true`; turn/start refusal -> one notice, `settled`.
+  review-8r-6.md REVISE 7/10 (grok: resume flag, double surface on refusal) -> revise 1 ->
+  review-8r-6-revise-1.md APPROVE 9/10 (Kimi; grok weekly at 95%).

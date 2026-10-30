@@ -450,10 +450,19 @@ describe('Codex chat turn lifecycle', () => {
       })(),
     );
     const second: FlatStreamEventUnion[] = [];
+    let finishPublish: () => void = () => undefined;
+    const published = new Promise<void>((resolve) => {
+      finishPublish = resolve;
+    });
     jest.mocked(h.ports.publish).mockImplementation(async (_id, stream) => {
-      second.push(...(await collect(stream)));
+      try {
+        second.push(...(await collect(stream)));
+      } finally {
+        finishPublish();
+      }
     });
     await h.adapter.sendMessageToSession(id, 'again');
+    await published;
     const lastState = first
       .filter((event) => event.eventType === 'turn_state')
       .at(-1);
