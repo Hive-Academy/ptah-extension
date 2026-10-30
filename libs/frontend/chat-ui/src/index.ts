@@ -134,7 +134,10 @@ export {
 } from './lib/molecules/setup-plugins/installed-mcp-groups';
 export { removeInstalledGroup } from './lib/molecules/setup-plugins/installed-mcp-removal';
 export { MARKETPLACE_RPC_TIMEOUTS } from './lib/molecules/setup-plugins/marketplace-rpc-timeouts';
-export { PluginCatalogPanelComponent } from './lib/molecules/setup-plugins/plugin-catalog-panel.component';
+export {
+  PLUGIN_SAVE_APPLIES_NOTICE,
+  PluginCatalogPanelComponent,
+} from './lib/molecules/setup-plugins/plugin-catalog-panel.component';
 export {
   LAUNCHER_IDS,
   PROMPT_CATALOGUE,
