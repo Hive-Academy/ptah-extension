@@ -30,6 +30,13 @@ export const ReviewPayloadSchema = z
   })
   .strict();
 
+export function deterministicReviewReportId(
+  reviewedRunId: string,
+  reviewerRunId: string,
+): string {
+  return `review:${reviewedRunId}|${reviewerRunId}`;
+}
+
 type DeliverableCheck = z.infer<
   typeof DeliverablesPayloadSchema
 >['checks'][number];

@@ -1,4 +1,4 @@
-import type { LaneOutcomeRecord } from '@ptah-extension/shared';
+import type { LaneOutcomeRecord, OutcomeTaskKind } from '@ptah-extension/shared';
 import type {
   SqliteConnectionService,
   SqliteDatabase,
@@ -27,6 +27,7 @@ const columns = [
   ['model', 'model'],
   ['role', 'role'],
   ['taskKind', 'task_kind'],
+  ['taskKindSource', 'task_kind_source'],
   ['taskId', 'task_id'],
   ['verdict', 'verdict'],
   ['failureClass', 'failure_class'],
@@ -284,6 +285,54 @@ export class SqliteLaneOutcomeStore implements LaneOutcomeStore {
           .run(...this.values(row).slice(1), Date.now(), runId).changes > 0
       );
     })();
+  }
+
+  async setClassifiedTaskKind(
+    runId: string,
+    kind: OutcomeTaskKind,
+  ): Promise<boolean> {
+    return (
+      this.db
+        .prepare(
+          "UPDATE lane_outcome_records SET task_kind = ?, task_kind_source = 'classified', updated_at = ? WHERE run_id = ? AND task_kind IS NULL AND (task_kind_source IS NULL OR task_kind_source = 'unclassified')",
+        )
+        .run(kind, Date.now(), runId).changes > 0
+    );
+  }
+
+  async fillMissingSubagentJoin(
+    runId: string,
+    join: {
+      readonly subagentSessionId: string | null;
+      readonly parentSessionId: string | null;
+      readonly workspaceRoot: string | null;
+    },
+  ): Promise<boolean> {
+    return (
+      this.db
+        .prepare(
+          `UPDATE lane_outcome_records SET
+            subagent_session_id = COALESCE(subagent_session_id, ?),
+            parent_session_id = COALESCE(parent_session_id, ?),
+            workspace_root = COALESCE(workspace_root, ?),
+            updated_at = ?
+          WHERE run_id = ? AND (
+            (subagent_session_id IS NULL AND ? IS NOT NULL) OR
+            (parent_session_id IS NULL AND ? IS NOT NULL) OR
+            (workspace_root IS NULL AND ? IS NOT NULL)
+          )`,
+        )
+        .run(
+          join.subagentSessionId,
+          join.parentSessionId,
+          join.workspaceRoot,
+          Date.now(),
+          runId,
+          join.subagentSessionId,
+          join.parentSessionId,
+          join.workspaceRoot,
+        ).changes > 0
+    );
   }
 
   async get(runId: string): Promise<LaneOutcomeRow | null> {

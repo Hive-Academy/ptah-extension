@@ -1,4 +1,4 @@
-import type { LaneOutcomeRecord } from '@ptah-extension/shared';
+import type { LaneOutcomeRecord, OutcomeTaskKind } from '@ptah-extension/shared';
 import { LaneOutcomeRowSchema } from '../lane-outcome.schema';
 import { applyOutcomeEffect } from './lane-outcome.store';
 import type {
@@ -134,6 +134,53 @@ export class InMemoryLaneOutcomeStore implements LaneOutcomeStore {
       runId,
       LaneOutcomeRowSchema.parse({ ...current, ...patch, runId }),
     );
+    return true;
+  }
+  async setClassifiedTaskKind(
+    runId: string,
+    kind: OutcomeTaskKind,
+  ): Promise<boolean> {
+    const row = this.rows.get(runId);
+    if (
+      !row ||
+      row.taskKind !== null ||
+      (row.taskKindSource !== null &&
+        row.taskKindSource !== undefined &&
+        row.taskKindSource !== 'unclassified')
+    )
+      return false;
+    this.rows.set(runId, {
+      ...row,
+      taskKind: kind,
+      taskKindSource: 'classified',
+    });
+    return true;
+  }
+  async fillMissingSubagentJoin(
+    runId: string,
+    join: {
+      readonly subagentSessionId: string | null;
+      readonly parentSessionId: string | null;
+      readonly workspaceRoot: string | null;
+    },
+  ): Promise<boolean> {
+    const row = this.rows.get(runId);
+    if (!row) return false;
+    const subagentSessionId = row.subagentSessionId ?? join.subagentSessionId;
+    const parentSessionId = row.parentSessionId ?? join.parentSessionId;
+    const workspaceRoot = row.workspaceRoot ?? join.workspaceRoot;
+    if (
+      subagentSessionId === (row.subagentSessionId ?? null) &&
+      parentSessionId === (row.parentSessionId ?? null) &&
+      workspaceRoot === (row.workspaceRoot ?? null)
+    )
+      return false;
+    this.rows.set(runId, {
+      ...row,
+      subagentSessionId,
+      parentSessionId,
+      workspaceRoot,
+    });
     return true;
   }
   async get(runId: string): Promise<LaneOutcomeRow | null> {

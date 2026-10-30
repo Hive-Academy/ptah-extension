@@ -27,6 +27,7 @@ function fixture(file = ':memory:') {
       lane_id TEXT NOT NULL, agent_id TEXT NOT NULL, family TEXT,
       subagent_session_id TEXT, parent_session_id TEXT, workspace_root TEXT,
       provider TEXT, model TEXT NOT NULL, role TEXT, task_kind TEXT,
+      task_kind_source TEXT,
       task_id TEXT, verdict TEXT NOT NULL, failure_class TEXT,
       budget_stopped INTEGER NOT NULL DEFAULT 0, started_at INTEGER,
       ended_at INTEGER NOT NULL, duration_ms INTEGER, input_tokens INTEGER,

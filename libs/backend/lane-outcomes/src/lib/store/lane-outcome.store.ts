@@ -46,7 +46,9 @@ export function applyOutcomeEffect(
   row: LaneOutcomeRecord,
   effect: OutcomeReportEffect,
 ): LaneOutcomeRecord {
-  if (effect.kind === 'deliverables')
+  if (effect.kind === 'deliverables') {
+    const explicitTaskKind =
+      effect.taskKind !== undefined && row.taskKindSource !== 'explicit';
     return {
       ...row,
       verdict:
@@ -55,10 +57,12 @@ export function applyOutcomeEffect(
           ? row.verdict
           : effect.verdict,
       deliverablesDeclaredAt: row.deliverablesDeclaredAt ?? effect.declaredAt,
-      taskKind: effect.taskKind ?? row.taskKind,
+      taskKind: explicitTaskKind ? effect.taskKind : row.taskKind,
+      taskKindSource: explicitTaskKind ? 'explicit' : (row.taskKindSource ?? null),
       taskId: effect.taskId ?? row.taskId,
       routingSource: effect.routingSource ?? row.routingSource,
     };
+  }
   if (effect.verdict === 'revise')
     return { ...row, reviseRounds: row.reviseRounds + 1 };
   return { ...row, finalReview: effect.verdict };
@@ -67,7 +71,7 @@ export function applyOutcomeEffect(
 export interface LaneOutcomeStore {
   /** True inserts a new run; false leaves its existing row intact. */
   insertIfAbsent(row: LaneOutcomeRecord): Promise<boolean>;
-  /** Returns whether the stop inserted, which held reports joined or were invalid, and whether a budget stop joined. */
+  /** Inserts any run row and joins that run's held reports; also returns invalid reports and budget-stop state. */
   insertStopWithHeldReports(
     row: LaneOutcomeRecord,
     nowMs: number,
@@ -91,6 +95,17 @@ export interface LaneOutcomeStore {
   ): Promise<'applied' | 'held' | 'duplicate'>;
   /** True updates an existing row; false tells the caller the run is missing. */
   update(runId: string, patch: Partial<LaneOutcomeRecord>): Promise<boolean>;
+  /** Sets a classified kind only while the row remains unclassified. */
+  setClassifiedTaskKind(runId: string, kind: OutcomeTaskKind): Promise<boolean>;
+  /** Fills only missing join identifiers; true when at least one field changed. */
+  fillMissingSubagentJoin(
+    runId: string,
+    join: {
+      readonly subagentSessionId: string | null;
+      readonly parentSessionId: string | null;
+      readonly workspaceRoot: string | null;
+    },
+  ): Promise<boolean>;
   /** Returns the run or null when the caller must treat it as missing. */
   get(runId: string): Promise<LaneOutcomeRow | null>;
   /** Returns the latest agent run or null when no run matches. */
