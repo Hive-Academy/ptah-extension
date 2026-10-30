@@ -8,6 +8,38 @@ import { WizardRpcService } from './wizard-rpc.service';
 describe('GenerationHandoffStore', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
+  it('ignores a late failure from a superseded guidance handoff', async () => {
+    let rejectFirst!: (error: Error) => void;
+    const startBoundGuidance = jest.fn()
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject; }))
+      .mockResolvedValueOnce({ accepted: { runId: 'new-run' } });
+    TestBed.configureTestingModule({ providers: [
+      GenerationHandoffStore,
+      { provide: TabManagerService, useValue: {
+        tabs: signal([{ id: 'agent' }]),
+        getWorkspaceTabs: () => [{ id: 'agent' }, { id: 'guidance' }],
+        findTabByIdAcrossWorkspaces: () => ({ workspacePath: '/ws', tab: {
+          id: 'guidance', workflow: 'setup-project-prompt', status: 'loaded',
+          streamingState: null, queuedContent: null, queuedOptions: null,
+        } }),
+        isTabStreaming: () => false,
+      } },
+      { provide: GenerationWorkflowLauncherService, useValue: {
+        open: jest.fn().mockResolvedValue({ outcome: 'landed', tabId: 'guidance' }),
+      } },
+      { provide: WizardRpcService, useValue: { startBoundGuidance } },
+    ] });
+    const store = TestBed.inject(GenerationHandoffStore);
+    const first = store.manualContinue('/ws');
+    await Promise.resolve();
+    expect(startBoundGuidance).toHaveBeenCalledTimes(1);
+    await store.manualContinue('/ws');
+    expect(store.outcome()).toBe('started');
+    rejectFirst(new Error('late failure'));
+    await first;
+    expect(store.outcome()).toBe('started');
+    expect(store.started()?.runId).toBe('new-run');
+  });
   it('uses one absolute deadline and cancels when the source tab closes', async () => {
     const open = jest
       .fn()
@@ -60,6 +92,7 @@ describe('GenerationHandoffStore', () => {
       }),
     );
     expect(store.outcome()).toBe('started');
+    expect(store.started()).toEqual({ tabId: 'guidance', workspacePath: '/ws', workflow: 'setup-project-prompt', runId: 'run' });
   });
 
   it('submits once from Start now and once from a later deadline without a mounted shell', async () => {
@@ -97,6 +130,7 @@ describe('GenerationHandoffStore', () => {
     store.schedule('agent', '/ws');
     await store.startNow();
     expect(store.outcome()).toBe('started');
+    expect(store.started()?.runId).toBe('run');
     await jest.advanceTimersByTimeAsync(5000);
     expect(startBoundGuidance).toHaveBeenCalledTimes(1);
     store.schedule('agent', '/ws');

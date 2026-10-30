@@ -76,3 +76,15 @@
 - **Elapsed "-1s" (coordinator correction):** `now` was set at construction and `openedAt` at
   run start. startClock now sets both to the same time, and elapsedSeconds clamps at 0.
   Regression test added. Reviewed by Grok (a different family from the coordinator).
+
+## B3b
+- **Phase 1 (state layer):** implementer Codex; reviewer in-process Claude code-logic-reviewer
+  (different family). Initial REVISE 6/10 → revise 1 REVISE 8/10 (new: transient lookup failure
+  latched as mismatch) → revise 2 APPROVED 9/10.
+- **Carry to Phase 2 pages:** (a) review finding 5: A4 rebind order `?run` → handoff `started()`
+  (compare `started().tabId` with the page tab) → authoritative run; no second `runWizard`;
+  auto-start only when no run exists and outcome is not `manual-recovery`. (b) Re-review rev 1
+  N3: a cleared `started()` while `manualContinue` is in flight is not "no run". (c) Re-review
+  rev 2 Moderate: after 3 failed expected-run lookups the store goes silent. Phase 2 adds a
+  `lookupExhausted` signal (store, with a spec for the fourth failure) and the page shows an
+  error with Retry.

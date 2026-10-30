@@ -32,6 +32,8 @@ export { GenerationWorkflowStore } from './lib/services/generation-workflow.stor
 export type { GenerationViewState } from './lib/services/generation-workflow.store';
 export { safeFailureCopy } from './lib/utils/safe-failure-copy';
 export { GenerationHandoffStore } from './lib/services/generation-handoff.store';
+export { GuidanceGenerationStore } from './lib/services/guidance-generation.store';
+export { GuidanceResultPanelComponent } from './lib/components/guidance-result-panel.component';
 export { GenerationRunEventAdapter } from './lib/services/generation-run-event-adapter';
 export { SetupGenerationOpenHandler } from './lib/services/setup-generation-open.handler';
 export { WelcomeComponent } from './lib/components/welcome.component';
