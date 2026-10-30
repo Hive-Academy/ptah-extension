@@ -18,7 +18,27 @@ const onboardingFlagSchema = z.strictObject({
   shownAt: z.iso.datetime().optional(),
   dismissedAt: z.iso.datetime().optional(),
   completedAt: z.iso.datetime().optional(),
+  // Parsed on its own by `readySchema`; a malformed value is dropped, never
+  // costing the top-level fields.
+  ready: z.unknown().optional(),
 });
+
+/** The Get ready pre-step progress slice. Lenient: invalid reads as `{}`. */
+const readySchema = z.object({
+  claudeAt: z.iso.datetime().optional(),
+  settingsAt: z.iso.datetime().optional(),
+  skippedAt: z.iso.datetime().optional(),
+});
+
+/** Get ready pre-step progress (spec 12.D1). */
+export interface OnboardingReadyFlag {
+  /** Stage 1 was left by Continue while Claude Code was ready. */
+  readonly claudeAt?: string;
+  /** Stage 2 was left by "Continue to setup". */
+  readonly settingsAt?: string;
+  /** Either stage was left by "Continue anyway" or "Skip for now" (latest wins). */
+  readonly skippedAt?: string;
+}
 
 export interface OnboardingFlag {
   /** When the automatic first-run redirect landed on onboarding. */
@@ -27,7 +47,11 @@ export interface OnboardingFlag {
   readonly dismissedAt?: string;
   /** When an Analyze run reached Done or a harness apply succeeded. */
   readonly completedAt?: string;
+  /** Get ready pre-step progress; absent on records written before it. */
+  readonly ready?: OnboardingReadyFlag;
 }
+
+type TopLevelField = Exclude<keyof OnboardingFlag, 'ready'>;
 
 type FlagRead =
   | { readonly kind: 'ok'; readonly flag: OnboardingFlag }
@@ -100,6 +124,18 @@ export class OnboardingFlagService {
   }
 
   /**
+   * Stamp one Get ready pre-step field. A failed write is swallowed and does
+   * not suppress the redirect: `ready` never affects eligibility.
+   */
+  markReady(key: keyof OnboardingReadyFlag): void {
+    const now = new Date().toISOString();
+    this.write(
+      (flag) => ({ ...flag, ready: { ...flag.ready, [key]: now } }),
+      key,
+    );
+  }
+
+  /**
    * Stamp `field` with the current time, merged into the record as stored
    * now. Returns whether the record was persisted.
    *
@@ -107,26 +143,37 @@ export class OnboardingFlagService {
    * behaves as if the write had succeeded. An unreadable stored record is
    * left untouched: it may belong to a newer build.
    */
-  private update(field: keyof OnboardingFlag): boolean {
+  private update(field: TopLevelField): boolean {
     const now = new Date().toISOString();
+    return this.write((flag) => ({ ...flag, [field]: now }), field);
+  }
+
+  /** Apply `change` to the record as stored now and persist it. */
+  private write(
+    change: (flag: OnboardingFlag) => OnboardingFlag,
+    field: string,
+  ): boolean {
     if (!this._storageAvailable()) {
-      this._flag.update((flag) => ({ ...flag, [field]: now }));
+      this._flag.update(change);
       return false;
     }
     const read = this.read();
     if (read.kind === 'unreadable') {
       this.readable = false;
-      this._flag.update((flag) => ({ ...flag, [field]: now }));
+      this._flag.update(change);
       this.logger.warn(
         LOG_CONTEXT,
         'Stored onboarding record is unreadable; not overwriting it',
       );
       return false;
     }
-    const next: OnboardingFlag = { ...read.flag, [field]: now };
+    const next = change(read.flag);
     this._flag.set(next);
     try {
-      globalThis.localStorage.setItem(ONBOARDING_FLAG_KEY, JSON.stringify(next));
+      globalThis.localStorage.setItem(
+        ONBOARDING_FLAG_KEY,
+        JSON.stringify(next),
+      );
       return true;
     } catch (error: unknown) {
       this.logger.warn(LOG_CONTEXT, 'Could not persist the onboarding record', {
@@ -142,9 +189,17 @@ export class OnboardingFlagService {
       const raw = globalThis.localStorage.getItem(ONBOARDING_FLAG_KEY);
       if (raw === null) return { kind: 'ok', flag: {} };
       const parsed = onboardingFlagSchema.safeParse(JSON.parse(raw));
-      return parsed.success
-        ? { kind: 'ok', flag: parsed.data }
-        : { kind: 'unreadable' };
+      if (!parsed.success) return { kind: 'unreadable' };
+      const { ready, ...topLevel } = parsed.data;
+      if (ready === undefined) return { kind: 'ok', flag: topLevel };
+      const readyParsed = readySchema.safeParse(ready);
+      return {
+        kind: 'ok',
+        flag: {
+          ...topLevel,
+          ready: readyParsed.success ? readyParsed.data : {},
+        },
+      };
     } catch {
       // degradation-audit: reported - an unreadable record (storage throws or
       // invalid JSON) makes the first-run redirect ineligible; the caller

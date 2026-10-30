@@ -18,7 +18,8 @@ import { OnboardingRunPillService } from './onboarding-run-pill.service';
  * page outlet and the one polite status region.
  *
  * On Home the breadcrumb is "Back to chat", which dismisses onboarding. On
- * every other page its first crumb returns to Home.
+ * every other page its first crumb returns to Home, followed by the page
+ * route's `data.crumb` when it has one ("Onboarding / Get ready").
  */
 @Component({
   selector: 'ptah-onboarding-shell',
@@ -51,6 +52,12 @@ import { OnboardingRunPillService } from './onboarding-run-pill.service';
               data-testid="onboarding-crumb-home"
               >Onboarding</a
             >
+            @if (crumb(); as crumb) {
+              <span class="text-base-content-muted" aria-hidden="true">/</span>
+              <span aria-current="page" data-testid="onboarding-crumb-page">{{
+                crumb
+              }}</span>
+            }
           }
         </nav>
         @if (runPill.label(); as label) {
@@ -89,10 +96,15 @@ export class OnboardingShellComponent {
 
   /** Whether the outlet shows Home (the bare `/onboarding` route). */
   protected readonly onHome = signal(true);
+  /** The second crumb, from the active child route's `data.crumb`. */
+  protected readonly crumb = signal<string | null>(null);
 
   /** A new page is in the outlet: update the crumb and focus its h1. */
   protected onPageActivated(): void {
-    this.onHome.set(this.route.firstChild?.routeConfig?.path === '');
+    const child = this.route.firstChild;
+    this.onHome.set(child?.routeConfig?.path === '');
+    const crumb: unknown = child?.snapshot.data['crumb'];
+    this.crumb.set(typeof crumb === 'string' ? crumb : null);
     this.focus.focusHeading(this.host.nativeElement);
   }
 

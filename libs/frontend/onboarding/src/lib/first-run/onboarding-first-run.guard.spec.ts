@@ -10,7 +10,11 @@ import {
 } from '@angular/router';
 import { LoggingService, VSCodeService } from '@ptah-extension/core';
 import { filter, take } from 'rxjs';
-import { ONBOARDING_FLAG_KEY, OnboardingFlagService } from './onboarding-flag.service';
+import {
+  ONBOARDING_FLAG_KEY,
+  OnboardingFlagService,
+  type OnboardingFlag,
+} from './onboarding-flag.service';
 import { onboardingFirstRunGuard } from './onboarding-first-run.guard';
 import { OnboardingFirstRunTracker } from './onboarding-first-run.tracker';
 
@@ -31,6 +35,7 @@ describe('onboardingFirstRunGuard', () => {
   describe('decision', () => {
     let recordRedirect: jest.Mock<void, [number]>;
     let isFirstRunEligible: jest.Mock<boolean, []>;
+    let flag: jest.Mock<OnboardingFlag, []>;
 
     function runGuard(
       isElectron: boolean,
@@ -40,7 +45,10 @@ describe('onboardingFirstRunGuard', () => {
         providers: [
           provideRouter([]),
           { provide: VSCodeService, useValue: { isElectron } },
-          { provide: OnboardingFlagService, useValue: { isFirstRunEligible } },
+          {
+            provide: OnboardingFlagService,
+            useValue: { isFirstRunEligible, flag },
+          },
           { provide: OnboardingFirstRunTracker, useValue: { recordRedirect } },
         ],
       });
@@ -62,16 +70,38 @@ describe('onboardingFirstRunGuard', () => {
     beforeEach(() => {
       recordRedirect = jest.fn<void, [number]>();
       isFirstRunEligible = jest.fn<boolean, []>().mockReturnValue(true);
+      flag = jest.fn<OnboardingFlag, []>().mockReturnValue({});
     });
 
-    it('redirects an eligible Electron boot to /onboarding and records the navigation', () => {
+    it('redirects an eligible Electron boot with an empty ready to /onboarding/ready and records the navigation', () => {
       const result = runGuard(true);
 
       expect(result).toBeInstanceOf(UrlTree);
       expect(TestBed.inject(Router).serializeUrl(result as UrlTree)).toBe(
-        '/onboarding',
+        '/onboarding/ready',
       );
       expect(recordRedirect).toHaveBeenCalledWith(42);
+    });
+
+    it.each([
+      ['claudeAt', { claudeAt: '2026-10-01T10:00:00.000Z' }],
+      ['skippedAt', { skippedAt: '2026-10-01T10:00:00.000Z' }],
+    ])('redirects to Home when ready.%s is set', (_key, ready) => {
+      flag.mockReturnValue({ ready });
+      const result = runGuard(true);
+      expect(TestBed.inject(Router).serializeUrl(result as UrlTree)).toBe(
+        '/onboarding',
+      );
+    });
+
+    it('still targets stage 1 when only ready.settingsAt is set', () => {
+      flag.mockReturnValue({
+        ready: { settingsAt: '2026-10-01T10:00:00.000Z' },
+      });
+      const result = runGuard(true);
+      expect(TestBed.inject(Router).serializeUrl(result as UrlTree)).toBe(
+        '/onboarding/ready',
+      );
     });
 
     it('returns true without recording when no navigation is in flight', () => {
@@ -110,7 +140,13 @@ describe('onboardingFirstRunGuard', () => {
                 { path: ':tabId', children: [] },
               ],
             },
-            { path: 'onboarding', children: [] },
+            {
+              path: 'onboarding',
+              children: [
+                { path: '', children: [] },
+                { path: 'ready', children: [] },
+              ],
+            },
             { path: 'settings', children: [] },
           ]),
           { provide: VSCodeService, useValue: { isElectron } },
@@ -121,13 +157,16 @@ describe('onboardingFirstRunGuard', () => {
       return TestBed.inject(Router);
     }
 
-    it('lands the first Electron boot on /onboarding and writes shownAt once, after arrival', async () => {
+    it('lands the first Electron boot on /onboarding/ready and writes shownAt once, after arrival', async () => {
       const router = configure(true);
-      const markShown = jest.spyOn(TestBed.inject(OnboardingFlagService), 'markShown');
+      const markShown = jest.spyOn(
+        TestBed.inject(OnboardingFlagService),
+        'markShown',
+      );
 
       expect(await router.navigateByUrl('/chat')).toBe(true);
 
-      expect(router.url).toBe('/onboarding');
+      expect(router.url).toBe('/onboarding/ready');
       expect(markShown).toHaveBeenCalledTimes(1);
       expect(stored()?.['shownAt']).toEqual(expect.any(String));
     });
@@ -135,7 +174,7 @@ describe('onboardingFirstRunGuard', () => {
     it('redirects a restored /chat/<tabId> the same way', async () => {
       const router = configure(true);
       await router.navigateByUrl('/chat/tab-1');
-      expect(router.url).toBe('/onboarding');
+      expect(router.url).toBe('/onboarding/ready');
     });
 
     it('lands the second boot on chat', async () => {
@@ -175,7 +214,7 @@ describe('onboardingFirstRunGuard', () => {
       expect(stored()).toBeNull();
       // Still eligible: the next way to chat shows onboarding.
       await router.navigateByUrl('/chat');
-      expect(router.url).toBe('/onboarding');
+      expect(router.url).toBe('/onboarding/ready');
     });
 
     it('never redirects on VS Code', async () => {
@@ -221,10 +260,21 @@ describe('onboardingFirstRunGuard', () => {
       });
 
       await router.navigateByUrl('/chat');
-      expect(router.url).toBe('/onboarding');
+      expect(router.url).toBe('/onboarding/ready');
 
       await router.navigateByUrl('/chat');
       expect(router.url).toBe('/chat');
+    });
+
+    it('lands on Home when the stored ready slice has skippedAt', async () => {
+      localStorage.setItem(
+        ONBOARDING_FLAG_KEY,
+        JSON.stringify({ ready: { skippedAt: '2026-10-01T10:00:00.000Z' } }),
+      );
+      const router = configure(true);
+      await router.navigateByUrl('/chat');
+      expect(router.url).toBe('/onboarding');
+      expect(stored()?.['shownAt']).toEqual(expect.any(String));
     });
 
     it('keeps chat reachable with an unreadable record', async () => {

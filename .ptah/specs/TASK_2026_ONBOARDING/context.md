@@ -92,6 +92,29 @@ UI is flawed. The workflows need dedicated UI/UX instead of streaming everything
 - Electron first. Keep the VS Code host and the TUI compiling.
 - Verify with `npm run verify -- -p <projects>` only.
 
+## CLI Lanes — resumed 2026-10-29
+
+Mode: enabled. Approval: lane-review. Preference source: user requested CLI implementation;
+existing task requires Ollama independent review. Resume B1c, no repeated planning.
+
+| Agent | Type | Family | Status | Messaging | Limit state |
+| --- | --- | --- | --- | --- | --- |
+| codex | cli | codex | installed | queue | confirmed room |
+| copilot | cli | copilot | disabled (installed) | queue | unknown (limits not tracked) |
+| cursor | cli | cursor | not installed | interrupt | unknown (limits not tracked) |
+| antigravity | cli | antigravity | installed | queue | unknown (no windows reported) |
+| opencode | cli | opencode | not installed | queue | unknown (no usage source) |
+| pi | cli | pi | not installed | steer | unknown (limits not tracked) |
+| grok | cli | grok | installed | queue | unknown (API key, no plan) |
+| claude | cli | claude | disabled (installed) | queue | unknown (limits not tracked) |
+| Ollama Code | ptah-cli | ollama-cloud | available | queue | confirmed room |
+| kimi code | ptah-cli | kimi-code | available | queue | unknown (limits not tracked) |
+
+Routing: capture fixes Codex/lane-default; review Ollama/configured glm-5.3:cloud.
+Both phase sources pin, confidence null; overall source ranking, confidence null.
+Decisions and pre-flight fallback recorded in decisions.md. Initial execution plus review: two
+lane runs, at most two revision pairs. Capture fixes agent: 62963925-6d1c-437f-8ba9-f88588a0eb10.
+
 ## Lanes
 
 | Phase | Lane | Family | Deliverable |

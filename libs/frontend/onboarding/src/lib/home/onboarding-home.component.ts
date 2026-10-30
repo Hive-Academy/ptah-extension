@@ -22,6 +22,10 @@ import {
   WandSparkles,
 } from 'lucide-angular';
 import { OnboardingFlagService } from '../first-run/onboarding-flag.service';
+import { ClaudeReadinessBannerComponent } from '../ready/claude-readiness-banner.component';
+import { ClaudeReadinessStore } from '../ready/claude-readiness.store';
+import { ReadyStripComponent } from '../ready/ready-strip.component';
+import { readyStripSettingsWord } from '../ready/ready-strip-state';
 import { onboardingStepLink } from '../shell/onboarding-step-link';
 import { OnboardingPathTileComponent } from './path-tile.component';
 
@@ -44,18 +48,36 @@ interface StatusChip {
 @Component({
   selector: 'ptah-onboarding-home',
   standalone: true,
-  imports: [RouterLink, LucideAngularModule, OnboardingPathTileComponent],
+  imports: [
+    RouterLink,
+    LucideAngularModule,
+    OnboardingPathTileComponent,
+    ReadyStripComponent,
+    ClaudeReadinessBannerComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block', 'data-testid': 'onboarding-home' },
   template: `
     <section aria-labelledby="onboarding-home-title">
+      @if (readyAvailable) {
+        <ptah-ready-strip
+          class="mb-5"
+          [current]="3"
+          [claude]="readiness().state"
+          [settings]="settingsWord()"
+        />
+      }
       <div class="flex items-center gap-3 max-[480px]:gap-2.5">
         <span
           class="grid size-11 flex-none place-items-center rounded-xl border border-base-300 bg-base-200 max-[480px]:size-[38px]"
           data-glass-surface="tile"
           aria-hidden="true"
         >
-          <lucide-angular [img]="icons.route" class="size-[1.35rem]" aria-hidden="true" />
+          <lucide-angular
+            [img]="icons.route"
+            class="size-[1.35rem]"
+            aria-hidden="true"
+          />
         </span>
         <h1
           id="onboarding-home-title"
@@ -66,10 +88,17 @@ interface StatusChip {
         </h1>
       </div>
       <p class="mt-2 max-w-[62ch] text-base-content-muted">
-        Pick the situation you are in. Each path walks you through the steps
-        and shows what is happening; you never need to read an agent
-        transcript.
+        Pick the situation you are in. Each path walks you through the steps and
+        shows what is happening; you never need to read an agent transcript.
       </p>
+
+      @if (readyAvailable) {
+        <ptah-claude-readiness-banner
+          class="mt-5"
+          placement="home"
+          [state]="readiness().state"
+        />
+      }
 
       @if (status.workspaceNotOpen()) {
         <div
@@ -84,7 +113,11 @@ interface StatusChip {
             data-testid="onboarding-open-folder"
             (click)="openFolder()"
           >
-            <lucide-angular [img]="icons.folderOpen" class="size-4" aria-hidden="true" />
+            <lucide-angular
+              [img]="icons.folderOpen"
+              class="size-4"
+              aria-hidden="true"
+            />
             Open folder
           </button>
           @if (status.folderError(); as folderError) {
@@ -110,19 +143,35 @@ interface StatusChip {
         >
           <ol class="grid gap-1.5 text-sm text-base-content-muted">
             <li class="flex items-center gap-2">
-              <lucide-angular [img]="icons.scanSearch" class="size-4 text-base-content" aria-hidden="true" />
+              <lucide-angular
+                [img]="icons.scanSearch"
+                class="size-4 text-base-content"
+                aria-hidden="true"
+              />
               Analyze workspace
             </li>
             <li class="flex items-center gap-2">
-              <lucide-angular [img]="icons.listChecks" class="size-4 text-base-content" aria-hidden="true" />
+              <lucide-angular
+                [img]="icons.listChecks"
+                class="size-4 text-base-content"
+                aria-hidden="true"
+              />
               Choose agents
             </li>
             <li class="flex items-center gap-2">
-              <lucide-angular [img]="icons.wandSparkles" class="size-4 text-base-content" aria-hidden="true" />
+              <lucide-angular
+                [img]="icons.wandSparkles"
+                class="size-4 text-base-content"
+                aria-hidden="true"
+              />
               Generate agents
             </li>
             <li class="flex items-center gap-2">
-              <lucide-angular [img]="icons.bookOpen" class="size-4 text-base-content" aria-hidden="true" />
+              <lucide-angular
+                [img]="icons.bookOpen"
+                class="size-4 text-base-content"
+                aria-hidden="true"
+              />
               Project guidance
             </li>
           </ol>
@@ -138,12 +187,20 @@ interface StatusChip {
                 class="btn btn-xs btn-ghost"
                 (click)="retryStatus()"
               >
-                <lucide-angular [img]="icons.refresh" class="size-3.5" aria-hidden="true" />
+                <lucide-angular
+                  [img]="icons.refresh"
+                  class="size-3.5"
+                  aria-hidden="true"
+                />
                 Retry
               </button>
             </div>
           } @else if (chips().length > 0) {
-            <ul class="flex flex-wrap gap-2" aria-label="Project status" data-testid="onboarding-status-chips">
+            <ul
+              class="flex flex-wrap gap-2"
+              aria-label="Project status"
+              data-testid="onboarding-status-chips"
+            >
               @for (chip of chips(); track chip.id) {
                 <li
                   class="inline-flex items-center gap-1.5 rounded-full border border-base-300 px-2.5 py-0.5 text-xs"
@@ -205,9 +262,21 @@ interface StatusChip {
         />
       </div>
 
-      <div class="mt-6 flex flex-wrap items-center justify-between gap-4 text-sm">
-        <span class="text-base-content-muted">
-          Reopen this anytime from the configuration menu: Setup.
+      <div
+        class="mt-6 flex flex-wrap items-center justify-between gap-4 text-sm"
+      >
+        <span class="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span class="text-base-content-muted">
+            Reopen this anytime from the configuration menu: Setup.
+          </span>
+          @if (readyAvailable) {
+            <a
+              class="link"
+              routerLink="/onboarding/ready"
+              data-testid="onboarding-review-ready"
+              >Review Claude Code and settings</a
+            >
+          }
         </span>
         <button
           type="button"
@@ -225,6 +294,14 @@ export class OnboardingHomeComponent {
   protected readonly status = inject(SetupStatusStore);
   private readonly flag = inject(OnboardingFlagService);
   private readonly appState = inject(AppStateManager);
+  private readonly readinessStore = inject(ClaudeReadinessStore);
+
+  /** The Get ready strip, banner and footer link exist only in Electron. */
+  protected readonly readyAvailable = this.readinessStore.available;
+  protected readonly readiness = this.readinessStore.view;
+  protected readonly settingsWord = computed(() =>
+    readyStripSettingsWord(this.flag.flag().ready, true),
+  );
 
   protected readonly icons = {
     route: Route,
@@ -307,6 +384,9 @@ export class OnboardingHomeComponent {
     // The store refreshes on workspace changes itself; Home asks once more on
     // entry so the chips are current. Concurrent reads are de-duplicated.
     void this.status.refresh();
+    // Re-read Claude Code on every visit so the banner is never stale; it
+    // clears without a flag write once the read returns ready.
+    if (this.readyAvailable) void this.readinessStore.refresh(false);
   }
 
   protected retryStatus(): void {

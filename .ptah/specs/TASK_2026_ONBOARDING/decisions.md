@@ -1,0 +1,39 @@
+# Continuation decisions — 2026-10-29
+
+- Resume existing approved task at B1c; no requirements/design/architecture gates repeated. Evidence: HANDOFF.md and context.md. Reversible.
+- Pre-flight routing: FEATURE, source model, confidence 0.5795; depth null, source skill-table, fallbackCause low-confidence, modelProposal o2/0.3413. Adopt Partial for the known remaining batch. Overall confidence 0.5795. Usage 1 request, 407 input tokens, 0 output tokens, cost unknown.
+- Gate 0.1: lanes enabled; Approval lane-review. Preference source: user requested CLI implementation; existing task requires Ollama review. Codex selected for bounded capture fixes, lane-default model, source pin, confidence null. Ollama pc-f3384f72-a556-4ab4-b2b1-7e1e028f22cb selected for review, configured glm-5.3:cloud, source pin, confidence null. Overall source ranking, confidence null; no routing requests. Both have confirmed room. No new scope or capability removals.
+- Missing task.md is a legacy carrier gap, not an invalid user-supplied ID: user invoked continue, and HANDOFF/context/approved plans establish task identity. Do not recreate requirements or task identity during capture repair.
+- User requested Kimi Code as well (2026-10-29). Added one bounded read-only chat-timeout investigation on available kimi-code lane pc-7594dcab-a859-41a0-8e8b-e8df5dba7d25, sonnet tier, source pin; quota untracked/unknown, not assumed room. Agent 43231626-adba-4327-a6ba-334e409778ff. No duplicate test run, code edits, or replacement of pinned Ollama review. Deliverable b1c-chat-timeout-investigation.md. Reversible staffing choice.
+- Capture failures are not proven production defects. Delegate root-cause inspection before editing. Existing headless harness captures are implementation evidence with Electron configuration, not evidence of a running Electron dev process. No Electron serve/dev authorization inferred.
+
+## 2026-10-30 — B1c narrow capture and provider-card a11y
+
+- **400px clipping root cause** (in-process frontend-developer, verified by coordinator):
+  `libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts:445` holds the
+  content area at `min-w-[400px]` between two 32px rail tabs; Electron `minWidth: 800`
+  (`apps/ptah-electron/src/windows/main-window.ts:124`). A 400px *window* cannot occur in
+  Electron, so the old capture clipped a state the product cannot reach.
+- **Decision:** keep production unchanged; the narrow capture uses a 464px viewport so the
+  onboarding content area is the design's 400px (design-spec §12.8). Options: change the
+  shared shell min-width (wider blast radius, unneeded for Electron), or keep 400px window
+  (tests an impossible state). Reversible: yes (one harness constant).
+- **Kimi lane** blocked twice: no saved plugin config for this worktree root in
+  `~/.config/Ptah/global-state.json`; only the main root enables `ptah-angular`. Work moved to an
+  in-process subagent governed by the main-root config, where the user enabled the skill.
+- **Provider card nested-interactive:** Codex implemented diagnosis Option A (non-interactive
+  frame, full-surface details trigger, sibling inline controls). Coordinator updated harness
+  selectors from `[role="button"]` / provider-name clicks to `provider-card-details-trigger`.
+- **Visual re-review** (visual-reviewer subagent): APPROVED 7/10. Follow-ups handled:
+  connections grid `minmax(min(22rem,100%),1fr)` (narrow card overflowed its panel — pre-existing
+  Settings bug exposed by onboarding stage 2); harness fixture for `setup-status:get-status` and
+  `wizard:list-analyses` (Home showed skeletons only because the harness never answered).
+  Recaptured: 116/116 passed, 116 axe reports with 0 violations. Stale `*-400x800` captures removed.
+- **Recorded residuals (not blocking B1c):** provider card row is cramped at a 400px content area
+  (name breaks mid-word) — Settings card polish; old span titles on card-subtitle/used-for are now
+  unreachable duplicates of the trigger title (review b1c-c LOW); Enter/Space on the trigger has no
+  e2e coverage (native button); harness logo renders as a broken image and the OS tab preselects
+  Windows because the harness user agent reports Windows; programmatic focus on the page h1 shows a
+  focus ring in headless captures; narrow stage-1 captures are viewport-only (command row wrapping
+  below the fold not captured); settings-providers/settings-visual e2e specs with updated
+  selectors were typechecked and linted but not run. No live Electron runtime validation.

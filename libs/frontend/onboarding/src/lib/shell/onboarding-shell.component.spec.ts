@@ -57,6 +57,14 @@ describe('OnboardingShellComponent', () => {
             children: [
               { path: '', component: HomePageStubComponent },
               { path: 'analyze', component: StepPageStubComponent },
+              {
+                path: 'ready',
+                data: { crumb: 'Get ready' },
+                children: [
+                  { path: '', component: StepPageStubComponent },
+                  { path: 'settings', component: StepPageStubComponent },
+                ],
+              },
             ],
           },
         ]),
@@ -91,10 +99,34 @@ describe('OnboardingShellComponent', () => {
     );
 
     expect(crumb?.getAttribute('href')).toBe('/onboarding');
-    expect(query(harness, '[data-testid="onboarding-back-to-chat"]')).toBeNull();
     expect(
-      query(harness, 'nav[aria-label="Breadcrumb"]'),
-    ).not.toBeNull();
+      query(harness, '[data-testid="onboarding-back-to-chat"]'),
+    ).toBeNull();
+    expect(query(harness, 'nav[aria-label="Breadcrumb"]')).not.toBeNull();
+  });
+
+  it.each(['/onboarding/ready', '/onboarding/ready/settings'])(
+    'renders the route crumb as the second crumb on %s ("Onboarding / Get ready")',
+    async (url) => {
+      const harness = await open(url);
+      expect(
+        query(
+          harness,
+          '[data-testid="onboarding-crumb-home"]',
+        )?.textContent?.trim(),
+      ).toBe('Onboarding');
+      const page = query<HTMLElement>(
+        harness,
+        '[data-testid="onboarding-crumb-page"]',
+      );
+      expect(page?.textContent?.trim()).toBe('Get ready');
+      expect(page?.getAttribute('aria-current')).toBe('page');
+    },
+  );
+
+  it('shows no second crumb for a page without one', async () => {
+    const harness = await open('/onboarding/analyze');
+    expect(query(harness, '[data-testid="onboarding-crumb-page"]')).toBeNull();
   });
 
   it('moves focus to the page h1 when a page activates', async () => {
@@ -112,7 +144,9 @@ describe('OnboardingShellComponent', () => {
     const harness = await open('/onboarding');
     jest.useFakeTimers();
     try {
-      TestBed.inject(OnboardingAnnouncerService).announce('Revision 4 received');
+      TestBed.inject(OnboardingAnnouncerService).announce(
+        'Revision 4 received',
+      );
       jest.runOnlyPendingTimers();
       harness.detectChanges();
 
@@ -136,7 +170,10 @@ describe('OnboardingShellComponent', () => {
     pill.show('Claude · sonnet');
     harness.detectChanges();
     expect(
-      query(harness, '[data-testid="onboarding-run-pill"]')?.textContent?.trim(),
+      query(
+        harness,
+        '[data-testid="onboarding-run-pill"]',
+      )?.textContent?.trim(),
     ).toBe('Claude · sonnet');
 
     pill.clear();

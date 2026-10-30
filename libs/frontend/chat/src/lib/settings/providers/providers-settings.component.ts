@@ -346,9 +346,10 @@ const CONTROL =
               </p>
             }
             <!-- Compact cards (≤ 80 px): the whole card opens the drawer, which holds every per-state action but one.
-                 Rows come from the CONTAINER width: one 22 rem list column in the narrow Electron page, two at 1440 px. -->
+                 Rows come from the CONTAINER width: one 22 rem list column in the narrow Electron page, two at 1440 px; below 22 rem
+                 the one column shrinks to the container (onboarding's 400 px content area). -->
             <div
-              class="grid grid-cols-[repeat(auto-fill,minmax(22rem,1fr))] gap-2"
+              class="grid grid-cols-[repeat(auto-fill,minmax(min(22rem,100%),1fr))] gap-2"
               data-testid="connections-grid"
             >
               @for (connection of shownConnections(); track connection.id) {
@@ -1152,7 +1153,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
    * `lastCheck`, then the route re-read; local servers and key-optional routes the host cannot check, such as Ollama,
    * LM Studio and Ollama Cloud, get the route re-read alone). While the route itself failed to load, the card reads
    * "Check unavailable" and Retry keeps the full re-read, which is what can repair it. D3: nothing starts while a check
-   * or a save runs. The action leaves the card face while it reads "Checking…", so focus moves to the card itself.
+   * or a save runs. The action leaves the card face while it reads "Checking…", so focus moves to its details trigger.
    */
   protected checkFromCard(id: string): void {
     if (this.state.route().status !== 'ready') {
@@ -1166,7 +1167,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       () =>
         this.element.nativeElement
           .querySelector<HTMLElement>(
-            `ptah-provider-connection-card[data-connection-id="${id}"] [role="button"]`,
+            `ptah-provider-connection-card[data-connection-id="${id}"] [data-testid="provider-card-details-trigger"]`,
           )
           ?.focus(),
       { injector: this.injector },

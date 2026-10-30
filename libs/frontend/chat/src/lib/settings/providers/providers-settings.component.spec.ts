@@ -745,9 +745,9 @@ describe('ProvidersSettingsComponent', () => {
       button('Clear filter').click(); await render();
       expect(element.querySelectorAll('ptah-provider-connection-card')).toHaveLength(2);
     });
-    it('the list takes its columns from the container width (22rem rows), and the catalog caption is one passive row under the header', async () => {
+    it('the list takes its columns from the container width (22rem rows, never wider than the container), and the catalog caption is one passive row under the header', async () => {
       await render();
-      expect(element.querySelector('[data-testid="connections-grid"]')?.className).toContain('grid-cols-[repeat(auto-fill,minmax(22rem,1fr))]');
+      expect(element.querySelector('[data-testid="connections-grid"]')?.className).toContain('grid-cols-[repeat(auto-fill,minmax(min(22rem,100%),1fr))]');
       const hint = element.querySelector('[data-testid="catalog-hint"]');
       // Directly under the header row (the row holding "Connect provider").
       expect(hint?.previousElementSibling?.querySelector('[data-testid="connect-provider"]')).not.toBeNull();
@@ -937,6 +937,9 @@ describe('ProvidersSettingsComponent', () => {
       state.connectionCheck.set({ providerId: 'second', status: 'checking' }); await render();
       expect(card('second')?.querySelector('[data-testid="provider-connection-card"]')?.getAttribute('data-state')).toBe('checking');
       expect(card('second')?.querySelector('[data-testid="btn-retry"]')).toBeNull();
+      const detailsTrigger = card('second')?.querySelector<HTMLButtonElement>('[data-testid="provider-card-details-trigger"]');
+      expect(detailsTrigger?.tagName).toBe('BUTTON');
+      expect(document.activeElement).toBe(detailsTrigger);
     });
 
     it('a later verified check clears it; a failed one older than the route probe does not win', async () => {
@@ -967,12 +970,19 @@ describe('ProvidersSettingsComponent', () => {
     const cardAction = (node: Element) => node.closest('[data-testid="provider-connection-card"]') !== null;
     // The Main agent's "Reassign" is stretched over the whole block (≥ 96px): the block is its target.
     const nodeAction = (node: Element) => node.getAttribute('data-testid') === 'routing-node-action';
+    // Each card's details trigger covers the whole card (≥ 40px): the card is its target.
+    const cardTrigger = (node: Element) => node.getAttribute('data-testid') === 'provider-card-details-trigger';
     // The catalog modal's controls are asserted in its own spec (closed here; the backdrop is the modal primitive's).
     const actions = Array.from(element.querySelectorAll('button')).filter((node) => !node.closest('ptah-provider-catalog-modal'));
-    expect(actions.some(cardAction)).toBe(true);
+    expect(actions.some((node) => cardAction(node) && !cardTrigger(node))).toBe(true);
     expect(actions.filter(nodeAction)).toHaveLength(1);
     for (const node of actions.filter(nodeAction)) expect(node.classList.contains('after:inset-0')).toBe(true);
-    for (const node of actions.filter((candidate) => !nodeAction(candidate))) {
+    expect(actions.filter(cardTrigger)).toHaveLength(2);
+    for (const node of actions.filter(cardTrigger)) {
+      expect(node.classList.contains('inset-0')).toBe(true);
+      expect(node.classList.contains('focus-visible:outline-2')).toBe(true);
+    }
+    for (const node of actions.filter((candidate) => !nodeAction(candidate) && !cardTrigger(candidate))) {
       expect(node.classList.contains('btn-sm')).toBe(true);
       expect(node.classList.contains('btn-xs')).toBe(false);
       expect(node.classList.contains('focus-visible:outline-2')).toBe(true);
@@ -1149,7 +1159,7 @@ describe('ProvidersSettingsComponent named Claude accounts (P5 F5, D41)', () => 
   const badgeText = () => badge()?.textContent?.trim() ?? null;
   async function setAmbient(view: ClaudeAmbientStatusView) { ambient.view.set(view); await render(); }
   async function openClaudeDrawer() {
-    card('claude-cli')?.querySelector<HTMLElement>('[role="button"]')?.click();
+    card('claude-cli')?.querySelector<HTMLElement>('[data-testid="provider-card-details-trigger"]')?.click();
     await render();
   }
   function drawerAccountsAvailable(): boolean {

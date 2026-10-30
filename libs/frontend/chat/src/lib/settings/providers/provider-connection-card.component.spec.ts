@@ -3,7 +3,7 @@
  *
  * The state table itself (label, copy, tone, dot, primary action) is pinned in
  * `provider-connection-card.state.spec.ts`. These specs pin what the component renders from it:
- * - the whole card is one activation target: click, Enter and Space emit `detailsRequested`, a click
+ * - the whole card has one native details trigger: click, Enter and Space emit `detailsRequested`, a click
  *   on the inline action never does (RUX-4: every card opens its drawer);
  * - one list row: initials avatar, name over provenance, "Used by N" and the consumer names; status
  *   dot + label, at most one inline action (`btn-sm`, 32 px target), auth-modality badge;
@@ -42,14 +42,14 @@ function query(
   return fixture.nativeElement.querySelector(`[data-testid="${testId}"]`);
 }
 
-/** The card's activation surface (`NativeCardComponent` root, role=button). */
-function surface(fixture: ComponentFixture<ProviderConnectionCardComponent>): HTMLElement {
-  const root = fixture.nativeElement.querySelector('[role="button"]') as HTMLElement | null;
-  if (!root) throw new Error('No card surface');
-  return root;
+/** The card's full-surface native details trigger. */
+function surface(fixture: ComponentFixture<ProviderConnectionCardComponent>): HTMLButtonElement {
+  const trigger = query(fixture, 'provider-card-details-trigger') as HTMLButtonElement | null;
+  if (!trigger) throw new Error('No card details trigger');
+  return trigger;
 }
 
-/** Buttons inside the card surface (the surface itself is role=button, not a <button>). */
+/** All buttons in the noninteractive card frame. */
 function buttons(fixture: ComponentFixture<ProviderConnectionCardComponent>): HTMLButtonElement[] {
   return Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[];
 }
@@ -64,15 +64,27 @@ describe('ProviderConnectionCardComponent', () => {
   });
 
   describe('whole-card trigger (RUX-4)', () => {
-    it('a click, Enter or Space on the card emits detailsRequested', () => {
+    it('the card-area trigger is a focusable native button for click, Enter and Space', () => {
       const fixture = createComponent({ ...KIMI_CODE, status: 'connected', positiveProbeEvidence: true });
       const emitted = jest.fn();
       fixture.componentInstance.detailsRequested.subscribe(emitted);
-      query(fixture, 'provider-name')?.click();
+      const frame = fixture.nativeElement.querySelector('ptah-native-card > div') as HTMLElement;
+      expect(frame.getAttribute('role')).toBeNull();
+      expect(frame.getAttribute('tabindex')).toBeNull();
+      expect(frame.contains(surface(fixture))).toBe(true);
+      expect(surface(fixture).tagName).toBe('BUTTON');
+      expect(surface(fixture).getAttribute('type')).toBe('button');
+      surface(fixture).focus();
+      expect(document.activeElement).toBe(surface(fixture));
+      surface(fixture).click();
+      // jsdom does not synthesize a click from keyboard default actions; the click after each
+      // keydown models the browser's native button activation without adding a custom handler.
       surface(fixture).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      surface(fixture).click();
       surface(fixture).dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      surface(fixture).click();
       expect(emitted).toHaveBeenCalledTimes(3);
-      expect(surface(fixture).getAttribute('tabindex')).toBe('0');
+      expect(surface(fixture).className).toContain('focus-visible:outline-base-content');
     });
 
     it('the inline action emits its own output, never detailsRequested', () => {
@@ -81,7 +93,11 @@ describe('ProviderConnectionCardComponent', () => {
       const retry = jest.fn();
       fixture.componentInstance.detailsRequested.subscribe(details);
       fixture.componentInstance.retryRequested.subscribe(retry);
-      (query(fixture, 'btn-retry') as HTMLButtonElement).click();
+      const action = query(fixture, 'btn-retry') as HTMLButtonElement;
+      expect(action.parentElement).not.toBe(surface(fixture));
+      expect(surface(fixture).contains(action)).toBe(false);
+      expect(action.className).toContain('pointer-events-auto');
+      action.click();
       expect(retry).toHaveBeenCalledTimes(1);
       expect(details).not.toHaveBeenCalled();
     });
@@ -93,6 +109,23 @@ describe('ProviderConnectionCardComponent', () => {
       );
       expect(query(fixture, 'provider-connection-card')?.getAttribute('title')).toBe(
         'Could not reach Kimi Code; check the connection and retry.',
+      );
+    });
+
+    it('exposes status, subtitle and used-for text on the hoverable details trigger', () => {
+      const fixture = createComponent({
+        ...KIMI_CODE, status: 'unreachable', sourceLabel: 'Key stored on this machine',
+        usedByCount: 2, usedByLabels: ['Main agent', 'Memory curator'],
+      });
+      expect(surface(fixture).getAttribute('title')).toBe(
+        'Could not reach Kimi Code; check the connection and retry.\nKey stored on this machine\nUsed for: Main agent, Memory curator',
+      );
+
+      const withoutSegments = createComponent({ providerId: 'x', providerName: 'X', status: 'unreachable' });
+      expect(query(withoutSegments, 'card-subtitle')).toBeNull();
+      expect(query(withoutSegments, 'used-for')).toBeNull();
+      expect(surface(withoutSegments).getAttribute('title')).toBe(
+        'Could not reach X; check the connection and retry.',
       );
     });
   });
@@ -177,7 +210,7 @@ describe('ProviderConnectionCardComponent', () => {
       const card = fixture.componentInstance as unknown as Record<string, { subscribe(fn: () => void): unknown }>;
       const emitted = jest.fn();
       card[outputName].subscribe(emitted);
-      expect(buttons(fixture)).toHaveLength(1);
+      expect(buttons(fixture)).toHaveLength(2);
       const action = query(fixture, testId) as HTMLButtonElement;
       expect(action.getAttribute('aria-label')).toBe(ariaLabel);
       expect(action.className).toContain('btn-sm');
@@ -188,7 +221,7 @@ describe('ProviderConnectionCardComponent', () => {
     });
 
     it.each(['active', 'checking'] as const)('%s carries no inline action', (status) => {
-      expect(buttons(createComponent({ ...KIMI_CODE, status }))).toHaveLength(0);
+      expect(buttons(createComponent({ ...KIMI_CODE, status }))).toHaveLength(1);
     });
 
     // Gate V 28 (prototype cards): no "Use for main agent" on the face; the Main Agent popover changes the main
@@ -196,7 +229,7 @@ describe('ProviderConnectionCardComponent', () => {
     it('a connected card, or a not-checkable one, carries no inline action and no "Use for main agent"', () => {
       for (const extra of [{ status: 'connected', positiveProbeEvidence: true }, { status: 'unknown' }] as const) {
         const fixture = createComponent({ ...KIMI_CODE, ...extra });
-        expect(buttons(fixture)).toHaveLength(0);
+        expect(buttons(fixture)).toHaveLength(1);
         expect(fixture.nativeElement.textContent).not.toContain('Use for main agent');
       }
     });
@@ -257,10 +290,15 @@ describe('ProviderConnectionCardComponent', () => {
       fixture.componentInstance.scopeClearRequested.subscribe(clear);
       const badge = query(fixture, 'scope-badge') as HTMLButtonElement;
       expect(badge.getAttribute('data-field')).toBe('Kimi Code');
+      expect(surface(fixture).contains(badge)).toBe(false);
+      const details = jest.fn();
+      fixture.componentInstance.detailsRequested.subscribe(details);
       badge.click();
+      expect(details).not.toHaveBeenCalled();
       fixture.detectChanges();
       (query(fixture, 'scope-clear-override') as HTMLButtonElement).click();
       expect(clear).toHaveBeenCalledTimes(1);
+      expect(details).not.toHaveBeenCalled();
     });
 
     it('an inherited scope renders nothing', () => {

@@ -285,9 +285,7 @@ describe('webview routing composition', () => {
 
       // The last surface is Electron-only, so the `**` fallback put the user
       // back on chat — through the Router, not through the History API.
-      expect(ELECTRON_ONLY_SURFACES).toContain(
-        SURFACE_ROUTE_IDS.at(-1),
-      );
+      expect(ELECTRON_ONLY_SURFACES).toContain(SURFACE_ROUTE_IDS.at(-1));
       expect(surfaceRouter.currentSurface()).toBe('chat');
       expect(TestBed.inject(Router).url).toBe('/chat');
       for (const spy of Object.values(history)) {
@@ -618,14 +616,14 @@ describe('webview routing composition', () => {
 
     beforeEach(() => configureFirstRun());
 
-    it('lands an Electron boot to the host default chat on /onboarding, once', async () => {
+    it('lands an Electron boot to the host default chat on /onboarding/ready, once', async () => {
       installHost({}, 'chat');
       hostIsElectron(true);
       const setItem = jest.spyOn(Storage.prototype, 'setItem');
 
       await bootWithInitialView('chat');
 
-      expect(TestBed.inject(Router).url).toBe('/onboarding');
+      expect(TestBed.inject(Router).url).toBe('/onboarding/ready');
       expect(storedFlag()).toEqual({ shownAt: expect.any(String) });
       expect(
         setItem.mock.calls.filter(([key]) => key === ONBOARDING_FLAG_KEY),
@@ -643,14 +641,14 @@ describe('webview routing composition', () => {
       expect(TestBed.inject(Router).url).toBe('/chat');
     });
 
-    it('accepts a restored /chat that the guard sends to onboarding', async () => {
+    it('accepts a restored /chat that the guard settles on /onboarding/ready', async () => {
       const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
       installHost(savedRoute('/chat', 'chat'), 'chat');
       hostIsElectron(true);
 
       expect(surfaceNavigationLanded(await runBoot())).toBe(true);
 
-      expect(TestBed.inject(Router).url).toBe('/onboarding');
+      expect(TestBed.inject(Router).url).toBe('/onboarding/ready');
       expect(storedFlag()).toEqual({ shownAt: expect.any(String) });
       expect(consoleWarn).not.toHaveBeenCalledWith(
         expect.stringContaining('[App] Restored route'),
@@ -664,11 +662,29 @@ describe('webview routing composition', () => {
 
       expect(surfaceNavigationLanded(await runBoot())).toBe(true);
 
-      expect(TestBed.inject(Router).url).toBe('/onboarding');
+      expect(TestBed.inject(Router).url).toBe('/onboarding/ready');
       expect(storedFlag()).toEqual({ shownAt: expect.any(String) });
       expect(consoleWarn).not.toHaveBeenCalledWith(
         expect.stringContaining('[App] Restored route'),
       );
+    });
+
+    it('lands on onboarding Home when a Get ready pre-step was already left (ready.claudeAt)', async () => {
+      const claudeAt = '2026-10-01T10:00:00.000Z';
+      localStorage.setItem(
+        ONBOARDING_FLAG_KEY,
+        JSON.stringify({ ready: { claudeAt } }),
+      );
+      installHost({}, 'chat');
+      hostIsElectron(true);
+
+      await bootWithInitialView('chat');
+
+      expect(TestBed.inject(Router).url).toBe('/onboarding');
+      expect(storedFlag()).toEqual({
+        shownAt: expect.any(String),
+        ready: { claudeAt },
+      });
     });
 
     it('leaves shownAt unset when SWITCH_VIEW supersedes the redirect', async () => {
@@ -1042,17 +1058,14 @@ describe('app.routes', () => {
     },
   );
 
-  it.each([
-    'harness-builder',
-    'setup-hub',
-    'tasks',
-    'apps',
-    'command-center',
-  ])('defers %s with loadComponent', (path) => {
-    const route = appRoutes.find((candidate) => candidate.path === path);
-    expect(typeof route?.loadComponent).toBe('function');
-    expect(route?.component).toBeUndefined();
-  });
+  it.each(['harness-builder', 'setup-hub', 'tasks', 'apps', 'command-center'])(
+    'defers %s with loadComponent',
+    (path) => {
+      const route = appRoutes.find((candidate) => candidate.path === path);
+      expect(typeof route?.loadComponent).toBe('function');
+      expect(route?.component).toBeUndefined();
+    },
+  );
 
   it('defers thoth as a lazily loaded route tree that resolves THOTH_ROUTES', async () => {
     // Pins the `THOTH_ROUTES` barrel export (TASK_2026_524 Batch 4e2): a

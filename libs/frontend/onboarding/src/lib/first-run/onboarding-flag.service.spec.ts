@@ -147,7 +147,7 @@ describe('OnboardingFlagService', () => {
     });
 
     it('never overwrites an unreadable record', () => {
-      const raw = JSON.stringify({ shownAt: SHOWN, ready: {} });
+      const raw = JSON.stringify({ shownAt: SHOWN, extra: {} });
       localStorage.setItem(ONBOARDING_FLAG_KEY, raw);
       const service = createService();
 
@@ -161,6 +161,94 @@ describe('OnboardingFlagService', () => {
       createService();
       expect(localStorage.getItem('ptah.onboarding.probe')).toBeNull();
       expect(localStorage.length).toBe(0);
+    });
+  });
+  describe('ready slice', () => {
+    const CLAUDE = '2026-10-02T10:00:00.000Z';
+
+    it('keeps a v1 record without ready unchanged', () => {
+      const raw = JSON.stringify({ shownAt: SHOWN });
+      localStorage.setItem(ONBOARDING_FLAG_KEY, raw);
+      const service = createService();
+      expect(service.flag()).toEqual({ shownAt: SHOWN });
+      expect(localStorage.getItem(ONBOARDING_FLAG_KEY)).toBe(raw);
+    });
+
+    it('reads a valid ready slice', () => {
+      localStorage.setItem(
+        ONBOARDING_FLAG_KEY,
+        JSON.stringify({ ready: { claudeAt: CLAUDE } }),
+      );
+      const service = createService();
+      expect(service.flag()).toEqual({ ready: { claudeAt: CLAUDE } });
+      expect(service.isFirstRunEligible()).toBe(true);
+    });
+
+    it.each([
+      ['a string', 'yes'],
+      ['a non-datetime field', { claudeAt: 'tomorrow' }],
+      ['null', null],
+    ])('drops a malformed ready (%s) and keeps the top level', (_n, ready) => {
+      localStorage.setItem(
+        ONBOARDING_FLAG_KEY,
+        JSON.stringify({ shownAt: SHOWN, ready }),
+      );
+      const service = createService();
+      expect(service.flag()).toEqual({ shownAt: SHOWN, ready: {} });
+      expect(service.isFirstRunEligible()).toBe(false);
+    });
+
+    it('keeps an unknown top-level key unreadable (no redirect)', () => {
+      localStorage.setItem(
+        ONBOARDING_FLAG_KEY,
+        JSON.stringify({ ready: {}, other: 1 }),
+      );
+      const service = createService();
+      expect(service.flag()).toEqual({});
+      expect(service.isFirstRunEligible()).toBe(false);
+    });
+
+    it('markReady merges into the stored record', () => {
+      localStorage.setItem(
+        ONBOARDING_FLAG_KEY,
+        JSON.stringify({ shownAt: SHOWN, ready: { claudeAt: CLAUDE } }),
+      );
+      const service = createService();
+
+      service.markReady('settingsAt');
+
+      expect(stored()).toEqual({
+        shownAt: SHOWN,
+        ready: { claudeAt: CLAUDE, settingsAt: expect.any(String) },
+      });
+      expect(service.flag().ready?.settingsAt).toEqual(expect.any(String));
+    });
+
+    it('markDismissed preserves ready', () => {
+      localStorage.setItem(
+        ONBOARDING_FLAG_KEY,
+        JSON.stringify({ ready: { skippedAt: CLAUDE } }),
+      );
+      const service = createService();
+
+      service.markDismissed();
+
+      expect(stored()).toEqual({
+        dismissedAt: expect.any(String),
+        ready: { skippedAt: CLAUDE },
+      });
+    });
+
+    it('a failed markReady write does not suppress the redirect', () => {
+      const service = createService();
+      jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('QuotaExceededError');
+      });
+
+      expect(() => service.markReady('skippedAt')).not.toThrow();
+
+      expect(service.flag().ready?.skippedAt).toEqual(expect.any(String));
+      expect(service.isFirstRunEligible()).toBe(true);
     });
   });
 });

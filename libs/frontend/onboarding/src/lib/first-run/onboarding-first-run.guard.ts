@@ -7,8 +7,9 @@ import { OnboardingFirstRunTracker } from './onboarding-first-run.tracker';
 /**
  * The chat route's first-run guard.
  *
- * On Electron, while the onboarding flag is eligible, it redirects to
- * `/onboarding` and records the redirected navigation with the tracker, which
+ * On Electron, while the onboarding flag is eligible, it redirects to the
+ * Get ready stage 1 (`/onboarding/ready`) until a pre-step was left by
+ * Continue or skipped, otherwise to Home (`/onboarding`), and records the redirected navigation with the tracker, which
  * commits `shownAt` only when the redirect lands. Everywhere else it returns
  * `true`: the VS Code host, a written flag, unavailable storage or an
  * unreadable record. It sits on chat because every boot path that would show
@@ -20,7 +21,8 @@ import { OnboardingFirstRunTracker } from './onboarding-first-run.tracker';
  */
 export const onboardingFirstRunGuard: CanActivateFn = () => {
   if (!inject(VSCodeService).isElectron) return true;
-  if (!inject(OnboardingFlagService).isFirstRunEligible()) return true;
+  const flags = inject(OnboardingFlagService);
+  if (!flags.isFirstRunEligible()) return true;
 
   const router = inject(Router);
   // An untracked redirect never commits `shownAt`, so every later visit to
@@ -28,5 +30,8 @@ export const onboardingFirstRunGuard: CanActivateFn = () => {
   const navigationId = router.currentNavigation()?.id;
   if (navigationId === undefined) return true;
   inject(OnboardingFirstRunTracker).recordRedirect(navigationId);
-  return router.createUrlTree(['/onboarding']);
+  const ready = flags.flag().ready;
+  return ready?.claudeAt || ready?.skippedAt
+    ? router.createUrlTree(['/onboarding'])
+    : router.createUrlTree(['/onboarding', 'ready']);
 };

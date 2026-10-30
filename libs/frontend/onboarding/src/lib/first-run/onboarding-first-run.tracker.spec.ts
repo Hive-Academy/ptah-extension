@@ -70,6 +70,14 @@ describe('OnboardingFirstRunTracker', () => {
     expect(markShown).toHaveBeenCalledTimes(1);
   });
 
+  it('commits when the redirect lands on the Get ready stage /onboarding/ready', () => {
+    tracker.recordRedirect(ORIGIN);
+    cancel(ORIGIN, NavigationCancellationCode.Redirect);
+    start(REPLACEMENT, '/onboarding/ready');
+    end(REPLACEMENT, '/onboarding/ready');
+    expect(markShown).toHaveBeenCalledTimes(1);
+  });
+
   it('commits when the onboarding URL carries a child path and query', () => {
     tracker.recordRedirect(ORIGIN);
     cancel(ORIGIN, NavigationCancellationCode.Redirect);
@@ -131,8 +139,21 @@ describe('OnboardingFirstRunTracker', () => {
   });
 
   it.each([
-    ['cancelled', () => cancel(REPLACEMENT, NavigationCancellationCode.SupersededByNewNavigation)],
-    ['errored', () => events.next(new NavigationError(REPLACEMENT, '/onboarding', new Error('chunk')))],
+    [
+      'cancelled',
+      () =>
+        cancel(
+          REPLACEMENT,
+          NavigationCancellationCode.SupersededByNewNavigation,
+        ),
+    ],
+    [
+      'errored',
+      () =>
+        events.next(
+          new NavigationError(REPLACEMENT, '/onboarding', new Error('chunk')),
+        ),
+    ],
   ])('clears when the replacement is %s', (_label, fail) => {
     redirectStarted();
     fail();
