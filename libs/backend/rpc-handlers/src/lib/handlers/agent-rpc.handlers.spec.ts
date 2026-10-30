@@ -43,10 +43,18 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
   resolveSessionCapabilityPolicy: jest.requireActual(
     '../../../../agent-sdk/src/lib/helpers/sdk-query-options-builder',
   ).resolveSessionCapabilityPolicy,
+  // The real synced-skills reader and config-dir resolution (Phase B); the
+  // specs point it at temp fixture dirs only.
+  ...jest.requireActual(
+    '../../../../agent-sdk/src/lib/helpers/synced-claude-skills.reader',
+  ),
 }));
 
 jest.mock('@ptah-extension/auth-providers', () => ({
-  AUTH_PROVIDERS_TOKENS: { SDK_CODEX_AUTH: Symbol.for('CodexAuthService') },
+  AUTH_PROVIDERS_TOKENS: {
+    SDK_CODEX_AUTH: Symbol.for('CodexAuthService'),
+    SDK_AUTH_ENV: Symbol.for('SdkAuthEnv'),
+  },
   // Class token only: the handler resolves the account service lazily.
   ProviderAccountService: class ProviderAccountService {},
 }));
@@ -85,7 +93,13 @@ import type {
 import type { CliModelListService } from '../services/cli-model-list.service';
 import type { DependencyContainer } from 'tsyringe';
 
-import { ProviderAccountService } from '@ptah-extension/auth-providers';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  ProviderAccountService,
+} from '@ptah-extension/auth-providers';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { AgentRpcHandlers } from './agent-rpc.handlers';
 
@@ -123,10 +137,46 @@ interface HarnessOptions {
   readonly capabilityResolver?: Pick<ICapabilityResolver, 'resolve'>;
   /** Active workspace root; `null` means no workspace is open. */
   readonly workspaceRoot?: string | null;
+  /**
+   * `CLAUDE_CONFIG_DIR` of the registered auth env. Defaults to an empty temp
+   * dir, so no spec reads the developer's real `~/.claude` synced skills.
+   */
+  readonly claudeConfigDir?: string;
+}
+
+/** Temp dirs made by this file; removed after all specs. */
+const tempDirs: string[] = [];
+function tempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'ptah-agent-rpc-synced-'));
+  tempDirs.push(dir);
+  return dir;
+}
+afterAll(() => {
+  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
+});
+
+/** A Claude config dir holding one synced account with these skills. */
+function syncedConfigDir(
+  skills: ReadonlyArray<{ name: string; description: string }>,
+): string {
+  const dir = tempDir();
+  const account = join(dir, 'skills', 'synced', 'acct_org');
+  mkdirSync(account, { recursive: true });
+  writeFileSync(
+    join(account, 'manifest.json'),
+    JSON.stringify({
+      skills: skills.map((skill) => ({
+        skillId: `id-${skill.name}`,
+        ...skill,
+      })),
+    }),
+  );
+  return dir;
 }
 
 function makeHarness(options: HarnessOptions = {}): Harness {
   const { accountLookup, capabilityResolver } = options;
+  const authEnv = { CLAUDE_CONFIG_DIR: options.claudeConfigDir ?? tempDir() };
   const workspaceRoot =
     options.workspaceRoot === undefined ? WORKSPACE : options.workspaceRoot;
   const rpcHandler = createMockRpcHandler();
@@ -201,14 +251,17 @@ function makeHarness(options: HarnessOptions = {}): Harness {
         (token: unknown) =>
           (accountLookup !== undefined && token === ProviderAccountService) ||
           (capabilityResolver !== undefined &&
-            token === SDK_TOKENS.SDK_CAPABILITY_RESOLVER),
+            token === SDK_TOKENS.SDK_CAPABILITY_RESOLVER) ||
+          token === AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV,
       ),
       resolve: jest.fn((token: unknown) =>
         token === ProviderAccountService
           ? { lookupBySdkSession: accountLookup }
           : token === SDK_TOKENS.SDK_CAPABILITY_RESOLVER
             ? capabilityResolver
-            : undefined,
+            : token === AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV
+              ? authEnv
+              : undefined,
       ),
     } as unknown as DependencyContainer,
     {
@@ -430,7 +483,12 @@ function laneAccountResumeError(code: string): Error {
 
 function expectNoLeak(result: unknown): void {
   const wire = JSON.stringify(result);
-  for (const leak of ['credentials', 'claude-profiles', 'C:/', '@example.com']) {
+  for (const leak of [
+    'credentials',
+    'claude-profiles',
+    'C:/',
+    '@example.com',
+  ]) {
     expect(wire).not.toContain(leak);
   }
 }
@@ -496,9 +554,9 @@ describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
     });
 
     expect(result.code).toBe('account_refused');
-    expect(JSON.stringify((h.logger.warn as jest.Mock).mock.calls)).not.toContain(
-      'secret',
-    );
+    expect(
+      JSON.stringify((h.logger.warn as jest.Mock).mock.calls),
+    ).not.toContain('secret');
     expect(h.logger.warn).toHaveBeenCalledWith(
       'RPC: agent:continue account refused',
       { agentId: 'a-1', code: 'unavailable-storage' },
@@ -893,9 +951,9 @@ describe('AgentRpcHandlers — agent:resumeCliSession account selection', () => 
     expect(result.error).toBe(
       'Agent resume account refused (unavailable-storage).',
     );
-    expect(JSON.stringify((h.logger.warn as jest.Mock).mock.calls)).not.toContain(
-      'EACCES',
-    );
+    expect(
+      JSON.stringify((h.logger.warn as jest.Mock).mock.calls),
+    ).not.toContain('EACCES');
     expect(h.processManager.spawn).not.toHaveBeenCalled();
   });
 
@@ -1059,7 +1117,9 @@ describe('AgentRpcHandlers — Claude built-in opt-ins (TASK_2026_853)', () => {
   it('serves the catalog rows, the stored opt-ins and a verified status', async () => {
     const resolve = jest.fn().mockResolvedValue(capabilityPolicy('verified'));
     const h = makeHarness({ capabilityResolver: { resolve } });
-    h.settings.set('agentOrchestration.enabledClaudeBuiltinTools', ['Workflow']);
+    h.settings.set('agentOrchestration.enabledClaudeBuiltinTools', [
+      'Workflow',
+    ]);
     h.settings.set('agentOrchestration.enabledClaudeBuiltinSkills', [
       'workflow-authoring',
     ]);
@@ -1152,6 +1212,225 @@ describe('AgentRpcHandlers — Claude built-in opt-ins (TASK_2026_853)', () => {
     });
 
     expect(response.success).toBe(false);
+  });
+});
+
+describe('AgentRpcHandlers — claude.ai synced skills (TASK_2026_853 Phase B)', () => {
+  const SKILLS = 'agentOrchestration.enabledClaudeBuiltinSkills';
+  const SYNCED = [
+    { name: 'docx', description: 'Creates and edits Word documents.' },
+    { name: 'init', description: 'Account copy of a skill named init.' },
+  ];
+
+  it('serves the synced rows found in the main session config dir, with qualified ids', async () => {
+    const h = makeHarness({
+      capabilityResolver: {
+        resolve: jest.fn().mockResolvedValue(capabilityPolicy('verified')),
+      },
+      claudeConfigDir: syncedConfigDir(SYNCED),
+    });
+    h.settings.set(SKILLS, ['anthropic-skills:docx', 'init']);
+
+    const result = await call<AgentGetClaudeBuiltinsResult>(
+      h,
+      'agent:getClaudeBuiltins',
+      {},
+    );
+
+    expect(result.policyStatus).toBe('verified');
+    expect(result.syncedSkills).toEqual([
+      {
+        id: 'anthropic-skills:docx',
+        name: 'docx',
+        description: 'Creates and edits Word documents.',
+        approxTokens: 22,
+      },
+      {
+        id: 'anthropic-skills:init',
+        name: 'init',
+        description: 'Account copy of a skill named init.',
+        approxTokens: 23,
+      },
+    ]);
+    // The terminal `init` and the synced `anthropic-skills:init` stay apart.
+    expect(result.terminalSkills.map((row) => row.id)).toContain('init');
+    expect(result.enabledSkills).toEqual(['anthropic-skills:docx', 'init']);
+  });
+
+  it('serves no synced rows when the config dir has none', async () => {
+    const h = makeHarness();
+
+    const result = await call<AgentGetClaudeBuiltinsResult>(
+      h,
+      'agent:getClaudeBuiltins',
+      {},
+    );
+
+    expect(result.syncedSkills).toEqual([]);
+  });
+
+  it('keeps stored qualified synced opt-ins on read, even ones not found now', async () => {
+    const h = makeHarness();
+    h.settings.set(SKILLS, [
+      'anthropic-skills:other-account',
+      'anthropic-skills:',
+      'orchestration',
+      'init',
+    ]);
+
+    const result = await call<Record<string, unknown>>(
+      h,
+      'agent:getConfig',
+      {},
+    );
+
+    expect(result['enabledClaudeBuiltinSkills']).toEqual([
+      'anthropic-skills:other-account',
+      'init',
+    ]);
+  });
+
+  it('agent:setClaudeBuiltin stores a synced id the reader finds now', async () => {
+    const h = makeHarness({ claudeConfigDir: syncedConfigDir(SYNCED) });
+    h.settings.set(SKILLS, ['init']);
+
+    const result = await call<AgentSetClaudeBuiltinResult>(
+      h,
+      'agent:setClaudeBuiltin',
+      { kind: 'skill', id: 'anthropic-skills:docx', enabled: true },
+    );
+
+    expect(result).toEqual({
+      success: true,
+      enabledTools: [],
+      enabledSkills: ['anthropic-skills:docx', 'init'],
+    });
+    expect(h.settings.get(SKILLS)).toEqual(['anthropic-skills:docx', 'init']);
+  });
+
+  it('agent:setClaudeBuiltin turns a synced id off and keeps the terminal skill of the same name', async () => {
+    const h = makeHarness({ claudeConfigDir: syncedConfigDir(SYNCED) });
+    h.settings.set(SKILLS, ['anthropic-skills:init', 'init']);
+
+    const result = await call<AgentSetClaudeBuiltinResult>(
+      h,
+      'agent:setClaudeBuiltin',
+      { kind: 'skill', id: 'anthropic-skills:init', enabled: false },
+    );
+
+    expect(result.enabledSkills).toEqual(['init']);
+    expect(h.settings.get(SKILLS)).toEqual(['init']);
+  });
+
+  it('agent:setClaudeBuiltin keeps a stored synced opt-in the reader does not find now', async () => {
+    const h = makeHarness({ claudeConfigDir: syncedConfigDir(SYNCED) });
+    h.settings.set(SKILLS, ['anthropic-skills:other-account']);
+
+    const result = await call<AgentSetClaudeBuiltinResult>(
+      h,
+      'agent:setClaudeBuiltin',
+      { kind: 'skill', id: 'anthropic-skills:docx', enabled: true },
+    );
+
+    expect(result.enabledSkills).toEqual([
+      'anthropic-skills:docx',
+      'anthropic-skills:other-account',
+    ]);
+  });
+
+  it.each([
+    ['a qualified id the reader does not find', 'anthropic-skills:pptx'],
+    ['a bare synced name', 'docx'],
+    ['an empty qualified id', 'anthropic-skills:'],
+  ])('agent:setClaudeBuiltin rejects %s without writing', async (_, id) => {
+    const h = makeHarness({ claudeConfigDir: syncedConfigDir(SYNCED) });
+
+    const result = await call<AgentSetClaudeBuiltinResult>(
+      h,
+      'agent:setClaudeBuiltin',
+      { kind: 'skill', id, enabled: true },
+    );
+
+    expect(result).toEqual({
+      success: false,
+      enabledTools: [],
+      enabledSkills: [],
+      error: 'Unknown Claude built-in.',
+    });
+    expect(h.setConfiguration).not.toHaveBeenCalled();
+  });
+
+  it('agent:setClaudeBuiltin rejects a synced id when the synced folder cannot be read', async () => {
+    const dir = tempDir();
+    mkdirSync(join(dir, 'skills', 'synced', 'acct_org'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'synced', 'acct_org', 'manifest.json'),
+      '{not json',
+    );
+    const h = makeHarness({ claudeConfigDir: dir });
+
+    const result = await call<AgentSetClaudeBuiltinResult>(
+      h,
+      'agent:setClaudeBuiltin',
+      { kind: 'skill', id: 'anthropic-skills:docx', enabled: true },
+    );
+
+    expect(result.success).toBe(false);
+    expect(h.setConfiguration).not.toHaveBeenCalled();
+  });
+
+  it('agent:setConfig keeps found synced ids in a whole-list write and drops unknown ones', async () => {
+    const h = makeHarness({ claudeConfigDir: syncedConfigDir(SYNCED) });
+
+    const result = await call<SetConfigResult>(h, 'agent:setConfig', {
+      enabledClaudeBuiltinSkills: [
+        'anthropic-skills:docx',
+        'anthropic-skills:pptx',
+        'init',
+      ],
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(h.settings.get(SKILLS)).toEqual(['anthropic-skills:docx', 'init']);
+  });
+
+  it("agent:setConfig keeps another account's stored synced opt-in and removes a found one", async () => {
+    // Account A enabled `alpha`; account B (docx, init) is active now and
+    // saves its displayed list without docx.
+    const h = makeHarness({ claudeConfigDir: syncedConfigDir(SYNCED) });
+    h.settings.set(SKILLS, [
+      'anthropic-skills:alpha',
+      'anthropic-skills:docx',
+      'init',
+    ]);
+
+    const result = await call<SetConfigResult>(h, 'agent:setConfig', {
+      enabledClaudeBuiltinSkills: ['init'],
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(h.settings.get(SKILLS)).toEqual(['anthropic-skills:alpha', 'init']);
+  });
+
+  it('agent:setConfig keeps stored synced opt-ins when the synced folder cannot be read', async () => {
+    const dir = tempDir();
+    mkdirSync(join(dir, 'skills', 'synced', 'acct_org'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'synced', 'acct_org', 'manifest.json'),
+      '{not json',
+    );
+    const h = makeHarness({ claudeConfigDir: dir });
+    h.settings.set(SKILLS, ['anthropic-skills:docx', 'init']);
+
+    const result = await call<SetConfigResult>(h, 'agent:setConfig', {
+      enabledClaudeBuiltinSkills: ['code-review'],
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(h.settings.get(SKILLS)).toEqual([
+      'anthropic-skills:docx',
+      'code-review',
+    ]);
   });
 });
 

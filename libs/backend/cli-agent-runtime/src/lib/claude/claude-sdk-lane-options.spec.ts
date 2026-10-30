@@ -62,10 +62,12 @@ function assemblyFor(
   policy: EffectiveCapabilitySet,
   enabledTools: string[] = [],
   enabledSkills: string[] = [],
+  syncedSkillIds: string[] = [],
 ): PtahSpawnAssembly {
   const builtinPolicy = resolveClaudeBuiltinPolicy({
     enabledTools,
     enabledSkills,
+    syncedSkillIds,
   });
   return {
     systemPromptMode: 'preset-append',
@@ -207,6 +209,87 @@ describe('buildClaudeSdkLaneOptions — Claude built-in policy (TASK_2026_853)',
     input.launch = launch;
     const options = buildClaudeSdkLaneOptions(input);
     expect(options.disallowedTools).toEqual(DEFAULT_TOOLS);
+    expect(options.env).toEqual(launch.env);
+    expect(String(options.settings)).not.toContain('accounts/selected');
+    expect(() =>
+      assertCertifiedLaunch(launch, claudeActualLaunch(options), 'final'),
+    ).not.toThrow();
+  });
+});
+
+describe('buildClaudeSdkLaneOptions — account-synced skills (TASK_2026_853 Phase B)', () => {
+  const SYNCED = ['anthropic-skills:docs', 'anthropic-skills:pdf'];
+  const NAMED_ROUTE = {
+    kind: 'named',
+    provider: 'claude',
+    profileId: 'profile',
+    canonicalConfigDir: 'D:/accounts/selected',
+    routeFingerprint: 'fingerprint',
+    routeRevision: 0,
+    authEpoch: 0,
+    runId: 'run',
+  } as ClaudeAccountNamedRoute;
+
+  it('ambient lane: qualified synced keys ride the flag tier next to the Phase A denials', () => {
+    const options = buildClaudeSdkLaneOptions(
+      laneInput(assemblyFor(verifiedPolicy(), [], [], SYNCED)),
+    );
+    const overrides = skillOverrides(options.settings);
+    for (const id of SYNCED) expect(overrides?.[id]).toBe('off');
+    expect(overrides?.['docs']).toBeUndefined();
+    expect(overrides?.['pdf']).toBeUndefined();
+    expect(overrides?.['code-review']).toBe('off');
+    expect(options.disallowedTools).toEqual(DEFAULT_TOOLS);
+  });
+
+  it('an opted-in synced skill gets no override', () => {
+    const options = buildClaudeSdkLaneOptions(
+      laneInput(
+        assemblyFor(verifiedPolicy(), [], ['anthropic-skills:pdf'], SYNCED),
+      ),
+    );
+    const overrides = skillOverrides(options.settings);
+    expect(overrides?.['anthropic-skills:pdf']).toBeUndefined();
+    expect(overrides?.['anthropic-skills:docs']).toBe('off');
+  });
+
+  it('proxied lane: the qualified keys are carried (an unloaded key is ignored)', () => {
+    const options = buildClaudeSdkLaneOptions(
+      laneInput(assemblyFor(verifiedPolicy(), [], [], SYNCED), {
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:8080',
+        ANTHROPIC_AUTH_TOKEN: 'proxy-token',
+      }),
+    );
+    const overrides = skillOverrides(options.settings);
+    for (const id of SYNCED) expect(overrides?.[id]).toBe('off');
+    expect(options.disallowedTools).toEqual(DEFAULT_TOOLS);
+  });
+
+  it('unverified policy: no synced key, skills isolated', () => {
+    const options = buildClaudeSdkLaneOptions(
+      laneInput(
+        assemblyFor(
+          unverifiedCapabilityPolicy(CWD, 'fixture'),
+          [],
+          [],
+          SYNCED,
+        ),
+      ),
+    );
+    expect(options.skills).toEqual([]);
+    expect(options.strictMcpConfig).toBe(true);
+    expect(skillOverrides(options.settings)).toBeUndefined();
+  });
+
+  it('named lane: certified launch still passes with synced denials', () => {
+    const launch = certifiedLaunch();
+    const input = laneInput(assemblyFor(verifiedPolicy(), [], [], SYNCED));
+    input.accountRoute = NAMED_ROUTE;
+    input.launch = launch;
+    const options = buildClaudeSdkLaneOptions(input);
+    for (const id of SYNCED) {
+      expect(skillOverrides(options.settings)?.[id]).toBe('off');
+    }
     expect(options.env).toEqual(launch.env);
     expect(String(options.settings)).not.toContain('accounts/selected');
     expect(() =>

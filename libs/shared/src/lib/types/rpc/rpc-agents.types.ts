@@ -332,7 +332,10 @@ export interface ClaudeBuiltinToolDto {
 
 /** A Claude skill (terminal-only or account-synced) hidden unless the user opts in. */
 export interface ClaudeBuiltinSkillDto {
+  /** Terminal skill name, or the qualified `anthropic-skills:<name>` of a synced skill. */
   id: string;
+  /** Synced skills only: the plain skill name shown in the card (`docx`). */
+  name?: string;
   description: string;
   approxTokens: number;
   /** The tool this skill needs; both must be on for the skill to load. */
@@ -346,7 +349,7 @@ export type AgentGetClaudeBuiltinsParams = Record<string, never>;
 export interface AgentGetClaudeBuiltinsResult {
   tools: ClaudeBuiltinToolDto[];
   terminalSkills: ClaudeBuiltinSkillDto[];
-  /** Account-synced skills found on this machine. Empty until Phase B. */
+  /** claude.ai account-synced skills found in the main session's Claude config dir. */
   syncedSkills: ClaudeBuiltinSkillDto[];
   enabledTools: string[];
   enabledSkills: string[];

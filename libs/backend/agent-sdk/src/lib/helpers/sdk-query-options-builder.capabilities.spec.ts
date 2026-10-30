@@ -18,6 +18,9 @@
  */
 
 import 'reflect-metadata';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   AISessionConfig,
   AuthEnv,
@@ -203,6 +206,25 @@ function capabilityKeys(built: Built): Record<string, unknown> {
     mcpServers: Object.keys(built.options.mcpServers ?? {}),
   };
 }
+
+// The synced-skill reader (TASK_2026_853 Phase B) and the same-name skill
+// guard read the Claude config dir; point it at an empty temp dir so the
+// developer's own `~/.claude` (account-synced skills) never leaks in.
+let isolatedConfigRoot: string;
+let previousClaudeConfigDir: string | undefined;
+beforeEach(() => {
+  isolatedConfigRoot = mkdtempSync(join(tmpdir(), 'ptah-no-claude-config-'));
+  previousClaudeConfigDir = process.env['CLAUDE_CONFIG_DIR'];
+  process.env['CLAUDE_CONFIG_DIR'] = isolatedConfigRoot;
+});
+afterEach(() => {
+  if (previousClaudeConfigDir === undefined) {
+    delete process.env['CLAUDE_CONFIG_DIR'];
+  } else {
+    process.env['CLAUDE_CONFIG_DIR'] = previousClaudeConfigDir;
+  }
+  rmSync(isolatedConfigRoot, { recursive: true, force: true });
+});
 
 describe('SdkQueryOptionsBuilder — capability policy (TASK_2026_560, C5)', () => {
   describe('verified policy → flag tier', () => {

@@ -34,12 +34,15 @@ import {
   CompactionHookHandler,
   CompactionConfigProvider,
   assembleSystemPrompt,
+  buildSafeEnv,
   capabilityFlagsFor,
   capabilityIsolationOptions,
   filterMcpServersByPolicy,
   getActiveProviderId,
   guardClaudeBuiltinSkillDenials,
   readClaudeBuiltinOptInSettings,
+  readSyncedClaudeSkills,
+  resolveClaudeConfigDir,
   resolveAutoCompactControl,
   resolveClaudeBuiltinPolicy,
   unverifiedCapabilityPolicy,
@@ -204,8 +207,9 @@ export class PtahCliSpawnOptions {
    *   a caller that supplies none can only narrow the spawn, never widen it
    *   (R8).
    * @param skillScope - The named launch's cwd, config dir and setting
-   *   sources, so the built-in skill guard scans what that child reads. Absent is
-   *   the ambient `CLAUDE_CONFIG_DIR` (or `~/.claude`) and `cwd`.
+   *   sources, so the built-in skill guard and the synced-skill reader scan
+   *   what that child reads. Absent is the `CLAUDE_CONFIG_DIR` of the env
+   *   the child gets (or `~/.claude`) and `cwd`; the host env is not read.
    * @returns Assembled spawn options
    */
   async assembleSpawnOptions(
@@ -258,19 +262,33 @@ export class PtahCliSpawnOptions {
         { cwd, reasons: policy.reasons },
       );
     }
-    // Same settings, pure rule and same-name guard as the main session
-    // (TASK_2026_853, R1). Only the verified path emits skill denials.
-    const optInPolicy = resolveClaudeBuiltinPolicy(
-      readClaudeBuiltinOptInSettings(this.workspace, this.logger),
-    );
+    // Same settings, pure rule, synced reader and same-name guard as the
+    // main session (TASK_2026_853, R1 and Phase B). Only the verified path
+    // emits skill denials, so only it reads the synced skills.
+    const optIns = readClaudeBuiltinOptInSettings(this.workspace, this.logger);
+    const optInPolicy = resolveClaudeBuiltinPolicy(optIns);
+    // The config dir this child reads, from the env the child gets
+    // (`buildClaudeLaneEnv`): a named launch's certified dir, else the safe
+    // env's (the auth env's value; the host `CLAUDE_CONFIG_DIR` does not reach
+    // an ambient child), else `~/.claude` (decision #42).
+    const claudeConfigDir = resolveClaudeConfigDir([
+      skillScope?.claudeConfigDir
+        ? { CLAUDE_CONFIG_DIR: skillScope.claudeConfigDir }
+        : buildSafeEnv(authEnv),
+    ]);
     const builtinPolicy =
       policy.status === 'verified'
         ? await guardClaudeBuiltinSkillDenials(
-            optInPolicy,
+            resolveClaudeBuiltinPolicy({
+              ...optIns,
+              // Qualified `anthropic-skills:<name>` ids only; none on failure.
+              syncedSkillIds: (
+                await readSyncedClaudeSkills(claudeConfigDir, this.logger)
+              ).map((skill) => skill.id),
+            }),
             {
               cwds: skillScope?.cwd ? [cwd, skillScope.cwd] : [cwd],
-              claudeConfigDir:
-                skillScope?.claudeConfigDir ?? process.env['CLAUDE_CONFIG_DIR'],
+              claudeConfigDir,
               // Only the tiers the child loads can collide (R2).
               settingSources: skillScope?.settingSources,
             },

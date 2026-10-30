@@ -1,0 +1,58 @@
+{
+ "count": 13,
+ "totalApproxTokens": 3601,
+ "rows": [
+  [
+   "anthropic-skills:built-in-browser",
+   324
+  ],
+  [
+   "anthropic-skills:chrome-browser",
+   298
+  ],
+  [
+   "anthropic-skills:computer-use",
+   367
+  ],
+  [
+   "anthropic-skills:deep-research",
+   229
+  ],
+  [
+   "anthropic-skills:docs",
+   390
+  ],
+  [
+   "anthropic-skills:docx",
+   364
+  ],
+  [
+   "anthropic-skills:google-workspace",
+   371
+  ],
+  [
+   "anthropic-skills:import-memory",
+   66
+  ],
+  [
+   "anthropic-skills:morning",
+   140
+  ],
+  [
+   "anthropic-skills:pdf",
+   175
+  ],
+  [
+   "anthropic-skills:pptx",
+   374
+  ],
+  [
+   "anthropic-skills:skill-creator",
+   134
+  ],
+  [
+   "anthropic-skills:xlsx",
+   369
+  ]
+ ]
+}

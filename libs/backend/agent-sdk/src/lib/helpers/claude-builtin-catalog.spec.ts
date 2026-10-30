@@ -4,6 +4,9 @@ import {
   CLAUDE_BUILTIN_TERMINAL_SKILLS,
   CLAUDE_BUILTIN_TOOLS,
   PROTECTED_CLAUDE_TOOLS,
+  SYNCED_CLAUDE_SKILL_PREFIX,
+  isSyncedClaudeSkillId,
+  syncedClaudeSkillId,
   normalizeClaudeBuiltinIds,
   readClaudeBuiltinOptIns,
   readClaudeBuiltinOptInSettings,
@@ -157,6 +160,90 @@ describe('resolveClaudeBuiltinPolicy', () => {
     expect(policy.deniedSkillNames).toEqual(
       [...policy.deniedSkillNames].sort(),
     );
+  });
+});
+
+describe('synced skill ids in the policy (TASK_2026_853 Phase B)', () => {
+  const SYNCED = ['anthropic-skills:docs', 'anthropic-skills:pdf'];
+
+  it('qualifies a synced name and recognises only qualified ids', () => {
+    expect(SYNCED_CLAUDE_SKILL_PREFIX).toBe('anthropic-skills:');
+    expect(syncedClaudeSkillId('docs')).toBe('anthropic-skills:docs');
+    expect(isSyncedClaudeSkillId('anthropic-skills:docs')).toBe(true);
+    expect(isSyncedClaudeSkillId('anthropic-skills:')).toBe(false);
+    expect(isSyncedClaudeSkillId('docs')).toBe(false);
+    expect(isSyncedClaudeSkillId('init')).toBe(false);
+  });
+
+  it('denies every synced id by default, next to the Phase A defaults', () => {
+    const policy = resolveClaudeBuiltinPolicy({
+      enabledTools: [],
+      enabledSkills: [],
+      syncedSkillIds: SYNCED,
+    });
+    expect(policy).toEqual({
+      disallowedTools: ALL_TOOLS,
+      deniedSkillNames: [...ALL_SKILLS, ...SYNCED].sort(),
+    });
+  });
+
+  it('never denies a bare name passed as a synced id', () => {
+    const policy = resolveClaudeBuiltinPolicy({
+      enabledTools: [],
+      enabledSkills: [],
+      syncedSkillIds: ['docs', 'orchestration', 'anthropic-skills:', 'pdf'],
+    });
+    expect(policy.deniedSkillNames).toEqual(ALL_SKILLS);
+  });
+
+  it('a synced opt-in and a terminal opt-in are independent', () => {
+    const syncedOnly = resolveClaudeBuiltinPolicy({
+      enabledTools: [],
+      enabledSkills: ['anthropic-skills:init'],
+      syncedSkillIds: ['anthropic-skills:init'],
+    });
+    expect(syncedOnly.deniedSkillNames).toContain('init');
+    expect(syncedOnly.deniedSkillNames).not.toContain('anthropic-skills:init');
+    const terminalOnly = resolveClaudeBuiltinPolicy({
+      enabledTools: [],
+      enabledSkills: ['init'],
+      syncedSkillIds: ['anthropic-skills:init'],
+    });
+    expect(terminalOnly.deniedSkillNames).not.toContain('init');
+    expect(terminalOnly.deniedSkillNames).toContain('anthropic-skills:init');
+  });
+
+  it('keeps the dependency rule with synced ids present', () => {
+    const policy = resolveClaudeBuiltinPolicy({
+      enabledTools: [],
+      enabledSkills: ['code-review', 'anthropic-skills:pdf'],
+      syncedSkillIds: SYNCED,
+    });
+    expect(policy.deniedSkillNames).toContain('code-review');
+    expect(policy.deniedSkillNames).not.toContain('anthropic-skills:pdf');
+  });
+
+  it('an opt-in for a synced id that is not on this machine denies nothing', () => {
+    const policy = resolveClaudeBuiltinPolicy({
+      enabledTools: [],
+      enabledSkills: ['anthropic-skills:gone'],
+      syncedSkillIds: [],
+    });
+    expect(policy.deniedSkillNames).toEqual(ALL_SKILLS);
+  });
+
+  it('the same-name guard drops a colliding terminal denial and keeps the qualified synced one', () => {
+    const policy = resolveClaudeBuiltinPolicy({
+      enabledTools: [],
+      enabledSkills: [],
+      syncedSkillIds: ['anthropic-skills:init'],
+    });
+    const result = withoutCollidingBuiltinSkillDenials(
+      policy.deniedSkillNames,
+      new Map([['init', ['workspace'] as ClaudeSkillSourceKind[]]]),
+    );
+    expect(result.deniedSkillNames).toContain('anthropic-skills:init');
+    expect(result.deniedSkillNames).not.toContain('init');
   });
 });
 
