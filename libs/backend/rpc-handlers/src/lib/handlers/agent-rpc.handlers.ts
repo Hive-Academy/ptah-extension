@@ -45,9 +45,16 @@ import {
   MAX_CONCURRENT_AGENTS,
 } from '@ptah-extension/cli-agent-runtime';
 import {
+  CLAUDE_BUILTIN_TERMINAL_SKILLS,
+  CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
+  CLAUDE_BUILTIN_TOOLS,
+  CLAUDE_BUILTIN_TOOL_IDS,
   SDK_TOKENS,
   SessionMetadataStore,
   SdkPermissionHandler,
+  normalizeClaudeBuiltinIds,
+  readClaudeBuiltinOptIns,
+  resolveSessionCapabilityPolicy,
 } from '@ptah-extension/agent-sdk';
 import {
   DecisionModelSelectionSchema,
@@ -59,8 +66,14 @@ import {
 } from '@ptah-extension/lane-routing';
 import { z } from 'zod';
 import type {
+  AgentGetClaudeBuiltinsParams,
+  AgentGetClaudeBuiltinsResult,
+  AgentSetClaudeBuiltinParams,
+  AgentSetClaudeBuiltinResult,
   AgentOrchestrationConfig,
   AgentSetConfigParams,
+  CapabilityPolicyStatus,
+  ICapabilityResolver,
   AgentListCliModelsResult,
   AgentPermissionDecision,
   AgentContinueErrorCode,
@@ -97,6 +110,25 @@ import {
 } from './decision-model-writer';
 import { CliModelListService } from '../services/cli-model-list.service';
 import { resolveSessionFolder } from '../chat/session/session-folder';
+
+/** `agent:setConfig` keys that hold a Claude built-in opt-in list (TASK_2026_853). */
+const CLAUDE_BUILTIN_OPT_IN_KEYS = [
+  'enabledClaudeBuiltinTools',
+  'enabledClaudeBuiltinSkills',
+] as const satisfies readonly (keyof AgentSetConfigParams)[];
+
+/** The first Claude built-in opt-in field that is present but not a string array, or null. */
+function invalidClaudeBuiltinOptIns(
+  params: AgentSetConfigParams,
+): string | null {
+  const isStringArray = (value: unknown): boolean =>
+    Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+  return (
+    CLAUDE_BUILTIN_OPT_IN_KEYS.find(
+      (key) => params[key] !== undefined && !isStringArray(params[key]),
+    ) ?? null
+  );
+}
 
 /** `agent:setConfig` keys that hold one CLI's model id. Written in this order. */
 const CLI_MODEL_KEYS = [
@@ -385,6 +417,13 @@ function resumeSpawnAccountSelection(
   return cli === 'claude' ? selection : undefined;
 }
 
+/** Wire shape of `agent:setClaudeBuiltin`; ids are checked against the catalog. */
+const SetClaudeBuiltinParamsSchema = z.object({
+  kind: z.enum(['tool', 'skill']),
+  id: z.string().min(1),
+  enabled: z.boolean(),
+});
+
 @injectable()
 export class AgentRpcHandlers {
   /**
@@ -394,6 +433,8 @@ export class AgentRpcHandlers {
   static readonly METHODS = [
     'agent:getConfig',
     'agent:setConfig',
+    'agent:getClaudeBuiltins',
+    'agent:setClaudeBuiltin',
     'agent:detectClis',
     'agent:listCliModels',
     'agent:permissionResponse',
@@ -403,7 +444,10 @@ export class AgentRpcHandlers {
     'agent:resumeCliSession',
   ] as const;
 
-  /** Tail of the `agent:setConfig` chain; settles, never rejects. */
+  /**
+   * Tail of the settings-write chain shared by `agent:setConfig` and
+   * `agent:setClaudeBuiltin`; settles, never rejects.
+   */
   private setConfigQueue: Promise<void> = Promise.resolve();
 
   constructor(
@@ -452,6 +496,8 @@ export class AgentRpcHandlers {
 
     this.registerGetConfig();
     this.registerSetConfig();
+    this.registerGetClaudeBuiltins();
+    this.registerSetClaudeBuiltin();
     this.registerDetectClis();
     this.registerListCliModels();
     this.registerPermissionResponse();
@@ -475,6 +521,8 @@ export class AgentRpcHandlers {
       methods: [
         'agent:getConfig',
         'agent:setConfig',
+        'agent:getClaudeBuiltins',
+        'agent:setClaudeBuiltin',
         'agent:detectClis',
         'agent:listCliModels',
         'agent:permissionResponse',
@@ -583,6 +631,7 @@ export class AgentRpcHandlers {
                 'workflows.disabled',
                 false,
               ) ?? false,
+            ...this.getClaudeBuiltinOptIns(),
             decisionModel: await this.readDecisionModelStatus(),
           };
 
@@ -601,6 +650,181 @@ export class AgentRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * `agent:getClaudeBuiltins` — the Claude built-in catalog (TASK_2026_853),
+   * the stored opt-ins and the active workspace's capability-policy status.
+   * Read failures propagate, so the UI shows its load error instead of an
+   * all-off list it could then save over the stored one.
+   */
+  private registerGetClaudeBuiltins(): void {
+    this.rpcHandler.registerMethod<
+      AgentGetClaudeBuiltinsParams,
+      AgentGetClaudeBuiltinsResult
+    >('agent:getClaudeBuiltins', async () => {
+      const optIns = this.getClaudeBuiltinOptIns();
+      return {
+        tools: CLAUDE_BUILTIN_TOOLS.map((row) => ({
+          id: row.id,
+          description: row.description,
+          approxTokens: row.approxTokens,
+          skillsNeedingIt: [...row.skillsNeedingIt],
+        })),
+        terminalSkills: CLAUDE_BUILTIN_TERMINAL_SKILLS.map((row) => ({
+          id: row.id,
+          description: row.description,
+          approxTokens: row.approxTokens,
+          ...(row.needsTool === undefined ? {} : { needsTool: row.needsTool }),
+        })),
+        // Account-synced skills are discovered in Phase B.
+        syncedSkills: [],
+        enabledTools: optIns.enabledClaudeBuiltinTools,
+        enabledSkills: optIns.enabledClaudeBuiltinSkills,
+        policyStatus: await this.activeCapabilityPolicyStatus(),
+      };
+    });
+  }
+
+  /**
+   * `agent:setClaudeBuiltin` — turn ONE catalog tool or skill on or off
+   * (TASK_2026_853, review fix R2). A whole-array `agent:setConfig` write
+   * from a window that read before another window's change would drop that
+   * change; this method instead changes only its own id in the list as
+   * stored at write time. Calls join the `agent:setConfig` chain, so no
+   * other settings write runs between the read and the write. Never rejects.
+   */
+  private registerSetClaudeBuiltin(): void {
+    this.rpcHandler.registerMethod<
+      AgentSetClaudeBuiltinParams,
+      AgentSetClaudeBuiltinResult
+    >('agent:setClaudeBuiltin', (params) => {
+      const run = this.setConfigQueue.then(() =>
+        this.applySetClaudeBuiltin(params),
+      );
+      this.setConfigQueue = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      return run;
+    });
+  }
+
+  /** Validate and apply one per-item change. Run only through the queue. */
+  private async applySetClaudeBuiltin(
+    params: unknown,
+  ): Promise<AgentSetClaudeBuiltinResult> {
+    const parsed = SetClaudeBuiltinParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      return this.claudeBuiltinFailure('Unsupported Claude built-in change.');
+    }
+    const { kind, id, enabled } = parsed.data;
+    // Phase A has no account-synced skills, so the skill catalog is the
+    // terminal skills; the same ids `agent:setConfig` keeps.
+    const catalog =
+      kind === 'tool'
+        ? CLAUDE_BUILTIN_TOOL_IDS
+        : CLAUDE_BUILTIN_TERMINAL_SKILL_IDS;
+    if (!catalog.includes(id)) {
+      return this.claudeBuiltinFailure('Unknown Claude built-in.');
+    }
+    try {
+      const key =
+        kind === 'tool'
+          ? 'enabledClaudeBuiltinTools'
+          : 'enabledClaudeBuiltinSkills';
+      // Read and compute synchronously; the write is the only await.
+      const stored = this.getClaudeBuiltinOptIns()[key];
+      const next = normalizeClaudeBuiltinIds(
+        enabled ? [...stored, id] : stored.filter((entry) => entry !== id),
+        catalog,
+      );
+      await this.setAgentCfg(key, next);
+      const after = this.getClaudeBuiltinOptIns();
+      return {
+        success: true,
+        enabledTools: after.enabledClaudeBuiltinTools,
+        enabledSkills: after.enabledClaudeBuiltinSkills,
+      };
+    } catch (error: unknown) {
+      // Settings errors can carry paths; log the type, return fixed text.
+      this.logger.error('RPC: agent:setClaudeBuiltin failed', {
+        errorType: error instanceof Error ? error.name : 'unknown',
+      });
+      return this.claudeBuiltinFailure(
+        error instanceof SettingsPersistError
+          ? error.message
+          : 'Could not save the Claude built-in setting.',
+      );
+    }
+  }
+
+  /**
+   * A failed `agent:setClaudeBuiltin` result carrying the lists as stored
+   * now, or empty lists when even that read fails.
+   */
+  private claudeBuiltinFailure(error: string): AgentSetClaudeBuiltinResult {
+    try {
+      const stored = this.getClaudeBuiltinOptIns();
+      return {
+        success: false,
+        enabledTools: stored.enabledClaudeBuiltinTools,
+        enabledSkills: stored.enabledClaudeBuiltinSkills,
+        error,
+      };
+    } catch {
+      return { success: false, enabledTools: [], enabledSkills: [], error };
+    }
+  }
+
+  /**
+   * The stored Claude built-in opt-ins, kept to the catalog. A malformed
+   * hand-edited value reads as `[]`, the same value a session build uses.
+   */
+  private getClaudeBuiltinOptIns(): Pick<
+    AgentOrchestrationConfig,
+    'enabledClaudeBuiltinTools' | 'enabledClaudeBuiltinSkills'
+  > {
+    return {
+      enabledClaudeBuiltinTools: normalizeClaudeBuiltinIds(
+        readClaudeBuiltinOptIns(
+          this.getAgentCfg<unknown>('enabledClaudeBuiltinTools', []),
+        ),
+        CLAUDE_BUILTIN_TOOL_IDS,
+      ),
+      enabledClaudeBuiltinSkills: normalizeClaudeBuiltinIds(
+        readClaudeBuiltinOptIns(
+          this.getAgentCfg<unknown>('enabledClaudeBuiltinSkills', []),
+        ),
+        CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
+      ),
+    };
+  }
+
+  /**
+   * The capability-policy status a session in the active workspace would get:
+   * the same resolver and the same never-throwing, never-widening resolution
+   * `SessionQueryExecutor` uses. No workspace, or no registered resolver,
+   * is `unverified`, exactly as a session build treats it.
+   */
+  private async activeCapabilityPolicyStatus(): Promise<CapabilityPolicyStatus> {
+    // eslint-disable-next-line no-restricted-properties -- a settings read with no session; it reports what a NEW session in the active workspace would get
+    const root = this.workspace.getWorkspaceRoot();
+    if (!root) return 'unverified';
+    const resolver = this.runtimeContainer.isRegistered(
+      SDK_TOKENS.SDK_CAPABILITY_RESOLVER,
+      true,
+    )
+      ? this.runtimeContainer.resolve<ICapabilityResolver>(
+          SDK_TOKENS.SDK_CAPABILITY_RESOLVER,
+        )
+      : null;
+    const policy = await resolveSessionCapabilityPolicy(
+      resolver,
+      root,
+      this.logger,
+    );
+    return policy.status;
   }
 
   /**
@@ -785,6 +1009,10 @@ export class AgentRpcHandlers {
           error: `Unsupported ${invalidGuard} value`,
         };
       }
+      const invalidOptIns = invalidClaudeBuiltinOptIns(params);
+      if (invalidOptIns) {
+        return { success: false, error: `Unsupported ${invalidOptIns} value` };
+      }
       if (
         params.subagentPromptCacheTtl !== undefined &&
         !isSubagentPromptCacheTtlSetting(params.subagentPromptCacheTtl)
@@ -925,6 +1153,26 @@ export class AgentRpcHandlers {
           'ptah',
           'workflows.disabled',
           params.workflowsDisabled,
+        );
+      }
+      // Global file settings, read by the next main session and Claude lane
+      // build. Stored filtered to the catalog, deduped and sorted.
+      if (params.enabledClaudeBuiltinTools !== undefined) {
+        await this.setAgentCfg(
+          'enabledClaudeBuiltinTools',
+          normalizeClaudeBuiltinIds(
+            params.enabledClaudeBuiltinTools,
+            CLAUDE_BUILTIN_TOOL_IDS,
+          ),
+        );
+      }
+      if (params.enabledClaudeBuiltinSkills !== undefined) {
+        await this.setAgentCfg(
+          'enabledClaudeBuiltinSkills',
+          normalizeClaudeBuiltinIds(
+            params.enabledClaudeBuiltinSkills,
+            CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
+          ),
         );
       }
       this.logger.debug('RPC: agent:setConfig success');

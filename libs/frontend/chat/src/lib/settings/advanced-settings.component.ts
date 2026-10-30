@@ -22,6 +22,7 @@ import { AdvancedSettingsGroupComponent } from './advanced/advanced-settings-gro
 import { LicenseStatusCardComponent } from './license/license-status-card.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
+import { ClaudeBuiltinsConfigComponent } from './pro-features/claude-builtins-config.component';
 import { AgentBehaviourSectionComponent } from './pro-features/agent-behaviour-section.component';
 import { OutputStyleConfigComponent } from './output-style/output-style-config.component';
 import { SettingsSaveFeedbackService } from './feedback/settings-save-feedback.service';
@@ -66,6 +67,7 @@ const FOCUS =
     AgentBehaviourSectionComponent,
     OutputStyleConfigComponent,
     McpPortConfigComponent,
+    ClaudeBuiltinsConfigComponent,
     VscodeLmConfigComponent,
     SurfaceSectionComponent,
     AdvancedSettingsGroupComponent,
@@ -164,6 +166,7 @@ const FOCUS =
       <ptah-agent-behaviour-section />
       <ptah-output-style-config />
       <ptah-mcp-port-config />
+      <ptah-claude-builtins-config />
       <ptah-vscode-lm-config (modelChanged)="modelChanged.emit()" />
 
       <!-- Fine-tuning (TASK_2026_658): closed by default; its groups load in their own chunk once opened and in view. -->

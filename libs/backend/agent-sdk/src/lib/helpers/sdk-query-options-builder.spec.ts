@@ -16,12 +16,27 @@
  */
 
 import 'reflect-metadata';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   SdkQueryOptionsBuilder,
   getActiveProviderId,
+  namedActualLaunch,
   type SdkQueryOptions,
 } from './sdk-query-options-builder';
+import {
+  CLAUDE_CERTIFIED_ENV_KEYS,
+  assertCertifiedLaunch,
+  certifiedEnvDigest,
+} from './claude-certified-launch';
+import { CLAUDE_BUILTIN_SETTING_KEYS } from './claude-builtin-catalog';
+import type {
+  ClaudeAccountNamedRoute,
+  ClaudeCertifiedLaunchContext,
+} from '@ptah-extension/auth-providers-tokens';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { KIMI_CODE_PROXY_TOKEN_PLACEHOLDER } from '@ptah-extension/shared';
 import { ModelNotAvailableError, SdkError } from '../errors';
 import { PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
@@ -33,6 +48,7 @@ import type {
 import type {
   AISessionConfig,
   AuthEnv,
+  EffectiveCapabilitySet,
   McpHttpServerOverride,
   McpToolProfile,
 } from '@ptah-extension/shared';
@@ -2116,5 +2132,404 @@ describe('getActiveProviderId — Kimi Code behind its local proxy', () => {
         ANTHROPIC_API_KEY: 'fake-kimi-key',
       }),
     ).toBe('kimi-code');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_853 A-2 — Claude built-ins off by default on every main launch.
+// ---------------------------------------------------------------------------
+
+describe('SdkQueryOptionsBuilder.build — Claude built-in policy (TASK_2026_853)', () => {
+  const PROJECT = 'D:/tmp/ws';
+  const DEFAULT_TOOLS = [
+    'DesignSync',
+    'EnterWorktree',
+    'ExitWorktree',
+    'PushNotification',
+    'ReportFindings',
+    'Workflow',
+  ];
+  const DEFAULT_SKILLS = [
+    'code-review',
+    'fewer-permission-prompts',
+    'init',
+    'keybindings-help',
+    'plugin-authoring',
+    'update-config',
+    'workflow-authoring',
+  ];
+  const NAMED_ROUTE = {
+    kind: 'named',
+    provider: 'claude',
+    profileId: 'profile-a',
+    canonicalConfigDir: '/isolated-account',
+    routeFingerprint: 'a'.repeat(64),
+    routeRevision: 0,
+    authEpoch: 0,
+    runId: 'run-a',
+  } as ClaudeAccountNamedRoute;
+  const NAMED_ENV: Record<string, string> = {
+    [CLAUDE_CERTIFIED_ENV_KEYS[0]]: 'certified-value',
+    CLAUDE_CONFIG_DIR: NAMED_ROUTE.canonicalConfigDir,
+    CLAUDE_SECURESTORAGE_CONFIG_DIR: NAMED_ROUTE.canonicalConfigDir,
+  };
+  const NAMED_LAUNCH: ClaudeCertifiedLaunchContext = {
+    executable: {
+      command: 'claude-fixture',
+      prefixArgs: [],
+      sdkExecutablePath: '/certified/claude',
+      version: '2.1.310',
+      fingerprint: { size: 1, mtimeMs: 1 },
+    },
+    env: NAMED_ENV,
+    envDigest: certifiedEnvDigest(NAMED_ENV),
+    cwd: PROJECT,
+    settingSources: ['user', 'project', 'local'],
+    policy: {
+      coverage: 'win32@2.1.310',
+      managedFile: 'absent',
+      managedDropIn: 'absent',
+      registry: 'absent',
+      remoteSignals: 'absent',
+    },
+    accountClass: 'personal',
+    identityReference: 'b'.repeat(64),
+  };
+
+  function verifiedPolicy(
+    overrides: Partial<EffectiveCapabilitySet> = {},
+  ): EffectiveCapabilitySet {
+    return {
+      physicalRoot: PROJECT,
+      policyKey: PROJECT,
+      status: 'verified',
+      reasons: [],
+      ptahEnabled: true,
+      deniedMcpServers: [],
+      approvedProjectMcpServers: [],
+      deniedSkillNames: [],
+      disabledPluginIds: [],
+      harnessFingerprint: 'fp',
+      ...overrides,
+    };
+  }
+
+  /** Global file settings as the workspace provider serves them. */
+  function settingsWorkspace(
+    values: Record<string, unknown>,
+  ): Pick<IWorkspaceProvider, 'getConfiguration'> {
+    return {
+      getConfiguration: <T>(
+        _section: string,
+        key: string,
+        defaultValue?: T,
+      ): T | undefined => (key in values ? (values[key] as T) : defaultValue),
+    };
+  }
+
+  interface BuiltinBuildInput {
+    settings?: Record<string, unknown>;
+    capabilityPolicy?: EffectiveCapabilitySet;
+    authEnv?: AuthEnv;
+    named?: boolean;
+    projectPath?: string;
+  }
+
+  // The same-name skill guard (R1) reads the account config dir; point it at
+  // an empty fixture so the developer's own `~/.claude` never leaks in.
+  let fixtureRoot: string;
+  let previousConfigDir: string | undefined;
+  beforeEach(() => {
+    fixtureRoot = mkdtempSync(join(tmpdir(), 'ptah-builder-builtins-'));
+    previousConfigDir = process.env['CLAUDE_CONFIG_DIR'];
+    process.env['CLAUDE_CONFIG_DIR'] = join(fixtureRoot, 'account');
+  });
+  afterEach(() => {
+    if (previousConfigDir === undefined)
+      delete process.env['CLAUDE_CONFIG_DIR'];
+    else process.env['CLAUDE_CONFIG_DIR'] = previousConfigDir;
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  });
+
+  async function buildWith(input: BuiltinBuildInput = {}): Promise<{
+    options: SdkQueryOptions;
+    settings: Record<string, unknown>;
+  }> {
+    const noopHooks = { createHooks: jest.fn().mockReturnValue({}) };
+    const ctor = SdkQueryOptionsBuilder as unknown as new (
+      ...args: unknown[]
+    ) => SdkQueryOptionsBuilder;
+    const builder = new ctor(
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+      {
+        createCallback: jest
+          .fn()
+          .mockReturnValue(() => ({ behavior: 'allow' })),
+      },
+      noopHooks,
+      {
+        getConfig: jest
+          .fn()
+          .mockReturnValue({ enabled: true, contextTokenThreshold: null }),
+      },
+      noopHooks,
+      noopHooks,
+      {},
+      {
+        resolveModelId: jest.fn().mockImplementation((m: string) => m),
+        hasCachedModels: jest.fn().mockReturnValue(false),
+        getSupportedModels: jest.fn().mockResolvedValue([]),
+      },
+      {
+        buildBlock: jest.fn().mockResolvedValue(''),
+        buildSessionStartBlock: jest.fn().mockResolvedValue(''),
+        buildCorpusBlock: jest.fn().mockResolvedValue(''),
+      },
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      noopHooks,
+      undefined, // codeSymbolPromptInjector
+      undefined, // mcpStatus
+      undefined, // mcpBackoffService
+      settingsWorkspace(input.settings ?? {}),
+    );
+    const cfg = await builder.build({
+      userMessageStream: (async function* () {
+        // Intentionally empty — build() attaches the stream, it does not iterate.
+      })(),
+      abortController: new AbortController(),
+      sessionConfig: {
+        model: 'claude-sonnet-4-5',
+        projectPath: input.projectPath ?? PROJECT,
+        tabId: 'tab-fixture',
+      } as AISessionConfig,
+      authEnvOverride: input.authEnv ?? {},
+      capabilityPolicy: input.capabilityPolicy ?? verifiedPolicy(),
+      ...(input.named
+        ? { accountRoute: NAMED_ROUTE, accountLaunch: NAMED_LAUNCH }
+        : {}),
+    });
+    return {
+      options: cfg.options,
+      settings: JSON.parse(cfg.options.settings as string) as Record<
+        string,
+        unknown
+      >,
+    };
+  }
+
+  it('denies the six tools and hides the seven terminal skills by default', async () => {
+    const built = await buildWith();
+    expect(built.options.disallowedTools).toEqual(DEFAULT_TOOLS);
+    expect(built.settings['skillOverrides']).toEqual(
+      Object.fromEntries(DEFAULT_SKILLS.map((name) => [name, 'off'])),
+    );
+  });
+
+  it('keeps the protected tools and subagent spawning available', async () => {
+    const built = await buildWith();
+    for (const tool of [
+      'Agent',
+      'Task',
+      'AskUserQuestion',
+      'Bash',
+      'Skill',
+      'ScheduleWakeup',
+      'CronCreate',
+      'RemoteTrigger',
+    ]) {
+      expect(built.options.disallowedTools).not.toContain(tool);
+    }
+    expect(built.options.tools).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+    });
+  });
+
+  it('merges the built-in skill denials with the policy denials', async () => {
+    const built = await buildWith({
+      capabilityPolicy: verifiedPolicy({ deniedSkillNames: ['orchestration'] }),
+    });
+    const overrides = built.settings['skillOverrides'] as Record<
+      string,
+      string
+    >;
+    expect(overrides['orchestration']).toBe('off');
+    expect(overrides['code-review']).toBe('off');
+  });
+
+  it('leaves an enabled tool out of disallowedTools and shows a skill once it and its tool are on', async () => {
+    const built = await buildWith({
+      settings: {
+        [CLAUDE_BUILTIN_SETTING_KEYS.tools]: ['Workflow', 'ReportFindings'],
+        [CLAUDE_BUILTIN_SETTING_KEYS.skills]: ['code-review'],
+      },
+    });
+    expect(built.options.disallowedTools).not.toContain('Workflow');
+    expect(built.options.disallowedTools).not.toContain('ReportFindings');
+    const overrides = built.settings['skillOverrides'] as Record<
+      string,
+      string
+    >;
+    expect(overrides['code-review']).toBeUndefined();
+    expect(overrides['workflow-authoring']).toBe('off');
+  });
+
+  it('treats a malformed setting as no opt-ins', async () => {
+    const built = await buildWith({
+      settings: { [CLAUDE_BUILTIN_SETTING_KEYS.tools]: 'Workflow' },
+    });
+    expect(built.options.disallowedTools).toEqual(DEFAULT_TOOLS);
+  });
+
+  it('unverified policy: tools still denied, skills isolated, flag list unchanged', async () => {
+    const built = await buildWith({
+      capabilityPolicy: verifiedPolicy({
+        status: 'unverified',
+        reasons: [{ path: PROJECT, error: 'unreadable' }],
+      }),
+    });
+    expect(built.options.disallowedTools).toEqual(DEFAULT_TOOLS);
+    expect(built.options.skills).toEqual([]);
+    expect(built.options.strictMcpConfig).toBe(true);
+    expect(built.settings['skillOverrides']).toBeUndefined();
+  });
+
+  it('proxied base URL: project/local sources with the same denials', async () => {
+    const built = await buildWith({
+      authEnv: {
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:8080',
+        ANTHROPIC_AUTH_TOKEN: 'proxy-token',
+      },
+    });
+    expect(built.options.settingSources).toEqual(['project', 'local']);
+    expect(built.options.disallowedTools).toEqual(DEFAULT_TOOLS);
+    expect(
+      Object.keys(built.settings['skillOverrides'] as Record<string, string>),
+    ).toEqual(expect.arrayContaining(DEFAULT_SKILLS));
+  });
+
+  describe('same-name skill guard (R1)', () => {
+    function skillAt(skillsDir: string, name: string): void {
+      mkdirSync(join(skillsDir, name), { recursive: true });
+      writeFileSync(
+        join(skillsDir, name, 'SKILL.md'),
+        `---\nname: ${name}\n---\n`,
+      );
+    }
+    function workspaceDir(): string {
+      const dir = join(fixtureRoot, 'ws');
+      mkdirSync(dir, { recursive: true });
+      return dir;
+    }
+    const sources: Record<string, (name: string) => void> = {
+      workspace: (name) =>
+        skillAt(join(fixtureRoot, 'ws', '.claude', 'skills'), name),
+      user: (name) => skillAt(join(fixtureRoot, 'account', 'skills'), name),
+      plugin: (name) => {
+        const plugin = join(fixtureRoot, 'plugin');
+        skillAt(join(plugin, 'skills'), name);
+        mkdirSync(join(fixtureRoot, 'account', 'plugins'), { recursive: true });
+        writeFileSync(
+          join(fixtureRoot, 'account', 'plugins', 'installed_plugins.json'),
+          JSON.stringify({ plugins: { 'p@m': [{ installPath: plugin }] } }),
+        );
+        // Only an enabled plugin loads its skills (R2b N4).
+        writeFileSync(
+          join(fixtureRoot, 'account', 'settings.json'),
+          JSON.stringify({ enabledPlugins: { 'p@m': true } }),
+        );
+      },
+    };
+
+    it.each([
+      ['init', 'workspace'],
+      ['init', 'user'],
+      ['init', 'plugin'],
+      ['code-review', 'workspace'],
+      ['code-review', 'user'],
+      ['code-review', 'plugin'],
+    ])('does not hide a %s %s skill', async (name, source) => {
+      const projectPath = workspaceDir();
+      sources[source](name);
+      const built = await buildWith({ projectPath });
+      const overrides = built.settings['skillOverrides'] as Record<
+        string,
+        string
+      >;
+      expect(overrides[name]).toBeUndefined();
+      expect(Object.keys(overrides).sort()).toEqual(
+        DEFAULT_SKILLS.filter((entry) => entry !== name),
+      );
+    });
+
+    it('still denies every catalog skill when nothing collides', async () => {
+      const built = await buildWith({ projectPath: workspaceDir() });
+      expect(built.settings['skillOverrides']).toEqual(
+        Object.fromEntries(DEFAULT_SKILLS.map((name) => [name, 'off'])),
+      );
+    });
+
+    it('keeps a capability-policy denial of the same name', async () => {
+      const projectPath = workspaceDir();
+      sources['workspace']('init');
+      const built = await buildWith({
+        projectPath,
+        capabilityPolicy: verifiedPolicy({
+          physicalRoot: projectPath,
+          policyKey: projectPath,
+          deniedSkillNames: ['init'],
+        }),
+      });
+      // The user turned their own `init` off: that denial is not a catalog
+      // one and is emitted as before.
+      expect(
+        (built.settings['skillOverrides'] as Record<string, string>)['init'],
+      ).toBe('off');
+    });
+
+    const proxyEnv: AuthEnv = {
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:8080',
+      ANTHROPIC_AUTH_TOKEN: 'proxy-token',
+    };
+
+    it('proxy route: a user-only same-name skill is not loaded, so the denial stays (R2)', async () => {
+      const projectPath = workspaceDir();
+      sources['user']('init');
+      const built = await buildWith({ projectPath, authEnv: proxyEnv });
+      expect(built.options.settingSources).toEqual(['project', 'local']);
+      expect(built.settings['skillOverrides']).toEqual(
+        Object.fromEntries(DEFAULT_SKILLS.map((name) => [name, 'off'])),
+      );
+    });
+
+    it('proxy route: a workspace same-name skill still drops the denial (R2)', async () => {
+      const projectPath = workspaceDir();
+      sources['workspace']('init');
+      const built = await buildWith({ projectPath, authEnv: proxyEnv });
+      expect(
+        (built.settings['skillOverrides'] as Record<string, string>)['init'],
+      ).toBeUndefined();
+    });
+  });
+
+  it('named run: the certified launch still passes with the new keys', async () => {
+    const built = await buildWith({ named: true });
+    expect(built.options.settingSources).toEqual(['user', 'project', 'local']);
+    expect(built.options.disallowedTools).toEqual(DEFAULT_TOOLS);
+    expect(() =>
+      assertCertifiedLaunch(
+        NAMED_LAUNCH,
+        namedActualLaunch(built.options),
+        'final',
+      ),
+    ).not.toThrow();
   });
 });

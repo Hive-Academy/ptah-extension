@@ -26,6 +26,7 @@ import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IMcpServerStatus,
+  type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import {
   SDK_TOKENS,
@@ -37,9 +38,14 @@ import {
   capabilityIsolationOptions,
   filterMcpServersByPolicy,
   getActiveProviderId,
+  guardClaudeBuiltinSkillDenials,
+  readClaudeBuiltinOptInSettings,
   resolveAutoCompactControl,
+  resolveClaudeBuiltinPolicy,
   unverifiedCapabilityPolicy,
+  withClaudeBuiltinSkillDenials,
   type AutoCompactSettings,
+  type ClaudeBuiltinPolicy,
   type HookEvent,
   type HookCallbackMatcher,
   type McpHttpServerConfig,
@@ -52,7 +58,10 @@ import {
 } from '@ptah-extension/output-styles';
 import { blankToUndefined } from './ptah-cli-registry.utils';
 import { ptahMcpServerUrl } from '../../cli-agents/cli-adapters/ptah-mcp-url';
-import { renderRoleBlock, PTAH_LANE_POLICY } from '../../cli-agents/cli-adapters/cli-adapter.utils';
+import {
+  renderRoleBlock,
+  PTAH_LANE_POLICY,
+} from '../../cli-agents/cli-adapters/cli-adapter.utils';
 
 /**
  * Assembled spawn options returned by assembleSpawnOptions()
@@ -89,6 +98,29 @@ export interface PtahSpawnAssembly {
    * when it is verified. Spread by the caller into the SDK options.
    */
   readonly capabilityIsolation: ReturnType<typeof capabilityIsolationOptions>;
+  /**
+   * Claude built-ins this spawn must deny (TASK_2026_853), from the same
+   * global opt-in settings the main session reads. The caller sets
+   * `disallowedTools` from it on every route; its skill denials are already
+   * in {@link capabilityFlags} on the verified path only, minus any that
+   * would hide a same-name workspace, user or plugin skill.
+   */
+  readonly builtinPolicy: ClaudeBuiltinPolicy;
+}
+
+/**
+ * Where a spawn's Claude child really reads skills from, when that differs
+ * from the ambient defaults (a named account lane: its certified cwd and
+ * config dir). Used only to find skills a built-in denial must not hide.
+ */
+export interface PtahSpawnSkillScope {
+  readonly cwd?: string;
+  readonly claudeConfigDir?: string;
+  /**
+   * The child's SDK `settingSources`. Absent is the ambient lane and spawn
+   * default, `user`, `project` and `local`.
+   */
+  readonly settingSources?: readonly string[];
 }
 
 /**
@@ -142,6 +174,12 @@ export class PtahCliSpawnOptions {
     @inject(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION, { isOptional: true })
     private readonly outputStyleActivation:
       OutputStyleSessionActivationService | undefined,
+    /**
+     * Reads the Claude built-in opt-ins. Optional like the builder's: a host
+     * without it spawns with every catalog built-in off, the safe default.
+     */
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { isOptional: true })
+    private readonly workspace?: IWorkspaceProvider,
   ) {}
 
   /**
@@ -165,6 +203,9 @@ export class PtahCliSpawnOptions {
    *   resolved for `cwd` (TASK_2026_560). Absent is treated as unverified, so
    *   a caller that supplies none can only narrow the spawn, never widen it
    *   (R8).
+   * @param skillScope - The named launch's cwd, config dir and setting
+   *   sources, so the built-in skill guard scans what that child reads. Absent is
+   *   the ambient `CLAUDE_CONFIG_DIR` (or `~/.claude`) and `cwd`.
    * @returns Assembled spawn options
    */
   async assembleSpawnOptions(
@@ -175,6 +216,7 @@ export class PtahCliSpawnOptions {
     agentId?: string,
     role?: AgentRoleDefinition,
     capabilityPolicy?: EffectiveCapabilitySet,
+    skillScope?: PtahSpawnSkillScope,
   ): Promise<PtahSpawnAssembly> {
     const mcpPort = this.resolveMcpPort();
     const mcpServerRunning = mcpPort !== undefined;
@@ -216,9 +258,32 @@ export class PtahCliSpawnOptions {
         { cwd, reasons: policy.reasons },
       );
     }
+    // Same settings, pure rule and same-name guard as the main session
+    // (TASK_2026_853, R1). Only the verified path emits skill denials.
+    const optInPolicy = resolveClaudeBuiltinPolicy(
+      readClaudeBuiltinOptInSettings(this.workspace, this.logger),
+    );
+    const builtinPolicy =
+      policy.status === 'verified'
+        ? await guardClaudeBuiltinSkillDenials(
+            optInPolicy,
+            {
+              cwds: skillScope?.cwd ? [cwd, skillScope.cwd] : [cwd],
+              claudeConfigDir:
+                skillScope?.claudeConfigDir ?? process.env['CLAUDE_CONFIG_DIR'],
+              // Only the tiers the child loads can collide (R2).
+              settingSources: skillScope?.settingSources,
+            },
+            this.logger,
+          )
+        : optInPolicy;
     // A spawn has no MCP back-off set of its own; the only lists are the
-    // policy's.
-    const capabilityFlags = capabilityFlagsFor(policy, []);
+    // policy's, plus the built-in skill denials when the policy is verified.
+    const capabilityFlags = withClaudeBuiltinSkillDenials(
+      capabilityFlagsFor(policy, []),
+      policy,
+      builtinPolicy,
+    );
     const builtMcpServers: Record<string, McpHttpServerConfig> =
       mcpServerRunning
         ? {
@@ -299,6 +364,7 @@ export class PtahCliSpawnOptions {
       ownSessionId: ownSessionId ?? null,
       role: role?.name ?? null,
       capabilityPolicy: policy.status,
+      disallowedBuiltinTools: builtinPolicy.disallowedTools,
     });
 
     return {
@@ -310,6 +376,7 @@ export class PtahCliSpawnOptions {
       outputStyleName: outputStyle.outputStyleName,
       capabilityFlags,
       capabilityIsolation: capabilityIsolationOptions(policy),
+      builtinPolicy,
     };
   }
 

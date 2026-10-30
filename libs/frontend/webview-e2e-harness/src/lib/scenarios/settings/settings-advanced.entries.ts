@@ -8,7 +8,7 @@
 import { expect, type Page } from '@playwright/test';
 import type { ReachabilityEntry } from './settings-reachability.table';
 import { getFixtureState } from './settings.fixtures';
-import { advancedTab, visibleEnabled } from './settings-drawer.reach';
+import { advancedTab, throughVariantBoot, visibleEnabled } from './settings-drawer.reach';
 import {
   closeDrawers, dismissToast, expectSavedThenUndo, expectWrite, isElectron, promptDetailsButton, remountTab, styleRow, throughAsvVariant, withAsvChange,
 } from './settings-advanced-search-voice.reach';
@@ -366,5 +366,83 @@ const mcpAndLm: readonly ReachabilityEntry[] = [
     }) },
 ];
 
+/**
+ * `agent:getClaudeBuiltins` (TASK_2026_853 F-A): the backend catalog (`claude-builtin-catalog.ts`) with nothing
+ * turned on. The shared fixture has no answer for it, so the entry boots its own page with this override (see
+ * `claudeBuiltinsBackend`).
+ */
+const CLAUDE_BUILTINS_FIXTURE = {
+  tools: [
+    { id: 'Workflow', description: 'Launches a saved multi-step workflow script.', approxTokens: 2000, skillsNeedingIt: ['workflow-authoring'] },
+    { id: 'ReportFindings', description: 'Sends code-review findings as a typed list.', approxTokens: 850, skillsNeedingIt: ['code-review'] },
+    { id: 'PushNotification', description: 'Sends a desktop notification.', approxTokens: 10, skillsNeedingIt: [] },
+    { id: 'DesignSync', description: 'Syncs claude.ai design files.', approxTokens: 10, skillsNeedingIt: [] },
+    { id: 'EnterWorktree', description: 'Moves the session into a git worktree.', approxTokens: 10, skillsNeedingIt: [] },
+    { id: 'ExitWorktree', description: 'Leaves a worktree session.', approxTokens: 10, skillsNeedingIt: [] },
+  ],
+  terminalSkills: [
+    { id: 'keybindings-help', description: "Edits the terminal's keyboard bindings.", approxTokens: 90 },
+    { id: 'update-config', description: "Edits Claude Code's settings.json hooks and permissions.", approxTokens: 270 },
+    { id: 'fewer-permission-prompts', description: 'Mines CLI transcripts for a permission allowlist.', approxTokens: 70 },
+    { id: 'plugin-authoring', description: 'Builds mods for the Claude terminal UI.', approxTokens: 100 },
+    { id: 'init', description: 'Writes a CLAUDE.md for the project.', approxTokens: 25 },
+    { id: 'workflow-authoring', description: 'Writes scripts for the Workflow tool.', approxTokens: 95, needsTool: 'Workflow' },
+    { id: 'code-review', description: 'Reviews the current diff for bugs.', approxTokens: 460, needsTool: 'ReportFindings' },
+  ],
+  syncedSkills: [],
+  enabledTools: [],
+  enabledSkills: [],
+  policyStatus: 'verified',
+};
+
+/**
+ * A fresh stored state per boot: `agent:getClaudeBuiltins` reads it and `agent:setClaudeBuiltin` changes one id in
+ * it and returns both lists, like the backend's atomic per-item update.
+ */
+function claudeBuiltinsBackend(): Record<string, unknown> {
+  const stored = { tools: [] as string[], skills: [] as string[] };
+  return {
+    'agent:getClaudeBuiltins': () => ({
+      ...CLAUDE_BUILTINS_FIXTURE,
+      enabledTools: [...stored.tools],
+      enabledSkills: [...stored.skills],
+    }),
+    'agent:setClaudeBuiltin': (params: unknown) => {
+      const { kind, id, enabled } = params as { kind: 'tool' | 'skill'; id: string; enabled: boolean };
+      const key = kind === 'tool' ? 'tools' : 'skills';
+      const without = stored[key].filter((item) => item !== id);
+      stored[key] = enabled ? [...without, id] : without;
+      return { success: true, enabledTools: [...stored.tools], enabledSkills: [...stored.skills] };
+    },
+  };
+}
+
+const claudeBuiltins: readonly ReachabilityEntry[] = [
+  { id: 'ADV-25', capability: 'Claude Code tools & skills: tools and terminal-only skills off by default, live savings, save on selection, Undo',
+    status: 'restored',
+    reach: (page) => throughVariantBoot(page, claudeBuiltinsBackend(), 'Advanced', async (p) => {
+      const cardLocator = p.locator('ptah-claude-builtins-config');
+      await expect(cardLocator).toContainText('Changes apply to new sessions.');
+      await expect(p.locator('[data-testid^="settings-toggle-claude-tool-"]')).toHaveCount(6);
+      await expect(p.locator('[data-testid^="settings-toggle-claude-skill-"]')).toHaveCount(7);
+      const savings = p.locator('[data-testid="claude-tools-savings"]');
+      await expect(savings).toContainText('about 4,000 tokens');
+      const skill = p.locator('[data-testid="settings-toggle-claude-skill-code-review"]');
+      await expect(skill).not.toBeChecked();
+      await skill.click();
+      await expect(skill).toBeChecked();
+      await expect(p.locator('[data-testid="claude-skill-dependency-code-review"]')).toHaveText('ReportFindings tool is off');
+      // code-review stays hidden while ReportFindings is off (the backend denies it), so the total does not drop.
+      await expect(savings).toContainText('about 4,000 tokens');
+      await expect(p.locator('[data-testid="settings-toast-message"]')).toHaveText('Saved code-review skill.');
+      const undo = p.locator('[data-testid="settings-toast-undo"]');
+      await visibleEnabled(undo);
+      await undo.click();
+      await expect(skill).not.toBeChecked();
+      await expect(savings).toContainText('about 4,000 tokens');
+      await dismissToast(p);
+    }) },
+];
+
 /** Every Advanced entry, in tab order. */
-export const ADVANCED_ENTRIES: readonly ReachabilityEntry[] = [...membership, ...agentBehaviour, ...outputStyle, ...mcpAndLm];
+export const ADVANCED_ENTRIES: readonly ReachabilityEntry[] = [...membership, ...agentBehaviour, ...outputStyle, ...mcpAndLm, ...claudeBuiltins];

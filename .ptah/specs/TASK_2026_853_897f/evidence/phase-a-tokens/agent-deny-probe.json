@@ -1,0 +1,48 @@
+{
+  "sessionId": "3d928fd9-0ef2-46f8-9148-db288b4712ad",
+  "transcripts": [
+    {
+      "kind": "subagent",
+      "firstShapeToolCount": 9,
+      "hasWebFetch": false,
+      "hasEdit": false,
+      "names": [
+        "Agent",
+        "Bash",
+        "DeferredToolPlaceholder",
+        "ListAgents",
+        "Read",
+        "Skill",
+        "ToolSearch",
+        "Write",
+        "advisor"
+      ],
+      "hasWorkflow": false,
+      "hasReportFindings": false,
+      "hasRead": true
+    },
+    {
+      "kind": "main",
+      "firstShapeToolCount": 12,
+      "hasWebFetch": false,
+      "hasEdit": true,
+      "names": [
+        "Agent",
+        "AskUserQuestion",
+        "Bash",
+        "DeferredToolPlaceholder",
+        "Edit",
+        "ListAgents",
+        "Read",
+        "ScheduleWakeup",
+        "Skill",
+        "ToolSearch",
+        "Write",
+        "advisor"
+      ],
+      "hasWorkflow": false,
+      "hasReportFindings": false,
+      "hasRead": true
+    }
+  ]
+}

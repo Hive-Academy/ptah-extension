@@ -329,6 +329,10 @@ import type {
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
+  AgentGetClaudeBuiltinsParams,
+  AgentGetClaudeBuiltinsResult,
+  AgentSetClaudeBuiltinParams,
+  AgentSetClaudeBuiltinResult,
   AgentListCliModelsResult,
   AgentContinueErrorCode,
   AgentPermissionDecision,
@@ -1391,6 +1395,16 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
   'agent:setConfig': {
     params: AgentSetConfigParams;
     result: { success: boolean; error?: string };
+  };
+  /** Claude built-in tool and skill catalog with the stored opt-ins (TASK_2026_853). */
+  'agent:getClaudeBuiltins': {
+    params: AgentGetClaudeBuiltinsParams;
+    result: AgentGetClaudeBuiltinsResult;
+  };
+  /** Turn one Claude built-in tool or skill on or off (TASK_2026_853 R2). */
+  'agent:setClaudeBuiltin': {
+    params: AgentSetClaudeBuiltinParams;
+    result: AgentSetClaudeBuiltinResult;
   };
   'agent:detectClis': {
     params: void;
@@ -3299,6 +3313,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'plugins:resolve-config-home': true,
   'agent:getConfig': true,
   'agent:setConfig': true,
+  'agent:getClaudeBuiltins': true,
+  'agent:setClaudeBuiltin': true,
   'agent:detectClis': true,
   'agent:listCliModels': true,
   'agent:permissionResponse': true, // Copilot SDK permission response
