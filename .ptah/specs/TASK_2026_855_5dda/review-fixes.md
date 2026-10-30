@@ -18,7 +18,7 @@ Findings from `code-logic-review.md` and `code-style-review.md`, and what was do
 | Style: opener `console.error` + degradation-audit comment | Confirmed, no change. `// degradation-audit: reported - ...` matches `SUPPRESSION_MARKER_RE` and the `reported - <reason>` form in `tools/degradation-audit/check-degradation.ts`. Frontend core has no Logger service; `console.*` is the local convention (`SourceControlService`, the coordinator). |
 | Skipped by instruction | Contract runner for the port, `GitDockScopeStore` size refactor, barrel export cleanup. |
 
-Residual risk (S1): a restored tab whose session row lies beyond the first `session:list` page stays unresolved (read-only) until the row loads. After TASK_2026_854 merges, the `worktreeFor` body moves to `SessionOrganizationCache`, whose `session:getOrganization` fallback closes this gap.
+Residual risk (S1): a restored tab whose session row lies beyond the first `session:list` page stays unresolved (read-only) until the row loads. After TASK_2026_854 merges, the `worktreeFor` body moves to `SessionOrganizationCache`, whose `session:getOrganization` fallback closes this gap. Closed after #855 merged: `worktreeFor` reads `SessionOrganizationCache`; a loaded row without an organization (a host without the store) stays known with no worktree.
 
 ## Verification (scoped, `npm run verify`)
 
