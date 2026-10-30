@@ -6,12 +6,14 @@ import {
 } from './callback-registry.base';
 
 export interface SubagentStopPayload {
-  readonly subagentSessionId: string;
-  readonly parentSessionId: string;
-  readonly workspaceRoot: string;
+  /** Derived from the transcript file name; null when no transcript path. */
+  readonly subagentSessionId: string | null;
+  /** Null when neither the hook payload nor the closure carries one. */
+  readonly parentSessionId: string | null;
+  readonly workspaceRoot: string | null;
   readonly agentId: string;
-  readonly agentType: string;
-  readonly transcriptPath: string;
+  readonly agentType: string | null;
+  readonly transcriptPath: string | null;
   readonly timestamp: number;
 }
 

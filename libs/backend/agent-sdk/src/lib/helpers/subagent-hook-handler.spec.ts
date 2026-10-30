@@ -221,7 +221,127 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     expect(captured[0].transcriptPath).toBe(transcriptPath);
   });
 
-  it('agent_transcript_path without UUID basename → no fan-out; logger.warn fires with path', async () => {
+  it('stop without agent_transcript_path → notifyAll fires with null transcriptPath and subagentSessionId', async () => {
+    const logger = makeLogger();
+    const registry = makeRegistry({ toolCallId: 'tu-1' });
+    const stopRegistry = new SubagentStopCallbackRegistry(logger);
+    const captured: SubagentStopPayload[] = [];
+    stopRegistry.register((payload) => {
+      captured.push(payload);
+    });
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
+    const fn = getStopCallback(handler, '/workspace', 'parent-sess-1');
+
+    const input = {
+      hook_event_name: 'SubagentStop',
+      session_id: 'parent-sess-1',
+      agent_id: 'agent-xyz',
+      agent_type: 'backend-developer',
+      stop_hook_active: false,
+    } as unknown as HookInput;
+
+    const result = await fn(input, 'tu-1', {
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual({ continue: true });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toEqual(
+      expect.objectContaining({
+        subagentSessionId: null,
+        parentSessionId: 'parent-sess-1',
+        workspaceRoot: '/workspace',
+        agentId: 'agent-xyz',
+        agentType: 'backend-developer',
+        transcriptPath: null,
+      }),
+    );
+  });
+
+  it('stop without a parent session → notifyAll fires with null parentSessionId', async () => {
+    const logger = makeLogger();
+    const registry = makeRegistry({ toolCallId: 'tu-1' });
+    const stopRegistry = new SubagentStopCallbackRegistry(logger);
+    const captured: SubagentStopPayload[] = [];
+    stopRegistry.register((payload) => {
+      captured.push(payload);
+    });
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
+    const fn = getStopCallback(handler, '/workspace');
+
+    const input = {
+      hook_event_name: 'SubagentStop',
+      agent_id: 'agent-xyz',
+      agent_type: 'backend-developer',
+      agent_transcript_path: `/tmp/transcripts/${VALID_UUID}.jsonl`,
+      stop_hook_active: false,
+    } as unknown as HookInput;
+
+    const result = await fn(input, 'tu-1', {
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual({ continue: true });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toEqual(
+      expect.objectContaining({
+        subagentSessionId: VALID_UUID,
+        parentSessionId: null,
+        agentType: 'backend-developer',
+        transcriptPath: `/tmp/transcripts/${VALID_UUID}.jsonl`,
+      }),
+    );
+  });
+
+  it('stop with no transcript, no parent and no cwd - still one notification', async () => {
+    const logger = makeLogger();
+    const registry = makeRegistry({ toolCallId: 'tu-1' });
+    const stopRegistry = new SubagentStopCallbackRegistry(logger);
+    const captured: SubagentStopPayload[] = [];
+    stopRegistry.register((payload) => {
+      captured.push(payload);
+    });
+    const handler = new SubagentHookHandler(
+      logger,
+      registry,
+      stopRegistry,
+      new SessionStatsOwnerService(),
+    );
+    const fn = getStopCallback(handler, '');
+
+    const input = {
+      hook_event_name: 'SubagentStop',
+      agent_id: 'agent-xyz',
+      agent_type: 'backend-developer',
+      stop_hook_active: false,
+    } as unknown as HookInput;
+
+    await fn(input, 'tu-1', { signal: new AbortController().signal });
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toEqual(
+      expect.objectContaining({
+        subagentSessionId: null,
+        parentSessionId: null,
+        workspaceRoot: null,
+        transcriptPath: null,
+        agentId: 'agent-xyz',
+        agentType: 'backend-developer',
+      }),
+    );
+  });
+
+  it('agent_transcript_path without UUID basename → fan-out with null subagentSessionId; logger.warn fires with path', async () => {
     const logger = makeLogger();
     const registry = makeRegistry({ toolCallId: 'tu-1' });
     const stopRegistry = new SubagentStopCallbackRegistry(logger);
@@ -252,7 +372,10 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     });
 
     expect(result).toEqual({ continue: true });
-    expect(captured).toHaveLength(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0].subagentSessionId).toBeNull();
+    expect(captured[0].transcriptPath).toBe(badPath);
+    expect(captured[0].agentType).toBe('backend-developer');
     const warnedAboutDerive = logger.warn.mock.calls.some(
       ([msg, ctx]) =>
         typeof msg === 'string' &&
@@ -305,7 +428,7 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
     expect(errorLogged).toBe(true);
   });
 
-  it('record is null (no toolCallId match, no agentId fallback) → fan-out STILL fires with agentType:unknown', async () => {
+  it('record is null (no toolCallId match, no agentId fallback) → fan-out STILL fires with agentType from input', async () => {
     const logger = makeLogger();
     const registry = makeRegistry(null);
     (registry.getToolCallIdByAgentId as jest.Mock).mockReturnValue(undefined);
@@ -343,7 +466,7 @@ describe('SubagentHookHandler — SubagentStopCallbackRegistry fan-out', () => {
         parentSessionId: 'parent-sess-1',
         workspaceRoot: '/workspace',
         agentId: 'agent-xyz',
-        agentType: 'unknown',
+        agentType: 'backend-developer',
         transcriptPath: `/tmp/transcripts/${VALID_UUID}.jsonl`,
       }),
     );
@@ -787,7 +910,7 @@ describe('SubagentHookHandler — SubagentStop parentSessionId rigour (TASK_2026
     expect(captured[0].parentSessionId).toBe('closure-parent-sess');
   });
 
-  it('skips the fan-out rather than publishing an empty parentSessionId', async () => {
+  it('emits a null parentSessionId rather than publishing an empty one', async () => {
     const logger = makeLogger();
     const registry = makeRegistry({ toolCallId: 'tu-1' });
     const stopRegistry = new SubagentStopCallbackRegistry(logger);
@@ -808,15 +931,13 @@ describe('SubagentHookHandler — SubagentStop parentSessionId rigour (TASK_2026
     });
 
     expect(result).toEqual({ continue: true });
-    expect(captured).toHaveLength(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0].parentSessionId).toBeNull();
+    expect(captured[0].subagentSessionId).toBe(VALID_UUID);
     // The registry update is independent of the fan-out and must still run.
     expect(registry.update).toHaveBeenCalledWith(
       'tu-1',
       expect.objectContaining({ status: 'completed' }),
-    );
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('no resolvable parentSessionId'),
-      expect.objectContaining({ subagentSessionId: VALID_UUID }),
     );
   });
 });
