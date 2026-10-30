@@ -10,8 +10,6 @@ import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 
 const CONFIG = {
-  laneToolCallSteerAt: 40,
-  laneToolCallStopAt: 60,
   laneRepeatCallStopAt: 20,
 } as AgentOrchestrationConfig;
 
@@ -70,21 +68,21 @@ describe('LaneGuardsSettingsComponent', () => {
     fixture?.destroy();
   });
 
-  it('loads the three guard values from agent:getConfig', async () => {
+  it('loads only the repeat-call field from agent:getConfig', async () => {
     await create();
     expect(call).toHaveBeenCalledWith('agent:getConfig', undefined, {
       timeout: 5_000,
     });
-    expect(input('lane-guards-steer').value).toBe('40');
-    expect(input('lane-guards-stop').value).toBe('60');
     expect(input('lane-guards-repeat').value).toBe('20');
-    expect(input('lane-guards-steer').className).toContain('input-sm');
-    expect(input('lane-guards-steer').className).toContain('flex-1');
-    expect(input('lane-guards-steer').className).toContain('join-item');
-    expect(byTestId('lane-guards-intro')?.textContent).toContain(
-      'cannot receive the mid-turn steer',
-    );
-    expect(host().textContent).toContain('Range: 1 or greater.');
+    expect(byTestId('lane-guards-steer')).toBeNull();
+    expect(byTestId('lane-guards-stop')).toBeNull();
+    expect(host().querySelectorAll('input')).toHaveLength(1);
+    expect(input('lane-guards-repeat').className).toContain('input-sm');
+    expect(input('lane-guards-repeat').className).toContain('flex-1');
+    expect(input('lane-guards-repeat').className).toContain('join-item');
+    const intro = byTestId('lane-guards-intro')?.textContent ?? '';
+    expect(intro).toContain('Lanes have no tool-call limit.');
+    expect(intro).not.toContain('Steer at');
     expect(host().textContent).toContain('Range: 2 or greater.');
   });
 
@@ -92,7 +90,7 @@ describe('LaneGuardsSettingsComponent', () => {
     call.mockImplementation(async () => rpcError('host offline'));
     await create();
     expect(byTestId('lane-guards-load-error')).not.toBeNull();
-    expect(byTestId('lane-guards-steer')).toBeNull();
+    expect(byTestId('lane-guards-repeat')).toBeNull();
 
     call.mockImplementation(async (method: string) =>
       method === 'agent:getConfig'
@@ -101,42 +99,44 @@ describe('LaneGuardsSettingsComponent', () => {
     );
     byTestId<HTMLButtonElement>('lane-guards-retry')?.click();
     await settle();
-    expect(input('lane-guards-steer').value).toBe('40');
+    expect(input('lane-guards-repeat').value).toBe('20');
   });
 
-  it('blocks a stop that is not greater than steer and does not call setConfig', async () => {
+  it('blocks a value below the minimum and does not call setConfig', async () => {
     await create();
     call.mockClear();
-    await enter('lane-guards-stop', '40');
-    expect(input('lane-guards-stop').getAttribute('aria-invalid')).toBe('true');
-    expect(byTestId('lane-guards-stop-error')?.textContent).toContain(
-      'Stop at must be greater than Steer at.',
+    await enter('lane-guards-repeat', '1');
+    expect(input('lane-guards-repeat').getAttribute('aria-invalid')).toBe(
+      'true',
+    );
+    expect(byTestId('lane-guards-repeat-error')?.textContent).toContain(
+      'Enter a whole number from 2.',
     );
     expect(call).not.toHaveBeenCalled();
   });
 
-  it('saves a valid pair through agent:setConfig, reports it in the toast, and Undo writes the previous value', async () => {
+  it('saves a valid value through agent:setConfig, reports it in the toast, and Undo writes the previous value', async () => {
     await create();
-    await enter('lane-guards-steer', '10');
+    await enter('lane-guards-repeat', '10');
     expect(call).toHaveBeenCalledWith(
       'agent:setConfig',
-      { laneToolCallSteerAt: 10 },
+      { laneRepeatCallStopAt: 10 },
       { timeout: 5_000 },
     );
     expect(byTestId('lane-guards-status')).toBeNull();
     expect(feedback.toast()).toEqual({
       tone: 'status',
-      message: 'Saved Steer at (tool calls).',
+      message: 'Saved Repeat-call stop at.',
       canUndo: true,
     });
     await feedback.undo();
     await settle();
     expect(call).toHaveBeenLastCalledWith(
       'agent:setConfig',
-      { laneToolCallSteerAt: 40 },
+      { laneRepeatCallStopAt: 20 },
       { timeout: 5_000 },
     );
-    expect(input('lane-guards-steer').value).toBe('40');
+    expect(input('lane-guards-repeat').value).toBe('20');
   });
 
   it('shows the backend error when setConfig rejects the write', async () => {
@@ -145,18 +145,18 @@ describe('LaneGuardsSettingsComponent', () => {
       method === 'agent:setConfig'
         ? rpcSuccess({
             success: false,
-            error: 'Unsupported laneToolCallStopAt value',
+            error: 'Unsupported laneRepeatCallStopAt value',
           })
         : rpcSuccess(CONFIG),
     );
-    await enter('lane-guards-stop', '80');
-    expect(byTestId('lane-guards-stop-error')?.textContent).toContain(
-      'Unsupported laneToolCallStopAt value',
+    await enter('lane-guards-repeat', '80');
+    expect(byTestId('lane-guards-repeat-error')?.textContent).toContain(
+      'Unsupported laneRepeatCallStopAt value',
     );
-    expect(input('lane-guards-stop').value).toBe('80');
+    expect(input('lane-guards-repeat').value).toBe('80');
     expect(feedback.toast()).toEqual({
       tone: 'alert',
-      message: 'Unsupported laneToolCallStopAt value',
+      message: 'Unsupported laneRepeatCallStopAt value',
       canUndo: false,
     });
   });

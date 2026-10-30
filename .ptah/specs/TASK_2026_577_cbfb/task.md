@@ -12,8 +12,6 @@ labels:
   - memory-curator
   - P2
 relates_to:
-  - TASK_2026_439_1310
-  - TASK_2026_563_2939
   - TASK_2026_566_9a50
   - TASK_2026_568_3933
 parent: TASK_2026_636_0add

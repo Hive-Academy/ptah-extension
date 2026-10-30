@@ -100,8 +100,7 @@ const LABEL = 'text-xs font-semibold uppercase tracking-wide text-base-content-m
       @if (empty()) {
         <!-- Plan §5 empty state: what an instance is for, and the one way to add it. -->
         <div
-          class="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-base-300 bg-base-100 p-4"
-          data-glass-surface="tile"
+          class="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-base-content/10 p-4"
           data-testid="cli-matrix-no-instances"
         >
           <p class="min-w-0 flex-[1_1_16rem] text-sm text-base-content">
@@ -124,10 +123,8 @@ const LABEL = 'text-xs font-semibold uppercase tracking-wide text-base-content-m
         <ul class="space-y-2">
           @for (row of rows(); track row.id) {
             <li
-              class="relative rounded-lg border border-base-300 p-3 has-[[role=dialog]]:z-30"
-              data-glass-surface="tile"
-              [class.surface-2]="!rowOpen(row.id)"
-              [class.surface-3]="rowOpen(row.id)"
+              class="relative rounded-lg border border-base-content/10 p-3 hover:bg-base-content/5 has-[[role=dialog]]:z-30"
+              [class.border-primary]="rowOpen(row.id)"
               [attr.data-testid]="'cli-matrix-row-' + row.id"
               data-kind="instance"
               [attr.data-dimmed]="row.interactive ? null : 'true'"
@@ -379,7 +376,7 @@ const LABEL = 'text-xs font-semibold uppercase tracking-wide text-base-content-m
                   <ul class="grid grid-cols-3 gap-1.5">
                     @for (tier of tierSlots(row); track tier.tier) {
                       <li
-                        class="min-w-0 rounded-md border border-base-300 bg-base-100 px-2 py-1"
+                        class="min-w-0 rounded-md border border-base-content/10 px-2 py-1"
                         [attr.data-tier]="tier.tier"
                         [title]="tier.model ?? unsetTitle"
                       >

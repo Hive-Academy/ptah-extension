@@ -68,3 +68,10 @@ so in the pull request rather than presenting it as a token-only change.
 Recorded first in the open-questions section of the TASK_2026_492_0bcc design
 specification, on pull request #563. Re-measured and confirmed against
 `tailwind.config.js` when this carrier was filed.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: The anubis semantic pairs still fail AA for text (success #16a34a and info #3b82f6 on content #e8e6e1, tailwind.config.js:129-133). Re-measure the filled badge-success/badge-info pairs under the current tokens; status-badge-contrast.spec.ts covers the file-status badge and ink overrides, not filled badges.
+- Evidence on main: The measured UI surface is gone: no component template on main uses badge-success or badge-info (the class names appear only in styles.css glass selectors), and anubis/anubis-light ink and badge contrast is now pinned by main:apps/ptah-extension-webview/src/app/status-badge-contrast.spec.ts (TASK_2026_576 Batch 24, culori wcagContrast against AA 4.5/3). But the sub-AA tokens survive: the anubis block still defines info: '#3b82f6', success: '#16a34a' with '*-content': '#e8e6e1' (main:apps/ptah-extension-webview/tailwind.config.js:129-133).

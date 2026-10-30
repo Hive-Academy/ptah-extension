@@ -77,8 +77,6 @@ describe('KNOWN_CONFIG_KEYS', () => {
           'compaction.subagentHandoffTokens',
           'compaction.rotationSuggestTokens',
           'compaction.subagentStopWeightedTokens',
-          'agentOrchestration.laneToolCallSteerAt',
-          'agentOrchestration.laneToolCallStopAt',
           'agentOrchestration.laneRepeatCallStopAt',
         ]),
       );

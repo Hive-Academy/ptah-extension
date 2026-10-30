@@ -162,7 +162,7 @@ describe('ClaudeBuiltinsConfigComponent', () => {
       expect(skillBox('code-review').getAttribute('aria-label')).toBe('code-review skill');
       expect(element.textContent).toContain('Built-in tools (off by default)');
       expect(element.textContent).toContain('Terminal-only built-in skills (off by default)');
-      expect(element.textContent).not.toContain('Skills synced from your claude.ai account');
+      expect(element.textContent).toContain('Skills synced from your claude.ai account (hidden by default)');
       expect(element.textContent).toContain('~2,000');
       expect(element.textContent).toContain('~850');
       expect(byTestId('claude-tools-applies-note').getAttribute('role')).toBe('note');
@@ -192,7 +192,8 @@ describe('ClaudeBuiltinsConfigComponent', () => {
       await render();
 
       expect(element.querySelector('section')?.getAttribute('aria-busy')).toBe('true');
-      expect(element.querySelectorAll('[data-testid="claude-tools-skeleton-row"]')).toHaveLength(6);
+      expect(element.querySelectorAll('[data-testid="claude-tools-skeleton-row"]')).toHaveLength(9);
+      expect(queryTestId('claude-tools-synced-empty')).toBeNull();
       expect(element.querySelector('[data-testid^="settings-toggle-claude-"]')).toBeNull();
       expect(element.textContent).toContain('Built-in tools (off by default)');
 
@@ -231,6 +232,134 @@ describe('ClaudeBuiltinsConfigComponent', () => {
       expect(element.querySelector('[data-testid^="settings-toggle-claude-"]')).toBeNull();
       await component.toggle('tool', 'Workflow');
       expect(callsOf('agent:setClaudeBuiltin')).toEqual([]);
+    });
+  });
+
+  describe('Group 3: skills synced from the claude.ai account', () => {
+    const SYNCED = [
+      { id: 'anthropic-skills:docx', name: 'docx', description: 'Creates and edits Word documents.', approxTokens: 120 },
+      { id: 'anthropic-skills:init', name: 'init', description: 'Account copy of a skill named init.', approxTokens: 80 },
+    ];
+    const syncedTable = () => element.querySelector('table[aria-labelledby="claude-tools-group-synced-skills"]');
+    const withSynced = () =>
+      ok(catalog({ syncedSkills: SYNCED, enabledTools: [...stored.tools], enabledSkills: [...stored.skills] }));
+
+    it('lists each synced skill by name, unchecked, with its cost and a qualified toggle id', async () => {
+      responses['agent:getClaudeBuiltins'] = withSynced;
+      await render();
+
+      const docx = skillBox('anthropic-skills:docx');
+      expect(docx.checked).toBe(false);
+      expect(docx.getAttribute('aria-label')).toBe('docx skill');
+      expect(syncedTable()?.querySelectorAll('tbody tr')).toHaveLength(2);
+      expect(Array.from(syncedTable()?.querySelectorAll('th') ?? []).map((th) => th.textContent?.trim())).toEqual([
+        'On',
+        'Skill',
+        'Token cost',
+        'Description',
+      ]);
+      expect(syncedTable()?.textContent).toContain('Creates and edits Word documents.');
+      expect(syncedTable()?.textContent).toContain('~120');
+      expect(syncedTable()?.textContent).not.toContain('anthropic-skills:');
+      expect(queryTestId('claude-tools-synced-empty')).toBeNull();
+      // Groups 1-3 all off: 4,000 + 120 + 80 = 4,200.
+      expect(savings()).toBe('Currently hidden: about 4,200 tokens per new session (estimate).');
+    });
+
+    it('shows the empty state, and no group 3 table, when the account has no synced skills', async () => {
+      await render();
+
+      const empty = byTestId('claude-tools-synced-empty');
+      expect(empty.textContent).toContain('No claude.ai skills found');
+      expect(empty.textContent).toContain('If you sync skills from your claude.ai account, they will be listed here.');
+      expect(syncedTable()).toBeNull();
+      expect(element.textContent).toContain('Skills synced from your claude.ai account (hidden by default)');
+    });
+
+    it('checks a stored synced opt-in apart from the terminal skill of the same name', async () => {
+      stored.skills = ['anthropic-skills:init'];
+      responses['agent:getClaudeBuiltins'] = withSynced;
+      await render();
+
+      expect(skillBox('anthropic-skills:init').checked).toBe(true);
+      expect(skillBox('init').checked).toBe(false);
+      // 4,200 - 80 = 4,120 -> 4,100.
+      expect(savings()).toBe('Currently hidden: about 4,100 tokens per new session (estimate).');
+    });
+
+    it('sends the qualified id, toasts the plain name, sums the savings live, and Undo sends the inverse call', async () => {
+      responses['agent:getClaudeBuiltins'] = withSynced;
+      await render();
+
+      skillBox('anthropic-skills:docx').click();
+      await settle();
+
+      expect(callsOf(SET)).toEqual([[SET, { kind: 'skill', id: 'anthropic-skills:docx', enabled: true }]]);
+      expect(skillBox('anthropic-skills:docx').checked).toBe(true);
+      expect(skillBox('init').checked).toBe(false);
+      expect(feedback.toast()?.message).toBe('Saved docx skill.');
+      // 4,200 - 120 = 4,080 -> 4,100.
+      expect(savings()).toBe('Currently hidden: about 4,100 tokens per new session (estimate).');
+
+      await feedback.undo();
+      await settle();
+
+      expect(call).toHaveBeenLastCalledWith(SET, { kind: 'skill', id: 'anthropic-skills:docx', enabled: false });
+      expect(skillBox('anthropic-skills:docx').checked).toBe(false);
+      expect(savings()).toBe('Currently hidden: about 4,200 tokens per new session (estimate).');
+    });
+
+    it('a failed synced save re-reads the stored lists, shows the fixed error and keeps focus', async () => {
+      responses['agent:getClaudeBuiltins'] = withSynced;
+      responses[SET] = () => fail('host detail: EACCES');
+      await render();
+
+      const box = skillBox('anthropic-skills:docx');
+      box.focus();
+      box.click();
+      await settle();
+
+      expect(feedback.toast()?.message).toBe(COULD_NOT_UPDATE_CLAUDE_BUILTINS);
+      expect(element.textContent).not.toContain('host detail');
+      expect(skillBox('anthropic-skills:docx').checked).toBe(false);
+      expect(document.activeElement).toBe(skillBox('anthropic-skills:docx'));
+    });
+
+    it('marks group 3 toggles busy while a save runs', async () => {
+      let resolve: (value: RpcResult<unknown>) => void = () => undefined;
+      responses['agent:getClaudeBuiltins'] = withSynced;
+      responses[SET] = () => new Promise((r) => { resolve = r; });
+      await render();
+
+      toolBox('Workflow').click();
+      await settle();
+      expect(isDisabledControl(skillBox('anthropic-skills:docx'))).toBe(true);
+
+      resolve(ok({ success: true, enabledTools: ['Workflow'], enabledSkills: [] }));
+      await settle();
+      expect(isDisabledControl(skillBox('anthropic-skills:docx'))).toBe(false);
+    });
+
+    it('shows skeleton rows in group 3 while loading', async () => {
+      let resolve: (value: RpcResult<unknown>) => void = () => undefined;
+      responses['agent:getClaudeBuiltins'] = () => new Promise((r) => { resolve = r; });
+      await render();
+
+      expect(syncedTable()?.querySelectorAll('[data-testid="claude-tools-skeleton-row"]')).toHaveLength(3);
+
+      resolve(withSynced());
+      await settle();
+      expect(skillBox('anthropic-skills:docx')).toBeTruthy();
+    });
+
+    it('fails closed on an unverified policy: no synced rows, no empty state, no toggles', async () => {
+      responses['agent:getClaudeBuiltins'] = () => ok(catalog({ syncedSkills: SYNCED, policyStatus: 'unverified' }));
+      await render();
+
+      expect(byTestId('claude-tools-load-error').textContent).toContain(CLAUDE_BUILTINS_POLICY_UNVERIFIED);
+      expect(queryTestId('settings-toggle-claude-skill-anthropic-skills:docx')).toBeNull();
+      expect(queryTestId('claude-tools-synced-empty')).toBeNull();
+      expect(element.textContent).not.toContain('Skills synced from your claude.ai account');
     });
   });
 

@@ -116,11 +116,16 @@ import {
 } from './sdk-model-service';
 import { experimentalBetaEnv } from './build-safe-env';
 import {
+  isSyncedClaudeSkillId,
   readClaudeBuiltinOptInSettings,
   resolveClaudeBuiltinPolicy,
   type ClaudeBuiltinPolicy,
 } from './claude-builtin-catalog';
 import { guardClaudeBuiltinSkillDenials } from './claude-skill-name-discovery';
+import {
+  readSyncedClaudeSkills,
+  resolveClaudeConfigDir,
+} from './synced-claude-skills.reader';
 import {
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   CODEX_PROXY_TOKEN_PLACEHOLDER,
@@ -1315,9 +1320,11 @@ export class SdkQueryOptionsBuilder {
     // Claude built-ins Ptah does not use stay off unless the user opted in
     // (TASK_2026_853). Read on every build so a settings change applies to
     // the next session; a read failure counts as no opt-ins.
-    const builtinPolicy = resolveClaudeBuiltinPolicy(
-      readClaudeBuiltinOptInSettings(this.workspace, this.logger),
+    const builtinOptIns = readClaudeBuiltinOptInSettings(
+      this.workspace,
+      this.logger,
     );
+    const builtinPolicy = resolveClaudeBuiltinPolicy(builtinOptIns);
     const disallowedTools = [...builtinPolicy.disallowedTools];
     // The host env var wins inside the SDK (it inherits `process.env` below);
     // `sdkValue` still follows the setting so clearing the env restores it.
@@ -1391,22 +1398,32 @@ export class SdkQueryOptionsBuilder {
         : ['project', 'local'];
 
     const policy = this.sessionCapabilityPolicy(capabilityPolicy, cwd);
-    // A bare built-in skill denial would also hide a same-name workspace,
-    // user or plugin skill, so those denials are dropped first (R1). Only
-    // the tiers this session loads are scanned (R2): a proxied session
-    // drops `user`, so a user-only same-name skill keeps the denial. Only
-    // the verified path emits skill denials, so only it pays for discovery.
+    // The config dir the Claude child reads (D-B2): a named run's certified
+    // launch env alone (it never inherits the host env), otherwise the auth
+    // env then the host env the child inherits, else `~/.claude`.
+    const claudeConfigDir = resolveClaudeConfigDir(
+      named ? [named.launch.env] : [effectiveAuthEnv, process.env],
+    );
+    // Only the verified path emits skill denials, so only it pays for the
+    // synced read and the same-name discovery. claude.ai account-synced
+    // skills are denied by their qualified `anthropic-skills:<name>` key,
+    // which never hides a same-name workspace skill (A0 spike case b); the
+    // read degrades to none on any failure. A bare built-in skill denial
+    // would also hide a same-name workspace, user or plugin skill, so those
+    // denials are dropped first (R1). Only the tiers this session loads are
+    // scanned (R2): a proxied session drops `user`, so a user-only same-name
+    // skill keeps the denial. A synced key on a proxied route, where the
+    // user tier is not loaded, is ignored by the CLI (A0 assumption 3).
     const sessionBuiltinPolicy =
       policy.status === 'verified'
         ? await guardClaudeBuiltinSkillDenials(
-            builtinPolicy,
-            {
-              cwds: [cwd],
-              claudeConfigDir: named
-                ? named.route.canonicalConfigDir
-                : process.env['CLAUDE_CONFIG_DIR'],
-              settingSources,
-            },
+            resolveClaudeBuiltinPolicy({
+              ...builtinOptIns,
+              syncedSkillIds: (
+                await readSyncedClaudeSkills(claudeConfigDir, this.logger)
+              ).map((skill) => skill.id),
+            }),
+            { cwds: [cwd], claudeConfigDir, settingSources },
             this.logger,
           )
         : builtinPolicy;
@@ -1415,12 +1432,16 @@ export class SdkQueryOptionsBuilder {
       policy,
       sessionBuiltinPolicy,
     );
+    // Account skill names stay out of the info log; only their count.
+    const deniedSkills =
+      policy.status === 'verified' ? sessionBuiltinPolicy.deniedSkillNames : [];
     this.logger.info('[SdkQueryOptionsBuilder] Claude built-in policy', {
       disallowedTools,
-      deniedBuiltinSkills:
-        policy.status === 'verified'
-          ? sessionBuiltinPolicy.deniedSkillNames
-          : [],
+      deniedBuiltinSkills: deniedSkills.filter(
+        (name) => !isSyncedClaudeSkillId(name),
+      ),
+      deniedSyncedSkillCount: deniedSkills.filter(isSyncedClaudeSkillId)
+        .length,
       capabilityPolicy: policy.status,
     });
     const configuredMcpServers = filterMcpServersByPolicy(

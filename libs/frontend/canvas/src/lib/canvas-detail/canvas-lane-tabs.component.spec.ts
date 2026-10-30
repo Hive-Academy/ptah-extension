@@ -265,6 +265,27 @@ describe('CanvasLaneTabsComponent', () => {
     }
   });
 
+  it('gives the rail dock tab ids that differ from the chat dock for the same panel', () => {
+    agents.set(cliRoster(2));
+    const ids = [false, true].map((rail) => {
+      const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+      fixture.componentRef.setInput('tabId', TAB_ID);
+      fixture.componentRef.setInput('rail', rail);
+      fixture.detectChanges();
+      const tabIds = [
+        ...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[role="tab"]'),
+      ].map((tab) => tab.id);
+      fixture.destroy();
+      return tabIds;
+    });
+    expect(ids[0]).toContain('canvas-lane-panel-tab-orchestrator');
+    expect(ids[1].length).toBeGreaterThan(0);
+    for (const id of ids[1]) {
+      expect(id.startsWith('canvas-lane-panel-rail-tab-')).toBe(true);
+      expect(ids[0]).not.toContain(id);
+    }
+  });
+
   it('names every chip and opens no card when five or fewer agents', () => {
     agents.set(cliRoster(2));
     jest.useFakeTimers();
@@ -284,7 +305,7 @@ describe('CanvasLaneTabsComponent', () => {
         expect(tab.classList.contains('border-secondary')).toBe(false);
         expect(tab.classList.contains('hover:bg-base-200')).toBe(true);
         expect(tab.classList.contains('max-w-[140px]')).toBe(true);
-        expect(tab.classList.contains('w-[38px]')).toBe(false);
+        expect(tab.classList.contains('size-7')).toBe(false);
         expect(tab.tabIndex).toBe(-1);
         expect(
           tab.querySelector('[data-testid="dock-chip-name"]')?.classList.contains('truncate'),
@@ -329,7 +350,7 @@ describe('CanvasLaneTabsComponent', () => {
       ];
       expect(circles).toHaveLength(5);
       for (const circle of circles) {
-        expect(circle.classList.contains('w-[38px]')).toBe(true);
+        expect(circle.classList.contains('size-7')).toBe(true);
         expect(circle.querySelector('[data-testid="dock-chip-name"]')).toBeNull();
       }
       circles[0].dispatchEvent(mousePointer('pointerenter'));
@@ -380,7 +401,7 @@ describe('CanvasLaneTabsComponent', () => {
     expect(dock.classList.contains('z-10')).toBe(true);
     expect(dock.classList.contains('z-20')).toBe(false);
     expect(dock.querySelector('ptah-agent-dock-menu')).toBeNull();
-    expect(dock.classList.contains('pb-1')).toBe(true);
+    expect(dock.classList.contains('py-0.5')).toBe(true);
     expect(dock.classList.contains('shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]')).toBe(true);
     expect(dock.classList.contains('border-b')).toBe(true);
     expect(dock.classList.contains('border-surface-border')).toBe(true);
@@ -553,7 +574,7 @@ describe('CanvasLaneTabsComponent', () => {
     expect(selected).toHaveBeenCalledWith('cli:c');
   });
 
-  it('keeps a waiting agent and hides a done one at 400px, and disconnects the observer', async () => {
+  it('keeps a waiting agent and hides a done one at 360px, and disconnects the observer', async () => {
     const original = globalThis.ResizeObserver;
     let resize: ResizeObserverCallback = () => undefined;
     const disconnect = jest.fn();
@@ -603,7 +624,7 @@ describe('CanvasLaneTabsComponent', () => {
       fixture.detectChanges();
       await fixture.whenStable();
       expect(observe).toHaveBeenCalledTimes(1);
-      fireResize(resize, 400);
+      fireResize(resize, 360);
       fixture.detectChanges();
       const labels = tabLabels(fixture.nativeElement);
       expect(labels).toHaveLength(4);

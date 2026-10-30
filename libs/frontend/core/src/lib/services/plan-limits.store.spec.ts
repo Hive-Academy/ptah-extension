@@ -565,6 +565,109 @@ describe('PlanLimitsStore', () => {
       );
     });
 
+    it('keeps a resolved session owner when a newer snapshot reports it unresolved or omits it', () => {
+      const push = (payload: PlanLimitsSnapshot) =>
+        store.handleMessage({
+          type: MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
+          payload,
+        });
+      push(
+        snapshot(T0, [owner('a', 10)], {
+          s1: { ownerKey: 'a', modelScope: 'opus' },
+        }),
+      );
+      // Switching to s2: the host lists s2 unresolved and no longer s1.
+      push(
+        snapshot(T0 + 1000, [owner('a', 12)], {
+          s2: { ownerKey: null, modelScope: null },
+        }),
+      );
+      expect(store.sessionOwner('s1')).toEqual({
+        ownerKey: 'a',
+        modelScope: 'opus',
+      });
+      push(
+        snapshot(T0 + 2000, [owner('a', 12)], {
+          s1: { ownerKey: null, modelScope: null },
+        }),
+      );
+      expect(store.sessionOwner('s1')?.ownerKey).toBe('a');
+
+      // A different resolved owner from the host still wins.
+      push(
+        snapshot(T0 + 3000, [owner('b', 1)], {
+          s1: { ownerKey: 'b', modelScope: null },
+        }),
+      );
+      expect(store.sessionOwner('s1')?.ownerKey).toBe('b');
+    });
+
+    it('keeps an owner window whose reset passed when a newer snapshot drops it', () => {
+      const withWeekly = (base: PlanLimitOwnerSnapshot, fiveHour: boolean) => ({
+        ...base,
+        windows: [
+          ...(fiveHour
+            ? [{ ...base.windows[0], resetsAt: T0 + 500 }]
+            : []),
+          {
+            key: 'weekly' as const,
+            kind: 'weekly' as const,
+            label: 'Weekly',
+            observedAt: T0,
+            resetsAt: T0 + 86_400_000,
+          },
+        ],
+      });
+      store.handleMessage({
+        type: MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
+        payload: snapshot(T0, [withWeekly(owner('a', 40), true)]),
+      });
+      // The host ledger forgot the 5-hour window at its reset.
+      store.handleMessage({
+        type: MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
+        payload: snapshot(T0 + 1000, [withWeekly(owner('a'), false)]),
+      });
+
+      const keys = store.ownerByKey('a')?.windows.map((w) => w.key);
+      expect(keys).toEqual(['weekly', 'five_hour']);
+      expect(
+        store.ownerByKey('a')?.windows.find((w) => w.key === 'five_hour')
+          ?.resetsAt,
+      ).toBe(T0 + 500);
+    });
+
+    it('does not carry a window that has not reset, or into a non-readable owner', () => {
+      const live = {
+        ...owner('a', 40),
+        windows: [{ ...owner('a', 40).windows[0], resetsAt: T0 + 60_000 }],
+      };
+      store.handleMessage({
+        type: MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
+        payload: snapshot(T0, [live]),
+      });
+      store.handleMessage({
+        type: MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
+        payload: snapshot(T0 + 1000, [{ ...owner('a'), windows: [] }]),
+      });
+      expect(store.ownerByKey('a')?.windows).toEqual([]);
+
+      const expired = {
+        ...owner('a', 40),
+        windows: [{ ...owner('a', 40).windows[0], resetsAt: T0 + 1500 }],
+      };
+      store.handleMessage({
+        type: MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
+        payload: snapshot(T0 + 1200, [expired]),
+      });
+      store.handleMessage({
+        type: MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
+        payload: snapshot(T0 + 2000, [
+          { ...owner('a'), status: 'unsupported-auth', windows: [] },
+        ]),
+      });
+      expect(store.ownerByKey('a')?.windows).toEqual([]);
+    });
+
     it('preserves an unknown used value as absent, never 0', () => {
       store.handleMessage({
         type: MESSAGE_TYPES.PLAN_LIMITS_CHANGED,

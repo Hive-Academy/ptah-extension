@@ -1,0 +1,1062 @@
+diff --git a/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.spec.ts b/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.spec.ts
+index 0e1ed5136..6c6e973e6 100644
+--- a/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.spec.ts
++++ b/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.spec.ts
+@@ -124,15 +124,47 @@ describe('AgentSpawnEnvironment', () => {
+   });
+ 
+   describe('resolveLaneGuardThresholds()', () => {
+-    const defaults = { steerAt: 40, stopAt: 60, repeatAt: 20 };
++    const defaults = { steerAt: 100, stopAt: 140, repeatAt: 20 };
+ 
+-    it('defaults to 40/60/20 when nothing is set', () => {
++    it('uses the default row (100/140/20) when nothing is set and no task kind is given', () => {
+       expect(
+         makeEnvironment().environment.resolveLaneGuardThresholds(),
+       ).toEqual(defaults);
+     });
+ 
+-    it('uses valid file values', () => {
++    it('treats the shipped null defaults as unset', () => {
++      const { environment, logger } = makeEnvironment({
++        config: {
++          laneToolCallSteerAt: null,
++          laneToolCallStopAt: null,
++          laneRepeatCallStopAt: null,
++        },
++      });
++      expect(environment.resolveLaneGuardThresholds('docs')).toEqual({
++        steerAt: 60,
++        stopAt: 90,
++        repeatAt: 20,
++      });
++      expect(logger.warn).not.toHaveBeenCalled();
++    });
++
++    it.each([
++      ['plan', 80, 120],
++      ['implement', 120, 160],
++      ['review', 100, 140],
++      ['research', 100, 140],
++      ['tests', 120, 160],
++      ['docs', 60, 90],
++    ] as const)(
++      'uses the %s default (%i/%i) when nothing is set',
++      (kind, steerAt, stopAt) => {
++        expect(
++          makeEnvironment().environment.resolveLaneGuardThresholds(kind),
++        ).toEqual({ steerAt, stopAt, repeatAt: 20 });
++      },
++    );
++
++    it('applies saved values to every task kind', () => {
+       const { environment } = makeEnvironment({
+         config: {
+           laneToolCallSteerAt: 10,
+@@ -140,23 +172,68 @@ describe('AgentSpawnEnvironment', () => {
+           laneRepeatCallStopAt: 5,
+         },
+       });
+-      expect(environment.resolveLaneGuardThresholds()).toEqual({
+-        steerAt: 10,
+-        stopAt: 30,
+-        repeatAt: 5,
++      for (const kind of ['plan', 'docs', undefined] as const) {
++        expect(environment.resolveLaneGuardThresholds(kind)).toEqual({
++          steerAt: 10,
++          stopAt: 30,
++          repeatAt: 5,
++        });
++      }
++    });
++
++    it('derives steer = floor(stop x 0.75) when only stop is saved', () => {
++      const { environment } = makeEnvironment({
++        config: { laneToolCallStopAt: 101 },
++      });
++      expect(environment.resolveLaneGuardThresholds('docs')).toEqual({
++        steerAt: 75,
++        stopAt: 101,
++        repeatAt: 20,
+       });
+     });
+ 
++    it('derives stop = ceil(steer x 4/3) when only steer is saved', () => {
++      const { environment } = makeEnvironment({
++        config: { laneToolCallSteerAt: 100 },
++      });
++      expect(environment.resolveLaneGuardThresholds('plan')).toEqual({
++        steerAt: 100,
++        stopAt: 134,
++        repeatAt: 20,
++      });
++    });
++
++    it('keeps a derived pair valid at the smallest saved values', () => {
++      expect(
++        makeEnvironment({
++          config: { laneToolCallSteerAt: 1 },
++        }).environment.resolveLaneGuardThresholds(),
++      ).toEqual({ steerAt: 1, stopAt: 2, repeatAt: 20 });
++      expect(
++        makeEnvironment({
++          config: { laneToolCallStopAt: 2 },
++        }).environment.resolveLaneGuardThresholds(),
++      ).toEqual({ steerAt: 1, stopAt: 2, repeatAt: 20 });
++    });
++
+     it.each([
+       ['non-integer', { laneToolCallSteerAt: 1.5 }],
+       ['string', { laneToolCallStopAt: '60' }],
+       ['below 1', { laneToolCallSteerAt: 0 }],
++      ['stop-only below 2', { laneToolCallStopAt: 1 }],
+       ['stop <= steer', { laneToolCallSteerAt: 50, laneToolCallStopAt: 50 }],
+-    ])('falls back to the steer/stop defaults for %s', (_label, config) => {
+-      expect(
+-        makeEnvironment({ config }).environment.resolveLaneGuardThresholds(),
+-      ).toEqual(defaults);
+-    });
++    ])(
++      'falls back to the task-kind steer/stop default for %s',
++      (_label, config) => {
++        const { environment, logger } = makeEnvironment({ config });
++        expect(environment.resolveLaneGuardThresholds('implement')).toEqual({
++          steerAt: 120,
++          stopAt: 160,
++          repeatAt: 20,
++        });
++        expect(logger.warn).toHaveBeenCalledTimes(1);
++      },
++    );
+ 
+     it('logs the provided values (numbers as-is, others as typeof) next to the defaults', () => {
+       const { environment, logger } = makeEnvironment({
+@@ -168,7 +245,7 @@ describe('AgentSpawnEnvironment', () => {
+         expect.stringContaining('Invalid lane tool-call guard value'),
+         expect.objectContaining({
+           provided: { steer: 50, stop: 'string' },
+-          defaults: { steerAt: 40, stopAt: 60 },
++          defaults: { steerAt: 100, stopAt: 140 },
+         }),
+       );
+     });
+@@ -187,7 +264,7 @@ describe('AgentSpawnEnvironment', () => {
+         expect(
+           makeEnvironment({
+             config: { laneRepeatCallStopAt: bad },
+-          }).environment.resolveLaneGuardThresholds().repeatAt,
++          }).environment.resolveLaneGuardThresholds('docs').repeatAt,
+         ).toBe(20);
+       }
+     });
+diff --git a/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.ts b/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.ts
+index 9ebb36f27..2f54013ae 100644
+--- a/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.ts
++++ b/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.ts
+@@ -22,6 +22,7 @@ import {
+   SYSTEM_CLI_TYPES,
+   normalizeWorkspaceRoot,
+ } from '@ptah-extension/shared';
++import type { OutcomeTaskKind } from '@ptah-extension/shared';
+ import { CliDetectionService } from './cli-detection.service';
+ import type { CliLaneBudgets } from './cli-adapters/cli-adapter.interface';
+ import { CODEX_DEFAULT_LANE_BUDGETS } from './cli-adapters/codex/codex-lane-budgets';
+@@ -36,14 +37,48 @@ import {
+   MIN_SDK_IDLE_RELEASE_MS,
+ } from './agent-process-manager-helpers';
+ 
+-import type { LaneBudgetThresholds } from './lane-budget-guard';
++import {
++  laneBudgetDefaultsFor,
++  type LaneBudgetThresholds,
++} from './lane-budget-guard';
++
++/** A lane-guard key with no saved value: the shipped `null` or absent. */
++function isUnset(value: unknown): value is null | undefined {
++  return value === null || value === undefined;
++}
+ 
+-/** Mirrors the `FILE_BASED_SETTINGS_DEFAULTS` lane-guard values. */
+-const DEFAULT_LANE_GUARD_THRESHOLDS: LaneBudgetThresholds = {
+-  steerAt: 40,
+-  stopAt: 60,
+-  repeatAt: 20,
+-};
++function isIntAtLeast(value: unknown, min: number): value is number {
++  return typeof value === 'number' && Number.isInteger(value) && value >= min;
++}
++
++/**
++ * The steer/stop pair from the saved values, or null when a saved value is
++ * invalid. Both unset: the task-kind default. One saved: the other is derived
++ * from it.
++ */
++function resolveSteerStop(
++  steer: unknown,
++  stop: unknown,
++  d: LaneBudgetThresholds,
++): Pick<LaneBudgetThresholds, 'steerAt' | 'stopAt'> | null {
++  if (isUnset(steer) && isUnset(stop)) {
++    return { steerAt: d.steerAt, stopAt: d.stopAt };
++  }
++  if (isUnset(stop)) {
++    return isIntAtLeast(steer, 1)
++      ? { steerAt: steer, stopAt: Math.ceil((steer * 4) / 3) }
++      : null;
++  }
++  if (isUnset(steer)) {
++    // stop >= 2 keeps the derived steer >= 1 and below stop.
++    return isIntAtLeast(stop, 2)
++      ? { steerAt: Math.floor(stop * 0.75), stopAt: stop }
++      : null;
++  }
++  return isIntAtLeast(steer, 1) && isIntAtLeast(stop, 1) && stop > steer
++    ? { steerAt: steer, stopAt: stop }
++    : null;
++}
+ 
+ export const MIN_CONCURRENT_AGENTS = 1;
+ export const MAX_CONCURRENT_AGENTS = 100;
+@@ -203,32 +238,33 @@ export class AgentSpawnEnvironment {
+   }
+ 
+   /**
+-   * The lane tool-call guard thresholds. Each file value must be an integer
+-   * >= 1; `repeatAt` must be >= 2 and `stopAt` must exceed `steerAt`. A value
+-   * that breaks its rule falls back to the default (for the steer/stop pair,
+-   * both fall back, since the pair is only meaningful together).
++   * The lane tool-call guard thresholds for a spawn's task kind. Each saved
++   * value must be an integer >= 1; `repeatAt` must be >= 2 and `stopAt` must
++   * exceed `steerAt`. The shipped default of every key is `null` (unset), and
++   * an unset key takes the task-kind default ({@link laneBudgetDefaultsFor}).
++   * A saved value applies to every task kind. When only one of steer/stop is
++   * saved the other is derived from it (steer = floor(stop x 0.75),
++   * stop = ceil(steer x 4/3)). A value that breaks its rule falls back to the
++   * task-kind default and warns once (for the steer/stop pair, both fall
++   * back, since the pair is only meaningful together).
+    */
+-  resolveLaneGuardThresholds(): LaneBudgetThresholds {
+-    const d = DEFAULT_LANE_GUARD_THRESHOLDS;
+-    const read = (key: string, dflt: number): unknown =>
+-      this.workspace.getConfiguration<number>(
++  resolveLaneGuardThresholds(taskKind?: OutcomeTaskKind): LaneBudgetThresholds {
++    const d = laneBudgetDefaultsFor(taskKind);
++    const read = (key: string): unknown =>
++      this.workspace.getConfiguration<unknown>(
+         'ptah',
+         `agentOrchestration.${key}`,
+-        dflt,
+       );
+-    const isInt = (v: unknown, min: number): v is number =>
+-      typeof v === 'number' && Number.isInteger(v) && v >= min;
+-
+-    const steer = read('laneToolCallSteerAt', d.steerAt);
+-    const stop = read('laneToolCallStopAt', d.stopAt);
+-    const repeat = read('laneRepeatCallStopAt', d.repeatAt);
+-    const pairOk = isInt(steer, 1) && isInt(stop, 1) && stop > steer;
+-    const repeatOk = isInt(repeat, 2);
++    const steer = read('laneToolCallSteerAt');
++    const stop = read('laneToolCallStopAt');
++    const repeat = read('laneRepeatCallStopAt');
++    const pair = resolveSteerStop(steer, stop, d);
++    const repeatOk = isUnset(repeat) || isIntAtLeast(repeat, 2);
+     // Numbers are logged as-is, anything else as its typeof (a hand-edited
+     // value may be a string or object; never log it verbatim).
+     const shown = (v: unknown): number | string =>
+       typeof v === 'number' ? v : typeof v;
+-    if (!pairOk) {
++    if (!pair) {
+       this.warnLaneGuardOnce(
+         'agentOrchestration.laneToolCallSteerAt/laneToolCallStopAt',
+         {
+@@ -244,9 +280,9 @@ export class AgentSpawnEnvironment {
+       });
+     }
+     return {
+-      steerAt: pairOk ? steer : d.steerAt,
+-      stopAt: pairOk ? stop : d.stopAt,
+-      repeatAt: repeatOk ? repeat : d.repeatAt,
++      steerAt: pair ? pair.steerAt : d.steerAt,
++      stopAt: pair ? pair.stopAt : d.stopAt,
++      repeatAt: isIntAtLeast(repeat, 2) ? repeat : d.repeatAt,
+     };
+   }
+ 
+diff --git a/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.spec.ts b/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.spec.ts
+index 939c5d817..1dacdd4ff 100644
+--- a/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.spec.ts
++++ b/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.spec.ts
+@@ -1,6 +1,11 @@
+ import type { CliOutputSegment } from '@ptah-extension/shared';
++import { OUTCOME_TASK_KINDS } from '@ptah-extension/shared';
+ import {
++  LANE_BUDGET_DEFAULTS,
++  LANE_WRAP_UP_MAX_TOOL_CALLS,
++  LANE_WRAP_UP_THRESHOLDS,
+   LaneBudgetGuard,
++  laneBudgetDefaultsFor,
+   laneBudgetSteerMessage,
+   type LaneBudgetAction,
+   type LaneBudgetThresholds,
+@@ -45,18 +50,22 @@ describe('LaneBudgetGuard', () => {
+     expect(run(guard, segments)).toEqual([
+       {
+         at: 40,
+-        action: { kind: 'steer', message: laneBudgetSteerMessage(40) },
++        action: { kind: 'steer', message: laneBudgetSteerMessage(40, 60) },
+       },
+       { at: 60, action: { kind: 'stop', stopReason: 'tool-call-budget' } },
+     ]);
+   });
+ 
+   it('uses the exact steer text', () => {
+-    expect(laneBudgetSteerMessage(40)).toBe(
+-      'You have made 40 tool calls. Stop exploring, finish the deliverable now, and report.',
++    expect(laneBudgetSteerMessage(40, 60)).toBe(
++      'You have made 40 of 60 tool calls. Stop exploring, write or finish the deliverable now, and report.',
+     );
+   });
+ 
++  it('reports its thresholds', () => {
++    expect(new LaneBudgetGuard(DEFAULTS).thresholds).toEqual(DEFAULTS);
++  });
++
+   it('stops with repeat-call when one identical call reaches 20', () => {
+     const guard = new LaneBudgetGuard(DEFAULTS);
+     const segments = Array.from({ length: 30 }, () =>
+@@ -73,7 +82,10 @@ describe('LaneBudgetGuard', () => {
+     const segments = Array.from({ length: 10 }, (_, i) => distinct(i));
+ 
+     expect(run(guard, segments)).toEqual([
+-      { at: 3, action: { kind: 'steer', message: laneBudgetSteerMessage(3) } },
++      {
++        at: 3,
++        action: { kind: 'steer', message: laneBudgetSteerMessage(3, 5) },
++      },
+       { at: 5, action: { kind: 'stop', stopReason: 'tool-call-budget' } },
+     ]);
+ 
+@@ -88,7 +100,10 @@ describe('LaneBudgetGuard', () => {
+         Array.from({ length: 10 }, () => call('bash', { toolArgs: 'ls' })),
+       ),
+     ).toEqual([
+-      { at: 3, action: { kind: 'steer', message: laneBudgetSteerMessage(3) } },
++      {
++        at: 3,
++        action: { kind: 'steer', message: laneBudgetSteerMessage(3, 50) },
++      },
+       { at: 4, action: { kind: 'stop', stopReason: 'repeat-call' } },
+     ]);
+   });
+@@ -167,7 +182,10 @@ describe('LaneBudgetGuard', () => {
+     it('clears counts, repeats and the one-time steer', () => {
+       const guard = new LaneBudgetGuard({ steerAt: 2, stopAt: 4, repeatAt: 3 });
+       expect(run(guard, [distinct(1), distinct(1), distinct(2)])).toEqual([
+-        { at: 2, action: { kind: 'steer', message: laneBudgetSteerMessage(2) } },
++        {
++          at: 2,
++          action: { kind: 'steer', message: laneBudgetSteerMessage(2, 4) },
++        },
+       ]);
+ 
+       guard.reset();
+@@ -175,12 +193,19 @@ describe('LaneBudgetGuard', () => {
+ 
+       // Same repeated key and the steer again, both counted from zero.
+       expect(run(guard, [distinct(1), distinct(1), distinct(3)])).toEqual([
+-        { at: 2, action: { kind: 'steer', message: laneBudgetSteerMessage(2) } },
++        {
++          at: 2,
++          action: { kind: 'steer', message: laneBudgetSteerMessage(2, 4) },
++        },
+       ]);
+     });
+ 
+     it('does not revive a guard that already asked for a stop', () => {
+-      const guard = new LaneBudgetGuard({ steerAt: 99, stopAt: 2, repeatAt: 99 });
++      const guard = new LaneBudgetGuard({
++        steerAt: 99,
++        stopAt: 2,
++        repeatAt: 99,
++      });
+       run(guard, [distinct(1), distinct(2)]);
+       guard.reset();
+       expect(run(guard, [distinct(3), distinct(4)])).toEqual([]);
+@@ -247,10 +272,60 @@ describe('LaneBudgetGuard', () => {
+       expect(run(guard, segments)).toEqual([
+         {
+           at: 40,
+-          action: { kind: 'steer', message: laneBudgetSteerMessage(40) },
++          action: { kind: 'steer', message: laneBudgetSteerMessage(40, 60) },
+         },
+         { at: 60, action: { kind: 'stop', stopReason: 'tool-call-budget' } },
+       ]);
+     });
+   });
++
++  describe('task-kind defaults', () => {
++    it.each([
++      ['plan', 80, 120],
++      ['implement', 120, 160],
++      ['review', 100, 140],
++      ['research', 100, 140],
++      ['tests', 120, 160],
++      ['docs', 60, 90],
++    ] as const)('%s steers at %i and stops at %i', (kind, steerAt, stopAt) => {
++      expect(laneBudgetDefaultsFor(kind)).toEqual({
++        steerAt,
++        stopAt,
++        repeatAt: 20,
++      });
++    });
++
++    it('uses the default row without a task kind', () => {
++      expect(laneBudgetDefaultsFor()).toEqual({
++        steerAt: 100,
++        stopAt: 140,
++        repeatAt: 20,
++      });
++      expect(laneBudgetDefaultsFor()).toBe(LANE_BUDGET_DEFAULTS.default);
++    });
++
++    it('has a row for every task kind', () => {
++      for (const kind of OUTCOME_TASK_KINDS) {
++        const row = laneBudgetDefaultsFor(kind);
++        expect(row.stopAt).toBeGreaterThan(row.steerAt);
++      }
++    });
++  });
++
++  describe('wrap-up thresholds', () => {
++    it('lets five calls run, stops at the sixth and never steers', () => {
++      expect(LANE_WRAP_UP_MAX_TOOL_CALLS).toBe(5);
++      expect(LANE_WRAP_UP_THRESHOLDS).toEqual({
++        steerAt: 6,
++        stopAt: 6,
++        repeatAt: 3,
++      });
++      const guard = new LaneBudgetGuard(LANE_WRAP_UP_THRESHOLDS);
++      const segments = Array.from({ length: 10 }, (_, i) => distinct(i));
++
++      expect(run(guard, segments)).toEqual([
++        { at: 6, action: { kind: 'stop', stopReason: 'tool-call-budget' } },
++      ]);
++    });
++  });
+ });
+diff --git a/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.ts b/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.ts
+index 43a730be5..eb2f1e08a 100644
+--- a/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.ts
++++ b/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.ts
+@@ -13,13 +13,23 @@
+  *   toward the repeat check: some adapters (Codex file changes) report only
+  *   the path, so repeated normal edits to one file would share a key.
+  *
++ * The thresholds depend on the spawn's task kind ({@link LANE_BUDGET_DEFAULTS},
++ * TASK_LANE_BUDGET_WRAP_UP D1): stop at about 2-2.5x the measured mean of ~48
++ * non-poll calls per lane for the heavy kinds, lower for plan and docs, steer
++ * at about 70-75% of stop. Saved settings override them for every kind. A
++ * wrap-up turn runs under {@link LANE_WRAP_UP_THRESHOLDS}.
++ *
+  * The guard only decides. The manager delivers the steer and performs the
+  * stop. One guard per tracked lane, dropped with the lane, and {@link reset}
+  * when the caller starts a new turn on it. No timers; each segment costs one
+  * map update.
+  */
+ 
+-import type { CliOutputSegment, LaneStopReason } from '@ptah-extension/shared';
++import type {
++  CliOutputSegment,
++  LaneStopReason,
++  OutcomeTaskKind,
++} from '@ptah-extension/shared';
+ 
+ /** Tool names (lower-cased) that edit files; left out of the repeat check. */
+ const FILE_EDIT_TOOLS: ReadonlySet<string> = new Set([
+@@ -43,6 +53,36 @@ export interface LaneBudgetThresholds {
+   readonly repeatAt: number;
+ }
+ 
++/** Built-in thresholds per task kind; `default` applies when the spawn named none. */
++export const LANE_BUDGET_DEFAULTS: Readonly<
++  Record<OutcomeTaskKind | 'default', LaneBudgetThresholds>
++> = {
++  plan: { steerAt: 80, stopAt: 120, repeatAt: 20 },
++  implement: { steerAt: 120, stopAt: 160, repeatAt: 20 },
++  review: { steerAt: 100, stopAt: 140, repeatAt: 20 },
++  research: { steerAt: 100, stopAt: 140, repeatAt: 20 },
++  tests: { steerAt: 120, stopAt: 160, repeatAt: 20 },
++  docs: { steerAt: 60, stopAt: 90, repeatAt: 20 },
++  default: { steerAt: 100, stopAt: 140, repeatAt: 20 },
++};
++
++/** The built-in thresholds for a task kind, or the `default` row without one. */
++export function laneBudgetDefaultsFor(
++  taskKind?: OutcomeTaskKind,
++): LaneBudgetThresholds {
++  return LANE_BUDGET_DEFAULTS[taskKind ?? 'default'];
++}
++
++/** Tool calls a wrap-up turn may make before its final stop. */
++export const LANE_WRAP_UP_MAX_TOOL_CALLS = 5;
++
++/** stopAt = max + 1: five calls run, the sixth asks for the final stop. steerAt = stopAt, so no steer. */
++export const LANE_WRAP_UP_THRESHOLDS: LaneBudgetThresholds = {
++  steerAt: LANE_WRAP_UP_MAX_TOOL_CALLS + 1,
++  stopAt: LANE_WRAP_UP_MAX_TOOL_CALLS + 1,
++  repeatAt: 3,
++};
++
+ /** What the manager should do after a segment. */
+ export type LaneBudgetAction =
+   | { readonly kind: 'none' }
+@@ -52,8 +92,11 @@ export type LaneBudgetAction =
+ const NONE: LaneBudgetAction = { kind: 'none' };
+ 
+ /** The steer text sent once at the steer threshold. */
+-export function laneBudgetSteerMessage(toolCalls: number): string {
+-  return `You have made ${toolCalls} tool calls. Stop exploring, finish the deliverable now, and report.`;
++export function laneBudgetSteerMessage(
++  toolCalls: number,
++  stopAt: number,
++): string {
++  return `You have made ${toolCalls} of ${stopAt} tool calls. Stop exploring, write or finish the deliverable now, and report.`;
+ }
+ 
+ /**
+@@ -68,7 +111,12 @@ export class LaneBudgetGuard {
+   /** Call ids already counted, so start + completion segments count once. */
+   private readonly countedIds = new Set<string>();
+ 
+-  constructor(private readonly thresholds: LaneBudgetThresholds) {}
++  constructor(private readonly limits: LaneBudgetThresholds) {}
++
++  /** The thresholds this guard counts against. */
++  get thresholds(): LaneBudgetThresholds {
++    return this.limits;
++  }
+ 
+   /** Tool calls counted so far. */
+   get toolCallCount(): number {
+@@ -87,16 +135,19 @@ export class LaneBudgetGuard {
+       const key = callKey(segment);
+       const repeats = (this.repeats.get(key) ?? 0) + 1;
+       this.repeats.set(key, repeats);
+-      if (repeats >= this.thresholds.repeatAt) {
++      if (repeats >= this.limits.repeatAt) {
+         return this.stop('repeat-call');
+       }
+     }
+-    if (this.toolCalls >= this.thresholds.stopAt) {
++    if (this.toolCalls >= this.limits.stopAt) {
+       return this.stop('tool-call-budget');
+     }
+-    if (!this.steered && this.toolCalls >= this.thresholds.steerAt) {
++    if (!this.steered && this.toolCalls >= this.limits.steerAt) {
+       this.steered = true;
+-      return { kind: 'steer', message: laneBudgetSteerMessage(this.toolCalls) };
++      return {
++        kind: 'steer',
++        message: laneBudgetSteerMessage(this.toolCalls, this.limits.stopAt),
++      };
+     }
+     return NONE;
+   }
+diff --git a/libs/backend/platform-core/src/file-settings-keys.spec.ts b/libs/backend/platform-core/src/file-settings-keys.spec.ts
+index bb8eaa717..e31e5bef8 100644
+--- a/libs/backend/platform-core/src/file-settings-keys.spec.ts
++++ b/libs/backend/platform-core/src/file-settings-keys.spec.ts
+@@ -307,9 +307,10 @@ describe('isFileBasedSettingKey', () => {
+       'compaction.subagentHandoffTokens': 150000,
+       'compaction.rotationSuggestTokens': 300000,
+       'compaction.subagentStopWeightedTokens': 3000000,
+-      'agentOrchestration.laneToolCallSteerAt': 40,
+-      'agentOrchestration.laneToolCallStopAt': 60,
+-      'agentOrchestration.laneRepeatCallStopAt': 20,
++      // Unset by default: the lane uses its task-kind default.
++      'agentOrchestration.laneToolCallSteerAt': null,
++      'agentOrchestration.laneToolCallStopAt': null,
++      'agentOrchestration.laneRepeatCallStopAt': null,
+     } as const;
+ 
+     it.each(Object.entries(wave))(
+@@ -378,7 +379,9 @@ describe('isFileBasedSettingKey', () => {
+ 
+     it('defaults the effort to a value the setting accepts', () => {
+       expect(CLAUDE_REASONING_EFFORT_VALUES).toContain(
+-        FILE_BASED_SETTINGS_DEFAULTS['agentOrchestration.claudeReasoningEffort'],
++        FILE_BASED_SETTINGS_DEFAULTS[
++          'agentOrchestration.claudeReasoningEffort'
++        ],
+       );
+     });
+ 
+diff --git a/libs/backend/platform-core/src/file-settings-keys.ts b/libs/backend/platform-core/src/file-settings-keys.ts
+index eaf6f5ed9..2809d5904 100644
+--- a/libs/backend/platform-core/src/file-settings-keys.ts
++++ b/libs/backend/platform-core/src/file-settings-keys.ts
+@@ -347,9 +347,11 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
+   // Subagent prompt-cache TTL: 'auto' | '5m' | '1h'. 'auto' asks for 1h only when the session can spawn subagents.
+   'agentOrchestration.subagentPromptCacheTtl': 'auto',
+   // Lane tool-call guards: steer at N calls, stop at N calls, stop at N identical calls.
+-  'agentOrchestration.laneToolCallSteerAt': 40,
+-  'agentOrchestration.laneToolCallStopAt': 60,
+-  'agentOrchestration.laneRepeatCallStopAt': 20,
++  // `null` = unset: the lane uses its task-kind default (`laneBudgetDefaultsFor`
++  // in cli-agent-runtime). A saved value applies to every task kind.
++  'agentOrchestration.laneToolCallSteerAt': null,
++  'agentOrchestration.laneToolCallStopAt': null,
++  'agentOrchestration.laneRepeatCallStopAt': null,
+   // `null` reads as `{ kind: 'unset' }` in DecisionModelConfig.getSelection,
+   // with no invalid-value warning.
+   'agentOrchestration.decisionModel': null,
+diff --git a/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.set-config.spec.ts b/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.set-config.spec.ts
+index 6fd4de3be..b40cc05c4 100644
+--- a/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.set-config.spec.ts
++++ b/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.set-config.spec.ts
+@@ -387,17 +387,26 @@ describe('lane tool-call guard settings (TASK_2026_597 Wave D)', () => {
+     'laneRepeatCallStopAt',
+   ] as const;
+ 
+-  it('getConfig returns the file-settings defaults when nothing is stored', async () => {
++  it('getConfig omits the keys when nothing is stored (the shipped default is null)', async () => {
+     const h = makeHarness();
+     const result = await h.getConfig();
+     for (const key of guardKeys) {
+-      expect(result[key]).toBe(
+-        FILE_BASED_SETTINGS_DEFAULTS[`agentOrchestration.${key}`],
++      expect(FILE_BASED_SETTINGS_DEFAULTS[`agentOrchestration.${key}`]).toBe(
++        null,
+       );
++      expect(result[key]).toBeUndefined();
++    }
++  });
++
++  it('getConfig omits a key stored as null', async () => {
++    const h = makeHarness();
++    for (const key of guardKeys) {
++      h.settings.set(`ptah.agentOrchestration.${key}`, null);
++    }
++    const result = await h.getConfig();
++    for (const key of guardKeys) {
++      expect(result[key]).toBeUndefined();
+     }
+-    expect(result.laneToolCallSteerAt).toBe(40);
+-    expect(result.laneToolCallStopAt).toBe(60);
+-    expect(result.laneRepeatCallStopAt).toBe(20);
+   });
+ 
+   it('round-trips valid values at their minimums', async () => {
+@@ -483,14 +492,17 @@ describe('lane tool-call guard settings (TASK_2026_597 Wave D)', () => {
+     );
+   });
+ 
+-  it('checks a stop-only write against the stored steer, or the default when none is stored', async () => {
++  it('checks a stop-only write against the stored steer, or only its own minimum when steer is unset', async () => {
+     const h = makeHarness();
+-    // Default steer is 40.
+-    expect(await h.setConfig({ laneToolCallStopAt: 40 })).toEqual({
++    // Steer unset: the lane derives it from the stop, so any stop >= 2 is valid.
++    expect(await h.setConfig({ laneToolCallStopAt: 2 })).toEqual({
++      success: true,
++    });
++    h.settings.set('ptah.agentOrchestration.laneToolCallSteerAt', 10);
++    expect(await h.setConfig({ laneToolCallStopAt: 10 })).toEqual({
+       success: false,
+       error: 'Unsupported laneToolCallStopAt value',
+     });
+-    h.settings.set('ptah.agentOrchestration.laneToolCallSteerAt', 10);
+     expect(await h.setConfig({ laneToolCallStopAt: 11 })).toEqual({
+       success: true,
+     });
+@@ -542,15 +554,44 @@ describe('lane tool-call guard settings (TASK_2026_597 Wave D)', () => {
+     });
+   });
+ 
+-  it('getConfig reports hand-edited invalid file values as the defaults', async () => {
++  it('a steer-only write with stop unset is checked only on its own minimum', async () => {
++    const h = makeHarness();
++    expect(await h.setConfig({ laneToolCallSteerAt: 500 })).toEqual({
++      success: true,
++    });
++    expect(h.settings.get('ptah.agentOrchestration.laneToolCallSteerAt')).toBe(
++      500,
++    );
++  });
++
++  it('writes stop first when steer is unset and both are sent', async () => {
++    const h = makeHarness();
++    const keys: string[] = [];
++    const write = h.workspace.setConfiguration.getMockImplementation();
++    h.workspace.setConfiguration.mockImplementation(
++      async (section: string, key: string, value: unknown) => {
++        await write?.(section, key, value);
++        keys.push(key);
++      },
++    );
++    expect(
++      await h.setConfig({ laneToolCallSteerAt: 5, laneToolCallStopAt: 10 }),
++    ).toEqual({ success: true });
++    expect(keys).toEqual([
++      'agentOrchestration.laneToolCallStopAt',
++      'agentOrchestration.laneToolCallSteerAt',
++    ]);
++  });
++
++  it('getConfig reports hand-edited invalid file values as unset', async () => {
+     const h = makeHarness();
+     h.settings.set('ptah.agentOrchestration.laneToolCallSteerAt', 0);
+     h.settings.set('ptah.agentOrchestration.laneToolCallStopAt', 'many');
+     h.settings.set('ptah.agentOrchestration.laneRepeatCallStopAt', 1);
+     const result = await h.getConfig();
+-    expect(result.laneToolCallSteerAt).toBe(40);
+-    expect(result.laneToolCallStopAt).toBe(60);
+-    expect(result.laneRepeatCallStopAt).toBe(20);
++    expect(result.laneToolCallSteerAt).toBeUndefined();
++    expect(result.laneToolCallStopAt).toBeUndefined();
++    expect(result.laneRepeatCallStopAt).toBeUndefined();
+   });
+ });
+ 
+diff --git a/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.spec.ts b/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.spec.ts
+index 5e6c746fc..281b12503 100644
+--- a/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.spec.ts
++++ b/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.spec.ts
+@@ -321,8 +321,8 @@ describe('AgentRpcHandlers — agent:resumeCliSession resume decision (G.6)', ()
+ describe('AgentRpcHandlers — agent:setConfig serialisation', () => {
+   it('validates the second of two overlapping calls against the first call’s writes', async () => {
+     const h = makeHarness();
+-    // Stored pair: steer 40, stop 60 (the defaults). Each call alone is
+-    // valid against it; together they would leave stop 50 <= steer 55.
++    // Nothing stored (both unset). Each call alone is valid; together they
++    // would leave stop 50 <= steer 55.
+     const [raiseSteer, lowerStop] = await Promise.all([
+       call<SetConfigResult>(h, 'agent:setConfig', { laneToolCallSteerAt: 55 }),
+       call<SetConfigResult>(h, 'agent:setConfig', { laneToolCallStopAt: 50 }),
+@@ -404,7 +404,12 @@ function laneAccountResumeError(code: string): Error {
+ 
+ function expectNoLeak(result: unknown): void {
+   const wire = JSON.stringify(result);
+-  for (const leak of ['credentials', 'claude-profiles', 'C:/', '@example.com']) {
++  for (const leak of [
++    'credentials',
++    'claude-profiles',
++    'C:/',
++    '@example.com',
++  ]) {
+     expect(wire).not.toContain(leak);
+   }
+ }
+@@ -470,9 +475,9 @@ describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
+     });
+ 
+     expect(result.code).toBe('account_refused');
+-    expect(JSON.stringify((h.logger.warn as jest.Mock).mock.calls)).not.toContain(
+-      'secret',
+-    );
++    expect(
++      JSON.stringify((h.logger.warn as jest.Mock).mock.calls),
++    ).not.toContain('secret');
+     expect(h.logger.warn).toHaveBeenCalledWith(
+       'RPC: agent:continue account refused',
+       { agentId: 'a-1', code: 'unavailable-storage' },
+@@ -867,9 +872,9 @@ describe('AgentRpcHandlers — agent:resumeCliSession account selection', () =>
+     expect(result.error).toBe(
+       'Agent resume account refused (unavailable-storage).',
+     );
+-    expect(JSON.stringify((h.logger.warn as jest.Mock).mock.calls)).not.toContain(
+-      'EACCES',
+-    );
++    expect(
++      JSON.stringify((h.logger.warn as jest.Mock).mock.calls),
++    ).not.toContain('EACCES');
+     expect(h.processManager.spawn).not.toHaveBeenCalled();
+   });
+ 
+diff --git a/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts b/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts
+index c9356964b..7f183247f 100644
+--- a/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts
++++ b/libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts
+@@ -204,17 +204,6 @@ const LANE_GUARD_FIELDS = [
+ 
+ type LaneGuardField = (typeof LANE_GUARD_FIELDS)[number];
+ 
+-/**
+- * Read-side defaults for the lane guard keys. Mirrors
+- * `FILE_BASED_SETTINGS_DEFAULTS` in `platform-core`; the set-config spec pins
+- * the two against each other.
+- */
+-const LANE_GUARD_DEFAULTS: Readonly<Record<LaneGuardField, number>> = {
+-  laneToolCallSteerAt: 40,
+-  laneToolCallStopAt: 60,
+-  laneRepeatCallStopAt: 20,
+-};
+-
+ /**
+  * Smallest value each guard accepts on its own: steer >= 1, repeat >= 2, and
+  * stop >= 2 because it must also exceed steer (checked as a pair below).
+@@ -240,11 +229,13 @@ function isLaneGuardValue(
+  * Host-boundary check for the lane guard writes, rejected with the field name
+  * and never clamped. Stop must exceed steer; a write that changes only one of
+  * the pair is checked against the stored value of the other (`readStored`).
+- * Returns the first invalid field, or null.
++ * When the other is unset (`undefined`, the lane derives it from the saved
++ * one) only each value's own minimum applies. Returns the first invalid
++ * field, or null.
+  */
+ function invalidLaneGuard(
+   params: AgentSetConfigParams,
+-  readStored: (field: LaneGuardField) => number,
++  readStored: (field: LaneGuardField) => number | undefined,
+ ): string | null {
+   for (const field of LANE_GUARD_FIELDS) {
+     const value: unknown = params[field];
+@@ -256,6 +247,7 @@ function invalidLaneGuard(
+   if (steer === undefined && stop === undefined) return null;
+   const effectiveSteer = steer ?? readStored('laneToolCallSteerAt');
+   const effectiveStop = stop ?? readStored('laneToolCallStopAt');
++  if (effectiveSteer === undefined || effectiveStop === undefined) return null;
+   if (effectiveStop <= effectiveSteer) {
+     return stop === undefined ? 'laneToolCallSteerAt' : 'laneToolCallStopAt';
+   }
+@@ -268,17 +260,21 @@ function invalidLaneGuard(
+  * the stored pair must stay valid (stop > steer) between the two writes: stop
+  * goes first when the new stop already exceeds the stored steer (raising
+  * both), else steer goes first (lowering both). One of the two always holds,
+- * because both the stored and the requested pair are valid.
++ * because both the stored and the requested pair are valid. An unset stored
++ * steer is no constraint (the lane derives it from the stop), so stop goes
++ * first.
+  */
+ function laneGuardWriteOrder(
+   params: AgentSetConfigParams,
+-  readStored: (field: LaneGuardField) => number,
++  readStored: (field: LaneGuardField) => number | undefined,
+ ): readonly LaneGuardField[] {
+   const stop = params.laneToolCallStopAt;
++  const storedSteer = readStored('laneToolCallSteerAt');
+   const stopFirst =
+     params.laneToolCallSteerAt === undefined ||
+     stop === undefined ||
+-    stop > readStored('laneToolCallSteerAt');
++    storedSteer === undefined ||
++    stop > storedSteer;
+   return stopFirst
+     ? ['laneToolCallStopAt', 'laneToolCallSteerAt', 'laneRepeatCallStopAt']
+     : ['laneToolCallSteerAt', 'laneToolCallStopAt', 'laneRepeatCallStopAt'];
+@@ -1406,7 +1402,10 @@ export class AgentRpcHandlers {
+             cli: parsed.data.cli,
+             code: accountRefusal,
+           });
+-          return { success: false, error: resumeAccountRefusal(accountRefusal) };
++          return {
++            success: false,
++            error: resumeAccountRefusal(accountRefusal),
++          };
+         }
+ 
+         let result: SpawnAgentResult;
+@@ -1734,13 +1733,17 @@ export class AgentRpcHandlers {
+   }
+ 
+   /**
+-   * Read a lane guard. A hand-edited value below the field's minimum or not an
+-   * integer is reported as the default.
++   * Read a saved lane guard, or `undefined` when none is saved (the shipped
++   * default is `null`; the lane then uses its task-kind default from
++   * `laneBudgetDefaultsFor`). A hand-edited value below the field's minimum or
++   * not an integer is reported as unset too: the lane ignores it the same way.
+    */
+-  private getLaneGuard(field: LaneGuardField): number {
+-    const fallback = LANE_GUARD_DEFAULTS[field];
+-    const value = this.getAgentCfg<unknown>(field, fallback);
+-    return isLaneGuardValue(field, value) ? value : fallback;
++  private getLaneGuard(field: LaneGuardField): number | undefined {
++    const value = this.workspace.getConfiguration<unknown>(
++      'ptah',
++      `agentOrchestration.${field}`,
++    );
++    return isLaneGuardValue(field, value) ? value : undefined;
+   }
+ 
+   /** Read the Codex lane web-search switch; a non-boolean reads as the default. */
+diff --git a/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.component.spec.ts b/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.component.spec.ts
+index 30300d9e0..765c6a857 100644
+--- a/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.component.spec.ts
++++ b/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.component.spec.ts
+@@ -88,6 +88,23 @@ describe('LaneGuardsSettingsComponent', () => {
+     expect(host().textContent).toContain('Range: 2 or greater.');
+   });
+ 
++  it('shows the default row for unset keys and explains the task-kind defaults', async () => {
++    call.mockImplementation(async (method: string) =>
++      method === 'agent:getConfig'
++        ? rpcSuccess({} as AgentOrchestrationConfig)
++        : rpcSuccess({ success: true }),
++    );
++    await create();
++    expect(input('lane-guards-steer').value).toBe('100');
++    expect(input('lane-guards-stop').value).toBe('140');
++    expect(input('lane-guards-repeat').value).toBe('20');
++    const help = byTestId('lane-guards-unset-help')?.textContent ?? '';
++    expect(help).toContain(
++      'plan 120, implement 160, review 140, research 140, tests 160, docs 90',
++    );
++    expect(help).toContain('A saved value applies to every lane.');
++  });
++
+   it('shows Retry when the read fails, then loads again', async () => {
+     call.mockImplementation(async () => rpcError('host offline'));
+     await create();
+diff --git a/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.component.ts b/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.component.ts
+index 029ad755d..8ca980f42 100644
+--- a/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.component.ts
++++ b/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.component.ts
+@@ -14,6 +14,7 @@ import { SurfaceSectionComponent } from '@ptah-extension/ui';
+ import {
+   LANE_GUARD_DEFAULTS,
+   LANE_GUARD_FIELDS,
++  LANE_GUARD_UNSET_HELP,
+   laneGuardFieldError,
+   laneGuardFromConfig,
+   laneGuardKeyInError,
+@@ -63,12 +64,21 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
+       data-testid="settings-section-lane-guards"
+     >
+       <div section-header class="mb-3 border-b border-base-content/10 pb-2">
+-        <h3 id="lane-guards-heading" class="text-base font-semibold text-base-content">
++        <h3
++          id="lane-guards-heading"
++          class="text-base font-semibold text-base-content"
++        >
+           Lane guards
+         </h3>
+         <p class="mt-0.5 text-xs text-base-content-muted">
+           Keep background lanes from spending too long on tool calls.
+         </p>
++        <p
++          class="mt-0.5 text-xs text-base-content-muted"
++          data-testid="lane-guards-unset-help"
++        >
++          {{ unsetHelp }}
++        </p>
+       </div>
+ 
+       @switch (load()) {
+@@ -111,9 +121,11 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
+           <div class="grid gap-x-4 gap-y-5 sm:grid-cols-2 xl:grid-cols-3">
+             @for (field of fields; track field.key) {
+               <div class="flex min-w-0 flex-col gap-1">
+-                <label [for]="field.testId" class="text-sm font-medium text-base-content">{{
+-                  field.label
+-                }}</label>
++                <label
++                  [for]="field.testId"
++                  class="text-sm font-medium text-base-content"
++                  >{{ field.label }}</label
++                >
+                 <div class="join flex w-full">
+                   <input
+                     type="text"
+@@ -160,7 +172,6 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
+           </div>
+         }
+       }
+-
+     </ptah-surface-section>
+   `,
+ })
+@@ -171,6 +182,7 @@ export class LaneGuardsSettingsComponent implements OnInit {
+ 
+   protected readonly focusRing = FOCUS;
+   protected readonly fields = LANE_GUARD_FIELDS;
++  protected readonly unsetHelp = LANE_GUARD_UNSET_HELP;
+ 
+   protected readonly load = signal<'loading' | 'error' | 'ready'>('loading');
+   protected readonly drafts = signal<Record<LaneGuardKey, string>>({
+diff --git a/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.logic.spec.ts b/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.logic.spec.ts
+index af37d84dd..01eebb336 100644
+--- a/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.logic.spec.ts
++++ b/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.logic.spec.ts
+@@ -9,7 +9,11 @@ import {
+   type LaneGuardKey,
+ } from './lane-guards-settings.logic';
+ 
+-const saved = { ...LANE_GUARD_DEFAULTS };
++const saved = {
++  laneToolCallSteerAt: 40,
++  laneToolCallStopAt: 60,
++  laneRepeatCallStopAt: 20,
++};
+ 
+ function drafts(
+   overrides: Partial<Record<LaneGuardKey, string>> = {},
+@@ -78,11 +82,28 @@ describe('lane guard settings logic', () => {
+ 
+   it('reads a host value and falls back to the default when it is out of range', () => {
+     expect(laneGuardFromConfig('laneToolCallSteerAt', 12)).toBe(12);
+-    expect(laneGuardFromConfig('laneToolCallSteerAt', 0)).toBe(40);
+-    expect(laneGuardFromConfig('laneToolCallStopAt', undefined)).toBe(60);
++    expect(laneGuardFromConfig('laneToolCallSteerAt', 0)).toBe(100);
++    expect(laneGuardFromConfig('laneToolCallStopAt', undefined)).toBe(140);
+     expect(laneGuardFromConfig('laneRepeatCallStopAt', 1.5)).toBe(20);
+   });
+ 
++  it('shows the default task-kind row (100 / 140 / 20) for an unset key', () => {
++    expect(LANE_GUARD_DEFAULTS).toEqual({
++      laneToolCallSteerAt: 100,
++      laneToolCallStopAt: 140,
++      laneRepeatCallStopAt: 20,
++    });
++    for (const key of [
++      'laneToolCallSteerAt',
++      'laneToolCallStopAt',
++      'laneRepeatCallStopAt',
++    ] as const) {
++      expect(laneGuardFromConfig(key, undefined)).toBe(
++        LANE_GUARD_DEFAULTS[key],
++      );
++    }
++  });
++
+   it('names the field inside a host rejection', () => {
+     expect(laneGuardKeyInError('Unsupported laneToolCallStopAt value')).toBe(
+       'laneToolCallStopAt',
+diff --git a/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.logic.ts b/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.logic.ts
+index 0710af9f5..bf3020459 100644
+--- a/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.logic.ts
++++ b/libs/frontend/chat/src/lib/settings/ptah-ai/lane-guards-settings.logic.ts
+@@ -44,13 +44,21 @@ export const LANE_GUARD_FIELDS: readonly LaneGuardField[] = [
+   },
+ ];
+ 
+-/** Defaults from `FILE_BASED_SETTINGS_DEFAULTS` / `LANE_GUARD_DEFAULTS`. */
++/**
++ * Shown for an unset key: the `default` row of `LANE_BUDGET_DEFAULTS` in
++ * cli-agent-runtime. The host omits an unset key from `agent:getConfig`, and
++ * the lane then uses its task-kind default ({@link LANE_GUARD_UNSET_HELP}).
++ */
+ export const LANE_GUARD_DEFAULTS: Readonly<Record<LaneGuardKey, number>> = {
+-  laneToolCallSteerAt: 40,
+-  laneToolCallStopAt: 60,
++  laneToolCallSteerAt: 100,
++  laneToolCallStopAt: 140,
+   laneRepeatCallStopAt: 20,
+ };
+ 
++/** What an unset guard means; mirrors `LANE_BUDGET_DEFAULTS` stop values. */
++export const LANE_GUARD_UNSET_HELP =
++  'Until you save a value, each lane uses the default for its task kind (stop at: plan 120, implement 160, review 140, research 140, tests 160, docs 90; 140 when no kind is given) and is steered at about three quarters of that. A saved value applies to every lane.';
++
+ export type LaneGuardValues = Record<LaneGuardKey, number>;
+ 
+ export type LaneGuardParse =
+@@ -125,7 +133,7 @@ export function laneGuardWrite(
+   return Object.keys(payload).length === 0 ? null : payload;
+ }
+ 
+-/** Read a host config value, or the default when it is missing or out of range. */
++/** Read a host config value, or the shown default when it is unset or out of range. */
+ export function laneGuardFromConfig(key: LaneGuardKey, value: unknown): number {
+   const min = LANE_GUARD_FIELDS.find((field) => field.key === key)?.min ?? 1;
+   return typeof value === 'number' &&

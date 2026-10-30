@@ -459,6 +459,23 @@ describe('SessionReplayService', () => {
       expect(peerOf(out)).toEqual({ label: 'session · Reviewer' });
     });
 
+    it('labels an SDK subagent message with its short sender id', () => {
+      const text = [
+        'Another Claude session sent a message:',
+        '<agent-message from="ad589f82c811f90e5">',
+        'Source follow-up finding.',
+        '</agent-message>',
+        '',
+        'That "other Claude session" is an agent working inside this same session.',
+      ].join('\n');
+      const out = service.replayToStreamEvents(
+        'session-1',
+        [u({ role: 'user', content: text })],
+        [],
+      );
+      expect(peerOf(out)).toEqual({ label: 'ad589f82' });
+    });
+
     it('does not label plain user text', () => {
       const out = service.replayToStreamEvents(
         'session-1',

@@ -26,9 +26,24 @@ function deliverableLine(check: LaneDeliverableCheck): string {
   return `- ${check.path} — ${check.bytes} bytes${stale}`;
 }
 
+/** Who stopped the lane and why, for a lane the host stopped. */
+function hostStopLine(signal: LaneCompletionSignal): string | undefined {
+  if (!signal.stopReason) return undefined;
+  const calls =
+    signal.toolCalls !== undefined ? ` (${signal.toolCalls} tool calls)` : '';
+  const why =
+    signal.repeatedCalls !== undefined
+      ? `repeated the same call ${signal.repeatedCalls} times`
+      : 'repeated the same call';
+  return `Stopped by Ptah: ${why}${calls}. The caller did not stop it.`;
+}
+
 function nextAction(signal: LaneCompletionSignal): string {
   switch (signal.verdict) {
     case 'delivered':
+      if (signal.stopReason) {
+        return 'Next: Ptah stopped this lane before it finished, so its deliverable files may be only a skeleton or partly filled. Read them and treat any missing section as NOT done; resume the lane with the gaps named when a CLI Session ID is present.';
+      }
       return 'Next: read the deliverable files and verify the work yourself. A lane writing its file is not proof the content is right.';
     case 'no-deliverable':
       return 'Next: this lane exited without writing every deliverable it was given, so treat the task as NOT done. Read its output with ptah_agent_read to see how far it got, then resume it with the missing paths named, or do the work another way. Do not report this lane as complete.';
@@ -55,6 +70,14 @@ export function buildLaneCompletionEnvelope(
       ` after ${duration(signal.durationMs)}.`,
     `Task: ${signal.taskHeadline || '(no task headline)'}`,
   ];
+  const stopLine = hostStopLine(signal);
+  if (stopLine) lines.push(stopLine);
+  else if (signal.toolCalls !== undefined)
+    lines.push(`Tool calls: ${signal.toolCalls}.`);
+  if (signal.queuedMessagesDropped)
+    lines.push(
+      `Queued messages dropped by the stop: ${signal.queuedMessagesDropped}. Send them again if they still matter.`,
+    );
   if (signal.role) lines.push(`Role: ${signal.role}`);
   if (signal.mcpAttachmentWarning) lines.push(`MCP warning: ${signal.mcpAttachmentWarning}`);
   if (signal.taskFolder) lines.push(`Task folder: ${signal.taskFolder}`);

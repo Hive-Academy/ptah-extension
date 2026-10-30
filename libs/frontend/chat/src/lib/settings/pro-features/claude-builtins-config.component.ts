@@ -1,11 +1,14 @@
 /**
  * ClaudeBuiltinsConfigComponent - "Claude Code tools & skills" card (TASK_2026_853 F-A, design-spec §1)
  *
- * Advanced tab, directly below the MCP & Browser card. Lets the user turn back on the Claude Code built-in tools
- * and terminal-only skills that Ptah sessions start without. The rows, costs and the tool-to-skill dependency map
- * come from `agent:getClaudeBuiltins` (the backend catalog); nothing here is a sample row.
+ * Advanced tab, directly below the MCP & Browser card. Lets the user turn back on the Claude Code built-in tools,
+ * terminal-only skills and claude.ai account-synced skills that Ptah sessions start without. The rows, costs and the
+ * tool-to-skill dependency map come from `agent:getClaudeBuiltins` (the backend catalog and the synced-skills reader);
+ * nothing here is a sample row.
  *
- * - Phase A shows group 1 (tools) and group 2 (terminal-only skills). Group 3 (account-synced skills) arrives in B.
+ * - Group 1: tools. Group 2: terminal-only skills. Group 3: account-synced skills, sent under their qualified
+ *   `anthropic-skills:<name>` id and shown by plain name; a group 3 row and a group 2 row of the same name are separate
+ *   opt-ins. Group 3 shows an empty state when the account has no synced skills.
  * - Every write goes through {@link SettingsSaveFeedbackService.saveGeneric} as one atomic per-item
  *   `agent:setClaudeBuiltin` call for the toggled id; the backend changes only that id in the stored list, so an
  *   opt-in another window or `ptah agent config-set` made at any time is kept. Undo sends the inverse call. On success
@@ -242,6 +245,72 @@ function withItem(list: readonly string[], id: string, on: boolean): string[] {
             </tbody>
           </table>
         </div>
+
+        <!-- Group 3: skills synced from the claude.ai account -->
+        <h3 id="claude-tools-group-synced-skills" class="text-xs font-semibold text-base-content mt-3">
+          Skills synced from your claude.ai account (hidden by default)
+        </h3>
+        <p class="text-xs text-base-content-muted mb-1">
+          Found in your Claude home folder. Turn one on to use it in new sessions.
+        </p>
+        @if (loaded() && syncedSkills().length === 0) {
+          <div class="rounded-lg border border-dashed border-base-300 p-3 text-center text-xs"
+            data-testid="claude-tools-synced-empty">
+            <strong class="text-base-content">No claude.ai skills found</strong>
+            <span class="block text-base-content-muted">
+              If you sync skills from your claude.ai account, they will be listed here.
+            </span>
+          </div>
+        } @else {
+          <div class="overflow-x-auto">
+            <table class="table table-xs" aria-labelledby="claude-tools-group-synced-skills">
+              <thead>
+                <tr>
+                  <th class="w-10" scope="col">On</th>
+                  <th scope="col">Skill</th>
+                  <th scope="col">Token cost</th>
+                  <th scope="col">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                @if (loaded()) {
+                  @for (skill of syncedSkills(); track skill.id) {
+                    <tr>
+                      <td class="align-top">
+                        <input
+                          type="checkbox"
+                          class="checkbox checkbox-xs checkbox-primary"
+                          [checked]="isSkillOn(skill.id)"
+                          (change)="toggle('skill', skill.id, $event, skillName(skill))"
+                          [ptahBusyDisabled]="saving() || !loaded()"
+                          [attr.aria-label]="skillName(skill) + ' skill'"
+                          [attr.data-testid]="'settings-toggle-claude-skill-' + skill.id"
+                        />
+                      </td>
+                      <td class="align-top font-medium text-xs text-base-content whitespace-nowrap">
+                        {{ skillName(skill) }}
+                      </td>
+                      <td class="align-top">
+                        <span class="badge badge-outline badge-xs text-base-content">{{ cost(skill.approxTokens) }}</span>
+                      </td>
+                      <td class="align-top text-xs text-base-content-muted">{{ skill.description }}</td>
+                    </tr>
+                  }
+                } @else {
+                  @for (row of skeletonRows; track row) {
+                    <tr data-testid="claude-tools-skeleton-row">
+                      <td class="align-top">
+                        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" disabled
+                          aria-label="Loading skill" />
+                      </td>
+                      <td colspan="3"><div class="skeleton h-4 w-full"></div></td>
+                    </tr>
+                  }
+                }
+              </tbody>
+            </table>
+          </div>
+        }
       }
     </section>
   `,
@@ -270,12 +339,14 @@ export class ClaudeBuiltinsConfigComponent implements OnInit {
 
   readonly tools = signal<readonly ClaudeBuiltinToolDto[]>([]);
   readonly terminalSkills = signal<readonly ClaudeBuiltinSkillDto[]>([]);
+  readonly syncedSkills = signal<readonly ClaudeBuiltinSkillDto[]>([]);
   readonly enabledTools = signal<readonly string[]>([]);
   readonly enabledSkills = signal<readonly string[]>([]);
 
   /**
-   * Sum of the cost of every shown item the session will not get, rounded to 100; recomputes on every toggle. A skill
-   * is hidden when its own checkbox is off or the tool it needs is off: the backend denies a dependency-blocked skill.
+   * Sum of the cost of every shown item the session will not get (groups 1-3), rounded to 100; recomputes on every
+   * toggle. A skill is hidden when its own checkbox is off or the tool it needs is off: the backend denies a
+   * dependency-blocked skill. A synced skill needs no tool.
    */
   readonly hiddenTokens = computed(() => {
     const tools = this.enabledTools();
@@ -284,7 +355,9 @@ export class ClaudeBuiltinsConfigComponent implements OnInit {
       !skills.includes(skill.id) || (!!skill.needsTool && !tools.includes(skill.needsTool));
     const off =
       this.tools().filter((tool) => !tools.includes(tool.id)).reduce((sum, tool) => sum + tool.approxTokens, 0) +
-      this.terminalSkills().filter(skillHidden).reduce((sum, skill) => sum + skill.approxTokens, 0);
+      [...this.terminalSkills(), ...this.syncedSkills()]
+        .filter(skillHidden)
+        .reduce((sum, skill) => sum + skill.approxTokens, 0);
     return Math.round(off / 100) * 100;
   });
   readonly savingsLabel = computed(() => this.hiddenTokens().toLocaleString('en-US'));
@@ -311,12 +384,18 @@ export class ClaudeBuiltinsConfigComponent implements OnInit {
     return this.enabledSkills().includes(id);
   }
 
+  /** The name a row shows and its checkbox label uses: a synced skill's plain name, else its id. */
+  skillName(skill: ClaudeBuiltinSkillDto): string {
+    return skill.name ?? skill.id;
+  }
+
   /** A skill whose own checkbox is on while the tool it needs is off (design-spec "Dependency blocked"). */
   isDependencyBlocked(skill: ClaudeBuiltinSkillDto): boolean {
     return !!skill.needsTool && this.isSkillOn(skill.id) && !this.isToolOn(skill.needsTool);
   }
 
-  async toggle(kind: BuiltinKind, id: string, event?: Event): Promise<void> {
+  /** `name` labels the toast (`Saved docx skill.`); it defaults to `id`. */
+  async toggle(kind: BuiltinKind, id: string, event?: Event, name: string = id): Promise<void> {
     const input = event?.target instanceof HTMLInputElement ? event.target : null;
     const list = kind === 'tool' ? this.enabledTools : this.enabledSkills;
     // Serialization: a save (write, any recovery read) holds `saving()` until it ends, so a second toggle is refused
@@ -330,7 +409,7 @@ export class ClaudeBuiltinsConfigComponent implements OnInit {
     list.set(withItem(list(), id, !wasOn));
 
     const outcome = await this.feedback.saveGeneric({
-      label: `${id} ${kind}`,
+      label: `${name} ${kind}`,
       write: () => this.saveItem(kind, id, !wasOn),
       undo: () => this.saveItem(kind, id, wasOn),
     });
@@ -387,6 +466,7 @@ export class ClaudeBuiltinsConfigComponent implements OnInit {
     }
     this.tools.set(data.tools ?? []);
     this.terminalSkills.set(data.terminalSkills ?? []);
+    this.syncedSkills.set(data.syncedSkills ?? []);
     this.enabledTools.set(data.enabledTools ?? []);
     this.enabledSkills.set(data.enabledSkills ?? []);
     this.loadState.set('loaded');

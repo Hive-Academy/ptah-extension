@@ -74,6 +74,13 @@ export class VscodeSettingsAdapter implements ISettingsStore {
     return this.vscode.workspace.getConfiguration('ptah').get<T>(key);
   }
 
+  hasGlobal(key: string): boolean {
+    if (isFileBasedSettingKey(key)) {
+      return this.workspaceProvider.fileSettings.has(key);
+    }
+    return this.readGlobal(key) !== undefined;
+  }
+
   async writeGlobal<T>(key: string, value: T): Promise<void> {
     if (isFileBasedSettingKey(key)) {
       await this.workspaceProvider.fileSettings.set(key, value);

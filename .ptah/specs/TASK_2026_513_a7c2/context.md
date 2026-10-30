@@ -77,3 +77,18 @@ recorded.
 
 The investigation writes `investigation.md` in this folder with a table of the
 four fields, their producers and the verdict for each hypothesis.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors. Still open (a cancel was proposed and rejected).
+
+TASK_2026_533_b7e1 implementation-plan.md:318 defers "Spawned CLI tile telemetry" to this task. Open: the lane roll-up decision, header vs footer TIME/TOKENS/COST labels, MODEL identity, and four-field regression specs.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane codex, verified by Claude).
+
+- The Orchestra tile header the task describes was replaced: the canvas Grid board is now the Rail board (#730) and the session view has a stats summary/inspector (#734, #771).
+- #587 (862c6174f) made the backend the single authority for session stats; `main:libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.ts:210-235` prefers the live model and backend cost/duration.
+
+Remaining scope: the lane-attribution decision (roll-up or not, and labelled), header vs footer reconciliation, and a four-field regression matrix, against `SessionStatsSummaryComponent` and the backend session snapshot.

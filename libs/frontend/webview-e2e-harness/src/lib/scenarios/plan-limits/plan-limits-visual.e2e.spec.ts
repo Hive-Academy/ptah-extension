@@ -137,14 +137,18 @@ test.describe('plan limits > session inspector', () => {
         const limits = inspector.locator('ptah-inspector-limits-lanes');
         await expect(stats).toBeVisible({ timeout: 15_000 });
 
-        // (a) RPC snapshot: Sonnet session, 5-hour window at 94%.
-        await expect(stats).toContainText('5-hour 94%');
+        // (a) RPC snapshot: Sonnet session, 5-hour window at 94%. The Plan
+        // limits section owns the notice; the stats show no plan-limit row.
+        const planTile = (windowKey: string) =>
+          limits.locator(`ptah-plan-limit-tile[data-tile-id="plan:${CLAUDE_A.key}:${windowKey}"]`);
+        await expect(planTile('five_hour')).toContainText('94%');
+        await expect(stats).not.toContainText('5-hour');
         await expect(limits.locator('ptah-lane-usage-tile')).toHaveCount(EXPECTED_LANE_TILES);
         await capture(stats, shotPath('session-inspector', 'near', theme, width));
 
         // Push path: one planLimits:changed replaces the snapshot.
         await bridge.inject({ type: 'planLimits:changed', payload: PUSHED_SNAPSHOT });
-        await expect(stats).toContainText('Weekly');
+        await expect(planTile('weekly_model:opus')).toBeVisible();
         await capture(stats, shotPath('session-inspector', 'at-limit', theme, width));
         await capture(tile, shotPath('chat-tile', 'at-limit', theme, width));
 
@@ -190,7 +194,7 @@ test.describe('plan limits > session inspector', () => {
         await expect(refreshNotice).toContainText(
           'Refresh failed — showing last observed data',
         );
-        await expect(stats).toContainText('Weekly');
+        await expect(planTile('weekly_model:opus')).toBeVisible();
         await expect(refreshNotice).toBeVisible();
         await capture(limits, shotPath('session-limits', 'refresh-failed', theme, width));
       });

@@ -307,8 +307,6 @@ describe('isFileBasedSettingKey', () => {
       'compaction.subagentHandoffTokens': 150000,
       'compaction.rotationSuggestTokens': 300000,
       'compaction.subagentStopWeightedTokens': 3000000,
-      'agentOrchestration.laneToolCallSteerAt': 40,
-      'agentOrchestration.laneToolCallStopAt': 60,
       'agentOrchestration.laneRepeatCallStopAt': 20,
     } as const;
 

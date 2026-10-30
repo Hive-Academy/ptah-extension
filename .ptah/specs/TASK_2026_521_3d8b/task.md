@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_521_3d8b
-status: backlog
+status: done
 type: BUGFIX
 title: >-
   Set strictMcpConfig so a settings-file server cannot start a second process
@@ -13,6 +13,7 @@ description: >-
   two memories, lock and port conflicts, double OAuth refresh and a second
   authorization path. Decide and enforce the setting, and pin the collision
   behaviour with a test.
+updated: "2026-10-30T01:09:07.477Z"
 ---
 
 # Set strictMcpConfig so a settings-file server cannot start a second process

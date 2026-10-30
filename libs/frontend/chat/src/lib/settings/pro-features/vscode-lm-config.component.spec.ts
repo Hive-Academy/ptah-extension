@@ -130,7 +130,9 @@ describe('VscodeLmConfigComponent', () => {
     it('renders provider header, badges, and capabilities with outline style (A33, A35)', async () => {
       await render();
 
-      expect(element.querySelector('section.card')).not.toBeNull();
+      const section = element.querySelector('section[aria-labelledby="vscode-lm-heading"]');
+      expect(section?.classList).toContain('border-base-content/10');
+      expect(section?.classList).not.toContain('card');
       expect(element.textContent).toContain('VS Code Language Model');
       expect(element.textContent).toContain('Configured');
       expect(element.textContent).toContain('Text Chat');

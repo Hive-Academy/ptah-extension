@@ -10,8 +10,6 @@ description: 'embedder-worker.ts:277-295 applies softmax to a single-logit ms-ma
 labels:
   - memory-curator
   - P1
-relates_to:
-  - TASK_2026_563_2939
 parent: TASK_2026_636_0add
 ---
 

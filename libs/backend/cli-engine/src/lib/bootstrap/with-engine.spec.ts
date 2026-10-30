@@ -1399,6 +1399,7 @@ describe('migrateLegacyAuthMethod (TASK_2026_555 Batch 2b)', () => {
         manager.get<T>(key),
       setConfiguration: (_section: string, key: string, value: unknown) =>
         manager.set(key, value),
+      fileSettings: manager,
     };
     setConfiguration = jest.spyOn(provider, 'setConfiguration');
     const c = rootContainer.createChildContainer();
@@ -1476,6 +1477,16 @@ describe('migrateLegacyAuthMethod (TASK_2026_555 Batch 2b)', () => {
   ])('leaves a user file with %s untouched', async (_label, content) => {
     const raw = writeUserFile(content);
     manager = new PtahFileSettingsManager({}, dir);
+
+    await migrateLegacyAuthMethod(containerWithProvider());
+
+    expect(setConfiguration).not.toHaveBeenCalled();
+    expect(readFileSync(join(dir, 'settings.json'), 'utf-8')).toBe(raw);
+  });
+
+  it('does not store the registered default claudeCli when the file has no authMethod', async () => {
+    const raw = writeUserFile({ reasoningEffort: 'low' });
+    manager = new PtahFileSettingsManager({ authMethod: 'claudeCli' }, dir);
 
     await migrateLegacyAuthMethod(containerWithProvider());
 

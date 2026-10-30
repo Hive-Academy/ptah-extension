@@ -10,6 +10,7 @@ import {
 import { TabManagerService } from '@ptah-extension/chat';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
+import { CanvasLaneTabsComponent } from '../canvas-detail/canvas-lane-tabs.component';
 import { CanvasLaneViewComponent } from '../canvas-detail/canvas-lane-view.component';
 import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
 
@@ -18,6 +19,7 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
   standalone: true,
   imports: [
     CanvasFocusHeaderComponent,
+    CanvasLaneTabsComponent,
     CanvasLaneViewComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -45,6 +47,15 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
           (swapPanesRequested)="swapPanesRequested.emit(paneId())"
         />
         }
+        <!-- In split, pr-10 keeps the chips clear of the floating pane controls (right-2, 28px). -->
+        <ptah-canvas-lane-tabs
+          class="block"
+          [class.pr-10]="splitDisplayed()"
+          [panelId]="panelId()"
+          [tabId]="id"
+          [laneKey]="detail.laneKeyFor(id)"
+          (laneSelected)="detail.selectLaneFor(id, $event)"
+        />
         <div class="min-h-0 flex-1">
           <ptah-canvas-lane-view
             [panelId]="panelId()"

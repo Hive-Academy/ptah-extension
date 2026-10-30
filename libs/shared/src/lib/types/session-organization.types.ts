@@ -34,11 +34,21 @@ export type SessionWorkflowStatus = (typeof SESSION_WORKFLOW_STATUSES)[number];
 export const SESSION_TASK_LINK_ROLES = ['primary', 'related'] as const;
 export type SessionTaskLinkRole = (typeof SESSION_TASK_LINK_ROLES)[number];
 
-/** Who created a session-task link. */
+/**
+ * Who created a session-task link. `user`, `agent` and `board-start` are
+ * explicit (protected: automatic rules never rewrite them). The last three are
+ * written by the host auto-link rules (TASK_2026_854): `orchestrate` from an
+ * `/orchestrate <TASK id>` prompt, `worktree` from the session's worktree or
+ * branch name or a worktree peer, `inherited` from a parent or fork source.
+ * Append only: the order is part of the contract.
+ */
 export const SESSION_TASK_LINK_SOURCES = [
   'board-start',
   'agent',
   'user',
+  'orchestrate',
+  'worktree',
+  'inherited',
 ] as const;
 export type SessionTaskLinkSource = (typeof SESSION_TASK_LINK_SOURCES)[number];
 
@@ -128,4 +138,18 @@ export interface SessionOrganizationSummary {
   childCount: number;
   /** Epoch ms of the last write; null when no organization row exists. */
   updatedAt: number | null;
+  /** Latest main-thread TodoWrite snapshot; null when none was recorded. */
+  todos: SessionTodoProgress | null;
+}
+
+/** A session's latest todo progress, persisted on the host. */
+export interface SessionTodoProgress {
+  /** Items with status `completed`. */
+  done: number;
+  /** All items of the latest TodoWrite. */
+  total: number;
+  /** Label of the first `in_progress` item (at most 200 chars); null when none. */
+  inProgress: string | null;
+  /** Epoch ms of the TodoWrite that produced this snapshot. */
+  updatedAt: number;
 }

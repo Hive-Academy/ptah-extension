@@ -113,6 +113,14 @@ const SESSION_PHASE_ORDER: readonly (SessionTurnPhase | 'none')[] = [
 /** Dots shown; past this a "+N" marker stands for the rest. */
 const MAX_SESSION_DOTS = 5;
 
+/** `, 2 of 5 todos done` for a session that reported todos, else `''`. */
+function todoSummary(session: TaskLinkedSession): string {
+  const todos = session.todos;
+  return todos && todos.total > 0
+    ? `, ${todos.done} of ${todos.total} todos done`
+    : '';
+}
+
 /** A PR URL rendered as a link must be http(s); anything else is not linked. */
 const HTTP_URL = /^https?:\/\//i;
 
@@ -521,6 +529,15 @@ const HTTP_URL = /^https?:\/\//i;
                   >
                 }
               </span>
+              @if (todoProgress(); as todos) {
+                <span
+                  class="truncate tabular-nums text-base-content-muted"
+                  aria-hidden="true"
+                  data-testid="task-card-session-todos"
+                  >Todos {{ todos.count
+                  }}{{ todos.active ? ' · ' + todos.active : '' }}</span
+                >
+              }
             </span>
             <!-- 24x24 minimum (SC 2.5.8). Underlined base-content text, so it
                  reads as a link by shape and passes contrast on every theme. -->
@@ -835,10 +852,26 @@ export class TaskCardComponent {
     const items = sessions
       .map(
         (session) =>
-          `${session.name || 'Untitled session'}, ${SESSION_PHASE_LABELS[session.livePhase ?? 'none']}`,
+          `${session.name || 'Untitled session'}, ${SESSION_PHASE_LABELS[session.livePhase ?? 'none']}${todoSummary(session)}`,
       )
       .join('; ');
     return `${sessions.length} ${noun}: ${items}`;
+  });
+
+  /**
+   * Todo progress of the first session that reported any, in session order
+   * (primary first). The row's accessible name carries every session's.
+   */
+  protected readonly todoProgress = computed(() => {
+    for (const session of this.sessions()) {
+      const todos = session.todos;
+      if (!todos || todos.total <= 0) continue;
+      return {
+        count: `${todos.done}/${todos.total}`,
+        active: todos.inProgress,
+      };
+    }
+    return null;
   });
 
   /** The first http(s) PR link across the sessions, in session order. */

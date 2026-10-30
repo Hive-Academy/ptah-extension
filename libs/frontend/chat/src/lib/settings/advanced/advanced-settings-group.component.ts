@@ -19,7 +19,6 @@ import {
   type AdvancedSettingGroupId,
   type AdvancedSettingValidation,
 } from '@ptah-extension/shared';
-import { SurfaceSectionComponent } from '@ptah-extension/ui';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
@@ -75,22 +74,19 @@ function formatValue(
 @Component({
   selector: 'ptah-advanced-settings-group',
   standalone: true,
-  imports: [SettingsBusyDisabledDirective, SurfaceSectionComponent],
+  imports: [SettingsBusyDisabledDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (group(); as group) {
-      <ptah-surface-section
-        tone="subtle"
-        padding="md"
-        glassSurface="chrome"
-        class="text-sm text-base-content"
+      <section
+        class="flex flex-col gap-3 border-b border-base-content/10 pb-7 text-sm text-base-content"
         [attr.aria-labelledby]="idPrefix() + '-heading'"
         [attr.data-testid]="'settings-section-' + group.id"
       >
-        <div section-header class="mb-3 border-b border-base-content/10 pb-2">
+        <div section-header class="mb-3">
           <h3
             [id]="idPrefix() + '-heading'"
-            class="text-base font-semibold text-base-content"
+            class="text-xs font-bold uppercase tracking-wider text-base-content"
           >
             {{ group.title }}
           </h3>
@@ -250,7 +246,7 @@ function formatValue(
             </div>
           }
         }
-      </ptah-surface-section>
+      </section>
     }
   `,
 })

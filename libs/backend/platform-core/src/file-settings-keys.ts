@@ -125,9 +125,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'agentOrchestration.claudeModel',
   'agentOrchestration.claudeReasoningEffort',
   'agentOrchestration.subagentPromptCacheTtl',
-  // Lane tool-call guards (TASK_2026_597 Wave D).
-  'agentOrchestration.laneToolCallSteerAt',
-  'agentOrchestration.laneToolCallStopAt',
+  // Lane repeat-call guard (TASK_2026_597 Wave D).
   'agentOrchestration.laneRepeatCallStopAt',
   // Lane-routing decision model (TASK_2026_646_136a): a `DecisionModelSelection`
   // object written by `DecisionModelConfig.setSelection`. VS Code has no schema
@@ -323,7 +321,7 @@ export const FILE_BASED_OBJECT_SETTINGS_KEYS: ReadonlySet<string> = new Set([
  * - Array settings default to [] (empty array)
  */
 export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
-  authMethod: 'apiKey',
+  authMethod: 'claudeCli',
   anthropicProviderId: 'openrouter',
   'llm.defaultProvider': '',
   reasoningEffort: 'medium',
@@ -350,9 +348,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'agentOrchestration.claudeReasoningEffort': '',
   // Subagent prompt-cache TTL: 'auto' | '5m' | '1h'. 'auto' asks for 1h only when the session can spawn subagents.
   'agentOrchestration.subagentPromptCacheTtl': 'auto',
-  // Lane tool-call guards: steer at N calls, stop at N calls, stop at N identical calls.
-  'agentOrchestration.laneToolCallSteerAt': 40,
-  'agentOrchestration.laneToolCallStopAt': 60,
+  // Lane repeat-call guard: stop a lane at N identical calls. Lanes have no call budget.
   'agentOrchestration.laneRepeatCallStopAt': 20,
   // `null` reads as `{ kind: 'unset' }` in DecisionModelConfig.getSelection,
   // with no invalid-value warning.

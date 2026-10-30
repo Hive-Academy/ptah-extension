@@ -50,7 +50,7 @@ export const COULD_NOT_LOAD_MCP_CONFIG = 'Could not load the MCP and browser set
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <section class="card bg-base-200 border border-base-300 p-3" data-glass-surface="content" aria-labelledby="mcp-browser-heading">
+    <section class="border-b border-base-content/10 pb-7" aria-labelledby="mcp-browser-heading">
       <div class="flex items-center gap-1.5 mb-2">
         <lucide-angular [img]="PlugIcon" class="w-4 h-4 text-secondary shrink-0" aria-hidden="true" />
         <h2 id="mcp-browser-heading" class="text-xs font-bold uppercase tracking-wider text-base-content">
@@ -77,7 +77,7 @@ export const COULD_NOT_LOAD_MCP_CONFIG = 'Could not load the MCP and browser set
       }
 
       <!-- Port policy bar (P3, row A30) -->
-      <div class="flex flex-wrap items-center gap-2 rounded border border-base-300 py-2 px-3 text-xs mb-3">
+      <div class="mb-3 flex flex-wrap items-center gap-2 text-xs">
         <label for="mcp-port-input" class="font-bold text-base-content whitespace-nowrap">
           MCP port
         </label>

@@ -13,11 +13,11 @@ const AUTH_METHOD_KEY = 'authMethod';
 const ANTHROPIC_PROVIDER_ID_KEY = 'anthropicProviderId';
 /**
  * Matches `AUTH_METHOD_DEF.default` (`settings-core/src/schema/auth-schema.ts:12`)
- * and `runV2Migration`'s own `authMethod || 'apiKey'`. Restated rather than
+ * and `FILE_BASED_SETTINGS_DEFAULTS.authMethod`. Restated rather than
  * imported because `settings-core` is not a dependency of this library, and it
  * is an auth METHOD, not a provider id — it names no vendor.
  */
-const DEFAULT_AUTH_METHOD = 'apiKey';
+const DEFAULT_AUTH_METHOD = 'claudeCli';
 
 /**
  * Read a `ptah.*` setting as a trimmed string.

@@ -114,9 +114,8 @@ const TIMEOUT_DEFAULT_SEC = 120;
         @for (row of rows(); track row.id) {
           <article
             [attr.data-testid]="'consumer-row-' + row.id"
-            [class.surface-2]="activeEditId() !== row.id"
-            [class.surface-3]="activeEditId() === row.id"
-            class="flex min-w-0 flex-col gap-2 rounded-lg p-3"
+            [class.border-primary]="activeEditId() === row.id"
+            class="flex min-w-0 flex-col gap-2 rounded-lg border border-base-content/10 p-3 hover:bg-base-content/5"
           >
             <div class="flex min-w-0 items-start justify-between gap-2">
               <div class="min-w-0">
@@ -257,7 +256,7 @@ const TIMEOUT_DEFAULT_SEC = 120;
                       />
                       @if (draftProviderReadiness(); as readiness) {
                         <div
-                          class="flex flex-wrap items-center gap-1.5 rounded border border-base-300 bg-base-200 p-2"
+                          class="flex flex-wrap items-center gap-1.5 rounded border border-base-content/10 p-2"
                           [attr.role]="readiness.blocking ? 'alert' : 'status'"
                           [attr.data-testid]="'readiness-alert-' + row.id"
                         >
@@ -341,12 +340,12 @@ const TIMEOUT_DEFAULT_SEC = 120;
           </article>
           @if (row.id === 'enhancement' && timeoutMeta() !== null) {
             <section
-              class="surface-2 consumer-timeout-section space-y-1.5 rounded-lg p-3"
+              class="consumer-timeout-section space-y-1.5 rounded-lg border border-base-content/10 p-3"
               data-testid="enhancement-timeout-section"
             >
               @if (timeoutNotice(); as notice) {
                 <div
-                  class="flex flex-wrap items-center gap-1.5 rounded border border-base-300 bg-base-100 p-1.5"
+                  class="flex flex-wrap items-center gap-1.5 border-b border-base-content/10 p-1.5"
                   role="alert"
                   data-testid="timeout-notice-alert"
                 >

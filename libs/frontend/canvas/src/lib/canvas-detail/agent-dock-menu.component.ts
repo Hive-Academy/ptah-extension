@@ -43,7 +43,7 @@ let nextMenuId = 0;
         #trigger
         trigger
         type="button"
-        class="relative inline-flex h-[38px] min-w-6 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-base-content hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+        class="relative inline-flex h-7 min-w-6 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-base-content hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
         aria-haspopup="menu"
         [attr.aria-expanded]="open()"
         [attr.aria-label]="triggerLabel()"

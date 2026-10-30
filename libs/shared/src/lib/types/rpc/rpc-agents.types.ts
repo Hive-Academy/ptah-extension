@@ -280,10 +280,6 @@ export interface AgentOrchestrationConfig {
   codexAutoCompactTokens?: number;
   /** Codex lane `tool_output_token_limit` (integer >= 0; 0 = Codex runtime default). Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
   codexToolOutputTokenLimit?: number;
-  /** Lane tool-call count at which the lane is steered. Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
-  laneToolCallSteerAt?: number;
-  /** Lane tool-call count at which the lane is stopped. Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
-  laneToolCallStopAt?: number;
   /** Count of identical lane tool calls at which the lane is stopped. Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
   laneRepeatCallStopAt?: number;
   /** Codex lane web search (`web_search` "live" when true, "disabled" when false; default true). */
@@ -332,7 +328,10 @@ export interface ClaudeBuiltinToolDto {
 
 /** A Claude skill (terminal-only or account-synced) hidden unless the user opts in. */
 export interface ClaudeBuiltinSkillDto {
+  /** Terminal skill name, or the qualified `anthropic-skills:<name>` of a synced skill. */
   id: string;
+  /** Synced skills only: the plain skill name shown in the card (`docx`). */
+  name?: string;
   description: string;
   approxTokens: number;
   /** The tool this skill needs; both must be on for the skill to load. */
@@ -346,7 +345,7 @@ export type AgentGetClaudeBuiltinsParams = Record<string, never>;
 export interface AgentGetClaudeBuiltinsResult {
   tools: ClaudeBuiltinToolDto[];
   terminalSkills: ClaudeBuiltinSkillDto[];
-  /** Account-synced skills found on this machine. Empty until Phase B. */
+  /** claude.ai account-synced skills found in the main session's Claude config dir. */
   syncedSkills: ClaudeBuiltinSkillDto[];
   enabledTools: string[];
   enabledSkills: string[];
@@ -528,10 +527,6 @@ export interface AgentSetConfigParams {
   codexAutoCompactTokens?: number;
   /** Codex lane `tool_output_token_limit` (integer >= 0; 0 = Codex runtime default). Rejected, never clamped, when invalid. */
   codexToolOutputTokenLimit?: number;
-  /** Lane tool-call count at which the lane is steered. Rejected, never clamped, when invalid. */
-  laneToolCallSteerAt?: number;
-  /** Lane tool-call count at which the lane is stopped. Rejected, never clamped, when invalid. */
-  laneToolCallStopAt?: number;
   /** Count of identical lane tool calls at which the lane is stopped. Rejected, never clamped, when invalid. */
   laneRepeatCallStopAt?: number;
   /** Codex lane web search on/off. */

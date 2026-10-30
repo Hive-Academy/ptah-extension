@@ -31,11 +31,11 @@ function countdown(ms: number, showHours = true): string {
 @Component({
   selector: 'ptah-inspector-cache-tile',
   standalone: true,
-  host: { class: 'block min-w-0' },
+  host: { class: 'flex min-w-0 flex-1 flex-col' },
   template: `
     <!-- Same metric cell as Context / Tokens / Cost: label, value, subline, bar. -->
     <div
-      class="min-w-0"
+      class="flex min-w-0 flex-1 flex-col"
       role="group"
       data-testid="inspector-cache-tile"
       [title]="estimateTitle"
@@ -55,7 +55,7 @@ function countdown(ms: number, showHours = true): string {
         [textContent]="subline()"
       ></p>
       <div
-        class="mt-1 h-1 rounded-full bg-[var(--surface-border-strong)]"
+        class="mt-auto h-1 shrink-0 rounded-full bg-[var(--surface-border-strong)]"
         aria-hidden="true"
       >
         <span

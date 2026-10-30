@@ -147,12 +147,17 @@ describe('CanvasFocusAreaComponent', () => {
     return { fixture, lanes, tabs, selectLaneFor };
   }
 
-  it.each([false, true])('keeps identity and strip out of the chat (split=%s)', split => {
-    const { fixture } = mountWithLanes();
+  it.each([false, true])('shows the agent dock above the chat, no identity row (split=%s)', split => {
+    const { fixture, selectLaneFor } = mountWithLanes();
     fixture.componentRef.setInput('splitDisplayed', split);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('header')).toBeNull();
-    expect(fixture.debugElement.queryAll(By.directive(TabsStub))).toHaveLength(0);
+    const dock = fixture.debugElement.queryAll(By.directive(TabsStub));
+    expect(dock).toHaveLength(1);
+    const stub = dock[0].componentInstance as TabsStub;
+    expect(stub.tabId()).toBe('a');
+    stub.laneSelected.emit('cli:1');
+    expect(selectLaneFor).toHaveBeenCalledWith('a', 'cli:1');
     expect(fixture.debugElement.queryAll(By.directive(HeaderStub))).toHaveLength(split ? 1 : 0);
     expect(fixture.nativeElement.textContent).not.toContain('feature/a');
   });

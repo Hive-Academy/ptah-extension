@@ -48,7 +48,7 @@ function makeWorkspace(stored: Record<string, unknown> = {}): {
 describe('resolveJudgeModel — an explicit judgeModel is never touched', () => {
   it('returns any non-inherit value as-is, reading no settings at all', () => {
     const { ws, getConfiguration } = makeWorkspace({
-      'provider.apiKey.selectedModel': 'active-chat-model',
+      'provider.claudeCli.selectedModel': 'active-chat-model',
     });
     expect(resolveJudgeModel('some-explicit-model', ws)).toBe(
       'some-explicit-model',
@@ -58,23 +58,23 @@ describe('resolveJudgeModel — an explicit judgeModel is never touched', () => 
 });
 
 describe('resolveJudgeModel — inherit reads the active provider s model', () => {
-  it('reads provider.apiKey.selectedModel under the default auth method', () => {
-    // `authMethod` unset ⇒ 'apiKey', which is `AUTH_METHOD_DEF.default`.
+  it('reads provider.claudeCli.selectedModel under the default auth method', () => {
+    // `authMethod` unset ⇒ 'claudeCli', which is `AUTH_METHOD_DEF.default`.
     const { ws } = makeWorkspace({
-      'provider.apiKey.selectedModel': 'active-chat-model',
+      'provider.claudeCli.selectedModel': 'active-chat-model',
     });
     expect(resolveJudgeModel('inherit', ws)).toBe('active-chat-model');
   });
 
   it('reads the auth method the user actually configured', () => {
     const { ws } = makeWorkspace({
-      authMethod: 'claudeCli',
-      'provider.claudeCli.selectedModel': 'cli-chat-model',
-      // The apiKey slot is populated too: picking it would look correct on an
-      // install that never left the default auth method.
-      'provider.apiKey.selectedModel': 'WRONG-SLOT',
+      authMethod: 'apiKey',
+      'provider.apiKey.selectedModel': 'key-chat-model',
+      // The claudeCli slot is populated too: picking it would look correct on
+      // an install that never left the default auth method.
+      'provider.claudeCli.selectedModel': 'WRONG-SLOT',
     });
-    expect(resolveJudgeModel('inherit', ws)).toBe('cli-chat-model');
+    expect(resolveJudgeModel('inherit', ws)).toBe('key-chat-model');
   });
 
   it.each(PROVIDER_IDS)(
@@ -96,7 +96,7 @@ describe('resolveJudgeModel — inherit reads the active provider s model', () =
 
   it('trims a stored model, so whitespace is not a model id', () => {
     const { ws } = makeWorkspace({
-      'provider.apiKey.selectedModel': '   ',
+      'provider.claudeCli.selectedModel': '   ',
     });
     expect(resolveJudgeModel('inherit', ws)).toBe(JUDGE_DEFAULT_MODEL_ID);
   });
@@ -123,7 +123,7 @@ describe('resolveJudgeModel — the cross-family key is not consulted', () => {
   it('prefers the active provider s model over a stale llm.vscode.model', () => {
     const { ws } = makeWorkspace({
       [VSCODE_LM_KEY]: VSCODE_LM_VALUE,
-      'provider.apiKey.selectedModel': 'active-chat-model',
+      'provider.claudeCli.selectedModel': 'active-chat-model',
     });
     expect(resolveJudgeModel('inherit', ws)).toBe('active-chat-model');
   });
@@ -140,7 +140,7 @@ describe('resolveJudgeModel — the shipped default (Decision 1)', () => {
   });
 
   it('returns it for an empty selected model — "" means use the provider default', () => {
-    const { ws } = makeWorkspace({ 'provider.apiKey.selectedModel': '' });
+    const { ws } = makeWorkspace({ 'provider.claudeCli.selectedModel': '' });
     expect(resolveJudgeModel('inherit', ws)).toBe(JUDGE_DEFAULT_MODEL_ID);
   });
 

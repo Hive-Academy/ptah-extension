@@ -95,3 +95,19 @@ TASK_2026_310 splits `MemoryTriggerService`, which owns rate limiting as one of
 its six concerns. Doing this task first is cheaper — a small behavioural fix in
 the current structure, rather than a behavioural change rebased onto a moved
 file. Do not run both at once.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Refund the token for a provider-exhaustion stall that reached dispatch, and decide whether other no-work deferrals should also return it.
+- Evidence on main: main:libs/backend/agent-sdk/src/lib/helpers/curator-rate-limit.service.ts:67 now has refund; main:libs/backend/memory-curator/src/lib/triggers/memory-trigger.service.ts:904-906 refunds only deferral === network-backoff. :981-982 calls it on a stalled pass, while memory-curator.service.ts:779-780 can return recordStall without that deferral.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane kimi-code, verified by Claude).
+
+- Delivered: `refund()` on `CuratorRateLimitService` (#510).
+- Still open: `main:libs/backend/memory-curator/src/lib/triggers/memory-trigger.service.ts:904` `refundIfNetworkDeferred` refunds only `network-backoff` deferrals (callers :982, :1179); a provider-exhaustion stall returns stall stats without that deferral and keeps the token spent.
+
+Remaining scope: refund on provider-exhaustion stalls with no curation work, decide which other no-work deferrals refund, and spec it.

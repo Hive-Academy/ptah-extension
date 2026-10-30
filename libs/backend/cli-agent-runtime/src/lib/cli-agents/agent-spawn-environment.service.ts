@@ -40,8 +40,6 @@ import type { LaneBudgetThresholds } from './lane-budget-guard';
 
 /** Mirrors the `FILE_BASED_SETTINGS_DEFAULTS` lane-guard values. */
 const DEFAULT_LANE_GUARD_THRESHOLDS: LaneBudgetThresholds = {
-  steerAt: 40,
-  stopAt: 60,
   repeatAt: 20,
 };
 
@@ -203,51 +201,29 @@ export class AgentSpawnEnvironment {
   }
 
   /**
-   * The lane tool-call guard thresholds. Each file value must be an integer
-   * >= 1; `repeatAt` must be >= 2 and `stopAt` must exceed `steerAt`. A value
-   * that breaks its rule falls back to the default (for the steer/stop pair,
-   * both fall back, since the pair is only meaningful together).
+   * The lane repeat-call guard threshold. The file value must be an integer
+   * >= 2; anything else falls back to the default.
    */
   resolveLaneGuardThresholds(): LaneBudgetThresholds {
     const d = DEFAULT_LANE_GUARD_THRESHOLDS;
-    const read = (key: string, dflt: number): unknown =>
-      this.workspace.getConfiguration<number>(
-        'ptah',
-        `agentOrchestration.${key}`,
-        dflt,
-      );
-    const isInt = (v: unknown, min: number): v is number =>
-      typeof v === 'number' && Number.isInteger(v) && v >= min;
-
-    const steer = read('laneToolCallSteerAt', d.steerAt);
-    const stop = read('laneToolCallStopAt', d.stopAt);
-    const repeat = read('laneRepeatCallStopAt', d.repeatAt);
-    const pairOk = isInt(steer, 1) && isInt(stop, 1) && stop > steer;
-    const repeatOk = isInt(repeat, 2);
+    const repeat: unknown = this.workspace.getConfiguration<number>(
+      'ptah',
+      'agentOrchestration.laneRepeatCallStopAt',
+      d.repeatAt,
+    );
+    const repeatOk =
+      typeof repeat === 'number' && Number.isInteger(repeat) && repeat >= 2;
     // Numbers are logged as-is, anything else as its typeof (a hand-edited
     // value may be a string or object; never log it verbatim).
     const shown = (v: unknown): number | string =>
       typeof v === 'number' ? v : typeof v;
-    if (!pairOk) {
-      this.warnLaneGuardOnce(
-        'agentOrchestration.laneToolCallSteerAt/laneToolCallStopAt',
-        {
-          provided: { steer: shown(steer), stop: shown(stop) },
-          defaults: { steerAt: d.steerAt, stopAt: d.stopAt },
-        },
-      );
-    }
     if (!repeatOk) {
       this.warnLaneGuardOnce('agentOrchestration.laneRepeatCallStopAt', {
         provided: { repeat: shown(repeat) },
         defaults: { repeatAt: d.repeatAt },
       });
     }
-    return {
-      steerAt: pairOk ? steer : d.steerAt,
-      stopAt: pairOk ? stop : d.stopAt,
-      repeatAt: repeatOk ? repeat : d.repeatAt,
-    };
+    return { repeatAt: repeatOk ? repeat : d.repeatAt };
   }
 
   /** Warn once per distinct key and rejected values, not on every spawn. */
@@ -259,7 +235,7 @@ export class AgentSpawnEnvironment {
     if (this.warnedLaneGuard.has(signature)) return;
     this.warnedLaneGuard.add(signature);
     this.logger.warn(
-      '[AgentSpawnEnvironment] Invalid lane tool-call guard value, using the default',
+      '[AgentSpawnEnvironment] Invalid lane repeat-call guard value, using the default',
       { key, ...detail },
     );
   }
