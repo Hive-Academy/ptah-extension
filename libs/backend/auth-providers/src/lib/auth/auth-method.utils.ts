@@ -17,7 +17,7 @@
  *   'claudeCli' | 'claude-cli'        → 'claudeCli'
  *   'thirdParty' | 'oauth' | 'openrouter' → 'thirdParty'
  *   anything else (missing, unknown)  → no method ({@link parseAuthMethod})
- *                                       or 'apiKey' ({@link normalizeAuthMethod})
+ *                                       or 'claudeCli' ({@link normalizeAuthMethod})
  */
 
 import type { LegacyAuthMethod } from '@ptah-extension/shared';
@@ -46,11 +46,11 @@ export function parseAuthMethod(
 
 /**
  * Normalize any persisted `authMethod` value (legacy or new spelling) to the
- * canonical `LegacyAuthMethod` triad. Defaults to `'apiKey'` on missing or
+ * canonical `LegacyAuthMethod` triad. Defaults to `'claudeCli'` on missing or
  * unknown input; for callers that cannot see the credential state.
  */
 export function normalizeAuthMethod(rawValue: unknown): LegacyAuthMethod {
-  return parseAuthMethod(rawValue) ?? 'apiKey';
+  return parseAuthMethod(rawValue) ?? 'claudeCli';
 }
 
 /** Credential facts that decide the auth method when none is configured. */
@@ -63,14 +63,13 @@ export interface DefaultAuthMethodFacts {
 
 /**
  * The auth method used when the configured value is missing or unknown: the
- * Claude CLI login when no API key is stored and that login is connected,
- * otherwise `'apiKey'` (a stored key wins; with neither, the API key path
- * reports what is missing).
+ * Claude CLI login, unless an API key is stored and that login is not
+ * connected (with neither, the Claude CLI path reports what is missing).
  */
 export function resolveDefaultAuthMethod(
   facts: DefaultAuthMethodFacts,
 ): LegacyAuthMethod {
-  return !facts.hasApiKey && facts.claudeCliConnected ? 'claudeCli' : 'apiKey';
+  return facts.hasApiKey && !facts.claudeCliConnected ? 'apiKey' : 'claudeCli';
 }
 
 /**

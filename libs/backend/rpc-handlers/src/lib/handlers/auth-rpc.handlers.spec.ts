@@ -17,7 +17,7 @@
  *     bubbling the exception to the RPC boundary.
  *
  *   - `auth:getAuthStatus`: Legacy `authMethod` values like 'vscode-lm' /
- *     'auto' are normalised to 'apiKey'; 'openrouter' is normalised to
+ *     'auto' are normalised to 'claudeCli'; 'openrouter' is normalised to
  *     'thirdParty'.
  *
  *   - `auth:saveSettings`: Empty-string credentials delete, non-empty
@@ -659,7 +659,7 @@ describe('AuthRpcHandlers', () => {
       expect(result.availableProviders[0]).toHaveProperty('id');
     });
 
-    it('normalises legacy authMethod "vscode-lm" to "apiKey"', async () => {
+    it('normalises legacy authMethod "vscode-lm" to "claudeCli"', async () => {
       const h = makeHarness({ configSeed: { authMethod: 'vscode-lm' } });
       h.handlers.register();
 
@@ -667,7 +667,7 @@ describe('AuthRpcHandlers', () => {
         h,
         'auth:getAuthStatus',
       );
-      expect(result.authMethod).toBe('apiKey');
+      expect(result.authMethod).toBe('claudeCli');
     });
 
     it('normalises "openrouter" to "thirdParty"', async () => {

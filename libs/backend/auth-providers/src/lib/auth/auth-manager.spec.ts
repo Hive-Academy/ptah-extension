@@ -590,7 +590,8 @@ describe('AuthManager', () => {
         expect(result.configured).toBe(true);
         expect(strategies.cli.configure).toHaveBeenCalledTimes(1);
         expect(strategies.apiKey.configure).not.toHaveBeenCalled();
-        expect(ambientRead).toHaveBeenCalledTimes(1);
+        // With no key the login is the default; it is never read.
+        expect(ambientRead).not.toHaveBeenCalled();
         // The synchronous readers (adapter, model service) agree.
         expect(manager.resolveActiveAuth()).toEqual({
           authMethod: 'claudeCli',
@@ -607,7 +608,7 @@ describe('AuthManager', () => {
           authMethod: 'claudeCli',
           providerId: 'anthropic',
         });
-        expect(ambientRead).toHaveBeenCalledTimes(1);
+        expect(ambientRead).not.toHaveBeenCalled();
         expect(strategies.cli.configure).not.toHaveBeenCalled();
         expect(strategies.apiKey.configure).not.toHaveBeenCalled();
       });
@@ -624,10 +625,10 @@ describe('AuthManager', () => {
         expect(strategies.cli.configure).toHaveBeenCalledTimes(1);
       });
 
-      it('keeps the API key when one is stored, without reading the login', async () => {
-        const { manager, strategies, ambientRead } = makeManager({
+      it('keeps the API key when one is stored and the login is signed out', async () => {
+        const { manager, strategies } = makeManager({
           storedApiKey: 'test-stored-key',
-          ambientState: 'connected',
+          ambientState: 'signed-out',
         });
         strategies.apiKey.configure.mockResolvedValueOnce(configured);
 
@@ -635,21 +636,33 @@ describe('AuthManager', () => {
 
         expect(strategies.apiKey.configure).toHaveBeenCalledTimes(1);
         expect(strategies.cli.configure).not.toHaveBeenCalled();
-        expect(ambientRead).not.toHaveBeenCalled();
         expect(manager.resolveActiveAuth().authMethod).toBe('apiKey');
       });
 
-      it('keeps the API key when ANTHROPIC_API_KEY is set', async () => {
-        process.env['ANTHROPIC_API_KEY'] = 'test-env-key';
-        const { manager, strategies, ambientRead } = makeManager({
+      it('prefers a connected login over a stored API key', async () => {
+        const { manager, strategies } = makeManager({
+          storedApiKey: 'test-stored-key',
           ambientState: 'connected',
+        });
+        strategies.cli.configure.mockResolvedValueOnce(configured);
+
+        await manager.configureAuthentication();
+
+        expect(strategies.cli.configure).toHaveBeenCalledTimes(1);
+        expect(strategies.apiKey.configure).not.toHaveBeenCalled();
+        expect(manager.resolveActiveAuth().authMethod).toBe('claudeCli');
+      });
+
+      it('keeps the API key when ANTHROPIC_API_KEY is set and the login is signed out', async () => {
+        process.env['ANTHROPIC_API_KEY'] = 'test-env-key';
+        const { manager, strategies } = makeManager({
+          ambientState: 'signed-out',
         });
         strategies.apiKey.configure.mockResolvedValueOnce(configured);
 
         await manager.configureAuthentication();
 
         expect(strategies.apiKey.configure).toHaveBeenCalledTimes(1);
-        expect(ambientRead).not.toHaveBeenCalled();
       });
 
       it('keeps an explicit apiKey with no key and a connected login', async () => {
@@ -673,34 +686,34 @@ describe('AuthManager', () => {
         expect(manager.resolveActiveAuth().authMethod).toBe('apiKey');
       });
 
-      it('stays on apiKey when no key exists and the login is signed out', async () => {
+      it('stays on claudeCli when no key exists and the login is signed out', async () => {
         const { manager, strategies } = makeManager({
           ambientState: 'signed-out',
         });
-        strategies.apiKey.configure.mockResolvedValueOnce({
+        strategies.cli.configure.mockResolvedValueOnce({
           configured: false,
           details: [],
         });
 
         await manager.configureAuthentication();
 
-        expect(strategies.apiKey.configure).toHaveBeenCalledTimes(1);
-        expect(strategies.cli.configure).not.toHaveBeenCalled();
+        expect(strategies.cli.configure).toHaveBeenCalledTimes(1);
+        expect(strategies.apiKey.configure).not.toHaveBeenCalled();
       });
     });
 
-    it('falls back to apiKey when the raw method is unknown', async () => {
+    it('falls back to claudeCli when the raw method is unknown', async () => {
       const { manager, strategies, logger } = makeManager();
-      strategies.apiKey.configure.mockResolvedValueOnce({
+      strategies.cli.configure.mockResolvedValueOnce({
         configured: true,
         details: [],
       });
 
       await manager.configureAuthentication('totally-unknown-method');
 
-      expect(strategies.apiKey.configure).toHaveBeenCalledTimes(1);
+      expect(strategies.cli.configure).toHaveBeenCalledTimes(1);
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining("→ 'apiKey'"),
+        expect.stringContaining("→ 'claudeCli'"),
       );
     });
   });

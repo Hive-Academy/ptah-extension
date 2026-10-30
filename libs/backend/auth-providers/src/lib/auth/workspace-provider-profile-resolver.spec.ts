@@ -727,7 +727,7 @@ describe('WorkspaceProviderProfileResolver — default auth method', () => {
         'default',
       );
 
-      expect(ambientRead).toHaveBeenCalledTimes(1);
+      expect(ambientRead).not.toHaveBeenCalled();
       expect(profile?.providerId).toBe('anthropic');
       expect(profile?.authEnv.ANTHROPIC_API_KEY).toBe('');
       expect(profile?.authEnv.ANTHROPIC_BASE_URL).toBe('');
@@ -735,8 +735,24 @@ describe('WorkspaceProviderProfileResolver — default auth method', () => {
     },
   );
 
-  it('keeps the API key when one is stored, without reading the login', async () => {
+  it('keeps the API key when one is stored and the login is signed out', async () => {
     const { resolver, ambientRead } = createHarness({
+      workspaceSettings: {},
+      apiKey: 'test-stored-key',
+      ambientState: 'signed-out',
+    });
+
+    const profile = await resolver.resolveProviderProfileForWorkspace(
+      WORKSPACE,
+      'default',
+    );
+
+    expect(profile?.authEnv.ANTHROPIC_API_KEY).toBe('test-stored-key');
+    expect(ambientRead).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefers a connected login over a stored API key', async () => {
+    const { resolver } = createHarness({
       workspaceSettings: {},
       apiKey: 'test-stored-key',
       ambientState: 'connected',
@@ -747,26 +763,28 @@ describe('WorkspaceProviderProfileResolver — default auth method', () => {
       'default',
     );
 
-    expect(profile?.authEnv.ANTHROPIC_API_KEY).toBe('test-stored-key');
-    expect(ambientRead).not.toHaveBeenCalled();
+    expect(profile?.providerId).toBe('anthropic');
+    expect(profile?.authEnv.ANTHROPIC_API_KEY).toBe('');
   });
 
   it.each(['signed-out', undefined] as const)(
-    'refuses with the setting hint when no key is stored and the login is %s',
+    'builds the native Claude CLI profile without reading the login when no key is stored and the login is %s',
     async (ambientState) => {
-      const { resolver } = createHarness({
+      const { resolver, ambientRead } = createHarness({
         workspaceSettings: {},
         ambientState,
         sharedAuth: null,
       });
 
-      await expect(
-        resolver.resolveProviderProfileForWorkspace(WORKSPACE, 'default'),
-      ).rejects.toMatchObject({
-        name: 'AuthRequiredError',
-        recoveryHint:
-          'Add an API key, or choose the Claude CLI login in Settings > Providers > Main agent authentication.',
-      });
+      const profile = await resolver.resolveProviderProfileForWorkspace(
+        WORKSPACE,
+        'default',
+      );
+
+      expect(profile?.providerId).toBe('anthropic');
+      expect(profile?.authEnv.ANTHROPIC_API_KEY).toBe('');
+      expect(profile?.model).toBe('default');
+      expect(ambientRead).not.toHaveBeenCalled();
     },
   );
 

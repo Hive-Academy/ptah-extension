@@ -317,7 +317,7 @@ export const FILE_BASED_OBJECT_SETTINGS_KEYS: ReadonlySet<string> = new Set([
  * - Array settings default to [] (empty array)
  */
 export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
-  authMethod: 'apiKey',
+  authMethod: 'claudeCli',
   anthropicProviderId: 'openrouter',
   'llm.defaultProvider': '',
   reasoningEffort: 'medium',
