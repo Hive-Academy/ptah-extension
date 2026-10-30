@@ -87,7 +87,7 @@ import type { WebviewBroadcaster } from '../harness/streaming';
 export class EnhancedPromptsRpcHandlers {
   private readonly regenerationsInFlight = new Map<
     string,
-    { startedAt: number; token: object }
+    { startedAt: number; token: object; lockSeen: boolean }
   >();
 
   static readonly METHODS = [
@@ -542,6 +542,7 @@ export class EnhancedPromptsRpcHandlers {
         this.regenerationsInFlight.set(workspacePath, {
           startedAt: Date.now(),
           token,
+          lockSeen: false,
         });
 
         try {
@@ -601,14 +602,22 @@ export class EnhancedPromptsRpcHandlers {
 
   private liveEntry(
     workspacePath: string,
-  ): { startedAt: number; token: object } | null {
+  ): { startedAt: number; token: object; lockSeen: boolean } | null {
     const entry = this.regenerationsInFlight.get(workspacePath);
     if (!entry) return null;
     if (Date.now() - entry.startedAt >= ENHANCED_PROMPTS_RUN_CEILING_MS) {
       this.regenerationsInFlight.delete(workspacePath);
       return null;
     }
-    return this.enhancedPromptsService.generationInProgress ? entry : null;
+    if (this.enhancedPromptsService.generationInProgress) {
+      entry.lockSeen = true;
+      return entry;
+    }
+    if (entry.lockSeen) {
+      this.regenerationsInFlight.delete(workspacePath);
+      return null;
+    }
+    return entry;
   }
 
   private async startBoundGuidance(

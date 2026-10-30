@@ -1214,7 +1214,35 @@ describe('EnhancedPromptsRpcHandlers', () => {
           undefined,
           expect.anything(),
         );
-        expect((await read(h)).regenerationStartedAt).toBeNull();
+        expect((await read(h)).regenerationStartedAt).toBe(startedAt);
+
+        finishInvalidation();
+        await invalidation;
+        expect((await read(h)).regenerationStartedAt).toBe(startedAt);
+      });
+
+      it('rejects a second regenerate during the pre-lock gap and retains the first status', async () => {
+        const h = ready();
+        let finishInvalidation: () => void = () => {
+          throw new Error('Regeneration did not reach invalidation');
+        };
+        const invalidation = new Promise<void>((resolve) => {
+          finishInvalidation = resolve;
+        });
+        h.enhancedPrompts.regenerate.mockImplementation(async () => {
+          await invalidation;
+          h.enhancedPrompts.generationInProgress = true;
+          return new Promise<ServiceResult>(() => undefined);
+        });
+
+        const startedAt = new Date().toISOString();
+        void begin(h);
+        expect(await begin(h)).toEqual({
+          success: false,
+          error: 'A regeneration is already running for this workspace.',
+        });
+        expect(h.enhancedPrompts.regenerate).toHaveBeenCalledTimes(1);
+        expect((await read(h)).regenerationStartedAt).toBe(startedAt);
 
         finishInvalidation();
         await invalidation;
@@ -1244,6 +1272,7 @@ describe('EnhancedPromptsRpcHandlers', () => {
         });
 
         void begin(h);
+        expect((await read(h)).regenerationStartedAt).not.toBeNull();
         h.enhancedPrompts.generationInProgress = false;
 
         expect((await read(h)).regenerationStartedAt).toBeNull();
@@ -1282,6 +1311,7 @@ describe('EnhancedPromptsRpcHandlers', () => {
           });
 
         const first = begin(h);
+        expect((await read(h)).regenerationStartedAt).not.toBeNull();
         h.enhancedPrompts.generationInProgress = false;
         expect((await read(h)).regenerationStartedAt).toBeNull();
 

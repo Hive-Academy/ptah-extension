@@ -349,7 +349,7 @@ interface RunState {
   base: SavedCostState | null | undefined;
   /** The latest accepted cumulative value of the run. */
   current: RunUsageResult | null;
-  /** Completed turns counted by this run. */
+  /** Completed prompts counted by this run, including ignored or rejected results. */
   turns: number;
   /** The run is known to be under-counted until a complete result covers it. */
   incomplete: boolean;
@@ -599,21 +599,36 @@ export class SessionStatsOwnerService {
     const outcome = applyResult(run, result);
     let firstRejection = false;
     let turn: AcceptedTurnCost = { turnCost: null, runCostDecreased: false };
-    if (outcome === 'accepted') {
-      run.turns++;
-      turn = acceptedTurnCost(result, previous, run.base ?? null);
-      // `duration_ms` is per turn: only a result the run accepted adds its
-      // turn. A duplicate, rejected or ignored result adds nothing.
-      if (
-        result.durationMs !== undefined &&
-        isFiniteNonNegative(result.durationMs)
-      ) {
-        run.durationMs += result.durationMs;
-      }
-      this.touch(state);
-    } else if (outcome === 'rejected-non-monotonic' && !run.rejectionReported) {
-      run.rejectionReported = true;
-      firstRejection = true;
+    switch (outcome) {
+      case 'accepted':
+        run.turns++;
+        turn = acceptedTurnCost(result, previous, run.base ?? null);
+        // `duration_ms` is per turn: only a result the run accepted adds its
+        // turn. A duplicate, rejected or ignored result adds nothing.
+        if (
+          result.durationMs !== undefined &&
+          isFiniteNonNegative(result.durationMs)
+        ) {
+          run.durationMs += result.durationMs;
+        }
+        this.touch(state);
+        break;
+      case 'ignored-error':
+      case 'rejected-invalid':
+        run.turns++;
+        this.touch(state);
+        break;
+      case 'rejected-non-monotonic':
+        run.turns++;
+        this.touch(state);
+        if (!run.rejectionReported) {
+          run.rejectionReported = true;
+          firstRejection = true;
+        }
+        break;
+      case 'duplicate':
+      case 'stale-owner':
+        break;
     }
     return {
       outcome,
