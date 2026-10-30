@@ -555,6 +555,27 @@ describe('SystemPromptDrawerComponent', () => {
         expect(host.changedCalled).toBe(true);
       });
 
+      it('keeps the status body mounted while a coarse reconciliation is pending', async () => {
+        await render(running);
+        const generatedAt = by('system-prompt-generated-at');
+        expect(generatedAt).not.toBeNull();
+        let releaseStatus = () => undefined;
+        call.mockImplementation(() => new Promise((resolve) => {
+          releaseStatus = () => resolve(rpcSuccess(running));
+        }));
+
+        jest.advanceTimersByTime(30_000);
+        fixture.detectChanges();
+
+        expect(call).toHaveBeenCalledWith('enhancedPrompts:getStatus', { workspacePath: '.' });
+        expect(drawer().isLoading()).toBe(false);
+        expect(by('system-prompt-generated-at')).toBe(generatedAt);
+        expect(by('system-prompt-drawer-loading')).toBeNull();
+
+        releaseStatus();
+        await flush();
+      });
+
       it('announces failure when the coarse refresh clears the flag without a new prompt', async () => {
         await render(running);
         call.mockImplementation(async () => rpcSuccess({ ...defaultStatus, regenerationStartedAt: null }));

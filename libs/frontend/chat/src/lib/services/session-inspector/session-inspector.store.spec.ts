@@ -115,6 +115,20 @@ describe('SessionInspectorStore', () => {
     });
   });
 
+  it('hides context percentage when the live window differs from the trusted window', () => {
+    const current = tab({
+      liveModelStats: {
+        model: 'model', contextKnown: true, contextUsed: 130_000,
+        contextWindow: 100_000, contextPercent: 65,
+        contextCapacity: {
+          tokens: 200_000, source: 'sdk-native', providerId: null, model: 'model',
+        },
+      },
+    });
+    put(current);
+    expect(store.modelFor(current.id)().orchestrator.contextPercent).toBeNull();
+  });
+
   it.each([
     { contextKnown: false, contextUsed: 0 },
     { contextKnown: true, contextUsed: 130_000 },
@@ -147,6 +161,12 @@ describe('SessionInspectorStore', () => {
     });
     put(current);
     expect(store.modelFor(current.id)().orchestrator.turns).toBe(expected);
+  });
+
+  it('reports unknown turns before a restored session loads messages or host stats', () => {
+    const current = tab({ sessionStats: null, messages: [] });
+    put(current);
+    expect(store.modelFor(current.id)().orchestrator.turns).toBeNull();
   });
 
   it('re-evaluates a background tab update and clears stats after workspace removal', () => {

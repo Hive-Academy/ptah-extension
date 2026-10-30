@@ -18,6 +18,7 @@ import {
   sameGitState,
   summarizeFinalized,
   summarizeLive,
+  sessionContextCue,
   type CompactCallout,
   type CompactPermissionCallout,
   type CompactPermissionDecision,
@@ -269,7 +270,7 @@ export class CompactSessionCardComponent {
   });
   readonly contextPercent = computed(() => {
     const stats = this.tab().liveModelStats;
-    if (!stats || stats.contextKnown === false) return null;
+    if (!stats || !sessionContextCue(stats).known) return null;
     const window = trustedContextWindow(stats.contextCapacity, stats.model);
     return stats.contextWindow === window
       ? contextFillPercent(stats.contextUsed, window)

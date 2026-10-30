@@ -828,6 +828,25 @@ describe(CompactSessionCardComponent.name, () => {
     ).toContain('65%');
   });
 
+  it('hides context percentage when the live window differs from the trusted window', () => {
+    const fixture = render(tab({
+      liveModelStats: {
+        contextKnown: true,
+        model: 'model',
+        contextUsed: 130_000,
+        contextWindow: 100_000,
+        contextPercent: 65,
+        contextCapacity: {
+          tokens: 200_000,
+          source: 'sdk-native',
+          providerId: null,
+          model: 'model',
+        },
+      },
+    }));
+    expect(fixture.componentInstance.contextPercent()).toBeNull();
+  });
+
   it('hides F6 after resume when the context window is unknown', () => {
     const fixture = render(tab({
       liveModelStats: {

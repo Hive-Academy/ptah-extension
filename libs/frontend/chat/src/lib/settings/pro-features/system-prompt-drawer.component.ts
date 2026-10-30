@@ -395,7 +395,7 @@ export class SystemPromptDrawerComponent {
       }
       const tick = this.coarseNow();
       if (this.lastReconciliationTick !== null && tick - this.lastReconciliationTick >= WALL_CLOCK_COARSE_MS) {
-        untracked(() => void this.checkRegenerate());
+        untracked(() => void this.checkRegenerate(true));
         this.lastReconciliationTick = tick;
       } else if (this.lastReconciliationTick === null) {
         this.lastReconciliationTick = tick;
@@ -404,8 +404,8 @@ export class SystemPromptDrawerComponent {
   }
 
   /** Reads the status; an RPC failure, a throw or a host-reported `error` all show the fixed load error. */
-  async loadStatus(): Promise<boolean> {
-    this.isLoading.set(true);
+  async loadStatus(background = false): Promise<boolean> {
+    if (!background) this.isLoading.set(true);
     this.error.set(null);
     try {
       const result = await this.rpcService.call('enhancedPrompts:getStatus', {
@@ -419,7 +419,7 @@ export class SystemPromptDrawerComponent {
     } catch {
       // Falls through to the fixed load error below.
     } finally {
-      this.isLoading.set(false);
+      if (!background) this.isLoading.set(false);
     }
     this.statusLoadFailed.set(true);
     this.error.set(PROMPT_STATUS_LOAD_FAILED);
@@ -460,10 +460,10 @@ export class SystemPromptDrawerComponent {
   }
 
   /** Reconcile a host-reported run on demand or on the shared coarse tick. */
-  async checkRegenerate(): Promise<void> {
+  async checkRegenerate(background = false): Promise<void> {
     if (this.regenerationStartedAt() === null) return;
     const generatedBefore = this.status()?.generatedAt ?? null;
-    if (!(await this.loadStatus())) return;
+    if (!(await this.loadStatus(background))) return;
     this.resolveRegeneration(generatedBefore);
   }
 

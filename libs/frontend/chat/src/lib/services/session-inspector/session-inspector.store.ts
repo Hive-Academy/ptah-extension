@@ -9,6 +9,7 @@ import {
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type { SessionStatus, TabState } from '@ptah-extension/chat-types';
+import { sessionContextCue } from '@ptah-extension/chat-ui';
 import {
   contextFillPercent,
   sessionTokenTotal,
@@ -98,6 +99,7 @@ function resolveTurns(tab: TabState, loadedTurns: number): number | null {
   ) {
     return hostTurns;
   }
+  if (tab.claudeSessionId && tab.messages.length === 0) return null;
   return tab.olderHistoryCursor == null ? loadedTurns : null;
 }
 
@@ -134,7 +136,9 @@ function orchestratorCard(
     model: live?.model || stats?.model || null,
     state,
     contextPercent:
-      live === null ? null : contextFillPercent(live.contextUsed, contextWindow),
+      live !== null && sessionContextCue(live).known
+        ? contextFillPercent(live.contextUsed, contextWindow)
+        : null,
     contextWindow,
     tokens: sessionTokenTotal(stats),
     cost: finiteOrNull(stats?.totalCost),
