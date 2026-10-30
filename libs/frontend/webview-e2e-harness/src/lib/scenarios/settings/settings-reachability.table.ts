@@ -1735,8 +1735,9 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
  * TASK_2026_662 batch 51 removed RUX-12 with the deleted Judge lane picker: 140.
  * Settings UI polish removed RM-2 and RM-3 with the routing map's Background roles and CLI agents tiles (the Background
  * Model Roles section and the CLI matrix below them show the same data): 138.
+ * TASK_2026_853 added ADV-25 for the Claude Code tools & skills card: 139.
  */
-export const EXPECTED_CAPABILITY_COUNT = 138;
+export const EXPECTED_CAPABILITY_COUNT = 139;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS

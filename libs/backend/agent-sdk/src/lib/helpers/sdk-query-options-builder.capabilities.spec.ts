@@ -37,6 +37,33 @@ import type {
 } from './session-mcp-status-callback-registry';
 import type { Options } from '../types/sdk-types/claude-sdk.types';
 import { PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
+import {
+  CLAUDE_BUILTIN_SETTING_KEYS,
+  CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
+  CLAUDE_BUILTIN_TOOL_IDS,
+} from './claude-builtin-catalog';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+
+/**
+ * Every Claude built-in opted in (TASK_2026_853), so these specs see only the
+ * capability-policy keys. The built-in defaults have their own specs in
+ * `sdk-query-options-builder.spec.ts`.
+ */
+const ALL_BUILTINS_ENABLED: Pick<IWorkspaceProvider, 'getConfiguration'> = {
+  getConfiguration: <T>(
+    _section: string,
+    key: string,
+    defaultValue?: T,
+  ): T | undefined => {
+    if (key === CLAUDE_BUILTIN_SETTING_KEYS.tools) {
+      return [...CLAUDE_BUILTIN_TOOL_IDS] as T;
+    }
+    if (key === CLAUDE_BUILTIN_SETTING_KEYS.skills) {
+      return [...CLAUDE_BUILTIN_TERMINAL_SKILL_IDS] as T;
+    }
+    return defaultValue;
+  },
+};
 
 const PROJECT = 'D:/tmp/ws';
 const PROXY_AUTH: AuthEnv = {
@@ -130,6 +157,7 @@ async function build(input: BuildInput = {}): Promise<Built> {
     undefined,
     mcpStatus,
     mcpBackoff,
+    ALL_BUILTINS_ENABLED,
   );
 
   const cfg = await builder.build({

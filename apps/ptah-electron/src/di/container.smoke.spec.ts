@@ -1202,9 +1202,18 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
         if (!c.isRegistered(token, true)) c.register(token, { useValue: {} });
       }
     }
+    // Never opened: the store-open signal is subscribed but never fires.
     c.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
-      useValue: { isOpen: false },
+      useValue: {
+        isOpen: false,
+        onDidOpen: () => ({ dispose: () => undefined }),
+      },
     });
+    // Bound by the platform registration (phase 1) in production; the
+    // auto-link service reads worktree pointers and task.md through it.
+    if (!c.isRegistered(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, true)) {
+      c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: {} });
+    }
     registerSessionOrganizationServices(c);
     startSessionOrganization(c);
     return { c, logger, output };
@@ -1279,6 +1288,20 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
         SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY,
       ).size,
     ).toBeGreaterThan(0);
+    // TASK_2026_854: auto-link subscribed to both prompt registries and the
+    // session-id registry (next to capture's own subscription there).
+    for (const token of [
+      SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY,
+      SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_REGISTRY,
+      SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+    ]) {
+      expect(c.resolve<{ size: number }>(token).size).toBeGreaterThan(0);
+    }
+    expect(
+      c.resolve<{ size: number }>(
+        SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
+      ).size,
+    ).toBeGreaterThan(1);
     expect(
       output.__state.lines.filter((line) =>
         line.startsWith('[SessionOrganization]'),

@@ -54,8 +54,11 @@ import type {
   SessionStartedBy,
   SessionTaskLinkRole,
   SessionTaskLinkSource,
+  SessionTodoProgress,
   SessionWorkflowStatus,
 } from '@ptah-extension/shared';
+import { SESSION_ORGANIZATION_TOKENS } from './di/tokens';
+import type { SessionOrganizationSideTables } from './session-organization-side-tables';
 
 const LOG_PREFIX = '[SessionOrganization]';
 
@@ -73,6 +76,13 @@ export interface StoredTaskLink {
   source: SessionTaskLinkSource;
   /** Epoch ms the link was first created. */
   createdAt: number;
+  /**
+   * The automatic rule that owns the link (`R3`..`R7`, TASK_2026_854);
+   * null for an explicit link, which automatic rules never write.
+   */
+  autoRule: string | null;
+  /** The evidence the owning rule decided from; null when none. */
+  autoEvidence: string | null;
 }
 
 /** A task link with the session it belongs to (`listTaskLinks`). */
@@ -109,6 +119,8 @@ export interface StoredOrganization {
   updatedAt: number | null;
   tasks: StoredTaskLink[];
   prLinks: StoredPrLink[];
+  /** Latest todo snapshot (side table); null when none was recorded. */
+  todos: SessionTodoProgress | null;
 }
 
 /**
@@ -131,6 +143,33 @@ export interface StoredTaskLinkInput {
   taskId: string;
   role: SessionTaskLinkRole;
   source: SessionTaskLinkSource;
+}
+
+/**
+ * One row write of an automatic-link plan (`applyAutoLinkPlan`). Structurally
+ * the planner's `TaskLinkWrite`; the store does not import the rules.
+ */
+export type StoredAutoLinkWrite =
+  | {
+      kind: 'upsert';
+      taskId: string;
+      role: SessionTaskLinkRole;
+      source: SessionTaskLinkSource;
+      autoRule: string;
+      autoEvidence: string | null;
+    }
+  | { kind: 'delete'; taskId: string };
+
+/** A worktree peer and its current primary link, if any (rule R5). */
+export interface StoredWorktreePeer {
+  sessionId: string;
+  primary: StoredTaskLink | null;
+}
+
+/** Options of `unlinkTask`. */
+export interface UnlinkTaskOptions {
+  /** Record a suppression so automatic rules never re-add the pair. */
+  suppress?: boolean;
 }
 
 /** Input of `addPrLink`. `url` is stored exactly as received. */
@@ -173,6 +212,8 @@ interface RawTaskLinkRow {
   role: string;
   source: string;
   created_at: number | bigint;
+  auto_rule: string | null;
+  auto_evidence: string | null;
 }
 
 interface RawPrLinkRow {
@@ -194,6 +235,10 @@ interface RawRootRow {
   workspace_root: string;
 }
 
+interface RawSessionIdRow {
+  session_id: string;
+}
+
 // ── Static SQL ───────────────────────────────────────────────────────────────
 
 const SQL = {
@@ -204,16 +249,45 @@ const SQL = {
      WHERE workspace_root = ?
      ORDER BY session_id`,
   selectTaskLinks: `
-    SELECT session_id, task_id, role, source, created_at
+    SELECT session_id, task_id, role, source, created_at, auto_rule, auto_evidence
       FROM session_task_links
      WHERE workspace_root = ?
      ORDER BY session_id, created_at, task_id`,
   selectTaskLinksForTasks: `
-    SELECT session_id, task_id, role, source, created_at
+    SELECT session_id, task_id, role, source, created_at, auto_rule, auto_evidence
       FROM session_task_links
      WHERE workspace_root = ?
        AND task_id IN (SELECT value FROM json_each(?))
      ORDER BY task_id, created_at, session_id`,
+  selectOrganization: `
+    SELECT session_id, priority, status, pinned, worktree_path, branch,
+           parent_session_id, fork_of_session_id, started_by, updated_at
+      FROM session_organization
+     WHERE workspace_root = ? AND session_id = ?`,
+  selectSessionTaskLinks: `
+    SELECT session_id, task_id, role, source, created_at, auto_rule, auto_evidence
+      FROM session_task_links
+     WHERE workspace_root = ? AND session_id = ?
+     ORDER BY created_at, task_id`,
+  selectSessionPrLinks: `
+    SELECT session_id, url, number, repo, state, source, created_at
+      FROM session_pr_links
+     WHERE workspace_root = ? AND session_id = ?
+     ORDER BY created_at, url`,
+  /** Children and forks of a session (lineage is not a foreign key). */
+  selectDependents: `
+    SELECT session_id FROM session_organization
+     WHERE workspace_root = ?
+       AND (parent_session_id = ? OR fork_of_session_id = ?)
+       AND session_id <> ?
+     ORDER BY session_id
+     LIMIT ?`,
+  /** Other sessions in the same worktree (`idx_session_org_worktree`). */
+  selectWorktreePeers: `
+    SELECT session_id FROM session_organization
+     WHERE workspace_root = ? AND worktree_path = ? AND session_id <> ?
+     ORDER BY session_id
+     LIMIT ?`,
   selectPrLinks: `
     SELECT session_id, url, number, repo, state, source, created_at
       FROM session_pr_links
@@ -245,13 +319,17 @@ const SQL = {
     UPDATE session_task_links SET role = 'related'
      WHERE workspace_root = ? AND session_id = ? AND role = 'primary'
        AND task_id <> ?`,
+  /** An explicit write stores NULL rule columns, adopting an automatic link. */
   upsertTaskLink: `
     INSERT INTO session_task_links
-      (workspace_root, session_id, task_id, role, source, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+      (workspace_root, session_id, task_id, role, source, created_at,
+       auto_rule, auto_evidence)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(workspace_root, session_id, task_id) DO UPDATE SET
       role = excluded.role,
-      source = excluded.source`,
+      source = excluded.source,
+      auto_rule = excluded.auto_rule,
+      auto_evidence = excluded.auto_evidence`,
   deleteTaskLink: `
     DELETE FROM session_task_links
      WHERE workspace_root = ? AND session_id = ? AND task_id = ?`,
@@ -418,8 +496,12 @@ function emptyOrganization(sessionId: string): StoredOrganization {
     updatedAt: null,
     tasks: [],
     prLinks: [],
+    todos: null,
   };
 }
+
+/** Upper bound on the dependents and peers one reconcile fans out to. */
+const MAX_RELATED_SESSIONS = 256;
 
 // ── Store ────────────────────────────────────────────────────────────────────
 
@@ -430,6 +512,8 @@ export class SessionOrganizationStore {
     private readonly connection: SqliteConnectionService,
     @inject(PLATFORM_TOKENS.OUTPUT_CHANNEL)
     private readonly output: IOutputChannel,
+    @inject(SESSION_ORGANIZATION_TOKENS.SIDE_TABLES)
+    private readonly sideTables: SessionOrganizationSideTables,
   ) {}
 
   private get db(): SqliteDatabase {
@@ -497,8 +581,151 @@ export class SessionOrganizationStore {
       entryFor(row.session_id).prLinks.push(this.toPrLink(row, tally));
     }
 
+    const todos = this.sideTables.listTodoProgress(workspaceRoot);
+    for (const [sessionId, progress] of todos) {
+      // A snapshot alone never creates an entry; its writer ensures the row.
+      const entry = result.get(sessionId);
+      if (entry) entry.todos = progress;
+    }
+
     this.reportUnknownValues('listWorkspace', tally);
     return result;
+  }
+
+  /**
+   * One session's stored organization, by id; null when it has no row and
+   * no link rows. Indexed point reads, for the auto-link reconcile.
+   */
+  getOrganization(
+    workspaceRoot: string,
+    sessionId: string,
+  ): StoredOrganization | null {
+    const tally = new UnknownValueTally();
+    const orgRow = this.db
+      .prepare(SQL.selectOrganization)
+      .get(workspaceRoot, sessionId) as RawOrganizationRow | undefined;
+    const tasks = this.readSessionTaskLinks(workspaceRoot, sessionId, tally);
+    if (orgRow === undefined && tasks.length === 0) return null;
+    const stored =
+      orgRow === undefined
+        ? emptyOrganization(sessionId)
+        : this.toOrganization(orgRow, tally);
+    stored.tasks = tasks;
+    stored.prLinks = (
+      this.db
+        .prepare(SQL.selectSessionPrLinks)
+        .all(workspaceRoot, sessionId) as RawPrLinkRow[]
+    ).map((row) => this.toPrLink(row, tally));
+    stored.todos = this.sideTables.getTodoProgress(workspaceRoot, sessionId);
+    this.reportUnknownValues('getOrganization', tally);
+    return stored;
+  }
+
+  /** Children and forks of a session in a workspace (bounded). */
+  listDependentIds(workspaceRoot: string, sessionId: string): string[] {
+    return (
+      this.db
+        .prepare(SQL.selectDependents)
+        .all(
+          workspaceRoot,
+          sessionId,
+          sessionId,
+          sessionId,
+          MAX_RELATED_SESSIONS,
+        ) as RawSessionIdRow[]
+    ).map((row) => row.session_id);
+  }
+
+  /** Other sessions recorded in the same worktree, with their primary link. */
+  listWorktreePeers(
+    workspaceRoot: string,
+    worktreePath: string,
+    excludeSessionId: string,
+  ): StoredWorktreePeer[] {
+    const tally = new UnknownValueTally();
+    const peers = (
+      this.db
+        .prepare(SQL.selectWorktreePeers)
+        .all(
+          workspaceRoot,
+          worktreePath,
+          excludeSessionId,
+          MAX_RELATED_SESSIONS,
+        ) as RawSessionIdRow[]
+    ).map((row) => ({
+      sessionId: row.session_id,
+      primary:
+        this.readSessionTaskLinks(workspaceRoot, row.session_id, tally).find(
+          (link) => link.role === 'primary',
+        ) ?? null,
+    }));
+    this.reportUnknownValues('listWorktreePeers', tally);
+    return peers;
+  }
+
+  /**
+   * Reconcile one session's automatic links in ONE transaction: read its
+   * current links, let `plan` (pure; it may read the side tables) compute
+   * the writes, and apply them. Returns whether anything was written.
+   */
+  applyAutoLinkPlan(
+    workspaceRoot: string,
+    sessionId: string,
+    plan: (current: StoredTaskLink[]) => StoredAutoLinkWrite[],
+    now: number,
+  ): boolean {
+    let changed = false;
+    this.db.transaction(() => {
+      const tally = new UnknownValueTally();
+      const writes = plan(
+        this.readSessionTaskLinks(workspaceRoot, sessionId, tally),
+      );
+      for (const write of writes) {
+        if (write.kind === 'delete') {
+          this.db
+            .prepare(SQL.deleteTaskLink)
+            .run(workspaceRoot, sessionId, write.taskId);
+        } else {
+          this.writeTaskLink(workspaceRoot, sessionId, write, now, {
+            rule: write.autoRule,
+            evidence: write.autoEvidence,
+          });
+        }
+      }
+      if (writes.length > 0) {
+        this.db
+          .prepare(SQL.touchOrganization)
+          .run(now, workspaceRoot, sessionId);
+        changed = true;
+      }
+    })();
+    return changed;
+  }
+
+  /**
+   * Store a session's todo snapshot and ensure its organization row, in one
+   * transaction. Returns false when the snapshot did not change.
+   */
+  upsertTodoProgress(
+    workspaceRoot: string,
+    sessionId: string,
+    progress: SessionTodoProgress,
+    now: number,
+  ): boolean {
+    let changed = false;
+    this.db.transaction(() => {
+      changed = this.sideTables.upsertTodoProgress(
+        workspaceRoot,
+        sessionId,
+        progress,
+      );
+      if (changed) {
+        this.db
+          .prepare(SQL.ensureOrganization)
+          .run(workspaceRoot, sessionId, now);
+      }
+    })();
+    return changed;
   }
 
   /**
@@ -557,15 +784,23 @@ export class SessionOrganizationStore {
     })();
   }
 
-  /** Remove one task link. Returns whether a link was removed. */
+  /**
+   * Remove one task link. Returns whether a link was removed. With
+   * `suppress`, the pair is also recorded as suppressed in the same
+   * transaction, even when no link existed: the user said "not this task".
+   */
   unlinkTask(
     workspaceRoot: string,
     sessionId: string,
     taskId: string,
     now: number,
+    options: UnlinkTaskOptions = {},
   ): boolean {
     let removed = false;
     this.db.transaction(() => {
+      if (options.suppress) {
+        this.sideTables.suppress(workspaceRoot, sessionId, taskId, now);
+      }
       removed =
         this.db
           .prepare(SQL.deleteTaskLink)
@@ -668,6 +903,7 @@ export class SessionOrganizationStore {
   deleteSession(workspaceRoot: string, sessionId: string): boolean {
     let changes = 0;
     this.db.transaction(() => {
+      changes += this.sideTables.deleteSession(workspaceRoot, sessionId);
       changes += this.db
         .prepare(SQL.deleteAllTaskLinks)
         .run(workspaceRoot, sessionId).changes;
@@ -711,15 +947,22 @@ export class SessionOrganizationStore {
     let roots: string[] = [];
     const conflictRoots: string[] = [];
     this.db.transaction(() => {
-      roots = (
-        this.db
-          .prepare(SQL.rekeyRoots)
-          .all(oldId, oldId, oldId, oldId, oldId) as RawRootRow[]
-      ).map((r) => r.workspace_root);
+      const found = new Set(
+        (
+          this.db
+            .prepare(SQL.rekeyRoots)
+            .all(oldId, oldId, oldId, oldId, oldId) as RawRootRow[]
+        ).map((r) => r.workspace_root),
+      );
+      for (const root of this.sideTables.rootsOf(oldId)) {
+        found.add(root);
+      }
+      roots = [...found].sort();
       for (const root of roots) {
         if (this.rekeyInWorkspace(root, oldId, newId)) {
           conflictRoots.push(root);
         }
+        this.sideTables.rekeySession(root, oldId, newId);
       }
     })();
     if (conflictRoots.length > 0) {
@@ -781,12 +1024,32 @@ export class SessionOrganizationStore {
     }
   }
 
-  /** Demote-then-write for one task link. Caller owns the transaction. */
+  /** One session's task links in creation order. */
+  private readSessionTaskLinks(
+    workspaceRoot: string,
+    sessionId: string,
+    tally: UnknownValueTally,
+  ): StoredTaskLink[] {
+    return (
+      this.db
+        .prepare(SQL.selectSessionTaskLinks)
+        .all(workspaceRoot, sessionId) as RawTaskLinkRow[]
+    ).map((row) => this.toTaskLink(row, tally));
+  }
+
+  /**
+   * Demote-then-write for one task link. Caller owns the transaction.
+   *
+   * Without `auto` the write is explicit: the rule columns are stored as
+   * NULL (an automatic link is adopted and frozen) and any suppression of
+   * the pair is lifted. With `auto` the owning rule and evidence are kept.
+   */
   private writeTaskLink(
     workspaceRoot: string,
     sessionId: string,
     link: StoredTaskLinkInput,
     now: number,
+    auto?: { rule: string; evidence: string | null },
   ): void {
     this.db.prepare(SQL.ensureOrganization).run(workspaceRoot, sessionId, now);
     if (link.role === 'primary') {
@@ -796,7 +1059,19 @@ export class SessionOrganizationStore {
     }
     this.db
       .prepare(SQL.upsertTaskLink)
-      .run(workspaceRoot, sessionId, link.taskId, link.role, link.source, now);
+      .run(
+        workspaceRoot,
+        sessionId,
+        link.taskId,
+        link.role,
+        link.source,
+        now,
+        auto?.rule ?? null,
+        auto?.evidence ?? null,
+      );
+    if (auto === undefined) {
+      this.sideTables.clearSuppression(workspaceRoot, sessionId, link.taskId);
+    }
   }
 
   private toOrganization(
@@ -828,6 +1103,7 @@ export class SessionOrganizationStore {
       updatedAt: toNumber(row.updated_at),
       tasks: [],
       prLinks: [],
+      todos: null,
     };
   }
 
@@ -848,6 +1124,8 @@ export class SessionOrganizationStore {
         DEFAULT_TASK_LINK_SOURCE,
       ),
       createdAt: toNumber(row.created_at),
+      autoRule: row.auto_rule ?? null,
+      autoEvidence: row.auto_evidence ?? null,
     };
   }
 

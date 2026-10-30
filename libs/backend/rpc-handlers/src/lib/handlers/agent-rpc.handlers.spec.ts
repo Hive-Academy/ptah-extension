@@ -33,7 +33,16 @@ jest.mock('@ptah-extension/cli-agent-runtime', () => ({
 jest.mock('@ptah-extension/agent-sdk', () => ({
   SDK_TOKENS: {
     SDK_SESSION_METADATA_STORE: Symbol.for('SessionMetadataStore'),
+    SDK_CAPABILITY_RESOLVER: Symbol.for('SdkCapabilityResolver'),
   },
+  // The real Claude built-in catalog and the real never-throwing policy
+  // resolution (TASK_2026_853), loaded by file so the barrel stays unloaded.
+  ...jest.requireActual(
+    '../../../../agent-sdk/src/lib/helpers/claude-builtin-catalog',
+  ),
+  resolveSessionCapabilityPolicy: jest.requireActual(
+    '../../../../agent-sdk/src/lib/helpers/sdk-query-options-builder',
+  ).resolveSessionCapabilityPolicy,
 }));
 
 jest.mock('@ptah-extension/auth-providers', () => ({
@@ -64,8 +73,15 @@ import type {
   PtahCliRegistry,
 } from '@ptah-extension/cli-agent-runtime';
 import { LaneAccountResumeError } from '@ptah-extension/cli-agent-runtime';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { SessionMetadataStore } from '@ptah-extension/agent-sdk';
-import type { AgentResumeOutcome } from '@ptah-extension/shared';
+import type {
+  AgentGetClaudeBuiltinsResult,
+  AgentSetClaudeBuiltinResult,
+  AgentResumeOutcome,
+  EffectiveCapabilitySet,
+  ICapabilityResolver,
+} from '@ptah-extension/shared';
 import type { CliModelListService } from '../services/cli-model-list.service';
 import type { DependencyContainer } from 'tsyringe';
 
@@ -103,10 +119,16 @@ interface Harness {
 interface HarnessOptions {
   /** Registers a fake account service whose lookup is this mock. */
   readonly accountLookup?: jest.Mock;
+  /** Registers a capability resolver (TASK_2026_853 policy status). */
+  readonly capabilityResolver?: Pick<ICapabilityResolver, 'resolve'>;
+  /** Active workspace root; `null` means no workspace is open. */
+  readonly workspaceRoot?: string | null;
 }
 
 function makeHarness(options: HarnessOptions = {}): Harness {
-  const { accountLookup } = options;
+  const { accountLookup, capabilityResolver } = options;
+  const workspaceRoot =
+    options.workspaceRoot === undefined ? WORKSPACE : options.workspaceRoot;
   const rpcHandler = createMockRpcHandler();
   const logger = createMockLogger();
   const settings = new Map<string, unknown>();
@@ -144,7 +166,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
   );
 
   const workspace = {
-    getWorkspaceRoot: jest.fn().mockReturnValue(WORKSPACE),
+    getWorkspaceRoot: jest.fn().mockReturnValue(workspaceRoot ?? undefined),
     getConfiguration: jest.fn((_s: string, key: string, fallback: unknown) =>
       settings.has(key) ? settings.get(key) : fallback,
     ),
@@ -177,12 +199,16 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     {
       isRegistered: jest.fn(
         (token: unknown) =>
-          accountLookup !== undefined && token === ProviderAccountService,
+          (accountLookup !== undefined && token === ProviderAccountService) ||
+          (capabilityResolver !== undefined &&
+            token === SDK_TOKENS.SDK_CAPABILITY_RESOLVER),
       ),
       resolve: jest.fn((token: unknown) =>
         token === ProviderAccountService
           ? { lookupBySdkSession: accountLookup }
-          : undefined,
+          : token === SDK_TOKENS.SDK_CAPABILITY_RESOLVER
+            ? capabilityResolver
+            : undefined,
       ),
     } as unknown as DependencyContainer,
     {
@@ -908,5 +934,394 @@ describe('AgentRpcHandlers — agent:resumeCliSession account selection', () => 
     expect(result.error).toContain('invalid params');
     expect(lookup).not.toHaveBeenCalled();
     expect(h.processManager.spawn).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_853 A-4 — Claude built-in opt-ins and the catalog read.
+// ---------------------------------------------------------------------------
+
+function capabilityPolicy(
+  status: EffectiveCapabilitySet['status'],
+): EffectiveCapabilitySet {
+  return {
+    physicalRoot: WORKSPACE,
+    policyKey: WORKSPACE,
+    status,
+    reasons: [],
+    ptahEnabled: true,
+    deniedMcpServers: [],
+    approvedProjectMcpServers: [],
+    deniedSkillNames: [],
+    disabledPluginIds: [],
+    harnessFingerprint: 'fp',
+  };
+}
+
+describe('AgentRpcHandlers — Claude built-in opt-ins (TASK_2026_853)', () => {
+  it('registers agent:getClaudeBuiltins with the other agent methods', () => {
+    expect(AgentRpcHandlers.METHODS).toContain('agent:getClaudeBuiltins');
+  });
+
+  it('stores both lists filtered to the catalog, deduped and sorted', async () => {
+    const h = makeHarness();
+
+    const result = await call<SetConfigResult>(h, 'agent:setConfig', {
+      enabledClaudeBuiltinTools: ['Workflow', 'Bash', 'DesignSync', 'Workflow'],
+      enabledClaudeBuiltinSkills: ['init', 'orchestration', 'code-review'],
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(
+      h.settings.get('agentOrchestration.enabledClaudeBuiltinTools'),
+    ).toEqual(['DesignSync', 'Workflow']);
+    expect(
+      h.settings.get('agentOrchestration.enabledClaudeBuiltinSkills'),
+    ).toEqual(['code-review', 'init']);
+  });
+
+  it.each([
+    ['enabledClaudeBuiltinTools', 'Workflow'],
+    ['enabledClaudeBuiltinTools', ['Workflow', 3]],
+    ['enabledClaudeBuiltinSkills', { init: true }],
+  ])('refuses a malformed %s before any write', async (field, value) => {
+    const h = makeHarness();
+
+    const result = await call<SetConfigResult>(h, 'agent:setConfig', {
+      claudeModel: 'claude-opus-4-1',
+      [field]: value,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: `Unsupported ${field} value`,
+    });
+    expect(h.setConfiguration).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed write as a failure', async () => {
+    const h = makeHarness();
+    h.setConfiguration.mockRejectedValueOnce(new Error('disk full'));
+
+    const result = await call<SetConfigResult>(h, 'agent:setConfig', {
+      enabledClaudeBuiltinTools: ['Workflow'],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('reads both lists on agent:getConfig, defaulting to empty', async () => {
+    const h = makeHarness();
+    const empty = await call<Record<string, unknown>>(h, 'agent:getConfig', {});
+    expect(empty).toEqual(
+      expect.objectContaining({
+        enabledClaudeBuiltinTools: [],
+        enabledClaudeBuiltinSkills: [],
+      }),
+    );
+
+    h.settings.set('agentOrchestration.enabledClaudeBuiltinTools', [
+      'ReportFindings',
+      'Nope',
+    ]);
+    h.settings.set('agentOrchestration.enabledClaudeBuiltinSkills', 'init');
+    const stored = await call<Record<string, unknown>>(
+      h,
+      'agent:getConfig',
+      {},
+    );
+    expect(stored).toEqual(
+      expect.objectContaining({
+        enabledClaudeBuiltinTools: ['ReportFindings'],
+        enabledClaudeBuiltinSkills: [],
+      }),
+    );
+  });
+
+  it('serves the catalog rows, the stored opt-ins and a verified status', async () => {
+    const resolve = jest.fn().mockResolvedValue(capabilityPolicy('verified'));
+    const h = makeHarness({ capabilityResolver: { resolve } });
+    h.settings.set('agentOrchestration.enabledClaudeBuiltinTools', ['Workflow']);
+    h.settings.set('agentOrchestration.enabledClaudeBuiltinSkills', [
+      'workflow-authoring',
+    ]);
+
+    const result = await call<AgentGetClaudeBuiltinsResult>(
+      h,
+      'agent:getClaudeBuiltins',
+      {},
+    );
+
+    expect(resolve).toHaveBeenCalledWith(WORKSPACE);
+    expect(result.policyStatus).toBe('verified');
+    expect(result.tools.map((row) => row.id)).toEqual([
+      'Workflow',
+      'ReportFindings',
+      'PushNotification',
+      'DesignSync',
+      'EnterWorktree',
+      'ExitWorktree',
+    ]);
+    expect(result.tools[1]).toEqual({
+      id: 'ReportFindings',
+      description: 'Sends code-review findings as a typed list.',
+      approxTokens: 850,
+      skillsNeedingIt: ['code-review'],
+    });
+    expect(result.terminalSkills).toHaveLength(7);
+    expect(
+      result.terminalSkills.find((row) => row.id === 'code-review'),
+    ).toEqual(expect.objectContaining({ needsTool: 'ReportFindings' }));
+    expect(
+      result.terminalSkills.find((row) => row.id === 'init'),
+    ).not.toHaveProperty('needsTool');
+    expect(result.syncedSkills).toEqual([]);
+    expect(result.enabledTools).toEqual(['Workflow']);
+    expect(result.enabledSkills).toEqual(['workflow-authoring']);
+  });
+
+  it('reports unverified when the resolver says so, is missing, or throws', async () => {
+    const unverified = makeHarness({
+      capabilityResolver: {
+        resolve: jest.fn().mockResolvedValue(capabilityPolicy('unverified')),
+      },
+    });
+    const missing = makeHarness();
+    const throwing = makeHarness({
+      capabilityResolver: {
+        resolve: jest.fn().mockRejectedValue(new Error('store unreadable')),
+      },
+    });
+
+    for (const h of [unverified, missing, throwing]) {
+      const result = await call<AgentGetClaudeBuiltinsResult>(
+        h,
+        'agent:getClaudeBuiltins',
+        {},
+      );
+      expect(result.policyStatus).toBe('unverified');
+    }
+  });
+
+  it('reports unverified with no open workspace, without asking the resolver', async () => {
+    const resolve = jest.fn().mockResolvedValue(capabilityPolicy('verified'));
+    const h = makeHarness({
+      capabilityResolver: { resolve },
+      workspaceRoot: null,
+    });
+
+    const result = await call<AgentGetClaudeBuiltinsResult>(
+      h,
+      'agent:getClaudeBuiltins',
+      {},
+    );
+
+    expect(result.policyStatus).toBe('unverified');
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('propagates a settings read failure as an RPC failure', async () => {
+    const h = makeHarness();
+    // The harness settings store reads through `has`; make the read fail.
+    jest.spyOn(h.settings, 'has').mockImplementation(() => {
+      throw new Error('settings file unreadable');
+    });
+
+    const response = await h.rpcHandler.handleMessage({
+      method: 'agent:getClaudeBuiltins',
+      params: {},
+      correlationId: 'corr-read-failure',
+    });
+
+    expect(response.success).toBe(false);
+  });
+});
+
+describe('AgentRpcHandlers — agent:setClaudeBuiltin (TASK_2026_853 R2)', () => {
+  const TOOLS = 'agentOrchestration.enabledClaudeBuiltinTools';
+  const SKILLS = 'agentOrchestration.enabledClaudeBuiltinSkills';
+
+  it('is registered with the other agent methods', () => {
+    expect(AgentRpcHandlers.METHODS).toContain('agent:setClaudeBuiltin');
+  });
+
+  it('adds one tool to the stored list and returns both stored lists', async () => {
+    const h = makeHarness();
+    h.settings.set(TOOLS, ['Workflow']);
+    h.settings.set(SKILLS, ['init']);
+
+    const result = await call<AgentSetClaudeBuiltinResult>(
+      h,
+      'agent:setClaudeBuiltin',
+      { kind: 'tool', id: 'DesignSync', enabled: true },
+    );
+
+    expect(result).toEqual({
+      success: true,
+      enabledTools: ['DesignSync', 'Workflow'],
+      enabledSkills: ['init'],
+    });
+    expect(h.settings.get(TOOLS)).toEqual(['DesignSync', 'Workflow']);
+    expect(h.setConfiguration).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes one skill and leaves the other ids alone', async () => {
+    const h = makeHarness();
+    h.settings.set(SKILLS, ['code-review', 'init']);
+
+    const result = await call<AgentSetClaudeBuiltinResult>(
+      h,
+      'agent:setClaudeBuiltin',
+      { kind: 'skill', id: 'init', enabled: false },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.enabledSkills).toEqual(['code-review']);
+    expect(h.settings.get(SKILLS)).toEqual(['code-review']);
+  });
+
+  it('is idempotent: enabling an enabled id keeps one copy', async () => {
+    const h = makeHarness();
+    h.settings.set(TOOLS, ['Workflow']);
+
+    const result = await call<AgentSetClaudeBuiltinResult>(
+      h,
+      'agent:setClaudeBuiltin',
+      { kind: 'tool', id: 'Workflow', enabled: true },
+    );
+
+    expect(result.enabledTools).toEqual(['Workflow']);
+  });
+
+  it('keeps both of two concurrent toggles of different ids', async () => {
+    const h = makeHarness();
+    h.settings.set(TOOLS, ['Workflow']);
+
+    // Each harness write yields before it lands, so an unserialised pair
+    // would both read ['Workflow'] and the second write would drop the first.
+    const [first, second] = await Promise.all([
+      call<AgentSetClaudeBuiltinResult>(h, 'agent:setClaudeBuiltin', {
+        kind: 'tool',
+        id: 'ReportFindings',
+        enabled: true,
+      }),
+      call<AgentSetClaudeBuiltinResult>(h, 'agent:setClaudeBuiltin', {
+        kind: 'tool',
+        id: 'DesignSync',
+        enabled: true,
+      }),
+    ]);
+
+    expect(h.settings.get(TOOLS)).toEqual([
+      'DesignSync',
+      'ReportFindings',
+      'Workflow',
+    ]);
+    expect(first.enabledTools).toEqual(['ReportFindings', 'Workflow']);
+    expect(second.enabledTools).toEqual([
+      'DesignSync',
+      'ReportFindings',
+      'Workflow',
+    ]);
+  });
+
+  it('waits for an in-flight agent:setConfig write before reading', async () => {
+    const h = makeHarness();
+
+    await Promise.all([
+      call<SetConfigResult>(h, 'agent:setConfig', {
+        enabledClaudeBuiltinSkills: ['init'],
+      }),
+      call<AgentSetClaudeBuiltinResult>(h, 'agent:setClaudeBuiltin', {
+        kind: 'skill',
+        id: 'code-review',
+        enabled: true,
+      }),
+    ]);
+
+    expect(h.settings.get(SKILLS)).toEqual(['code-review', 'init']);
+  });
+
+  it.each([
+    [{ kind: 'tool', id: 'Bash', enabled: true }, 'Unknown Claude built-in.'],
+    [
+      { kind: 'skill', id: 'orchestration', enabled: true },
+      'Unknown Claude built-in.',
+    ],
+    [
+      { kind: 'tool', id: 'code-review', enabled: true },
+      'Unknown Claude built-in.',
+    ],
+    [
+      { kind: 'agent', id: 'Workflow', enabled: true },
+      'Unsupported Claude built-in change.',
+    ],
+    [
+      { kind: 'tool', id: 'Workflow', enabled: 'yes' },
+      'Unsupported Claude built-in change.',
+    ],
+    [{ kind: 'tool', enabled: true }, 'Unsupported Claude built-in change.'],
+  ])('refuses %j without writing', async (params, error) => {
+    const h = makeHarness();
+    h.settings.set(TOOLS, ['Workflow']);
+
+    const result = await call<AgentSetClaudeBuiltinResult>(
+      h,
+      'agent:setClaudeBuiltin',
+      params,
+    );
+
+    expect(result).toEqual({
+      success: false,
+      enabledTools: ['Workflow'],
+      enabledSkills: [],
+      error,
+    });
+    expect(h.setConfiguration).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed write with fixed text and the lists as stored', async () => {
+    const h = makeHarness();
+    h.settings.set(TOOLS, ['Workflow']);
+    h.setConfiguration.mockRejectedValueOnce(new Error('EACCES /secret/path'));
+
+    const result = await call<AgentSetClaudeBuiltinResult>(
+      h,
+      'agent:setClaudeBuiltin',
+      { kind: 'tool', id: 'DesignSync', enabled: true },
+    );
+
+    expect(result).toEqual({
+      success: false,
+      enabledTools: ['Workflow'],
+      enabledSkills: [],
+      error: 'Could not save the Claude built-in setting.',
+    });
+    expect(JSON.stringify(result)).not.toContain('/secret/path');
+  });
+
+  it('a failed call does not block the next one', async () => {
+    const h = makeHarness();
+    h.setConfiguration.mockRejectedValueOnce(new Error('disk full'));
+
+    const [failed, next] = await Promise.all([
+      call<AgentSetClaudeBuiltinResult>(h, 'agent:setClaudeBuiltin', {
+        kind: 'tool',
+        id: 'Workflow',
+        enabled: true,
+      }),
+      call<AgentSetClaudeBuiltinResult>(h, 'agent:setClaudeBuiltin', {
+        kind: 'tool',
+        id: 'DesignSync',
+        enabled: true,
+      }),
+    ]);
+
+    expect(failed.success).toBe(false);
+    expect(next).toEqual({
+      success: true,
+      enabledTools: ['DesignSync'],
+      enabledSkills: [],
+    });
   });
 });

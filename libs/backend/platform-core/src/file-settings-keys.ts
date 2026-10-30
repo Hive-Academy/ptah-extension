@@ -146,6 +146,10 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'agentGeneration.models',
   'agentOrchestration.disabledClis',
   'agentOrchestration.disabledMcpNamespaces',
+  // Claude built-in opt-ins (TASK_2026_853): global, read by every main
+  // session and Claude lane build; default [] keeps every catalog item off.
+  'agentOrchestration.enabledClaudeBuiltinTools',
+  'agentOrchestration.enabledClaudeBuiltinSkills',
   'provider.cursor.apiKey',
   'provider.github-copilot.tokenExchangeUrl',
   'provider.github-copilot.apiEndpoint',
@@ -317,7 +321,7 @@ export const FILE_BASED_OBJECT_SETTINGS_KEYS: ReadonlySet<string> = new Set([
  * - Array settings default to [] (empty array)
  */
 export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
-  authMethod: 'apiKey',
+  authMethod: 'claudeCli',
   anthropicProviderId: 'openrouter',
   'llm.defaultProvider': '',
   reasoningEffort: 'medium',
@@ -352,6 +356,8 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // Compaction budgets: see ADVANCED_SETTINGS_DEFAULTS.
   'agentOrchestration.disabledClis': [],
   'agentOrchestration.disabledMcpNamespaces': [],
+  'agentOrchestration.enabledClaudeBuiltinTools': [],
+  'agentOrchestration.enabledClaudeBuiltinSkills': [],
   'provider.cursor.apiKey': '',
   'provider.github-copilot.tokenExchangeUrl': '',
   'provider.github-copilot.apiEndpoint': '',

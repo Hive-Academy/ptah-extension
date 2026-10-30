@@ -2,13 +2,11 @@
 id: TASK_2026_454_b401
 status: backlog
 type: REFACTORING
-title: >-
-  Resolve the memory-curator to agent-sdk import rule contradiction
-description: >-
-  Found by TASK_2026_443_40ec Task 10.2. Three non-spec files in libs/backend/memory-curator/src import @ptah-extension/agent-sdk (curator-pass-admission.ts, knowledge-agent.service.ts, memory-trigger.service.ts), which the Nx boundary lint permits but the memory-curator CLAUDE.md Cross-Lib Rules sentence forbids. The imports predate TASK_2026_443 and exist unchanged on main. Either the code moves behind a port or the rule sentence changes; the two must not disagree.
+title: "Decide the memory-curator to agent-sdk dependency direction and fix the cycle comment"
+description: "The CLAUDE.md rule this task cited is gone (PR #562). memory-curator still imports agent-sdk (e.g. NetworkBackoff in curator-pass-admission.ts) while queue-slot-timeout.ts says such an import would close a cycle. Decide the direction and fix the code or the comment."
 depends_on: []
 created: 2026-09-16T01:00:00.000Z
-updated: '2026-10-12T19:41:51.738Z'
+updated: "2026-10-30T03:43:14.678Z"
 parent: TASK_2026_638_7a8e
 labels:
   - P3

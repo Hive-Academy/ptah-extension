@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8">
+<title>TASK_2026_853 prototype - Claude Code tools and skills, install scope, migration notice</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+/* Token values copied from apps/ptah-extension-webview/tailwind.config.js (anubis / anubis-light). */
+:root,[data-theme=anubis]{--b1:#131317;--b2:#1a1a20;--b3:#242430;--bc:#e8e6e1;--bcm:oklch(66.51% .0074 31.09);--p:#2563eb;--pc:#f8f7f4;--s:#d4af37;--err:#dc2626;--ok:#16a34a;--info:#3b82f6;--warn:#f97316;--nc:#d1d5db;--n:#1e1e26}
+[data-theme=anubis-light]{--b1:oklch(97.788% .004 56.375);--b2:oklch(93.982% .007 61.449);--b3:oklch(91.586% .006 53.44);--bc:oklch(23.574% .066 313.189);--bcm:oklch(48.955% .0448 348.48);--p:oklch(85% .138 181.071);--pc:oklch(36% .078 188.216);--s:oklch(58% .132 75);--err:oklch(64% .246 16.439);--ok:oklch(69% .17 162.48);--info:oklch(68% .169 237.323);--warn:oklch(72% .18 55);--nc:oklch(92% .004 286.32);--n:oklch(27% .006 286)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--b1);color:var(--bc);font:14px/1.4 system-ui,sans-serif}
+.muted{color:var(--bcm)}
+.wrap{max-width:980px;margin:0 auto;padding:16px}
+.bar{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px}
+h1{font-size:16px;margin:0}
+.surface-label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--bcm);margin:22px 0 6px}
+.card{background:var(--b2);border:1px solid var(--b3);border-radius:.75rem;padding:12px;margin-bottom:12px}
+.card h2{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:0;display:flex;gap:6px;align-items:center}
+.card h2 svg{color:var(--s)}
+.card h3{font-size:12px;font-weight:600;margin:14px 0 2px}
+.xs{font-size:12px}
+.btn{font:inherit;font-size:12px;border-radius:.375rem;border:1px solid transparent;padding:4px 10px;min-height:28px;cursor:pointer;background:transparent;color:var(--bc)}
+.btn:hover{background:var(--b3)}
+.btn-primary{background:var(--p);color:var(--pc)}.btn-primary:hover{background:var(--p);filter:brightness(1.1)}
+.btn-outline{border-color:var(--bcm)}
+.btn-err{color:var(--bc);border-color:var(--err)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;font-weight:600;padding:4px 8px;color:var(--bc);border-bottom:1px solid var(--b3)}
+td{padding:6px 8px;vertical-align:top;border-bottom:1px solid var(--b3)}
+input[type=checkbox]{width:14px;height:14px;accent-color:var(--p);margin:2px 0 0}
+.badge{display:inline-block;border:1px solid var(--bcm);border-radius:.25rem;padding:0 6px;font-size:11px;line-height:18px;color:var(--bc);white-space:nowrap}
+.badge-ok{border-color:var(--ok)}.badge-global{border-color:var(--warn)}
+.alert{display:flex;gap:8px;align-items:center;border:1px solid color-mix(in oklab,var(--err) 40%,transparent);border-radius:.25rem;padding:8px;font-size:12px;margin:8px 0}
+.note{display:flex;gap:8px;border:1px solid color-mix(in oklab,var(--info) 50%,transparent);border-radius:.25rem;padding:8px;font-size:12px;margin:8px 0}
+.dot{width:8px;height:8px;border-radius:50%;margin-top:4px;flex:none}
+.empty{border:1px dashed var(--bcm);border-radius:.5rem;padding:14px;text-align:center;font-size:12px}
+.toast{display:inline-flex;gap:12px;align-items:center;background:var(--n);color:var(--nc);border-radius:.5rem;padding:8px 12px;font-size:12px;margin-top:8px}
+.toast .btn{color:var(--nc);border-color:var(--nc)}
+.skel{height:14px;border-radius:.25rem;background:var(--b3);margin:6px 0}
+.gal{align-items:start}
+.gcard{border:1px solid var(--b3);border-radius:.5rem;padding:10px;background:var(--b1)}
+.gt{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--bcm);margin:0 0 6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:760px){.grid2{grid-template-columns:1fr}}
+fieldset{border:0;padding:0;margin:10px 0 0}
+legend{font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--bcm);padding:0;margin-bottom:6px}
+.seg{display:inline-flex;border:1px solid var(--bcm);border-radius:.375rem;overflow:hidden}
+.seg label{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:12px;cursor:pointer}
+.seg label+label{border-left:1px solid var(--bcm)}
+.seg label:has(input:checked){background:var(--p);color:var(--pc)}
+.seg label:has(input:focus-visible){outline:2px solid var(--info);outline-offset:-2px}
+.seg input{accent-color:var(--pc)}
+.seg label:has(input:disabled){opacity:.5;cursor:not-allowed}
+.targets{display:flex;flex-wrap:wrap;gap:6px 14px}
+.targets label{display:flex;gap:4px;align-items:center;font-size:12px}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px;border:1px solid var(--b3);border-radius:.5rem;background:var(--b1);margin-top:6px}
+.mono{font-family:ui-monospace,monospace}
+.sum{font-size:12px;margin:8px 0 0}
+.n{margin-left:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar">
+    <h1>TASK_2026_853 prototype <span class="muted xs">(static; real tokens from webview tailwind.config.js)</span></h1>
+    <button class="btn btn-outline" id="theme" type="button" aria-pressed="false">Theme: dark (switch)</button>
+  </div>
+
+  <!-- ===================== SURFACE 1 ===================== -->
+  <div class="surface-label">Surface 1 - Settings, Advanced tab, under "MCP &amp; Browser"</div>
+  <section class="card" aria-labelledby="cct-h" data-testid="claude-tools-skills">
+    <h2 id="cct-h"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>Claude Code tools &amp; skills</h2>
+    <p class="xs muted" style="margin:6px 0 0">Choose which of Claude Code's own tools and skills Ptah sessions start with. Fewer items means a smaller first message and lower token use.</p>
+    <div class="note" role="note" data-testid="cct-applies-note"><span class="dot" style="background:var(--info)"></span><span>Changes apply to <strong>new sessions</strong>. Sessions that are already open keep what they started with. These settings apply to all your workspaces.</span></div>
+    <p class="sum" aria-live="polite" data-testid="cct-saving">Currently hidden: about <strong id="sum-n">3,700 tokens</strong> per new session (estimate).</p>
+
+    <h3 id="g1">Built-in tools (off by default)</h3>
+    <p class="xs muted" style="margin:0 0 4px">Turn a tool on to let agents use it. A skill that needs a tool also has its own checkbox below; both must be on.</p>
+    <div style="overflow-x:auto"><table aria-labelledby="g1">
+      <thead><tr><th class="w" scope="col" style="width:40px">On</th><th scope="col">Tool</th><th scope="col">Token cost</th><th scope="col">Description</th><th scope="col">Skills that need it</th></tr></thead>
+      <tbody>
+      <tr><td><input type="checkbox" aria-label="Workflow tool"></td><td class="xs" style="font-weight:500">Workflow</td><td><span class="badge">~1,400</span></td><td class="xs muted">Runs a saved multi-step script.</td><td class="xs muted">workflow-authoring</td></tr>
+      <tr><td><input type="checkbox" aria-label="ReportFindings tool"></td><td class="xs" style="font-weight:500">ReportFindings</td><td><span class="badge">~600</span></td><td class="xs muted">Shows code-review results as a list.</td><td class="xs muted">code-review</td></tr>
+      <tr><td><input type="checkbox" aria-label="RemoteTrigger tool"></td><td class="xs" style="font-weight:500">RemoteTrigger</td><td><span class="badge">~500</span></td><td class="xs muted">Starts a cloud routine from here.</td><td class="xs muted">None</td></tr>
+      <tr><td><input type="checkbox" aria-label="PushNotification tool"></td><td class="xs" style="font-weight:500">PushNotification</td><td><span class="badge">~400</span></td><td class="xs muted">Sends a desktop or phone notification.</td><td class="xs muted">None</td></tr>
+      </tbody></table></div>
+
+    <h3 id="g2">Terminal-only built-in skills (off by default)</h3>
+    <p class="xs muted" style="margin:0 0 4px">Skills made for the terminal version of Claude Code. Each has its own checkbox. Turning a tool on never turns a skill on.</p>
+    <div style="overflow-x:auto"><table aria-labelledby="g2">
+      <thead><tr><th scope="col" style="width:40px">On</th><th scope="col">Skill</th><th scope="col">Token cost</th><th scope="col">Description</th><th scope="col">Needs tool</th></tr></thead>
+      <tbody>
+      <tr><td><input type="checkbox" aria-label="keybindings-help skill"></td><td class="xs" style="font-weight:500">keybindings-help</td><td><span class="badge">~120</span></td><td class="xs muted">Change terminal keyboard shortcuts.</td><td class="xs muted">None</td></tr>
+      <tr><td><input type="checkbox" aria-label="update-config skill"></td><td class="xs" style="font-weight:500">update-config</td><td><span class="badge">~210</span></td><td class="xs muted">Edit Claude Code's settings file.</td><td class="xs muted">None</td></tr>
+      <tr><td><input type="checkbox" aria-label="init skill"></td><td class="xs" style="font-weight:500">init</td><td><span class="badge">~60</span></td><td class="xs muted">Create a CLAUDE.md for a project.</td><td class="xs muted">None</td></tr>
+      <tr><td><input type="checkbox" checked aria-label="workflow-authoring skill" aria-describedby="wa-dep"></td><td class="xs" style="font-weight:500">workflow-authoring</td><td><span class="badge">~300</span></td><td class="xs muted">Write a Workflow script.</td><td class="xs"><span class="badge badge-global">Workflow tool is off</span><span id="wa-dep" class="xs muted" style="display:block;margin-top:2px">This skill is on but unavailable until the Workflow tool is on.</span></td></tr>
+      <tr><td><input type="checkbox" aria-label="code-review skill"></td><td class="xs" style="font-weight:500">code-review</td><td><span class="badge">~250</span></td><td class="xs muted">Review the current diff for bugs.</td><td class="xs muted">ReportFindings (off)</td></tr>
+      </tbody></table></div>
+    <p class="xs muted" style="margin:4px 0 0">Skill rows and the tool dependencies shown here are placeholders; the architect's measured list owns the final rows and the dependency map.</p>
+
+    <h3 id="g3">Skills synced from your claude.ai account (hidden by default)</h3>
+    <p class="xs muted" style="margin:0 0 4px">Found in your Claude home folder. Turn one on to use it in new sessions.</p>
+    <div style="overflow-x:auto"><table aria-labelledby="g3">
+      <thead><tr><th scope="col" style="width:40px">On</th><th scope="col">Skill</th><th scope="col">Token cost</th><th scope="col">Description</th></tr></thead>
+      <tbody>
+      <tr><td><input type="checkbox" aria-label="pdf skill"></td><td class="xs" style="font-weight:500">pdf</td><td><span class="badge">~190</span></td><td class="xs muted">Read, merge and fill PDF files.</td></tr>
+      <tr><td><input type="checkbox" checked aria-label="docx skill"></td><td class="xs" style="font-weight:500">docx</td><td><span class="badge">~210</span></td><td class="xs muted">Create and edit Word documents.</td></tr>
+      </tbody></table></div>
+    <h3>State gallery (one compact example per state)</h3>
+    <div class="grid2 gal">
+      <div class="gcard" data-testid="cct-state-loading"><p class="gt">Loading</p>
+        <div aria-busy="true">
+          <label class="xs" style="display:flex;gap:6px;align-items:center"><input type="checkbox" disabled aria-label="Workflow tool"> Workflow <span class="muted">(disabled)</span></label>
+          <div class="skel"></div><div class="skel"></div><div class="skel"></div>
+        </div>
+        <p class="xs muted">Every checkbox disabled, 3 skeleton rows per table, headings stay.</p></div>
+      <div class="gcard" data-testid="cct-state-load-error"><p class="gt">Could not load</p>
+        <div role="alert" class="alert"><span style="flex:1">Could not load the Claude Code tool and skill settings.</span><button class="btn" type="button">Retry</button></div>
+        <p class="xs muted">Checkboxes stay disabled. No defaults are shown.</p></div>
+      <div class="gcard" data-testid="cct-state-save-error"><p class="gt">Save error (focus returns to the checkbox)</p>
+        <label class="xs" style="display:flex;gap:6px;align-items:center"><input type="checkbox" checked id="ret-cb" aria-label="docx skill" aria-describedby="save-err"> docx</label>
+        <div role="alert" class="alert" id="save-err"><span>Could not update Claude Code tools and skills.</span></div>
+        <p class="xs muted"><button class="btn btn-outline" type="button" id="ret-btn">Simulate failed save</button> The checkbox goes back to its previous value and keeps focus.</p></div>
+      <div class="gcard" data-testid="cct-state-success"><p class="gt">Saved</p>
+        <div class="toast" role="status"><span>Saved docx skill.</span><button class="btn" type="button">Undo</button></div>
+        <p class="xs muted">Undo puts docx back to its previous value (off) and saves again.</p></div>
+      <div class="gcard" data-testid="cct-state-empty"><p class="gt">No account skills (empty)</p>
+        <div class="empty" data-testid="cct-empty"><strong>No claude.ai skills found</strong><br><span class="muted">If you sync skills from your claude.ai account, they will be listed here.</span></div></div>
+    </div>
+  </section>
+
+  <!-- ===================== SURFACE 2 ===================== -->
+  <div class="surface-label">Surface 2 - Install scope on install surfaces and installed rows</div>
+  <div class="grid2">
+    <section class="card" aria-labelledby="sk-h">
+      <h2 id="sk-h">skills.sh - install panel</h2>
+      <p class="xs" style="margin:8px 0 0"><strong>acme-linter</strong> <span class="muted">owner/repo@acme-linter</span></p>
+      <fieldset aria-describedby="sk-scope-help">
+        <legend>Install to</legend>
+        <div class="seg">
+          <label><input type="radio" name="sk" checked> This workspace</label>
+          <label><input type="radio" name="sk"> All workspaces</label>
+        </div>
+        <p id="sk-scope-help" class="xs muted" style="margin:6px 0 0">Only <strong>ptah-extension</strong> will get this skill. You can make it global later.</p>
+      </fieldset>
+      <div style="margin-top:10px"><button class="btn btn-primary" type="button">Install to this workspace</button></div>
+
+      <p class="xs" style="margin:16px 0 0"><strong>State: no folder open</strong> <span class="muted">(interactive)</span></p>
+      <fieldset aria-describedby="sk-nows" id="nows">
+        <legend>Install to</legend>
+        <div class="seg"><label><input type="radio" name="sk2" id="nows-ws" disabled> This workspace</label><label><input type="radio" name="sk2" id="nows-gl"> All workspaces</label></div>
+        <p id="sk-nows" class="xs muted" role="status" style="margin:6px 0 0">Open a folder to install into a workspace, or choose All workspaces to install for every workspace.</p>
+      </fieldset>
+      <div style="margin-top:10px"><button class="btn btn-primary" type="button" id="nows-btn" disabled>Install</button></div>
+      <p class="xs muted" style="margin:6px 0 0">Nothing is selected, so Install stays disabled until you choose All workspaces. The button then reads "Install to all workspaces".</p>
+      <p class="xs" style="margin:10px 0 4px"><strong>Error shown only for an attempted workspace install</strong></p>
+      <div role="alert" class="alert"><span>No workspace is open. Nothing was installed.</span></div>
+
+      <p class="xs" style="margin:12px 0 4px"><strong>Installed rows</strong></p>
+      <div class="row"><div><span style="font-weight:500">acme-linter</span> <span class="badge n">This workspace</span></div><button class="btn btn-outline" type="button" aria-label="Make acme-linter global">Make global</button></div>
+      <div class="row"><div><span style="font-weight:500">acme-deploy</span> <span class="badge badge-global n">All workspaces</span></div><span class="xs muted">Available everywhere</span></div>
+      <div class="row"><div><span style="font-weight:500">acme-report</span> <span class="badge n">This workspace</span></div><button class="btn btn-outline" type="button" disabled><span class="muted">Working...</span></button></div>
+      <div role="alert" class="alert"><span>Could not change where acme-report is installed.</span></div>
+      <div class="toast" role="status"><span>acme-linter is now available in all workspaces.</span></div>
+      <p class="xs muted">There is no reverse action in this task.</p>
+    </section>
+
+    <section class="card" aria-labelledby="mcp-h">
+      <h2 id="mcp-h">MCP directory - install panel</h2>
+      <p class="xs" style="margin:8px 0 0"><strong>Install acme-files</strong> <span class="muted">io.example/acme-files</span></p>
+      <fieldset aria-describedby="mcp-scope-help">
+        <legend>Install for</legend>
+        <div class="seg">
+          <label><input type="radio" name="mcp" id="mcp-ws" checked> This workspace</label>
+          <label><input type="radio" name="mcp" id="mcp-gl"> All workspaces</label>
+        </div>
+        <p id="mcp-scope-help" class="xs muted" style="margin:6px 0 0">This workspace writes only project files. Tools that keep settings in your home folder need <strong>All workspaces</strong>.</p>
+      </fieldset>
+      <fieldset>
+        <legend>Install to</legend>
+        <div class="targets" id="targets">
+          <label><input type="checkbox" data-ws checked> VS Code</label>
+          <label><input type="checkbox" data-ws checked> Claude</label>
+          <label><input type="checkbox" data-ws checked> Cursor</label>
+          <label><input type="checkbox" data-ws checked> OpenCode</label>
+          <label><input type="checkbox" data-home disabled> Copilot <span class="badge badge-global">Global only</span></label>
+          <label><input type="checkbox" data-home disabled> Codex <span class="badge badge-global">Global only</span></label>
+          <label><input type="checkbox" data-home disabled> Antigravity <span class="badge badge-global">Global only</span></label>
+        </div>
+        <p class="xs muted" style="margin:6px 0 0" id="tgt-help">Global-only targets are greyed out while "This workspace" is selected.</p>
+      </fieldset>
+      <div style="margin-top:10px"><button class="btn btn-primary" type="button" id="mcp-btn">Install to 4 targets</button></div>
+      <p class="xs muted" style="margin:6px 0 0">Try the switch above: choosing All workspaces keeps today's seven targets checked. Going back to This workspace clears only the three home-folder targets; your other choices stay.</p>
+
+      <p class="xs" style="margin:16px 0 4px"><strong>Installed row</strong></p>
+      <div class="row"><div><span style="font-weight:500">acme-files</span> <span class="badge n">This workspace</span> <span class="xs muted">VS Code, Claude, Cursor, OpenCode</span></div><button class="btn btn-outline" type="button" aria-label="Make acme-files global">Make global</button></div>
+      <p class="xs muted" style="margin:8px 0 4px">State: after choosing Make global (panel opens in place)</p>
+      <div class="card" style="margin:0;background:var(--b1)" role="group" aria-labelledby="conv-h" data-testid="mcp-convert-state">
+        <p id="conv-h" class="xs" style="margin:0"><strong>Make acme-files global</strong></p>
+        <div class="note" role="note"><span class="dot" style="background:var(--info)"></span><span>Making this global also adds it to the Copilot, Codex and Antigravity files in your home folder, if you pick them.</span></div>
+        <fieldset aria-describedby="conv-help"><legend>Also add to</legend>
+          <div class="targets">
+            <label><input type="checkbox"> Copilot</label>
+            <label><input type="checkbox"> Codex</label>
+            <label><input type="checkbox"> Antigravity</label>
+          </div>
+          <p id="conv-help" class="xs muted" style="margin:6px 0 0">Nothing is added to your home folder unless you tick it. The existing project files stay as they are.</p>
+        </fieldset>
+        <div style="margin-top:10px;display:flex;gap:6px"><button class="btn btn-primary" type="button">Make global</button><button class="btn btn-outline" type="button">Cancel</button></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== SURFACE 3 ===================== -->
+  <div class="surface-label">Surface 3 - One-time migration notice (top of the main chat view; shown until seen, even if migration finished before a chat view existed)</div>
+  <section class="card" role="region" aria-labelledby="mig-h" data-testid="migration-notice" style="border-color:var(--info)">
+    <div style="display:flex;gap:10px;justify-content:space-between;align-items:flex-start">
+      <div>
+        <h2 id="mig-h" style="text-transform:none;letter-spacing:0;font-size:13px">Installed items no longer load in every workspace</h2>
+        <p class="xs" style="margin:6px 0 0">Skills and MCP servers installed earlier were shared with every workspace. Ptah has stopped sharing them. Files kept in a workspace may still be available in that workspace.</p>
+        <ul class="xs" style="margin:8px 0 0;padding-left:18px">
+          <li><strong>9</strong> shared items were retired: they no longer load in every workspace.</li>
+          <li><strong>3</strong> copies Ptah created itself were deleted.</li>
+          <li><strong>2</strong> files were kept in a workspace because you edited them or they are part of a git project. They may still be available in that workspace.</li>
+          <li><strong>2</strong> shared sources were left on disk because Ptah could not prove it created them (one skills.sh folder, one home-folder MCP entry). They are inactive in Ptah but may still be configured for other tools.</li>
+        </ul>
+        <p class="xs" style="margin:8px 0 0"><strong>To get something back:</strong> open the workspace, go to Marketplace, find the item and choose <em>Install</em>. It installs into that workspace. Pick <em>All workspaces</em> if you want it everywhere.</p>
+        <details class="xs" style="margin-top:8px"><summary style="cursor:pointer">Show the 2 files kept in a workspace</summary>
+          <ul class="mono" style="margin:6px 0 0;padding-left:18px"><li>.claude/skills/acme-notes</li><li>.claude/skills/acme-style</li></ul></details>
+        <details class="xs" style="margin-top:8px"><summary style="cursor:pointer">Show the 2 shared sources left on disk</summary>
+          <ul class="mono" style="margin:6px 0 0;padding-left:18px"><li>~/.agents/skills (skills.sh folder)</li><li>~/.codex/config.toml: acme-files (MCP entry)</li></ul></details>
+      </div>
+      <div style="display:flex;gap:6px;flex:none"><button class="btn btn-primary" type="button">Open Marketplace</button><button class="btn btn-outline" type="button">Got it</button></div>
+    </div>
+  </section>
+  <p class="xs muted">Each count is omitted when it is 0. The notice shows whenever any count is above 0, including a run that only retired shared items. Examples are hypothetical.</p>
+</div>
+<script>
+const root=document.documentElement,tb=document.getElementById('theme');
+tb.onclick=()=>{const l=root.dataset.theme==='anubis';root.dataset.theme=l?'anubis-light':'anubis';tb.textContent='Theme: '+(l?'light':'dark')+' (switch)';tb.setAttribute('aria-pressed',l)};
+const homes=()=>document.querySelectorAll('[data-home]');
+const homeMemo=[true,true,true];
+function count(){const n=document.querySelectorAll('#targets input:checked').length;document.getElementById('mcp-btn').textContent='Install to '+n+(n===1?' target':' targets')}
+function sync(){const g=document.getElementById('mcp-gl').checked;
+if(g){homes().forEach((e,i)=>{e.disabled=false;e.checked=homeMemo[i]})}
+else{homes().forEach((e,i)=>{if(!e.disabled)homeMemo[i]=e.checked;e.checked=false;e.disabled=true})}
+count();
+document.getElementById('tgt-help').textContent=g?'Home-folder targets are written only because you chose All workspaces.':'Global-only targets are greyed out while "This workspace" is selected.'}
+function total(){let t=0;document.querySelectorAll('[data-testid=claude-tools-skills] > div > table tbody tr').forEach(r=>{const c=r.querySelector('input[type=checkbox]');if(c&&!c.checked)t+=parseInt(r.querySelector('.badge').textContent.replace(/[^0-9]/g,''),10)});
+document.getElementById('sum-n').textContent=(Math.round(t/100)*100).toLocaleString('en-US')+' tokens'}
+document.querySelectorAll('[data-testid=claude-tools-skills] > div > table input[type=checkbox]').forEach(c=>c.onchange=total);
+total();
+document.querySelectorAll('input[name=mcp]').forEach(e=>e.onchange=sync);
+document.getElementById('targets').onchange=count;
+document.getElementById('nows-gl').onchange=e=>{const b=document.getElementById('nows-btn');b.disabled=!e.target.checked;b.textContent='Install to all workspaces'};
+document.getElementById('ret-btn').onclick=()=>{const c=document.getElementById('ret-cb');c.checked=!c.checked;c.focus()};
+</script>
+</body></html>

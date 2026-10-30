@@ -1,4 +1,4 @@
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { TestBed } from '@angular/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
@@ -22,6 +22,7 @@ import {
 import type {
   AskUserQuestionRequest,
   PermissionRequest,
+  SessionOrganizationSummary,
 } from '@ptah-extension/shared';
 import {
   CARD_SUMMARY_SAMPLE_MS,
@@ -31,6 +32,7 @@ import { AgentPermissionResponder } from '../../../services/agent-permission-res
 import { SessionGitStatsStore } from '../../../services/session-git-stats/session-git-stats.store';
 import { SessionGitDockOpener } from '../../../services/session-git-scope/session-git-dock-opener.service';
 import { SessionWorktreeLookup } from '../../../services/session-git-scope/session-worktree-lookup.service';
+import { SessionOrganizationCache } from '../../../services/session-organization/session-organization-cache.store';
 import {
   RAIL_TRANSCRIPT_RETENTION,
   SESSION_CARD_ACTIONS,
@@ -117,6 +119,13 @@ describe(CompactSessionCardComponent.name, () => {
     }),
   };
   const gitDockOpener = { open: jest.fn(async () => undefined) };
+  const organizations = signal<ReadonlyMap<string, SessionOrganizationSummary>>(
+    new Map(),
+  );
+  const organizationFor = jest.fn((sessionId: string) =>
+    computed(() => organizations().get(sessionId) ?? null),
+  );
+  const organizationCache = { organizationFor };
   const routingRevision = signal(0);
   const permissionTargets = new Map<string, readonly string[]>();
   const questionTargets = new Map<string, readonly string[]>();
@@ -172,6 +181,8 @@ describe(CompactSessionCardComponent.name, () => {
     trackGit.mockClear();
     releaseGit.mockClear();
     gitState.set({ kind: 'none' });
+    organizations.set(new Map());
+    organizationFor.mockClear();
     routingRevision.set(0);
     permissionTargets.clear();
     questionTargets.clear();
@@ -199,6 +210,7 @@ describe(CompactSessionCardComponent.name, () => {
           provide: SessionGitStatsStore,
           useValue: { track: trackGit, stateFor: () => gitState() },
         },
+        { provide: SessionOrganizationCache, useValue: organizationCache },
         {
           provide: AgentPermissionResponder,
           useValue: { respondSession, respondLane },
@@ -293,6 +305,194 @@ describe(CompactSessionCardComponent.name, () => {
     activity.openGit.emit();
 
     expect(gitDockOpener.open).toHaveBeenCalledWith('tab-1');
+  });
+
+  function organization(
+    overrides: Partial<SessionOrganizationSummary> = {},
+  ): SessionOrganizationSummary {
+    return {
+      priority: 'normal',
+      status: 'active',
+      pinned: false,
+      worktreePath: null,
+      branch: null,
+      parentSessionId: null,
+      forkOfSessionId: null,
+      startedBy: 'user',
+      tasks: [],
+      prLinks: [],
+      childCount: 0,
+      updatedAt: null,
+      todos: null,
+      ...overrides,
+    };
+  }
+
+  describe('organization (TASK_2026_854)', () => {
+    function activityOf(fixture: ReturnType<typeof render>) {
+      return fixture.debugElement.query(
+        By.directive(chatUi.CompactSessionActivityComponent),
+      ).componentInstance as chatUi.CompactSessionActivityComponent;
+    }
+
+    it('reads the organization of the SDK session id only', () => {
+      render(tab({ claudeSessionId: null }));
+      expect(organizationFor).not.toHaveBeenCalled();
+
+      render();
+      expect(organizationFor).toHaveBeenCalledWith('session-1');
+    });
+
+    it('passes the primary linked task to the activity and follows changes', () => {
+      organizations.set(
+        new Map([
+          [
+            'session-1',
+            organization({
+              tasks: [
+                {
+                  taskId: 'TASK_2026_100',
+                  role: 'related',
+                  source: 'user',
+                  createdAt: 1,
+                  missing: false,
+                },
+                {
+                  taskId: 'TASK_2026_854_52e8',
+                  role: 'primary',
+                  source: 'orchestrate',
+                  createdAt: 2,
+                  missing: false,
+                },
+              ],
+            }),
+          ],
+        ]),
+      );
+      const fixture = render();
+      expect(activityOf(fixture).linkedTask()).toEqual({
+        taskId: 'TASK_2026_854_52e8',
+        missing: false,
+      });
+
+      organizations.set(new Map([['session-1', organization()]]));
+      fixture.detectChanges();
+      expect(activityOf(fixture).linkedTask()).toBeNull();
+    });
+
+    it('passes the linked task to the rail card', () => {
+      organizations.set(
+        new Map([
+          [
+            'session-1',
+            organization({
+              tasks: [
+                {
+                  taskId: 'TASK_2026_001',
+                  role: 'primary',
+                  source: 'user',
+                  createdAt: 1,
+                  missing: true,
+                },
+              ],
+            }),
+          ],
+        ]),
+      );
+      const fixture = TestBed.createComponent(CompactSessionCardComponent);
+      fixture.componentRef.setInput('tab', tab());
+      fixture.componentRef.setInput('variant', 'rail');
+      fixture.detectChanges();
+      const rail = fixture.debugElement.query(
+        By.directive(chatUi.CompactRailCardComponent),
+      ).componentInstance as chatUi.CompactRailCardComponent;
+      expect(rail.linkedTask()).toEqual({
+        taskId: 'TASK_2026_001',
+        missing: true,
+      });
+    });
+
+    it('uses the host todo snapshot when the stream reports no todos', () => {
+      organizations.set(
+        new Map([
+          [
+            'session-1',
+            organization({
+              todos: {
+                done: 2,
+                total: 4,
+                inProgress: 'Writing the cache',
+                updatedAt: 5,
+              },
+            }),
+          ],
+        ]),
+      );
+      const fixture = render();
+      expect(activityOf(fixture).todos()).toEqual({
+        kind: 'known',
+        done: 2,
+        total: 4,
+        active: 'Writing the cache',
+      });
+    });
+
+    it('prefers the live todo state over the host snapshot', () => {
+      organizations.set(
+        new Map([
+          [
+            'session-1',
+            organization({
+              todos: { done: 0, total: 9, inProgress: null, updatedAt: 5 },
+            }),
+          ],
+        ]),
+      );
+      const fixture = render(
+        tab({
+          messages: [
+            {
+              id: 'reply-1',
+              role: 'assistant',
+              timestamp: 1,
+              streamingState: {
+                id: 'root',
+                type: 'message',
+                status: 'complete',
+                content: '',
+                isCollapsed: false,
+                children: [
+                  {
+                    id: 'todo-1',
+                    type: 'tool',
+                    status: 'complete',
+                    toolName: 'TodoWrite',
+                    toolInput: {
+                      todos: [
+                        {
+                          content: 'Only',
+                          activeForm: 'Doing only',
+                          status: 'completed',
+                        },
+                      ],
+                    },
+                    content: '',
+                    isCollapsed: false,
+                    children: [],
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+      expect(activityOf(fixture).todos()).toEqual({
+        kind: 'known',
+        done: 1,
+        total: 1,
+        active: null,
+      });
+    });
   });
 
   function lane(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
@@ -613,6 +813,7 @@ describe(CompactSessionCardComponent.name, () => {
           provide: SessionGitStatsStore,
           useValue: { track: trackGit, stateFor: () => gitState() },
         },
+        { provide: SessionOrganizationCache, useValue: organizationCache },
         {
           provide: AgentPermissionResponder,
           useValue: { respondSession, respondLane },

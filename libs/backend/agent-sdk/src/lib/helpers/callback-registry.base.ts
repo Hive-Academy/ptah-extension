@@ -52,3 +52,14 @@ export abstract class CallbackRegistryBase<TPayload> {
     this.emitter.emit('event', payload);
   }
 }
+
+/**
+ * The optional `agentId` of a hook fan-out payload: present only when the
+ * hook input carried a non-empty `agent_id` (the hook fired inside a
+ * subagent), absent otherwise, so main-thread payloads keep their shape.
+ */
+export function agentIdField(agentId: string | undefined): {
+  readonly agentId?: string;
+} {
+  return typeof agentId === 'string' && agentId.length > 0 ? { agentId } : {};
+}

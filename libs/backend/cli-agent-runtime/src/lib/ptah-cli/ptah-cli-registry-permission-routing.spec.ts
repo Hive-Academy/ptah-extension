@@ -118,6 +118,7 @@ function buildHarness(): {
     } as unknown as never,
     {
       assembleSpawnOptions: jest.fn().mockResolvedValue({
+        builtinPolicy: { disallowedTools: [], deniedSkillNames: [] },
         mcpServers: {},
         hooks: undefined,
         autoCompact: {},

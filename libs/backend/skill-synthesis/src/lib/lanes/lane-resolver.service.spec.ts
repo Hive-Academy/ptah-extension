@@ -123,7 +123,7 @@ describe('LaneResolverService.resolve — untouched existing installs', () => {
     // `llm.vscode.model` until TASK_2026_250, which was a VS Code Language
     // Model `vendor/family` id and belonged to no endpoint reachable here.
     const ws = makeWorkspace({
-      'provider.apiKey.selectedModel': 'workspace-pinned-model',
+      'provider.claudeCli.selectedModel': 'workspace-pinned-model',
     });
     const out = await new LaneResolverService(logger, ws, { resolve }).resolve(
       'judge',
@@ -160,7 +160,7 @@ describe('LaneResolverService.resolve — untouched existing installs', () => {
 
 describe('resolveLaneModel — the three-line ladder', () => {
   const ws = makeWorkspace({
-    'provider.apiKey.selectedModel': 'active-provider-model',
+    'provider.claudeCli.selectedModel': 'active-provider-model',
   });
 
   it('prefers an explicitly pinned lane model', () => {

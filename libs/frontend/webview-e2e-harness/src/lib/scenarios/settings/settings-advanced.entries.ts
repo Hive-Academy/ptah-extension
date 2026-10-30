@@ -7,8 +7,8 @@
  */
 import { expect, type Page } from '@playwright/test';
 import type { ReachabilityEntry } from './settings-reachability.table';
-import { getFixtureState } from './settings.fixtures';
-import { advancedTab, visibleEnabled } from './settings-drawer.reach';
+import { claudeBuiltinsBackend, getFixtureState } from './settings.fixtures';
+import { advancedTab, throughVariantBoot, visibleEnabled } from './settings-drawer.reach';
 import {
   closeDrawers, dismissToast, expectSavedThenUndo, expectWrite, isElectron, promptDetailsButton, remountTab, styleRow, throughAsvVariant, withAsvChange,
 } from './settings-advanced-search-voice.reach';
@@ -366,5 +366,32 @@ const mcpAndLm: readonly ReachabilityEntry[] = [
     }) },
 ];
 
+const claudeBuiltins: readonly ReachabilityEntry[] = [
+  { id: 'ADV-25', capability: 'Claude Code tools & skills: tools and terminal-only skills off by default, live savings, save on selection, Undo',
+    status: 'restored',
+    reach: (page) => throughVariantBoot(page, claudeBuiltinsBackend(), 'Advanced', async (p) => {
+      const cardLocator = p.locator('ptah-claude-builtins-config');
+      await expect(cardLocator).toContainText('Changes apply to new sessions.');
+      await expect(p.locator('[data-testid^="settings-toggle-claude-tool-"]')).toHaveCount(6);
+      await expect(p.locator('[data-testid^="settings-toggle-claude-skill-"]')).toHaveCount(7);
+      const savings = p.locator('[data-testid="claude-tools-savings"]');
+      await expect(savings).toContainText('about 4,000 tokens');
+      const skill = p.locator('[data-testid="settings-toggle-claude-skill-code-review"]');
+      await expect(skill).not.toBeChecked();
+      await skill.click();
+      await expect(skill).toBeChecked();
+      await expect(p.locator('[data-testid="claude-skill-dependency-code-review"]')).toHaveText('ReportFindings tool is off');
+      // code-review stays hidden while ReportFindings is off (the backend denies it), so the total does not drop.
+      await expect(savings).toContainText('about 4,000 tokens');
+      await expect(p.locator('[data-testid="settings-toast-message"]')).toHaveText('Saved code-review skill.');
+      const undo = p.locator('[data-testid="settings-toast-undo"]');
+      await visibleEnabled(undo);
+      await undo.click();
+      await expect(skill).not.toBeChecked();
+      await expect(savings).toContainText('about 4,000 tokens');
+      await dismissToast(p);
+    }) },
+];
+
 /** Every Advanced entry, in tab order. */
-export const ADVANCED_ENTRIES: readonly ReachabilityEntry[] = [...membership, ...agentBehaviour, ...outputStyle, ...mcpAndLm];
+export const ADVANCED_ENTRIES: readonly ReachabilityEntry[] = [...membership, ...agentBehaviour, ...outputStyle, ...mcpAndLm, ...claudeBuiltins];

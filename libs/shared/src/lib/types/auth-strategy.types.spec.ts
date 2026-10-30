@@ -259,9 +259,9 @@ describe('normalizeAuthMethod → resolveStrategy end-to-end', () => {
     { raw: 'thirdParty', method: 'thirdParty' },
     { raw: 'oauth', method: 'thirdParty' },
     { raw: 'openrouter', method: 'thirdParty' },
-    { raw: 'nonsense', method: 'apiKey' },
-    { raw: undefined, method: 'apiKey' },
-    { raw: 42, method: 'apiKey' },
+    { raw: 'nonsense', method: 'claudeCli' },
+    { raw: undefined, method: 'claudeCli' },
+    { raw: 42, method: 'claudeCli' },
   ];
 
   it.each(cases)('normalizes %j → $method', ({ raw, method }) => {

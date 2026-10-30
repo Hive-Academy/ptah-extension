@@ -15,13 +15,11 @@
 import * as path from 'node:path';
 import { z } from 'zod';
 import { SESSION_READ_MAX_TAIL_KIB } from '@ptah-extension/cli-agent-runtime';
+import { TaskIdSchema } from '@ptah-extension/shared/schemas';
 import { MAX_AGENT_MESSAGE_LENGTH } from './tool-description.builder';
 
 /** Deliverable paths one child may declare (same bound as `ptah_agent_spawn`). */
 export const MAX_SESSION_DELIVERABLES = 20;
-
-/** `TASK_YYYY_NNN`, optionally with the 4-hex suffix this repository's task folders carry. */
-export const SESSION_TASK_ID_PATTERN = /^TASK_\d{4}_\d{3}(_[0-9a-f]{4})?$/;
 
 /** A relative path that never climbs out of the worktree. */
 function isRelativeWithoutParent(value: string): boolean {
@@ -42,7 +40,9 @@ export const SessionStartArgsSchema = z
     branch: z.string().min(1).max(200),
     baseRef: z.string().min(1).max(200).optional(),
     label: z.string().min(1).max(60).optional(),
-    taskId: z.string().regex(SESSION_TASK_ID_PATTERN).optional(),
+    // The shared task-id grammar (TASK_2026_854 RR1-8): the host auto-link
+    // rules accept exactly the same ids.
+    taskId: TaskIdSchema.optional(),
     taskFolder: z
       .string()
       .min(1)

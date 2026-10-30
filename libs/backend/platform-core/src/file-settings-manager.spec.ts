@@ -146,6 +146,15 @@ describe('PtahFileSettingsManager', () => {
       const mgr = new PtahFileSettingsManager({ key: 'registered' });
       expect(mgr.get<string>('key', 'caller')).toBe('caller');
     });
+
+    it('has() ignores the registered default and reports a stored value', async () => {
+      const mgr = new PtahFileSettingsManager({ authMethod: 'claudeCli' });
+      expect(mgr.has('authMethod')).toBe(false);
+
+      await mgr.set('authMethod', 'claudeCli');
+
+      expect(mgr.has('authMethod')).toBe(true);
+    });
   });
 
   // -------------------------------------------------------------------------

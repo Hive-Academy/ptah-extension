@@ -1145,6 +1145,9 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
       metricsModel?: string | null;
       todos?: import('./compact-session-metrics').CompactTodoState | null;
       gitStats?: import('./compact-session-metrics').CompactGitState | null;
+      linkedTask?:
+        | import('./compact-session-metrics').CompactLinkedTask
+        | null;
     } = {},
   ) {
     const fixture = TestBed.createComponent(CompactSessionActivityComponent);
@@ -1169,6 +1172,7 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
     fixture.componentRef.setInput('elapsed', inputs.elapsed ?? null);
     fixture.componentRef.setInput('todos', inputs.todos ?? null);
     fixture.componentRef.setInput('gitStats', inputs.gitStats ?? null);
+    fixture.componentRef.setInput('linkedTask', inputs.linkedTask ?? null);
     fixture.detectChanges();
     return fixture;
   }
@@ -1214,6 +1218,34 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
     expect(zone(root, 'lanes')).toBeNull();
     expect(zone(root, 'now')).toBeNull();
     expect(root.querySelector('section')?.classList).not.toContain('cs-board');
+  });
+
+  it('shows the linked task on the sub line', () => {
+    const root = renderBoard({
+      branch: 'feat/x',
+      linkedTask: { taskId: 'TASK_2026_854_52e8', missing: false },
+    }).nativeElement as HTMLElement;
+
+    const task = root.querySelector<HTMLElement>(
+      '[data-zone="sub"] [data-testid="compact-linked-task"]',
+    );
+    expect(task?.textContent?.trim()).toBe('TASK_2026_854_52e8');
+    expect(task?.getAttribute('title')).toBe('Linked task TASK_2026_854_52e8');
+    expect(task?.classList).not.toContain('line-through');
+  });
+
+  it('strikes through a linked task whose folder is missing', () => {
+    const root = renderBoard({
+      linkedTask: { taskId: 'TASK_2026_001', missing: true },
+    }).nativeElement as HTMLElement;
+
+    const task = root.querySelector<HTMLElement>(
+      '[data-testid="compact-linked-task"]',
+    );
+    expect(task?.classList).toContain('line-through');
+    expect(task?.getAttribute('aria-label')).toBe(
+      'Linked task TASK_2026_001 (folder missing)',
+    );
   });
 
   it('shows placeholders when a zone has no data', () => {

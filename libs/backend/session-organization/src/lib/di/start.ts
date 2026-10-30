@@ -20,48 +20,75 @@ import {
   type IDisposable,
   type IOutputChannel,
 } from '@ptah-extension/platform-core';
+import type { InjectionToken } from 'tsyringe';
 import { SessionOrganizationCaptureService } from '../session-organization-capture.service';
+import { SessionAutoLinkService } from '../session-auto-link.service';
+import { SessionTodoProgressService } from '../session-todo-progress.service';
 
 const LOG_PREFIX = '[SessionOrganization]';
 
 /** Returned whenever there is nothing to release. */
 const NOOP_DISPOSABLE: IDisposable = { dispose: () => undefined };
 
+/** A host-wide subscriber this entry point starts. */
+interface Startable {
+  start(): void;
+  dispose(): void;
+}
+
+/** Started in this order, disposed in reverse. */
+const PARTS: ReadonlyArray<{
+  name: string;
+  token: InjectionToken<Startable>;
+}> = [
+  { name: 'capture', token: SessionOrganizationCaptureService },
+  { name: 'auto-link', token: SessionAutoLinkService },
+  { name: 'todo progress', token: SessionTodoProgressService },
+];
+
 /**
- * Start the host-wide capture subscriptions.
+ * Start the host-wide subscriptions: capture, then auto-link, then todo
+ * progress. A part that is not registered or fails to start is reported in
+ * one line; the others still start.
  *
- * @returns a disposable that releases them. Hosts may ignore it — the
- *   subscriptions are host-lifetime by design.
+ * @returns a disposable that releases the started parts in reverse order.
+ *   Hosts may ignore it — the subscriptions are host-lifetime by design.
  */
 export function startSessionOrganization(
   container: DependencyContainer,
 ): IDisposable {
-  if (!container.isRegistered(SessionOrganizationCaptureService, true)) {
-    report(
-      container,
-      'capture not started: the capture service is not registered in this container',
-    );
-    return NOOP_DISPOSABLE;
+  const started: Array<{ name: string; part: Startable }> = [];
+  for (const { name, token } of PARTS) {
+    if (!container.isRegistered(token, true)) {
+      report(
+        container,
+        `${name} not started: its service is not registered in this container`,
+      );
+      continue;
+    }
+    try {
+      const part = container.resolve(token);
+      part.start();
+      started.push({ name, part });
+    } catch (error: unknown) {
+      report(container, `${name} not started (non-fatal): ${describe(error)}`);
+    }
   }
-  try {
-    const capture = container.resolve(SessionOrganizationCaptureService);
-    capture.start();
-    return { dispose: () => disposeCapture(container, capture) };
-  } catch (error: unknown) {
-    report(container, `capture not started (non-fatal): ${describe(error)}`);
-    return NOOP_DISPOSABLE;
-  }
+  if (started.length === 0) return NOOP_DISPOSABLE;
+  return { dispose: () => disposeAll(container, started) };
 }
 
-/** Release the subscriptions; a failure is reported, never thrown into host shutdown. */
-function disposeCapture(
+/** Release in reverse start order; a failure is reported, never thrown. */
+function disposeAll(
   container: DependencyContainer,
-  capture: SessionOrganizationCaptureService,
+  started: ReadonlyArray<{ name: string; part: Startable }>,
 ): void {
-  try {
-    capture.dispose();
-  } catch (error: unknown) {
-    report(container, `capture dispose failed (non-fatal): ${describe(error)}`);
+  for (const { name, part } of [...started].reverse()) {
+    try {
+      part.dispose();
+    } catch (error: unknown) {
+      report(container, `${name} dispose failed (non-fatal): ${describe(error)}`);
+    }
   }
 }
 

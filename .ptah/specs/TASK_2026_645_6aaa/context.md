@@ -57,3 +57,11 @@ During the Part A recording, also record main-process private bytes and handle
 count (`Win32_Process`) at 0, 10 and 30 min. If the main process still grows,
 record the numbers here and open a separate BUGFIX task for the root cause.
 If it stays flat, close this part with the numbers.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane grok, verified by Claude).
+
+- #730 (c57a9a1e7) replaced the Grid board with the Rail board; the `ptah-canvas-tile` / gridstack-item tree this task's hot-spot-7 check names is gone (only stale comments mention gridstack, e.g. `main:libs/frontend/chat/src/lib/components/templates/app-shell.component.ts:94`).
+- The Rail board keeps a pane marked `data-testid="canvas-tile"` (`libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.*`).
+- No measurements.md exists in this folder.

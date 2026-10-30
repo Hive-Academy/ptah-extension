@@ -170,6 +170,15 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
         input.agentId,
         input.role,
         policy,
+        // A named child reads skills from its certified cwd, config dir and
+        // setting sources; the built-in skill guard must scan those (R1, R2).
+        named
+          ? {
+              cwd: named.certified?.cwd,
+              claudeConfigDir: named.route.canonicalConfigDir,
+              settingSources: named.certified?.settingSources,
+            }
+          : undefined,
       );
       const agentIdHolder = { value: input.agentId };
       const options = buildClaudeSdkLaneOptions({
@@ -373,7 +382,8 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
       if (
         stored &&
         (selected.kind === 'ambient' ||
-          (selected.kind === 'named' && selected.profileId !== stored.profileId))
+          (selected.kind === 'named' &&
+            selected.profileId !== stored.profileId))
       )
         throw claudeLaneRefusal('conflict');
       if (!stored && selected.kind !== 'named') throw claudeLaneRefusal();
