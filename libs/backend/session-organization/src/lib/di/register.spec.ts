@@ -12,6 +12,9 @@ import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { SessionOrganizationStore } from '../session-organization.store';
 import { SessionOrganizationService } from '../session-organization.service';
 import { SessionOrganizationCaptureService } from '../session-organization-capture.service';
+import { SessionAutoLinkStore } from '../session-auto-link.store';
+import { SessionAutoLinkService } from '../session-auto-link.service';
+import { SessionTodoProgressService } from '../session-todo-progress.service';
 import { registerSessionOrganizationServices } from './register';
 import { SESSION_ORGANIZATION_TOKENS } from './tokens';
 
@@ -34,6 +37,15 @@ function withHostDependencies(options: {
   c.register(SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY, {
     useValue: { register: jest.fn(() => () => undefined) },
   });
+  c.register(SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY, {
+    useValue: { register: jest.fn(() => () => undefined) },
+  });
+  c.register(SDK_TOKENS.SDK_USER_PROMPT_EXPANSION_REGISTRY, {
+    useValue: { register: jest.fn(() => () => undefined) },
+  });
+  c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
+    useValue: { exists: jest.fn(), readFile: jest.fn() },
+  });
   c.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, {
     useValue: createMockOutputChannel(),
   });
@@ -55,6 +67,33 @@ describe('registerSessionOrganizationServices', () => {
     ).toBe(false);
     expect(c.isRegistered(SessionOrganizationCaptureService, true)).toBe(false);
     expect(c.isRegistered(SessionOrganizationService, true)).toBe(false);
+    expect(
+      c.isRegistered(SESSION_ORGANIZATION_TOKENS.AUTO_LINK_STORE, true),
+    ).toBe(false);
+    expect(c.isRegistered(SESSION_ORGANIZATION_TOKENS.SIDE_TABLES, true)).toBe(
+      false,
+    );
+    expect(c.isRegistered(SessionAutoLinkService, true)).toBe(false);
+    expect(c.isRegistered(SessionTodoProgressService, true)).toBe(false);
+  });
+
+  it('binds the auto-link store as the side tables and both new services', () => {
+    const c = withHostDependencies({ connection: true });
+
+    registerSessionOrganizationServices(c);
+
+    const autoStore = c.resolve(SESSION_ORGANIZATION_TOKENS.AUTO_LINK_STORE);
+    expect(autoStore).toBeInstanceOf(SessionAutoLinkStore);
+    expect(c.resolve(SESSION_ORGANIZATION_TOKENS.SIDE_TABLES)).toBe(autoStore);
+    expect(c.resolve(SessionAutoLinkService)).toBeInstanceOf(
+      SessionAutoLinkService,
+    );
+    expect(c.resolve(SessionAutoLinkService)).toBe(
+      c.resolve(SessionAutoLinkService),
+    );
+    expect(c.resolve(SessionTodoProgressService)).toBeInstanceOf(
+      SessionTodoProgressService,
+    );
   });
 
   it('binds store, service, capture service and recorder with the connection', () => {

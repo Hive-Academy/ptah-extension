@@ -21,6 +21,7 @@ export * from './lib/types/branded.schemas';
 export * from './lib/types/permission.schemas';
 export * from './lib/types/sdk-hook.schemas';
 export * from './lib/types/task-view.schemas';
+export * from './lib/types/task-id.schema';
 export * from './lib/types/task-filter.schemas';
 export * from './lib/types/task-saved-view.schemas';
 export * from './lib/types/claude-domain.schemas';
