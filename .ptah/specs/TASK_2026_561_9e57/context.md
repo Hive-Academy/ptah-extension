@@ -234,3 +234,12 @@ Backlog audit after the October refactors: partly delivered, still open.
 ## Retired sources (2026-10-30)
 
 This task cites `TASK_2026_406`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane kimi-code, verified by Claude).
+
+- Track A delivered: #634, #647 (CompactionCoordinator at `main:libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-coordinator.ts`), idle compaction #755. B2 delivered (tree-sitter-tsx in workspace-intelligence).
+- Open Track A items (E2 experiment, Codex TOML writer, compaction RPC) are owned by TASK_2026_634_daec.
+
+Remaining scope: Track B items B1 (reducer KI-2b/2c/2d), B3 enrich_file, B4 dependency graph, B5 symbol index, B6 MCP transport, B7 release checks, B8 workspace_analyze, B9.

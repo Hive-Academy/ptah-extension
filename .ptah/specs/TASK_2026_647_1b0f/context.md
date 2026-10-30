@@ -74,3 +74,10 @@ Backlog audit after the October refactors: partly delivered, still open.
 
 - Still open: The epic stays open only for its remaining children: TASK_2026_651 (analysis phases as tracked chat sessions), TASK_2026_680 (sidebar opens builder page) and TASK_2026_682 (649 review leftovers).
 - Evidence on main: Phase 1 TASK_2026_648 is done; phase 2 TASK_2026_649 merged in PR #736 (01cc3bc2a builders on shared chat); phase 3 TASK_2026_650 merged in PR #763; manifest v4 + freshness + self-gathering generation merged in PR #732 (TASK_2026_652). Children TASK_2026_651, TASK_2026_680, TASK_2026_682 are still backlog.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane grok, verified by Claude).
+
+- On main: session embed + workflow tabs #733; builder pages on chat sessions #736 (3c153c574); Setup Hub chat sessions / manifest v4 #732 (4eef18165); wizard generation in chat tabs #763 (7184f66ac).
+- Remaining: children TASK_2026_651_2fb8, TASK_2026_680_bc6c and the TASK_2026_649 review leftovers (TASK_2026_682_f705).
