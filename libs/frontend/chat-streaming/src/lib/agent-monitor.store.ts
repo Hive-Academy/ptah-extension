@@ -1036,12 +1036,6 @@ export class AgentMonitorStore implements OnDestroy {
   );
 
   /**
-   * Shared tick signal incremented every 1s while agents are running.
-   * Agent cards derive elapsed time from this instead of per-card setInterval.
-   */
-  readonly tick = signal(0);
-  private _tickInterval: ReturnType<typeof setInterval> | null = null;
-  /**
    * All agents, newest first.
    *
    * The ORDER is an invariant of `_agents` itself — every insertion goes
@@ -1280,7 +1274,6 @@ export class AgentMonitorStore implements OnDestroy {
   readonly panelOpenRequest = this._panelOpenRequest.asReadonly();
 
   ngOnDestroy(): void {
-    this.stopTick();
     this.historyCandidates.clear();
     this._historyCandidates.set([]);
     // Apply queued output before teardown so the last deltas are not lost;
@@ -1293,35 +1286,6 @@ export class AgentMonitorStore implements OnDestroy {
     this._pendingBackgroundIdentity.clear();
   }
 
-  private startTick(): void {
-    if (this._tickInterval) return;
-    this._tickInterval = setInterval(() => {
-      this.tick.update((t) => t + 1);
-    }, 1000);
-  }
-
-  private stopTick(): void {
-    if (this._tickInterval) {
-      clearInterval(this._tickInterval);
-      this._tickInterval = null;
-    }
-  }
-
-  /** Start or stop tick based on whether any agents are running */
-  private syncTick(): void {
-    let hasRunning = false;
-    for (const a of this._agents()) {
-      if (a.status === 'running') {
-        hasRunning = true;
-        break;
-      }
-    }
-    if (hasRunning) {
-      this.startTick();
-    } else {
-      this.stopTick();
-    }
-  }
   togglePanel(): void {
     this._panelOpen.update((v) => !v);
   }
@@ -1547,7 +1511,6 @@ export class AgentMonitorStore implements OnDestroy {
       this._panelOpen.set(true);
     }
 
-    this.syncTick();
   }
 
   /**
@@ -1750,7 +1713,6 @@ export class AgentMonitorStore implements OnDestroy {
       return this.evictOldCompletedAgents(next);
     });
 
-    this.syncTick();
   }
 
   /**
@@ -2134,7 +2096,6 @@ export class AgentMonitorStore implements OnDestroy {
       return next ?? map;
     });
     this.dropUnmatchedSubagentEntries(sessionId);
-    this.syncTick();
   }
 
   /**
@@ -2236,7 +2197,6 @@ export class AgentMonitorStore implements OnDestroy {
       this._userExplicitlyClosed = false;
     }
 
-    this.syncTick();
   }
 
   /**
@@ -2256,7 +2216,6 @@ export class AgentMonitorStore implements OnDestroy {
       this._userExplicitlyClosed = false;
     }
 
-    this.syncTick();
   }
 
   /**
