@@ -84,6 +84,9 @@ describe('inactive SDK persona resume', () => {
       },
       subagentRegistry: {
         restoreResumableBySession: jest.fn().mockReturnValue(0),
+        hydrateResumeState: jest.fn().mockReturnValue(0),
+        isResumeStateHydrated: jest.fn().mockReturnValue(true),
+        getInterruptedBySession: jest.fn().mockReturnValue([]),
         registerFromHistoryEvents: jest.fn().mockReturnValue(0),
         getResumableBySession: jest.fn().mockReturnValue([]),
       },

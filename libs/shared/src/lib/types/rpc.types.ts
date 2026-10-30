@@ -12,7 +12,10 @@ export * from './rpc/rpc-chat.types';
 export * from './rpc/rpc-attention.types';
 export * from './rpc/rpc-session.types';
 export * from './rpc/rpc-analytics.types';
-import type { UsageSummary, UsageSummaryParams } from './rpc/rpc-analytics.types';
+import type {
+  UsageSummary,
+  UsageSummaryParams,
+} from './rpc/rpc-analytics.types';
 import type { WorkspaceListRecentResult } from './rpc/rpc-workspace.types';
 export * from './rpc/rpc-config.types';
 export * from './rpc/rpc-auth.types';
@@ -138,6 +141,8 @@ import type {
   ChatPendingQuestionsResult,
   ChatRunningAgentsParams,
   ChatRunningAgentsResult,
+  ChatDismissResumableSubagentsParams,
+  ChatDismissResumableSubagentsResult,
   ChatAgentSessionsParams,
   ChatAgentSessionsResult,
 } from './rpc/rpc-chat.types';
@@ -1288,6 +1293,10 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
   'chat:subagent-query': {
     params: SubagentQueryParams;
     result: SubagentQueryResult;
+  };
+  'chat:dismiss-resumable-subagents': {
+    params: ChatDismissResumableSubagentsParams;
+    result: ChatDismissResumableSubagentsResult;
   };
   'subagent:send-message': {
     params: SubagentSendMessageParams;
@@ -3337,6 +3346,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'provider:setAccountDefault': true,
   'provider:getAmbientClaudeStatus': true,
   'chat:subagent-query': true,
+  'chat:dismiss-resumable-subagents': true,
   'subagent:send-message': true,
   'subagent:stop': true,
   'subagent:interrupt': true,

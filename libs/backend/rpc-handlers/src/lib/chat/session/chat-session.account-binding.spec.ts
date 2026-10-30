@@ -202,6 +202,9 @@ function harness(bound = false) {
     history as unknown as Args[6],
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),
+      hydrateResumeState: jest.fn().mockReturnValue(0),
+      isResumeStateHydrated: jest.fn().mockReturnValue(true),
+      getInterruptedBySession: jest.fn().mockReturnValue([]),
       registerFromHistoryEvents: jest.fn(),
       getResumableBySession: jest.fn().mockReturnValue([]),
     } as unknown as Args[7],
@@ -226,7 +229,12 @@ function harness(bound = false) {
     {
       injectInterruptedAgentsContext: jest
         .fn()
-        .mockImplementation(async (prompt: string) => ({ prompt })),
+        .mockImplementation(async (prompt: string) => ({
+          prompt,
+          injected: false,
+          commit: async () => undefined,
+          release: () => undefined,
+        })),
     } as unknown as Args[15],
     router,
     createMockModelSettings(),

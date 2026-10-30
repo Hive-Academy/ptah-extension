@@ -572,13 +572,65 @@ export class ChatSessionService {
   private subscribeToSessionEnd(): void {
     this.sessionEndEvents.register(({ sessionId, workspaceRoot }) => {
       this.pendingLineage.delete(sessionId);
-      const resumableSdkSubagents =
-        this.subagentRegistry.getResumableBySession(sessionId);
-      return this.sessionMetadataStore.saveResumeState(sessionId, {
-        workingDirectory: workspaceRoot,
-        resumableSdkSubagents,
-      });
+      // `notifyAll` does not await subscribers, and shutdown flushes the
+      // metadata write queue right after it. So in the normal case (the
+      // registry already holds the session's durable state: a new session,
+      // or one chat:resume / chat:continue loaded) the write is queued
+      // synchronously, before this callback returns.
+      if (this.subagentRegistry.isResumeStateHydrated(sessionId)) {
+        return this.saveSessionEndResumeState(sessionId, workspaceRoot);
+      }
+      // Cold registry: `saveResumeState` REPLACES the durable list, so load it
+      // first. If it cannot be loaded, the stored list is left as it is rather
+      // than overwritten by a partial one.
+      return this.ensureResumeStateHydrated(sessionId).then((hydrated) =>
+        hydrated
+          ? this.saveSessionEndResumeState(sessionId, workspaceRoot)
+          : undefined,
+      );
     });
+  }
+
+  /** Queue the session-end write of the durable resume state. */
+  private saveSessionEndResumeState(
+    sessionId: string,
+    workspaceRoot: string,
+  ): Promise<void> {
+    // Dismissed records are still owed one injection, so they stay durable.
+    return this.sessionMetadataStore.saveResumeState(sessionId, {
+      workingDirectory: workspaceRoot,
+      resumableSdkSubagents:
+        this.subagentRegistry.getInterruptedBySession(sessionId),
+    });
+  }
+
+  /**
+   * Load the session's durable resume state (retired ids and the interrupted
+   * subagent snapshot) into the registry once per process. chat:resume does
+   * this as part of loading history; chat:continue, session end and abort
+   * call this so they never act on, or persist, a registry that has not seen
+   * the snapshot (a follow-up sent after a restart, before chat:resume).
+   *
+   * @returns Whether the registry now holds the session's durable state. A
+   *   failed metadata read is logged and answers `false`; callers then skip
+   *   anything that would replace the durable list.
+   */
+  private async ensureResumeStateHydrated(sessionId: string): Promise<boolean> {
+    if (this.subagentRegistry.isResumeStateHydrated(sessionId)) return true;
+    try {
+      const metadata = await this.sessionMetadataStore.get(sessionId);
+      this.subagentRegistry.hydrateResumeState(sessionId, {
+        retiredToolCallIds: metadata?.retiredSubagentToolCallIds,
+        resumableSdkSubagents: metadata?.resumableSdkSubagents,
+      });
+      return true;
+    } catch (error) {
+      this.logger.error(
+        '[RPC] Could not load durable subagent resume state',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return false;
+    }
   }
 
   /** Push one session's MCP picture. Never throws into the SDK's path. */
@@ -1441,46 +1493,60 @@ export class ChatSessionService {
         }
         return slashResult;
       }
-      const { prompt: enhancedPrompt } =
+      // After a restart the session's interrupted agents may live only in
+      // metadata (no chat:resume yet); load them before deciding what to inject.
+      await this.ensureResumeStateHydrated(sessionId);
+      const injection =
         await this.subagentContextInjector.injectInterruptedAgentsContext(
           prompt,
           sessionId,
           workspacePath,
         );
-      if (!justResumed && hasStopIntent(prompt)) {
-        const autopilotEnabled = this.configManager.getWithDefault<boolean>(
-          'autopilot.enabled',
-          false,
-        );
-        const permissionLevel = this.configManager.getWithDefault<string>(
-          'autopilot.permissionLevel',
-          'ask',
-        );
-        if (
-          autopilotEnabled &&
-          (permissionLevel === 'yolo' || permissionLevel === 'auto-edit')
-        ) {
-          this.logger.info(
-            'RPC: chat:continue - stop intent detected, interrupting current turn',
-            { sessionId, permissionLevel, prompt: prompt.substring(0, 80) },
+      const enhancedPrompt = injection.prompt;
+      // Injected agents are retired only once the prompt was accepted. Any
+      // early return or throw below hands them back, still resumable.
+      let sent = false;
+      try {
+        if (!justResumed && hasStopIntent(prompt)) {
+          const autopilotEnabled = this.configManager.getWithDefault<boolean>(
+            'autopilot.enabled',
+            false,
           );
-          const interrupted =
-            await this.sdkAdapter.interruptCurrentTurn(sessionId);
-          if (!interrupted) {
-            return {
-              success: false,
-              error:
-                'The current turn could not be interrupted safely. Your follow-up was not sent. Retry to resume the session.',
-            };
+          const permissionLevel = this.configManager.getWithDefault<string>(
+            'autopilot.permissionLevel',
+            'ask',
+          );
+          if (
+            autopilotEnabled &&
+            (permissionLevel === 'yolo' || permissionLevel === 'auto-edit')
+          ) {
+            this.logger.info(
+              'RPC: chat:continue - stop intent detected, interrupting current turn',
+              { sessionId, permissionLevel, prompt: prompt.substring(0, 80) },
+            );
+            const interrupted =
+              await this.sdkAdapter.interruptCurrentTurn(sessionId);
+            if (!interrupted) {
+              return {
+                success: false,
+                error:
+                  'The current turn could not be interrupted safely. Your follow-up was not sent. Retry to resume the session.',
+              };
+            }
           }
         }
+        const images = params.images ?? [];
+        await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
+          files,
+          images,
+          clientMessageId: params.clientMessageId,
+        });
+        sent = true;
+      } finally {
+        if (!sent) injection.release();
       }
-      const images = params.images ?? [];
-      await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
-        files,
-        images,
-        clientMessageId: params.clientMessageId,
-      });
+      // Only now has the model actually been told about them.
+      await injection.commit();
 
       return { success: true, sessionId, enqueued: true };
     } catch (error) {
@@ -1554,11 +1620,19 @@ export class ChatSessionService {
       // Recompute the stage from the resume figure (N7); no stats, no budget.
       const budget = this.sessionBudget?.observeLoaded(stats ?? null);
 
-      const restoredFromMetadata =
-        this.subagentRegistry.restoreResumableBySession(
-          sessionId,
-          metadata?.resumableSdkSubagents ?? [],
-        );
+      // Retired agents were already described to the model once; hydration
+      // marks them before restoring the snapshot or replaying history. The
+      // in-memory injected set does not survive a restart, and the history
+      // registrar would otherwise re-register them from their unmatched
+      // agent_start events. Always re-applied here (not only once per
+      // process): the injected set is TTL-pruned.
+      const restoredFromMetadata = this.subagentRegistry.hydrateResumeState(
+        sessionId,
+        {
+          retiredToolCallIds: metadata?.retiredSubagentToolCallIds,
+          resumableSdkSubagents: metadata?.resumableSdkSubagents,
+        },
+      );
       if (restoredFromMetadata > 0) {
         this.logger.info(
           '[RPC] Restored interrupted SDK agents from session metadata',
@@ -1578,8 +1652,6 @@ export class ChatSessionService {
           registeredCount: registeredFromHistory,
         });
       }
-      const resumableSubagents =
-        this.subagentRegistry.getResumableBySession(sessionId);
       let cliSessions: CliSessionReference[] | undefined;
       try {
         // Lean references only (TASK_2026_411): no segments or stream events.
@@ -1614,7 +1686,8 @@ export class ChatSessionService {
         eventCount: fullEvents.length,
         hasStats: !!stats,
         totalCost: stats?.totalCost,
-        resumableSubagentCount: resumableSubagents.length,
+        resumableSubagentCount:
+          this.subagentRegistry.getResumableBySession(sessionId).length,
         cliSessionCount: cliSessions?.length ?? 0,
       });
       let activated = false;
@@ -1659,6 +1732,10 @@ export class ChatSessionService {
         }
       }
 
+      // Read after every await above, so a dismiss (or an injection by a
+      // concurrent chat:continue) that landed meanwhile is respected.
+      const resumableSubagents =
+        this.subagentRegistry.getResumableBySession(sessionId);
       const page = params.historyPage
         ? selectHistoryPage(fullEvents, {
             endIndex: fullEvents.length,
@@ -1755,9 +1832,16 @@ export class ChatSessionService {
       // nothing changed this call, and the registry may simply never have
       // restored that list (a tab restored after a restart and closed
       // unopened), so writing its snapshot would wipe resumable agents.
-      if (hadLiveRecord) {
+      // Dismissed records are hidden from the reply below but still owed one
+      // injection, so the durable list keeps them.
+      if (
+        hadLiveRecord &&
+        (await this.ensureResumeStateHydrated(sessionId as string))
+      ) {
         await this.sessionMetadataStore.saveResumeState(sessionId, {
-          resumableSdkSubagents: resumableSubagents,
+          resumableSdkSubagents: this.subagentRegistry.getInterruptedBySession(
+            sessionId as string,
+          ),
         });
       }
 
