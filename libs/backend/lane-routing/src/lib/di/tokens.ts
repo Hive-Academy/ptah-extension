@@ -31,6 +31,8 @@ export const LANE_ROUTING_TOKENS = {
    * token onto this one.
    */
   FAILURE_CLASSIFIER: Symbol.for('LaneRoutingFailureClassifier'),
+  /** Lib-owned task-kind classifier. */
+  TASK_KIND_CLASSIFIER: Symbol.for('LaneRoutingTaskKindClassifier'),
   /** Lib-owned structural logger (`LaneRoutingLogger`). */
   LOGGER: Symbol.for('LaneRoutingLogger'),
 } as const;

@@ -30,6 +30,7 @@ import type { LaneRoutingLogger } from '../lane-routing-logger';
 import { CapabilityMatrixStore } from '../matrix/capability-matrix.store';
 import { RotationStore } from '../ranking/rotation.store';
 import { RouteDecideService } from '../route-decide.service';
+import { DecisionModelTaskKindClassifier } from '../task-kind/decision-model-task-kind-classifier';
 import { LANE_ROUTING_TOKENS } from './tokens';
 
 /**
@@ -144,6 +145,22 @@ export function registerLaneRoutingServices(
         LANE_ROUTING_TOKENS.STRUCTURED_DECISION,
       );
       return new DecisionModelFailureClassifier({
+        config: c.resolve<DecisionModelConfig>(
+          LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+        ),
+        logger: c.resolve<LaneRoutingLogger>(LANE_ROUTING_TOKENS.LOGGER),
+        ...(structured !== undefined ? { structured } : {}),
+      });
+    }),
+  });
+
+  container.register(LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER, {
+    useFactory: instanceCachingFactory((c) => {
+      const structured = optional<StructuredDecisionCompleter>(
+        c,
+        LANE_ROUTING_TOKENS.STRUCTURED_DECISION,
+      );
+      return new DecisionModelTaskKindClassifier({
         config: c.resolve<DecisionModelConfig>(
           LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
         ),
