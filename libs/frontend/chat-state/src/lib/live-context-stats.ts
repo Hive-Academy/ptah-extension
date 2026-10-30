@@ -1,5 +1,7 @@
 import {
+  contextFillPercent,
   normalizeModelKey,
+  trustedContextWindow,
   type SessionStatsLiveContext,
 } from '@ptah-extension/shared';
 import type { LiveModelStatsPayload } from './tab-state.types';
@@ -28,26 +30,14 @@ export function contextFillStats(
     return null;
   }
   const capacity = prior.contextCapacity;
-  const contextWindow =
-    capacity &&
-    capacity.model === prior.model &&
-    (capacity.source === 'sdk-native' ||
-      (capacity.source === 'provider-catalog' &&
-        typeof capacity.providerId === 'string' &&
-        capacity.providerId.length > 0)) &&
-    typeof capacity.tokens === 'number' &&
-    Number.isFinite(capacity.tokens) &&
-    capacity.tokens > 0
-      ? capacity.tokens
-      : 0;
+  const contextWindow = trustedContextWindow(capacity, prior.model) ?? 0;
   return {
     model: prior.model,
     contextKnown: true,
     contextCapacity: capacity,
     contextUsed: tokens,
     contextWindow,
-    contextPercent:
-      contextWindow > 0 ? Math.round((tokens / contextWindow) * 1000) / 10 : 0,
+    contextPercent: contextFillPercent(tokens, contextWindow) ?? 0,
   };
 }
 
