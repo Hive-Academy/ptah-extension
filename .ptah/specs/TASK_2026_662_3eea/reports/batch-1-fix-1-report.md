@@ -1,3 +1,0 @@
-- `libs/backend/persistence-sqlite/src/lib/migrations/0044_memory_lifecycle.spec.ts:70-72` ? added TASK_2026_662 comment and raised max migration ratchet to 56.
-- `libs/backend/persistence-sqlite/src/lib/migrations/0046_memory_merge_subject_index.spec.ts:35-37` ? added TASK_2026_662 comment and raised max migration ratchet to 56.
-- Other max-version assertions pinned to 55 in migration specs: none.
