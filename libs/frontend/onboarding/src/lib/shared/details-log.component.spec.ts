@@ -202,6 +202,18 @@ describe('DetailsLogComponent', () => {
     expect(
       (el.querySelector('[data-testid="details-log-counts"]') as HTMLElement)
         .textContent,
-    ).toMatch(/142 events:\s*31 text,\s*12 thinking,\s*88 tool,\s*0 errors/);
+    ).toMatch(/142 events:\s*31 texts,\s*12 thinking,\s*88 tools,\s*0 errors/);
+  });
+
+  it('pluralizes stream counts and keeps a disclosure chevron', () => {
+    const el = render('analysis');
+    fixture.componentRef.setInput('streamCounts', { total: 1, text: 2, thinking: 1, tool: 1, errors: 1 });
+    fixture.detectChanges();
+    const summary = el.querySelector('summary') as HTMLElement;
+    expect(summary.textContent).toMatch(/1 event:\s*2 texts,\s*1 thinking,\s*1 tool,\s*1 error/);
+    expect(summary.querySelector('lucide-angular')).not.toBeNull();
+    expect(summary.querySelector('.whitespace-nowrap')?.textContent).toContain('Details log');
+    openLog(el);
+    expect(summary.querySelector('lucide-angular')?.className).toContain('rotate-180');
   });
 });

@@ -118,7 +118,7 @@ export class AnalysisStepStore {
         ...(typeof row['icon'] === 'string' ? { icon: row['icon'] } : {}) }];
     });
   }
-  async submit(binding: SetupGenerationTabBinding, decisions?: BoundAgentDecisions): Promise<{ runId: string } | { rejection: SetupGenerationRejection } | { error: string }> {
+  async submit(binding: SetupGenerationTabBinding, decisions?: BoundAgentDecisions, agentIds: readonly string[] = [...this.selectionValue()]): Promise<{ runId: string } | { rejection: SetupGenerationRejection } | { error: string }> {
     this.generation.bind(binding);
     const bound = this.generation.binding();
     if (bound?.tabId !== binding.tabId || bound.workspacePath !== binding.workspacePath || bound.workflow !== binding.workflow)
@@ -126,7 +126,7 @@ export class AnalysisStepStore {
     const previous = this.generation.acceptedRun();
     const previousRejection = this.generation.rejection();
     const previousError = this.generation.startError();
-    await this.generation.startAgents([...this.selectionValue()], decisions);
+    await this.generation.startAgents([...agentIds], decisions);
     const accepted = this.generation.acceptedRun();
     if (accepted && (!previous || accepted.runId !== previous.runId || accepted.revision !== previous.revision)) return { runId: accepted.runId };
     const rejection = this.generation.rejection();

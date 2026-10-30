@@ -52,3 +52,32 @@ Serious/critical: only `color-contrast` on `.btn-link` (D9). Moderate, repeated 
 ## Verdict
 
 REVISE. No blocking layout breakage, but five Serious defects (D1, D2, D3, D8 to confirm, D9) plus spec deviations (D5, D4).
+
+## Re-check after fixes
+
+Method: existing PNGs and axe JSON only; no build, server or browser run. Dir: `screenshots/analyze/`.
+
+Files opened (PNG): `analyze-completed-anubis-1280x800`, `narrow-analyze-completed-anubis-light-464x800`, `analyze-saved-list-ptah-glass-1280x800`, `narrow-analyze-saved-list-ptah-glass-light-464x800`, `narrow-analyze-interrupted-anubis-464x800`, `analyze-failed-ptah-glass-light-1280x800`, `narrow-analyze-failed-ptah-glass-light-464x800`, `analyze-running-phase-2-anubis-light-1280x800`, `narrow-analyze-running-phase-2-anubis-464x800`, `agents-92-match-ptah-glass-1280x800`, `narrow-agents-92-match-anubis-light-464x800`, `narrow-agents-owner-conflict-ptah-glass-464x800`, `agents-selection-count-anubis-light-1280x800`, `agents-catalog-banner-anubis-1280x800`. Axe: all 72 `*.axe.json` scanned by grep/script (not opened one by one). Dark themes: anubis, ptah-glass. Light themes: anubis-light, ptah-glass-light. Not opened: the other theme variants of each state (same markup, different tokens).
+
+| ID | Status | Evidence |
+| --- | --- | --- |
+| D1 narrow stepper, current label only, no overlap | FIXED | `narrow-agents-92-match-anubis-light-464x800.png`: glyph-only for other steps, "Choose agents" pill, no overlap |
+| D2 model select shows value | FIXED | `narrow-agents-owner-conflict-ptah-glass-464x800.png`: "Claude Sonnet 4.5" |
+| D3 date formatted; narrow buttons wrap below date | FIXED | `analyze-saved-list-ptah-glass-1280x800.png` ("Oct 29, 2026, 12:00:00 PM · 42s"); `narrow-analyze-saved-list-ptah-glass-light-464x800.png` (buttons below date) |
+| D4 empty Saved card hidden | FIXED | `analyze-completed-anubis-1280x800.png`, `analyze-failed-ptah-glass-light-1280x800.png`, `narrow-analyze-interrupted-anubis-464x800.png`: no empty card |
+| D5 Done primary reads "Choose agents" | FIXED | `analyze-completed-anubis-1280x800.png`, `narrow-analyze-completed-anubis-light-464x800.png` |
+| D6 singular counts, summary chevron, no bad narrow wrap | FIXED | `analyze-running-phase-2-anubis-light-1280x800.png` ("1 text, 1 thinking, 1 tool, 1 error", chevron); `narrow-analyze-running-phase-2-anubis-464x800.png` (wraps cleanly under the label) |
+| D7 "Analyze, skipped" with distinct glyph | FIXED | `agents-selection-count-anubis-light-1280x800.png`, `agents-92-match-ptah-glass-1280x800.png`: double-chevron glyph, muted "skipped" |
+| D8 Preview button per row | FIXED | `agents-92-match-ptah-glass-1280x800.png`, `narrow-agents-92-match-anubis-light-464x800.png`: Preview on every row, outside the label |
+| D9 axe: no serious/critical | FIXED | 72 reports: 0 violations in every file sampled; no `serious`/`critical` impact string in any file |
+| Landmarks (main nesting) | FIXED | `landmark` appears in 0 of 72 axe JSONs |
+
+### New defects
+
+N1 (Moderate): the running state shows "-1s since you opened this page" in every theme and width (`analyze-running-phase-2-anubis-light-1280x800.png`, `narrow-analyze-running-phase-2-anubis-464x800.png`). A negative elapsed time is probably a fixture clock offset, but the component should clamp it to 0 or hide it below 1s. The fix is in the run-panel elapsed computation, or in the harness fixture start time.
+
+N2 (Minor): at narrow width the stepper shows no text for the completed and future steps, only glyphs (`narrow-agents-92-match-anubis-light-464x800.png`). The step names are not visible at 464px. This follows from D1, which asked for the current label only. Confirm that each glyph still has an accessible name; I could not check that from the PNG, and axe reports no violation.
+
+No other regressions seen in dark or light at either width.
+
+Verdict: APPROVED (0 breaking, 0 serious, 1 moderate, 1 minor).

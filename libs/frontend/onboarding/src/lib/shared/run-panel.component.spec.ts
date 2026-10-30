@@ -76,6 +76,13 @@ describe('RunPanelComponent', () => {
     expect(continueRun).toHaveBeenCalledTimes(1);
   });
 
+  it('uses the supplied continue label for a completed run', () => {
+    const { fixture, labels } = render('done');
+    fixture.componentRef.setInput('continueLabel', 'Choose agents');
+    fixture.detectChanges();
+    expect(labels()).toEqual(['Choose agents']);
+  });
+
   it('announces safe failure copy without rendering backend details', () => {
     const { fixture, el } = render('failed');
     fixture.componentRef.setInput('error', 'Backend failure at /private/workspace with token=abc123');

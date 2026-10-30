@@ -41,10 +41,10 @@ import { AnalysisStepStore } from './analysis-step.store';
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <main class="mx-auto max-w-[760px] space-y-5 p-4" data-testid="choose-agents">
+    <section class="mx-auto max-w-[760px] space-y-5 p-4" aria-labelledby="choose-agents-title" data-testid="choose-agents">
       <header class="flex items-center gap-3">
         <span class="rounded-xl border border-base-300 p-2" data-glass-surface="tile"><lucide-angular [img]="icons.bot" class="size-6" aria-hidden="true" /></span>
-        <div><h1 tabindex="-1" class="text-2xl font-semibold">Choose agents</h1><p class="text-sm text-base-content-muted">Pick the agents that fit this workspace.</p></div>
+        <div><h1 id="choose-agents-title" tabindex="-1" class="text-2xl font-semibold">Choose agents</h1><p class="text-sm text-base-content-muted">Pick the agents that fit this workspace.</p></div>
       </header>
       <ptah-onboarding-stepper [steps]="steps()" />
       @if (recovery()) {
@@ -53,7 +53,7 @@ import { AnalysisStepStore } from './analysis-step.store';
         @if (source() === 'catalog') {
           <section class="rounded-[14px] border border-state-need/70 p-4 text-sm" data-glass-surface="chrome" data-testid="agent-only-banner">
             No analysis is used; recommendations come from the workspace catalog.
-            <button type="button" class="btn btn-link btn-sm" (click)="analyzeFirst()">Analyze first</button>
+            <button type="button" class="btn btn-ghost btn-sm min-h-8 text-base-content underline" (click)="analyzeFirst()">Analyze first</button>
           </section>
         }
         <div data-testid="context-source">
@@ -78,6 +78,7 @@ import { AnalysisStepStore } from './analysis-step.store';
                 [selection]="store.selection()"
                 [disabled]="submitting() || preview.isOpen()"
                 (toggled)="store.toggleAgent($event)"
+                (previewRequested)="openPreview($event)"
                 (selectRecommended)="store.selectRecommended()"
                 (clearSelection)="store.clearAgents()" />
             </div>
@@ -109,10 +110,10 @@ import { AnalysisStepStore } from './analysis-step.store';
         [open]="preview.isOpen()" [retryOnError]="true" [loading]="preview.loading()"
         [preview]="preview.preview()" [snapshot]="preview.decisions()" [changed]="preview.changed()"
         [error]="preview.error() !== null" [model]="generation.model()" [isElectron]="vscode.isElectron"
-        (dismissed)="preview.cancel()" (confirm)="confirmPreview()"
+        (dismissed)="dismissPreview()" (confirm)="confirmPreview()"
         (decisionChange)="preview.setRowDecision($event)" (applyAll)="preview.setAllRowDecisions($event)"
         (targetChange)="changeTarget($event)" />
-    </main>
+    </section>
   `,
 })
 export class ChooseAgentsPage implements OnInit {
@@ -232,26 +233,36 @@ export class ChooseAgentsPage implements OnInit {
     catch (error: unknown) { if (!this.destroyed) this.loadError.set(safeFailureCopy(error instanceof Error ? error.message : '', 'Recommendations unavailable. Try again.')); }
     finally { if (!this.destroyed) this.loading.set(false); }
   }
-  protected async openPreview(): Promise<void> {
+  private readonly previewIds = signal<readonly string[]>([]);
+  private readonly previewingRow = signal(false);
+  protected async openPreview(agentId?: string): Promise<void> {
     const binding = this.binding();
-    if (!binding || this.store.selection().size === 0) return;
+    const ids = agentId ? [agentId] : [...this.store.selection()];
+    if (!binding || ids.length === 0) return;
+    this.previewIds.set(ids);
+    this.previewingRow.set(agentId !== undefined);
     this.submitError.set(null); this.reviewAgain.set(false);
-    await this.preview.open([...this.store.selection()], false, binding);
+    await this.preview.open(ids, false, binding);
   }
   protected async changeTarget(choice: Parameters<GenerationPreviewStore['changeTarget']>[1]): Promise<void> {
-    await this.preview.changeTarget([...this.store.selection()], choice);
+    await this.preview.changeTarget(this.previewIds(), choice);
+  }
+  protected dismissPreview(): void {
+    this.preview.cancel();
+    this.previewIds.set([]);
+    this.previewingRow.set(false);
   }
   protected async confirmPreview(): Promise<void> {
     const binding = this.binding();
     if (!binding || this.submitting()) return;
-    const ids = [...this.store.selection()];
+    const ids = this.previewIds().length ? this.previewIds() : [...this.store.selection()];
     const confirmed = await this.preview.confirm(ids);
     if (this.destroyed) return;
     if (!confirmed.submit) return;
     this.submitting.set(true);
     this.submitError.set(null);
     try {
-      const result = await this.store.submit(binding, confirmed.decisions);
+      const result = await this.store.submit(binding, confirmed.decisions, this.previewingRow() ? ids : undefined);
       if (this.destroyed) return;
       if ('runId' in result) { await this.goToRun(result.runId); return; }
       if ('rejection' in result) {
@@ -265,6 +276,8 @@ export class ChooseAgentsPage implements OnInit {
       } else {
         this.submitError.set(safeFailureCopy(result.error, 'Generation could not start. Try again.'));
       }
+    } catch (error: unknown) {
+      if (!this.destroyed) this.submitError.set(safeFailureCopy(error instanceof Error ? error.message : '', 'Generation could not start. Try again.'));
     } finally { if (!this.destroyed) this.submitting.set(false); }
   }
   protected async openOwner(): Promise<void> {

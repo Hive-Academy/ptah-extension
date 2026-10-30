@@ -136,6 +136,10 @@ export function onboardingAnalyzeFixtures(
 ): Record<string, unknown> {
   const fixtures: Record<string, unknown> = {
     ...onboardingReadyFixtures('ready'),
+    'config:models-list': { models: [
+      { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', description: 'Balanced model', isSelected: true, providerModelId: null },
+      { id: 'claude-opus-4-1', name: 'Claude Opus 4.1', description: 'Deep reasoning model', isSelected: false, providerModelId: null },
+    ] },
     'wizard:list-analyses': { analyses: [] },
     'wizard:get-resumable-run': { analysis: null, generation: null },
     'wizard:get-generation-run-state': { run: null },

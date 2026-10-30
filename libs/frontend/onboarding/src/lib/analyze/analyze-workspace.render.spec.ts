@@ -22,7 +22,7 @@ describe('AnalyzeWorkspacePage rendered actions', () => {
 
   beforeEach(() => {
     jest.clearAllMocks(); loaded.set(null); selected.set(null); running.set(false); canceling.set(false); error.set(null); phaseHeader.set(null);
-    store.hidden.set(new Set());
+    store.hidden.set(new Set()); store.saved.set([{ filename: 'saved', projectType: 'Angular', savedAt: '', durationMs: 1000 }]);
     store.listAnalyses.mockResolvedValue(undefined);
     store.selectAnalysis.mockImplementation(async (filename: string) => { selected.set(filename); loaded.set({ manifest: { slug: filename, totalDurationMs: 1000 }, phaseContents: { 'project-profile': 'Done' } }); return 'loaded'; });
     store.clearSelection.mockImplementation(() => { selected.set(null); loaded.set(null); });
@@ -43,7 +43,7 @@ describe('AnalyzeWorkspacePage rendered actions', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Analysis complete');
     expect(text).not.toContain('Continue previous run');
-    const continueButton = [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Continue');
+    const continueButton = [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Choose agents');
     continueButton?.click();
     expect(router.navigate).toHaveBeenCalledWith(['/onboarding', 'analyze', 'agents'], expect.objectContaining({ queryParams: { analysis: 'saved' } }));
   });
@@ -80,6 +80,37 @@ describe('AnalyzeWorkspacePage rendered actions', () => {
     [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Retry')?.click();
     await fixture.whenStable();
     expect(store.listAnalyses).toHaveBeenCalledTimes(2);
+  });
+
+  it('formats saved dates in the current locale and gives actions a narrow row', async () => {
+    store.saved.set([{ filename: 'saved', projectType: 'Angular', savedAt: '2026-10-29T09:00:00.000Z', durationMs: 1000 }]);
+    const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const metadata = root.querySelector('li p.text-xs') as HTMLElement;
+    expect(metadata.textContent).not.toContain('2026-10-29T09:00:00.000Z');
+    expect(metadata.textContent).toContain('2026');
+    expect(root.querySelector('li > div')?.className).toContain('w-full');
+    fixture.destroy();
+  });
+
+  it('hides the saved card when no visible saved analyses or error remain', async () => {
+    store.saved.set([]);
+    const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Saved analyses');
+    fixture.destroy();
+  });
+
+  it('does not apply a stale query analysis after a fresh run follows a failed list', async () => {
+    store.saved.set([{ filename: 'saved', projectType: 'Angular', savedAt: '', durationMs: 1000 }]);
+    store.listAnalyses.mockRejectedValueOnce(new Error('offline'));
+    const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
+    fixture.componentRef.setInput('analysis', 'saved');
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    await fixture.componentInstance['startFresh']();
+    expect(store.selectAnalysis).not.toHaveBeenCalled();
+    fixture.destroy();
   });
 
   it('applies the requested analysis after saved-list Retry succeeds', async () => {
@@ -153,6 +184,17 @@ describe('AnalyzeWorkspacePage rendered actions', () => {
       running.set(false);
       jest.advanceTimersByTime(1000);
       expect(jest.getTimerCount()).toBe(0);
+      fixture.destroy();
+    } finally { jest.useRealTimers(); }
+  });
+
+  it('shows 0s, not a negative time, when a run starts after the page was created', async () => {
+    jest.useFakeTimers();
+    try {
+      const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
+      jest.advanceTimersByTime(5000);
+      await fixture.componentInstance['startFresh']();
+      expect(fixture.componentInstance['elapsedSeconds']()).toBe(0);
       fixture.destroy();
     } finally { jest.useRealTimers(); }
   });

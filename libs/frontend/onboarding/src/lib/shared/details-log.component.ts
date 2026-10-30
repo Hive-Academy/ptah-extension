@@ -14,6 +14,7 @@ import type { LiveModelStats } from '@ptah-extension/chat-ui';
 import { BuilderSessionSectionComponent } from '@ptah-extension/harness-builder';
 import { AnalysisTranscriptComponent } from '@ptah-extension/setup-wizard';
 import type { SessionStatsEntry } from '@ptah-extension/shared';
+import { ChevronDown, LucideAngularModule } from 'lucide-angular';
 
 export type DetailsLogMode = 'analysis' | 'tab';
 
@@ -37,6 +38,7 @@ export interface DetailsLogStreamCounts {
     AnalysisTranscriptComponent,
     BuilderSessionSectionComponent,
     SessionEmbedComponent,
+    LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
@@ -48,15 +50,15 @@ export interface DetailsLogStreamCounts {
       (toggle)="onToggle($event)"
     >
       <summary
-        class="flex min-h-8 cursor-pointer items-center gap-2 px-4 py-2 text-sm text-base-content-muted"
+        class="flex min-h-8 cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 px-4 py-2 text-sm text-base-content-muted [&::-webkit-details-marker]:hidden"
         data-testid="details-log-summary"
       >
-        Details log
+        <span class="inline-flex items-center gap-1 whitespace-nowrap"><lucide-angular [img]="icons.chevron" class="size-4 shrink-0 transition-transform duration-200" [class.rotate-180]="open()" aria-hidden="true" />Details log</span>
         @if (streamCounts(); as counts) {
-          <span data-testid="details-log-counts">
-            {{ counts.total }} events: {{ counts.text }} text,
-            {{ counts.thinking }} thinking, {{ counts.tool }} tool,
-            {{ counts.errors }} errors
+          <span class="min-w-0 basis-full min-[720px]:basis-auto" data-testid="details-log-counts">
+            {{ counts.total }} {{ counts.total === 1 ? 'event' : 'events' }}: {{ counts.text }} {{ counts.text === 1 ? 'text' : 'texts' }},
+            {{ counts.thinking }} thinking, {{ counts.tool }} {{ counts.tool === 1 ? 'tool' : 'tools' }},
+            {{ counts.errors }} {{ counts.errors === 1 ? 'error' : 'errors' }}
           </span>
         }
       </summary>
@@ -93,6 +95,7 @@ export interface DetailsLogStreamCounts {
   `,
 })
 export class DetailsLogComponent {
+  protected readonly icons = { chevron: ChevronDown } as const;
   readonly mode = input.required<DetailsLogMode>();
   /** Bound chat tab for tab mode. Ignored in analysis mode. */
   readonly tabId = input<string | null>(null);

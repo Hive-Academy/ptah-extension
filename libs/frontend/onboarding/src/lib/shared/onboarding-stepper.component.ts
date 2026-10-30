@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { Check, CircleDashed, LucideAngularModule } from 'lucide-angular';
+import { Check, CircleDashed, FastForward, LucideAngularModule } from 'lucide-angular';
 import type { OnboardingStepLink } from '../shell/onboarding-step-link';
 
 interface StepBase {
@@ -21,9 +21,9 @@ export type OnboardingStep = StepBase & (
   host: { class: 'block' },
   template: `
     <nav aria-label="Progress" class="w-full min-[720px]:sticky min-[720px]:top-4 min-[720px]:w-[210px]">
-      <ol class="flex items-center gap-1 overflow-x-auto min-[720px]:flex-col min-[720px]:items-stretch" data-testid="onboarding-stepper">
+      <ol class="flex w-full items-center gap-1 min-[720px]:flex-col min-[720px]:items-stretch" data-testid="onboarding-stepper">
         @for (step of steps(); track step.id) {
-          <li class="min-w-0 flex-1 min-[720px]:w-full" [attr.data-state]="step.state"
+          <li class="min-w-0 shrink-0 min-[720px]:w-full" [class.flex-1]="step.state === 'current'" [attr.data-state]="step.state"
               [attr.aria-current]="step.state === 'current' ? 'step' : null">
             @if (step.state === 'completed') {
               @if (step.link) {
@@ -39,14 +39,12 @@ export type OnboardingStep = StepBase & (
                 </span>
               }
             } @else {
-              <span class="flex min-h-8 items-center gap-2 rounded-full px-3 py-2 text-sm"
+              <span class="flex min-h-8 min-w-0 items-center gap-2 rounded-full px-3 py-2 text-sm"
                     [class.border]="step.state === 'current'"
                     [class.border-primary]="step.state === 'current'"
                     [attr.data-glass-surface]="step.state === 'current' ? 'chrome' : null">
-                <lucide-angular [img]="icons.pending" class="size-4 shrink-0" aria-hidden="true" />
-                <span [class]="step.state !== 'current' ? 'max-[720px]:sr-only' : ''">{{ step.label }}
-                  @if (step.state === 'skipped') {<span class="text-base-content-muted">, skipped</span>}
-                </span>
+                <lucide-angular [img]="step.state === 'skipped' ? icons.skipped : icons.pending" class="size-4 shrink-0" aria-hidden="true" />
+                <span class="min-w-0 truncate whitespace-nowrap" [class.max-[720px]:sr-only]="step.state !== 'current'">{{ step.label }}@if (step.state === 'skipped') {<span class="text-base-content-muted">, skipped</span>}</span>
               </span>
             }
           </li>
@@ -57,5 +55,5 @@ export type OnboardingStep = StepBase & (
 })
 export class OnboardingStepperComponent {
   readonly steps = input.required<readonly OnboardingStep[]>();
-  protected readonly icons = { check: Check, pending: CircleDashed } as const;
+  protected readonly icons = { check: Check, pending: CircleDashed, skipped: FastForward } as const;
 }

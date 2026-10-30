@@ -32,7 +32,7 @@ import { RunStatusChipComponent, type OnboardingRunChipState } from './run-statu
             <lucide-angular [img]="icons.play" class="size-4" aria-hidden="true" />Resume
           </button>
         } @else if (state() === 'done') {
-          <button type="button" class="btn btn-primary btn-sm min-h-8" (click)="continueRun.emit()">Continue</button>
+          <button type="button" class="btn btn-primary btn-sm min-h-8" (click)="continueRun.emit()">{{ continueLabel() }}</button>
         }
       </div>
     </section>
@@ -43,6 +43,7 @@ export class RunPanelComponent {
   readonly viewState = input<GenerationViewState | null>(null);
   readonly title = input.required<string>();
   readonly message = input<string>('');
+  readonly continueLabel = input('Continue');
   readonly error = input<string | null>(null);
   protected readonly safeError = computed(() => {
     const raw = this.error();

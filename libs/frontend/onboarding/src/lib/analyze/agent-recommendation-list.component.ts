@@ -95,30 +95,31 @@ export function criteriaOf(agent: AgentRecommendation): readonly string[] {
         <section class="space-y-2" [attr.aria-label]="group.label">
           <h3 class="text-sm font-semibold">{{ group.label }}</h3>
           @for (row of group.agents; track row.agent.agentId) {
-            <label
-              class="flex min-h-8 cursor-pointer flex-wrap items-start gap-2 rounded-[10px] border border-base-300 p-3.5"
+            <div
+              class="flex min-h-8 flex-wrap items-start gap-2 rounded-[10px] border border-base-300 p-3.5"
               data-glass-surface="tile"
               data-testid="agent-recommendation-row"
               [attr.data-agent-id]="row.agent.agentId"
               [class.border-primary]="isSelected(row.agent.agentId)"
               [class.cursor-not-allowed]="disabled()"
             >
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm mt-0.5"
-                [checked]="isSelected(row.agent.agentId)"
-                [disabled]="disabled()"
-                [attr.aria-label]="'Select ' + row.agent.agentName"
-                (change)="toggled.emit(row.agent.agentId)"
-              />
-              <lucide-angular
-                [img]="icons.bot"
-                class="mt-0.5 size-[1.05rem] shrink-0 text-base-content-muted"
-                aria-hidden="true"
-              />
-              <span class="min-w-0 flex-1">
+              <label class="flex min-w-0 flex-1 cursor-pointer items-start gap-2" [class.cursor-not-allowed]="disabled()">
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-sm mt-0.5"
+                  [checked]="isSelected(row.agent.agentId)"
+                  [disabled]="disabled()"
+                  [attr.aria-label]="'Select ' + row.agent.agentName"
+                  (change)="toggled.emit(row.agent.agentId)"
+                />
+                <lucide-angular
+                  [img]="icons.bot"
+                  class="mt-0.5 size-[1.05rem] shrink-0 text-base-content-muted"
+                  aria-hidden="true"
+                />
+                <span class="min-w-0 flex-1">
                 <span class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                  <span class="font-medium">{{ row.agent.agentName }}</span>
+                  <span class="font-medium" data-testid="agent-recommendation-name">{{ row.agent.agentName }}</span>
                   @if (row.match !== null) {
                     <span
                       class="text-xs font-medium text-base-content-muted"
@@ -141,7 +142,7 @@ export function criteriaOf(agent: AgentRecommendation): readonly string[] {
                   </span>
                 }
                 @if (row.agent.description) {
-                  <span class="mt-1 block text-xs text-base-content-muted">{{
+                  <span class="mt-1 block text-xs text-base-content-muted" data-testid="agent-recommendation-description">{{
                     row.agent.description
                   }}</span>
                 }
@@ -159,8 +160,11 @@ export function criteriaOf(agent: AgentRecommendation): readonly string[] {
                     }
                   </span>
                 }
-              </span>
-            </label>
+                </span>
+              </label>
+              <button type="button" class="btn btn-outline btn-sm min-h-8" data-testid="agent-recommendation-preview" [disabled]="disabled()"
+                [attr.aria-label]="'Preview ' + row.agent.agentName" (click)="previewRequested.emit(row.agent.agentId)">Preview</button>
+            </div>
           }
         </section>
       }
@@ -174,6 +178,7 @@ export class AgentRecommendationListComponent {
 
   /** Named `toggled` because `toggle` is a native DOM event. */
   readonly toggled = output<string>();
+  readonly previewRequested = output<string>();
   readonly selectRecommended = output<void>();
   /** Named `clearSelection` because `clear` is a native DOM event. */
   readonly clearSelection = output<void>();

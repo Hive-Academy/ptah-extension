@@ -72,6 +72,12 @@ describe('AnalysisStepStore', () => {
     });
     expect(await store.submit(binding)).toEqual({ runId: 'new-run' });
   });
+  it('submits explicit row ids without changing the selected agents', async () => {
+    store.toggleAgent('agent-a');
+    await store.submit(binding, undefined, ['agent-b']);
+    expect(generation.startAgents).toHaveBeenCalledWith(['agent-b'], undefined);
+    expect([...store.selection()]).toEqual(['agent-a']);
+  });
   it('does not reuse a stale blocked or preview-required rejection when start exits early', async () => {
     for (const reason of ['blocked', 'preview-required'] as const) {
       generation.rejection.set({ reason });

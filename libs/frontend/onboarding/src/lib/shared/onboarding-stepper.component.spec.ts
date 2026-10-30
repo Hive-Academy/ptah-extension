@@ -44,5 +44,20 @@ describe('OnboardingStepperComponent', () => {
     expect(el.querySelector('li[data-state="completed"] a span')?.className).toContain('max-[720px]:sr-only');
     expect(el.querySelector('li[data-state="upcoming"] span span')?.className).toContain('max-[720px]:sr-only');
     expect(el.querySelector('li[data-state="current"] span span')?.className).not.toContain('max-[720px]:sr-only');
+    expect(el.querySelector('li[data-state="current"]')?.className).toContain('shrink-0');
+    expect(el.querySelector('li[data-state="current"]')?.className).toContain('flex-1');
+    expect(el.querySelector('li[data-state="current"] span span')?.className).toContain('whitespace-nowrap');
+  });
+
+  it('pairs the skipped glyph with correctly spaced state text', () => {
+    TestBed.configureTestingModule({ imports: [OnboardingStepperComponent], providers: [provideRouter([])] });
+    const fixture = TestBed.createComponent(OnboardingStepperComponent);
+    fixture.componentRef.setInput('steps', [{ id: 'analyze', label: 'Analyze', state: 'skipped' }, { id: 'agents', label: 'Choose agents', state: 'current' }] satisfies OnboardingStep[]);
+    fixture.detectChanges();
+    const skipped = (fixture.nativeElement as HTMLElement).querySelector('li[data-state="skipped"]') as HTMLElement;
+    expect(skipped.textContent?.trim()).toBe('Analyze, skipped');
+    expect(skipped.querySelector('svg')).not.toBeNull();
+    expect(skipped.querySelector('svg path')?.getAttribute('d')).toBe('M12 6a2 2 0 0 1 3.414-1.414l6 6a2 2 0 0 1 0 2.828l-6 6A2 2 0 0 1 12 18z');
+    expect(skipped.querySelector('span span')?.className).toContain('max-[720px]:sr-only');
   });
 });

@@ -171,3 +171,85 @@ Regression checks: destroy guards follow every await in `ngOnInit`, `loadAnalysi
 Score: 8.5/10. N1-N3 are fixed with tests that assert the behaviour. N5 and N6 are minor and non-blocking. N4 is deferred by decision.
 
 Verdict: **APPROVED**
+
+## Visual fix review
+
+Scope: `git diff` against `ac13a61be` for the six onboarding components, their specs and the analyze fixtures. Read-only; no checks run. Comparison read: `GenerationPreviewStore` (`setup-wizard/.../generation-preview.store.ts`).
+
+### Findings
+
+**V1. MODERATE - A row Preview that is confirmed silently replaces the whole selection** (Owner: Codex)
+- File: `analyze/choose-agents.page.ts:253-256` (confirmPreview), `:236-243` (openPreview).
+- Scenario: the user selects 5 agents, clicks Preview on one row (selected or not), then confirms the dialog. The dialog has the row's single agent in it, so confirm generates only that agent. `store.clearAgents()` + `toggleAgent(ids[0])` run before `submit`, so the checkboxes drop to 1 agent. If submit then fails (`submitError`) or the host replies `preview-required`, the user returns to a list that no longer holds their selection. Nothing in the list says that Preview is "preview and generate this one".
+- Consent: generation only starts from the dialog's confirm, so it is not started without a click. The selection change is the unconsented part, and it happens before the outcome is known.
+- Fix: move the alignment to after a successful `runId` result, or restore the previous selection on failure. Better, keep the selection intact and pass the id list to `submit` instead of mutating the store. Alternatively make a row Preview read-only (confirm label "Close").
+
+**V2. MODERATE - The row-wide click target for selecting was removed** (Owner: Codex)
+- File: `analyze/agent-recommendation-list.component.ts:98-114`.
+- `<label>` became `<div>`. Only the 16px checkbox now toggles; clicking the agent name or description no longer does, and `cursor-pointer` was dropped too. For a "pick agents" list this is a usability regression introduced by D8. No test asserts it either way.
+- Fix: keep the name/description in a `<label>` (or `for` the checkbox) and put the Preview button outside it.
+
+**V3. MINOR - Stale row state after a cancelled row preview** (Owner: Codex)
+- File: `choose-agents.page.ts:226-227,238-239,246-248`.
+- After a row preview is cancelled, `previewIds`/`previewingRow` keep the row values. The only entry points are `openPreview` (which resets both) and the owner-conflict retry `(retry)="openPreview()"` (also resets), so it is not reachable today. It is a latent trap for the next caller of `confirmPreview`. Reset in `(dismissed)`.
+
+**V4. MINOR - `loadSaved` no longer contains `useSaved` errors, so `ngOnInit` rejects and skips `getResumableRun`** (Owner: Codex)
+- File: `analyze-workspace.page.ts:128-139,112-118`.
+- The N6 fix is correct (a navigate failure no longer shows the list error; `pendingAnalysis` and `savedError` stay consistent). But the rejection now propagates out of `ngOnInit` as an unhandled rejection, and the `interrupted` banner check is never reached. The new spec codifies the rejection (`rejects.toThrow`). Same for `startFresh` after the run. Low likelihood (a router rejection). Suggest catching in `useSaved` and setting `selectError`.
+
+**V5. MINOR - Saved card is hidden until the list resolves** (Owner: Codex)
+- File: `analyze-workspace.page.ts:68` (`@if (savedError() || visibleSaved().length || selectError())`).
+- Correct for D-empty-state, but the card appears after the async list, so it can shift layout below the fold. Cosmetic.
+
+**V6. MINOR - Test gaps**
+- `choose-agents.page.spec.ts:77-86` asserts the alignment calls but not that selection is unchanged on cancel, on `submit.next=false` (changed preview) or on submit error. That is exactly V1, so the V1 behaviour is untested. It also does not assert `submit` receives the aligned selection.
+- `onboarding-stepper.component.spec.ts` skipped-glyph test compares `svg.innerHTML` to a sibling that may be an unrelated element; it passes if both lack an svg (`undefined`). Low value.
+- `agent-recommendation-list.component.spec.ts` selects `[data-agent-id] button` (first button); fine today, fragile if another button is added to the row.
+
+### Focus answers
+
+1. Row Preview (D8): confirm is required to generate (OK). It does not conflict with "Preview and generate": `openPreview()` resets `previewIds`/`previewingRow` every time, the overwrite-preview token is minted by the store per `open`, and `preview-required` reopens with the same `ids` and `keepTarget=true` (`:263-266`). `submit` reads `store.selection()` (aligned), consistent with `ids`. Destroy guards are present after each await (`:250,258,262,266`), and the dialog's error path (`confirm` after `error` -> `load`, "Generate without preview") works with row ids. Gap: V1, V3.
+2. N5 fixed: `startFresh` and `continuePrevious` clear `pendingAnalysis` (`:142,148`), and a spec asserts `selectAnalysis` is not called. N6 fixed (V4 is a residue). N1-N3 still hold: `retryLoad` reruns the list/select/recommend chain, `'failed'` maps to the retryable copy, `?analysis=` still runs after a successful list, and the destroy guards remain after each await. No regression found.
+3. Shared components: `RunPanel.continueLabel` defaults to `'Continue'`, so other callers are unchanged. In `libs/frontend/onboarding` the only users of run-panel, details-log and the stepper are the two analyze pages (grep). The details-log pluralization changes the visible count text, with its own spec updated; no other consumer matches on it. The stepper `skipped` icon only affects skipped steps.
+4. Landmarks: `analyze-workspace-title` and `choose-agents-title` exist on the `<h1>` in the always-rendered header of each page, and are unique to one page at a time. `<main>` -> `<section aria-labelledby>` assumes the shell supplies `<main>`; I did not verify the shell.
+5. Tests: markup-only for the agent list (button label, class) and stepper skipped; behavioural for N5, the list-error, row preview call wiring and the continue label. The gaps are in V6.
+
+### Score and verdict
+
+Score: 7/10. The items asked about (N5, N6, destroy guards, shared defaults, ids) are correct. The D8 row Preview mutates the user's selection before the outcome is known (V1), and the row-click target regression (V2) is a new defect from the same item.
+
+Verdict: **REVISE** (V1 and V2 Moderate; V3-V6 non-blocking).
+
+## Visual fix re-review (revision 1)
+
+Scope: `git diff` against `ac13a61be` for `libs/frontend/onboarding/src/lib/` (analyze store, the three analyze components, their specs, stepper spec). Read-only; no checks run. Run results are the lane's own report (3 of 3 tasks succeeded), not re-verified.
+
+### Status of earlier findings
+
+| Item | Status | Evidence |
+| ---- | ------ | -------- |
+| V1 selection preserved | FIXED | `analysis-step.store.ts:121` adds `agentIds` defaulting to `[...selectionValue()]`; `:129` sends it to `startAgents`. `choose-agents.page.ts:258,265` pass `ids` only when `previewingRow()`; `clearAgents`/`toggleAgent` are gone from `confirmPreview`. The selection stays unchanged on confirm, dismiss, `submit:false`, returned error, thrown error and `preview-required` (`:271` reopens with the same `ids`). |
+| V1 earlier submit fixes kept | OK | Binding check after `bind()` at `store.ts:122-125`, previous-run/rejection/error capture at `:126-128`, stale `acceptedRun` comparison at `:131`, identity comparison of rejection/error at `:133-135`. Only the `startAgents` argument changed. |
+| V1 "Preview and generate" unchanged | OK | `openPreview()` with no id uses the selection (`page.ts:240`), `previewingRow=false`, and `submit(..., undefined)` falls back to the store selection. Destroy guards at `:260,266,272` and the `finally` guard at `:281` are intact. The thrown-error catch at `:279-281` is new and safe. |
+| V2 label click target | FIXED | `agent-recommendation-list.component.ts:106-164` wraps the checkbox, icon, name and description in one `<label class="cursor-pointer">`. The Preview `<button>` is a sibling at `:165`, so no button is inside a label and the markup is valid. A label click makes one `change` on the checkbox, so there is no double toggle. |
+| V3 dismiss reset | FIXED | `page.ts:113` routes `(dismissed)` to `dismissPreview` (`:250-254`), which calls `cancel()` and clears `previewIds` and `previewingRow`. |
+| V4 ngOnInit after router rejection | FIXED | `analyze-workspace.page.ts:143-145` catches in `useSaved` and sets `selectError`. `savedError` is only set in `loadSaved:130`. `ngOnInit:120` still runs `getResumableRun`. The saved card still shows for `selectError()` (`:68`). |
+| V6 tests | FIXED | `choose-agents.page.spec.ts` asserts the ids passed to `submit`, the unchanged selection, and that `clearAgents`/`toggleAgent` are not called, across the dismiss, error, throw and `submit:false` cases. `analysis-step.store.spec.ts:75-80` asserts `startAgents(['agent-b'])` with the selection unchanged. The list spec asserts name and description clicks toggle, Preview does not, and `label.contains(button)` is false. The stepper spec asserts the SVG path. The analyze-workspace spec asserts `selectError` set, `savedError` false and `getResumableRun` called. |
+
+### N1-N6 and destroy guards
+
+No regression found. `startFresh`/`continuePrevious` still clear `pendingAnalysis` (`analyze-workspace.page.ts:148,156`). Destroy guards remain after each await in `ngOnInit`, `loadSaved`, `useSaved` and `confirmPreview`.
+
+### New findings
+
+1. **MINOR** - `choose-agents.page.ts:255-261`: a `submit:false` result or a `preview-required` reopen leaves `previewIds`/`previewingRow` at the row values. This is correct, because the dialog stays open for the same ids. Every later entry (`openPreview`) resets them, so there is no defect today. Informational only.
+2. **MINOR** - `choose-agents.page.spec.ts` (V6 cases): `store` and `preview` are mocks, so the "selection unchanged" assertions mostly prove that the page no longer calls `clearAgents`/`toggleAgent`. They do not run the real store with `GenerationWorkflowStore.startAgents` honoring the ids. The store spec covers the pass-through with a mocked generation store. This is adequate, but no end-to-end check shows that the host accepts a single-id start when the selection is different. Suggest a harness scenario if one is cheap.
+3. **MINOR** - `agent-recommendation-list.component.ts:112`: the checkbox keeps `aria-label="Select <name>"`, which overrides the label text as its accessible name. That is fine. Style indentation of the nested `<span>` at `:120-163` is off; this belongs to the style reviewer.
+
+No Blocking, Serious or Moderate findings.
+
+### Score and verdict
+
+Score: 9/10. All of V1-V4 and V6 are resolved with matching behavioural tests, the earlier submit fixes are intact, and the existing flow is unchanged. One point is held back because the selection-preservation tests rely on mocks (finding 2).
+
+Verdict: **APPROVED**

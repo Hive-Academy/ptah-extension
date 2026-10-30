@@ -145,6 +145,37 @@ describe('AgentRecommendationListComponent', () => {
     expect(el.querySelector('details')).toBeNull();
   });
 
+  it('emits a single agent id from its accessible Preview button', () => {
+    const el = render([backend]);
+    const requested = jest.fn();
+    fixture.componentInstance.previewRequested.subscribe(requested);
+    const button = el.querySelector('[data-agent-id="backend-developer"] [data-testid="agent-recommendation-preview"]') as HTMLButtonElement;
+    expect(button.getAttribute('aria-label')).toBe('Preview Backend Developer');
+    expect(button.className).toContain('min-h-8');
+    button.click();
+    expect(requested).toHaveBeenCalledWith('backend-developer');
+  });
+
+  it('toggles selection from the name and description without Preview toggling it', () => {
+    const el = render([backend]);
+    const toggled = jest.fn();
+    const requested = jest.fn();
+    fixture.componentInstance.toggled.subscribe(toggled);
+    fixture.componentInstance.previewRequested.subscribe(requested);
+    const row = el.querySelector('[data-agent-id="backend-developer"]') as HTMLElement;
+    const label = row.querySelector('label') as HTMLLabelElement;
+    const button = row.querySelector('[data-testid="agent-recommendation-preview"]') as HTMLButtonElement;
+    expect(label.contains(button)).toBe(false);
+    expect(label.className).toContain('cursor-pointer');
+    (row.querySelector('[data-testid="agent-recommendation-name"]') as HTMLElement).click();
+    expect(toggled).toHaveBeenCalledTimes(1);
+    (row.querySelector('[data-testid="agent-recommendation-description"]') as HTMLElement).click();
+    expect(toggled).toHaveBeenCalledTimes(2);
+    button.click();
+    expect(requested).toHaveBeenCalledWith('backend-developer');
+    expect(toggled).toHaveBeenCalledTimes(2);
+  });
+
   it('treats a missing matchedCriteria as no chips', () => {
     const bare = {
       agentId: 'bare-agent',

@@ -39,4 +39,15 @@ describe('AnalyzeWorkspacePage', () => {
     await fixture.componentInstance['chooseAgents']();
     expect(navigate).toHaveBeenCalledWith(['/onboarding', 'analyze', 'agents'], expect.objectContaining({ queryParams: { analysis: 'saved' }, state: { explicitBack: false } }));
   });
+  it('does not turn a saved-analysis navigation failure into a list error', async () => {
+    navigate.mockRejectedValueOnce(new Error('navigation failed'));
+    const fixture = TestBed.createComponent(AnalyzeWorkspacePage);
+    fixture.componentRef.setInput('analysis', 'saved');
+    await expect(fixture.componentInstance.ngOnInit()).resolves.toBeUndefined();
+    expect(store.listAnalyses).toHaveBeenCalledTimes(1);
+    expect(fixture.componentInstance['savedError']()).toBe(false);
+    expect(fixture.componentInstance['selectError']()).toBeTruthy();
+    expect(rpc.getResumableRun).toHaveBeenCalledTimes(1);
+    fixture.destroy();
+  });
 });

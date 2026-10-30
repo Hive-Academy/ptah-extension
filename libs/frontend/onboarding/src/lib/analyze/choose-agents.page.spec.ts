@@ -41,6 +41,8 @@ describe('ChooseAgentsPage', () => {
     preview.open.mockResolvedValue(undefined); preview.confirm.mockResolvedValue({ submit: true, decisions });
     store.loadRecommendations.mockResolvedValue(undefined); store.listAnalyses.mockResolvedValue(undefined);
     store.selectAnalysis.mockResolvedValue('loaded'); store.submit.mockResolvedValue({ runId: 'new-run' });
+    store.clearAgents.mockImplementation(() => selection.set(new Set()));
+    store.toggleAgent.mockImplementation((id: string) => selection.set(new Set([...selection()].filter((value) => value !== id).concat(selection().has(id) ? [] : [id]))));
     generation.refresh.mockResolvedValue(undefined); router.navigate.mockResolvedValue(true);
     router.getCurrentNavigation.mockReturnValue(null);
     launcher.open.mockResolvedValue({ outcome: 'landed', tabId: 'new-tab' });
@@ -70,8 +72,61 @@ describe('ChooseAgentsPage', () => {
     expect(preview.open).toHaveBeenCalledWith(['agent-a'], false, binding);
     await actions.confirmPreview();
     expect(preview.confirm).toHaveBeenCalledWith(['agent-a']);
-    expect(store.submit).toHaveBeenCalledWith(binding, decisions);
+    expect(store.submit).toHaveBeenCalledWith(binding, decisions, undefined);
     expect(router.navigate).toHaveBeenCalledWith(['/onboarding', 'analyze', 'generate'], expect.objectContaining({ queryParams: expect.objectContaining({ tab: 'tab', run: 'new-run' }) }));
+  });
+
+  it('submits only the previewed row without changing the selection', async () => {
+    await page.ngOnInit();
+    const actions = page as unknown as { openPreview(agentId: string): Promise<void>; confirmPreview(): Promise<void> };
+    await actions.openPreview('agent-b');
+    expect(preview.open).toHaveBeenCalledWith(['agent-b'], false, binding);
+    await actions.confirmPreview();
+    expect(preview.confirm).toHaveBeenCalledWith(['agent-b']);
+    expect(store.submit).toHaveBeenCalledWith(binding, decisions, ['agent-b']);
+    expect([...selection()]).toEqual(['agent-a']);
+    expect(store.clearAgents).not.toHaveBeenCalled();
+    expect(store.toggleAgent).not.toHaveBeenCalled();
+  });
+
+  it('keeps selection and clears row state when a row preview is dismissed', async () => {
+    await page.ngOnInit();
+    await page['openPreview']('agent-b');
+    page['dismissPreview']();
+    expect(preview.cancel).toHaveBeenCalledTimes(1);
+    expect(page['previewIds']()).toEqual([]);
+    expect(page['previewingRow']()).toBe(false);
+    expect([...selection()]).toEqual(['agent-a']);
+    expect(store.submit).not.toHaveBeenCalled();
+  });
+
+  it('keeps selection when row submission returns an error', async () => {
+    await page.ngOnInit();
+    store.submit.mockResolvedValueOnce({ error: 'Generation failed' });
+    await page['openPreview']('agent-b');
+    await page['confirmPreview']();
+    expect(store.submit).toHaveBeenCalledWith(binding, decisions, ['agent-b']);
+    expect([...selection()]).toEqual(['agent-a']);
+    expect(page['submitError']()).toBeTruthy();
+  });
+
+  it('keeps selection when a changed row preview cannot submit yet', async () => {
+    await page.ngOnInit();
+    preview.confirm.mockResolvedValueOnce({ submit: false });
+    await page['openPreview']('agent-b');
+    await page['confirmPreview']();
+    expect(preview.confirm).toHaveBeenCalledWith(['agent-b']);
+    expect(store.submit).not.toHaveBeenCalled();
+    expect([...selection()]).toEqual(['agent-a']);
+  });
+
+  it('keeps selection and reports a thrown row submission failure', async () => {
+    await page.ngOnInit();
+    store.submit.mockRejectedValueOnce(new Error('Generation failed'));
+    await page['openPreview']('agent-b');
+    await page['confirmPreview']();
+    expect([...selection()]).toEqual(['agent-a']);
+    expect(page['submitError']()).toBeTruthy();
   });
 
   it('reopens preview with the chosen root when the host requires another review', async () => {

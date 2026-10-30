@@ -69,3 +69,10 @@
   plan. Re-check in the B5 E2E pass.
 - **Capture flake:** round-1 capture 70/72; the two failures (ptah-glass-light analyze-failed,
   analyze-completed) were `route.fetch: read ECONNRESET` on static chunks, not assertions.
+- **Visual fix batch:** Codex fixed visual-review D1–D9, landmarks, N5/N6; logic review REVISE 7
+  (V1 row Preview narrowed selection, V2 row label) → revise 1 → APPROVED 9/10. Captures 72/72;
+  visual re-check APPROVED. Carry: host acceptance of a single-id row start (tests mock stores)
+  → E2E pass. Narrow stepper hides non-current labels visually (sr-only kept), per spec line 78.
+- **Elapsed "-1s" (coordinator correction):** `now` was set at construction and `openedAt` at
+  run start. startClock now sets both to the same time, and elapsedSeconds clamps at 0.
+  Regression test added. Reviewed by Grok (a different family from the coordinator).
