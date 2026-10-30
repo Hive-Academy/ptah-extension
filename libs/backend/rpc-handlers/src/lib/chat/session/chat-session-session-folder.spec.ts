@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 /**
  * ChatSessionService acts in the session's own folder (PTAH-37, MP-3).
  *
@@ -55,8 +58,12 @@ import { ChatSessionService } from './chat-session.service';
 import { ChatHistoryReadService } from './chat-history-read.service';
 import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
-const PROJECT_A = '/c/projects/a';
-const PROJECT_B = '/c/projects/b';
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-session-policy-'));
+afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
+for (const part of ['a', 'b', 'b/child', 'b/.claude/worktrees/task'])
+  mkdirSync(join(TEST_ROOT, part), { recursive: true });
+const PROJECT_A = `${TEST_ROOT}/a`;
+const PROJECT_B = `${TEST_ROOT}/b`;
 const SESSION_ID = '11111111-1111-4111-8111-111111111111' as SessionId;
 const TAB_ID = '22222222-2222-4222-8222-222222222222';
 
@@ -106,6 +113,9 @@ function makeHarness(
       .fn()
       .mockResolvedValue([{ agentId: 'agent-1' }]),
     saveResumeState: jest.fn().mockResolvedValue(undefined),
+    upgradeLegacyPluginConfigAncestorRoots: jest
+      .fn()
+      .mockResolvedValue({ status: 'valid', roots: [] }),
   };
   const platformInfo = {
     type: 'cli',
@@ -119,7 +129,6 @@ function makeHarness(
     sessionMetadataStore as never,
     subagentRegistry,
     provider as unknown as IWorkspaceProvider,
-    { exists: jest.fn().mockResolvedValue(true) } as never,
     platformInfo as never,
   );
   const routeFollowUpSlashCommand = jest.fn().mockResolvedValue(null);
@@ -208,6 +217,42 @@ function makeHarness(
 
 describe("ChatSessionService — the session's own folder (MP-3)", () => {
   describe('chat:continue', () => {
+    it('refuses a removed distinct child cwd without resuming in its parent', async () => {
+      const h = makeHarness({
+        metadata: {
+          workspaceId: PROJECT_B,
+          workingDirectory: `${PROJECT_B}/removed-child`,
+        },
+      });
+      const result = await h.service.continueSession({
+        prompt: 'continue',
+        sessionId: SESSION_ID,
+        tabId: TAB_ID,
+      });
+      expect(result).toMatchObject({
+        success: false,
+        errorCode: 'SESSION_FOLDER_UNAVAILABLE',
+      });
+      expect(h.resumeSession).not.toHaveBeenCalled();
+    });
+    it('restores the provable immediate lineage when a child folder is resolved', async () => {
+      const child = `${PROJECT_B}/child`;
+      const h = makeHarness({
+        metadata: { workspaceId: PROJECT_B, workingDirectory: child },
+      });
+      await h.service.continueSession({
+        prompt: 'continue',
+        sessionId: SESSION_ID,
+        tabId: TAB_ID,
+      });
+      expect(h.resumeSession).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.objectContaining({
+          projectPath: child,
+          pluginConfigAncestorRoots: [PROJECT_B],
+        }),
+      );
+    });
     it('resumes an inactive session in its own project, not the active one', async () => {
       const h = makeHarness();
 

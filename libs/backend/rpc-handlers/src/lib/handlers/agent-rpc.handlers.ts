@@ -1746,7 +1746,6 @@ export class AgentRpcHandlers {
       sessionId: parentSessionId,
       metadataStore: this.sessionMetadataStore,
       workspaceProvider: this.workspace,
-      fileSystemProvider: this.fileSystemProvider,
       platformInfo: this.platformInfo,
       logger: this.logger,
     });

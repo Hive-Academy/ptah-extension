@@ -17,6 +17,7 @@ import type {
   GitMutationFailureCode,
   GitRepoOperationKind,
 } from '@ptah-extension/shared';
+import { GitDockMutationGate } from './git-dock-mutation-gate';
 import { GitStatusService } from './git-status.service';
 
 /**
@@ -130,12 +131,15 @@ function readOperationActionResult(data: unknown): GitOperationContinueResult {
 export class SourceControlService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly gitStatus = inject(GitStatusService);
+  private readonly gate = inject(GitDockMutationGate);
 
   /**
    * Stage a single file.
    * @param path - Relative path from workspace root
    */
   async stageFile(path: string): Promise<RpcCallResult<GitStageResult>> {
+    const refused = this.refusal<GitStageResult>();
+    if (refused) return refused;
     return rpcCall<GitStageResult>(
       this.vscodeService,
       'git:stage',
@@ -152,6 +156,8 @@ export class SourceControlService {
    * @param path - Relative path from workspace root
    */
   async unstageFile(path: string): Promise<RpcCallResult<GitUnstageResult>> {
+    const refused = this.refusal<GitUnstageResult>();
+    if (refused) return refused;
     return rpcCall<GitUnstageResult>(
       this.vscodeService,
       'git:unstage',
@@ -167,6 +173,8 @@ export class SourceControlService {
    * Stage all changed files in the workspace.
    */
   async stageAll(): Promise<RpcCallResult<GitStageResult>> {
+    const refused = this.refusal<GitStageResult>();
+    if (refused) return refused;
     return rpcCall<GitStageResult>(
       this.vscodeService,
       'git:stage',
@@ -182,6 +190,8 @@ export class SourceControlService {
    * Unstage all staged files in the workspace.
    */
   async unstageAll(): Promise<RpcCallResult<GitUnstageResult>> {
+    const refused = this.refusal<GitUnstageResult>();
+    if (refused) return refused;
     return rpcCall<GitUnstageResult>(
       this.vscodeService,
       'git:unstage',
@@ -197,14 +207,23 @@ export class SourceControlService {
    * Discard working tree changes for a file.
    * WARNING: This is a destructive operation that cannot be undone.
    * @param path - Relative path from workspace root
+   * @param workspaceRoot - The root the user CONFIRMED the discard for. Sent
+   *   as is instead of re-reading the dock root, so a scope change between
+   *   the confirm and the call can never discard in another tree
+   *   (TASK_2026_855).
    */
-  async discardChanges(path: string): Promise<RpcCallResult<GitDiscardResult>> {
+  async discardChanges(
+    path: string,
+    workspaceRoot: string,
+  ): Promise<RpcCallResult<GitDiscardResult>> {
+    const refused = this.refusal<GitDiscardResult>();
+    if (refused) return refused;
     return rpcCall<GitDiscardResult>(
       this.vscodeService,
       'git:discard',
       {
         paths: [path],
-        ...this.scopeParams(),
+        workspaceRoot,
       },
       MUTATION_RPC_TIMEOUT_MS,
     );
@@ -217,17 +236,22 @@ export class SourceControlService {
    * survives, and conflicted paths are skipped.
    * WARNING: This is a destructive operation that cannot be undone.
    * @param paths - Relative paths from workspace root (non-empty)
+   * @param workspaceRoot - The root the user confirmed (see
+   *   {@link discardChanges}).
    */
   async discardAll(
     paths: readonly string[],
+    workspaceRoot: string,
   ): Promise<RpcCallResult<GitDiscardResult>> {
+    const refused = this.refusal<GitDiscardResult>();
+    if (refused) return refused;
     return rpcCall<GitDiscardResult>(
       this.vscodeService,
       'git:discard',
       {
         paths: [...paths],
         worktreeOnly: true,
-        ...this.scopeParams(),
+        workspaceRoot,
       },
       MUTATION_RPC_TIMEOUT_MS,
     );
@@ -243,6 +267,8 @@ export class SourceControlService {
     message: string,
     operationId?: string,
   ): Promise<RpcCallResult<GitCommitResult>> {
+    const refused = this.refusal<GitCommitResult>();
+    if (refused) return refused;
     return rpcCall<GitCommitResult>(
       this.vscodeService,
       'git:commit',
@@ -307,6 +333,8 @@ export class SourceControlService {
   private async operationAction(
     method: 'git:operationAbort' | 'git:operationContinue',
   ): Promise<GitOperationContinueResult> {
+    const blocked = this.gate.blockedReason();
+    if (blocked !== null) return { ...OPERATION_ACTION_FAILED, error: blocked };
     try {
       const response = await rpcCall<GitOperationContinueResult>(
         this.vscodeService,
@@ -323,6 +351,15 @@ export class SourceControlService {
       console.error(`[SourceControlService] ${method} threw`, error);
       return OPERATION_ACTION_FAILED;
     }
+  }
+
+  /**
+   * A refusal while the dock scope is unresolved (`GitDockMutationGate`), or
+   * null when the mutation may run. Refused calls never reach the backend.
+   */
+  private refusal<T>(): RpcCallResult<T> | null {
+    const reason = this.gate.blockedReason();
+    return reason === null ? null : { success: false, error: reason };
   }
 
   /**

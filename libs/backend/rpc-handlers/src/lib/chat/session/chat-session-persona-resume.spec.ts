@@ -1,4 +1,7 @@
 import 'reflect-metadata';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 jest.mock('@ptah-extension/workspace-intelligence', () => ({
   ProjectType: {},
@@ -9,10 +12,12 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 
 import type { SessionId } from '@ptah-extension/shared';
 import { ChatSessionService } from './chat-session.service';
+import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 
 const sessionId = '11111111-1111-4111-8111-111111111111' as SessionId;
 const tabId = '22222222-2222-4222-8222-222222222222';
-const workspacePath = '/workspace';
+const workspacePath = mkdtempSync(join(tmpdir(), 'ptah-persona-resume-'));
+afterAll(() => rmSync(workspacePath, { recursive: true, force: true }));
 
 function service() {
   const resumeSession = jest.fn().mockResolvedValue({});
@@ -48,6 +53,14 @@ function service() {
     // Ambient host (no account service): the gate reads local metadata only,
     // and a session without an account binding is admitted.
     sessionMetadataStore: { get: jest.fn().mockResolvedValue(undefined) },
+    workspaceProvider: createMockWorkspaceProvider({
+      folders: [workspacePath],
+    }),
+    platformInfo: {
+      type: 'cli',
+      extensionPath: join(tmpdir(), 'ptah-app'),
+      globalStoragePath: join(tmpdir(), 'ptah-storage'),
+    },
     logger,
   }) as ChatSessionService;
   return { subject, resumeSession, logger, isSessionActive, isStreaming };

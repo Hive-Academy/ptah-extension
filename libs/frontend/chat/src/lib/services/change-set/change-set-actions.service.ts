@@ -174,3 +174,35 @@ function toCommandFile(
     ? { path: file.path, origPath: file.origPath, status: file.status }
     : { path: file.path, status: file.status };
 }
+
+/** Shown when the Display panel's summary has no change set to act on. */
+export const NO_CHANGE_SET_TEXT =
+  'This turn has no recorded file changes to open.';
+/** Shown when a review action fails without its own message. */
+export const ACTION_FAILED_TEXT = 'The review action failed.';
+
+/**
+ * The Display panel's change-set rule, shared by the in-window sidebar and the
+ * detached Display window: run `action` on the shown summary's change set, or
+ * report why it could not run. A missing change set is reported synchronously
+ * (before the first await), so a caller sees the error in the same tick.
+ */
+export async function runDisplayChangeSetAction(
+  changeSet: TurnChangeSet | null,
+  action: (changeSet: TurnChangeSet) => Promise<void>,
+  onFailure: (message: string) => void,
+): Promise<void> {
+  if (changeSet === null) {
+    onFailure(NO_CHANGE_SET_TEXT);
+    return;
+  }
+  try {
+    await action(changeSet);
+  } catch (error) {
+    onFailure(
+      error instanceof Error && error.message
+        ? error.message
+        : ACTION_FAILED_TEXT,
+    );
+  }
+}

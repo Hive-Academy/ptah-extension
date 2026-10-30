@@ -37,6 +37,12 @@ export {
 } from './lib/tokens/workspace-coordinator.token';
 
 export {
+  GIT_SESSION_SCOPE_SOURCE,
+  type GitSessionScopeCandidate,
+  type GitSessionScopeSource,
+} from './lib/tokens/git-session-scope.token';
+
+export {
   FILE_LINK_OPENER,
   type FileLinkOpenRequest,
   type IFileLinkOpener,

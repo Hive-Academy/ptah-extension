@@ -86,6 +86,7 @@ import {
   AgentRpcHandlers,
   AuthRpcHandlers,
   DecisionModelCatalogRpcHandlers,
+  GitWatchRpcHandlers,
   LanePlanLimitsRpcHandlers,
   PluginRpcHandlers,
   ProviderAccountRpcHandlers,
@@ -99,6 +100,7 @@ import {
   DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
+  GIT_ROOT_WATCH_REGISTRY_TOKEN,
   HOST_ATTENTION_COORDINATOR_TOKEN,
   LANE_MODEL_LISTING_TOKEN,
   STRUCTURED_DECISION_TOKEN,
@@ -108,6 +110,7 @@ import { registerPhase1Infra } from './phase-1-infra';
 import { registerPhase4Handlers } from './phase-4-handlers';
 import { registerClaudeNamedAccountBindings } from './claude-named-account-bindings';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
+import { GitRootWatcherPool } from '../services/git-root-watcher-pool';
 import { createElectronRpcHostProfile } from '../rpc-host-profile';
 
 describe('Electron DI — host attention coordinator', () => {
@@ -265,6 +268,12 @@ function buildMinimalContainer(): DependencyContainer {
   // real Electron container binds this in `phase-4-handlers.ts`.
   c.register(TOKENS.GIT_INFO_SERVICE, {
     useValue: { getWorktrees: jest.fn(async () => []) },
+  });
+  // `GitWatchRpcHandlers` (in EXPECTED_RESOLVABLE) injects the lease port. The
+  // real Electron container binds the pool in `phase-4-handlers.ts`; that
+  // binding is pinned by the "git root watch registry" describe below.
+  c.register(GIT_ROOT_WATCH_REGISTRY_TOKEN, {
+    useValue: new GitRootWatcherPool(c.resolve<Logger>(TOKENS.LOGGER)),
   });
 
   c.register(SDK_TOKENS.SDK_PLUGIN_LOADER, {
@@ -461,7 +470,11 @@ describe('Electron DI — named Claude account persistence (TASK_2026_719 B17)',
     });
     c.register<Pick<ProviderAccountService, 'readStoredSelection'>>(
       ProviderAccountService,
-      { useValue: { readStoredSelection: jest.fn(async () => ({ profileId: null })) } },
+      {
+        useValue: {
+          readStoredSelection: jest.fn(async () => ({ profileId: null })),
+        },
+      },
     );
     if (withSqlite) {
       c.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
@@ -506,8 +519,12 @@ describe('Electron DI — named Claude account persistence (TASK_2026_719 B17)',
       path.join(__dirname, 'phase-2-libraries.ts'),
       'utf8',
     );
-    const sqlite = source.indexOf('registerPersistenceSqliteServices(container, logger);');
-    const bind = source.indexOf('registerClaudeNamedAccountBindings(container)');
+    const sqlite = source.indexOf(
+      'registerPersistenceSqliteServices(container, logger);',
+    );
+    const bind = source.indexOf(
+      'registerClaudeNamedAccountBindings(container)',
+    );
     const sdk = source.indexOf('registerSdkServices(container, logger);');
     expect(sqlite).toBeGreaterThan(-1);
     expect(sdk).toBeGreaterThan(-1);
@@ -917,6 +934,33 @@ describe('Electron DI — app updater token aliasing (Risk R1)', () => {
 
     expect(viaPort).toBeDefined();
     expect(viaPort).toBe(viaConcreteToken);
+  });
+});
+
+/**
+ * `PLATFORM_TOKENS.GIT_ROOT_WATCH_REGISTRY` (TASK_2026_855 D20) is bound by the
+ * REAL `registerPhase4Handlers` to one `GitRootWatcherPool`, and
+ * `GitWatchRpcHandlers` resolves against it. The heavy boot attaches that same
+ * instance, so a second registration would leave leases on an unattached pool.
+ */
+describe('Electron DI — git root watch registry (TASK_2026_855)', () => {
+  it('binds the registry to a single GitRootWatcherPool that GitWatchRpcHandlers resolves', () => {
+    const { c, logger } = buildPhase4Container();
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    c.register(TOKENS.RPC_HANDLER, {
+      useValue: { registerMethod: jest.fn(), handleMessage: jest.fn() },
+    });
+    c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
+      useValue: { getWorkspaceFolders: jest.fn(() => []) },
+    });
+    c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: {} });
+
+    registerPhase4Handlers(c, logger);
+
+    const registry = c.resolve(GIT_ROOT_WATCH_REGISTRY_TOKEN);
+    expect(registry).toBeInstanceOf(GitRootWatcherPool);
+    expect(c.resolve(PLATFORM_TOKENS.GIT_ROOT_WATCH_REGISTRY)).toBe(registry);
+    expect(c.resolve(GitWatchRpcHandlers)).toBeDefined();
   });
 });
 

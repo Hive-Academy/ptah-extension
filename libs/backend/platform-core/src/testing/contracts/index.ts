@@ -53,3 +53,7 @@ export {
   runHostAttentionContract,
   type HostAttentionContractSetup,
 } from './run-host-attention-contract';
+export {
+  runDisplayWindowHostContract,
+  type DisplayWindowHostContractSetup,
+} from './run-display-window-host-contract';

@@ -317,12 +317,15 @@ export interface SystemPromptAssemblyResult {
  * built-in behavioral guidance, MCP server handling, tool routing, and environment
  * context that the agent needs to function correctly.
  *
- * PTAH_CORE_SYSTEM_PROMPT is always appended to the preset, providing
- * Ptah-specific MCP mandates, formatting rules, AskUserQuestion enforcement,
- * orchestration workflows, CLI agent hierarchy, and git/PR safety. Enhanced prompts
- * (project-specific guidance from the setup wizard) are also appended when available.
- * Some behavioral sections overlap with the preset — this is intentional as it
- * reinforces the instructions without contradicting them.
+ * PTAH_CORE_SYSTEM_PROMPT is always appended to the preset. It carries only what
+ * the preset lacks: the Ptah environment context, the single MCP substitution
+ * table, the agent hierarchy and CLI delegation rules, AskUserQuestion and
+ * permission-denial guidance, orchestration, a git/PR rule that defers to the
+ * workspace's own instructions, and webview formatting. Generic coding behaviour
+ * stays in the preset and is not restated. The only deliberate repeat is the MCP
+ * handshake, which summarizes the substitution table derived from the same
+ * constant. Enhanced prompts (project-specific guidance from the setup wizard)
+ * are also appended when available.
  *
  * Shared function used by SdkQueryOptionsBuilder and PtahCliAdapter.
  *
@@ -662,6 +665,7 @@ export async function resolveSessionCapabilityPolicy(
   resolver: ICapabilityResolver | null | undefined,
   cwd: string,
   logger: Pick<Logger, 'warn'>,
+  pluginConfigAncestorRoots?: readonly string[],
 ): Promise<EffectiveCapabilitySet> {
   if (!resolver) {
     logger.warn(
@@ -674,7 +678,9 @@ export async function resolveSessionCapabilityPolicy(
     );
   }
   try {
-    return await resolver.resolve(cwd);
+    return await (pluginConfigAncestorRoots === undefined
+      ? resolver.resolve(cwd)
+      : resolver.resolve(cwd, { pluginConfigAncestorRoots }));
   } catch (error: unknown) {
     logger.warn(
       '[CapabilityPolicy] The capability resolver failed; the session runs with Ptah tools only and no skills',

@@ -35,6 +35,12 @@ import { subagentProgressText } from '../../../utils/subagent-progress.utils';
 import { subagentLaneStats } from '../../../utils/lane-stats.adapters';
 import { SubagentLaneComposerComponent } from './subagent-lane-composer.component';
 
+/**
+ * Each refresh re-reads the whole sidechain transcript over paged RPC, so the
+ * interval trades freshness against reparsing a long transcript.
+ */
+const LIVE_HISTORY_REFRESH_MS = 5000;
+
 @Component({
   selector: 'ptah-subagent-lane',
   standalone: true,
@@ -357,6 +363,20 @@ export class SubagentLaneComponent {
       const entry = this.entry();
       if (entry && !entry.live && entry.history === 'idle')
         void this.store.ensureHistory(key);
+    });
+    // A running (often background) agent may stream only progress summaries,
+    // so its tree is backfilled from the sidechain transcript while this lane
+    // shows it. The store coalesces overlapping reads; the timer ends when
+    // the agent stops or the lane is destroyed.
+    effect((onCleanup) => {
+      const key = this.key();
+      if (!this.live()) return;
+      untracked(() => void this.store.refreshLiveHistory(key));
+      const timer = setInterval(
+        () => void this.store.refreshLiveHistory(key),
+        LIVE_HISTORY_REFRESH_MS,
+      );
+      onCleanup(() => clearInterval(timer));
     });
   }
 
