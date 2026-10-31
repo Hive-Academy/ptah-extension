@@ -486,8 +486,9 @@ export class CodexChatAdapter implements NativeChatAdapter {
     input: CodexTurnInput,
     clientMessageId?: string,
     admission?: CodexChatAdmission,
+    inboundPeer?: { readonly label: string },
   ): Promise<void> {
-    const iterator = this.turn(session, input, clientMessageId, admission)[Symbol.asyncIterator]();
+    const iterator = this.turn(session, input, clientMessageId, admission, inboundPeer)[Symbol.asyncIterator]();
     try {
       await this.safe('publish', () =>
         this.ports.publish(session.id, {
@@ -531,6 +532,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     input: CodexTurnInput,
     clientMessageId?: string,
     admission?: CodexChatAdmission,
+    inboundPeer?: { readonly label: string },
   ): AsyncIterable<FlatStreamEventUnion> {
     if (session.busy) throw new CodexChatAdapterError('busy', 'turn');
     if (session.blocked || session.closing)
@@ -547,17 +549,23 @@ export class CodexChatAdapter implements NativeChatAdapter {
       error: (code, operation) => new CodexChatAdapterError(code, operation),
       failure: (error, operation) => this.failure(error, operation),
       admission,
-    }, clientMessageId);
+    }, clientMessageId, inboundPeer);
   }
   async sendMessageToSession(
     ...[id, text, options]: Parameters<IAgentAdapter['sendMessageToSession']>
   ): Promise<void> {
-    if (options && Object.keys(options).some(
-      (key) => !['files', 'images', 'admission', 'clientMessageId'].includes(key),
-    )) throw this.failure(this.unsupportedError('messageOptions'), 'messageOptions');
     let clientMessageId: string | undefined;
+    let inboundPeer: { readonly label: string } | undefined;
     try {
       clientMessageId = z.string().min(1).optional().parse(options?.clientMessageId);
+      if (options?.origin?.kind === 'peer') {
+        const origin = z.object({
+          kind: z.literal('peer'),
+          from: z.string().min(1),
+          name: z.string().optional(),
+        }).passthrough().parse(options.origin);
+        inboundPeer = { label: origin.name?.trim() || 'peer session' };
+      }
     } catch (error) {
       throw this.failure(error, 'messageOptions');
     }
@@ -573,7 +581,9 @@ export class CodexChatAdapter implements NativeChatAdapter {
     ];
     const session = this.session(id);
     await publishUntilAdmitted(
-      (admission) => this.publish(session, { text, attachments }, clientMessageId, admission),
+      (admission) => this.publish(
+        session, { text, attachments }, clientMessageId, admission, inboundPeer,
+      ),
       this.ports.logger,
     );
   }
@@ -672,9 +682,6 @@ export class CodexChatAdapter implements NativeChatAdapter {
   }
   private unsupported(operation: string): never {
     throw new CodexChatAdapterError('unsupported', operation);
-  }
-  private unsupportedError(operation: string): CodexChatAdapterError {
-    return new CodexChatAdapterError('unsupported', operation);
   }
   private failure(error: unknown, operation: string): CodexChatAdapterError {
     const failure = error instanceof CodexChatAdapterError

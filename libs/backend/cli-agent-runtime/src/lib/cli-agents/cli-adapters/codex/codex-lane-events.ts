@@ -87,9 +87,11 @@ export class CodexLaneEvents {
                   ? 'tool-result'
                   : 'tool-result-error',
               content:
-                typeof event.output === 'string'
-                  ? event.output
-                  : JSON.stringify(event.output),
+                event.status === 'failed' && event.output == null
+                  ? (event.errorText?.trim() || 'Tool call failed')
+                  : typeof event.output === 'string'
+                    ? event.output
+                    : JSON.stringify(event.output),
               toolCallId: event.toolId,
               ...(toolName === undefined ? {} : { toolName }),
             },

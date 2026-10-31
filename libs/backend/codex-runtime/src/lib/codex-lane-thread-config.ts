@@ -11,6 +11,7 @@ const disabledServer = z.strictObject({ enabled: z.literal(false) });
 const ptahServer = z.strictObject({
   url: z.url(),
   tool_timeout_sec: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  default_tools_approval_mode: z.literal('approve'),
 });
 const serverName = z
   .string()
@@ -96,7 +97,11 @@ export function buildCodexLaneThreadConfig(
   }
   const entries: [
     string,
-    { enabled: false } | { url: string; tool_timeout_sec: number },
+    { enabled: false } | {
+      url: string;
+      tool_timeout_sec: number;
+      default_tools_approval_mode: 'approve';
+    },
   ][] = [
     ...[...new Set(lane.disabledUserMcpServers ?? [])]
       .filter((name) => name !== 'ptah')
@@ -112,6 +117,7 @@ export function buildCodexLaneThreadConfig(
           lane.ptahToolTimeoutSeconds ??
           ptah.toolTimeoutSec ??
           CODEX_PTAH_TOOL_TIMEOUT_SEC,
+        default_tools_approval_mode: 'approve',
       },
     ]);
   }

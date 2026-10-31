@@ -69,6 +69,7 @@ describe('buildCodexLaneThreadConfig', () => {
         ptah: {
           url: 'http://localhost:3030/agent/lane-1/workspace/%2Fwork',
           tool_timeout_sec: 960,
+          default_tools_approval_mode: 'approve',
         },
       },
     });
@@ -88,6 +89,7 @@ describe('buildCodexLaneThreadConfig', () => {
         ptah: {
           url: 'http://localhost:3030/agent/lane-1/workspace/%2Fwork',
           tool_timeout_sec: 960,
+          default_tools_approval_mode: 'approve',
         },
       },
     });
@@ -162,6 +164,17 @@ describe('buildCodexLaneThreadConfig', () => {
       codexLaneThreadConfigSchema.safeParse({
         ...valid,
         mcp_servers: { user: { url: 'https://example.com', tool_timeout_sec: 10 } },
+      }).success,
+    ).toBe(false);
+    expect(
+      codexLaneThreadConfigSchema.safeParse({
+        ...valid,
+        mcp_servers: {
+          ptah: {
+            ...valid.mcp_servers?.['ptah'],
+            default_tools_approval_mode: 'prompt',
+          },
+        },
       }).success,
     ).toBe(false);
   });

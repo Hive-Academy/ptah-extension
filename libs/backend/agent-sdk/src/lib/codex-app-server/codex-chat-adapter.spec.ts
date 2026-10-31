@@ -230,6 +230,24 @@ describe('CodexChatAdapter', () => {
     }));
     await h.adapter.dispose();
   });
+  it('accepts additional peer origin fields like the Claude adapter', async () => {
+    const h = setup();
+    const first = await h.adapter.startChatSession({ tabId });
+    for await (const event of first) void event;
+    const origin = {
+      kind: 'peer' as const,
+      from: 'ptah-agent:lane-a',
+      name: 'Codex lane',
+      sentAt: '2026-10-31T00:00:00.000Z',
+    };
+
+    await h.adapter.sendMessageToSession(id, 'peer message', { origin });
+
+    expect(h.context.startTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: 'peer message', attachments: [],
+    }));
+    await h.adapter.dispose();
+  });
 
   it.each(['failed', 'interrupted'] as const)('does not count a %s native turn', async (status) => {
     const h = setup();
@@ -287,6 +305,38 @@ describe('CodexChatAdapter', () => {
     await h.adapter.dispose();
   });
 
+  it('renders a delivered lane message as a peer message in native Codex chat', async () => {
+    const h = setup();
+    const events: FlatStreamEventUnion[] = [];
+    let finishPublish: () => void = () => undefined;
+    const published = new Promise<void>((resolve) => { finishPublish = resolve; });
+    jest.mocked(h.ports.publish).mockImplementation(async (_id, stream) => {
+      try {
+        for await (const event of stream) events.push(event);
+      } finally {
+        finishPublish();
+      }
+    });
+    const first = await h.adapter.startChatSession({ tabId });
+    for await (const event of first) void event;
+    const message = '<agent-lane-completed>Delivered</agent-lane-completed>';
+    await h.adapter.sendMessageToSession(id, message, {
+      origin: { kind: 'peer', from: 'ptah-agent:lane-a', name: 'Codex lane' },
+    });
+    await published;
+    expect(events.slice(0, 3)).toEqual([
+      expect.objectContaining({
+        eventType: 'message_start', role: 'user', sessionId: id,
+        inboundPeer: { label: 'Codex lane' },
+      }),
+      expect.objectContaining({ eventType: 'text_delta', delta: message }),
+      expect.objectContaining({ eventType: 'message_complete' }),
+    ]);
+    expect(h.context.startTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: message, attachments: [],
+    }));
+    await h.adapter.dispose();
+  });
   it('admits a live follow-up before its native event stream ends', async () => {
     const h = setup();
     const first = await h.adapter.startChatSession({ tabId });
@@ -402,13 +452,14 @@ describe('CodexChatAdapter', () => {
     }
   });
 
-  it('logs a rejected follow-up option through failure', async () => {
+  it('accepts Claude-compatible unused follow-up options', async () => {
     const h = setup();
-    await expect(h.adapter.sendMessageToSession(id, 'text', { model: 'gpt' }))
-      .rejects.toMatchObject({ code: 'unsupported' });
-    expect(h.ports.logger.error).toHaveBeenCalledWith(
-      '[CodexChatAdapter] unsupported: messageOptions.', expect.any(Error),
-    );
+    const first = await h.adapter.startChatSession({ tabId });
+    for await (const event of first) void event;
+    await h.adapter.sendMessageToSession(id, 'text', { model: 'gpt' });
+    expect(h.context.startTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: 'text', attachments: [],
+    }));
     await h.adapter.dispose();
   });
 

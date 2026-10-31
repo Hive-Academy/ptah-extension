@@ -117,6 +117,49 @@ describe('CodexLaneEvents', () => {
     ).not.toHaveProperty('toolInput');
   });
 
+  it('shows an MCP failure message when the result is absent', () => {
+    const map = mapper();
+    map({
+      type: 'toolStarted',
+      toolId: 'mcp-1',
+      toolName: 'ptah/ptah_agent_report',
+      input: {},
+    });
+    expect(map({
+      type: 'toolCompleted',
+      toolId: 'mcp-1',
+      status: 'failed',
+      output: null,
+      errorText: 'MCP tool call requires approval, but approval policy is never',
+    }).segments).toEqual([{
+      type: 'tool-result-error',
+      content: 'MCP tool call requires approval, but approval policy is never',
+      toolCallId: 'mcp-1',
+      toolName: 'ptah/ptah_agent_report',
+    }]);
+  });
+
+  it('uses a fixed failure message when an MCP result and error text are absent', () => {
+    const map = mapper();
+    map({
+      type: 'toolStarted',
+      toolId: 'mcp-2',
+      toolName: 'ptah/ptah_agent_message',
+      input: {},
+    });
+    expect(map({
+      type: 'toolCompleted',
+      toolId: 'mcp-2',
+      status: 'failed',
+      output: null,
+    }).segments).toEqual([{
+      type: 'tool-result-error',
+      content: 'Tool call failed',
+      toolCallId: 'mcp-2',
+      toolName: 'ptah/ptah_agent_message',
+    }]);
+  });
+
   it('emits only the latest reported usage once at terminal', () => {
     const map = mapper();
     expect(map({ type: 'usage', usage: { inputTokens: 5 } }).segments).toEqual(

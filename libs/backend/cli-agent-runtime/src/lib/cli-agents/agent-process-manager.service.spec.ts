@@ -3745,6 +3745,71 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(parentOf(matching)).toBe(realSessionId);
       expect(parentOf(other)).toBe('');
     });
+
+    it('uses a Codex session id resolved before the lane spawns', async () => {
+      const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-333333333333';
+      const realSessionId = '11111111-2222-4333-8444-666666666666';
+      manager.resolveParentSessionId(tabId, realSessionId);
+
+      const agentId = await spawnWithParent(tabId);
+
+      expect(parentOf(agentId)).toBe(realSessionId);
+    });
+
+    it('replaces a tab mapping when the tab resolves a new session', async () => {
+      const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-333333333333';
+      const firstSessionId = '11111111-2222-4333-8444-666666666666';
+      const nextSessionId = '11111111-2222-4333-8444-777777777777';
+      manager.resolveParentSessionId(tabId, firstSessionId);
+      manager.resolveParentSessionId(tabId, nextSessionId);
+
+      expect(parentOf(await spawnWithParent(tabId))).toBe(nextSessionId);
+    });
+
+    it('evicts the oldest tab mapping after the fixed cap', async () => {
+      const oldestTab = 'oldest-tab';
+      manager.resolveParentSessionId(oldestTab, 'first-session');
+      for (let index = 0; index < 256; index += 1) {
+        manager.resolveParentSessionId(`tab-${index}`, `session-${index}`);
+      }
+
+      expect(parentOf(await spawnWithParent(oldestTab))).toBe(oldestTab);
+      expect(parentOf(await spawnWithParent('tab-255'))).toBe('session-255');
+    });
+
+    it('keeps a re-resolved tab newer than other mappings', async () => {
+      manager.resolveParentSessionId('refreshed-tab', 'first-session');
+      manager.resolveParentSessionId('older-tab', 'older-session');
+      manager.resolveParentSessionId('refreshed-tab', 'new-session');
+      for (let index = 0; index < 255; index += 1) {
+        manager.resolveParentSessionId(`tab-${index}`, `session-${index}`);
+      }
+
+      expect(parentOf(await spawnWithParent('older-tab'))).toBe('older-tab');
+      expect(parentOf(await spawnWithParent('refreshed-tab'))).toBe('new-session');
+    });
+
+    it('uses the resolved parent for an SDK handle lane and its spawn event', async () => {
+      const tabId = 'aaaaaaaa-bbbb-4ccc-8ddd-999999999999';
+      const realSessionId = '11111111-2222-4333-8444-999999999999';
+      const spawned: AgentProcessInfo[] = [];
+      manager.events.on('agent:spawned', (info: AgentProcessInfo) => spawned.push(info));
+      manager.resolveParentSessionId(tabId, realSessionId);
+
+      const { agentId } = await manager.spawnFromSdkHandle(
+        createMockSdkHandle().handle,
+        {
+          task: 'Task',
+          cli: 'ptah-cli',
+          workingDirectory: '/workspace/root',
+          parentSessionId: tabId,
+          expectsMcp: false,
+        },
+      );
+
+      expect(parentOf(agentId)).toBe(realSessionId);
+      expect(spawned[0]?.parentSessionId).toBe(realSessionId);
+    });
   });
 
   /** `ptah_session_handoff`: the new session adopts the caller's running lanes. */

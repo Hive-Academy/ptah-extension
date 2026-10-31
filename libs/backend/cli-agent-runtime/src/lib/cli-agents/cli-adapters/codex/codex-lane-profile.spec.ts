@@ -147,6 +147,7 @@ describe('buildCodexLaneProfileSettings', () => {
         ptah: {
           url: 'http://localhost:51820/agent/lane%2F1/workspace/%2Fworkspace',
           tool_timeout_sec: 960,
+          default_tools_approval_mode: 'approve',
         },
       },
     });

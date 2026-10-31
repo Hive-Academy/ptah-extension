@@ -102,12 +102,37 @@ interface ActiveTurn {
   readonly reject: (error: Error) => void;
 }
 
+interface LiveLaneWriter {
+  isBusy(): boolean;
+  close(): Promise<boolean>;
+}
+
+export class CodexLaneWriterConflictError extends Error {
+  readonly code = 'CODEX_LANE_WRITER_ACTIVE';
+
+  constructor() {
+    super('Codex thread already has an active lane turn.');
+    this.name = 'CodexLaneWriterConflictError';
+  }
+}
+
+export class CodexLaneWriterCloseError extends Error {
+  readonly code = 'CODEX_LANE_WRITER_CLOSE_FAILED';
+
+  constructor(options?: ErrorOptions) {
+    super('Codex thread writer could not be closed before resume.', options);
+    this.name = 'CodexLaneWriterCloseError';
+  }
+}
+
 /** Native lane consumer. The legacy SDK adapter remains a separate selectable adapter. */
 export class CodexAppServerLaneAdapter implements CliAdapter {
   readonly name = 'codex' as const;
   readonly displayName = 'Codex CLI';
   readonly roleChannel = 'developer-instructions' as const;
   readonly supportsMcp = true;
+
+  static createWriterRegistry(): Map<string, LiveLaneWriter> { return new Map(); }
 
   constructor(
     private readonly runtime: CodexLaneRuntimeProvider,
@@ -117,6 +142,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     private readonly binary: CodexLaneBinaryProbe = new NativeCodexLaneBinaryProbe(),
     private readonly credentials: CodexLaneCredentialProbe = new FileCodexLaneCredentialProbe(),
     private readonly home: () => Promise<string | undefined> = async () => undefined,
+    private readonly writers: Map<string, LiveLaneWriter> = CodexAppServerLaneAdapter.createWriterRegistry(),
   ) {}
 
   private catalogProbe: {
@@ -237,7 +263,11 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     let active: ActiveTurn | undefined;
     // True from runTurn until startTurn settles, so a second turn cannot race the first.
     let starting = false;
+    let initialTurnPending = false;
     let closed = false;
+    let closePromise: Promise<boolean> | undefined;
+    let registeredThreadId: string | undefined;
+    let reservation: LiveLaneWriter | undefined;
     let sessionId = resume?.threadId;
     let roleDelivery: 'developer-instructions' | 'task-prompt' = 'developer-instructions';
     const pending: CodexRuntimeEvent[] = [];
@@ -266,29 +296,45 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     const closeContext = (opened: CodexContext): Promise<void> => {
       let closing = closePromises.get(opened);
       if (!closing) {
-        closing = Promise.resolve().then(() => opened.close());
+        closing = Promise.resolve().then(() => opened.close()).catch((error: unknown) => {
+          closePromises.delete(opened);
+          throw error;
+        });
         closePromises.set(opened, closing);
       }
       return closing;
     };
-    const close = async (): Promise<void> => {
-      if (closed) return;
+    const close = (): Promise<boolean> => {
+      if (closePromise) return closePromise;
       closed = true;
       abort.abort();
       eventAbort.abort();
       active?.resolve(1);
       active = undefined;
-      if (context) {
+      const attempt = (async (): Promise<boolean> => {
         try {
-          await closeContext(context);
-        } catch {
+          if (context) await closeContext(context);
+          if (registeredThreadId && this.writers.get(registeredThreadId) === writer)
+            this.writers.delete(registeredThreadId);
+          return true;
+        } catch (error: unknown) {
           this.logger.error('[CodexAppServerLaneAdapter] Context close failed',
-            new Error('Codex lane context close failed'));
+            error instanceof Error ? error : new Error(String(error)));
           emit({ type: 'error', content: 'Codex lane context close failed.' });
+          return false;
         }
-      }
+      })();
+      closePromise = attempt.then((released) => {
+        if (!released) closePromise = undefined;
+        return released;
+      });
+      return closePromise;
     };
-    abort.signal.addEventListener('abort', () => { void close(); }, { once: true });
+    const writer: LiveLaneWriter = {
+      isBusy: () => initialTurnPending || starting || active !== undefined,
+      close,
+    };
+    abort.signal.addEventListener('abort', () => { if (!closed) void close(); }, { once: true });
     const openContext = async (identity: CodexThreadIdentity | undefined): Promise<CodexContext> => {
       const opening = this.runtime.open(profile, identity, approvals, binary.path);
       void opening.then((late): void => {
@@ -315,6 +361,16 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
         throw new CodexLaneResumeIdentityError();
       sessionId = context.identity.threadId;
       await this.identities.persist(context.identity);
+      const prior = this.writers.get(sessionId);
+      if (prior && prior !== reservation && prior !== writer)
+        throw new CodexLaneWriterConflictError();
+      registeredThreadId = sessionId;
+      initialTurnPending = true;
+      this.writers.set(sessionId, writer);
+      if (closed || abort.signal.aborted) {
+        if (this.writers.get(sessionId) === writer) this.writers.delete(sessionId);
+        throw new Error('Codex lane aborted during startup');
+      }
       if (options.accountBinding !== undefined || options.accountBindingId !== undefined) {
         if (!options.accountBinding || !options.accountBindingId || !options.onAccountBinding)
           throw new Error('Codex lane account binding is incomplete');
@@ -344,6 +400,24 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       });
       return openContext(previous?.identity ?? resume);
     };
+    if (resume) {
+      const previous = this.writers.get(resume.threadId);
+      if (previous?.isBusy()) {
+        emit({ type: 'error', content: 'Codex thread already has an active lane turn.' });
+        throw new CodexLaneWriterConflictError();
+      }
+      reservation = { isBusy: () => true, close: async () => false };
+      this.writers.set(resume.threadId, reservation);
+      if (previous) {
+        const released = await previous.close();
+        if (!released) {
+          this.writers.set(resume.threadId, previous);
+          const error = new CodexLaneWriterCloseError();
+          emit({ type: 'error', content: error.message });
+          throw error;
+        }
+      }
+    }
     try {
       await openContext(resume);
     } catch (error: unknown) {
@@ -353,10 +427,14 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
         } catch (retryError: unknown) {
           emit({ type: 'error', content: 'Codex rejected the essential lane configuration.' });
           await close();
+          if (resume && this.writers.get(resume.threadId) === reservation)
+            this.writers.delete(resume.threadId);
           throw new Error('Codex rejected the essential lane configuration.', { cause: retryError });
         }
       } else {
         await close();
+        if (resume && this.writers.get(resume.threadId) === reservation)
+          this.writers.delete(resume.threadId);
         throw error;
       }
     }
@@ -448,6 +526,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       lanePolicyDelivery: 'developer-instructions',
       resumeRestoresContext: true,
     }, this.name);
+    initialTurnPending = false;
     const done = runTurn(prompt);
     const delivered = fullPromptPreambles({ ...options, lanePolicyDelivery: 'developer-instructions' });
     return {

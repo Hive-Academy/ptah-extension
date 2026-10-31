@@ -154,7 +154,7 @@ export class LaneOutcomeRecorder {
       ...facts,
       ...resolveTaskKind(input.taskKind, input.role),
       subagentSessionId: null,
-      parentSessionId: null,
+      parentSessionId: input.parentSessionId ?? null,
       workspaceRoot: null,
       telemetryJoin: 'not-applicable',
       skillsLoaded: null,

@@ -22,6 +22,7 @@ export function enqueueLaneCompletionOutcome(
   signal: LaneCompletionSignal,
   authMatched: boolean,
   rateLimited: boolean,
+  resolvedParentSessionId: string | null,
 ): void {
   const startedAt = Date.parse(info.startedAt);
   const endedAt = Date.parse(signal.completedAt);
@@ -40,6 +41,7 @@ export function enqueueLaneCompletionOutcome(
       executorKind: info.cli === 'ptah-cli' ? 'ptah-cli' : 'cli',
       laneId: info.ptahCliId ?? info.cli,
       agentId: info.agentId,
+      parentSessionId: resolvedParentSessionId,
       family: laneFamilyOf({
         cli: info.cli,
         ptahCliId: info.ptahCliId,

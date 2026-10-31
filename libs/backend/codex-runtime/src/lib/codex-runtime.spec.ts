@@ -119,7 +119,11 @@ const laneConfig = {
   approval_policy: 'never',
   mcp_servers: {
     'user.server': { enabled: false },
-    ptah: { url: ptahUrl, tool_timeout_sec: 960 },
+    ptah: {
+      url: ptahUrl,
+      tool_timeout_sec: 960,
+      default_tools_approval_mode: 'approve',
+    },
   },
 };
 

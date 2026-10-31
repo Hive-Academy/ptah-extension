@@ -217,6 +217,13 @@ describe('CLI/TUI Codex lane composition', () => {
       });
       expect(adapter).toBeInstanceOf(CodexAppServerLaneAdapter);
       const native = adapter as CodexAppServerLaneAdapter;
+      const second = f.container.resolve<CodexAdapterFactory>(
+        CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY,
+      ).create();
+      if (!(second instanceof CodexAppServerLaneAdapter))
+        throw new Error('Expected native Codex lane adapter');
+      expect(second).not.toBe(native);
+      expect(second['writers']).toBe(native['writers']);
       jest.spyOn(native['binary'], 'resolve').mockResolvedValue(undefined);
       const result = await native.detect();
       expect(result.installed).toBe(false);

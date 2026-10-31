@@ -109,6 +109,12 @@ describe('VS Code Codex lane composition', () => {
     try {
       const adapter = f.factory.create();
       expect(adapter).toBeInstanceOf(CodexAppServerLaneAdapter);
+      const second = f.factory.create();
+      if (!(adapter instanceof CodexAppServerLaneAdapter) ||
+        !(second instanceof CodexAppServerLaneAdapter))
+        throw new Error('Expected native Codex lane adapters');
+      expect(second).not.toBe(adapter);
+      expect(second['writers']).toBe(adapter['writers']);
       expect(await adapter.detect()).toMatchObject({ installed: true, path: f.executable });
       expect(f.spawner.spawnProcess).not.toHaveBeenCalled();
       jest.mocked(resolveCodexNativeBinaryPath).mockReturnValue(undefined);

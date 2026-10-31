@@ -356,6 +356,11 @@ export class LaneCompletionNotifier {
     this.remember(key);
 
     const signal = await this.buildSignal(info, completedAt, context);
+    const parentSessionId = SessionId.safeParse(info.parentSessionId?.trim());
+    const activeParentSessionId =
+      parentSessionId && this.agentAdapter?.isSessionActive(parentSessionId)
+        ? parentSessionId
+        : null;
     enqueueLaneCompletionOutcome(
       this.outcomeRecorder,
       this.logger,
@@ -364,6 +369,7 @@ export class LaneCompletionNotifier {
       signal,
       context.authMatched ?? false,
       context.rateLimited ?? false,
+      activeParentSessionId,
     );
 
     const queueReviewCapture = (): void => {
@@ -375,7 +381,6 @@ export class LaneCompletionNotifier {
     // until the real SDK uuid arrives, so a value that is not a session id
     // means the parent never resolved one. That is a modelled state, not an
     // exception — the same rule `AgentReportRouter` follows.
-    const parentSessionId = SessionId.safeParse(info.parentSessionId?.trim());
     if (!parentSessionId) {
       queueReviewCapture();
       return this.refuse('no-parent-recorded', signal, {
@@ -394,7 +399,7 @@ export class LaneCompletionNotifier {
       });
     }
 
-    if (!this.agentAdapter.isSessionActive(parentSessionId)) {
+    if (!activeParentSessionId) {
       queueReviewCapture();
       return this.refuse('parent-session-not-active', signal, {
         parentSessionId,

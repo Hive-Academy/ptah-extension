@@ -179,6 +179,12 @@ describe('Electron Codex lane composition', () => {
     const f = fixture();
     try {
       const adapter = f.factory.create();
+      const second = f.factory.create();
+      if (!(adapter instanceof CodexAppServerLaneAdapter) ||
+        !(second instanceof CodexAppServerLaneAdapter))
+        throw new Error('Expected native Codex lane adapters');
+      expect(second).not.toBe(adapter);
+      expect(second['writers']).toBe(adapter['writers']);
       expect(f.spawner.spawnProcess).not.toHaveBeenCalled();
       await adapter.detect();
       expect(f.spawner.spawnProcess).not.toHaveBeenCalled();

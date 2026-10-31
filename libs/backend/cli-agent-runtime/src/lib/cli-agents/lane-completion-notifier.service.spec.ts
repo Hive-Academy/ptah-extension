@@ -170,6 +170,7 @@ describe('LaneCompletionNotifier.signal', () => {
         family: 'codex',
         provider: null,
         model: 'lane-default',
+        parentSessionId: null,
       }),
       { brief: info.task },
     );
@@ -268,6 +269,10 @@ describe('LaneCompletionNotifier.signal', () => {
       expect(result.signal?.verdict).toBe('delivered');
       expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
       expect(h.sendMessageToSession.mock.calls[0][0]).toBe(PARENT);
+      expect(h.recordLaneCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({ parentSessionId: PARENT }),
+        expect.any(Object),
+      );
       expect(h.sendMessageToSession.mock.calls[0][2]).toEqual({
         origin: {
           kind: 'peer',
@@ -683,6 +688,23 @@ describe('LaneCompletionNotifier.signal', () => {
 
       expect(result.reason).toBe('parent-session-not-active');
       expect(h.sendMessageToSession).not.toHaveBeenCalled();
+      expect(h.recordLaneCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({ parentSessionId: null }),
+        expect.any(Object),
+      );
+    });
+
+    it('persists null when the parent is an unresolved UUID tab id', async () => {
+      const h = createHarness({ sessionActive: false });
+      const tabId = '33333333-3333-4333-8333-333333333333';
+
+      const result = await h.notifier.signal(createInfo({ parentSessionId: tabId }));
+
+      expect(result.reason).toBe('parent-session-not-active');
+      expect(h.recordLaneCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({ parentSessionId: null }),
+        expect.any(Object),
+      );
     });
 
     it('refuses with `delivery-failed` when the chat runtime rejects the turn', async () => {

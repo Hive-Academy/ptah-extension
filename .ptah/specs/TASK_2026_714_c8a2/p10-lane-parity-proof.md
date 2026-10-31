@@ -95,6 +95,19 @@ Across hosts capture actual frames/effective config for model, effort, role and 
 3. Count TUI as CLI composition, not an independent DI implementation. Evidence: apps/ptah-tui/src/main.tsx:8-10 and CLI container.ts:769. Reversible if TUI composition changes.
 4. The coordinator ran the full cli-agent-runtime test target on Windows after 10d.P-C1 and it passed; the new revise-round adapter cases, Linux CI, and real pinned App Server observations remain pending under the task's hard rules. Reversible when those checks and authorized live observations complete.
 
+## Corrective batches after the first Electron live run (10d.L1-L3)
+
+The first live run (live-test-p10dP.md) found three blockers. Each has a corrective batch with specs. None is live-proven yet.
+
+| Gap | Batch | Change | Status |
+| --- | --- | --- | --- |
+| G1 resume after a completed lane | 10d.L1 + revision 1 | Per-host writer registry; a resume closes the idle prior context of the same thread before `thread/resume`; refuses (`CODEX_LANE_WRITER_ACTIVE` / `CODEX_LANE_WRITER_CLOSE_FAILED`) when that context has an active turn or its close fails; a failed close can be retried. | PENDING-LIVE |
+| G3 Ptah MCP refused under `approval_policy never` | 10d.L2 | Lane `mcp_servers.ptah` gets `default_tools_approval_mode: 'approve'`; user servers stay `{ enabled: false }`; same frame on start and resume. The schema allows `approve` but does not document that it skips the prompt. | PENDING-LIVE |
+| G4 MCP error shown as "null" | 10d.L2 | Failed tool with null output shows the App Server error text, or `Tool call failed`. | PENDING-LIVE |
+| G2 completion signal to the tab id | 10d.L3 + revision 1 | Manager keeps a bounded (256) tab->session map for later spawns; native Codex chat accepts `origin: peer` and renders it like Claude (`inboundPeer`, `source: 'complete'`); outcome `parent_session_id` persisted only for an active resolved session. | PENDING-LIVE |
+
+Reviews: code-logic-review-10d-L.md (REVISE 6/10), code-logic-review-10d-L-r1.md (APPROVED 8.5/10), codex-review-coordinator-spec-fix.md (APPROVED). Open minors from r1: a context can stay open but unregistered when close fails on the open-failure path; a half-closed lane is re-registered after a failed close; origin kinds `channel`, `task-notification`, `coordinator` have no effect on Codex (plain user text); Codex rejects an empty peer `from`.
+
 ## Proposed Removals
 
 None. D26 is the only already accepted reduction. The gaps in parity-inventory.md:63-67 remain gaps; no Codex chat subagent, canUseTool prompt, partial-streaming, or compaction capability is inferred from this lane proof. No source or capability is approved for Removal B.

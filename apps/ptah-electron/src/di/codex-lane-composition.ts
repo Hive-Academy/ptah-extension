@@ -228,9 +228,10 @@ export function registerElectronCodexLaneFactory(
       throw error;
     }
   }
+  const writers = CodexAppServerLaneAdapter.createWriterRegistry();
   const factory: CodexAdapterFactory = {
     create: () => new CodexAppServerLaneAdapter(runtime, profiles, identities, logger,
-      binary, undefined, home),
+      binary, undefined, home, writers),
   };
   if (!input.isPackaged || new CodexParityGate().isEnabled('lane', input.platform))
     container.register(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, { useValue: factory });

@@ -18,6 +18,7 @@ import type { CliCommandOptions, CliModelInfo } from '../cli-adapter.interface';
 import {
   CodexAppServerLaneAdapter,
   CodexLaneResumeIdentityError,
+  CodexLaneWriterConflictError,
   type CodexLaneIdentityStore,
   type CodexLaneProfileResolver,
   type CodexLaneRuntimeProvider,
@@ -155,6 +156,7 @@ function harness(configure?: (context: FakeContext, attempt: number) => void, ho
   };
   const logger = Object.create(Logger.prototype) as Logger;
   jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+  jest.spyOn(logger, 'error').mockImplementation(() => undefined);
   const binary: CodexLaneBinaryProbe = {
     resolve: jest.fn(async (explicitPath?: string) => ({
       path: explicitPath ?? '/bin/codex', version: '0.165.0',
@@ -163,12 +165,14 @@ function harness(configure?: (context: FakeContext, attempt: number) => void, ho
   const credentials: CodexLaneCredentialProbe = {
     check: jest.fn(async (): Promise<CodexLaneCredentialStatus> => 'fresh'),
   };
-  const adapter = new CodexAppServerLaneAdapter(
+  const writers = CodexAppServerLaneAdapter.createWriterRegistry();
+  const createAdapter = () => new CodexAppServerLaneAdapter(
     runtime, profiles, identities, logger, binary, credentials,
-    async () => home,
+    async () => home, writers,
   );
+  const adapter = createAdapter();
   return {
-    adapter, runtime, profiles, identities, order, contexts, binary, credentials, logger,
+    adapter, createAdapter, runtime, profiles, identities, order, contexts, binary, credentials, logger, writers,
     get context() { if (!context) throw new Error('context not opened'); return context; },
     get profile() { if (!openedProfile) throw new Error('profile not opened'); return openedProfile; },
     get approvals() { if (!approvalSink) throw new Error('sink not opened'); return approvalSink; },
@@ -337,6 +341,157 @@ describe('CodexAppServerLaneAdapter', () => {
     h.stored = saved;
     const resumed = await h.adapter.runSdk(options({ resumeSessionId: 'thread-1' }));
     expect(h.resumeArg?.threadId).toBe('thread-1');
+    await terminal(h.context);
+    expect(await resumed.done).toBe(0);
+    resumed.abort.abort();
+  });
+
+  it('closes a completed writer once before another adapter opens its thread', async () => {
+    const h = harness();
+    const first = await h.adapter.runSdk(options());
+    await terminal(h.context);
+    expect(await first.done).toBe(0);
+    const oldContext = h.context;
+    oldContext.close.mockImplementation(async () => { h.order.push('close'); return undefined; });
+
+    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    expect(oldContext.close).toHaveBeenCalledTimes(1);
+    expect(h.order).toEqual(['open', 'persist', 'close', 'open', 'persist']);
+    expect(first.supportsContinuation?.()).toBe(false);
+    await terminal(h.context);
+    expect(await resumed.done).toBe(0);
+    resumed.abort.abort();
+  });
+
+  it('refuses resume while the prior turn is active without closing its writer', async () => {
+    const h = harness();
+    const first = await h.adapter.runSdk(options());
+    const oldContext = h.context;
+    await expect(h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })))
+      .rejects.toMatchObject({ code: 'CODEX_LANE_WRITER_ACTIVE' });
+    expect(oldContext.close).not.toHaveBeenCalled();
+    expect(h.runtime.open).toHaveBeenCalledTimes(1);
+    expect(first.supportsContinuation?.()).toBe(true);
+    await terminal(oldContext);
+    expect(await first.done).toBe(0);
+    first.abort.abort();
+  });
+
+  it('leaves another thread writer open during resume', async () => {
+    const h = harness();
+    const first = await h.adapter.runSdk(options());
+    const oldContext = h.context;
+    await terminal(oldContext);
+    expect(await first.done).toBe(0);
+    h.stored = { ...oldContext.identity, threadId: 'thread-2' };
+
+    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-2' }));
+    expect(oldContext.close).not.toHaveBeenCalled();
+    expect(first.supportsContinuation?.()).toBe(true);
+    expect(h.resumeArg?.threadId).toBe('thread-2');
+    await terminal(h.context);
+    expect(await resumed.done).toBe(0);
+    first.abort.abort();
+    resumed.abort.abort();
+  });
+
+  it('refuses resume when the old writer cannot close', async () => {
+    const h = harness();
+    const first = await h.adapter.runSdk(options());
+    const oldContext = h.context;
+    await terminal(oldContext);
+    expect(await first.done).toBe(0);
+    const failure = new Error('close failed');
+    oldContext.close.mockRejectedValueOnce(failure);
+
+    await expect(h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })))
+      .rejects.toMatchObject({ code: 'CODEX_LANE_WRITER_CLOSE_FAILED' });
+    expect(oldContext.close).toHaveBeenCalledTimes(1);
+    expect(h.runtime.open).toHaveBeenCalledTimes(1);
+    expect(h.logger.error).toHaveBeenCalledWith(
+      '[CodexAppServerLaneAdapter] Context close failed', failure,
+    );
+    expect(first.supportsContinuation?.()).toBe(false);
+
+    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    expect(oldContext.close).toHaveBeenCalledTimes(2);
+    expect(h.runtime.open).toHaveBeenCalledTimes(2);
+    await terminal(h.context);
+    expect(await resumed.done).toBe(0);
+    resumed.abort.abort();
+  });
+
+  it('reserves a thread for exactly one of two concurrent resumes', async () => {
+    const h = harness();
+    const first = await h.adapter.runSdk(options());
+    const oldContext = h.context;
+    await terminal(oldContext);
+    expect(await first.done).toBe(0);
+
+    let releaseClose: () => void = () => undefined;
+    let signalCloseStarted: () => void = () => undefined;
+    const closeStarted = new Promise<void>((resolve) => { signalCloseStarted = resolve; });
+    const closeGate = new Promise<void>((resolve) => { releaseClose = resolve; });
+    oldContext.close.mockImplementation(async () => {
+      signalCloseStarted();
+      await closeGate;
+    });
+
+    const firstResume = h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    await closeStarted;
+    await expect(h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })))
+      .rejects.toBeInstanceOf(CodexLaneWriterConflictError);
+    expect(h.runtime.open).toHaveBeenCalledTimes(1);
+    releaseClose();
+    const resumed = await firstResume;
+    expect(oldContext.close).toHaveBeenCalledTimes(1);
+    expect(h.runtime.open).toHaveBeenCalledTimes(2);
+    await terminal(h.context);
+    expect(await resumed.done).toBe(0);
+    resumed.abort.abort();
+  });
+
+  it('clears a reservation after the prior lane aborts and opening fails', async () => {
+    const h = harness();
+    const first = await h.adapter.runSdk(options());
+    const oldContext = h.context;
+    await terminal(oldContext);
+    expect(await first.done).toBe(0);
+    jest.mocked(h.runtime.open).mockRejectedValueOnce(new Error('resume open failed'));
+
+    await expect(h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' })))
+      .rejects.toThrow('resume open failed');
+    expect(first.abort.signal.aborted).toBe(true);
+    expect(oldContext.close).toHaveBeenCalledTimes(1);
+    expect(h.writers.has('thread-1')).toBe(false);
+
+    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    expect(h.runtime.open).toHaveBeenCalledTimes(3);
+    await terminal(h.context);
+    expect(await resumed.done).toBe(0);
+    resumed.abort.abort();
+  });
+
+  it('removes a writer when the lane closes during registration after persistence', async () => {
+    const h = harness();
+    const setWriter = h.writers.set.bind(h.writers);
+    let closeDuringRegistration = true;
+    jest.spyOn(h.writers, 'set').mockImplementation((threadId, writer) => {
+      const result = setWriter(threadId, writer);
+      if (closeDuringRegistration) {
+        closeDuringRegistration = false;
+        void writer.close();
+      }
+      return result;
+    });
+
+    await expect(h.adapter.runSdk(options())).rejects.toThrow('Codex lane aborted during startup');
+    expect(h.identities.persist).toHaveBeenCalledTimes(1);
+    expect(h.context.close).toHaveBeenCalledTimes(1);
+    expect(h.writers.has('thread-1')).toBe(false);
+
+    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    expect(h.runtime.open).toHaveBeenCalledTimes(2);
     await terminal(h.context);
     expect(await resumed.done).toBe(0);
     resumed.abort.abort();

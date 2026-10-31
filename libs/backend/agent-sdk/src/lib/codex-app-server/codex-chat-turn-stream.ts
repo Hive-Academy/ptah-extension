@@ -111,6 +111,7 @@ export async function* streamCodexChatTurn(
   input: CodexTurnInput,
   deps: CodexChatTurnDependencies,
   clientMessageId?: string,
+  inboundPeer?: { readonly label: string },
 ): AsyncGenerator<FlatStreamEventUnion> {
   if (session.busy) throw deps.error('busy', 'turn');
   if (session.blocked || session.closing) throw deps.error('unavailable', 'turn');
@@ -252,7 +253,38 @@ export async function* streamCodexChatTurn(
         }
       },
     });
-    if (clientMessageId !== undefined) {
+    if (inboundPeer) {
+      const messageId = 'codex-peer:' + session.id + ':' + receipt.turnId;
+      const timestamp = Date.now();
+      yield {
+        id: messageId + ':start',
+        eventType: 'message_start',
+        timestamp,
+        sessionId: session.id,
+        source: 'complete',
+        messageId,
+        role: 'user',
+        inboundPeer,
+      };
+      yield {
+        id: messageId + ':text',
+        eventType: 'text_delta',
+        timestamp,
+        sessionId: session.id,
+        source: 'complete',
+        messageId,
+        delta: input.text,
+        blockIndex: 0,
+      };
+      yield {
+        id: messageId + ':complete',
+        eventType: 'message_complete',
+        timestamp,
+        sessionId: session.id,
+        source: 'complete',
+        messageId,
+      };
+    } else if (clientMessageId !== undefined) {
       yield {
         id: `codex-user:${session.id}:${receipt.turnId}`,
         eventType: 'message_start',
