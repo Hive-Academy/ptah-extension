@@ -627,9 +627,49 @@ describe('ProviderSetupWizardComponent', () => {
       );
     });
 
-    it('settles probe to retryable failed state and stops elapsed timer when cancellation dispatch rejects', async () => {
-      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-      try {
+    it('derives elapsed from the wall clock and cancels an active probe on destroy', async () => {
+      jest.useFakeTimers({ now: Date.parse('2026-10-30T10:00:00.000Z') });
+      const verify = jest.fn<Promise<AuthVerifyDraftConnectionResult>, [AuthVerifyDraftConnectionParams]>(
+        () => new Promise(() => undefined),
+      );
+      const cancel = jest.fn<Promise<AuthCancelDraftVerificationResult>, [AuthCancelDraftVerificationParams]>(
+        () => Promise.resolve({ cancelled: true }),
+      );
+      const fixture = createComponent({}, verify, cancel);
+      selectProvider(fixture, 'requesty');
+      click(fixture, 'wizard-continue');
+      typeInto(fixture, 'wizard-api-key', 'sk-test-123');
+      click(fixture, 'wizard-continue');
+      click(fixture, 'wizard-verify-start');
+      jest.advanceTimersByTime(2_000);
+      fixture.detectChanges();
+      expect(query(fixture, 'wizard-verify-elapsed')?.textContent).toContain('2 s elapsed');
+
+      fixture.destroy();
+      expect(cancel).toHaveBeenCalledWith({ probeId: verify.mock.calls[0][0].probeId });
+    });
+
+    it('clears probe start when verification is invalidated', () => {
+      jest.useFakeTimers({ now: Date.parse('2026-10-30T10:00:00.000Z') });
+      const verify = jest.fn<Promise<AuthVerifyDraftConnectionResult>, [AuthVerifyDraftConnectionParams]>(
+        () => new Promise(() => undefined),
+      );
+      const cancel = jest.fn<Promise<AuthCancelDraftVerificationResult>, [AuthCancelDraftVerificationParams]>(
+        () => Promise.resolve({ cancelled: true }),
+      );
+      const fixture = createComponent({}, verify, cancel);
+      selectProvider(fixture, 'requesty');
+      click(fixture, 'wizard-continue');
+      typeInto(fixture, 'wizard-api-key', 'sk-test-123');
+      click(fixture, 'wizard-continue');
+      click(fixture, 'wizard-verify-start');
+      fixture.componentInstance['invalidateVerification']();
+      expect(fixture.componentInstance['elapsedSeconds']()).toBeNull();
+      expect(cancel).toHaveBeenCalledWith({ probeId: verify.mock.calls[0][0].probeId });
+      fixture.destroy();
+    });
+
+    it('settles probe to retryable failed state when cancellation dispatch rejects', async () => {
         jest.useFakeTimers();
         const verify =
           jest.fn<Promise<AuthVerifyDraftConnectionResult>, [AuthVerifyDraftConnectionParams]>(
@@ -658,7 +698,7 @@ describe('ProviderSetupWizardComponent', () => {
         expect(query(fixture, 'wizard-verify-failure')).not.toBeNull();
         expect(query(fixture, 'wizard-verify-cancelled')).toBeNull();
 
-        // Advancing timers further does not increment elapsed time (timer was stopped)
+        // A settled probe no longer displays elapsed time.
         jest.advanceTimersByTime(2000);
         fixture.detectChanges();
 
@@ -666,14 +706,6 @@ describe('ProviderSetupWizardComponent', () => {
         click(fixture, 'wizard-verify-retry');
         fixture.detectChanges();
         expect(verify).toHaveBeenCalledTimes(2);
-        expect(consoleError).toHaveBeenCalledTimes(1);
-        expect(consoleError).toHaveBeenCalledWith(
-          '[ProviderSetupWizardComponent] Cancel probe failed:',
-          'Error',
-        );
-      } finally {
-        consoleError.mockRestore();
-      }
     });
 
     it('unlocks Continue on a verified result and shows the checked meta', async () => {

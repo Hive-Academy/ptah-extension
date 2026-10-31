@@ -1,6 +1,6 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
-import { AppStateManager } from '@ptah-extension/core';
+import { AppStateManager, WallClockService } from '@ptah-extension/core';
 import type { ConnectionCheckRecord } from '@ptah-extension/shared';
 import type { UsedBy } from '../connection-usage';
 import {
@@ -454,7 +454,7 @@ describe('OverviewTabComponent', () => {
       expect(query('connection-last-checked')).toBeNull();
     });
 
-    /** The age timers this tab started (its 30 s interval), with their ids. */
+    /** Coarse intervals started while the check is visible, with their ids. */
     const ageTimers = (spy: jest.SpyInstance) =>
       spy.mock.calls
         .map((args, index) => ({
@@ -463,7 +463,23 @@ describe('OverviewTabComponent', () => {
         }))
         .filter((timer) => timer.ms === 30000);
 
-    it('refreshes the age while shown, and releases its one timer on destroy', () => {
+    it('advances the age after 30 seconds on the shared coarse clock', () => {
+      const acquire = jest.spyOn(TestBed.inject(WallClockService), 'acquire');
+      const started = jest.spyOn(globalThis, 'setInterval');
+      render({
+        status: 'connected',
+        positiveProbeEvidence: true,
+        lastCheck: verified(92, new Date(NOW - 30_000).toISOString()),
+      });
+      expect(query('connection-last-checked')?.textContent?.trim()).toBe('Checked just now');
+      expect(acquire).toHaveBeenCalledWith('coarse');
+      expect(ageTimers(started)).toHaveLength(1);
+      jest.advanceTimersByTime(30_000);
+      fixture.detectChanges();
+      expect(query('connection-last-checked')?.textContent?.trim()).toBe('Checked 1 min ago');
+    });
+
+    it('refreshes the age while shown, and releases its shared timer on destroy', () => {
       const started = jest.spyOn(globalThis, 'setInterval');
       const cleared = jest.spyOn(globalThis, 'clearInterval');
       render({

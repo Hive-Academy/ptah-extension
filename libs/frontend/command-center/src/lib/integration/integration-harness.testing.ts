@@ -86,6 +86,7 @@ export function createHarness(
     ),
     terminalTurnPulses: pulses,
     lastTerminalPulseByTab,
+    backgroundTabsRevision: signal(0),
     findTabByIdAcrossWorkspaces: (id: string) => {
       const tab = tabs().find((candidate) => candidate.id === id);
       return tab ? { tab, workspacePath: '/repo' } : null;

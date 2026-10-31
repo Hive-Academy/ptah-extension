@@ -99,10 +99,7 @@ export { AutopilotPopoverComponent } from '@ptah-extension/chat-ui';
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.
  */
-export {
-  SessionCostSummaryComponent,
-  SessionStatsSummaryComponent,
-} from '@ptah-extension/chat-ui';
+export { SessionStatsSummaryComponent } from '@ptah-extension/chat-ui';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.

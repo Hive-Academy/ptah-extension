@@ -32,6 +32,7 @@ import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
 import { LIVE_STATS_INTERVAL_MS } from './live-session-stats-publisher';
 import {
   StreamTransformer,
+  type StreamTransformConfig,
   type TransformerResultStats,
 } from './stream-transformer';
 
@@ -124,11 +125,13 @@ function start({
   afterResultStats,
   beforeLiveStatsDispose,
   onTurnEnd,
+  capacityRoute,
 }: {
   live?: boolean;
   afterResultStats?: (owner: SessionStatsOwnerService) => void;
   beforeLiveStatsDispose?: (owner: SessionStatsOwnerService) => void;
   onTurnEnd?: (owner: SessionStatsOwnerService) => void;
+  capacityRoute?: StreamTransformConfig['capacityRoute'];
 } = {}): Harness {
   const logger = makeLogger();
   const messageTransformer = {
@@ -170,6 +173,7 @@ function start({
     sessionId: TAB as SessionId,
     tabId: TAB,
     initialModel: SONNET,
+    capacityRoute,
     runToken: RUN,
     usageCostSource: 'reported',
     accountingAuthEnv: {} as AuthEnv,
@@ -232,6 +236,7 @@ interface Usage {
   readonly input?: number;
   readonly output?: number;
   readonly cacheRead?: number;
+  readonly cacheCreation?: number;
 }
 
 /** One `assistant` frame of API message `id` (subagent when `parent` set). */
@@ -253,17 +258,23 @@ function assistant(
         input_tokens: usage.input ?? 0,
         output_tokens: usage.output ?? 0,
         cache_read_input_tokens: usage.cacheRead ?? 0,
-        cache_creation_input_tokens: 0,
+        cache_creation_input_tokens: usage.cacheCreation ?? 0,
       },
     },
   });
 }
 
 /** A main-loop `message_start`: what the context gauge tracks. */
-function messageStart(input: number, cacheRead = 0): SDKMessage {
+function messageStart(
+  input: number,
+  cacheRead = 0,
+  cacheCreation = 0,
+  output = 0,
+  parent: string | null = null,
+): SDKMessage {
   return msg({
     type: 'stream_event',
-    parent_tool_use_id: null,
+    parent_tool_use_id: parent,
     session_id: SESSION,
     event: {
       type: 'message_start',
@@ -271,10 +282,27 @@ function messageStart(input: number, cacheRead = 0): SDKMessage {
         model: SONNET,
         usage: {
           input_tokens: input,
-          output_tokens: 0,
+          output_tokens: output,
           cache_read_input_tokens: cacheRead,
-          cache_creation_input_tokens: 0,
+          cache_creation_input_tokens: cacheCreation,
         },
+      },
+    },
+  });
+}
+
+function messageDelta(input: number, cacheRead: number): SDKMessage {
+  return msg({
+    type: 'stream_event',
+    parent_tool_use_id: null,
+    session_id: SESSION,
+    event: {
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn' },
+      usage: {
+        input_tokens: input,
+        cache_read_input_tokens: cacheRead,
+        output_tokens: 5_000,
       },
     },
   });
@@ -301,7 +329,7 @@ const taskStarted = (): SDKMessage =>
 interface ResultSpec {
   /** Cumulative per-model usage; absent: the result has no `modelUsage`. */
   readonly modelUsage?: Readonly<
-    Record<string, { input: number; output: number }>
+    Record<string, { input: number; output: number; contextWindow?: number }>
   >;
   /** Per-turn aggregate usage. */
   readonly usage?: { input: number; output: number };
@@ -330,7 +358,7 @@ function result({
             outputTokens: u.output,
             cacheReadInputTokens: 0,
             cacheCreationInputTokens: 0,
-            contextWindow: 200_000,
+            contextWindow: u.contextWindow ?? 200_000,
             costUSD: 0,
           },
         ]),
@@ -747,6 +775,65 @@ describe('StreamTransformer — live session stats', () => {
       }),
     );
     expectSettle(last(h.live), floor);
+    await h.end();
+  });
+
+  it('publishes input plus both caches without output and keeps the SDK 1M window', async () => {
+    const h = start({ capacityRoute: { kind: 'native', providerId: 'anthropic' } });
+    await h.feed(
+      init(),
+      messageStart(2_000, 120_000, 8_000, 5_000),
+      assistant('main', {
+        input: 2_000,
+        cacheRead: 120_000,
+        cacheCreation: 8_000,
+        output: 5_000,
+      }),
+    );
+    expect(lastEstimate(h).context?.contextTokens).toBe(130_000);
+    await h.feed(
+      result({
+        modelUsage: {
+          [SONNET]: { input: 2_000, output: 5_000, contextWindow: 1_000_000 },
+        },
+      }),
+    );
+    expect(last(h.results).modelUsage?.[0]).toMatchObject({
+      lastTurnContextTokens: 130_000,
+      contextWindow: 1_000_000,
+      contextCapacity: { tokens: 1_000_000, source: 'sdk-native' },
+    });
+    expect(
+      (100 * (last(h.results).modelUsage?.[0]?.lastTurnContextTokens ?? 0)) /
+        (last(h.results).modelUsage?.[0]?.contextWindow ?? 1),
+    ).toBe(13);
+    await h.end();
+  });
+
+  it('uses a proxy message_delta after a zero message_start', async () => {
+    const h = start();
+    await h.feed(
+      init(),
+      messageStart(0),
+      messageDelta(50_000, 10_000),
+      assistant('main', { input: 50_000, cacheRead: 10_000, output: 5_000 }),
+    );
+    expect(lastEstimate(h).context?.contextTokens).toBe(60_000);
+    await h.feed(result({ modelUsage: { [SONNET]: { input: 50_000, output: 5_000 } } }));
+    expect(last(h.results).modelUsage?.[0]?.lastTurnContextTokens).toBe(60_000);
+    await h.end();
+  });
+
+  it('ignores a subagent message_start while retaining the main frame', async () => {
+    const h = start();
+    await h.feed(
+      init(),
+      messageStart(2_000, 120_000, 8_000),
+      messageStart(900_000, 0, 0, 0, 'toolu_subagent'),
+      assistant('main', { input: 2_000, cacheRead: 120_000, cacheCreation: 8_000 }),
+    );
+    await h.feed(result({ modelUsage: { [SONNET]: { input: 2_000, output: 5_000 } } }));
+    expect(last(h.results).modelUsage?.[0]?.lastTurnContextTokens).toBe(130_000);
     await h.end();
   });
 
