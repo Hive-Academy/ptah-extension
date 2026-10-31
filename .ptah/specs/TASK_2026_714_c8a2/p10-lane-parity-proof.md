@@ -97,14 +97,14 @@ Across hosts capture actual frames/effective config for model, effort, role and 
 
 ## Corrective batches after the first Electron live run (10d.L1-L3)
 
-The first live run (live-test-p10dP.md) found three blockers. Each has a corrective batch with specs. None is live-proven yet.
+The first live run (live-test-p10dP.md) found three blockers. Each has a corrective batch with specs. G1, G2 and G3 are live-proven in Electron (runs 2 and 3); G4 was not observed.
 
 | Gap | Batch | Change | Status |
 | --- | --- | --- | --- |
-| G1 resume after a completed lane | 10d.L1 + revision 1 | Per-host writer registry; a resume closes the idle prior context of the same thread before `thread/resume`; refuses (`CODEX_LANE_WRITER_ACTIVE` / `CODEX_LANE_WRITER_CLOSE_FAILED`) when that context has an active turn or its close fails; a failed close can be retried. | PENDING-LIVE |
-| G3 Ptah MCP refused under `approval_policy never` | 10d.L2 | Lane `mcp_servers.ptah` gets `default_tools_approval_mode: 'approve'`; user servers stay `{ enabled: false }`; same frame on start and resume. The schema allows `approve` but does not document that it skips the prompt. | PENDING-LIVE |
-| G4 MCP error shown as "null" | 10d.L2 | Failed tool with null output shows the App Server error text, or `Tool call failed`. | PENDING-LIVE |
-| G2 completion signal to the tab id | 10d.L3 + revision 1 | Manager keeps a bounded (256) tab->session map for later spawns; native Codex chat accepts `origin: peer` and renders it like Claude (`inboundPeer`, `source: 'complete'`); outcome `parent_session_id` persisted only for an active resolved session. | PENDING-LIVE |
+| G1 resume after a completed lane | 10d.L1 + revision 1 | Per-host writer registry; a resume closes the idle prior context of the same thread before `thread/resume`; refuses (`CODEX_LANE_WRITER_ACTIVE` / `CODEX_LANE_WRITER_CLOSE_FAILED`) when that context has an active turn or its close fails; a failed close can be retried. | PASS (live r2, r3) |
+| G3 Ptah MCP refused under `approval_policy never` | 10d.L2 | Lane `mcp_servers.ptah` gets `default_tools_approval_mode: 'approve'`; user servers stay `{ enabled: false }`; same frame on start and resume. The schema allows `approve` but does not document that it skips the prompt. | PASS (live r2, r3) |
+| G4 MCP error shown as "null" | 10d.L2 | Failed tool with null output shows the App Server error text, or `Tool call failed`. | NOT-OBSERVED (no MCP error in r2, r3); spec-covered |
+| G2 completion signal to the tab id | 10d.L3 + revision 1 | Manager keeps a bounded (256) tab->session map for later spawns; native Codex chat accepts `origin: peer` and renders it like Claude (`inboundPeer`, `source: 'complete'`); outcome `parent_session_id` persisted only for an active resolved session. | PASS (live r2 fresh lane; r3 fresh and resumed lane after 10d.L4) |
 
 Second Electron live run (live-test-p10dP-r2.md, head 0feebb6ab, 7 of 10 turns, settings `cmp` 0): G1 PASS, G3 PASS,
 G2 PASS for a fresh lane but FAIL for the resumed lane (`delivery-failed ... "Codex chat turn: busy"`: the lane's
@@ -119,10 +119,21 @@ exit logged as "Codex process failure".
 
 Reviews: code-logic-review-10d-L.md (REVISE 6/10), code-logic-review-10d-L-r1.md (APPROVED 8.5/10), codex-review-coordinator-spec-fix.md (APPROVED). Open minors from r1: a context can stay open but unregistered when close fails on the open-failure path; a half-closed lane is re-registered after a failed close; origin kinds `channel`, `task-notification`, `coordinator` have no effect on Codex (plain user text); Codex rejects an empty peer `from`.
 
+Third Electron live run (live-test-p10dP-r3.md, head 16218ed0a = code c4266a3dc, 8 of 8 turns, settings `cmp` 0):
+G2-B PASS. Scenario B resumed the completed lane (`Resume gate ... decision resume`, same cliSessionId
+`01a193f6-...`); report delivered (app.log 1832), report turn ended (1836/1838), then `Completion signal delivered`
+(1839). The lane ended inside the report turn (rollout timestamps), so the completion was queued and started 176 ms
+after that turn released. `Codex chat turn: busy` 0, `delivery-failed` 0, `[ERROR]` 0; Report row then Completed row
+in chat. Scenario A showed the same queueing (lane exit 1682 during a 59 s report turn, delivered 1707). G1 PASS, G3
+PASS, G4 NOT-OBSERVED, G5 still open (NULL token columns, 0 report receipts). New minor: app.log 52
+`Lane outcomes start failed (non-fatal)` with an empty `{}` error, although outcome rows were written. Scenario C
+(`ptah_agent_message` after the handoff) was not run (budget). Live scope: Electron only; CLI, TUI and VS Code rows
+stay PENDING-LIVE.
+
 ## Proposed Removals
 
 None. D26 is the only already accepted reduction. The gaps in parity-inventory.md:63-67 remain gaps; no Codex chat subagent, canUseTool prompt, partial-streaming, or compaction capability is inferred from this lane proof. No source or capability is approved for Removal B.
 
 ## Signature
 
-Signed: pending coordinator live run and user approval
+Signed: pending user approval (Electron live runs r2 and r3 complete; G1, G2 incl. resumed lane, G3 PASS)
