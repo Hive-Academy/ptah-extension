@@ -266,12 +266,17 @@ export interface IHarnessTarget {
    * @param signal cancels the hashing between whole files. Rejecting with
    *   `HarnessPassAbortedError` is the contract; the reconciler detaches the
    *   signal before the first `apply`, so a cancelled plan has never written.
+   * @param retired the pass's retired sources (D-2). A removal of a copy of
+   *   one is marked with `retiredItemId`, so apply runs the proof policy and
+   *   reports it in `removedRetired` / `keptRetired` / `writeFailed` instead of
+   *   deleting it outright. Absent means nothing is retired.
    */
   plan(
     desired: HarnessDesiredState,
     workspaceRoot: string,
     manifest: ManagedManifest,
     signal?: AbortSignal,
+    retired?: HarnessRetiredSources,
   ): Promise<HarnessPlan>;
 
   apply(plan: HarnessPlan, workspaceRoot: string): Promise<HarnessApplyResult>;

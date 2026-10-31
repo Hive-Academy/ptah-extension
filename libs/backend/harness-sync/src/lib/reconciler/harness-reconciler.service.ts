@@ -58,7 +58,9 @@ import type {
   IHarnessSourceResolver,
 } from '../sources/harness-source.port';
 import type {
+  HarnessApplyResult,
   HarnessPlan,
+  HarnessRetiredSources,
   IHarnessTarget,
 } from '../targets/harness-target.port';
 import {
@@ -96,6 +98,12 @@ export interface HarnessReconcileOptions {
    */
   signal?: AbortSignal;
 }
+
+/** What a pass hands the targets when the resolver reported no retirement. */
+const NO_RETIRED_SOURCES: HarnessRetiredSources = {
+  skillSourceRoots: [],
+  mcpServerKeys: [],
+};
 
 /** Emitted after every completed pass, including no-op preflights. */
 export interface HarnessReconcilerEvents {
@@ -205,6 +213,9 @@ export class HarnessReconcilerService {
       downloadPending: false,
       agentSyncEnabled: this.agentSync.resolve(workspaceRoot).enabled,
       skillSync,
+      // Activates the workspace skills.sh exemption (D-D4) for THIS root, so
+      // a read-only verify and the reconcile after it agree on what is desired.
+      workspaceRoot,
     });
 
     const targetHealth: HarnessTargetHealth[] = [];
@@ -388,9 +399,16 @@ export class HarnessReconcilerService {
       downloadPending: options.downloadPending === true,
       agentSyncEnabled: agentSync.enabled,
       skillSync,
+      workspaceRoot,
       signal: options.signal,
     });
     const frozen = source.policyUnknown === true;
+    // Rebuilt from the registries by the resolver on every pass (D-2), so a
+    // workspace opened long after a retirement still gets its copies proven.
+    // Absent means nothing is retired. Retired SKILLS are already out of
+    // `desired` (the builder skips them); this tells each target which of the
+    // resulting removals must run the proof policy instead of a plain delete.
+    const retired = source.retired ?? NO_RETIRED_SOURCES;
     if (frozen) {
       this.logger.warn(
         '[harness-sync] Capability policy unknown; skills, commands and agents are frozen this pass (MCP still applies)',
@@ -435,6 +453,7 @@ export class HarnessReconcilerService {
             desired,
             options,
             frozen,
+            retired,
           ),
         );
       }
@@ -576,6 +595,7 @@ export class HarnessReconcilerService {
     desired: HarnessDesiredState,
     options: HarnessReconcileOptions,
     frozen: boolean,
+    retired: HarnessRetiredSources,
   ): Promise<HarnessTargetHealth> {
     const startedAt = Date.now();
     // ONE COMMIT POINT PER TARGET, not one per pass. Each target persists its
@@ -615,6 +635,7 @@ export class HarnessReconcilerService {
         workspaceRoot,
         manifest,
         pass.signal,
+        retired,
       );
       const plan = frozen ? freezeToMcp(planned, manifest) : planned;
       if (this.isNoOp(plan, manifest)) {
@@ -628,6 +649,7 @@ export class HarnessReconcilerService {
             keptLocalEdit: [],
           },
           Date.now() - startedAt,
+          workspaceRoot,
         );
       }
 
@@ -652,7 +674,7 @@ export class HarnessReconcilerService {
       const ownershipSaved = this.manifestStore.save(
         workspaceRoot,
         target.id,
-        this.mergeEntries(plan.baseEntries, result.written, result.removed),
+        this.mergeEntries(plan.baseEntries, result),
       );
 
       const health = appliedTargetHealth(
@@ -660,6 +682,7 @@ export class HarnessReconcilerService {
         target.facets,
         result,
         Date.now() - startedAt,
+        workspaceRoot,
       );
       if (adoptionSaved && ownershipSaved) return health;
 
@@ -766,14 +789,30 @@ export class HarnessReconcilerService {
     return false;
   }
 
+  /**
+   * The ownership map after an apply, built only from what the apply REPORTED.
+   *
+   * - `removed` (which includes every `removedRetired` path) leaves the map:
+   *   the file is gone.
+   * - `keptRetired` leaves the map too, but the file stays: a retired copy
+   *   that could not be proven safe to delete is DISOWNED (D-2), so no later
+   *   pass touches it again.
+   * - A `writeFailed` path — a retired removal with `itemId` included — is in
+   *   neither list and keeps its entry, so the next pass retries it.
+   *
+   * Never the reverse: a path is not treated as deleted because it is absent
+   * from some pruned map.
+   */
   private mergeEntries(
     base: ManagedEntries,
-    written: ManagedEntries,
-    removed: string[],
+    result: HarnessApplyResult,
   ): ManagedEntries {
-    const merged: ManagedEntries = { ...base, ...written };
-    for (const relPath of removed) {
+    const merged: ManagedEntries = { ...base, ...result.written };
+    for (const relPath of result.removed) {
       delete merged[relPath];
+    }
+    for (const kept of result.keptRetired ?? []) {
+      delete merged[kept.relPath];
     }
     return merged;
   }

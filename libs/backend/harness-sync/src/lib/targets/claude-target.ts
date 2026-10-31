@@ -53,6 +53,7 @@ import type {
   HarnessPlan,
   HarnessPlanRemove,
   HarnessPlanWrite,
+  HarnessRetiredSources,
   IHarnessTarget,
 } from './harness-target.port';
 import { isQuarantineEntry } from '../quarantine/quarantine';
@@ -61,6 +62,7 @@ import {
   publishFailureReason,
 } from './artifact-retirement';
 import { isMigratableLink } from './link-ownership';
+import { createGitTrackingProbe } from './workspace-target';
 import { createMcpFacet } from './mcp/mcp-facet.registry';
 import type { IHarnessMcpFacet } from './mcp/mcp-facet.port';
 import {
@@ -153,6 +155,7 @@ export class ClaudeTarget implements IHarnessTarget {
     workspaceRoot: string,
     manifest: ManagedManifest,
     signal?: AbortSignal,
+    retired?: HarnessRetiredSources,
   ): Promise<HarnessPlan> {
     const hashOptions: ContentHashOptions = { signal };
     const migrations: HarnessMigration[] = [];
@@ -274,7 +277,12 @@ export class ClaudeTarget implements IHarnessTarget {
       });
     }
 
-    const mcpPlan = this.planMcp(desired, workspaceRoot, baseEntries);
+    const mcpPlan = this.planMcp(
+      desired,
+      workspaceRoot,
+      baseEntries,
+      retired?.mcpServerKeys ?? [],
+    );
 
     for (const relPath of Object.keys(baseEntries)) {
       if (desiredRel.has(relPath)) continue;
@@ -322,12 +330,14 @@ export class ClaudeTarget implements IHarnessTarget {
     desired: HarnessDesiredState,
     workspaceRoot: string,
     baseEntries: ManagedEntries,
+    retiredServerKeys: readonly string[],
   ): McpFacetPlan {
     return planMcpFacet(
       this.mcpFacet,
       this.desiredMcp(desired),
       workspaceRoot,
       baseEntries,
+      retiredServerKeys,
     );
   }
 
@@ -385,6 +395,12 @@ export class ClaudeTarget implements IHarnessTarget {
       plan.removals.filter((removal) => removal.kind === 'mcp'),
       workspaceRoot,
       result,
+      // Wired together with the plan side above: a retired removal applied
+      // without its owned hash and git probe fails owned on every pass.
+      {
+        baseEntries: plan.baseEntries,
+        probeGitTracking: createGitTrackingProbe(),
+      },
     );
 
     // Last: the legacy manifest is the only proof of ownership for adopted
