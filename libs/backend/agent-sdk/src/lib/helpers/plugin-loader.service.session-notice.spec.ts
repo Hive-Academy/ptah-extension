@@ -12,6 +12,7 @@ import { ExternalPluginStateStore } from '@ptah-extension/plugin-marketplace';
 
 import {
   PLUGIN_CONFIG_HOME_KEY_PREFIX,
+  PLUGIN_CONFIG_KEY,
   canonicalRootKey,
 } from './plugin-config-home';
 import { PluginLoaderService } from './plugin-loader.service';
@@ -37,7 +38,9 @@ function setup(withHome = true) {
   for (const root of [project, child, grandchild]) fs.mkdirSync(root);
 
   const records = new Map<string, unknown>();
-  const homeWrites = jest.fn(async (_key: string, _value: unknown) => undefined);
+  const homeWrites = jest.fn(async (key: string, value: unknown) => {
+    records.set(key, value);
+  });
   const homeStorage: IStateStorage = {
     get: <T>(key: string, defaultValue?: T): T | undefined =>
       records.has(key) ? (records.get(key) as T) : defaultValue,
@@ -49,10 +52,17 @@ function setup(withHome = true) {
     update: async () => undefined,
     keys: () => [],
   };
+  const legacyConfigs = new Map<string, PluginConfigState>();
   const scopedStorage = {
     ...folderStorage,
-    getStorageForWorkspace: (_root: string) => folderStorage,
-    getAllWorkspacePaths: () => [] as string[],
+    getStorageForWorkspace: (root: string): IStateStorage => ({
+      ...folderStorage,
+      get: <T>(key: string, defaultValue?: T): T | undefined =>
+        key === PLUGIN_CONFIG_KEY && legacyConfigs.has(root)
+          ? (legacyConfigs.get(root) as T)
+          : defaultValue,
+    }),
+    getAllWorkspacePaths: () => [...legacyConfigs.keys()],
   };
   const logger = createMockLogger();
   const externalStore = new ExternalPluginStateStore();
@@ -82,6 +92,9 @@ function setup(withHome = true) {
       dismissed: {},
     });
   };
+  const setLegacyConfig = (root: string, value: PluginConfigState): void => {
+    legacyConfigs.set(root, value);
+  };
 
   return {
     service,
@@ -92,6 +105,7 @@ function setup(withHome = true) {
     records,
     recordKey,
     setConfig,
+    setLegacyConfig,
     homeWrites,
     logger,
   };
@@ -117,6 +131,24 @@ describe('PluginLoaderService.getSessionPluginNotice', () => {
       incomplete: false,
     });
     expect(h.homeWrites).not.toHaveBeenCalled();
+  });
+
+  it('reads an importable legacy layer without writing its home record', async () => {
+    const h = setup();
+    h.setLegacyConfig(h.child, config({ enabledPluginIds: ['legacy-plugin'] }));
+
+    expect(h.service.getSessionPluginNotice(h.child, [h.project], h.project)).toEqual({
+      sessionRoot: h.child,
+      inheritsProjectSettings: true,
+      overrides: [
+        { kind: 'plugin', id: 'legacy-plugin', value: 'on', root: h.child },
+      ],
+      incomplete: false,
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(h.homeWrites).not.toHaveBeenCalled();
+    expect(h.records.has(h.recordKey(h.child))).toBe(false);
   });
 
   it('lists recorded plugin and skill choices even when the project agrees', () => {

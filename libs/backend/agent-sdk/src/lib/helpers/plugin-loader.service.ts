@@ -980,13 +980,19 @@ export class PluginLoaderService {
    * With no root asked for and no active folder, the injected storage answers
    * as before.
    */
-  private storageFor(workspaceRoot?: string): IStateStorage | null {
+  private storageFor(
+    workspaceRoot?: string,
+    readOnly = false,
+  ): IStateStorage | null {
     const storage = this.workspaceState;
     if (storage === null) return null;
     if (this.configHome !== null) {
       const target = workspaceRoot ?? this.workspace?.getWorkspaceRoot();
       if (target === undefined) return storage;
-      return this.configHome.viewFor(this.configHome.harnessRootFor(target));
+      return this.configHome.viewFor(
+        this.configHome.harnessRootFor(target),
+        readOnly,
+      );
     }
     if (workspaceRoot === undefined) return storage;
     if (!isWorkspaceScopedStateStorage(storage)) return storage;
@@ -1058,7 +1064,7 @@ export class PluginLoaderService {
         break;
       }
 
-      const read = this.readWorkspaceLayer(layer, true);
+      const read = this.readWorkspaceLayer(layer, true, true);
       if (read.status === 'error') {
         incomplete = true;
         this.logger.warn(
@@ -1169,12 +1175,15 @@ export class PluginLoaderService {
    * value that is not an object, or an id list that is present but not a list
    * of strings is an error here (TASK_2026_560, N3). Absent storage and absent
    * values keep their legacy meaning (nothing recorded).
+   * `readOnly` prevents the configuration home from importing a legacy layer;
+   * plain workspace storage still uses its usual get method.
    */
   private readWorkspaceLayer(
     workspaceRoot?: string,
     requireStorage = false,
+    readOnly = false,
   ): WorkspaceLayerRead {
-    const storage = this.storageFor(workspaceRoot);
+    const storage = this.storageFor(workspaceRoot, readOnly);
     if (storage === null) {
       if (requireStorage) {
         return {
