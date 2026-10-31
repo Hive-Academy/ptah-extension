@@ -118,6 +118,7 @@ function harness() {
     {
       logger: { info: jest.fn(), warn: jest.fn(), debug: jest.fn(), error: jest.fn() },
       sentryService: { captureException: jest.fn() },
+      subagentRegistry: { isResumeStateHydrated: () => true, getInterruptedBySession: () => [] },
       modelSettings: { selectedModel: { get: () => 'default' } },
       sdkContext: {
         resolveEnhancedPromptsContent: async () => 'instructions',
@@ -706,6 +707,8 @@ describe('typed Codex RPC failures', () => {
         readForResume: async () => ({ resolvedWorkspacePath: workspace, events: [], stats: null }),
       },
       subagentRegistry: {
+        isResumeStateHydrated: () => true,
+        getInterruptedBySession: () => [],
         restoreResumableBySession: () => 0,
         registerFromHistoryEvents: () => 0,
         getResumableBySession: () => [],

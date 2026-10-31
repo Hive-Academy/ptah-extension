@@ -118,6 +118,7 @@ function harness(
         handleContinue: async () => ({ error: '__NOT_PTAH_CLI__' }),
       },
       sessionMetadataStore: { get: async () => null },
+      subagentRegistry: { isResumeStateHydrated: () => true, getInterruptedBySession: () => [] },
       historyRead: { resolveSessionFolder: async () => OPEN_FOLDER },
       sdkContext: {
         isMcpServerRunning: () => false,
