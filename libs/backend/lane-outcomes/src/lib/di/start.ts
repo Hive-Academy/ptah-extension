@@ -86,8 +86,10 @@ export function startLaneOutcomes(
       try {
         unsubscribe();
       } catch (error: unknown) {
+        const failure = asError(error);
         logger.warn('Lane outcomes callback cleanup failed (non-fatal)', {
-          error: asError(error),
+          error: failure.message,
+          stack: failure.stack,
         });
       }
     }
@@ -130,8 +132,10 @@ export function startLaneOutcomes(
     }
   } catch (error: unknown) {
     unsubscribeAll();
+    const failure = asError(error);
     logger.warn('Lane outcomes callback registration failed (non-fatal)', {
-      error: asError(error),
+      error: failure.message,
+      stack: failure.stack,
     });
   }
   return async () => {
@@ -148,8 +152,10 @@ async function drainOrWarn(
   try {
     await drain();
   } catch (error: unknown) {
+    const failure = asError(error);
     warnDuringShutdown(logger, 'Lane outcomes drain failed (non-fatal)', {
-      error: asError(error),
+      error: failure.message,
+      stack: failure.stack,
     });
   }
 }
@@ -197,8 +203,10 @@ export function startAndRegisterLaneOutcomes(
   try {
     drain = startLaneOutcomes(container, logger, options);
   } catch (error: unknown) {
+    const failure = asError(error);
     logger.warn('Lane outcomes start failed (non-fatal)', {
-      error: asError(error),
+      error: failure.message,
+      stack: failure.stack,
     });
   }
   const disposer: LaneOutcomesDisposer = boundedDisposer(drain, logger);

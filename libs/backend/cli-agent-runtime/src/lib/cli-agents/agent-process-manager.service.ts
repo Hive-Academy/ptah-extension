@@ -1257,6 +1257,9 @@ export class AgentProcessManager {
       );
       sdkHandle.onSegment((segment: CliOutputSegment) => {
         if (this.agents.get(agentId) !== tracked) return;
+        if (sdkHandle.outcomeUsageIsTurnTotal && segment.usage) {
+          tracked.outcomeUsage = segment.usage;
+        }
         this.outputBuffer.appendSegment(
           agentId,
           this.agents.get(agentId),
@@ -2252,6 +2255,7 @@ export class AgentProcessManager {
     tracked.hasExited = false;
     // This turn's rate-limit match reads only the segments it produces.
     tracked.turnSegmentStart = tracked.accumulatedSegments.length;
+    tracked.outcomeUsage = undefined;
     tracked.rateLimitMatched = undefined;
     // A stop or timeout of this turn never re-reads auth wording, so an
     // earlier turn's match must not label it `auth`.
@@ -3099,6 +3103,7 @@ export class AgentProcessManager {
       tracked.guardToolCalls;
     void this.laneCompletion.signal(info, {
       reportsDelivered,
+      ...(tracked.outcomeUsage ? { usage: tracked.outcomeUsage } : {}),
       authMatched: tracked.authMatched ?? false,
       ...(tracked.rateLimitMatched ? { rateLimited: true } : {}),
       ...(toolCalls !== undefined ? { toolCalls } : {}),

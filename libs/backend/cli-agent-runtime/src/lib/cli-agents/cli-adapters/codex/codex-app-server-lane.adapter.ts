@@ -540,6 +540,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       getRoleDelivery: () => roleDelivery,
       onOutput: output.subscribe,
       onSegment: segments.subscribe,
+      outcomeUsageIsTurnTotal: true,
       onLaneConfigRejected: configRejection.subscribe,
       supportsContinuation: () => !closed,
       continue: (message: string): Promise<ContinuationOutcome> => {

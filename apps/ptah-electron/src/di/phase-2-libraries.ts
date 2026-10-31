@@ -66,7 +66,6 @@ import {
 import {
   LANE_OUTCOME_TOKENS,
   registerLaneOutcomeServices,
-  startAndRegisterLaneOutcomes,
 } from '@ptah-extension/lane-outcomes';
 import {
   registerAgentGenerationServices,
@@ -418,9 +417,6 @@ export function registerPhase2Libraries(
   const namedAccountsBound = registerClaudeNamedAccountBindings(container);
   logger.info('[Electron DI] Named Claude account persistence', {
     bound: namedAccountsBound,
-  });
-  startAndRegisterLaneOutcomes(container, logger, {
-    observeSubagentEnded: true,
   });
   // Register the skill trigger and telemetry seam for library RPC handlers.
   registerSkillSynthesisServices(container, logger);

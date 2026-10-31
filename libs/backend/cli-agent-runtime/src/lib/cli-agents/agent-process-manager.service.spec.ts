@@ -1433,9 +1433,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       });
     });
 
-    it('records the last streamed input figure as an estimate and hands it to the gate', async () => {
+    it('records a declared terminal turn total and hands its input estimate to the gate', async () => {
       const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
       Object.assign(sdkControls.handle, {
+        outcomeUsageIsTurnTotal: true,
         onSegment: (cb: (segment: CliOutputSegment) => void) => {
           segmentCallbacks.push(cb);
         },
@@ -1449,9 +1450,12 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       const emit = (segment: CliOutputSegment): void => {
         for (const cb of segmentCallbacks) cb(segment);
       };
-      emit({ type: 'info', content: 'Usage', usage: { inputTokens: 12_000 } });
-      emit({ type: 'info', content: 'Usage', usage: { inputTokens: 0 } });
-      emit({ type: 'info', content: 'Usage', usage: { inputTokens: 18_500 } });
+      emit({ type: 'info', content: 'Turn started' });
+      emit({
+        type: 'info',
+        content: 'Usage',
+        usage: { inputTokens: 18_500, outputTokens: 321, cacheReadTokens: 900 },
+      });
 
       const info = manager.getStatus(first.agentId) as AgentProcessInfo;
       expect(info.lastRequestContext).toEqual({
@@ -1461,6 +1465,12 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       sdkControls.resolve(0);
       await Promise.resolve();
+      expect(laneCompletion.signal).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: first.agentId }),
+        expect.objectContaining({
+          usage: { inputTokens: 18_500, outputTokens: 321, cacheReadTokens: 900 },
+        }),
+      );
       await manager.spawn({
         task: 'Next step',
         cli: 'codex',
@@ -1472,6 +1482,37 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         expect.objectContaining({
           lastRequestContext: { tokens: 18_500, source: 'estimate' },
         }),
+      );
+    });
+
+    it('leaves outcome usage absent for multiple step usage segments without a turn-total declaration', async () => {
+      const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
+      Object.assign(sdkControls.handle, {
+        onSegment: (cb: (segment: CliOutputSegment) => void) => {
+          segmentCallbacks.push(cb);
+        },
+      });
+      const spawned = await manager.spawn({
+        task: 'Implement two steps',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      for (const usage of [
+        { inputTokens: 100, outputTokens: 20 },
+        { inputTokens: 200, outputTokens: 40 },
+      ]) {
+        for (const callback of segmentCallbacks) {
+          callback({ type: 'info', content: 'Step usage', usage });
+        }
+      }
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      expect(laneCompletion.signal).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: spawned.agentId }),
+        expect.any(Object),
+      );
+      expect(laneCompletion.signal.mock.calls[0]?.[1]).not.toHaveProperty(
+        'usage',
       );
     });
   });
@@ -2052,15 +2093,18 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     it('does not let an earlier turn 429 taint a continuation turn', async () => {
       const continuable = createMockSdkHandle({ supportsContinuation: true });
+      Object.assign(continuable.handle, { outcomeUsageIsTurnTotal: true });
       const emit = attachSegments(continuable);
       (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(continuable.handle);
       const agentId = await spawnCodex();
 
       emit({ type: 'error', content: PTAH_API_RATE_LIMIT_SEGMENT });
+      emit({ type: 'info', content: 'Usage', usage: { inputTokens: 42 } });
       continuable.resolve(0);
       await Promise.resolve();
       await Promise.resolve();
       expect(contextOf(0)).toMatchObject({ rateLimited: true });
+      expect(contextOf(0)).toMatchObject({ usage: { inputTokens: 42 } });
 
       await manager.continueConversation(agentId, 'second turn');
       continuable.resolveContinue(0);
@@ -2069,6 +2113,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       expect(laneCompletion.signal).toHaveBeenCalledTimes(2);
       expect(contextOf(1)).not.toHaveProperty('rateLimited');
+      expect(contextOf(1)).not.toHaveProperty('usage');
     });
 
     it('flags a continuation turn that hits its own 429', async () => {

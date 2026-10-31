@@ -62,6 +62,8 @@ import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import {
   LANE_OUTCOME_TOKENS,
   registerLaneOutcomeServices,
+  startAndRegisterLaneOutcomes,
+  type LaneOutcomesDisposer,
 } from '@ptah-extension/lane-outcomes';
 import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis';
 import {
@@ -763,10 +765,22 @@ describe('Electron DI — lane outcomes', () => {
     expect(source).toContain(
       'useToken: LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER',
     );
-    expect(source).toContain('observeSubagentEnded: true');
+    const orchestrator = fs.readFileSync(
+      path.join(__dirname, 'container.ts'),
+      'utf8',
+    );
+    const handlers = orchestrator.indexOf(
+      'registerPhase4Handlers(root, logger);',
+    );
+    const start = orchestrator.indexOf(
+      'startAndRegisterLaneOutcomes(root, logger,',
+    );
+    expect(source).not.toContain('startAndRegisterLaneOutcomes(');
+    expect(start).toBeGreaterThan(handlers);
+    expect(orchestrator).toContain('observeSubagentEnded: true');
   });
 
-  it('resolves the lane-routing and lane-outcome aliases', () => {
+  it('resolves the lane-routing and lane-outcome aliases and starts their recorder', async () => {
     const c = buildMinimalContainer();
     c.register(PLATFORM_TOKENS.STATE_STORAGE, {
       useValue: {
@@ -796,6 +810,18 @@ describe('Electron DI — lane outcomes', () => {
     expect(c.resolve(LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER)).toBe(
       c.resolve(LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER),
     );
+    expect(c.resolve(LANE_OUTCOME_TOKENS.RECORDER)).toBeDefined();
+    const warn = jest.spyOn(logger, 'warn');
+    startAndRegisterLaneOutcomes(c, logger);
+    expect(warn).not.toHaveBeenCalledWith(
+      'Lane outcomes start failed (non-fatal)',
+      expect.anything(),
+    );
+    const disposer = c.resolve<LaneOutcomesDisposer>(
+      LANE_OUTCOME_TOKENS.DISPOSER,
+    );
+    await expect(disposer.dispose()).resolves.toBeUndefined();
+    warn.mockRestore();
   });
 });
 

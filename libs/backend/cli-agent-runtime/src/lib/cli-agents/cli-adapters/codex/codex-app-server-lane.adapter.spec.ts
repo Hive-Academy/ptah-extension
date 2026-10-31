@@ -213,6 +213,7 @@ describe('CodexAppServerLaneAdapter', () => {
   it('opens one lane context with exact settings, projects text, tool and usage once, and reports Ptah MCP URL', async () => {
     const h = harness();
     const handle = await h.adapter.runSdk(options());
+    expect(handle.outcomeUsageIsTurnTotal).toBe(true);
     const segments: CliOutputSegment[] = [];
     handle.onSegment?.((segment) => segments.push(segment));
     expect(h.profile.consumer).toBe('lane');

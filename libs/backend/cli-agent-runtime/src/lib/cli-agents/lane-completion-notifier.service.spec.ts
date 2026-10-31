@@ -150,6 +150,22 @@ function createHarness(
 }
 
 describe('LaneCompletionNotifier.signal', () => {
+  it('writes provider usage to the lane outcome without estimating cost', async () => {
+    const h = createHarness();
+    await h.notifier.signal(createInfo(), {
+      reportsDelivered: 0,
+      usage: { inputTokens: 60_219, outputTokens: 481, cacheReadTokens: 300 },
+    });
+    expect(h.recordLaneCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputTokens: 60_219,
+        outputTokens: 481,
+        costUsd: null,
+      }),
+      expect.objectContaining({ brief: expect.any(String) }),
+    );
+  });
+
   it('enqueues once before parent refusal and copies spawn facts', async () => {
     const h = createHarness();
     const info = createInfo({

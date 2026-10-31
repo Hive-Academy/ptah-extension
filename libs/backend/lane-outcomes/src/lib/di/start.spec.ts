@@ -116,11 +116,35 @@ describe('startAndRegisterLaneOutcomes', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('callback registration failed'),
-      expect.objectContaining({ error: expect.any(Error) }),
+      expect.objectContaining({
+        error: 'second registration failed',
+        stack: expect.stringContaining('second registration failed'),
+      }),
     );
     await registeredDisposer(container).dispose();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
     expect(disposePipeline).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs a callback cleanup error as message and stack', async () => {
+    const logger = quietLogger();
+    const container = containerWith(async () => undefined);
+    container.register(SDK_TOKENS.SDK_SUBAGENT_STOP_CALLBACK_REGISTRY, {
+      useValue: {
+        register: () => () => {
+          throw new Error('unsubscribe failed');
+        },
+      },
+    });
+    startAndRegisterLaneOutcomes(container, logger);
+    await registeredDisposer(container).dispose();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('callback cleanup failed'),
+      expect.objectContaining({
+        error: 'unsubscribe failed',
+        stack: expect.stringContaining('unsubscribe failed'),
+      }),
+    );
   });
 
   it('registers a no-op drain when the start itself throws', async () => {
@@ -136,7 +160,10 @@ describe('startAndRegisterLaneOutcomes', () => {
 
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('start failed'),
-      expect.objectContaining({ error: expect.any(Error) }),
+      expect.objectContaining({
+        error: 'recorder unavailable',
+        stack: expect.stringContaining('recorder unavailable'),
+      }),
     );
     await expect(
       registeredDisposer(container).dispose(),
@@ -181,7 +208,10 @@ describe('startAndRegisterLaneOutcomes', () => {
     ).resolves.toBeUndefined();
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('drain failed'),
-      expect.objectContaining({ error: expect.any(Error) }),
+      expect.objectContaining({
+        error: 'journal write failed',
+        stack: expect.stringContaining('journal write failed'),
+      }),
     );
   });
 
