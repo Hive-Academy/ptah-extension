@@ -57,6 +57,8 @@ the orchestrator may call `ptah_route_decide` as described at orchestration Gate
 `taskKind` and `routingSource` from its chosen row on `ptah_agent_spawn`; omit them when
 no routed row exists. If `ptah_route_decide` is not listed, skip it silently. `ptah_agent_spawn`
 rejects any key not listed here — pass only the documented parameters.
+When a `Routing:` system reminder is present, reuse its taskType, depth and executor
+suggestions; do not repeat host pre-flight routing. Gate 0.1 still applies.
 
 ## 3. Task contract
 
@@ -252,7 +254,7 @@ Child-side sources of truth:
 - `TWO_WAY_MESSAGING_GUIDANCE` (same file), only when that spawn has an MCP port and an agent id. Branch on the returned `mode`. Do not treat a messaging mode as available.
 - `renderLaneCompletionContract` (`libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-reporting-contract.ts`), on every lane.
 
-This section and the parent-side tool table in `ptah-system-prompt.constant.ts` must agree with those three. `ptah_agent_list` is still what says whether a mode exists on this run.
+This section and the parent-side guidance in `ptah-core-prompt.ts` must agree with those three. `ptah_agent_list` is still what says whether a mode exists on this run.
 
 ## 8. Cost
 
