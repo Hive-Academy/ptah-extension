@@ -299,7 +299,11 @@ export class PtahCliStreamLoop {
     if (fragments.length > 0) {
       try {
         const parsed: unknown = JSON.parse(fragments);
-        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        if (
+          parsed !== null &&
+          typeof parsed === 'object' &&
+          !Array.isArray(parsed)
+        ) {
           input = parsed as Record<string, unknown>;
         } else {
           input = { __unparsed: fragments.slice(0, 500) };
@@ -489,7 +493,10 @@ export class PtahCliStreamLoop {
             if (isContentBlockStart(event)) {
               const block = event.content_block;
               if (isToolUseBlock(block)) {
-                const key = this.toolBlockKey(msg.parent_tool_use_id, event.index);
+                const key = this.toolBlockKey(
+                  msg.parent_tool_use_id,
+                  event.index,
+                );
                 this.emitPendingToolCall(key);
                 this.pendingToolArgs.set(key, {
                   parentToolUseId: msg.parent_tool_use_id ?? null,
@@ -693,9 +700,12 @@ export class PtahCliStreamLoop {
         const isAbort =
           rawMessage.includes('abort') || rawMessage.includes('cancel');
         if (!isAbort) {
-          logger.error(
-            `[PtahCliStreamLoop] spawnAgent query error: ${rawMessage}`,
-          );
+          // Privacy: the SDK message can carry prompt or provider text, so the
+          // log names only the error class; the visible segment is sanitized.
+          logger.error('[PtahCliStreamLoop] spawnAgent query error', {
+            errorClass:
+              error instanceof Error ? error.constructor.name : typeof error,
+          });
           const sanitized = sanitizeErrorMessage(rawMessage);
           emitOutput(`\n[Error: ${sanitized}]\n`);
           emitSegment({ type: 'error', content: sanitized });
@@ -811,7 +821,9 @@ export class PtahCliStreamLoop {
         outputTokens: delta('outputTokens'),
         cacheReadTokens: delta('cacheReadTokens'),
         cacheWriteTokens: delta('cacheWriteTokens'),
-        ...(msg.total_cost_usd !== undefined && { costUsd: msg.total_cost_usd }),
+        ...(msg.total_cost_usd !== undefined && {
+          costUsd: msg.total_cost_usd,
+        }),
       };
     }
     const usage: NonNullable<CliOutputSegment['usage']> = {

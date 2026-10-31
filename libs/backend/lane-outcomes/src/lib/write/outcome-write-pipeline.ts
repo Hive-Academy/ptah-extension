@@ -295,8 +295,7 @@ export class OutcomeWritePipeline {
         .heldRuns.find((item) => item.runId === runId)
         ?.holdExpiries.some((expiry) => expiry > Date.now()) ?? false;
     const pendingHold = pending.some(
-      (item) =>
-        isReport(item) && holdable(item) && item.report.runId === runId,
+      (item) => isReport(item) && holdable(item) && item.report.runId === runId,
     );
     if (
       !holdable(op) ||
@@ -577,7 +576,10 @@ export class OutcomeWritePipeline {
     if ('row' in op)
       return {
         ...value,
-        heldRuns: value.heldRuns.filter((run) => run.runId !== op.row.runId),
+        // The insert also joins a review held under the row's bare agent id.
+        heldRuns: value.heldRuns.filter(
+          (run) => run.runId !== op.row.runId && run.runId !== op.row.agentId,
+        ),
       };
     if (!isReport(op) || !held) return value;
     const report = op.report;
@@ -672,12 +674,27 @@ export class OutcomeWritePipeline {
   private async applyReport(
     op: Extract<OutcomeWriteOp, { kind: 'deliverables' | 'review' }>,
   ): Promise<boolean> {
-    const { report } = op;
-    const result = await this.store.applyReportWithReceipt(
+    let { report } = op;
+    let result = await this.store.applyReportWithReceipt(
       report,
       Date.now(),
       reportEffectOf,
     );
+    if (result === 'missing' && op.kind === 'review') {
+      // A review naming a bare agent id whose run landed after the caller
+      // resolved it: inserts run only in this drain, so the agent's row is
+      // current here and the review joins it instead of a hold that no
+      // later insert would take.
+      const latest = await this.store.findLatestByAgent(report.runId);
+      if (latest) {
+        report = { ...report, runId: latest.runId };
+        result = await this.store.applyReportWithReceipt(
+          report,
+          Date.now(),
+          reportEffectOf,
+        );
+      }
+    }
     if (result === 'invalid') {
       await this.reject(op, 'invalid-payload');
       return false;

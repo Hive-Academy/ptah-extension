@@ -1,4 +1,7 @@
-import type { LaneOutcomeRecord, OutcomeTaskKind } from '@ptah-extension/shared';
+import type {
+  LaneOutcomeRecord,
+  OutcomeTaskKind,
+} from '@ptah-extension/shared';
 import type {
   SqliteConnectionService,
   SqliteDatabase,
@@ -193,12 +196,14 @@ export class SqliteLaneOutcomeStore implements LaneOutcomeStore {
         0;
       const joined: HeldOutcomeReport[] = [];
       const invalid: HeldOutcomeReport[] = [];
+      // See heldReportJoinsRow: an early review held under the bare agent id
+      // joins this row and is retargeted to its run id.
       const reports = this.db
         .prepare(
-          'SELECT * FROM lane_outcome_held_reports WHERE run_id = ? AND expires_at > ? ORDER BY held_at, rowid',
+          "SELECT * FROM lane_outcome_held_reports WHERE (run_id = ? OR (run_id = ? AND kind = 'review')) AND expires_at > ? ORDER BY held_at, rowid",
         )
-        .all(input.runId, nowMs)
-        .map((raw) => this.heldReport(raw));
+        .all(input.runId, row.agentId, nowMs)
+        .map((raw) => ({ ...this.heldReport(raw), runId: input.runId }));
       for (const report of reports) {
         if (report.kind === 'budget-stop')
           this.db

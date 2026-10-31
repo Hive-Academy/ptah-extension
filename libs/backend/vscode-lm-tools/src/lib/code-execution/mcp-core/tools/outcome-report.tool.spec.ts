@@ -354,7 +354,12 @@ describe('ptah_outcome_report', () => {
         expect(
           (
             await runOutcomeReport(
-              { kind: 'review', target: { runId: `subagent:${id}` }, verdict },
+              {
+                kind: 'review',
+                target: { runId: `subagent:${id}` },
+                verdict,
+                reviewerRunId: `reviewer-${verdict}`,
+              },
               f.deps,
             )
           ).recorded,
@@ -387,7 +392,12 @@ describe('ptah_outcome_report', () => {
         runOutcomeReport(deliverables({ agentId: 'B' }, 'missing.txt'), f.deps),
     );
     const review = await runOutcomeReport(
-      { kind: 'review', target: { runId: 'subagent:A' }, verdict: 'revise' },
+      {
+        kind: 'review',
+        target: { runId: 'subagent:A' },
+        verdict: 'revise',
+        reviewerRunId: 'reviewer',
+      },
       f.deps,
     );
     expect([a.recorded, b.recorded, review.recorded]).toEqual([
@@ -431,7 +441,7 @@ describe('ptah_outcome_report', () => {
     await f.pipeline.dispose();
   });
 
-  it('pairs repeated reviewer reports and retains unpaired review behavior', async () => {
+  it('pairs repeated reviewer reports and refuses an anonymous review', async () => {
     const f = fixture();
     f.pipeline.enqueue({
       kind: 'subagent-stop',
@@ -455,19 +465,78 @@ describe('ptah_outcome_report', () => {
       reviseRounds: 1,
     });
 
-    const unpaired = {
+    const submit = jest.spyOn(f.pipeline, 'submit');
+    const anonymous = await runOutcomeReport(
+      {
+        kind: 'review',
+        target: { runId: 'subagent:reviewed' },
+        verdict: 'approved',
+      },
+      f.deps,
+    );
+    expect(anonymous).toEqual({
+      recorded: false,
+      reason: 'reviewer identity required',
+    });
+    expect(submit).not.toHaveBeenCalled();
+    expect(await f.store.get('subagent:reviewed')).toMatchObject({
+      finalReview: null,
+    });
+    await f.pipeline.dispose();
+  });
+
+  it('attributes a review with no agent or reviewer to the caller session', async () => {
+    const f = fixture();
+    f.pipeline.enqueue({
+      kind: 'subagent-stop',
+      row: row('subagent:reviewed'),
+    });
+    await f.pipeline.flush();
+    const review = {
       kind: 'review',
       target: { runId: 'subagent:reviewed' },
-      verdict: 'approved',
+      verdict: 'revise',
     };
-    const a = await runOutcomeReport(unpaired, f.deps);
-    const b = await runOutcomeReport(unpaired, f.deps);
-    expect('reportId' in a && 'reportId' in b && a.reportId).not.toBe(
-      'reportId' in b ? b.reportId : undefined,
+    const inSession = () =>
+      runWithMcpRequestContext({ callerSessionId: 'ptah-session' }, () =>
+        runOutcomeReport(review, f.deps),
+      );
+    const first = await inSession();
+    const repeat = await inSession();
+    const reportId = deterministicReviewReportId(
+      'subagent:reviewed',
+      'session:ptah-session',
     );
+    expect(first).toMatchObject({ recorded: 'applied', reportId });
+    expect(repeat).toMatchObject({ recorded: 'applied', reportId });
     expect(await f.store.get('subagent:reviewed')).toMatchObject({
+      reviseRounds: 1,
+    });
+    await f.pipeline.dispose();
+  });
+
+  it('holds an unseen agent review under the bare id until its lane row lands', async () => {
+    const f = fixture();
+    const review = await runOutcomeReport(
+      {
+        kind: 'review',
+        target: { agentId: 'implementer' },
+        verdict: 'approved',
+        reviewerRunId: 'reviewer',
+      },
+      f.deps,
+    );
+    expect(review).toMatchObject({ recorded: 'held', runId: 'implementer' });
+    const laneRunId = 'implementer:2026-10-31T10:00:00.000Z';
+    f.pipeline.enqueue({
+      kind: 'lane-completion',
+      row: row(laneRunId, 'implementer'),
+    });
+    await f.pipeline.flush();
+    expect(await f.store.get(laneRunId)).toMatchObject({
       finalReview: 'approved',
     });
+    expect(await f.store.listHeldReports(Date.now())).toHaveLength(0);
     await f.pipeline.dispose();
   });
 
@@ -587,7 +656,12 @@ describe('ptah_outcome_report', () => {
     const before = new KeyValueOutcomeJournal(f.storage).snapshot();
     const submit = jest.spyOn(f.pipeline, 'submit');
     const rejected = await runOutcomeReport(
-      { kind: 'review', target: { runId: 'L9' }, verdict: 'approved' },
+      {
+        kind: 'review',
+        target: { runId: 'L9' },
+        verdict: 'approved',
+        reviewerRunId: 'reviewer',
+      },
       f.deps,
     );
     expect(rejected).toMatchObject({

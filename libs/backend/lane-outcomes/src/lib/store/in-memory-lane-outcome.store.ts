@@ -1,6 +1,9 @@
-import type { LaneOutcomeRecord, OutcomeTaskKind } from '@ptah-extension/shared';
+import type {
+  LaneOutcomeRecord,
+  OutcomeTaskKind,
+} from '@ptah-extension/shared';
 import { LaneOutcomeRowSchema } from '../lane-outcome.schema';
-import { applyOutcomeEffect } from './lane-outcome.store';
+import { applyOutcomeEffect, heldReportJoinsRow } from './lane-outcome.store';
 import type {
   HeldOutcomeReport,
   LaneOutcomeRow,
@@ -46,10 +49,12 @@ export class InMemoryLaneOutcomeStore implements LaneOutcomeStore {
     const joined: HeldOutcomeReport[] = [];
     const invalid: HeldOutcomeReport[] = [];
     const remove: string[] = [];
+    const target = row;
     const reports = [...this.held.values()]
-      .filter((r) => r.runId === input.runId && r.expiresAt > nowMs)
+      .filter((r) => heldReportJoinsRow(r, target) && r.expiresAt > nowMs)
       .sort((a, b) => a.heldAt - b.heldAt);
-    for (const report of reports) {
+    for (const held of reports) {
+      const report = { ...held, runId: input.runId };
       remove.push(report.reportId);
       if (report.kind === 'budget-stop') {
         budgetStopped = true;

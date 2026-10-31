@@ -24,6 +24,22 @@ export interface HeldOutcomeReport {
   readonly heldAt: number;
   readonly expiresAt: number;
 }
+/**
+ * A held report joins an inserted row held under its run id, or, for a review
+ * that named only an agent before any run of that agent landed, under the
+ * row's bare agent id. The held report is deleted on its first join, so it
+ * reaches at most one row.
+ */
+export function heldReportJoinsRow(
+  report: HeldOutcomeReport,
+  row: LaneOutcomeRecord,
+): boolean {
+  return (
+    report.runId === row.runId ||
+    (report.kind === 'review' && report.runId === row.agentId)
+  );
+}
+
 export type OutcomeReportEffect =
   | {
       readonly kind: 'deliverables';
@@ -58,7 +74,9 @@ export function applyOutcomeEffect(
           : effect.verdict,
       deliverablesDeclaredAt: row.deliverablesDeclaredAt ?? effect.declaredAt,
       taskKind: explicitTaskKind ? effect.taskKind : row.taskKind,
-      taskKindSource: explicitTaskKind ? 'explicit' : (row.taskKindSource ?? null),
+      taskKindSource: explicitTaskKind
+        ? 'explicit'
+        : (row.taskKindSource ?? null),
       taskId: effect.taskId ?? row.taskId,
       routingSource: effect.routingSource ?? row.routingSource,
     };

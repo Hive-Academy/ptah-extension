@@ -17,7 +17,11 @@ import {
 import { OUTCOME_REJECTED_KEY } from './key-value-outcome-journal';
 import { OutcomeWritePipeline } from './outcome-write-pipeline';
 import { deterministicReviewReportId } from './report-effect';
-import { MemoryState, sqliteFixture, testLogger } from './pipeline.test-support';
+import {
+  MemoryState,
+  sqliteFixture,
+  testLogger,
+} from './pipeline.test-support';
 
 const REVIEWER = 'lane:reviewer';
 
@@ -186,6 +190,105 @@ describe.each([
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('joins a bare-agent-id review held before the lane row, and only once', async () => {
+    const { store } = open();
+    const storage = new MemoryState();
+    const { pipeline, recorder } = wire(store, storage);
+    pipelines.push(pipeline);
+    const first = 'implementer:2026-10-31T10:00:00.000Z';
+    const second = 'implementer:2026-10-31T11:00:00.000Z';
+
+    expect(
+      await recorder.captureReview({
+        reviewerRunId: REVIEWER,
+        text: reviewText('implementer', 'REVISE'),
+      }),
+    ).toEqual({ ok: true, state: 'held', runId: 'implementer' });
+
+    recorder.recordLaneCompletion({
+      ...laneInput(first),
+      agentId: 'implementer',
+    });
+    await pipeline.flush();
+    expect(await store.get(first)).toMatchObject({
+      reviseRounds: 1,
+      finalReview: null,
+    });
+    expect(
+      await store.hasReceipt(
+        deterministicReviewReportId('implementer', REVIEWER),
+      ),
+    ).toBe(true);
+    expect(await store.listHeldReports(Date.now())).toHaveLength(0);
+
+    recorder.recordLaneCompletion({
+      ...laneInput(second),
+      agentId: 'implementer',
+    });
+    await pipeline.flush();
+    expect(await store.get(second)).toMatchObject({
+      reviseRounds: 0,
+      finalReview: null,
+    });
+    expect(await store.get(first)).toMatchObject({ reviseRounds: 1 });
+  });
+
+  it('joins a bare-agent-id review held before the subagent row', async () => {
+    const { store } = open();
+    const storage = new MemoryState();
+    const { pipeline, recorder } = wire(store, storage);
+    pipelines.push(pipeline);
+
+    expect(
+      await recorder.captureReview({
+        reviewerRunId: REVIEWER,
+        text: reviewText('helper', 'APPROVED'),
+      }),
+    ).toEqual({ ok: true, state: 'held', runId: 'helper' });
+
+    pipeline.enqueue({
+      kind: 'subagent-stop',
+      row: { ...outcomeRow('subagent:helper'), agentId: 'helper' },
+    });
+    await pipeline.flush();
+    expect(await store.get('subagent:helper')).toMatchObject({
+      finalReview: 'approved',
+    });
+    expect(await store.listHeldReports(Date.now())).toHaveLength(0);
+  });
+
+  it('applies a bare-agent-id review to a lane row that landed before it was written', async () => {
+    const { store } = open();
+    const storage = new MemoryState();
+    const { pipeline, recorder } = wire(store, storage);
+    pipelines.push(pipeline);
+    const runId = 'implementer:2026-10-31T10:00:00.000Z';
+    recorder.recordLaneCompletion({
+      ...laneInput(runId),
+      agentId: 'implementer',
+    });
+    await pipeline.flush();
+
+    // The caller resolved the agent before its row landed, so the report
+    // still names the bare agent id.
+    const now = Date.now();
+    expect(
+      await pipeline.submit({
+        kind: 'review',
+        report: {
+          reportId: deterministicReviewReportId('implementer', REVIEWER),
+          runId: 'implementer',
+          kind: 'review',
+          payload: JSON.stringify({ verdict: 'approved' }),
+          heldAt: now,
+          expiresAt: now + 86_400_000,
+        },
+      }),
+    ).toMatchObject({ ok: true });
+    expect(await store.get(runId)).toMatchObject({ finalReview: 'approved' });
+    expect(await store.listHeldReports(Date.now())).toHaveLength(0);
   });
 });
 

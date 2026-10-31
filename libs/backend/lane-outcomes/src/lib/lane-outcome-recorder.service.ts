@@ -358,7 +358,8 @@ export class LaneOutcomeRecorder {
    * The run a `Reviewed-Run` line names. A bare agent id resolves the way
    * `ptah_outcome_report` resolves an agent target: its subagent run, else its
    * latest lane run, and both at once is ambiguous. Anything else stays as
-   * written, so a review of a run that has not landed yet is held for it.
+   * written, so a review of a run that has not landed yet is held for it; a
+   * bare agent id held this way joins that agent's first inserted row.
    */
   private async resolveReviewedRun(
     id: string,

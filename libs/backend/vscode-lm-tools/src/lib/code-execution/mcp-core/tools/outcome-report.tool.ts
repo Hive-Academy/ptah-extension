@@ -118,7 +118,11 @@ export async function runOutcomeReport(
           recorded: false,
           reason: `ambiguous agentId ${args.target.agentId}`,
         };
-      runId = subagent ? subagentId : (lane?.runId ?? subagentId);
+      // An unseen agent's review is held under the bare agent id, which joins
+      // the agent's first inserted row, lane or subagent; deliverables are
+      // held only for a subagent run.
+      const unseen = args.kind === 'review' ? args.target.agentId : subagentId;
+      runId = subagent ? subagentId : (lane?.runId ?? unseen);
       if (
         args.kind === 'deliverables' &&
         !subagent &&
@@ -137,13 +141,21 @@ export async function runOutcomeReport(
 
   // A lane's MCP URL names the calling agent, which outranks the claimed
   // reviewer: host capture keys the same review by that agent, so both paths
-  // share one report id, and a reviewer cannot grade its own run.
-  const reviewer =
-    args.kind === 'review'
-      ? (getCallerAgentId() ?? args.reviewerRunId)
-      : undefined;
-  if (reviewer && isSelfReview(runId, reviewer))
-    return { recorded: false, reason: 'self-review' };
+  // share one report id, and a reviewer cannot grade its own run. Without
+  // either, the caller session attributes the review; an anonymous review is
+  // refused, since it could neither be self-checked nor deduplicated.
+  let reviewer: string | undefined;
+  if (args.kind === 'review') {
+    const sessionId = getCallerSessionId();
+    reviewer =
+      getCallerAgentId() ??
+      args.reviewerRunId ??
+      (sessionId ? `session:${sessionId}` : undefined);
+    if (reviewer === undefined)
+      return { recorded: false, reason: 'reviewer identity required' };
+    if (isSelfReview(runId, reviewer))
+      return { recorded: false, reason: 'self-review' };
+  }
 
   let payload: string;
   if (args.kind === 'deliverables') {
@@ -202,6 +214,7 @@ export async function runOutcomeReport(
     );
   }
 
+  // Every review has a reviewer here, so only deliverables get a random id.
   const reportId =
     reviewer !== undefined
       ? deterministicReviewReportId(runId, reviewer)
