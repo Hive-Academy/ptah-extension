@@ -367,6 +367,27 @@ describe('ptah agent-cli config set', () => {
       preferredAgentOrder: ['reviewer', 'planner', 'coder'],
     });
   });
+
+  it.each([
+    ['enabledClaudeBuiltinTools', 'Workflow, ReportFindings', ['Workflow', 'ReportFindings']],
+    ['enabledClaudeBuiltinSkills', 'code-review,,init ', ['code-review', 'init']],
+  ])('CSV-splits the Claude built-in opt-in key %s', async (key, value, expected) => {
+    const ft = makeFormatter();
+    const engine = makeEngine();
+    engine.scripted.set('agent:setConfig', {
+      success: true,
+      data: { success: true },
+    });
+
+    const code = await execute(
+      { subcommand: 'config-set', key, value },
+      baseGlobals,
+      { formatter: ft.formatter, withEngine: engine.withEngine },
+    );
+
+    expect(code).toBe(ExitCode.Success);
+    expect(engine.rpcCalls[0]?.params).toEqual({ [key]: expected });
+  });
 });
 
 // ---------------------------------------------------------------------------

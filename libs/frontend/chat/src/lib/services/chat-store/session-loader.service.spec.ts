@@ -4,7 +4,8 @@
  *
  *   - removeSessionFromList: drops a session by id and decrements the counter
  *   - updateSessionName: renames the entry in-place
- *   - clearResumableSubagents / removeResumableSubagent
+ *   - clearResumableSubagents / removeResumableSubagent /
+ *     dismissResumableSubagents
  *   - switchWorkspace: cache-miss clears signals + kicks off a backend load,
  *     cache-hit restores prior counts instantly without an RPC call
  *   - removeWorkspaceCache: drops the cache entry
@@ -1324,6 +1325,104 @@ describe('SessionLoaderService', () => {
       expect(
         service.resumableSubagents().map((a) => a.toolCallId),
       ).not.toContain('tc-1');
+    });
+
+    describe('dismissResumableSubagents', () => {
+      const record = (
+        toolCallId: string,
+        parentSessionId?: string,
+      ): SubagentRecord => ({ toolCallId, parentSessionId }) as SubagentRecord;
+      const dismissCalls = (): unknown[][] =>
+        rpcCall.mock.calls.filter(
+          ([method]) => method === 'chat:dismiss-resumable-subagents',
+        );
+
+      it('hides the agents at once and tells the backend per owning session', async () => {
+        service.setResumableSubagents(
+          [
+            record('tc-1', 'sess-a'),
+            record('tc-2', 'sess-a'),
+            record('tc-3', 'sess-b'),
+            record('tc-keep', 'sess-a'),
+          ],
+          'sess-a',
+        );
+        rpcCall.mockResolvedValue({ success: true, data: { success: true } });
+
+        const done = service.dismissResumableSubagents([
+          record('tc-1', 'sess-a'),
+          record('tc-2', 'sess-a'),
+          record('tc-3', 'sess-b'),
+        ]);
+        // Optimistic: gone before the RPC settles.
+        expect(service.resumableSubagents().map((a) => a.toolCallId)).toEqual([
+          'tc-keep',
+        ]);
+        await done;
+
+        expect(dismissCalls()).toHaveLength(2);
+        expect(rpcCall).toHaveBeenCalledWith(
+          'chat:dismiss-resumable-subagents',
+          { sessionId: 'sess-a', toolCallIds: ['tc-1', 'tc-2'] },
+        );
+        expect(rpcCall).toHaveBeenCalledWith(
+          'chat:dismiss-resumable-subagents',
+          { sessionId: 'sess-b', toolCallIds: ['tc-3'] },
+        );
+      });
+
+      it('hides an agent with no owning session without calling the backend', async () => {
+        service.setResumableSubagents([record('tc-orphan')], 'sess-a');
+
+        await service.dismissResumableSubagents([record('tc-orphan')]);
+
+        expect(service.resumableSubagents()).toEqual([]);
+        expect(dismissCalls()).toHaveLength(0);
+      });
+
+      it.each([
+        ['a transport failure', { success: false, error: 'timeout' }],
+        ['a handler failure', { success: true, data: { success: false, error: 'no registry' } }],
+      ])('logs %s and keeps the agents hidden', async (_label, reply) => {
+        service.setResumableSubagents([record('tc-1', 'sess-a')], 'sess-a');
+        rpcCall.mockResolvedValue(reply);
+
+        await service.dismissResumableSubagents([record('tc-1', 'sess-a')]);
+
+        expect(service.resumableSubagents()).toEqual([]);
+        expect(consoleWarn).toHaveBeenCalledWith(
+          expect.stringContaining('chat:dismiss-resumable-subagents failed'),
+          expect.objectContaining({ sessionId: 'sess-a' }),
+        );
+      });
+
+      it('logs a thrown RPC error and keeps the agents hidden', async () => {
+        service.setResumableSubagents([record('tc-1', 'sess-a')], 'sess-a');
+        rpcCall.mockRejectedValue(new Error('boom'));
+
+        await service.dismissResumableSubagents([record('tc-1', 'sess-a')]);
+
+        expect(service.resumableSubagents()).toEqual([]);
+        expect(consoleWarn).toHaveBeenCalledWith(
+          '[SessionLoaderService] Failed to dismiss resumable subagents:',
+          expect.any(Error),
+        );
+      });
+
+      it('drops dismissed agents from a stale list that arrives later', async () => {
+        rpcCall.mockResolvedValue({ success: true, data: { success: true } });
+        await service.dismissResumableSubagents([record('tc-1', 'sess-a')]);
+
+        // A chat:resume reply that was in flight during the dismiss.
+        service.setResumableSubagents(
+          [record('tc-1', 'sess-a'), record('tc-2', 'sess-a')],
+          'sess-a',
+        );
+
+        expect(service.resumableSubagents().map((a) => a.toolCallId)).toEqual([
+          'tc-2',
+        ]);
+      });
     });
   });
 

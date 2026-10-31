@@ -52,6 +52,9 @@ describe('SubagentLaneComponent', () => {
   const ensureHistory = jest
     .fn<Promise<void>, [string]>()
     .mockResolvedValue(undefined);
+  const refreshLiveHistory = jest
+    .fn<Promise<void>, [string]>()
+    .mockResolvedValue(undefined);
   function setEntry(changes: Partial<SubagentExecutionEntry> = {}): void {
     entries.set(
       new Map([
@@ -132,6 +135,7 @@ describe('SubagentLaneComponent', () => {
     release.mockClear();
     syncRecord.mockClear();
     ensureHistory.mockClear();
+    refreshLiveHistory.mockClear();
     loadSubagentCacheInfo.mockClear();
     sendFeedback.mockClear();
     setEntry();
@@ -174,6 +178,7 @@ describe('SubagentLaneComponent', () => {
             release,
             syncRecord,
             ensureHistory,
+            refreshLiveHistory,
           },
         },
         {
@@ -514,6 +519,39 @@ describe('SubagentLaneComponent', () => {
       ) as HTMLButtonElement
     ).click();
     expect(ensureHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it('backfills a live background agent from its transcript while shown', () => {
+    jest.useFakeTimers();
+    try {
+      const fixture = setup({ ...base, status: 'background' });
+      // A live entry never takes the one-shot load: before this fix the lane
+      // requested nothing and stayed on "Starting agent" for the whole run.
+      expect(ensureHistory).not.toHaveBeenCalled();
+      expect(refreshLiveHistory).toHaveBeenCalledTimes(1);
+      expect(refreshLiveHistory).toHaveBeenCalledWith('tool-1');
+      jest.advanceTimersByTime(5000);
+      expect(refreshLiveHistory).toHaveBeenCalledTimes(2);
+      fixture.destroy();
+      jest.advanceTimersByTime(20000);
+      expect(refreshLiveHistory).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stops refreshing when the agent finishes', () => {
+    jest.useFakeTimers();
+    try {
+      const fixture = setup();
+      expect(refreshLiveHistory).toHaveBeenCalledTimes(1);
+      fixture.componentRef.setInput('record', { ...base, status: 'completed' });
+      fixture.detectChanges();
+      jest.advanceTimersByTime(20000);
+      expect(refreshLiveHistory).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('offers full output when the live tree was spilled', () => {

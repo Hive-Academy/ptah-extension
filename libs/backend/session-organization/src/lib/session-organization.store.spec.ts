@@ -16,6 +16,7 @@ import {
 } from '@ptah-extension/persistence-sqlite';
 import type { IOutputChannel } from '@ptah-extension/platform-core';
 import { SessionOrganizationStore } from './session-organization.store';
+import { SessionAutoLinkStore } from './session-auto-link.store';
 
 interface TestStatement {
   run(...params: unknown[]): { changes: number | bigint };
@@ -106,7 +107,9 @@ function makeHarness(): Harness {
   }
   const db = withTransaction(opener());
   openDbs.push(db);
-  for (const migration of MIGRATIONS.filter((m) => m.version <= 50)) {
+  for (const migration of MIGRATIONS.filter(
+    (m) => m.version <= 50 || m.version === 63,
+  )) {
     if (migration.sql) db.exec(migration.sql);
   }
   const connection = {
@@ -119,6 +122,7 @@ function makeHarness(): Harness {
   const store = new SessionOrganizationStore(
     connection as unknown as SqliteConnectionService,
     output as unknown as IOutputChannel,
+    new SessionAutoLinkStore(connection as unknown as SqliteConnectionService),
   );
   return { db, store, output, connection };
 }
@@ -215,6 +219,7 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
         updatedAt: 1_000,
         tasks: [],
         prLinks: [],
+        todos: null,
       });
 
       store.upsertOrganization(
@@ -287,9 +292,12 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
             role: 'related',
             source: 'user',
             createdAt: 5,
+            autoRule: null,
+            autoEvidence: null,
           },
         ],
         prLinks: [],
+        todos: null,
       });
     });
   });
@@ -311,6 +319,8 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
           role: 'related',
           source: 'user',
           createdAt: 10,
+          autoRule: null,
+          autoEvidence: null,
         },
       ]);
     });
@@ -338,12 +348,16 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
           role: 'related',
           source: 'board-start',
           createdAt: 10,
+          autoRule: null,
+          autoEvidence: null,
         },
         {
           taskId: 'TASK_2026_002',
           role: 'primary',
           source: 'user',
           createdAt: 20,
+          autoRule: null,
+          autoEvidence: null,
         },
       ]);
     });
@@ -380,6 +394,8 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
         role: 'primary',
         source: 'user',
         createdAt: 2,
+        autoRule: null,
+        autoEvidence: null,
       });
     });
 
@@ -444,7 +460,12 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
       expect(primaries(db, WS, 's1')).toEqual([{ task_id: 'T1' }]);
       const org = store.listWorkspace(WS).get('s1');
       expect(org?.tasks).toEqual([
-        { taskId: 'T1', role: 'primary', source: 'user', createdAt: 1 },
+        {
+          taskId: 'T1', role: 'primary', source: 'user',
+          createdAt: 1,
+          autoRule: null,
+          autoEvidence: null,
+        },
       ]);
       expect(org?.updatedAt).toBe(1);
     });
@@ -506,6 +527,8 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
           role: 'primary',
           source: 'user',
           createdAt: 1,
+          autoRule: null,
+          autoEvidence: null,
         },
         {
           sessionId: 's2',
@@ -513,6 +536,8 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
           role: 'related',
           source: 'agent',
           createdAt: 2,
+          autoRule: null,
+          autoEvidence: null,
         },
       ]);
       expect(store.listTaskLinks(WS, ['T2', 'T-unknown'])).toEqual([
@@ -522,6 +547,8 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
           role: 'primary',
           source: 'board-start',
           createdAt: 3,
+          autoRule: null,
+          autoEvidence: null,
         },
       ]);
       expect(store.listTaskLinks(WS, [])).toEqual([]);
@@ -697,9 +724,12 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
             role: 'primary',
             source: 'agent',
             createdAt: 100,
+            autoRule: null,
+            autoEvidence: null,
           },
         ],
         prLinks: [],
+        todos: null,
       });
     });
 
@@ -858,7 +888,12 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
         startedBy: 'user',
         updatedAt: 7,
         tasks: [
-          { taskId: 'T1', role: 'related', source: 'user', createdAt: 8 },
+          {
+          taskId: 'T1', role: 'related', source: 'user',
+          createdAt: 8,
+          autoRule: null,
+          autoEvidence: null,
+        },
         ],
         prLinks: [
           {
@@ -870,6 +905,7 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
             createdAt: 9,
           },
         ],
+        todos: null,
       });
       expect(output.appendLine).toHaveBeenCalledTimes(1);
       expect(output.appendLine.mock.calls[0][0]).toMatch(
@@ -883,6 +919,8 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
           role: 'related',
           source: 'user',
           createdAt: 8,
+          autoRule: null,
+          autoEvidence: null,
         },
       ]);
       expect(output.appendLine).toHaveBeenCalledTimes(2);
@@ -951,6 +989,8 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
             role: 'primary',
             source: 'board-start',
             createdAt: 2,
+            autoRule: null,
+            autoEvidence: null,
           },
         ],
         prLinks: [{ url: 'https://github.com/acme/app/pull/1', createdAt: 3 }],
@@ -1152,8 +1192,18 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
       expect(primaries(db, WS, NEW)).toEqual([{ task_id: 'T1' }]);
       // The new id's own link is kept: its source and created_at survive.
       expect(store.listWorkspace(WS).get(NEW)?.tasks).toEqual([
-        { taskId: 'T1', role: 'primary', source: 'agent', createdAt: 5 },
-        { taskId: 'T2', role: 'related', source: 'user', createdAt: 6 },
+        {
+          taskId: 'T1', role: 'primary', source: 'agent',
+          createdAt: 5,
+          autoRule: null,
+          autoEvidence: null,
+        },
+        {
+          taskId: 'T2', role: 'related', source: 'user',
+          createdAt: 6,
+          autoRule: null,
+          autoEvidence: null,
+        },
       ]);
       expect(
         rows(db, 'SELECT 1 FROM session_task_links WHERE session_id = ?', OLD),
@@ -1185,8 +1235,18 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
 
       expect(primaries(db, WS, NEW)).toEqual([{ task_id: 'T2' }]);
       expect(store.listWorkspace(WS).get(NEW)?.tasks).toEqual([
-        { taskId: 'T1', role: 'related', source: 'agent', createdAt: 5 },
-        { taskId: 'T2', role: 'primary', source: 'user', createdAt: 6 },
+        {
+          taskId: 'T1', role: 'related', source: 'agent',
+          createdAt: 5,
+          autoRule: null,
+          autoEvidence: null,
+        },
+        {
+          taskId: 'T2', role: 'primary', source: 'user',
+          createdAt: 6,
+          autoRule: null,
+          autoEvidence: null,
+        },
       ]);
     });
 

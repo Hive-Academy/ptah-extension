@@ -607,6 +607,56 @@ function statefulConfigGetScopesResolver(
 }
 
 /**
+ * `agent:getClaudeBuiltins` (TASK_2026_853 F-A): the backend catalog (`claude-builtin-catalog.ts`) with nothing
+ * turned on. Every settings boot answers it through `claudeBuiltinsBackend`, so the card leaves its loading state.
+ */
+const CLAUDE_BUILTINS_FIXTURE = {
+  tools: [
+    { id: 'Workflow', description: 'Launches a saved multi-step workflow script.', approxTokens: 2000, skillsNeedingIt: ['workflow-authoring'] },
+    { id: 'ReportFindings', description: 'Sends code-review findings as a typed list.', approxTokens: 850, skillsNeedingIt: ['code-review'] },
+    { id: 'PushNotification', description: 'Sends a desktop notification.', approxTokens: 10, skillsNeedingIt: [] },
+    { id: 'DesignSync', description: 'Syncs claude.ai design files.', approxTokens: 10, skillsNeedingIt: [] },
+    { id: 'EnterWorktree', description: 'Moves the session into a git worktree.', approxTokens: 10, skillsNeedingIt: [] },
+    { id: 'ExitWorktree', description: 'Leaves a worktree session.', approxTokens: 10, skillsNeedingIt: [] },
+  ],
+  terminalSkills: [
+    { id: 'keybindings-help', description: "Edits the terminal's keyboard bindings.", approxTokens: 90 },
+    { id: 'update-config', description: "Edits Claude Code's settings.json hooks and permissions.", approxTokens: 270 },
+    { id: 'fewer-permission-prompts', description: 'Mines CLI transcripts for a permission allowlist.', approxTokens: 70 },
+    { id: 'plugin-authoring', description: 'Builds mods for the Claude terminal UI.', approxTokens: 100 },
+    { id: 'init', description: 'Writes a CLAUDE.md for the project.', approxTokens: 25 },
+    { id: 'workflow-authoring', description: 'Writes scripts for the Workflow tool.', approxTokens: 95, needsTool: 'Workflow' },
+    { id: 'code-review', description: 'Reviews the current diff for bugs.', approxTokens: 460, needsTool: 'ReportFindings' },
+  ],
+  syncedSkills: [],
+  enabledTools: [],
+  enabledSkills: [],
+  policyStatus: 'verified',
+};
+
+/**
+ * A fresh stored state per boot: `agent:getClaudeBuiltins` reads it and `agent:setClaudeBuiltin` changes one id in
+ * it and returns both lists, like the backend's atomic per-item update.
+ */
+export function claudeBuiltinsBackend(): Record<string, unknown> {
+  const stored = { tools: [] as string[], skills: [] as string[] };
+  return {
+    'agent:getClaudeBuiltins': () => ({
+      ...CLAUDE_BUILTINS_FIXTURE,
+      enabledTools: [...stored.tools],
+      enabledSkills: [...stored.skills],
+    }),
+    'agent:setClaudeBuiltin': (params: unknown) => {
+      const { kind, id, enabled } = params as { kind: 'tool' | 'skill'; id: string; enabled: boolean };
+      const key = kind === 'tool' ? 'tools' : 'skills';
+      const without = stored[key].filter((item) => item !== id);
+      stored[key] = enabled ? [...without, id] : without;
+      return { success: true, enabledTools: [...stored.tools], enabledSkills: [...stored.skills] };
+    },
+  };
+}
+
+/**
  * The stateful RPC set for one boot. `getFixtureState(page)` retrieves the
  * SAME `FixtureState` a reach step needs to assert "the write fired" and
  * "the read-back changed" — `bootSettings` registers it against `page`
@@ -741,6 +791,7 @@ function statefulSettingsFixtures(
       return { success: true };
     },
     'settings:get': settingsGetResolver,
+    ...claudeBuiltinsBackend(),
     'agent:getConfig': () => ({ ...state.agentConfig }),
     'agent:setConfig': (params: unknown) => {
       record(state, 'agent:setConfig', params);

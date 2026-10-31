@@ -10,9 +10,11 @@ import type {
 } from '@ptah-extension/shared';
 import {
   gitTitle,
+  linkedTaskTitle,
   parseTodoList,
   sameGitState,
   summarizeTodos,
+  todoStateFromProgress,
   todoTitle,
 } from './compact-session-metrics';
 
@@ -229,5 +231,49 @@ describe('compact todo metrics', () => {
       node('message', [node('tool', [], { todos: 'folded' })]),
     );
     expect(summarizeTodos([old, recent], null)).toEqual({ kind: 'unknown' });
+  });
+});
+
+describe('todoStateFromProgress', () => {
+  it('returns null when the host recorded no snapshot', () => {
+    expect(todoStateFromProgress(null)).toBeNull();
+    expect(todoStateFromProgress(undefined)).toBeNull();
+  });
+
+  it('maps a snapshot to a known state with the in-progress label', () => {
+    expect(
+      todoStateFromProgress({
+        done: 2,
+        total: 5,
+        inProgress: 'Writing tests',
+        updatedAt: 1,
+      }),
+    ).toEqual({ kind: 'known', done: 2, total: 5, active: 'Writing tests' });
+  });
+
+  it('maps an empty label to no active item', () => {
+    expect(
+      todoStateFromProgress({ done: 1, total: 1, inProgress: '', updatedAt: 1 }),
+    ).toEqual({ kind: 'known', done: 1, total: 1, active: null });
+  });
+
+  it('maps an empty list to none and clamps done to the total', () => {
+    expect(
+      todoStateFromProgress({ done: 0, total: 0, inProgress: null, updatedAt: 1 }),
+    ).toEqual({ kind: 'none' });
+    expect(
+      todoStateFromProgress({ done: 9, total: 3, inProgress: null, updatedAt: 1 }),
+    ).toEqual({ kind: 'known', done: 3, total: 3, active: null });
+  });
+});
+
+describe('linkedTaskTitle', () => {
+  it('names the task and flags a missing folder', () => {
+    expect(linkedTaskTitle({ taskId: 'TASK_2026_001', missing: false })).toBe(
+      'Linked task TASK_2026_001',
+    );
+    expect(linkedTaskTitle({ taskId: 'TASK_2026_001', missing: true })).toBe(
+      'Linked task TASK_2026_001 (folder missing)',
+    );
   });
 });

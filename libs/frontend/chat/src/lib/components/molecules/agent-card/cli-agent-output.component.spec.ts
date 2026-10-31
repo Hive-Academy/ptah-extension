@@ -30,7 +30,6 @@ import { MessageBubbleComponent } from '../../organisms/message-bubble.component
 import { ExecutionNodeComponent } from '../../organisms/execution/execution-node.component';
 import { ArtifactStore } from '../../../services/artifact.store';
 import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
-import { DisplaySheetState } from '../../organisms/display-sheet/display-sheet.state';
 import { TabManagerService } from '@ptah-extension/chat-state';
 
 function agent(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
@@ -75,7 +74,6 @@ describe('unified CLI agent output', () => {
           } satisfies Pick<LoggingService, 'debug' | 'info' | 'warn' | 'error'>,
         },
         DisplayDockState,
-        DisplaySheetState,
         { provide: TabManagerService, useValue: { activeTabId: signal(null) } },
         {
           provide: AgentMonitorStore,

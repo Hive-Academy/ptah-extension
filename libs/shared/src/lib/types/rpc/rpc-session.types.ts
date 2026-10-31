@@ -18,6 +18,7 @@ import type {
   SessionListSort,
   SessionOrganizationSummary,
   SessionPrLinkSummary,
+  SessionTodoProgress,
   SessionPrState,
   SessionPriority,
   SessionTaskLinkRole,
@@ -180,10 +181,11 @@ export interface SessionLinkTaskParams {
   taskId: string;
   role: SessionTaskLinkRole;
   /**
-   * Defaults to `user`. The webview may not claim `agent`: agent links come
-   * only from the MCP tool.
+   * Defaults to `user`. The webview may claim only the explicit sources:
+   * `agent` links come only from the MCP tool, and `orchestrate`, `worktree`
+   * and `inherited` only from the host auto-link rules.
    */
-  source?: Exclude<SessionTaskLinkSource, 'agent'>;
+  source?: Extract<SessionTaskLinkSource, 'user' | 'board-start'>;
 }
 
 /** Response from session:linkTask */
@@ -231,6 +233,8 @@ export interface TaskLinkedSession {
   /** Live turn phase; null when the session is not loaded in this host. */
   livePhase: SessionTurnPhase | null;
   prLinks: SessionPrLinkSummary[];
+  /** The session's latest todo progress; null when none was recorded. */
+  todos: SessionTodoProgress | null;
 }
 
 /** Parameters for session:listForTasks */

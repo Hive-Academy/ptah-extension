@@ -125,6 +125,8 @@ describe('TurnEndHandlerService — background fallback', () => {
   let onCompletedMock: jest.Mock;
   let findByAgentIdMock: jest.Mock;
   let onSubagentEndedMock: jest.Mock;
+  let findKeyByAgentIdMock: jest.Mock;
+  let getSubagentMock: jest.Mock;
   let warn: jest.SpyInstance;
 
   const knownEntry: BackgroundAgentEntry = {
@@ -151,6 +153,8 @@ describe('TurnEndHandlerService — background fallback', () => {
     onCompletedMock = jest.fn();
     findByAgentIdMock = jest.fn().mockReturnValue(null);
     onSubagentEndedMock = jest.fn();
+    findKeyByAgentIdMock = jest.fn().mockReturnValue(null);
+    getSubagentMock = jest.fn().mockReturnValue(undefined);
 
     // Snapshot setters only — see turn-end-handler.service.spec.ts.
     const tabManagerMock = {
@@ -184,6 +188,8 @@ describe('TurnEndHandlerService — background fallback', () => {
           provide: AgentMonitorStore,
           useValue: {
             onSubagentEnded: onSubagentEndedMock,
+            findKeyByAgentId: findKeyByAgentIdMock,
+            getSubagent: getSubagentMock,
           } as unknown as AgentMonitorStore,
         },
       ],
@@ -399,10 +405,56 @@ describe('TurnEndHandlerService — background fallback', () => {
       );
     });
 
-    it('does not touch the monitor store without a toolCallId', () => {
+    it('does not touch the monitor store without a toolCallId or a known agent', () => {
       service.handleSubagentEnded(makeSubagentEndedPayload());
 
+      expect(findKeyByAgentIdMock).toHaveBeenCalledWith('agent-a');
       expect(onSubagentEndedMock).not.toHaveBeenCalled();
+    });
+
+    it('resolves the record by agentId when toolCallId is a hook-invocation UUID', () => {
+      // The SDK hands Subagent hooks a per-invocation UUID, never the Task
+      // tool_use id the monitor keys by; before the fix this missed.
+      findKeyByAgentIdMock.mockReturnValue('toolu_task');
+      service.handleSubagentEnded(
+        makeSubagentEndedPayload({
+          toolCallId: 'c16f6ac0-2b21-47e7-bc21-a0d451b05f25',
+        }),
+      );
+
+      expect(onSubagentEndedMock).toHaveBeenCalledWith(
+        'toolu_task',
+        'sub done',
+        1_700_000_000_000,
+      );
+    });
+
+    it('prefers an exact payload Task id the monitor knows over the agentId lookup', () => {
+      getSubagentMock.mockImplementation((key: string) =>
+        key === 'toolu_exact' ? { parentToolUseId: key } : undefined,
+      );
+      findKeyByAgentIdMock.mockReturnValue('toolu_other');
+      service.handleSubagentEnded(
+        makeSubagentEndedPayload({ toolCallId: 'toolu_exact' }),
+      );
+
+      expect(onSubagentEndedMock).toHaveBeenCalledWith(
+        'toolu_exact',
+        'sub done',
+        1_700_000_000_000,
+      );
+      expect(findKeyByAgentIdMock).not.toHaveBeenCalled();
+    });
+
+    it('finishes the record found by agentId when the payload has no toolCallId', () => {
+      findKeyByAgentIdMock.mockReturnValue('toolu_task');
+      service.handleSubagentEnded(makeSubagentEndedPayload());
+
+      expect(onSubagentEndedMock).toHaveBeenCalledWith(
+        'toolu_task',
+        'sub done',
+        1_700_000_000_000,
+      );
     });
   });
 

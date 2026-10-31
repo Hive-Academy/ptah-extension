@@ -77,6 +77,9 @@ export {
   sameGitState,
   todoTitle,
   gitTitle,
+  linkedTaskTitle,
+  todoStateFromProgress,
+  type CompactLinkedTask,
   type CompactTodoState,
   type CompactGitState,
 } from './lib/molecules/compact-session/compact-session-metrics';

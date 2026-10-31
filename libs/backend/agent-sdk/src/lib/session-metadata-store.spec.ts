@@ -505,6 +505,94 @@ describe('SessionMetadataStore', () => {
       const after = await store.get('sess-1');
       expect(after?.resumableSdkSubagents).toEqual([base]);
     });
+
+    it('never writes a retired record back into the snapshot', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      const record: SubagentRecord = {
+        toolCallId: 'retired',
+        agentType: 'backend',
+        status: 'interrupted',
+        startedAt: Date.now(),
+        parentSessionId: 'sess-1',
+        agentId: 'agent-r',
+      };
+      await store.saveResumeState('sess-1', {
+        resumableSdkSubagents: [record],
+      });
+      await store.retireResumableSubagents('sess-1', ['retired']);
+
+      // A stale registry snapshot must not resurrect it.
+      await store.saveResumeState('sess-1', {
+        resumableSdkSubagents: [record],
+      });
+
+      const after = await store.get('sess-1');
+      expect(after?.resumableSdkSubagents).toEqual([]);
+      expect(after?.retiredSubagentToolCallIds).toEqual(['retired']);
+    });
+  });
+
+  describe('dismissResumableSubagents / retireResumableSubagents', () => {
+    const record = (toolCallId: string): SubagentRecord => ({
+      toolCallId,
+      agentType: 'backend',
+      status: 'interrupted',
+      startedAt: 1,
+      parentSessionId: 'sess-1',
+      agentId: `agent-${toolCallId}`,
+    });
+
+    it('upserts dismissed records without dropping the rest of the snapshot', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.saveResumeState('sess-1', {
+        resumableSdkSubagents: [record('a'), record('b')],
+      });
+
+      await store.dismissResumableSubagents('sess-1', [
+        record('b'),
+        record('history-only'),
+        { ...record('foreign'), parentSessionId: 'sess-2' },
+      ]);
+
+      const after = await store.get('sess-1');
+      expect(after?.resumableSdkSubagents).toEqual([
+        record('a'),
+        { ...record('b'), dismissed: true },
+        { ...record('history-only'), dismissed: true },
+      ]);
+    });
+
+    it('retires ids durably and keeps them when a later save omits them', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.saveResumeState('sess-1', {
+        resumableSdkSubagents: [record('a'), record('b')],
+      });
+
+      await store.retireResumableSubagents('sess-1', ['a']);
+      await store.retireResumableSubagents('sess-1', ['a', 'c']);
+      const current = (await store.get('sess-1')) as NonNullable<
+        Awaited<ReturnType<typeof store.get>>
+      >;
+      await store.save({
+        ...current,
+        retiredSubagentToolCallIds: undefined,
+        name: 'renamed',
+      });
+
+      const after = await store.get('sess-1');
+      expect(after?.resumableSdkSubagents).toEqual([record('b')]);
+      expect(after?.retiredSubagentToolCallIds).toEqual(['a', 'c']);
+    });
+
+    it('does not write for a missing session', async () => {
+      await expect(
+        store.retireResumableSubagents('missing', ['a']),
+      ).resolves.toBeUndefined();
+      await expect(
+        store.dismissResumableSubagents('missing', [record('a')]),
+      ).resolves.toBeUndefined();
+      expect(await store.get('missing')).toBeNull();
+    });
   });
 
   // -------------------------------------------------------------------------

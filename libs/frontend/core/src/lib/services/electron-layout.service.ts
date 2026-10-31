@@ -53,6 +53,12 @@ const MAX_GIT_RAIL_WIDTH = 480;
 const DEFAULT_APPS_SPLIT_WIDTH = 360;
 const MIN_APPS_SPLIT_WIDTH = 240;
 const MAX_APPS_SPLIT_WIDTH = 1200;
+/**
+ * The chat view's Display sidebar (TASK_2026_853_3401). `null` until the user
+ * resizes it, so the chat view uses its own default. The chat view clamps to
+ * its host width (max 75%); this floor only rejects a corrupt stored value.
+ */
+const MIN_DISPLAY_SIDEBAR_WIDTH = 300;
 /** Dynamic max: capped at 50% of viewport to prevent chat panel collapse below its 400px CSS min-width */
 const MAX_EDITOR_WIDTH_RATIO = 0.5;
 
@@ -78,6 +84,7 @@ export class ElectronLayoutService implements MessageHandler {
   private readonly _gitRailWidth = signal(DEFAULT_GIT_RAIL_WIDTH);
   private readonly _gitRailCollapsed = signal(false);
   private readonly _appsSplitWidth = signal(DEFAULT_APPS_SPLIT_WIDTH);
+  private readonly _displaySidebarWidth = signal<number | null>(null);
   private readonly _sidebarDragging = signal(false);
   private readonly _editorDragging = signal(false);
   private readonly _workspaceFolders = signal<WorkspaceFolder[]>([]);
@@ -111,6 +118,8 @@ export class ElectronLayoutService implements MessageHandler {
   readonly appsSplitWidth = this._appsSplitWidth.asReadonly();
   readonly appsSplitMinWidth = MIN_APPS_SPLIT_WIDTH;
   readonly appsSplitMaxWidth = MAX_APPS_SPLIT_WIDTH;
+  /** The Display sidebar width the user chose, or `null` for the default. */
+  readonly displaySidebarWidth = this._displaySidebarWidth.asReadonly();
   readonly sidebarDragging = this._sidebarDragging.asReadonly();
   readonly editorDragging = this._editorDragging.asReadonly();
   readonly workspaceFolders = this._workspaceFolders.asReadonly();
@@ -267,6 +276,29 @@ export class ElectronLayoutService implements MessageHandler {
 
   commitAppsSplitWidth(): void {
     this.persistLayout();
+  }
+
+  /**
+   * Commits the Display sidebar width at the end of a drag, a key step or a
+   * reset (`null` returns to the chat view's default). Persisted at once; the
+   * chat view does not call this per drag frame.
+   */
+  setDisplaySidebarWidth(width: number | null): void {
+    if (!this.applyDisplaySidebarWidth(width)) return;
+    this.persistLayout();
+  }
+
+  /** Sets the signal; `false` (nothing set) for a non-finite width. */
+  private applyDisplaySidebarWidth(width: number | null): boolean {
+    if (width === null) {
+      this._displaySidebarWidth.set(null);
+      return true;
+    }
+    if (!Number.isFinite(width)) return false;
+    this._displaySidebarWidth.set(
+      Math.round(Math.max(width, MIN_DISPLAY_SIDEBAR_WIDTH)),
+    );
+    return true;
   }
 
   toggleGitRail(): void {
@@ -755,6 +787,7 @@ export class ElectronLayoutService implements MessageHandler {
       gitRailWidth: this._gitRailWidth(),
       gitRailCollapsed: this._gitRailCollapsed(),
       appsSplitWidth: this._appsSplitWidth(),
+      displaySidebarWidth: this._displaySidebarWidth(),
     };
     this.vscodeService.setState(LAYOUT_STATE_KEY, state);
   }
@@ -777,6 +810,7 @@ export class ElectronLayoutService implements MessageHandler {
       gitRailWidth?: number;
       gitRailCollapsed?: boolean;
       appsSplitWidth?: number;
+      displaySidebarWidth?: number | null;
       workspaceFolders?: unknown[];
       activeWorkspaceIndex?: number;
     }>(LAYOUT_STATE_KEY);
@@ -800,6 +834,10 @@ export class ElectronLayoutService implements MessageHandler {
       // default stays.
       if (typeof state.appsSplitWidth === 'number') {
         this.setAppsSplitWidth(state.appsSplitWidth);
+      }
+      // A non-number (or NaN/Infinity) keeps the `null` default.
+      if (typeof state.displaySidebarWidth === 'number') {
+        this.applyDisplaySidebarWidth(state.displaySidebarWidth);
       }
       this._cachedWorkspaceName.set(persistedActiveFolderName(state));
     }

@@ -80,6 +80,26 @@ describe('UserPromptSubmitHookHandler', () => {
     );
   });
 
+  it('carries agentId only when the hook input has a non-empty agent_id', async () => {
+    const logger = makeLogger();
+    const registry = new UserPromptSubmitCallbackRegistry(logger);
+    const captured: Array<Record<string, unknown>> = [];
+    registry.register((payload) => {
+      captured.push({ ...payload });
+    });
+    const handler = new UserPromptSubmitHookHandler(logger, registry);
+    const fn = getHookCallback(handler, 'sess-1', '/workspace');
+
+    await fn(promptInput({ agent_id: 'agent-7' }), undefined, SIGNAL);
+    await fn(promptInput(), undefined, SIGNAL);
+    await fn(promptInput({ agent_id: '' }), undefined, SIGNAL);
+
+    expect(captured).toHaveLength(3);
+    expect(captured[0]['agentId']).toBe('agent-7');
+    expect('agentId' in captured[1]).toBe(false);
+    expect('agentId' in captured[2]).toBe(false);
+  });
+
   it('ill-typed (non-UserPromptSubmit) input early-returns without invoking registry', async () => {
     const logger = makeLogger();
     const registry = new UserPromptSubmitCallbackRegistry(logger);

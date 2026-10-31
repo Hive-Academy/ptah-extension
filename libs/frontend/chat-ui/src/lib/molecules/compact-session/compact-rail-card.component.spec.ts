@@ -451,6 +451,47 @@ describe(CompactRailCardComponent.name, () => {
     ).toContain('Todos unknown');
   });
 
+  it('shows no linked task by default', () => {
+    const f = render();
+    expect(
+      f.nativeElement.querySelector('[data-testid="rail-linked-task"]'),
+    ).toBeNull();
+  });
+
+  it('shows the linked task id in the footer and names it for the select button', () => {
+    const f = render();
+    f.componentRef.setInput('linkedTask', {
+      taskId: 'TASK_2026_854_52e8',
+      missing: false,
+    });
+    f.detectChanges();
+    const task = f.nativeElement.querySelector(
+      '[data-testid="rail-linked-task"]',
+    ) as HTMLElement;
+    expect(task.textContent?.trim()).toBe('TASK_2026_854_52e8');
+    expect(task.getAttribute('title')).toBe('Linked task TASK_2026_854_52e8');
+    expect(task.classList).not.toContain('line-through');
+    expect(f.componentInstance.selectName()).toContain(
+      ', task TASK_2026_854_52e8',
+    );
+  });
+
+  it('strikes through a linked task whose folder is missing', () => {
+    const f = render();
+    f.componentRef.setInput('linkedTask', {
+      taskId: 'TASK_2026_001',
+      missing: true,
+    });
+    f.detectChanges();
+    const task = f.nativeElement.querySelector(
+      '[data-testid="rail-linked-task"]',
+    ) as HTMLElement;
+    expect(task.classList).toContain('line-through');
+    expect(task.getAttribute('title')).toBe(
+      'Linked task TASK_2026_001 (folder missing)',
+    );
+  });
+
   it.each([0, 1, 4])('dense mode handles %i lanes', (total) => {
     const f = render();
     f.componentRef.setInput('density', 'dense');

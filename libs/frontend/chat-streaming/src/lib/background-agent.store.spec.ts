@@ -36,6 +36,7 @@ import { TestBed } from '@angular/core/testing';
 import { BackgroundAgentStore } from './background-agent.store';
 import { BackgroundAgentId } from '@ptah-extension/chat-state';
 import type {
+  AgentCompletedEvent,
   BackgroundAgentCompletedEvent,
   BackgroundAgentStartedEvent,
   BackgroundAgentStoppedEvent,
@@ -81,6 +82,24 @@ function stoppedEvent(
     timestamp: Date.now(),
     ...overrides,
   } as BackgroundAgentStoppedEvent;
+}
+
+function agentCompleted(
+  overrides: Partial<AgentCompletedEvent> = {},
+): AgentCompletedEvent {
+  return {
+    id: 'agent-completed-1',
+    eventType: 'agent_completed',
+    timestamp: 5_000,
+    sessionId: 'sess-1',
+    messageId: 'm-1',
+    parentToolUseId: 'tc-1',
+    taskId: 'task-1',
+    status: 'completed',
+    summary: 'All done',
+    outputFile: '',
+    ...overrides,
+  };
 }
 
 describe('BackgroundAgentStore', () => {
@@ -266,7 +285,11 @@ describe('BackgroundAgentStore', () => {
     it('keeps a failed entry failed', () => {
       store.onStarted(startEvent({ agentId: 'a-E', toolCallId: 'tc-E' }));
       store.onCompleted(
-        completedEvent({ agentId: 'a-E', toolCallId: 'tc-E', status: 'failed' }),
+        completedEvent({
+          agentId: 'a-E',
+          toolCallId: 'tc-E',
+          status: 'failed',
+        }),
       );
       store.onStopped(stoppedEvent({ agentId: 'a-E', toolCallId: 'tc-E' }));
 
@@ -652,6 +675,50 @@ describe('BackgroundAgentStore', () => {
       expect(store.findByToolCallId('toolu_1')?.agentId).toBe('a-real');
 
       expect(store.findByToolCallId('toolu_absent')).toBeNull();
+    });
+  });
+
+  describe('onAgentCompleted (stream task_notification)', () => {
+    it('settles a known entry found by its Task toolCallId', () => {
+      // Filed under the toolCallId: the SubagentStart hook had not fired.
+      store.onStarted(startEvent({ agentId: '' }));
+      store.onAgentCompleted(agentCompleted({ durationMs: 900 }));
+      const entry = store.findByToolCallId('tc-1');
+      expect(entry).toMatchObject({
+        status: 'completed',
+        result: 'All done',
+        duration: 900,
+        completedAt: 5_000,
+      });
+      expect(store.totalCount()).toBe(1);
+    });
+
+    it('settles an entry found by agentId and maps failed and stopped', () => {
+      store.onStarted(startEvent());
+      store.onAgentCompleted(
+        agentCompleted({
+          parentToolUseId: 'other',
+          agentId: 'a-1',
+          status: 'failed',
+        }),
+      );
+      expect(store.findByAgentId('a-1' as BackgroundAgentId)?.status).toBe(
+        'error',
+      );
+      store.onStarted(startEvent({ toolCallId: 'tc-2', agentId: 'a-2' }));
+      store.onAgentCompleted(
+        agentCompleted({ parentToolUseId: 'tc-2', status: 'stopped' }),
+      );
+      expect(store.findByAgentId('a-2' as BackgroundAgentId)?.status).toBe(
+        'stopped',
+      );
+    });
+
+    it('creates no entry for a foreground agent', () => {
+      const before = store.revision();
+      store.onAgentCompleted(agentCompleted({ parentToolUseId: 'toolu_fg' }));
+      expect(store.totalCount()).toBe(0);
+      expect(store.revision()).toBe(before);
     });
   });
 });

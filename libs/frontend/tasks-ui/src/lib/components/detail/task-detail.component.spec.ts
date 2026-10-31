@@ -639,6 +639,7 @@ describe('TaskDetailComponent — linked sessions (TASK_2026_580)', () => {
       source: 'board-start',
       livePhase: 'generating',
       prLinks: [],
+      todos: null,
       ...overrides,
     };
   }
@@ -686,6 +687,44 @@ describe('TaskDetailComponent — linked sessions (TASK_2026_580)', () => {
     );
   const within = (el: Element | undefined, id: string) =>
     el?.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? null;
+
+  it('shows the todo progress and in-progress item of a linked session (TASK_2026_854)', () => {
+    links.set(
+      new Map([
+        [
+          'TASK_2026_200',
+          [
+            linked({
+              todos: {
+                done: 3,
+                total: 7,
+                inProgress: 'Wiring the cache',
+                updatedAt: 1,
+              },
+            }),
+            linked({ sessionId: 'sess-2', name: 'Other' }),
+            linked({
+              sessionId: 'sess-3',
+              name: 'Empty list',
+              todos: { done: 0, total: 0, inProgress: null, updatedAt: 1 },
+            }),
+          ],
+        ],
+      ]),
+    );
+    const { host } = render();
+    const list = rows(host);
+
+    const todos = within(list[0], 'task-detail-session-todos');
+    expect(todos?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Todos 3/7 · Wiring the cache',
+    );
+    expect(todos?.getAttribute('title')).toBe(
+      '3 of 7 todos done; in progress: Wiring the cache',
+    );
+    expect(within(list[1], 'task-detail-session-todos')).toBeNull();
+    expect(within(list[2], 'task-detail-session-todos')).toBeNull();
+  });
 
   it('lists every linked session with its role, source and phase in words', () => {
     links.set(

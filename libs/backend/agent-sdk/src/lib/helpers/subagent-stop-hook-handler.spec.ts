@@ -74,7 +74,32 @@ describe('SubagentStopHookHandler', () => {
     );
   });
 
-  it('forwards the SDK toolUseID as toolCallId, and omits it when absent or blank', async () => {
+  it('omits a hook-invocation UUID as toolCallId so the frontend resolves by agentId', async () => {
+    const logger = makeLogger();
+    const events = new SdkAdapterEvents(logger);
+    const captured: Array<{ toolCallId?: string; agentId: string }> = [];
+    events.onSubagentEnded((event) => {
+      captured.push(event);
+    });
+    const handler = new SubagentStopHookHandler(logger, events);
+    const fn = getHookCallback(handler, 'sess-1', '/workspace');
+    const input = {
+      hook_event_name: 'SubagentStop',
+      agent_id: 'agent-abc',
+      agent_type: 'subagent',
+    } as unknown as HookInput;
+
+    // The id the SDK passes Subagent hooks in practice (Electron log).
+    await fn(input, 'c16f6ac0-2b21-47e7-bc21-a0d451b05f25', {
+      signal: new AbortController().signal,
+    });
+
+    expect(captured).toHaveLength(1);
+    expect('toolCallId' in captured[0]).toBe(false);
+    expect(captured[0].agentId).toBe('agent-abc');
+  });
+
+  it('forwards a Task toolUseID as toolCallId, and omits it when absent or blank', async () => {
     const logger = makeLogger();
     const events = new SdkAdapterEvents(logger);
     const captured: Array<{ toolCallId?: string }> = [];
@@ -94,14 +119,15 @@ describe('SubagentStopHookHandler', () => {
     await fn(input, 'toolu_abc', options);
     await fn(input, undefined, options);
     await fn(input, '', options);
+    await fn(input, 'tooluse_bedrock123', options);
 
-    expect(captured).toHaveLength(3);
-    // This is the ONLY carrier of the agentId <-> toolCallId pairing at
-    // SubagentStop: the SubagentHookHandler twin on the same hook has already
-    // deleted the registry record by marking the agent completed.
+    expect(captured).toHaveLength(4);
+    // A tool_use id passes through in any provider scheme (Anthropic
+    // `toolu_`, Bedrock `tooluse_`); an absent or blank one is dropped.
     expect(captured[0].toolCallId).toBe('toolu_abc');
     expect('toolCallId' in captured[1]).toBe(false);
     expect('toolCallId' in captured[2]).toBe(false);
+    expect(captured[3].toolCallId).toBe('tooluse_bedrock123');
   });
 
   it('null fallback: lastAssistantMessage defaults to null when SDK omits', async () => {

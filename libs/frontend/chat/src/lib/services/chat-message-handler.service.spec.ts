@@ -28,8 +28,8 @@ import { StreamFlushScheduler } from './stream-flush-scheduler.service';
 import { StreamViewportController } from './stream-viewport-controller.service';
 import { AgentSessionAdoptionService } from './agent-session-adoption.service';
 import { ChatStore } from './chat.store';
-import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-capture.service';
 import { SessionOrganizerService } from './session-list/session-organizer.service';
+import { SessionOrganizationCache } from './session-organization/session-organization-cache.store';
 
 const VALID_UUID = '11111111-1111-4111-8111-111111111111';
 const SESS_VALID = SessionId.create();
@@ -76,7 +76,6 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     handleSessionStatsLive: jest.Mock;
     retireEndedSessionPrompts: jest.Mock;
   };
-  let linkCapture: { onSessionIdResolved: jest.Mock };
   let streamRouter: {
     routePermissionPrompt: jest.Mock;
     routeQuestionPrompt: jest.Mock;
@@ -96,6 +95,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
   let turnStateApplier: { apply: jest.Mock };
   let agentSessionAdoption: { adopt: jest.Mock; adoptHandoff: jest.Mock };
   let organizer: { onOrganizationChanged: jest.Mock };
+  let organizationCache: { onOrganizationChanged: jest.Mock };
   let claims: WorkflowSessionClaimService;
   let surfaceRegistry: StreamingSurfaceRegistry;
   let consoleWarnSpy: jest.SpyInstance;
@@ -124,9 +124,6 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       handleSessionStatsLive: jest.fn(),
       retireEndedSessionPrompts: jest.fn(),
     };
-    linkCapture = {
-      onSessionIdResolved: jest.fn().mockResolvedValue(undefined),
-    };
     streamRouter = {
       routePermissionPrompt: jest.fn(),
       routeQuestionPrompt: jest.fn(),
@@ -146,6 +143,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     turnStateApplier = { apply: jest.fn() };
     agentSessionAdoption = { adopt: jest.fn(), adoptHandoff: jest.fn() };
     organizer = { onOrganizationChanged: jest.fn() };
+    organizationCache = { onOrganizationChanged: jest.fn() };
 
     TestBed.configureTestingModule({
       providers: [
@@ -166,12 +164,12 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
         },
         { provide: TabManagerService, useValue: tabManager },
         { provide: TurnStateApplier, useValue: turnStateApplier },
-        { provide: BoardTaskLinkCaptureService, useValue: linkCapture },
         {
           provide: AgentSessionAdoptionService,
           useValue: agentSessionAdoption,
         },
         { provide: SessionOrganizerService, useValue: organizer },
+        { provide: SessionOrganizationCache, useValue: organizationCache },
       ],
     });
 
@@ -1006,41 +1004,9 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     });
   });
 
-  // ----- TASK_2026_580: board-start capture + organization push ------------
+  // ----- TASK_2026_580: organization push ----------------------------------
 
   describe('session organization (TASK_2026_580)', () => {
-    it('hands session:id-resolved to the board-task link capture after the store resolves it', () => {
-      handler.handleMessage({
-        type: MESSAGE_TYPES.SESSION_ID_RESOLVED,
-        payload: { tabId: 'tab-board', realSessionId: 'real-session-1' },
-      });
-
-      expect(linkCapture.onSessionIdResolved).toHaveBeenCalledTimes(1);
-      expect(linkCapture.onSessionIdResolved).toHaveBeenCalledWith(
-        'tab-board',
-        'real-session-1',
-      );
-      expect(
-        chatStore.handleSessionIdResolved.mock.invocationCallOrder[0],
-      ).toBeLessThan(
-        linkCapture.onSessionIdResolved.mock.invocationCallOrder[0],
-      );
-    });
-
-    it('does not hand a claimed-surface resolve to the link capture', () => {
-      const correlationId = VALID_UUID;
-      const surfaceId = SurfaceId.create();
-      claims.claim(correlationId, surfaceId);
-      registerSurfaceAdapter(surfaceId);
-
-      handler.handleMessage({
-        type: MESSAGE_TYPES.SESSION_ID_RESOLVED,
-        payload: { tabId: correlationId, realSessionId: 'real-session-2' },
-      });
-
-      expect(linkCapture.onSessionIdResolved).not.toHaveBeenCalled();
-    });
-
     it('handles session:organizationChanged', () => {
       expect(handler.handledMessageTypes).toContain(
         MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED,
@@ -1071,7 +1037,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       }
     });
 
-    it('hands the pushed session ids to the organizer next to the list refresh (TASK_2026_679)', () => {
+    it('hands the pushed session ids to the organizer and the organization cache next to the list refresh (TASK_2026_679, TASK_2026_854)', () => {
       jest.useFakeTimers();
       try {
         handler.handleMessage({
@@ -1087,6 +1053,10 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
           's-1',
           's-2',
         ]);
+        expect(organizationCache.onOrganizationChanged).toHaveBeenCalledWith([
+          's-1',
+          's-2',
+        ]);
 
         handler.handleMessage({
           type: MESSAGE_TYPES.SESSION_METADATA_CHANGED,
@@ -1098,6 +1068,9 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
           payload: { sessionIds: 'not-a-list' },
         });
         expect(organizer.onOrganizationChanged).toHaveBeenLastCalledWith([]);
+        expect(
+          organizationCache.onOrganizationChanged,
+        ).toHaveBeenLastCalledWith([]);
 
         jest.advanceTimersByTime(250);
         expect(chatStore.loadSessions).toHaveBeenCalledTimes(1);

@@ -13,6 +13,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { LayoutDashboard, LucideAngularModule } from 'lucide-angular';
 import {
   SurfaceRendererComponent,
@@ -147,6 +148,9 @@ function idSafe(key: string): string {
  *   Pinned: nothing moves; the dot marks the change. Focus never moves on an
  *   update in either state (R1.7).
  * - Empty (R1.13): "Nothing to show yet" with one explanatory sentence.
+ * - Missing artifact (TASK_2026_853): a selected `artifact:<id>` that is not
+ *   in `artifacts` shows one alert with Retry (`retryArtifacts`) and mounts
+ *   no viewer frame.
  */
 @Component({
   selector: 'ptah-display-panel',
@@ -154,14 +158,39 @@ function idSafe(key: string): string {
   imports: [
     ArtifactViewerComponent,
     LucideAngularModule,
+    NgTemplateOutlet,
     SurfaceRendererComponent,
     TurnSummaryComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [PANEL_STYLES],
   template: `
+    <ng-template #missingNotice>
+      <div
+        role="alert"
+        class="flex flex-wrap items-center gap-2 rounded-box border border-base-content/15 p-3 text-xs text-base-content-muted"
+        data-testid="display-panel-artifact-missing"
+      >
+        <p class="min-w-0 flex-1">
+          This artifact is not available. It may have been deleted, or the
+          list did not load.
+        </p>
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs"
+          (click)="retryArtifacts.emit()"
+          data-testid="display-panel-artifact-retry"
+        >
+          Retry
+        </button>
+      </div>
+    </ng-template>
     @if (items().length === 0) {
-      @if (missingArtifact()) { <p role="alert" data-testid="artifact-viewer-error">The artifact could not be displayed. It is not loaded in this tab.</p> }
+      @if (missingArtifact()) {
+        <div class="p-3">
+          <ng-container [ngTemplateOutlet]="missingNotice" />
+        </div>
+      }
       <div
         class="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center"
         data-testid="display-panel-empty"
@@ -218,7 +247,9 @@ function idSafe(key: string): string {
         class="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3"
         data-testid="display-panel-body"
       >
-        @if (missingArtifact()) { <p role="alert" data-testid="display-panel-artifact-missing">The artifact could not be displayed. It is not loaded in this tab.</p> }
+        @if (missingArtifact()) {
+          <ng-container [ngTemplateOutlet]="missingNotice" />
+        }
         @for (item of items(); track item.key) {
           <div
             role="tabpanel"
@@ -315,6 +346,11 @@ export class DisplayPanelComponent {
    * routes the HTTP(S) URL through the main-process allowlist.
    */
   readonly openExternal = output<string>();
+  /**
+   * The selected artifact is not in the list the host passed (deleted, or the
+   * list did not load). The host reloads its artifact list for this tab.
+   */
+  readonly retryArtifacts = output<void>();
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
