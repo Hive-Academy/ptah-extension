@@ -1,0 +1,21 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": "32",
+  "title": "D-6 orphan reaper path results",
+  "executor": "claude backend-developer subagent",
+  "changed": [
+    "libs/backend/agent-generation/src/lib/services/user-layer/user-layer-orphan-reaper.ts",
+    "libs/backend/agent-generation/src/lib/services/user-layer/user-layer-reap.spec.ts"
+  ],
+  "contract": {
+    "reapRetired": "reapRetired(roots: UserLayerRoots, retired: SkillsShRetiredRegistry | null): Promise<ReapResult>; shares sweep() with reap().",
+    "results": "ReapResult.reapedPaths (ReapClonePath & {removedPaths}), keptPaths (ReapClonePath & {reason: diverged|edited|unhashable|symlink}), failedPaths (ReapClonePath & {error}); ReapClonePath = {kind, slug, path, sourceRef}.",
+    "ledger": "Key = path; item id = sourceRef (skillsShRetiredItemId(rootId)); skip null sourceRef. A failed path that no longer exists (lstat ENOENT) counts as removed.",
+    "safety": "Delete only non-diverged clones whose live hash equals sourceHash, with no links, full-depth walk; snapshot to .history first; fs.removePath refuses outside ~/.ptah/user and under ~/.ptah/plugins."
+  },
+  "handoffBatch33": "UserLayerOrphanReaper and the new row types are not exported from the agent-generation barrel; Batch 33 adds that export (or a UserLayerMirrorService.reapRetiredClones method).",
+  "verification": {
+    "scopedTest": "--testPathPatterns='user-layer-reap': 1 suite, 34/34, exit 0 (/tmp/tpd-b32-test.log)",
+    "combinedVerify": "PENDING (/tmp/tpd-b27-30-32-verify.log)"
+  }
+}
