@@ -56,11 +56,13 @@ import {
 } from '@ptah-extension/vscode-lm-tools';
 import { resolveRpcHandlerPlan } from '@ptah-extension/rpc-handlers';
 import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
+import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 import type { SurfaceEnvelope } from '@ptah-extension/shared';
 import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 
 import { CliWebviewManagerAdapter } from './transport/cli-webview-manager-adapter';
 import { createCliRpcHostProfile } from './rpc/cli-host-profile';
+import { registerCliCodexLaneFactory } from './codex-lane-runtime-composition';
 
 function makeLogger(): Logger {
   const container = rootContainer.createChildContainer();
@@ -159,9 +161,16 @@ function composeFullMode(): {
 
 describe('CLI surface composition — collaborator-level (Req 7.4, 11.2)', () => {
   it('composes surface state without a native Codex runtime', async () => {
-    const { container, state } = composeFullMode();
+    const { container, logger, state } = composeFullMode();
     try {
+      registerCliCodexLaneFactory(container, logger, {
+        env: {},
+        platform: { platform: 'unsupported', arch: 'unsupported' },
+      });
       expect(state).toBeInstanceOf(SurfaceStateService);
+      expect(
+        container.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, true),
+      ).toBe(false);
       for (const token of Object.values(CODEX_RUNTIME_TOKENS)) {
         expect(container.isRegistered(token, true)).toBe(false);
       }

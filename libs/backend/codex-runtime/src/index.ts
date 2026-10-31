@@ -95,6 +95,7 @@ export {
 // process and validator remain implementation details.
 export type { CodexBinaryIdentity } from './lib/codex-protocol-manifest';
 export { findCodexExecutablePin } from './lib/codex-executable-pin';
+export * from './lib/codex-executable-inspection';
 export {
   normalizeCodexHomeKey,
   normalizeCodexWorkspaceKey,

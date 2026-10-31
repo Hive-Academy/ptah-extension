@@ -34,7 +34,9 @@ import {
   type Logger,
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import { CLI_AGENT_RUNTIME_TOKENS, registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
+import { CLI_AGENT_RUNTIME_TOKENS, CliDetectionService, CodexAppServerLaneAdapter,
+  CodexCliAdapter, registerCliAgentRuntimeServices,
+  type CodexAdapterFactory } from '@ptah-extension/cli-agent-runtime';
 import {
   LANE_ROUTING_TOKENS,
   registerLaneRoutingServices,
@@ -45,7 +47,7 @@ import {
   registerLaneOutcomeServices,
 } from '@ptah-extension/lane-outcomes';
 import { registerSdkServices, SDK_TOKENS, wireAgentAdapterAliases } from '@ptah-extension/agent-sdk';
-import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
+import { CODEX_RUNTIME_TOKENS, CodexParityGate } from '@ptah-extension/codex-runtime';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { HARNESS_SYNC_TOKENS } from '@ptah-extension/harness-sync';
 import { PLUGIN_MARKETPLACE_TOKENS } from '@ptah-extension/plugin-marketplace';
@@ -88,6 +90,63 @@ import {
 } from './expected-absent';
 import { createVscodeRpcHostProfile } from '../rpc-host-profile';
 import { registerPhase3Handlers } from './phase-3-handlers';
+import { registerVsCodeCodexLaneFactory } from './codex-lane-runtime-composition';
+
+describe('VS Code native Codex lane factory binding', () => {
+  function detector(isDevelopment: boolean): { c: DependencyContainer; service: CliDetectionService } {
+    const c = buildMinimalContainer();
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    const spawner = { spawnProcess: jest.fn(() => { throw new Error('Unexpected spawn'); }) };
+    c.register(SDK_TOKENS.SDK_PROCESS_SPAWNER, { useValue: spawner });
+    registerVsCodeCodexLaneFactory(c, logger, {
+      isDevelopment, env: process.env, platform: process,
+    });
+    const service = new CliDetectionService(
+      logger,
+      c.resolve<ConstructorParameters<typeof CliDetectionService>[1]>(TOKENS.SENTRY_SERVICE),
+      spawner,
+      c.resolve<ConstructorParameters<typeof CliDetectionService>[3]>(TOKENS.AUTH_SECRETS_SERVICE),
+      null,
+      c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY)
+        ? c.resolve<CodexAdapterFactory>(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY) : null,
+    );
+    expect(spawner.spawnProcess).not.toHaveBeenCalled();
+    return { c, service };
+  }
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('selects native in development without changing peer adapters', async () => {
+    jest.spyOn(CodexParityGate.prototype, 'isEnabled').mockReturnValue(false);
+    const dev = detector(true);
+    const prod = detector(false);
+    try {
+      expect(dev.service.getAdapter('codex')).toBeInstanceOf(CodexAppServerLaneAdapter);
+      expect(prod.service.getAdapter('codex')).toBeInstanceOf(CodexCliAdapter);
+      expect(prod.c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY)).toBe(false);
+      for (const cli of ['copilot', 'cursor', 'antigravity', 'opencode', 'pi', 'grok'] as const)
+        expect(dev.service.getAdapter(cli)?.constructor).toBe(prod.service.getAdapter(cli)?.constructor);
+    } finally {
+      await dev.c.dispose();
+      await prod.c.dispose();
+    }
+  });
+
+  it('selects native in production only when the lane gate admits it', async () => {
+    const original = Object.getOwnPropertyDescriptor(CodexParityGate.prototype, 'isEnabled');
+    Object.defineProperty(CodexParityGate.prototype, 'isEnabled', {
+      configurable: true, value: () => true,
+    });
+    let prod: ReturnType<typeof detector> | undefined;
+    try {
+      prod = detector(false);
+      expect(prod.service.getAdapter('codex')).toBeInstanceOf(CodexAppServerLaneAdapter);
+    } finally {
+      await prod?.c.dispose();
+      if (original) Object.defineProperty(CodexParityGate.prototype, 'isEnabled', original);
+    }
+  });
+});
 
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();

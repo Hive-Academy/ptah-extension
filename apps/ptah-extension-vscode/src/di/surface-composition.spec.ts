@@ -89,6 +89,10 @@ describe('VS Code legacy runtime composition', () => {
     const phase2 = readFileSync(join(__dirname, 'phase-2-libraries.ts'), 'utf8');
     expect(phase2).toMatch(/registerSdkServices\(container, logger\)/);
     expect(phase2).toMatch(/wireAgentAdapterAliases\(container\)/);
+    expect(phase2.match(/^import .* from ['"]\.\/codex-lane-runtime-composition['"];?$/gm)).toEqual([
+      'import { registerVsCodeCodexLaneFactory } from \'./codex-lane-runtime-composition\';',
+    ]);
+    expect(phase2).toMatch(/registerVsCodeCodexLaneFactory\(container, logger, \{/);
 
     const sourceRoot = join(__dirname, '..');
     const sources = readdirSync(sourceRoot, { encoding: 'utf8', recursive: true })
@@ -97,8 +101,11 @@ describe('VS Code legacy runtime composition', () => {
     expect(sources.length).toBeGreaterThan(0);
     for (const file of sources) {
       const source = readFileSync(join(sourceRoot, file), 'utf8');
+      const isLaneFile = (`/${file.replace(/\\/g, '/')}`).endsWith('/di/codex-lane-runtime-composition.ts');
       expect({ file, nativeWiring: source.match(
-        /\b(?:devRoute|readCodexDevRouteOverride|registerCodexRuntime\w*|CODEX_RUNTIME_TOKENS)\b/g,
+        isLaneFile
+          ? /\b(?:devRoute|readCodexDevRouteOverride)\b/g
+          : /\b(?:devRoute|readCodexDevRouteOverride|registerCodexRuntime\w*|CODEX_RUNTIME_TOKENS)\b/g,
       ) }).toEqual({ file, nativeWiring: null });
       expect({ file, hostBindings: source.match(
         /SDK_TOKENS\.(?:SESSION_RUNTIME_IDENTITY_LOOKUP|CODEX_CHAT_ADAPTER_PORTS|RUNTIME_ADMISSION_PORT|RUNTIME_HOST_CAPABILITIES|LEGACY_SESSION_CONTROL_PORTS|NATIVE_SESSION_CONTROLS)\b/g,

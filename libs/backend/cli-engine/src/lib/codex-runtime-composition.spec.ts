@@ -38,12 +38,12 @@ function composeCliChat() {
   return { container, legacyAdapter };
 }
 
-function productionSources(directory: string): string[] {
+function productionSources(directory: string): Array<{ path: string; source: string }> {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return productionSources(path);
     return entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts')
-      ? [readFileSync(path, 'utf8')]
+      ? [{ path, source: readFileSync(path, 'utf8') }]
       : [];
   });
 }
@@ -96,9 +96,11 @@ describe('CLI legacy Codex composition (Batch 8e)', () => {
     expect(
       source.indexOf('registerSdkServices(container, logger)'),
     ).toBeLessThan(source.indexOf('wireAgentAdapterAliases(container)'));
-    for (const production of productionSources(__dirname)) {
+    for (const { path, source: production } of productionSources(__dirname)) {
       expect(production).not.toMatch(
-        /readCodexDevRouteOverride|registerCodexRuntime|CODEX_RUNTIME_TOKENS|\bdevRoute\s*:/,
+        path === join(__dirname, 'codex-lane-runtime-composition.ts')
+          ? /readCodexDevRouteOverride|\bdevRoute\s*:/
+          : /readCodexDevRouteOverride|registerCodexRuntime|CODEX_RUNTIME_TOKENS|\bdevRoute\s*:/,
       );
       expect(production).not.toMatch(
         /SDK_TOKENS\.(SESSION_RUNTIME_IDENTITY_LOOKUP|CODEX_CHAT_ADAPTER_PORTS|RUNTIME_ADMISSION_PORT|RUNTIME_HOST_CAPABILITIES|LEGACY_SESSION_CONTROL_PORTS|NATIVE_SESSION_CONTROLS)\b/,

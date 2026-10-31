@@ -1,152 +1,143 @@
-# Session handoff — TASK_2026_714_c8a2 (session 33)
+# Session handoff — TASK_2026_714_c8a2 (session 34)
 
-Written 2026-10-31. Replaces the session 32 handoff (read it with
-`git show 180c7ef68:.ptah/specs/TASK_2026_714_c8a2/HANDOFF.md`; its Goal, Rules, lane limits
-history and Key files stay valid). Session 31 handoff (lane spec traps):
-`git show 82e5b4455:.ptah/specs/TASK_2026_714_c8a2/HANDOFF.md`. Session 24 handoff (full goal, PR
-table): `git show 44e3b1102:.ptah/specs/TASK_2026_714_c8a2/HANDOFF.md`. Electron live-test procedure:
-`git show e10bb860a:.ptah/specs/TASK_2026_714_c8a2/HANDOFF.md`.
+Written 2026-10-31. Replaces the session 33 handoff (read it with
+`git show ce6d949f4:.ptah/specs/TASK_2026_714_c8a2/HANDOFF.md`; its Goal, Rules and history stay valid).
+Older handoffs: session 32 `180c7ef68`, session 31 `82e5b4455`, session 24 `44e3b1102` (full goal, PR table),
+Electron live-test procedure `e10bb860a` (all `git show <sha>:.ptah/specs/TASK_2026_714_c8a2/HANDOFF.md`).
 
 W = `D:\projects\ptah-extension\.claude-worktrees\codex-runtime-integration`
 (branch `feat/codex-runtime-integration`, DRAFT PR #823
 https://github.com/Hive-Academy/ptah-extension/pull/823, do not merge).
-T = `W\.ptah\specs\TASK_2026_714_c8a2\`. Work ONLY in W; the main checkout
-`D:\projects\ptah-extension` stays clean on `main`.
+T = `W\.ptah\specs\TASK_2026_714_c8a2\`. Work ONLY in W; the main checkout `D:\projects\ptah-extension`
+stays clean on `main`.
 
 ## Goal (short)
 
-One Codex App Server runtime (`@ptah-extension/codex-runtime`) for Ptah main chat, gateways and CLI
-lanes; then Removal B (P10, `@openai/codex-sdk` lanes) and Removal A (P15). Electron first. Native UI
-contracts identical to Claude's; gaps fixed only in the backend translation layer; no frontend Codex
-special case; no second proxy; NEVER strip/revert/comment out MCP.
+One Codex App Server runtime (`@ptah-extension/codex-runtime`) for Ptah main chat, gateways and CLI lanes;
+then Removal B (P10, `@openai/codex-sdk` lanes) and Removal A (P15). Electron first. Native UI contracts
+identical to Claude's; gaps fixed only in the backend translation layer; no frontend Codex special case; no
+second proxy; NEVER strip/revert/comment out MCP.
 
-Routing (standing, user): codex (model `gpt-6-sol`, never `gpt-6.1-terra`) implements. Reviewer must
-be another family: a `claude` CLI lane (`cli: claude`, role `code-logic-reviewer`) reviews codex's
-code (user decision, session 32). The coordinator runs verify, commit and push itself.
+Routing (standing, user): codex (model `gpt-6-sol`, never `gpt-6.1-terra`) implements. A `claude` CLI lane
+(`cli: claude`, role `code-logic-reviewer`) reviews codex code. Code the coordinator writes itself is reviewed
+by a codex lane (different family). The coordinator runs verify, commit and push itself.
 
-Lane limits at end of session 33:
-- codex: weekly ~50% (resets 2026-11-04 07:03 UTC). Resumes above ~60k tokens or idle > 600 s become
-  fresh lanes with a handoff brief: always give self-contained tasks.
-- claude CLI: works, limit not tracked. Reviews take 3-6 min.
-- Glm (pc-355b645d-...): AT LIMIT (weekly 100%, resets 2026-11-02 00:00 UTC). Do not use.
-- grok: AT LIMIT (weekly 100%, resets 2026-11-03 17:40 UTC). Do not use.
-- Kimi Code: 429 in session 32, reset unknown. Do not use.
-- opencode: monthly 100% (resets 2026-11-04).
+Lane limits at end of session 34: codex weekly ~55% (resets 2026-11-04 07:03 UTC); claude CLI works (limit not
+tracked); Glm, grok AT LIMIT; opencode monthly 100% (resets 2026-11-04); Kimi unknown, do not use. Codex
+"resumes" above ~60k tokens or idle > 600 s become fresh lanes: always give self-contained tasks (task files in T).
 
-## Done in session 33
+## Done in session 34 (all pushed; head 932dbeb92)
 
-| Commit | Subject | Pushed |
-| --- | --- | --- |
-| 0b74c405b | Merge origin/main (a7036819e) | yes |
-| 180c7ef68 | feat(cli-agent-runtime,electron): add Codex lane detection and catalog (10b-2b) | yes |
-| ea6d7e5a7 | feat(cli-agent-runtime): add injectable Codex lane adapter selection (10c) | yes |
-| 509815329 | Merge origin/main (bd8aac4d5) — resolves chat:continue conflict | **NO — tests fail, see below** |
+| Commit | Subject |
+| --- | --- |
+| 509815329 | Merge origin/main (bd8aac4d5) — from session 33, now pushed |
+| c5b940b7f, ce6d949f4 | docs: session 33 handoff and D27 |
+| 6e3fef4ef | test(rpc-handlers): stub resume-state registry in native chat specs |
+| 5af6608b6 | Merge origin/main (4e2d1eb5e) |
+| 39b483904 | test(rpc-handlers): match main's injection and hydration contracts |
+| 932dbeb92 | feat(electron,cli-agent-runtime,agent-sdk): wire native Codex lanes (10d.E) |
 
-- 10b-2b: claude review APPROVED 8/10 after one revision (T\code-logic-review-10b-2b.md). Open
-  minors for later: catalog cache `binaryPath` field unused; close() rejection after a good list
-  discards the catalog; late-context close error not logged.
-- 10c: claude review APPROVED 8/10 after one revision (T\code-logic-review-10c.md).
-- CI on 0b74c405b: `degradation-audit` ratchet failed (Electron 5 vs baseline 4) — fixed in
-  180c7ef68 (suppression comment in codex-runtime-composition.ts). The chat
-  `stdout-visibility.spec.ts` failure was a flake (passed on re-run of shard 1/4).
-- CI for 180c7ef68 and ea6d7e5a7 did NOT run: main moved and PR #823 was CONFLICTING again.
-  Merge 509815329 resolves it (conflicts in `rpc-handlers/src/lib/chat/di.ts` — kept both imports —
-  and `chat-session.service.ts` chat:continue — kept the native Codex resume path plus main's
-  inject/commit/release contract; a native resume that already delivered the prompt calls
-  `injection.release()`).
-- Decision D27 added to T\decisions.md (committed with this handoff): native lane
-  factory bound only when the lane parity gate admits `lane` or the host is unpackaged (dev);
-  packaged + gate closed keeps the legacy lane; one host helper is the lane routing boundary.
+- CI on 932dbeb92: CI success, Electron/Webview/CLI E2E success, MCP Bench skipped. PR MERGEABLE (BLOCKED =
+  draft). CI on 39b483904 failed only `di-lint` (10c injected CODEX_ADAPTER_FACTORY, 10d.E registers it) — fixed
+  by 932dbeb92.
+- Windows-only local test failures (NOT branch defects; Linux CI test shards pass): rpc-handlers lineage
+  path-separator specs (chat-session-agent-child, -resume-activate, -session-folder, session-folder.spec.ts —
+  all main's unchanged specs) and agent-sdk `plugin-loader.service.capabilities.spec.ts:324` symlink EPERM.
+  Expect them in every local rpc-handlers / agent-sdk run; ignore them, do not change them.
+- 10d.E: two codex revise rounds + one coordinator spec correction. Reviews: T\code-logic-review-10d-E-r1.md
+  (REVISE 6/10), -r2.md (claude APPROVED 8/10), T\code-logic-review-10d-E-coordinator-fix.md (codex APPROVED
+  8/10). Lane identities carry `consumer: 'lane'` (excluded from chat listings/lookup/resume). D27 implemented in
+  `apps/ptah-electron/src/di/codex-lane-composition.ts` (`resolveElectronCodexLaneRuntime`).
 
-## Uncommitted work in W (batch 10d.E, review REVISE)
+## In progress (uncommitted in W): batches 10d.C and 10d.V
 
-Codex lane (session `01a18f01-704b-7631-ab16-e577b45a6df7`) implemented 10d.E. Scoped verify PASSED
-(69 tasks: ptah-electron, cli-agent-runtime, codex-runtime, cli-engine, ptah-cli, ptah-tui,
-ptah-extension-vscode, degradation-audit). claude review: REVISE 6/10
-(T\code-logic-review-10d-E.md, defects 1-7). Files:
-- `apps/ptah-electron/src/di/codex-lane-composition.ts` (new), `codex-runtime-composition.ts` (+spec),
-  `phase-2-libraries.ts`, `container.smoke.spec.ts`
-- `libs/backend/cli-agent-runtime/.../codex/codex-app-server-lane-auth.ts` (+spec),
-  `codex-app-server-lane.adapter.ts` (+spec), `cli-detection.service.ts` (displayName 'Codex CLI')
-- T\batch-10d-E-report.md, T\code-logic-review-10d-E.md
+Task files: T\task-10d-common-rules.md, T\task-10d-C.md, T\task-10d-V.md. Decision **D28** (coordinator,
+reversible, stated in the task files, NOT yet in decisions.md — add the row when committing): VS Code dev
+default = `context.extensionMode === Development`; CLI/TUI bind the native factory only when the lane parity
+gate admits `lane` (gate closed -> legacy SDK lane). Note: `CodexParityGate.isEnabled` is typed to return
+`false` (codex-parity-gate.ts:222) — "gate admitted" spec cases must replace it with Object.defineProperty (see
+apps/ptah-electron/src/di/codex-runtime-composition.spec.ts:192-207).
 
-Revision 1 to send to codex (one combined self-contained task):
-1. (major) Add `apps/ptah-electron/src/di/codex-lane-composition.spec.ts`: create()/detect() spawn
-   nothing; chat and lane contexts keep their own profile/fingerprint after the other opens (R3,
-   both directions); profiles/credentials/openCatalog/user-MCP all get the same CODEX_HOME;
-   runtime.open rejects a non-lane profile; close() disposes the scope once; failed open disposes.
-2. (major) Lane identity store reuses the chat SDK session metadata store, so lane threads become
-   `codex-app-server` chat rows. Give lanes their own key space or a `consumer: 'lane'` marker that
-   chat listings and chat resume reject (+ spec), or a separate store.
-3. (major) Apply D27: route lane opens through one host helper (`resolveGatedCodexRuntime(scope,
-   'lane', platform)` when admitted; raw Runtime only for the unpackaged dev default); bind the
-   factory only when admitted or unpackaged; replace the misleading "lane gate closed" spec
-   assertion with D27 cases.
-4. (minor) Use `||` for HOME/USERPROFILE; empty CODEX_HOME = explicit unusable home, one visible
-   message (+ spec).
-5. (minor) Lane `requestUserInput` port: emit the same kind-only line and decline (R1/D26).
-6. (minor) Catalog profile: use the adapter's lane default model constant, and not CODEX_HOME as
-   cwd/workspace (neutral temp/read-only cwd).
-7. (minor) DI order guard: resolve CliDetectionService in composePhase2 and assert its codex adapter
-   is CodexAppServerLaneAdapter (replace the source-text indexOf check).
-Then verify, claude re-review (revise round 1 of 2), commit 10d.E + D27, push, watch CI.
+10d.V (VS Code) — files: apps/ptah-extension-vscode/src/di/codex-lane-runtime-composition.ts (+spec, new),
+phase-2-libraries.ts, container.ts, container.smoke.spec.ts, surface-composition.spec.ts (chat guard: only the
+lane file is exempt from the `registerCodexRuntime|CODEX_RUNTIME_TOKENS` check). Reports T\batch-10d-V-report.md,
+T\batch-10d-V-fix-1-report.md. **Verify PASSED**: `npm run verify -- -t test,lint -p ptah-extension-vscode` rc=0
+"34 tasks: 34 succeeded"; typecheck,lint passed earlier.
 
-## Merge 509815329 is LOCAL ONLY — verify failed, fix before push
+10d.C (CLI/TUI) — files: libs/backend/cli-engine/src/lib/codex-lane-runtime-composition.ts (+spec, new),
+container.ts, surface-composition.spec.ts, libs/backend/cli-engine/package.json (+`@ptah-extension/codex-runtime`
+workspace dep; no install needed), apps/ptah-cli/src/di/container.smoke.spec.ts. Report T\batch-10d-C-report.md.
+**Verify**: typecheck,lint PASSED (10 tasks); `cli-engine:test` FAILED (log
+`C:\Users\abdal\.nx\8b7110c7390b9603\cache\terminalOutputs\10622603071588573055`):
+1. codex-lane-runtime-composition.spec.ts does not compile: TS2345 MockLogger -> Logger at :122,139,166,185,210,
+   231,264,294,324; TS2352 casts to CodexContext at :195,288 (need a type-safe fake, no `as unknown as`);
+   TS2322 at :79 `get: async (id) => rows.get(id)` must return `null`, not `undefined`.
+2. surface-composition.spec.ts guard "CLI legacy Codex composition (Batch 8e)" forbids
+   `readCodexDevRouteOverride|registerCodexRuntime|CODEX_RUNTIME_TOKENS|devRoute:` in CLI sources and now hits
+   the new lane file. Same fix as 10d.V: exempt only codex-lane-runtime-composition.ts from the
+   registerCodexRuntime/CODEX_RUNTIME_TOKENS part; keep devRoute and chat-host-binding checks for it.
+   How 10d.V's specs got a Logger without a cast: see apps/ptah-extension-vscode/src/di/codex-lane-runtime-composition.spec.ts.
 
-`npm run verify -- -p rpc-handlers,agent-sdk,chat,shared` after the merge: rc=1, "12 tasks: 10
-succeeded, 2 failed" (`rpc-handlers:test` 34 failed, log
-`C:\Users\abdal\.nx\8b7110c7390b9603\cache\terminalOutputs\10873914304718709553`;
-`agent-sdk:test` 1 failed, log `...\18234671897015722126`). Failing suites:
-chat-continue-codex-resume-once.spec.ts, chat-session.native.spec.ts, chat-session-agent-child.spec.ts,
-chat-session-resume-activate.spec.ts, chat-session-session-folder.spec.ts, session-folder.spec.ts
-(all in `libs/backend/rpc-handlers/src/lib/chat/session/`), and agent-sdk
-plugin-loader.service.capabilities.spec.ts:324.
-Three causes seen (not yet triaged per test):
-1. 22 x "Cannot read properties of undefined (reading 'isResumeStateHydrated')": main's
-   `ensureResumeStateHydrated` (chat-session.service.ts:605,644) needs
-   `subagentRegistry.isResumeStateHydrated` (and probably main's other new registry methods) in the
-   branch's spec harnesses, e.g. chat-session.native.spec.ts:708 and
-   chat-continue-codex-resume-once.spec.ts. Add the mocks to match main's harness.
-2. Windows path separators (expected `.../my-repo`, received `...\my-repo`) in lineage specs.
-3. agent-sdk symlink EPERM on Windows (symlinkSync needs privilege).
-Causes 2-3 are likely Windows-only and pre-existing on main: confirm by running the same spec on a
-clean `main` worktree (or by Linux CI) before changing them. Fix cause 1 (and anything real),
-re-verify, then push the merge and the docs commit together.
+Review: claude lane `5743b460-1a04-4340-a405-ffdb3389784f` reviews 10d.C + 10d.V together ->
+T\code-logic-review-10d-CV.md (see Background work). It was asked to check: D27/D28 routing, R1/D26, R3,
+'lane' marker, one CODEX_HOME, SHA-256 executable check in detect() (both hosts hash the binary against
+findCodexExecutablePin instead of a `--version` spawn — cost and visible mismatch), disposal, the VS Code chat
+guard, cross-platform specs, duplication across 3 host files.
+
+**Review result (arrived before handoff):** T\code-logic-review-10d-CV.md — 10d.C 7/10 APPROVED, 10d.V 7/10
+APPROVED. Routing D27/D28, R1/D26, R3, lane marker, one CODEX_HOME, disposal and the VS Code chat guard exemption
+are correct. Defects to fix BEFORE the lane gate opens (read file:line in the review):
+- C-1 (moderate): CLI `open()` fabricates binary.sha256/versionOutput from the pin (cli-engine
+  codex-lane-runtime-composition.ts:228-231), so verifyCodexBinary compares the pin with itself; spec :279-310
+  passes with a 'fixture' file.
+- V-1 (moderate): VS Code hashes the 357 MB codex.exe twice per spawn and twice per catalog probe, no cache
+  (vscode codex-lane-runtime-composition.ts:67-81,153,184). Electron caches by path/size/mtime.
+- Minor: C-2 explicit-path mismatch between probe and open; C-3/V-4 mismatch logged with only errorClass, VS Code
+  has no spec for digest mismatch / missing pin; V-2 a dispose error hides the open error; V-3 the gate-admitted
+  routing spec cannot fail; C-4 no user-MCP home case, TUI case is source text only; C-5 (see review);
+  C-6/V-6 three-way duplication.
+- Reviewer recommendation (coordinator agrees): ONE shared, cached executable-inspect helper (path+size+mtime
+  cache, real digest, visible mismatch) in a host-neutral lib (public index export; no vscode/electron import),
+  used by CLI and VS Code (Electron may adopt it later). It fixes C-1, C-5 and V-1.
+- 10d.C is NOT committable yet: its verify failures above also remain.
 
 ## Background work
 
-None after this session ends. No lane, child session or watcher runs.
+- None. The claude review lane `5743b460` finished (deliverable written). No verify, watcher, codex lane or
+  child session runs.
 
 ## Next steps (in order)
 
-1. Check `git -C W status -sb` and `git -C W log --oneline -4`. Fix the merge test failures
-   (section above), verify `rpc-handlers,agent-sdk,chat,shared`, commit the fix, then push in the
-   background and confirm
-   `gh pr view 823 --json headRefOid,mergeable,mergeStateStatus --jq '"\(.headRefOid[0:9]) \(.mergeable) \(.mergeStateStatus)"'`
-   is MERGEABLE (BLOCKED only means draft/pending checks). If CONFLICTING, merge origin/main again.
-2. Watch CI for the new head with `gh run list --branch feat/codex-runtime-integration --limit 15
-   --json headSha,status,conclusion,name --jq ...` (no jq binary). Fix real failures; re-run a
-   flaky shard once (`gh run rerun <run> --job <job>`).
-3. 10d.E revision 1 (list above) -> verify -> claude re-review -> commit -> push.
-4. 10d.C (CLI/TUI, `libs/backend/cli-engine/src/lib/container.ts` + new
-   `codex-lane-runtime-composition.ts`) and 10d.V (VS Code, minimal) on codex, copying the 10d.E
-   pattern ("Pattern notes" in T\batch-10d-E-report.md) and D27. File-disjoint; may run in parallel.
-5. 10d.P parity proof (live/paid run needs explicit user authorization), 10e, 10f per
-   T\plan-p10.md + T\plan-p10-review.md (R1-R4). Then P14 (incl. GAP-3), D9, P15.
+1. Build the codex fix tasks (task files in T, self-contained, hard rules first). Suggested split so lanes stay
+   file-disjoint: (a) one lane adds the shared cached inspect helper in a host-neutral lib + spec, then
+   (b) per-host lanes adopt it: 10d.C = the two verify failures above + C-1..C-5; 10d.V = V-1..V-4. Run (a)
+   first, then (b) C and V in parallel. This is revise round 1 of 2 per batch.
+2. Verify (background, timeout >= 90 min, read rc and "N tasks:"), two stages to fail fast:
+   `npm run verify -- -t typecheck,lint -p cli-engine,ptah-cli,ptah-tui,ptah-extension-vscode,cli-agent-runtime,codex-runtime,degradation-audit,di-lint`
+   then `npm run verify -- -t test -p <same list>`. Spec files are only compiled by the test target.
+3. claude re-review -> commit 10d.C + 10d.V + D28 row in T\decisions.md (stage explicit paths; include the T
+   task/report/review files) -> push in the background -> watch CI with
+   `gh run list --branch feat/codex-runtime-integration --limit 8 --json headSha,status,conclusion,name,databaseId --jq '.[] | ...'`
+   and `gh pr view 823 --json headRefOid,mergeable,mergeStateStatus --jq '"\(.headRefOid[0:9]) \(.mergeable) \(.mergeStateStatus)"'`.
+   Re-merge origin/main if CONFLICTING.
+4. 10d.P parity proof per T\plan-p10.md (section 10d.P) + T\plan-p10-review.md (R1-R4). A live/paid App Server
+   run needs explicit user authorization: stop and ask before it.
+5. 10e, 10f (Removal B) per plan-p10.md, only after a signed 10d.P proof. Then P14 (incl. GAP-3), D9, P15.
 
 ## Rules (repeat to every lane)
 
-CLAUDE.md applies. Scoped `npm run verify -- -p ...` only, in the background, timeout >= 90 min;
-read rc and the "N tasks:" line; failed task logs are in
-`C:\Users\abdal\.nx\8b7110c7390b9603\cache\terminalOutputs\<id>`. Include `degradation-audit` in
-verify when a batch adds a catch. Never build/serve/e2e except an approved Electron live run. Never
-npm ci/install in a worktree. No `any`, `as unknown as`, `@ts-ignore`, `eslint-disable`; bracket
-`process.env['X']` (hosts use noPropertyAccessFromIndexSignature); swallowing catches need a
-`// degradation-audit: optional-capability|reported - <reason>` comment. Lanes never verify,
-commit, push or call ptah_get_diagnostics; say so in the first lines of each lane task;
-deliverable paths absolute. Never commit, push or merge while a lane edits W or a verify runs.
-Commit in the foreground (commitlint scopes, subject <= 72, body lines <= 100, no BOM, message via
-file + `git commit -F`, trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`); push in
-the background. Strip BOMs only from files lanes wrote. No PR merge, force push, history rewrite,
-branch deletion or worktree removal (merging main INTO the branch is allowed). Do not edit
-~/.ptah/settings.json or ~/.codex/config.toml. NEVER strip MCP.
+CLAUDE.md applies. Scoped `npm run verify -- -p ...` only, under the FIFO lock, in the background, timeout
+>= 90 min; read rc and the "N tasks:" line; failed task logs are in
+`C:\Users\abdal\.nx\8b7110c7390b9603\cache\terminalOutputs\<id>`. Include `degradation-audit` (and `di-lint`
+for DI changes) when a batch adds a catch or an @inject. Never build/serve/e2e except an approved Electron live
+run. Never npm ci/install in a worktree. No `any`, `as unknown as`, `@ts-ignore`, `eslint-disable`; bracket
+`process.env['X']`; swallowing catches need `// degradation-audit: optional-capability|reported - <reason>`.
+Specs must pass on Windows and Linux (paths via resolve/tmpdir; homes via normalizeCodexHomeKey). Lanes never
+verify, commit, push or call ptah_get_diagnostics; say so in the first lines of each lane task; deliverable
+paths absolute; tell lanes not to convert line endings (a codex lane once broke a regex that way). Never commit,
+push or merge while a lane edits W or a verify runs. Commit in the foreground (commitlint scopes from
+.commitlintrc.json, subject <= 72, body lines <= 100, no BOM, message via file + `git commit -F`, trailer
+`Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`); push in the background. Strip BOMs only from files
+lanes wrote. No PR merge, force push, history rewrite, branch deletion or worktree removal (merging main INTO
+the branch is allowed). Do not edit ~/.ptah/settings.json or ~/.codex/config.toml. NEVER strip MCP. jq is not
+installed: use `gh --jq`.
