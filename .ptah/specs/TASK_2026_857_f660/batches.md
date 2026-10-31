@@ -228,6 +228,34 @@ of Phase A scope.
 
 - decisions.md row 32. Code complete at 65b14cc72.
 
+### Phase B fix round 3 (user-requested, row 33) — COMPLETE (commit 923950f27)
+
+- Scope: future-enhancements.md "Open defects" 3, 4, 5 (unseen toggle and event-less writes;
+  unused `switchChanged`; stale `Routing:` reminder after a decision-model change). The
+  user's explicit request overrides the exhausted fix-round cap.
+- Executor: codex CLI lane (report: phase-b-fix-round3-report.md). Review: Claude
+  code-logic-reviewer subagent (cross-family), APPROVED 8/10
+  (code-logic-review-phase-b-round4.md). No Critical or Serious findings.
+- Design: platform write-time routing configuration generation (platform-core
+  `PtahFileSettingsManager`, optional `IWorkspaceProvider` method, implemented by the Electron,
+  VS Code and CLI providers) captured at admission, checked at assessment and pre-flight
+  settlement, carried on routing reminders and checked at queue drain and before hook injection.
+  `host-routing-config-tracker.ts` deleted.
+- Orchestrator follow-up before commit: the degradation-audit marker added to
+  `host-routing-setting.ts` was an orphaned suppression (audit FAIL) and overstated the
+  fallback; replaced by a plain comment. Prettier applied to decisions.md.
+- Commit 923950f27 `fix(platform-core,rpc-handlers): bind host routing to write generation`,
+  17 paths staged by explicit path (14 source/spec incl. the deletion; decisions.md, the
+  report and the review).
+- Team-leader checks: lane-routing + platform-core lint/test/typecheck 6/6 (exit 0), then
+  lane-routing 3/3 after the comment fix (exit 0); ptah-electron 9/9 (exit 0);
+  vscode/cli/tui typecheck 3/3 (exit 0); degradation-audit lint 1/1 after the fix (exit 0;
+  first run failed on the orphaned marker); `npx prettier --check` on all 16 changed files
+  passed after the fix. Executor run (not repeated): the 7 libs 20/22, the 2 failing test
+  targets hold only the 13 known Windows-only failures in specs identical to origin/main;
+  host typecheck 4/4.
+- Deferred review-4 findings: future-enhancements.md "Open defects" 6-7.
+
 ## Execution waves (file- and lib-disjoint within a wave)
 
 | Wave | Run together                                                                                           | Gate to start                                                                            |

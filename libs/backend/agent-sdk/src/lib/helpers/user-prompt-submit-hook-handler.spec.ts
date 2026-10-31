@@ -143,6 +143,77 @@ describe('UserPromptSubmitHookHandler', () => {
         return queue;
       }
 
+      it('drops a queued old-model reminder at drain and keeps another producer', async () => {
+        const logger = makeLogger();
+        const configuration = { generation: 1 };
+        const queue = new NextTurnReminderQueue({
+          register: () => () => undefined,
+        });
+        queue.gateOwner(
+          'host-routing',
+          (generation) => generation === configuration.generation,
+        );
+        queue.put('sdk-sess', 'Routing: old model', 'host-routing', 1);
+        configuration.generation = 2;
+        const handler = new UserPromptSubmitHookHandler(
+          logger,
+          new UserPromptSubmitCallbackRegistry(logger),
+          undefined,
+          queue,
+        );
+        const fn = getHookCallback(handler, 'closure-sess', '/ws');
+        expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({
+          continue: true,
+        });
+        queue.put('sdk-sess', 'Other: keep this', 'other-producer');
+        expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: 'UserPromptSubmit',
+            additionalContext: 'Other: keep this',
+          },
+        });
+      });
+
+      it('drops a drained old-model reminder after the pointer wait', async () => {
+        const logger = makeLogger();
+        const configuration = { generation: 1 };
+        const queue = new NextTurnReminderQueue({
+          register: () => () => undefined,
+        });
+        queue.gateOwner(
+          'host-routing',
+          (generation) => generation === configuration.generation,
+        );
+        queue.put('sdk-sess', 'Routing: old model', 'host-routing', 1);
+        let releasePointer: (value: string) => void = () => undefined;
+        const handoffPointer = jest.fn(
+          () =>
+            new Promise<string>((resolve) => {
+              releasePointer = resolve;
+            }),
+        );
+        const handler = new UserPromptSubmitHookHandler(
+          logger,
+          new UserPromptSubmitCallbackRegistry(logger),
+          { handoffPointer },
+          queue,
+        );
+        const fn = getHookCallback(handler, 'closure-sess', '/ws');
+        const pending = fn(promptInput(), undefined, SIGNAL);
+        await Promise.resolve();
+        expect(handoffPointer).toHaveBeenCalled();
+        configuration.generation = 2;
+        releasePointer(POINTER);
+        expect(await pending).toEqual({
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: 'UserPromptSubmit',
+            additionalContext: POINTER,
+          },
+        });
+      });
+
       it('withholds a routing reminder when routing turns off during the awaited pointer', async () => {
         const logger = makeLogger();
         const enabled = { on: true };

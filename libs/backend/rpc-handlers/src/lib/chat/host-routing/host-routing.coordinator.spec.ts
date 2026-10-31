@@ -199,6 +199,8 @@ function harness(options: { readonly model?: boolean } = {}) {
             },
           },
   });
+  let configGeneration = 0;
+  workspace.getRoutingConfigurationGeneration = jest.fn(() => configGeneration);
   const laneLogger: LaneRoutingLogger = {
     debug: jest.fn(),
     info: jest.fn(),
@@ -301,10 +303,12 @@ function harness(options: { readonly model?: boolean } = {}) {
     },
     setEnabled(on: boolean): void {
       workspace.__state.config.set(SETTING_KEY, on);
+      configGeneration += 1;
     },
     /** A settings write: the value changes and the change event fires. */
     toggle(on: boolean): void {
       workspace.__state.config.set(SETTING_KEY, on);
+      configGeneration += 1;
       workspace.__state.fireConfigurationChange(SETTING_KEY);
     },
     /** The trailing change event of an Electron file-backed write. */
@@ -314,6 +318,7 @@ function harness(options: { readonly model?: boolean } = {}) {
     /** A decision model write whose change event has not fired yet. */
     setModel(model: string): void {
       workspace.__state.config.set(MODEL_KEY, { kind: 'ollama', model });
+      configGeneration += 1;
     },
     turn(prompt: string, sessionId: string | null = SDK): void {
       coordinator.admitUserTurn({ tabId: TAB, sessionId, prompt });
@@ -831,6 +836,59 @@ describe('HostRoutingCoordinator', () => {
   // the change event: `setEnabled` / `setModel` are the in-memory part and
   // `announce` is the trailing event.
   describe('deferred setting events (review fix round 2)', () => {
+    it('unseen off then on discards an assessment before it can start pre-flight', async () => {
+      const h = harness();
+      const old = h.deferAnswer();
+      h.turn('add retries to the downloader');
+      h.setEnabled(false);
+      h.setEnabled(true);
+      old.resolve(answered({ e: 'yes', s: 'yes' }));
+      await flush();
+      expect(h.decide).not.toHaveBeenCalled();
+      expect(h.queue.take(SDK)).toBeNull();
+      expect(h.hit()).toBeNull();
+    });
+
+    it('unseen off then on discards an old pre-flight before cache and queue writes', async () => {
+      const h = harness();
+      const old = h.deferDecide();
+      h.nextAnswer({ e: 'yes', s: 'yes' });
+      h.turn('add retries to the downloader');
+      await flush();
+      h.setEnabled(false);
+      h.setEnabled(true);
+      old.resolve(preflight());
+      await flush();
+      expect(h.queue.take(SDK)).toBeNull();
+      expect(h.hit()).toBeNull();
+    });
+
+    it('a silent write cannot consume the later off/on reset', async () => {
+      const h = harness();
+      h.setEnabled(false); // file-settings-store writes without a provider event
+      h.turn('routing is off'); // observes that write
+      h.setEnabled(true);
+      h.turn('routing is on'); // new work under this generation
+      const old = h.deferAnswer();
+      h.turn('add retries to the downloader');
+      h.setEnabled(false);
+      h.setEnabled(true);
+      old.resolve(answered({ e: 'yes', s: 'yes' }));
+      await flush();
+      expect(h.decide).not.toHaveBeenCalled();
+      expect(h.queue.take(SDK)).toBeNull();
+    });
+
+    it('a valid model write withholds a reminder already queued under the old model', async () => {
+      const h = harness();
+      h.nextAnswer({ e: 'yes', s: 'yes' });
+      h.turn('add retries to the downloader');
+      await flush();
+      h.setModel('other-model');
+      expect(h.queue.take(SDK)).toBeNull();
+      h.announce(MODEL_KEY);
+      expect(h.queue.take(SDK)).toBeNull();
+    });
     it('the value reads off before its event: an old pre-flight settling in that window changes nothing', async () => {
       const h = harness();
       const oldDecide = h.deferDecide();

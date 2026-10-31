@@ -76,4 +76,38 @@ describe('HostRoutingSetting', () => {
     );
     expect(listener).toHaveBeenCalledTimes(2);
   });
+
+  it('uses the provider write generation when the provider has one', () => {
+    const { setting, workspace } = settingFor(true, {
+      kind: 'ollama',
+      model: 'nimble',
+    });
+    let generation = 7;
+    workspace.getRoutingConfigurationGeneration = () => generation;
+    setting.onDidChange(jest.fn());
+    workspace.__state.fireConfigurationChange(
+      'ptah.agentOrchestration.hostRouting',
+    );
+    expect(setting.getConfigurationGeneration()).toBe(7);
+    generation = 8;
+    expect(setting.getConfigurationGeneration()).toBe(8);
+  });
+
+  it('advances a fallback generation on routing change events when the provider has none', () => {
+    const { setting, workspace } = settingFor(true, {
+      kind: 'ollama',
+      model: 'nimble',
+    });
+    workspace.getRoutingConfigurationGeneration = undefined;
+    const listener = jest.fn(() => setting.getConfigurationGeneration());
+    setting.onDidChange(listener);
+    const before = setting.getConfigurationGeneration();
+    workspace.__state.fireConfigurationChange('ptah.unrelated');
+    expect(setting.getConfigurationGeneration()).toBe(before);
+    workspace.__state.fireConfigurationChange(
+      'ptah.agentOrchestration.decisionModel',
+    );
+    expect(listener).toHaveReturnedWith(before + 1);
+    expect(setting.getConfigurationGeneration()).toBe(before + 1);
+  });
 });
