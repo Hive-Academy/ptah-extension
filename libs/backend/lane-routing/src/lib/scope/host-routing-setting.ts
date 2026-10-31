@@ -14,6 +14,8 @@ const HOST_ROUTING_KEY = 'agentOrchestration.hostRouting';
 
 /** Live effective-enable rule shared by the coordinator and reuse cache. */
 export class HostRoutingSetting {
+  private eventGeneration = 0;
+
   constructor(
     private readonly workspace: IWorkspaceProvider,
     private readonly config: DecisionModelConfig,
@@ -33,9 +35,12 @@ export class HostRoutingSetting {
   }
 
   getConfigurationGeneration(): number {
-    // Every host provider implements this. A provider without it reads a constant 0, which
-    // turns off stale-work detection for host routing.
-    return this.workspace.getRoutingConfigurationGeneration?.() ?? 0;
+    // Every host provider implements the write-time generation. A provider without it
+    // falls back to a count of observed change events.
+    return (
+      this.workspace.getRoutingConfigurationGeneration?.() ??
+      this.eventGeneration
+    );
   }
 
   /**
@@ -51,6 +56,7 @@ export class HostRoutingSetting {
           `${DECISION_MODEL_CONFIG_SECTION}.${DECISION_MODEL_CONFIG_KEY}`,
         )
       ) {
+        this.eventGeneration += 1;
         listener();
       }
     });

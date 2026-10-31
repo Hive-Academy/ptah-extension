@@ -25,7 +25,10 @@ config break or data loss, except the items under "Open defects". Sources are in
 5. FIXED in 923950f27: **Stale `Routing:` reminder after a decision-model change** (row 31).
    Routing reminders carry their generation; the owner gate checks it at drain and again before
    hook injection.
-6. Deferred, Moderate (`code-logic-review-phase-b-round4.md` finding 1): the generation is an
+6. FIXED after PR #872 CodeRabbit review: a provider without the method now falls back to a
+   count of observed routing change events (`host-routing-setting.ts`), so stale-work detection
+   stays on (event-timed only). Original note: Moderate (`code-logic-review-phase-b-round4.md`
+   finding 1): the generation is an
    optional `IWorkspaceProvider` method. A provider without it reads a constant 0, which turns off
    stale-work detection for host routing (no reset on writes or change events). All three host
    providers implement it today and host routing is Electron-only. Making it required changes 30+
