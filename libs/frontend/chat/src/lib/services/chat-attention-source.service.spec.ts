@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { CommandCenterVoiceSessionService, TabManagerService } from '@ptah-extension/chat-state';
 import { AgentMonitorStore, PermissionHandlerService } from '@ptah-extension/chat-streaming';
 import { AttentionItem, NotificationService, SURFACE_FOCUS_ROUTER, VSCodeService } from '@ptah-extension/core';
-import type { AskUserQuestionRequest, PermissionRequest } from '@ptah-extension/shared';
+import { parsePermissionRequest, type AskUserQuestionRequest, type PermissionRequest } from '@ptah-extension/shared';
 import { ChatAttentionSourceService } from './chat-attention-source.service';
 
 describe('ChatAttentionSourceService', () => {
@@ -121,6 +121,30 @@ describe('ChatAttentionSourceService', () => {
       timeoutAt: 0, description: '', tabId: 'tab-1' }]);
     TestBed.tick();
     expect(upsert.mock.lastCall?.[0].actions.find(action => action.id === 'allow')?.disabledReason).toBeUndefined();
+  });
+
+  it('offers Claude actions for a request the shared parser produces', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    const request = parsePermissionRequest({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      toolName: 'Bash',
+      toolInput: { command: 'ls' },
+      timestamp: 1,
+      description: 'List files',
+      timeoutAt: 0,
+      allowedDecisions: ['cancel', 'accept', 'decline'],
+    });
+    if (!request) throw new Error('parser rejected the permission payload');
+    expect(request).not.toHaveProperty('allowedDecisions');
+    permissions.set([request]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].actions.map(action => [action.id, action.label])).toEqual([
+      ['allow', 'Allow'],
+      ['always_allow', 'Always allow'],
+      ['deny', 'Deny'],
+      ['deny_with_message', 'Deny with message'],
+      ['open', 'Show in canvas'],
+    ]);
   });
 
   it('keeps session unavailable ahead of unknown tool for a tabless lane', () => {

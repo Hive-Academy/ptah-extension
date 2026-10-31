@@ -238,6 +238,7 @@ export const MESSAGE_TYPES = {
   ASK_USER_QUESTION_AUTO_RESOLVED: 'ask-user-question:auto-resolved',
   PERMISSION_AUTO_RESOLVED: 'permission:auto-resolved',
   PERMISSION_SESSION_CLEANUP: 'permission:session-cleanup',
+  PERMISSION_PROMPT_CANCELLED: 'permission:prompt-cancelled',
   PLAN_MODE_CHANGED: 'session:plan-mode-changed',
   AGENT_MONITOR_SPAWNED: 'agent-monitor:spawned',
   AGENT_MONITOR_OUTPUT: 'agent-monitor:output',

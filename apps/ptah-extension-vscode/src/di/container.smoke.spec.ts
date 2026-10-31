@@ -44,7 +44,8 @@ import {
   LANE_OUTCOME_TOKENS,
   registerLaneOutcomeServices,
 } from '@ptah-extension/lane-outcomes';
-import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { registerSdkServices, SDK_TOKENS, wireAgentAdapterAliases } from '@ptah-extension/agent-sdk';
+import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { HARNESS_SYNC_TOKENS } from '@ptah-extension/harness-sync';
 import { PLUGIN_MARKETPLACE_TOKENS } from '@ptah-extension/plugin-marketplace';
@@ -65,6 +66,8 @@ import {
   DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
+  EXPECTED_NULL_RUNTIME_TOKENS,
+  EXPECTED_RUNTIME_TOKENS,
   EXPECTED_ATTENTION_TOKENS,
   LANE_MODEL_LISTING_TOKEN,
   STRUCTURED_DECISION_TOKEN,
@@ -347,7 +350,7 @@ describe('VS Code DI — lane model listing', () => {
 });
 
 describe('VS Code DI — structured decision', () => {
-  it('resolves STRUCTURED_DECISION as one singleton', () => {
+  it('resolves STRUCTURED_DECISION as one singleton with legacy-only chat bindings', () => {
     const c = buildMinimalContainer();
     const logger = c.resolve<Logger>(TOKENS.LOGGER);
     // `registerSdkServices` eagerly builds ConfigWatcher, which subscribes.
@@ -367,6 +370,24 @@ describe('VS Code DI — structured decision', () => {
       },
     });
     registerSdkServices(c, logger);
+    for (const token of EXPECTED_RUNTIME_TOKENS) {
+      expect(c.isRegistered(token, true)).toBe(true);
+      expect(() => c.resolve(token)).not.toThrow();
+    }
+    for (const token of EXPECTED_NULL_RUNTIME_TOKENS) {
+      expect(c.resolve(token)).toBeNull();
+    }
+    expect(c.resolve(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES)).toEqual({
+      nativeCodex: false,
+    });
+    for (const token of Object.values(CODEX_RUNTIME_TOKENS)) {
+      expect(c.isRegistered(token, true)).toBe(false);
+    }
+    // Isolate alias selection from the legacy adapter's unrelated dependencies.
+    const legacyAdapter = { sendMessage: jest.fn() };
+    c.register(SDK_TOKENS.SDK_AGENT_ADAPTER, { useValue: legacyAdapter });
+    wireAgentAdapterAliases(c);
+    expect(c.resolve(TOKENS.AGENT_ADAPTER)).toBe(legacyAdapter);
     const idleCompaction = c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION);
     expect(c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION)).toBe(idleCompaction);
     // The real service pulls SdkQueryRunner. The registration under test is

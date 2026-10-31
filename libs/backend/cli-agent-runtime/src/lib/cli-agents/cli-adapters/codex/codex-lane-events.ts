@@ -48,6 +48,7 @@ export class CodexLaneEvents {
           'text',
         );
       case 'textFinal':
+      case 'userInputAsync':
         return this.content(this.text, event.itemId, event.text, true, 'text');
       case 'reasoning':
         return this.content(

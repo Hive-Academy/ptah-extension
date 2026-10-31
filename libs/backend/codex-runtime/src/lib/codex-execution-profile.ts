@@ -3,8 +3,10 @@ import { posix, win32 } from 'node:path';
 import { z } from 'zod';
 import { normalizeCodexHomeKey } from './codex-home-path';
 import type {
+  CodexApprovalPolicy,
   CodexExecutionProfile,
   CodexJsonValue,
+  CodexSandboxPolicy,
 } from './codex-runtime.types';
 
 const text = z
@@ -12,6 +14,8 @@ const text = z
   .min(1)
   .refine((value) => value.trim().length > 0 && !value.includes('\0'));
 const references = z.record(text, text);
+// Codex applies server names as dotted config keys, so separators are unsafe.
+const serverName = text.refine((value) => /^[A-Za-z0-9_-]+$/.test(value));
 const settings = z.strictObject({
   contextId: text,
   consumer: z.enum(['chat', 'gateway', 'lane', 'usage']),
@@ -40,14 +44,15 @@ const settings = z.strictObject({
     .array(
       z.discriminatedUnion('transport', [
         z.strictObject({
-          name: text,
+          name: serverName,
           transport: z.literal('stdio'),
           command: text,
           args: z.array(z.string()),
           envReferences: references,
+          toolTimeoutSec: z.number().int().positive().optional(),
         }),
         z.strictObject({
-          name: text,
+          name: serverName,
           transport: z.enum(['http', 'sse']),
           url: z.url().refine((value) => {
             const url = new URL(value);
@@ -59,8 +64,10 @@ const settings = z.strictObject({
               !url.hash
             );
           }),
+          urlReference: text.optional(),
           headerReferences: references,
           authReference: text.optional(),
+          toolTimeoutSec: z.number().int().positive().optional(),
         }),
       ]),
     )
@@ -80,6 +87,15 @@ const settings = z.strictObject({
   lane: z
     .strictObject({
       suppressedTools: z.array(text),
+      agentsEnabled: z.literal(false).optional(),
+      pluginsEnabled: z.literal(false).optional(),
+      appsEnabled: z.literal(false).optional(),
+      includeSkillInstructions: z.literal(false).optional(),
+      disabledUserMcpServers: z.array(text).optional(),
+      autoCompactTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+      toolOutputTokenLimit: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+      webSearch: z.enum(['live', 'disabled']).optional(),
+      ptahToolTimeoutSeconds: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
       maxTurns: z.number().int().positive().optional(),
       maxBudgetUsd: z.number().finite().nonnegative().optional(),
       explicitFullAccess: z.boolean(),
@@ -132,6 +148,64 @@ function freeze<T>(value: T): T {
   return value;
 }
 
+/** Chat and gateway use D14. Usage keeps the pre-8m-1 approval mapping. */
+function resolveApprovalPolicy(
+  d14: boolean,
+  permissionLevel: CodexProfileSettings['permissionLevel'],
+): CodexApprovalPolicy {
+  if (d14) {
+    return permissionLevel === 'ask' || permissionLevel === 'auto-edit'
+      ? 'untrusted'
+      : 'on-request';
+  }
+  if (permissionLevel === 'ask') {
+    return {
+      granular: {
+        sandbox_approval: true,
+        rules: true,
+        skill_approval: true,
+        request_permissions: true,
+        mcp_elicitations: true,
+      },
+    };
+  }
+  return 'on-request';
+}
+
+/** Resolve the policy for a single level; lanes use the D26 restricted policy. */
+export function resolveCodexLevelPolicy(
+  consumer: CodexExecutionProfile['consumer'],
+  permissionLevel: CodexProfileSettings['permissionLevel'],
+  cwd: string,
+): {
+  approvalPolicy: CodexApprovalPolicy;
+  sandboxPolicy: CodexSandboxPolicy;
+} {
+  if (consumer === 'lane') {
+    return {
+      approvalPolicy: 'never',
+      sandboxPolicy: {
+        mode: 'workspace-write',
+        networkAccess: false,
+        writableRoots: [cwd],
+      },
+    };
+  }
+  const d14 = consumer === 'chat' || consumer === 'gateway';
+  const writable =
+    permissionLevel === 'auto-edit' ||
+    permissionLevel === 'yolo' ||
+    (d14 && permissionLevel === 'ask');
+  return {
+    approvalPolicy: resolveApprovalPolicy(d14, permissionLevel),
+    sandboxPolicy: {
+      mode: writable ? 'workspace-write' : 'read-only',
+      networkAccess: false,
+      writableRoots: writable ? [cwd] : [],
+    },
+  };
+}
+
 function canonical(value: CodexJsonValue): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value !== null && typeof value === 'object') {
@@ -141,6 +215,17 @@ function canonical(value: CodexJsonValue): string {
       .join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+/** Fingerprint only the validated execution policy, with the original canonical encoding. */
+export function codexProfileFingerprint(identity: Pick<
+  CodexExecutionProfile,
+  'permissionLevel' | 'sandboxPolicy' | 'approvalPolicy'
+>): string {
+  const fingerprint = createHash('sha256')
+    .update(canonical(parse(z.json(), JSON.parse(JSON.stringify(identity)))))
+    .digest('hex');
+  return `sha256:${fingerprint}`;
 }
 
 /** Pure snapshot builder: no filesystem, environment, auth, process or routing access. */
@@ -218,9 +303,15 @@ export function buildCodexExecutionProfile(
     )
       throw new Error('Resume paths cannot change');
   }
-  const writable =
-    selected.permissionLevel === 'auto-edit' ||
-    selected.permissionLevel === 'yolo';
+  // D14 (untrusted before edits and commands) is chat and gateway. It mirrors
+  // evidence-harness policy(); Ptah auto-accepts auto-edit file changes.
+  // Usage keeps the pre-8m-1 mapping. D26 fixes lane policy independently
+  // of its requested permission level.
+  const levelPolicy = resolveCodexLevelPolicy(
+    selected.consumer,
+    selected.permissionLevel,
+    cwd,
+  );
   const profile: Omit<BuiltCodexExecutionProfile, 'profileFingerprint'> = {
     ...selected,
     normalizedHome,
@@ -230,52 +321,25 @@ export function buildCodexExecutionProfile(
         ? { ...attachment, path: normalize(attachment.path) }
         : attachment,
     ),
-    // Matches evidence-harness policy() (6e-6j); Ptah-side YOLO approvals live in 2f.
-    approvalPolicy:
-      selected.permissionLevel === 'ask'
-        ? {
-            granular: {
-              sandbox_approval: true,
-              rules: true,
-              skill_approval: true,
-              request_permissions: true,
-              mcp_elicitations: true,
-            },
-          }
-        : 'on-request',
-    sandboxPolicy: {
-      mode: writable ? 'workspace-write' : 'read-only',
-      networkAccess: false,
-      writableRoots: writable ? [cwd] : [],
-    },
+    ...levelPolicy,
     approvalsReviewer: 'user',
     fullAccessStatus: 'unproved-disabled',
   };
-  // Thread identity excludes next-turn model, effort, prompt and attachments.
+  // Resume fingerprint covers only the security-relevant execution policy.
+  // RuntimeContext.open re-sends instructions on thread/resume; stable context,
+  // home, provider and workspace identity is checked separately on resume.
+  // MCP servers and their references are also re-applied per open.
+  // accountId and consumer are not in the digest: normalizedHome (checked on
+  // resume) is the account boundary, because one Codex home is one login.
   const identity = {
-    contextId: profile.contextId,
-    consumer: profile.consumer,
-    accountId: profile.accountId,
-    providerId: profile.providerId,
-    workspaceId: profile.workspaceId,
-    normalizedHome,
-    cwd,
     permissionLevel: profile.permissionLevel,
     sandboxPolicy: profile.sandboxPolicy,
     approvalPolicy: profile.approvalPolicy,
-    mcpServers: [...profile.mcpServers].sort((a, b) =>
-      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-    ),
-    systemPrompt: profile.systemPrompt,
-    developerPrompt: profile.developerPrompt,
-    outputStyle: profile.outputStyle,
-    instructionSources: profile.instructionSources,
-    lane: profile.lane,
   };
-  // Only validated configuration and opaque auth references enter this digest. No
-  // secret resolver is available here. JSON parsing removes absent optional fields.
-  const fingerprint = createHash('sha256')
-    .update(canonical(parse(z.json(), JSON.parse(JSON.stringify(identity)))))
-    .digest('hex');
-  return freeze({ ...profile, profileFingerprint: `sha256:${fingerprint}` });
+  // Only validated execution policy enters the digest. No secret resolver is
+  // available here. JSON parsing removes absent optional fields.
+  return freeze({
+    ...profile,
+    profileFingerprint: codexProfileFingerprint(identity),
+  });
 }

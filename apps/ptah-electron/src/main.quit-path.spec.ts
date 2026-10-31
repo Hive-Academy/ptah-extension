@@ -504,7 +504,7 @@ describe('will-quit — the gateway drain gates the SQLite close', () => {
     expect(quit).toHaveBeenCalledTimes(1);
     expect(console.warn).toHaveBeenCalledWith(
       '[Ptah Electron] Messaging gateway stop failed (non-fatal):',
-      'adapter socket already dead',
+      expect.objectContaining({ message: 'adapter socket already dead' }),
     );
   });
 

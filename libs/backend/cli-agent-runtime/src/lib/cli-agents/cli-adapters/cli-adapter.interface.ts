@@ -321,3 +321,12 @@ export interface CliAdapter {
    */
   ensureTokensFresh?(): Promise<boolean>;
 }
+
+/**
+ * Host-owned, lazy selection of the Codex lane adapter. Called once per detector.
+ * If creation fails, the detector reports Codex unavailable and keeps peer
+ * adapters usable. It never substitutes the legacy Codex adapter.
+ */
+export interface CodexAdapterFactory {
+  create(): CliAdapter;
+}

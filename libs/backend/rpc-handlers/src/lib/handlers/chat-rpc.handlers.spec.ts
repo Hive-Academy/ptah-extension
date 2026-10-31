@@ -43,7 +43,7 @@ import type { ISessionAttachmentGuard } from '@ptah-extension/platform-core';
 
 import type { SdkPermissionHandler } from '@ptah-extension/agent-sdk';
 import type { ISessionSpawner } from '@ptah-extension/cli-agent-runtime';
-import type { AgentSessionOpenedPayload } from '@ptah-extension/shared';
+import type { AgentSessionOpenedPayload, ChatStartResult } from '@ptah-extension/shared';
 
 import { ChatRpcHandlers } from './chat-rpc.handlers';
 import type { ChatPtahCliService } from '../chat/ptah-cli/chat-ptah-cli.service';
@@ -159,6 +159,75 @@ const TAB_UUID = '11111111-2222-4333-8444-555555555555';
 const SESSION_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 
 describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
+  it('does not log success when native session startup returns an RPC error', async () => {
+    const h = buildSuite();
+    h.handlers.register();
+    const failure = new RpcUserError('Codex chat could not start.', 'SESSION_ENDED');
+    h.session.startSession.mockRejectedValueOnce(failure);
+    await expect(getHandler(h.rpc, 'chat:start')({ tabId: TAB_UUID, prompt: 'hello' })).rejects.toBe(failure);
+    expect(h.logger.debug).not.toHaveBeenCalledWith('RPC: chat:start success');
+  });
+
+  it('logs only the failure code for a resolved startup failure', async () => {
+    const h = buildSuite();
+    h.handlers.register();
+    h.logger.debug.mockClear();
+    const failure: ChatStartResult = {
+      success: false,
+      errorCode: 'CODEX_UNSUPPORTED_OPTION',
+      error: 'Private startup failure details',
+    };
+    h.session.startSession.mockResolvedValueOnce(failure);
+
+    await expect(
+      getHandler(h.rpc, 'chat:start')({ tabId: TAB_UUID, prompt: 'private prompt' }),
+    ).resolves.toBe(failure);
+
+    expect(h.logger.debug.mock.calls).toEqual([
+      ['RPC: chat:start called'],
+      ['RPC: chat:start failed (CODEX_UNSUPPORTED_OPTION)'],
+    ]);
+    expect(h.logger.debug).not.toHaveBeenCalledWith('RPC: chat:start success');
+    expect(JSON.stringify(h.logger.debug.mock.calls)).not.toContain(failure.error);
+    expect(JSON.stringify(h.logger.debug.mock.calls)).not.toContain('private prompt');
+    expect(h.logger.warn).not.toHaveBeenCalled();
+    expect(h.logger.error).not.toHaveBeenCalled();
+  });
+
+  it('logs cancellation for a resolved cancelled startup', async () => {
+    const h = buildSuite();
+    h.handlers.register();
+    h.logger.debug.mockClear();
+    const cancelled: ChatStartResult = { success: false, cancelled: true };
+    h.session.startSession.mockResolvedValueOnce(cancelled);
+
+    await expect(
+      getHandler(h.rpc, 'chat:start')({ tabId: TAB_UUID, prompt: 'hello' }),
+    ).resolves.toBe(cancelled);
+
+    expect(h.logger.debug.mock.calls).toEqual([
+      ['RPC: chat:start called'],
+      ['RPC: chat:start cancelled'],
+    ]);
+  });
+
+  it('logs success for a resolved successful startup', async () => {
+    const h = buildSuite();
+    h.handlers.register();
+    h.logger.debug.mockClear();
+    const success: ChatStartResult = { success: true };
+    h.session.startSession.mockResolvedValueOnce(success);
+
+    await expect(
+      getHandler(h.rpc, 'chat:start')({ tabId: TAB_UUID, prompt: 'hello' }),
+    ).resolves.toBe(success);
+
+    expect(h.logger.debug.mock.calls).toEqual([
+      ['RPC: chat:start called'],
+      ['RPC: chat:start success'],
+    ]);
+  });
+
   it('METHODS tuple is the owned RPC names, in order', () => {
     expect([...ChatRpcHandlers.METHODS]).toEqual([
       'chat:start',

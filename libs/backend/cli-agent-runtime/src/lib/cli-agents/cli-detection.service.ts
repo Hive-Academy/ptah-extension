@@ -18,7 +18,9 @@ import type { CliType, CliDetectionResult } from '@ptah-extension/shared';
 import type {
   CliAdapter,
   CliModelInfo,
+  CodexAdapterFactory,
 } from './cli-adapters/cli-adapter.interface';
+import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import { bestMessagingCapability } from './cli-adapters/cli-adapter.interface';
 import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
 import { CopilotSdkAdapter } from './cli-adapters/copilot-sdk.adapter';
@@ -29,6 +31,23 @@ import { OpencodeCliAdapter } from './cli-adapters/opencode-cli.adapter';
 import { PiCliAdapter } from './cli-adapters/pi-cli.adapter';
 import { GrokCliAdapter } from './cli-adapters/grok-cli.adapter';
 import { ClaudeCliAdapter } from './cli-adapters/claude-cli.adapter';
+
+function unavailableCodexAdapter(cause: Error): CliAdapter {
+  const failure = new Error(`Native Codex adapter unavailable: ${cause.message}`, {
+    cause,
+  });
+  return {
+    name: 'codex',
+    displayName: 'Codex CLI',
+    roleChannel: 'developer-instructions',
+    supportsMcp: false,
+    capabilities: () => ({ steer: false, interrupt: false, continuation: false }),
+    detect: async () => ({ cli: 'codex', installed: false, messagingMode: 'none' }),
+    listModels: async () => [],
+    parseOutput: (raw) => raw,
+    runSdk: async () => { throw failure; },
+  };
+}
 
 @injectable()
 export class CliDetectionService {
@@ -44,8 +63,8 @@ export class CliDetectionService {
    *   existing `SDK_PROCESS_SPAWNER` binding. Every rival-CLI adapter that
    *   launches a child gets it, because `child_process.spawn` is a synchronous
    *   `CreateProcessW` on Windows and those launches measured 300-900 ms of
-   *   event-loop lag each (TASK_2026_367). Codex and Cursor are absent on
-   *   purpose: both run their vendor SDK in process and never call `spawnCli`.
+   *   event-loop lag each (TASK_2026_367). Codex uses its selected adapter's
+   *   own runtime; Cursor runs its vendor SDK in process.
    */
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -68,8 +87,27 @@ export class CliDetectionService {
      */
     @inject(ClaudeCliAdapter)
     claudeAdapter: ClaudeCliAdapter | null = null,
+    /** A host may select the native Codex lane; null preserves the legacy SDK. */
+    @inject(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, { isOptional: true })
+    codexAdapterFactory: CodexAdapterFactory | null = null,
   ) {
-    this.adapters.set('codex', new CodexCliAdapter(this.logger));
+    let codexAdapter: CliAdapter;
+    if (codexAdapterFactory) {
+      try {
+        codexAdapter = codexAdapterFactory.create();
+      } catch (error) {
+        // degradation-audit: reported - preserve peer adapters while surfacing native Codex composition failure.
+        const cause = error instanceof Error ? error : new Error(String(error));
+        this.logger.error('[CliDetection] Native Codex adapter factory failed', cause);
+        this.sentryService.captureException(cause, {
+          errorSource: 'CliDetectionService.codexAdapterFactory',
+        });
+        codexAdapter = unavailableCodexAdapter(cause);
+      }
+    } else {
+      codexAdapter = new CodexCliAdapter(this.logger);
+    }
+    this.adapters.set('codex', codexAdapter);
     const permissionBridge = new CopilotPermissionBridge();
     this.adapters.set(
       'copilot',
@@ -150,6 +188,7 @@ export class CliDetectionService {
           );
         }
       } catch (error) {
+        // degradation-audit: reported - failed adapter detection is captured and shown as unavailable.
         const err = error instanceof Error ? error : new Error(String(error));
         this.sentryService.captureException(err, {
           errorSource: 'CliDetectionService.doDetectAll',
@@ -221,6 +260,7 @@ export class CliDetectionService {
         const models = await adapter.listModels();
         cache.set(detection.cli, models);
       } catch (error) {
+        // degradation-audit: reported - model lookup failure is captured and omitted from the model map.
         const err = error instanceof Error ? error : new Error(String(error));
         this.sentryService.captureException(err, {
           errorSource: 'CliDetectionService.listModelsForAll',

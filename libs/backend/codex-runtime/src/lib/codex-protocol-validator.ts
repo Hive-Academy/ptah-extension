@@ -1,15 +1,30 @@
 import { z } from 'zod';
-import { string, integer, json } from './codex-protocol-schemas';
+import {
+  string,
+  integer,
+  json,
+  reasoningSummaryTextDelta,
+  reasoningTextDelta,
+} from './codex-protocol-schemas';
 import {
   codexRequestSchemas,
   codexServerRequestSchemas,
-  codexNotificationSchemas,
+  codexNotificationSchemas as methodNotificationSchemas,
 } from './codex-protocol-methods';
 export {
   codexRequestSchemas,
   codexServerRequestSchemas,
-  codexNotificationSchemas,
 } from './codex-protocol-methods';
+
+// The reasoning delta notifications are registered here, not in
+// codex-protocol-methods.ts (outside this batch's file set). Registering them
+// removes the two methods from the unmodeled surface; the pinned allowlist
+// below keeps the full manifest.
+export const codexNotificationSchemas = {
+  ...methodNotificationSchemas,
+  'item/reasoning/summaryTextDelta': reasoningSummaryTextDelta,
+  'item/reasoning/textDelta': reasoningTextDelta,
+} as const;
 
 const requests = { ...codexRequestSchemas, ...codexServerRequestSchemas };
 export type CodexRequestMethod = keyof typeof requests;
@@ -189,20 +204,30 @@ const header = {
   jsonrpc: z.literal('2.0').optional(),
   emittedAtMs: integer.nonnegative().optional(),
 };
-const envelope = z.union([
-  z.strictObject({ ...header, id, method: string, params: json.optional() }),
-  z.strictObject({ ...header, method: string, params: json.optional() }),
-  z.strictObject({ ...header, id, result: json }),
-  z.strictObject({
-    ...header,
-    id,
-    error: z.strictObject({
-      code: integer,
-      message: string,
-      data: json.optional(),
-    }),
-  }),
-]);
+// Routing fields are mutually exclusive even though server extension keys are stripped.
+const envelope = z
+  .record(string, z.unknown())
+  .refine((frame) => {
+    if ('id' in frame && !id.safeParse(frame['id']).success) return false;
+    if ('method' in frame) return !('result' in frame) && !('error' in frame);
+    return !('params' in frame) && 'result' in frame !== 'error' in frame;
+  })
+  .pipe(
+    z.union([
+      z.object({ ...header, id, method: string, params: json.optional() }),
+      z.object({ ...header, method: string, params: json.optional() }),
+      z.object({ ...header, id, result: json }),
+      z.object({
+        ...header,
+        id,
+        error: z.object({
+          code: integer,
+          message: string,
+          data: json.optional(),
+        }),
+      }),
+    ]),
+  );
 export type CodexProtocolFrame =
   | (z.infer<typeof envelope> & { readonly modeled?: true })
   | {

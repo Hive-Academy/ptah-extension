@@ -144,3 +144,33 @@ export {
   AgentResumeCliSessionParamsSchema,
   type AgentResumeCliSessionInput,
 } from './lib/handlers/agent-rpc.schema';
+export {
+  createCodexChatHostPorts,
+  createCodexRuntimeAdmission,
+  type CodexChatHostPorts,
+  type CodexChatHostPortsDeps,
+  type CodexRuntimeAdmissionDeps,
+} from './lib/chat/codex-host/codex-chat-host-ports';
+export { resolveSavedCodexPermissionLevel } from './lib/chat/codex-host/codex-saved-permission-level';
+export { createCodexChatUserQuestions, type CodexChatUserQuestionsDeps } from './lib/chat/codex-host/codex-chat-user-questions';
+export {
+  createNativeSessionControls,
+  createLegacySessionControlPorts,
+  type NativeSessionControlsDeps,
+  type LegacySessionControlPortsDeps,
+  type SessionControlPersistenceDeps,
+  type SessionControlSettings,
+} from './lib/chat/codex-host/native-session-controls';
+export {
+  createCodexChatEventCallbacks,
+  type CodexChatEventCallbacksDeps,
+} from './lib/chat/codex-host/codex-chat-event-callbacks';
+export {
+  createCodexSessionSettingsRecord,
+  type CodexSessionSettingsRecordDeps,
+  CodexSessionSettingsError,
+} from './lib/chat/codex-host/codex-session-settings-record';
+export {
+  createLegacyCodexSessionSettings,
+  type LegacyCodexSessionSettingsDeps,
+} from './lib/chat/codex-host/codex-legacy-session-settings';

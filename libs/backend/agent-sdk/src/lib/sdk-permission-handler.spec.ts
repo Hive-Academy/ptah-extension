@@ -9,7 +9,10 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { PermissionRequestSchema } from '@ptah-extension/shared/schemas';
 
-import { SdkPermissionHandler } from './sdk-permission-handler';
+import {
+  SdkPermissionHandler,
+  type PermissionPromptLifecycleEvent,
+} from './sdk-permission-handler';
 
 interface SentMessage {
   viewType: string;
@@ -78,6 +81,42 @@ function makeHandler(hostAttention?: { resolve(key: string, generation: number):
 
   return { handler, logger, sent };
 }
+
+describe('SdkPermissionHandler published prompt lifecycle', () => {
+  const event: PermissionPromptLifecycleEvent = {
+    phase: 'resolved',
+    requestId: 'codex-request-1',
+    routingHint: 'gw-conversation-1',
+    toolName: 'Bash',
+    outcome: 'denied',
+  };
+
+  it('delivers a published event to a registered listener', () => {
+    const { handler } = makeHandler();
+    const listener = jest.fn();
+    handler.onPromptLifecycle(listener);
+
+    handler.publishPromptLifecycle(event);
+
+    expect(listener).toHaveBeenCalledWith(event);
+  });
+
+  it('continues publishing when an earlier listener throws', () => {
+    const { handler, logger } = makeHandler();
+    const listener = jest.fn();
+    handler.onPromptLifecycle(() => {
+      throw new Error('listener failed');
+    });
+    handler.onPromptLifecycle(listener);
+
+    expect(() => handler.publishPromptLifecycle(event)).not.toThrow();
+    expect(listener).toHaveBeenCalledWith(event);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[SdkPermissionHandler] prompt lifecycle listener threw',
+      { error: 'listener failed' },
+    );
+  });
+});
 
 describe('SdkPermissionHandler host attention resolution', () => {
   it('resolves a lane answer from another surface with the lane key', async () => {

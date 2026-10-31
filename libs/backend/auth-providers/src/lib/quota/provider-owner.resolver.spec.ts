@@ -56,6 +56,8 @@ function harness(
     account?: ClaudeAccountInfo;
     codexOwnerKey?: string | null;
     codexOwnerKeyAfterRead?: string | null;
+    explicitHome?: string;
+    explicitOwnerKey?: string | null;
     fileContent?: string;
     fileReadFails?: boolean;
   } = {},
@@ -84,10 +86,14 @@ function harness(
   });
   let codexUsageRead = false;
   const codexAccountUsage = {
-    currentOwnerKey: () =>
-      codexUsageRead
-        ? (options.codexOwnerKeyAfterRead ?? options.codexOwnerKey ?? null)
-        : (options.codexOwnerKey ?? null),
+    currentOwnerKey: (home?: string) =>
+      home !== undefined && home !== codexHome.path
+        ? home === options.explicitHome && codexUsageRead
+          ? (options.explicitOwnerKey ?? null)
+          : null
+        : codexUsageRead
+          ? (options.codexOwnerKeyAfterRead ?? options.codexOwnerKey ?? null)
+          : (options.codexOwnerKey ?? null),
     getAccountUsage: jest.fn(async () => {
       codexUsageRead = true;
       return { status: 'available' as const, providerId: 'openai-codex' };
@@ -499,6 +505,7 @@ describe('ProviderOwnerResolver', () => {
       key: known,
     });
     expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledTimes(1);
+    expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledWith();
   });
 
   it('keys CLI stores by their on-disk root', () => {
@@ -853,5 +860,74 @@ describe('ProviderOwnerResolver', () => {
     const serialized = JSON.stringify({ refs, logger });
     expect(serialized).not.toContain(EMAIL);
     expect(serialized).not.toContain(SECRET);
+  });
+});
+
+describe('Codex explicit-home owner resolution', () => {
+  it('shares the default unknown owner key with lexical aliases of the default home', () => {
+    const { resolver, codexHome } = harness();
+    const aliases = [
+      `${codexHome.path}/`,
+      `${codexHome.path}/../synthetic-codex-home`,
+    ];
+    if (process.platform === 'win32') {
+      aliases.push(
+        codexHome.path.toUpperCase(),
+        codexHome.path.replace(/\\/g, '/'),
+      );
+    }
+    for (const home of aliases) {
+      expect(resolver.ownerForCodexHome(home).key).toBe(
+        resolver.ownerForCodexHome().key,
+      );
+    }
+  });
+
+  it('keeps invalid homes unknown without throwing or merging into the default', () => {
+    const { resolver } = harness();
+    const home = 'relative-home';
+    expect(resolver.ownerForCodexHome(home).key).toBe(
+      unknownOwnerKey('openai-codex', home),
+    );
+    expect(resolver.ownerForCodexHome(home).key).not.toBe(
+      resolver.ownerForCodexHome().key,
+    );
+  });
+
+  it('never substitutes the default owner and reads the requested home', async () => {
+    const home = resolve('explicit-codex-home');
+    const defaultKey = accountOwnerKey('openai-codex', 'default-account');
+    const explicitKey = accountOwnerKey('openai-codex', 'explicit-account');
+    const h = harness({
+      codexOwnerKey: defaultKey,
+      explicitHome: home,
+      explicitOwnerKey: explicitKey,
+    });
+    expect(h.resolver.ownerForCodexHome(home).key).toBe(
+      unknownOwnerKey('openai-codex', home),
+    );
+    expect(h.resolver.ownerForCodexHome().key).toBe(defaultKey);
+    await expect(h.resolver.resolveCodexHomeOwner(home)).resolves.toMatchObject(
+      { key: explicitKey },
+    );
+    expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledWith({ home });
+    expect(h.resolver.ownerForCodexHome(home).key).toBe(explicitKey);
+    expect(h.resolver.ownerForCodexHome().key).toBe(defaultKey);
+    await h.resolver.resolveCodexHomeOwner(home);
+    expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an unreadable explicit home unknown after its read', async () => {
+    const home = resolve('unknown-codex-home');
+    const h = harness({
+      codexOwnerKey: accountOwnerKey('openai-codex', 'default-account'),
+    });
+    await expect(h.resolver.resolveCodexHomeOwner(home)).resolves.toMatchObject(
+      {
+        key: unknownOwnerKey('openai-codex', home),
+        identityKind: 'unknown',
+      },
+    );
+    expect(h.codexAccountUsage.getAccountUsage).toHaveBeenCalledWith({ home });
   });
 });

@@ -93,12 +93,15 @@ export type {
 } from '@ptah-extension/codex-runtime';
 
 export interface ICodexAccountUsageService {
+  /** Read one home; omitted home and its lexical aliases use the default home. */
   getAccountUsage(options?: {
     home?: string;
     refresh?: boolean;
     signal?: AbortSignal;
   }): Promise<CodexAccountUsageResult>;
-  clearCache(): void;
+  /** Invalidate only this home; omitted home means the default home. */
+  clearCache(home?: string): void;
+  /** Close legacy reads; the injected core client belongs to composition. */
   close(): Promise<void>;
 }
 
@@ -109,9 +112,10 @@ export interface ICodexAccountUsageService {
  */
 export interface ICodexOwnerKeySource {
   /**
-   * Owner key of the account behind the last successful read
+   * Owner key of this home's account behind its last successful read
    * (`openai-codex#account:<fp>`), or `null` before the first read, after
-   * `clearCache`, and when that read found no ChatGPT account.
+   * `clearCache(home)`, and when that read found no ChatGPT account.
+   * Omitted home means the default home, never the last focused account.
    */
-  currentOwnerKey(): string | null;
+  currentOwnerKey(home?: string): string | null;
 }

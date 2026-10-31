@@ -6,6 +6,11 @@ import type {
 } from '@ptah-extension/platform-core';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
+  CODEX_INITIALIZE_TIMEOUT_MS,
+  normalizeCodexHomeKey,
+  type CodexAccountUsageClient,
+} from '@ptah-extension/codex-runtime';
+import {
   SDK_TOKENS,
   resolveCodexNativeBinaryPath,
   type SdkAdapterEvents,
@@ -134,13 +139,33 @@ export class CodexAccountUsageService
     @inject(SDK_TOKENS.SDK_PROCESS_SPAWNER)
     private readonly spawner: IProcessSpawner,
     @inject(SDK_TOKENS.SDK_ADAPTER_EVENTS) events: SdkAdapterEvents,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_USAGE_CLIENT)
+    private readonly coreClient: CodexAccountUsageClient | null = null,
   ) {
     events.onAuthFileChanged((event) => {
       if (event.providerId === 'openai-codex') this.clearCache();
     });
   }
 
-  clearCache(): void {
+  private homeKind(home?: string): 'default' | 'explicit' | 'invalid' {
+    if (home === undefined) return 'default';
+    try {
+      return normalizeCodexHomeKey(home, process.platform) ===
+        normalizeCodexHomeKey(this.codexHome.path, process.platform)
+        ? 'default'
+        : 'explicit';
+    } catch {
+      return 'invalid';
+    }
+  }
+
+  clearCache(home?: string): void {
+    const kind = this.homeKind(home);
+    if (kind === 'invalid') return;
+    if (home !== undefined && kind === 'explicit') {
+      this.coreClient?.clearCache(home);
+      return;
+    }
     this.cached = null;
     this.ownerKey = null;
     this.generation += 1;
@@ -149,17 +174,30 @@ export class CodexAccountUsageService
     this.lastMiss = null;
   }
 
-  currentOwnerKey(): string | null {
+  currentOwnerKey(home?: string): string | null {
+    const kind = this.homeKind(home);
+    if (kind === 'invalid') return null;
+    if (home !== undefined && kind === 'explicit') {
+      return this.coreClient?.currentOwnerKey(home) ?? null;
+    }
     return this.ownerKey;
   }
 
   async getAccountUsage(
     options: { home?: string; refresh?: boolean; signal?: AbortSignal } = {},
   ): Promise<CodexAccountUsageResult> {
-    // This legacy service reads only the default home. Until usage moves onto the
-    // per-home core client, an explicit home must not get default-account usage.
-    if (options.home !== undefined) {
+    // Default-home parity is still gated; only other homes use the core client.
+    const kind = this.homeKind(options.home);
+    if (kind === 'invalid') {
       return { status: 'service-unavailable', providerId: 'openai-codex' };
+    }
+    if (options.home !== undefined && kind === 'explicit') {
+      return this.coreClient
+        ? this.coreClient.read(options.home, {
+            refresh: options.refresh,
+            signal: options.signal,
+          })
+        : { status: 'service-unavailable', providerId: 'openai-codex' };
     }
     const eligibility = await this.auth.getAccountUsageEligibility();
     if (eligibility !== 'supported') {
@@ -267,9 +305,14 @@ export class CodexAccountUsageService
     let stage = 'initialize';
     try {
       const initialized = codexInitializeResponseSchema.parse(
-        await rpc.request(1, 'initialize', {
-          clientInfo: { name: 'ptah', version: '1' },
-        }),
+        await rpc.request(
+          1,
+          'initialize',
+          {
+            clientInfo: { name: 'ptah', version: '1' },
+          },
+          CODEX_INITIALIZE_TIMEOUT_MS,
+        ),
       );
       stage = 'home';
       if (!samePath(initialized.codexHome, this.codexHome.path))
@@ -391,7 +434,12 @@ export class CodexAccountUsageService
     child: SpawnedProcessHandle,
     signal?: AbortSignal,
   ): {
-    request: (id: number, method: string, params?: unknown) => Promise<unknown>;
+    request: (
+      id: number,
+      method: string,
+      params?: unknown,
+      timeoutMs?: number,
+    ) => Promise<unknown>;
     notify: (method: string) => void;
   } {
     let buffer = '';
@@ -450,12 +498,12 @@ export class CodexAccountUsageService
     const write = (value: object) =>
       child.stdin?.write(`${JSON.stringify(value)}\n`);
     return {
-      request: (id, method, params) =>
+      request: (id, method, params, timeoutMs = REQUEST_TIMEOUT_MS) =>
         new Promise((resolve, reject) => {
           const timer = setTimeout(() => {
             pending.delete(id);
             reject(new AppServerError('unavailable'));
-          }, REQUEST_TIMEOUT_MS);
+          }, timeoutMs);
           timer.unref?.();
           pending.set(id, {
             method,

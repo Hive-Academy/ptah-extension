@@ -17,6 +17,7 @@
  * The key functions are module-level because the proxy base is not DI-built;
  * the `ProviderOwnerResolver` class wraps them for DI callers.
  */
+import { normalizeCodexHomeKey } from '@ptah-extension/codex-runtime';
 import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -563,13 +564,26 @@ export class ProviderOwnerResolver {
   }
 
   /**
-   * The Codex account last read from the resolved `CODEX_HOME`. Unknown —
-   * keyed by that home — before the first read and after the auth file changes.
+   * The Codex account last read from the requested home (default when omitted).
+   * Unknown owners use that home; lexical aliases of the default share its key.
    */
-  ownerForCodexHome(): QuotaOwnerRef {
-    const key = this.codexAccountUsage.currentOwnerKey();
+  ownerForCodexHome(home?: string): QuotaOwnerRef {
+    const key = this.codexAccountUsage.currentOwnerKey(home);
+    let ownerHome = home ?? this.codexHome.path;
+    if (!key && home !== undefined) {
+      try {
+        if (
+          normalizeCodexHomeKey(home, process.platform) ===
+          normalizeCodexHomeKey(this.codexHome.path, process.platform)
+        ) {
+          ownerHome = this.codexHome.path;
+        }
+      } catch {
+        // Invalid homes remain isolated unknown owners, without failing discovery.
+      }
+    }
     const owner = quotaOwnerRefFromKey(
-      key ?? unknownOwnerKey(CODEX_PROVIDER_ID, this.codexHome.path),
+      key ?? unknownOwnerKey(CODEX_PROVIDER_ID, ownerHome),
     );
     return key
       ? owner
@@ -584,11 +598,15 @@ export class ProviderOwnerResolver {
    * account service coalesces and caches this App Server read, so the usage
    * reader immediately following discovery reuses the same result.
    */
-  async resolveCodexHomeOwner(): Promise<QuotaOwnerRef> {
-    if (!this.codexAccountUsage.currentOwnerKey()) {
-      await this.codexAccountUsage.getAccountUsage();
+  async resolveCodexHomeOwner(home?: string): Promise<QuotaOwnerRef> {
+    if (!this.codexAccountUsage.currentOwnerKey(home)) {
+      if (home === undefined) {
+        await this.codexAccountUsage.getAccountUsage();
+      } else {
+        await this.codexAccountUsage.getAccountUsage({ home });
+      }
     }
-    return this.ownerForCodexHome();
+    return this.ownerForCodexHome(home);
   }
 
   /** A CLI whose quota follows its own on-disk credential store. */
@@ -643,7 +661,10 @@ export class ProviderOwnerResolver {
     if (accountRoute?.kind === 'named') {
       let account: ClaudeAccountInfo = null;
       try {
-        const result = await this.probe.readAccountForRoute(sessionId, accountRoute);
+        const result = await this.probe.readAccountForRoute(
+          sessionId,
+          accountRoute,
+        );
         if (result.status === 'available') account = result.value;
       } catch {
         // degradation-audit: optional-capability - failed identity proof stays unknown.

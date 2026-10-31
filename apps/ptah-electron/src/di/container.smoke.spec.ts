@@ -67,10 +67,12 @@ import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis'
 import {
   CLAUDE_LANE_ACCOUNT_PERSISTENCE,
   CLI_AGENT_RUNTIME_TOKENS,
+  CodexAppServerLaneAdapter,
   ChildWorktreeProvisioner,
   LaneCompletionNotifier,
   registerCliAgentRuntimeServices,
 } from '@ptah-extension/cli-agent-runtime';
+import { registerElectronCodexLaneFactory } from './codex-lane-composition';
 import {
   SESSION_ORGANIZATION_TOKENS,
   registerSessionOrganizationServices,
@@ -100,6 +102,8 @@ import {
   DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
+  EXPECTED_RUNTIME_TOKENS,
+  EXPECTED_NULL_RUNTIME_TOKENS,
   GIT_ROOT_WATCH_REGISTRY_TOKEN,
   HOST_ATTENTION_COORDINATOR_TOKEN,
   LANE_MODEL_LISTING_TOKEN,
@@ -1161,7 +1165,11 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
    * run collaborators stubbed, so constructing the spawner touches only the
    * SDK registries and the recorder.
    */
-  function composePhase2(withCliAgentRuntime: boolean) {
+  function composePhase2(
+    withCliAgentRuntime: boolean,
+    captureDetection = false,
+    isPackaged = false,
+  ) {
     const c = buildMinimalContainer();
     const logger = c.resolve<Logger>(TOKENS.LOGGER);
     const output = createMockOutputChannel();
@@ -1176,7 +1184,12 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     });
 
     registerSdkServices(c, logger);
+    let detection: { getAdapter(cli: 'codex'): unknown } | undefined;
     if (withCliAgentRuntime) {
+      registerElectronCodexLaneFactory(c, logger, {
+        isPackaged, resourcesPath: process.cwd(), appPath: process.cwd(),
+        env: process.env, platform: process,
+      });
       registerCliAgentRuntimeServices(c, logger);
       for (const token of [
         TOKENS.AGENT_PROCESS_MANAGER,
@@ -1187,6 +1200,8 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
         SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
         MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER,
       ] as InjectionToken[]) {
+        // A captured detector is the real one, resolved below.
+        if (captureDetection && token === TOKENS.CLI_DETECTION_SERVICE) continue;
         c.register(token, { useValue: {} });
       }
       // The constructor subscribes to prompt lifecycle events.
@@ -1200,6 +1215,24 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
         TOKENS.SENTRY_SERVICE,
       ]) {
         if (!c.isRegistered(token, true)) c.register(token, { useValue: {} });
+      }
+      if (captureDetection) {
+        // The detector builds the Claude lane, whose spawn options reach these
+        // producers. Other phase-2 libraries bind them in production; they
+        // play no part in Codex adapter selection.
+        for (const token of [
+          TOKENS.SUBAGENT_REGISTRY_SERVICE,
+          TOKENS.WEBVIEW_MANAGER,
+          AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV,
+          AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER,
+          AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER,
+          SDK_TOKENS.PRICING_PROVIDER,
+        ] as InjectionToken[]) {
+          if (!c.isRegistered(token, true)) c.register(token, { useValue: {} });
+        }
+        detection = c.resolve<{ getAdapter(cli: 'codex'): unknown }>(
+          TOKENS.CLI_DETECTION_SERVICE,
+        );
       }
     }
     // Never opened: the store-open signal is subscribed but never fires.
@@ -1216,7 +1249,7 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     }
     registerSessionOrganizationServices(c);
     startSessionOrganization(c);
-    return { c, logger, output };
+    return { c, logger, output, detection };
   }
 
   /**
@@ -1315,6 +1348,21 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     expect(c.resolve(token)).toBe(c.resolve(token));
   });
 
+  it('resolves native Codex through phase 2 when unpackaged', () => {
+    const { detection } = composePhase2(true, true);
+    expect(detection?.getAdapter('codex')).toBeInstanceOf(CodexAppServerLaneAdapter);
+  });
+
+  it('resolves the legacy Codex adapter when packaged with the lane gate closed', () => {
+    const { c, detection } = composePhase2(true, true, true);
+    expect(c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY)).toBe(false);
+    const codex = detection?.getAdapter('codex');
+    expect(codex).toBeDefined();
+    expect(codex).not.toBeInstanceOf(CodexAppServerLaneAdapter);
+    expect(codex && typeof codex === 'object' ? codex.constructor.name : undefined)
+      .toBe('CodexCliAdapter');
+  });
+
   it('the bound recorder reaches the child-session spawner (R-TL8)', () => {
     const { c } = composePhase2(true);
 
@@ -1355,5 +1403,19 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     );
     expect(registered).toEqual([...LanePlanLimitsRpcHandlers.METHODS]);
     expect(registered).toEqual(['agent:getLanePlanLimits']);
+  });
+});
+
+describe('Electron SDK runtime defaults before bootstrap', () => {
+  it('registers every runtime port and keeps native disabled until host binding', () => {
+    const c = buildMinimalContainer();
+    registerSdkServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+    for (const token of EXPECTED_RUNTIME_TOKENS)
+      expect(c.isRegistered(token, true)).toBe(true);
+    for (const token of EXPECTED_NULL_RUNTIME_TOKENS)
+      expect(c.resolve(token)).toBeNull();
+    expect(c.resolve(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES)).toEqual({
+      nativeCodex: false,
+    });
   });
 });
