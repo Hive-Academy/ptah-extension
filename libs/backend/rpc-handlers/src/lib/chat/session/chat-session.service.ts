@@ -85,6 +85,7 @@ import type {
 import {
   MESSAGE_TYPES,
   NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
+  loggableErrorName,
   selectHistoryPage,
 } from '@ptah-extension/shared';
 
@@ -121,6 +122,10 @@ import type {
 } from './session-mcp-status.registry';
 import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
 import { HarnessProposalTurnAttributionService } from '../../harness/config/harness-proposal-turn-attribution.service';
+import type {
+  AdmitUserTurnInput,
+  HostRoutingCoordinator,
+} from '../host-routing/host-routing.coordinator';
 
 /**
  * Minimal shape consumed by {@link ChatSessionService.autoResumeIfInactive}.
@@ -243,6 +248,9 @@ function namedPreparationRefusal(): ProviderAccountPortRefusal {
 /** What `chat:resume` needs from the session budget (N7). */
 type ChatSessionBudget = Pick<SessionBudgetService, 'observeLoaded'>;
 
+/** What `chat:start` and `chat:continue` need from host routing (TASK_2026_857). */
+type ChatHostRouting = Pick<HostRoutingCoordinator, 'admitUserTurn'>;
+
 @injectable()
 export class ChatSessionService {
   constructor(
@@ -319,8 +327,16 @@ export class ChatSessionService {
     private readonly turnAttribution: HarnessProposalTurnAttributionService | null = null,
     @inject(ProviderAccountService, { isOptional: true })
     private readonly accounts?: ProviderAccountService,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER, { isOptional: true })
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER, {
+      isOptional: true,
+    })
     private readonly activeProvider?: ActiveProviderResolver,
+    /**
+     * Host pre-flight routing (TASK_2026_857). Bound by Electron only; on
+     * VS Code and the CLI it is absent and no turn is admitted.
+     */
+    @inject(CHAT_TOKENS.HOST_ROUTING_COORDINATOR, { isOptional: true })
+    private readonly hostRouting?: ChatHostRouting,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
@@ -488,14 +504,17 @@ export class ChatSessionService {
     const preparation = prepare();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadlinePassed = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => {
-        preparation.catch(() => {
-          this.logger.warn(
-            '[RPC] named launch preparation failed after the admission deadline',
-          );
-        });
-        reject(namedPreparationRefusal());
-      }, Math.max(0, deadline - Date.now()));
+      timer = setTimeout(
+        () => {
+          preparation.catch(() => {
+            this.logger.warn(
+              '[RPC] named launch preparation failed after the admission deadline',
+            );
+          });
+          reject(namedPreparationRefusal());
+        },
+        Math.max(0, deadline - Date.now()),
+      );
     });
     try {
       const prepared = await Promise.race([preparation, deadlinePassed]);
@@ -589,7 +608,32 @@ export class ChatSessionService {
     };
   }
 
-  async startSession(params: ChatStartParams & MainSessionAccountSelection): Promise<ChatStartResult> {
+  /**
+   * Hand one dispatched user turn to host routing (TASK_2026_857, Req 4).
+   *
+   * Called only after the turn was dispatched, and never awaited:
+   * `admitUserTurn` is synchronous and runs its scope check in the
+   * background, so the reply path pays one function call. No-op when the
+   * host did not bind the coordinator (VS Code, CLI).
+   */
+  private admitHostRoutingTurn(input: AdmitUserTurnInput): void {
+    if (!this.hostRouting) return;
+    try {
+      this.hostRouting.admitUserTurn(input);
+    } catch (error: unknown) {
+      // degradation-audit: reported - routing is advisory and the turn is already dispatched; a failed admission must not fail it.
+      // Only the error class is logged: a message could quote the prompt.
+      this.logger.warn(
+        '[RPC] host routing admission failed',
+        new Error(`admitUserTurn threw ${loggableErrorName(error)}`),
+        { tabId: input.tabId },
+      );
+    }
+  }
+
+  async startSession(
+    params: ChatStartParams & MainSessionAccountSelection,
+  ): Promise<ChatStartResult> {
     const admissionDeadline = namedAdmissionDeadline();
     try {
       const { prompt, tabId, options, name } = params;
@@ -665,7 +709,10 @@ export class ChatSessionService {
         });
         return { success: true };
       }
-      const accountSelection = await this.gateAccount({ workspacePath, accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({
+        workspacePath,
+        accountSelection: params.accountSelection,
+      });
       let mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
       this.logger.info('[ptah.main] chat:start - session config', {
@@ -710,6 +757,11 @@ export class ChatSessionService {
         accountSelection,
         admissionDeadline,
       });
+      // Only a plain prompt: a slash command that starts a new query is not
+      // an interactive turn to route.
+      if (prompt && interceptResult.action === 'passthrough') {
+        this.admitHostRoutingTurn({ tabId, sessionId: null, prompt });
+      }
 
       return { success: true };
     } catch (error) {
@@ -746,7 +798,9 @@ export class ChatSessionService {
    */
   async startAgentChildSession(
     params: AgentChildSessionStartParams,
-  ): Promise<ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>> {
+  ): Promise<
+    ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>
+  > {
     const { tabId, workspaceRoot, worktreePath, prompt, sessionName, model } =
       params;
     try {
@@ -758,8 +812,12 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
-      const accountSelection = await this.gateAccount({ workspacePath: workspaceRoot,
-        sessionId: params.sourceSessionId, inheritedSource: true, accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({
+        workspacePath: workspaceRoot,
+        sessionId: params.sourceSessionId,
+        inheritedSource: true,
+        accountSelection: params.accountSelection,
+      });
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       const permissionLevel = this.childPermissionLevel(params.permissionLevel);
       this.logger.info('[ptah.main] agent child session - session config', {
@@ -841,7 +899,9 @@ export class ChatSessionService {
    */
   async startHandoffSession(
     params: HandoffSessionStartParams,
-  ): Promise<ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>> {
+  ): Promise<
+    ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>
+  > {
     const { tabId, workspaceRoot, cwd, prompt, sessionName, model } = params;
     const { permissionLevel } = params;
     try {
@@ -853,8 +913,12 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
-      const accountSelection = await this.gateAccount({ workspacePath: workspaceRoot,
-        sessionId: params.sourceSessionId, inheritedSource: true, accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({
+        workspacePath: workspaceRoot,
+        sessionId: params.sourceSessionId,
+        inheritedSource: true,
+        accountSelection: params.accountSelection,
+      });
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       this.logger.info('[ptah.main] handoff session - session config', {
         tabId,
@@ -997,9 +1061,10 @@ export class ChatSessionService {
         // Spreads to at most one field — `outputStyleName` for the flag tier or
         // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
         // both (R3 / Req 5.3).
-        const outputStyle = await this.outputStyleActivation.resolveSessionFields({
-          workspaceRoot: workspaceId,
-        });
+        const outputStyle =
+          await this.outputStyleActivation.resolveSessionFields({
+            workspaceRoot: workspaceId,
+          });
         return {
           enhancedPromptsContent,
           mcpServersOverride,
@@ -1039,7 +1104,10 @@ export class ChatSessionService {
         : {}),
       // Named only; the ambient launch config keeps its existing fields.
       ...(input.accountSelection
-        ? { accountSelection: input.accountSelection, admissionDeadline: input.admissionDeadline }
+        ? {
+            accountSelection: input.accountSelection,
+            admissionDeadline: input.admissionDeadline,
+          }
         : {}),
     });
     this.streamBroadcaster.streamEventsToWebview(
@@ -1069,7 +1137,10 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
-      await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+      await this.gateAccount({
+        sessionId,
+        accountSelection: params.accountSelection,
+      });
       // The session's own folder, never `params.workspacePath` or the active
       // root: with several projects open those name another repo (PTAH-37).
       const workspacePath =
@@ -1191,6 +1262,10 @@ export class ChatSessionService {
         images,
         clientMessageId: params.clientMessageId,
       });
+      // A slash command the router passed through is still not a turn to route.
+      if (!isSlashCommand) {
+        this.admitHostRoutingTurn({ tabId, sessionId, prompt });
+      }
 
       return { success: true, sessionId, enqueued: true };
     } catch (error) {
@@ -1226,12 +1301,17 @@ export class ChatSessionService {
    * transcript in the reply (TASK_2026_437 INV-9) — plus aggregated usage
    * stats, resumable subagents, and any CLI session references.
    */
-  async resumeSession(params: ChatResumeParams & MainSessionAccountSelection): Promise<ChatResumeResult> {
+  async resumeSession(
+    params: ChatResumeParams & MainSessionAccountSelection,
+  ): Promise<ChatResumeResult> {
     const admissionDeadline = namedAdmissionDeadline();
     try {
       const { sessionId } = params;
       if (!params.ptahCliId) {
-        await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+        await this.gateAccount({
+          sessionId,
+          accountSelection: params.accountSelection,
+        });
       }
       const metadata = await this.sessionMetadataStore.get(sessionId);
       const result = await this.historyRead.readForResume(sessionId, {
@@ -1568,15 +1648,24 @@ export class ChatSessionService {
   ): Promise<
     | { alreadyActive: true }
     | { resumed: true }
-    | { resumed: false; error: string;
-        accountRefusal?: NonNullable<ReturnType<typeof mainSessionAccountFailure>>['accountRefusal'] }
+    | {
+        resumed: false;
+        error: string;
+        accountRefusal?: NonNullable<
+          ReturnType<typeof mainSessionAccountFailure>
+        >['accountRefusal'];
+      }
   > {
     try {
       await this.gateAccount({ sessionId });
     } catch (error: unknown) {
       const refusal = mainSessionAccountFailure(error);
       if (!refusal) throw error;
-      return { resumed: false, error: refusal.error, accountRefusal: refusal.accountRefusal };
+      return {
+        resumed: false,
+        error: refusal.error,
+        accountRefusal: refusal.accountRefusal,
+      };
     }
     if (this.hasLiveSessionStream(sessionId, tabId)) {
       return { alreadyActive: true };
@@ -1647,7 +1736,10 @@ export class ChatSessionService {
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
     let accountSelection: ResolvedMainAccountSelection | undefined;
     try {
-      accountSelection = await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+      accountSelection = await this.gateAccount({
+        sessionId,
+        accountSelection: params.accountSelection,
+      });
     } catch (error: unknown) {
       const refusal = mainSessionAccountFailure(error);
       if (!refusal) throw error;
@@ -1894,22 +1986,51 @@ export class ChatSessionService {
   }
 
   private async gateAccount(
-    input: MainSessionAccountSelection & { workspacePath?: string; sessionId?: string; inheritedSource?: boolean },
+    input: MainSessionAccountSelection & {
+      workspacePath?: string;
+      sessionId?: string;
+      inheritedSource?: boolean;
+    },
   ): Promise<ResolvedMainAccountSelection | undefined> {
     // A separate child/handoff inherits only on the native Claude route.
     // Resume/fork/rewind calls are not inherited launches and must always
     // validate their original binding, irrespective of today's provider.
-    if (input.inheritedSource && input.sessionId && input.workspacePath && this.activeProvider &&
-        this.activeProvider.resolveActiveAuthForPath(input.workspacePath).authMethod !== 'claudeCli') {
-      return gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
-        metadata: this.sessionMetadataStore }, { workspacePath: input.workspacePath,
-        accountSelection: input.accountSelection });
+    if (
+      input.inheritedSource &&
+      input.sessionId &&
+      input.workspacePath &&
+      this.activeProvider &&
+      this.activeProvider.resolveActiveAuthForPath(input.workspacePath)
+        .authMethod !== 'claudeCli'
+    ) {
+      return gateMainSessionAccount(
+        {
+          accounts: this.accounts,
+          activeProvider: this.activeProvider,
+          metadata: this.sessionMetadataStore,
+        },
+        {
+          workspacePath: input.workspacePath,
+          accountSelection: input.accountSelection,
+        },
+      );
     }
     // Fresh ambient hosts retain their call sequence. Existing sessions still
     // inspect local linkage if the authoritative account service is unavailable.
-    if (!this.accounts && input.accountSelection === undefined && !input.sessionId) return undefined;
-    return gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
-      metadata: this.sessionMetadataStore }, input);
+    if (
+      !this.accounts &&
+      input.accountSelection === undefined &&
+      !input.sessionId
+    )
+      return undefined;
+    return gateMainSessionAccount(
+      {
+        accounts: this.accounts,
+        activeProvider: this.activeProvider,
+        metadata: this.sessionMetadataStore,
+      },
+      input,
+    );
   }
 
   /** Per-method Sentry capture (each method result-shapes its failures, so the handler's `runRpc` won't see them). */
