@@ -20,6 +20,12 @@
  * keys" is not.
  */
 
+import {
+  mcpRetiredItemId,
+  type HarnessRetiredItemId,
+  type HarnessRetiredKeptReason,
+  type McpServerConfig,
+} from '@ptah-extension/shared';
 import type { HarnessDesiredMcpServer } from '../../manifest/desired-state.types';
 import {
   entrySourceHash,
@@ -82,6 +88,7 @@ export function planMcpFacet(
   desired: HarnessDesiredMcpServer[],
   workspaceRoot: string,
   baseEntries: ManagedEntries,
+  retiredServerKeys: readonly string[] = [],
 ): McpFacetPlan {
   const plan = emptyMcpFacetPlan();
   const configRel = facet.configRelPath();
@@ -133,15 +140,21 @@ export function planMcpFacet(
   }
 
   // Owned keys the user no longer wants here. Scoped to THIS config file, so a
-  // partial reconcile of one target cannot reap another target's entries.
+  // partial reconcile of one target cannot reap another target's entries. A
+  // retired key (D-2) is marked so apply runs the proof policy on it.
+  const retired = new Set(retiredServerKeys);
   for (const relPath of Object.keys(baseEntries)) {
     if (plan.ownedKeys.has(relPath)) continue;
     if (!relPath.startsWith(`${configRel}#`)) continue;
+    const mcpServerKey = relPath.slice(configRel.length + 1);
     plan.removals.push({
       relPath,
       kind: 'mcp',
       isDirectory: false,
-      mcpServerKey: relPath.slice(configRel.length + 1),
+      mcpServerKey,
+      ...(retired.has(mcpServerKey)
+        ? { retiredItemId: mcpRetiredItemId(mcpServerKey) }
+        : {}),
     });
   }
 
@@ -152,16 +165,96 @@ export function planMcpFacet(
   return plan;
 }
 
-/** Execute the MCP half of a plan, merging into the target's apply result. */
+/**
+ * Whether git knows a workspace path (D-D7):
+ * - `tracked`: `git ls-files --error-unmatch` exited 0;
+ * - `untracked`: it exited 1 with git's "did not match any file(s)" message;
+ * - `unverifiable`: anything else — git missing, timed out, not a repository
+ *   (128), another exit or message, or a path that is not contained.
+ */
+export type GitTrackingState = 'tracked' | 'untracked' | 'unverifiable';
+
+/** Answers {@link GitTrackingState} for a workspace-relative POSIX path. */
+export type GitTrackingProbe = (
+  workspaceRoot: string,
+  relPath: string,
+) => Promise<GitTrackingState>;
+
+/**
+ * What applying a retired MCP removal needs beyond the removal itself (D-2).
+ *
+ * `baseEntries` supplies the hash Ptah recorded for the key, because a removal
+ * carries none; `probeGitTracking` answers rule 2 for a workspace config file.
+ */
+export interface McpRetirementContext {
+  baseEntries: ManagedEntries;
+  probeGitTracking: GitTrackingProbe;
+}
+
+/** A retired copy deleted on proof: in `removed` AND `removedRetired`. */
+export function recordRetiredRemoved(
+  result: HarnessApplyResult,
+  relPath: string,
+  itemId: HarnessRetiredItemId,
+): void {
+  result.removed.push(relPath);
+  (result.removedRetired ??= []).push({ relPath, itemId });
+}
+
+/**
+ * A retired copy kept on disk and disowned: NOT in `removed`, never
+ * snapshotted. The reconciler drops its manifest entry.
+ */
+export function recordRetiredKept(
+  result: HarnessApplyResult,
+  relPath: string,
+  itemId: HarnessRetiredItemId,
+  reason: HarnessRetiredKeptReason,
+): void {
+  (result.keptRetired ??= []).push({ relPath, itemId, reason });
+}
+
+/**
+ * A retired removal that hit an I/O failure. Out of `removed` and
+ * `keptRetired`, so the entry stays owned and the next pass retries.
+ */
+export function recordRetiredFailed(
+  result: HarnessApplyResult,
+  relPath: string,
+  itemId: HarnessRetiredItemId,
+  reason: string,
+): void {
+  result.writeFailed.push({ relPath, reason, itemId });
+}
+
+/**
+ * Execute the MCP half of a plan, merging into the target's apply result.
+ *
+ * A removal carrying `retiredItemId` goes through
+ * {@link applyRetiredMcpRemoval} instead of a plain delete; `retirement` is
+ * required for it, and without one such a removal fails and stays owned.
+ */
 export async function applyMcpFacet(
   facet: IHarnessMcpFacet,
   writes: HarnessPlanWrite[],
   removals: HarnessPlanRemove[],
   workspaceRoot: string,
   result: HarnessApplyResult,
+  retirement?: McpRetirementContext,
 ): Promise<void> {
   for (const removal of removals) {
     if (removal.mcpServerKey === undefined) continue;
+    if (removal.retiredItemId !== undefined) {
+      await applyRetiredMcpRemoval(
+        facet,
+        { ...removal, mcpServerKey: removal.mcpServerKey },
+        removal.retiredItemId,
+        workspaceRoot,
+        result,
+        retirement,
+      );
+      continue;
+    }
     try {
       await facet.remove(workspaceRoot, removal.mcpServerKey);
       result.removed.push(removal.relPath);
@@ -189,6 +282,91 @@ export async function applyMcpFacet(
         reason: describe(error),
       });
     }
+  }
+}
+
+/**
+ * Remove one retired, manifest-owned server key only on proof (D-2):
+ *
+ * 1. the key's current entry hashes to the manifest hash — else kept `edited`;
+ *    a key already gone is removed (nothing of it remains);
+ * 2. a workspace config file is provably untracked by git — else kept
+ *    `git-tracked` / `unverifiable`. A `~/` home config sits outside any
+ *    repository and skips this check (rule 3 covers it);
+ * 3. only then the key is deleted; the facet rewrites the file, so sibling
+ *    keys — owned or hand-added — are left as they are.
+ *
+ * Reading the config or deleting the key failing is an I/O failure: it lands in
+ * `writeFailed` with the item id and the key stays owned for the next pass.
+ */
+async function applyRetiredMcpRemoval(
+  facet: IHarnessMcpFacet,
+  removal: HarnessPlanRemove & { mcpServerKey: string },
+  itemId: HarnessRetiredItemId,
+  workspaceRoot: string,
+  result: HarnessApplyResult,
+  retirement: McpRetirementContext | undefined,
+): Promise<void> {
+  const { relPath, mcpServerKey } = removal;
+  const owned = retirement?.baseEntries[relPath];
+  if (retirement === undefined || owned === undefined) {
+    recordRetiredFailed(
+      result,
+      relPath,
+      itemId,
+      'cannot prove a retired MCP entry unchanged: no owned manifest hash was supplied',
+    );
+    return;
+  }
+
+  let current: McpServerConfig | undefined;
+  try {
+    current = facet.readAll(workspaceRoot).get(mcpServerKey);
+  } catch (error: unknown) {
+    recordRetiredFailed(
+      result,
+      relPath,
+      itemId,
+      `failed to read MCP config: ${describe(error)}`,
+    );
+    return;
+  }
+  if (current === undefined) {
+    recordRetiredRemoved(result, relPath, itemId);
+    return;
+  }
+  if (hashMcpConfig(current) !== owned.hash) {
+    recordRetiredKept(result, relPath, itemId, 'edited');
+    return;
+  }
+
+  const configRel = facet.configRelPath();
+  if (!configRel.startsWith('~/')) {
+    const tracking = await retirement.probeGitTracking(
+      workspaceRoot,
+      configRel,
+    );
+    if (tracking !== 'untracked') {
+      recordRetiredKept(
+        result,
+        relPath,
+        itemId,
+        tracking === 'tracked' ? 'git-tracked' : 'unverifiable',
+      );
+      return;
+    }
+  }
+
+  try {
+    await facet.remove(workspaceRoot, mcpServerKey);
+    recordRetiredRemoved(result, relPath, itemId);
+  } catch (error: unknown) {
+    recordRetiredFailed(
+      result,
+      relPath,
+      itemId,
+      `failed to remove MCP entry: ${describe(error)}`,
+    );
   }
 }
 

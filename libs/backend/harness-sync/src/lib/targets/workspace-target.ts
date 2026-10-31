@@ -29,16 +29,20 @@
  * targets cannot disagree about which tree they are writing into.
  */
 
+import { execFile } from 'child_process';
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'fs';
 import type { Stats } from 'fs';
-import { mkdir, readFile, rm, unlink, writeFile } from 'fs/promises';
-import { dirname, join } from 'path';
-import type {
-  HarnessFacetMatrix,
-  HarnessTargetHealth,
-  HarnessTargetId,
+import { lstat, mkdir, readFile, rm, unlink, writeFile } from 'fs/promises';
+import { basename, dirname, isAbsolute, join, resolve } from 'path';
+import {
+  skillsShRetiredItemId,
+  type HarnessFacetMatrix,
+  type HarnessRetiredItemId,
+  type HarnessTargetHealth,
+  type HarnessTargetId,
 } from '@ptah-extension/shared';
 import { throwIfPassAborted } from '../abort/pass-abort';
+import { errorCode } from '../fs/windows-retry';
 import {
   hashContent,
   hashDir,
@@ -81,13 +85,20 @@ import type {
   HarnessPlan,
   HarnessPlanRemove,
   HarnessPlanWrite,
+  HarnessRetiredSources,
   IHarnessTarget,
 } from './harness-target.port';
+import { isInsideRoot } from './link-ownership';
 import type { IHarnessMcpFacet } from './mcp/mcp-facet.port';
 import {
   applyMcpFacet,
   emptyMcpFacetPlan,
   planMcpFacet,
+  recordRetiredFailed,
+  recordRetiredKept,
+  recordRetiredRemoved,
+  type GitTrackingProbe,
+  type GitTrackingState,
   type McpFacetPlan,
 } from './mcp/mcp-facet-planner';
 import type { IHarnessAgentTransformer } from './transformers/agent-transformer.port';
@@ -121,15 +132,24 @@ export interface WorkspaceHarnessTargetOptions {
    * agents home-first, so a stale home copy shadows the workspace copy (E19).
    */
   homeReap?: { dir: () => string; prefixes: readonly string[] };
+  /**
+   * Answers whether git tracks a path, for the retired-copy proof (D-D7).
+   * Defaults to `git ls-files --error-unmatch` ({@link createGitTrackingProbe});
+   * specs substitute a runner to reach git-missing and timeout outcomes.
+   */
+  gitTrackingProbe?: GitTrackingProbe;
 }
 
 export class WorkspaceHarnessTarget implements IHarnessTarget {
   readonly id: HarnessTargetId;
   readonly facets: HarnessFacetMatrix;
+  private readonly probeGitTracking: GitTrackingProbe;
 
   constructor(private readonly options: WorkspaceHarnessTargetOptions) {
     this.id = options.id;
     this.facets = options.facets;
+    this.probeGitTracking =
+      options.gitTrackingProbe ?? createGitTrackingProbe();
   }
 
   /**
@@ -152,11 +172,18 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     return keys;
   }
 
+  /**
+   * @param retired the pass's retired sources (D-2). A removal whose manifest
+   *   source lies under a retired skill root, or whose MCP key is retired, is
+   *   marked with `retiredItemId` so apply runs the proof policy on it. Absent
+   *   means nothing is retired.
+   */
   async plan(
     desired: HarnessDesiredState,
     workspaceRoot: string,
     manifest: ManagedManifest,
     signal?: AbortSignal,
+    retired?: HarnessRetiredSources,
   ): Promise<HarnessPlan> {
     const hashOptions: ContentHashOptions = { signal };
     const migrations: HarnessMigration[] = [];
@@ -236,8 +263,18 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       });
     }
 
-    const mcpPlan = this.planMcp(desired, workspaceRoot, baseEntries);
-    const removals = this.planRemovals(baseEntries, desiredEntries, mcpPlan);
+    const mcpPlan = this.planMcp(
+      desired,
+      workspaceRoot,
+      baseEntries,
+      retired?.mcpServerKeys ?? [],
+    );
+    const removals = this.planRemovals(
+      baseEntries,
+      desiredEntries,
+      mcpPlan,
+      retired?.skillSourceRoots ?? [],
+    );
     this.scanForeignDirs(workspaceRoot, desiredEntries, ownership, foreign);
 
     return {
@@ -274,6 +311,16 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
 
     for (const removal of plan.removals) {
       if (removal.kind === 'mcp') continue;
+      if (removal.retiredItemId !== undefined) {
+        await this.removeRetiredCopy(
+          removal,
+          removal.retiredItemId,
+          workspaceRoot,
+          plan.baseEntries,
+          result,
+        );
+        continue;
+      }
       await this.retireOwned(
         removal,
         workspaceRoot,
@@ -296,6 +343,10 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         plan.removals.filter((removal) => removal.kind === 'mcp'),
         workspaceRoot,
         result,
+        {
+          baseEntries: plan.baseEntries,
+          probeGitTracking: this.probeGitTracking,
+        },
       );
     }
 
@@ -445,6 +496,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     desired: HarnessDesiredState,
     workspaceRoot: string,
     baseEntries: ManagedEntries,
+    retiredServerKeys: readonly string[],
   ): McpFacetPlan {
     const facet = this.options.mcpFacet;
     if (facet === undefined) return emptyMcpFacetPlan();
@@ -455,6 +507,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       ),
       workspaceRoot,
       baseEntries,
+      retiredServerKeys,
     );
   }
 
@@ -587,11 +640,16 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     return hashTransformedDir(entry.source, slug, hashOptions);
   }
 
-  /** Manifest-owned paths that are no longer desired. MCP is handled separately. */
+  /**
+   * Manifest-owned paths that are no longer desired. MCP is handled separately.
+   * A copy whose manifest source lies under a retired skills.sh root carries
+   * that root's item id (D-2).
+   */
   private planRemovals(
     baseEntries: ManagedEntries,
     desiredEntries: Map<string, DesiredEntry>,
     mcpPlan: McpFacetPlan,
+    retiredSkillRoots: readonly string[],
   ): HarnessPlanRemove[] {
     const removals: HarnessPlanRemove[] = [];
     for (const relPath of Object.keys(baseEntries)) {
@@ -599,10 +657,15 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       const entry = baseEntries[relPath];
       if (entry.kind === 'mcp') continue; // owned by the facet planner
       if (mcpPlan.ownedKeys.has(relPath)) continue;
+      const retiredItemId = retiredSourceItemId(
+        entry.source,
+        retiredSkillRoots,
+      );
       removals.push({
         relPath,
         kind: entry.kind,
         isDirectory: entry.kind === 'skill',
+        ...(retiredItemId === undefined ? {} : { retiredItemId }),
       });
     }
     return removals;
@@ -883,6 +946,106 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     if (outcome.kind === 'removed-local-edit') removedLocalEdit.push(relPath);
   }
 
+  /**
+   * Remove one manifest-owned copy of a RETIRED source only on proof (D-2).
+   * Every rule keeps on doubt, and a kept copy is never touched or
+   * snapshotted — it is reported `keptRetired` and the reconciler disowns it:
+   *
+   * 1. The path must be relative, contained in the workspace and reached
+   *    without a symbolic link at any level — else kept `unverifiable`. A path
+   *    already gone leaves nothing to remove and counts as removed.
+   * 2. The copy must be the kind recorded and hash to the manifest hash — else
+   *    kept `edited`.
+   * 3. Git must prove it untracked ({@link GitTrackingState}) — else kept
+   *    `git-tracked` or `unverifiable`.
+   * 4. Only then is it deleted, through the same detach-and-decide gate an
+   *    overwrite uses: an edit saved since step 2 is put back and kept
+   *    `edited`, never snapshot-removed.
+   *
+   * An I/O failure at any step lands in `writeFailed` with the item id: the
+   * entry stays owned, and the next pass retries.
+   */
+  private async removeRetiredCopy(
+    removal: HarnessPlanRemove,
+    itemId: HarnessRetiredItemId,
+    workspaceRoot: string,
+    baseEntries: ManagedEntries,
+    result: HarnessApplyResult,
+  ): Promise<void> {
+    const { relPath, isDirectory } = removal;
+    const owned = baseEntries[relPath];
+    const absolute = containedTargetPath(workspaceRoot, relPath);
+    if (owned === undefined || absolute === null) {
+      recordRetiredKept(result, relPath, itemId, 'unverifiable');
+      return;
+    }
+
+    const found = await lstatWithoutLinks(workspaceRoot, relPath);
+    if (found.kind === 'failed') {
+      recordRetiredFailed(result, relPath, itemId, found.reason);
+      return;
+    }
+    if (found.kind === 'absent') {
+      recordRetiredRemoved(result, relPath, itemId);
+      return;
+    }
+    if (found.kind === 'link') {
+      recordRetiredKept(result, relPath, itemId, 'unverifiable');
+      return;
+    }
+    const kindMatches = isDirectory
+      ? found.stat.isDirectory()
+      : found.stat.isFile();
+    if (!kindMatches) {
+      recordRetiredKept(result, relPath, itemId, 'edited');
+      return;
+    }
+
+    const actual = isDirectory
+      ? await hashDir(absolute)
+      : await hashFile(absolute);
+    if (actual === null) {
+      recordRetiredFailed(
+        result,
+        relPath,
+        itemId,
+        `cannot read ${relPath} to prove it unchanged`,
+      );
+      return;
+    }
+    if (actual !== owned.hash) {
+      recordRetiredKept(result, relPath, itemId, 'edited');
+      return;
+    }
+
+    const tracking = await this.probeGitTracking(workspaceRoot, relPath);
+    if (tracking !== 'untracked') {
+      recordRetiredKept(
+        result,
+        relPath,
+        itemId,
+        tracking === 'tracked' ? 'git-tracked' : 'unverifiable',
+      );
+      return;
+    }
+
+    const gate = await prepareOwnedOverwrite({
+      workspaceRoot,
+      relPath,
+      isDirectory,
+      ownedHash: owned.hash,
+    });
+    if (gate.kind === 'failed') {
+      recordRetiredFailed(result, relPath, itemId, gate.reason);
+      return;
+    }
+    if (gate.kind === 'kept-local-edit') {
+      recordRetiredKept(result, relPath, itemId, 'edited');
+      return;
+    }
+    recordRetiredRemoved(result, relPath, itemId);
+  }
+
   private async applyMigrations(
     migrations: HarnessMigration[],
     result: HarnessApplyResult,
@@ -943,7 +1106,10 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         ownedHash: owned.hash,
       });
       if (gate.kind === 'failed') {
-        result.writeFailed.push({ relPath: write.relPath, reason: gate.reason });
+        result.writeFailed.push({
+          relPath: write.relPath,
+          reason: gate.reason,
+        });
         return;
       }
       if (gate.kind === 'kept-local-edit') {
@@ -1059,6 +1225,191 @@ interface OwnershipOracle {
 
 function toAbsolute(workspaceRoot: string, relPath: string): string {
   return join(workspaceRoot, ...relPath.split('/'));
+}
+
+/** `git ls-files` bound for the retired-copy proof (D-D7). */
+export const GIT_PROBE_TIMEOUT_MS = 5_000;
+
+/** Git's message for a pathspec it does not track (LC_ALL=C). */
+export const GIT_NO_MATCH_MESSAGE = 'did not match any file(s) known to git';
+
+/**
+ * What running git produced: an exit code with its stderr, or no exit at all
+ * (not spawned, killed by the timeout, ended by a signal, output overflow).
+ */
+export type GitRunOutcome =
+  | { kind: 'exited'; exitCode: number; stderr: string }
+  | { kind: 'failed'; reason: string };
+
+/** Runs git with an argument array in `cwd`. Never rejects. */
+export type GitRunner = (
+  args: readonly string[],
+  cwd: string,
+) => Promise<GitRunOutcome>;
+
+/** Variables that would point git at a repository other than `cwd`'s. */
+const GIT_LOCATION_ENV = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'];
+
+/**
+ * `execFile` with an argument array — no shell, so a manifest path cannot be
+ * read as a command — a {@link GIT_PROBE_TIMEOUT_MS} bound, the C locale (so
+ * {@link GIT_NO_MATCH_MESSAGE} is not translated) and no inherited repository
+ * location, so `cwd` alone decides which repository answers.
+ */
+const execGit: GitRunner = (args, cwd) =>
+  new Promise((settle) => {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      LC_ALL: 'C',
+      LANGUAGE: 'C',
+    };
+    for (const name of GIT_LOCATION_ENV) delete env[name];
+    execFile(
+      'git',
+      [...args],
+      {
+        cwd,
+        env,
+        timeout: GIT_PROBE_TIMEOUT_MS,
+        windowsHide: true,
+        encoding: 'utf8',
+      },
+      (error, _stdout, stderr) => {
+        if (error === null) {
+          settle({ kind: 'exited', exitCode: 0, stderr });
+          return;
+        }
+        if (
+          typeof error.code === 'number' &&
+          error.killed !== true &&
+          (error.signal === undefined || error.signal === null)
+        ) {
+          settle({ kind: 'exited', exitCode: error.code, stderr });
+          return;
+        }
+        settle({
+          kind: 'failed',
+          reason:
+            error.killed === true
+              ? 'timed out'
+              : String(error.code ?? error.signal ?? error.message),
+        });
+      },
+    );
+  });
+
+/**
+ * Map one `git ls-files --error-unmatch` run to a {@link GitTrackingState}.
+ * Only exit 1 together with git's no-match message proves "untracked"; every
+ * other outcome — exit 128 outside a repository, a missing git, a timeout,
+ * another message — is `unverifiable`, because only proof may delete.
+ */
+export function classifyGitLsFiles(outcome: GitRunOutcome): GitTrackingState {
+  if (outcome.kind === 'failed') return 'unverifiable';
+  if (outcome.exitCode === 0) return 'tracked';
+  if (outcome.exitCode === 1 && outcome.stderr.includes(GIT_NO_MATCH_MESSAGE)) {
+    return 'untracked';
+  }
+  return 'unverifiable';
+}
+
+/**
+ * The git-tracking probe a target uses: validates the path, then runs
+ * `git --literal-pathspecs ls-files --error-unmatch -- <relPath>` in the
+ * workspace root. `--literal-pathspecs` stops a `*` or `:` in a manifest path
+ * being read as a pattern that matches some other, tracked file.
+ */
+export function createGitTrackingProbe(
+  run: GitRunner = execGit,
+): GitTrackingProbe {
+  return async (workspaceRoot, relPath) => {
+    if (containedTargetPath(workspaceRoot, relPath) === null) {
+      return 'unverifiable';
+    }
+    return classifyGitLsFiles(
+      await run(
+        ['--literal-pathspecs', 'ls-files', '--error-unmatch', '--', relPath],
+        workspaceRoot,
+      ),
+    );
+  };
+}
+
+/**
+ * The absolute path of a manifest relPath, or `null` when it is not a plain
+ * workspace-relative POSIX path strictly inside the root: empty, absolute, a
+ * drive or `~/` prefix, a backslash, an empty, `.` or `..` segment.
+ */
+export function containedTargetPath(
+  workspaceRoot: string,
+  relPath: string,
+): string | null {
+  if (
+    relPath === '' ||
+    relPath.includes('\\') ||
+    relPath.includes('\0') ||
+    isAbsolute(relPath) ||
+    /^[A-Za-z]:/.test(relPath)
+  ) {
+    return null;
+  }
+  const segments = relPath.split('/');
+  if (segments[0] === '~') return null;
+  if (segments.some((s) => s === '' || s === '.' || s === '..')) return null;
+  const absolute = join(workspaceRoot, ...segments);
+  if (resolve(absolute) === resolve(workspaceRoot)) return null;
+  return isInsideRoot(absolute, workspaceRoot) ? absolute : null;
+}
+
+/**
+ * `lstat` every segment below the workspace root, so a link anywhere on the
+ * way — not only at the leaf — is seen and nothing is followed out of the
+ * workspace. A missing segment means the path is absent.
+ */
+async function lstatWithoutLinks(
+  workspaceRoot: string,
+  relPath: string,
+): Promise<
+  | { kind: 'present'; stat: Stats }
+  | { kind: 'absent' }
+  | { kind: 'link' }
+  | { kind: 'failed'; reason: string }
+> {
+  let current = workspaceRoot;
+  let stat: Stats | null = null;
+  for (const segment of relPath.split('/')) {
+    current = join(current, segment);
+    try {
+      stat = await lstat(current);
+    } catch (error: unknown) {
+      const code = errorCode(error);
+      if (code === 'ENOENT' || code === 'ENOTDIR') return { kind: 'absent' };
+      return {
+        kind: 'failed',
+        reason: `cannot inspect ${relPath}: ${describeError(error)}`,
+      };
+    }
+    if (stat.isSymbolicLink()) return { kind: 'link' };
+  }
+  return stat === null ? { kind: 'absent' } : { kind: 'present', stat };
+}
+
+/**
+ * The retired item a manifest source belongs to: the first retired skills.sh
+ * root containing it, as `skillsShRetiredItemId(basename(root))`.
+ */
+function retiredSourceItemId(
+  source: string,
+  retiredRoots: readonly string[],
+): HarnessRetiredItemId | undefined {
+  for (const root of retiredRoots) {
+    // `resolve('')` is the process cwd, never a retired root.
+    if (root === '') continue;
+    const rootId = basename(resolve(root));
+    if (rootId === '') continue;
+    if (isInsideRoot(source, root)) return skillsShRetiredItemId(rootId);
+  }
+  return undefined;
 }
 
 function dirOf(relPath: string): string {

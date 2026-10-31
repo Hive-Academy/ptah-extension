@@ -1,0 +1,41 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": 23,
+  "title": "D-2 retirement removal proofs",
+  "executor": "claude backend-developer subagent",
+  "changed": [
+    "libs/backend/harness-sync/src/lib/targets/workspace-target.ts",
+    "libs/backend/harness-sync/src/lib/targets/mcp/mcp-facet-planner.ts",
+    "libs/backend/harness-sync/src/lib/targets/workspace-target.retirement.spec.ts",
+    "libs/backend/harness-sync/src/lib/targets/mcp/mcp-facet-planner.retirement.spec.ts"
+  ],
+  "acceptance": {
+    "workspaceTarget": "plan() optional 5th param retired?: HarnessRetiredSources; planRemovals sets retiredItemId = skillsShRetiredItemId(basename(root)) for sources inside a retired root (isInsideRoot). apply routes retired removals to removeRetiredCopy: contained relative path, lstat with no links on every segment, kind + manifest hash match, git untracked proof, then delete through prepareOwnedOverwrite. Kept copies are disowned, never snapshot-removed.",
+    "git": "execFile('git', ['--literal-pathspecs','ls-files','--error-unmatch','--',relPath]), cwd = workspace root, 5000 ms timeout, no shell, LC_ALL=C, GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE removed. Only exit 1 + 'did not match any file(s) known to git' is untracked; exit 0 git-tracked; everything else unverifiable.",
+    "mcp": "planMcpFacet 5th param retiredServerKeys (default []) sets retiredItemId = mcpRetiredItemId(key). applyMcpFacet optional 6th param McpRetirementContext {baseEntries, probeGitTracking}. Retired key removed only if its entry hash equals the owned manifest hash (else kept edited); workspace config files get the git probe, home configs skip it; only that key is removed; I/O failure or missing context -> writeFailed with itemId (stays owned)."
+  },
+  "fixtureMatrix": "Real git: untracked unchanged owned skill dir and command file deleted; git-added kept git-tracked; edited kept edited (no snapshot); non-repo (128) kept unverifiable. Stubbed ENOENT/timeout/other stderr/128 kept unverifiable. Blocked history dir -> writeFailed. Symlinked parent and ../escape kept unverifiable without git call. Absent copy -> removedRetired. Non-retired removal keeps snapshot path. MCP: home owned unchanged key removed with siblings and hand-added key intact; edited kept; workspace tracked/unverifiable kept; untracked removed; real git through WorkspaceHarnessTarget removes only the retired key; hand-added key never planned; I/O errors and missing context -> writeFailed.",
+  "verification": {
+    "command": "npm run verify -- -p @ptah-extension/harness-sync,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview",
+    "log": "/tmp/tpd-b23-verify.log",
+    "result": "exit 1. 68 tasks: 65 succeeded, 3 failed. harness-sync:test 699/701 (only the 2 known agent-workspace-scope.spec.ts env failures); known ptah-extension-webview:lint; ptah-electron:test 2 git-watcher timing tests under machine load. Coordinator re-ran `npm run verify -- -t test -p ptah-electron -- --testPathPatterns=git-watcher` -> exit 0 (/tmp/tpd-b23-gitwatcher.log), so those 2 are load flakes, not this batch."
+  },
+  "decisions": [
+    "An already-absent retired copy is reported in removedRetired.",
+    "An invalid or escaping manifest path is kept unverifiable (disowned), not writeFailed, because a retry cannot succeed.",
+    "A kind mismatch is kept edited.",
+    "Workspace MCP config files also get the git probe on the config file path.",
+    "GitTrackingProbe type lives in the planner and its implementation (createGitTrackingProbe) in workspace-target.ts, to avoid a circular import."
+  ],
+  "risks": [
+    "Manifest source holds absolute paths.",
+    "git ls-files on a directory returns 0 if any file under it is tracked, so a partly tracked skill is kept.",
+    "Output-buffer overflow on a large tracked dir is classified unverifiable (kept)."
+  ],
+  "followUps": {
+    "batch24_port": "Add retired?: HarnessRetiredSources as 5th param of IHarnessTarget.plan(desired, workspaceRoot, manifest, signal?, retired?).",
+    "batch24_reconciler": "Call target.plan(desired, root, manifest, signal, source.retired ?? { skillSourceRoots: [], mcpServerKeys: [] }) with absolute retired root dirs. Prune result.removed as today (removedRetired is a subset); delete manifest entries for keptRetired relPaths; keep writeFailed entries with itemId owned; merge removedRetired/keptRetired into HarnessTargetHealth keyed by harnessPathIdentity(root, relPath).",
+    "claudeTarget": "claude-target.ts:326,382 must pass retired.mcpServerKeys as 5th arg to planMcpFacet and { baseEntries: plan.baseEntries, probeGitTracking: createGitTrackingProbe() } as 6th arg to applyMcpFacet; wire both sides together or retired removals fail owned.",
+    "optional": "Move createGitTrackingProbe/classifyGitLsFiles/containedTargetPath to retirement-proof.ts if a third consumer appears."
+  }
+}
