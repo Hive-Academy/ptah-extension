@@ -219,9 +219,7 @@ export class SettingsComponent implements OnInit {
 
   readonly providersTarget = signal<ProvidersSettingsFocusTarget | null>(null);
   /** Focus target for the CLI matrix / background roles part of the Providers tab. */
-  readonly agentsRoutingTarget = signal<AgentsRoutingFocusTarget | null>(
-    null,
-  );
+  readonly agentsRoutingTarget = signal<AgentsRoutingFocusTarget | null>(null);
 
   /**
    * Provider id carried by a deep-link into the settings page (e.g. the
@@ -233,6 +231,14 @@ export class SettingsComponent implements OnInit {
   readonly isElectron = this.vscodeService.isElectron;
   /** Header "App: …" label. */
   readonly appLabel = this.isElectron ? 'Desktop' : 'VS Code';
+
+  runOnboardingAgain(): void {
+    this.appState.setCurrentView('onboarding');
+  }
+
+  checkClaudeCode(): void {
+    if (this.isElectron) this.appState.openOnboardingReady();
+  }
   /** Header workspace path (full, for `title`); null until setting sources load or with no folder open. */
   readonly workspacePath = computed(
     () => this.providersState.scopes().data?.activePath ?? null,

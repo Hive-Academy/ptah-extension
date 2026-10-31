@@ -12,9 +12,12 @@ import {
   ACCEPTED_INITIAL_VIEWS,
   DEFAULT_SURFACE_ID,
   LEGACY_SURFACE_ALIASES,
+  LEGACY_SURFACE_TARGETS,
   SURFACE_ROUTE_IDS,
   isAcceptedInitialView,
+  isLegacySurfaceAlias,
   isSurfaceRouteId,
+  resolveSurfaceAlias,
   surfaceIdFromSegment,
   surfaceRoutePath,
 } from './webview-surface.types';
@@ -24,11 +27,8 @@ describe('webview surface ids', () => {
     expect([...SURFACE_ROUTE_IDS]).toEqual([
       'chat',
       'onboarding',
-      'setup-wizard',
       'settings',
       'analytics',
-      'harness-builder',
-      'setup-hub',
       'thoth',
       'marketplace',
       'tasks',
@@ -43,11 +43,19 @@ describe('webview surface ids', () => {
     expect(isSurfaceRouteId(DEFAULT_SURFACE_ID)).toBe(true);
   });
 
-  it('keeps generation under the existing setup-wizard surface', () => {
-    expect(SURFACE_ROUTE_IDS.filter((id) => id === 'setup-wizard')).toEqual([
-      'setup-wizard',
-    ]);
-    expect(surfaceRoutePath('setup-wizard')).toBe('/setup-wizard');
+  it('resolves every legacy wire alias to a current route', () => {
+    expect(LEGACY_SURFACE_TARGETS).toEqual({
+      'orchestra-canvas': 'chat',
+      'setup-hub': 'onboarding',
+      'setup-wizard': 'onboarding',
+      'harness-builder': 'onboarding',
+    });
+    for (const alias of LEGACY_SURFACE_ALIASES) {
+      expect(isLegacySurfaceAlias(alias)).toBe(true);
+      expect(isSurfaceRouteId(resolveSurfaceAlias(alias))).toBe(true);
+      expect(surfaceRoutePath(alias)).toBe(`/${resolveSurfaceAlias(alias)}`);
+    }
+    expect(resolveSurfaceAlias('settings')).toBe('settings');
   });
 
   it('routes onboarding and accepts it as an initialView', () => {
@@ -125,7 +133,7 @@ describe('webview surface ids', () => {
     });
 
     it('produces an absolute, single-segment path', () => {
-      expect(surfaceRoutePath('setup-wizard')).toBe('/setup-wizard');
+      expect(surfaceRoutePath('onboarding')).toBe('/onboarding');
     });
 
     it('falls back to the default for an absent segment', () => {

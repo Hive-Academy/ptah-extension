@@ -7,14 +7,12 @@ import {
 } from '@ptah-extension/shared';
 import { filter } from 'rxjs/operators';
 import { VSCodeService } from '../services/vscode.service';
-import {
-  GENERATION_ROUTE_TAB_VALIDATOR,
-  generationRouteBinding,
-} from './surface-routes';
+import { GENERATION_ROUTE_TAB_VALIDATOR } from './surface-routes';
+import { onboardingGenerationBinding } from './onboarding-routes';
 
 /**
- * Persists every URL the Router settles on, so a reloaded or restored webview
- * can return to it (TASK_2026_524, Batch 4).
+ * Persists restorable URLs the Router settles on, so a reloaded or restored
+ * webview can return to them (TASK_2026_524, Batch 4).
  *
  * The record is the {@link WebviewRouteState} contract from
  * `@ptah-extension/shared`, written under {@link WEBVIEW_ROUTE_STATE_KEY} into
@@ -69,18 +67,13 @@ export class SurfaceRoutePersistence {
     // Outside a host (a plain browser) there is nothing to persist into, and
     // `VSCodeService.setState` would warn on every navigation.
     if (!this.vscodeService.isConnected()) return;
+    const url = this.router.parseUrl(route);
     const segments =
-      this.router
-        .parseUrl(route)
-        .root.children[PRIMARY_OUTLET]?.segments.map(
-          (segment) => segment.path,
-        ) ?? [];
-    // Onboarding is never a restore target: the first-run guard on chat
-    // redirects there once, and restoring it would reopen it on every boot.
-    // Skipping keeps the last route, so the next boot lands on chat.
-    if (segments[0] === 'onboarding') return;
-    if (segments[0] === 'setup-wizard' && segments[1] === 'generation') {
-      const binding = generationRouteBinding(segments);
+      url.root.children[PRIMARY_OUTLET]?.segments.map(
+        (segment) => segment.path,
+      ) ?? [];
+    if (segments[0] === 'onboarding') {
+      const binding = onboardingGenerationBinding(segments, url.queryParams);
       if (
         !binding ||
         !this.generationRouteTabValidator?.(binding.tabId, binding.workflow)

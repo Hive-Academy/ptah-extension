@@ -44,6 +44,7 @@ import {
   DeferBlockBehavior,
   DeferBlockState,
   TestBed,
+  type ComponentFixture,
 } from '@angular/core/testing';
 import {
   AppStateManager,
@@ -290,7 +291,10 @@ describe('SettingsComponent deep-link', () => {
 
   // Batch 35 revise R3: a deep-link target belongs to the visit it opened; leaving the tab clears it.
   it('clears a deep-link target when the tab changes, so a later visit does not re-apply it', async () => {
-    const page = await landWith({ tab: 'orchestration', section: 'enhancement' });
+    const page = await landWith({
+      tab: 'orchestration',
+      section: 'enhancement',
+    });
     expect(page.agentsRoutingTarget()).toBe('enhancement');
     page.setActiveTab('providers');
     expect(page.agentsRoutingTarget()).toBe('enhancement');
@@ -363,11 +367,7 @@ describe('SettingsComponent agents-routing landing', () => {
   afterEach(() => TestBed.resetTestingModule());
 
   // Batch 33 (deviation 4): the roles sit in a <details> closed by default; a background-role deep link opens it.
-  it.each([
-    'background-models',
-    'memory-curator',
-    'enhancement',
-  ] as const)(
+  it.each(['background-models', 'memory-curator', 'enhancement'] as const)(
     'opens the background roles <details> for the %s deep link and focuses the section',
     async (section) => {
       const element = await land({ tab: 'orchestration', section });
@@ -479,7 +479,10 @@ describe('SettingsComponent agents-routing landing', () => {
       set: { imports: [AgentsRoutingStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
     const appState = TestBed.inject(AppStateManager);
-    appState.requestSettingsTab({ tab: 'orchestration', section: 'enhancement' });
+    appState.requestSettingsTab({
+      tab: 'orchestration',
+      section: 'enhancement',
+    });
     const fixture = TestBed.createComponent(SettingsComponent);
     await fixture.componentInstance.ngOnInit();
     fixture.detectChanges();
@@ -558,6 +561,7 @@ describe('SettingsComponent agents-routing landing', () => {
 });
 
 describe('SettingsComponent header', () => {
+  let renderedFixture: ComponentFixture<SettingsComponent>;
   function render(isElectron: boolean, activePath: string | null) {
     const state = providersStateFake();
     state.scopes.set({
@@ -581,9 +585,9 @@ describe('SettingsComponent header', () => {
     TestBed.overrideComponent(SettingsComponent, {
       set: { imports: [], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
-    const fixture = TestBed.createComponent(SettingsComponent);
-    fixture.detectChanges();
-    return fixture.nativeElement as HTMLElement;
+    renderedFixture = TestBed.createComponent(SettingsComponent);
+    renderedFixture.detectChanges();
+    return renderedFixture.nativeElement as HTMLElement;
   }
   afterEach(() => TestBed.resetTestingModule());
 
@@ -630,6 +634,38 @@ describe('SettingsComponent header', () => {
     expect(tabs[0].classList.contains('tab-active')).toBe(true);
     expect(tabs[0].getAttribute('aria-current')).toBe('page');
   });
+
+  it.each([true, false])(
+    'opens onboarding Home from Advanced in Electron=%s',
+    (isElectron) => {
+      const element = render(isElectron, '/work');
+      const state = TestBed.inject(AppStateManager);
+      const go = jest
+        .spyOn(state, 'setCurrentView')
+        .mockImplementation(() => undefined);
+      const ready = jest
+        .spyOn(state, 'openOnboardingReady')
+        .mockImplementation(() => undefined);
+      Array.from(
+        element.querySelectorAll<HTMLButtonElement>(
+          'nav[aria-label="Settings sections"] button',
+        ),
+      )[2].click();
+      renderedFixture.detectChanges();
+      element
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="settings-run-onboarding-again"]',
+        )
+        ?.click();
+      expect(go).toHaveBeenCalledWith('onboarding');
+      const check = element.querySelector<HTMLButtonElement>(
+        '[data-testid="settings-check-claude-code"]',
+      );
+      expect(Boolean(check)).toBe(isElectron);
+      check?.click();
+      expect(ready).toHaveBeenCalledTimes(isElectron ? 1 : 0);
+    },
+  );
 });
 
 /**
@@ -839,14 +875,22 @@ describe('SettingsComponent deferred tabs', () => {
     await block.render(DeferBlockState.Error);
     expect(element.querySelector('[aria-busy="true"]')).toBeNull();
     expect(element.querySelector('ptah-providers-settings')).toBeNull();
-    const error = element.querySelector('[data-testid="providers-settings-load-error"]');
+    const error = element.querySelector(
+      '[data-testid="providers-settings-load-error"]',
+    );
     expect(error?.getAttribute('role')).toBe('alert');
     expect(error?.textContent).toContain('The Providers page could not load.');
 
-    const reload = jest.spyOn(fixture.componentInstance, 'reloadWindow').mockImplementation(() => {
-      // jsdom cannot reload; the call itself is the contract.
-    });
-    element.querySelector<HTMLButtonElement>('[data-testid="providers-settings-reload"]')?.click();
+    const reload = jest
+      .spyOn(fixture.componentInstance, 'reloadWindow')
+      .mockImplementation(() => {
+        // jsdom cannot reload; the call itself is the contract.
+      });
+    element
+      .querySelector<HTMLButtonElement>(
+        '[data-testid="providers-settings-reload"]',
+      )
+      ?.click();
     expect(reload).toHaveBeenCalledTimes(1);
   });
 

@@ -219,7 +219,7 @@ describe('ElectronShellComponent configuration gate', () => {
     ).toBe('Settings route');
   });
 
-  it('shows the workspace app shell and Chat, Voice, Apps, Tasks, Analytics, Setup hub tabs in order', () => {
+  it('shows the workspace app shell and Chat, Voice, Apps, Tasks, Analytics, Setup tabs in order', () => {
     layoutStub.hasWorkspaceFolders.set(true);
     fixture.detectChanges();
     expect(shell().querySelector('ptah-app-shell')).not.toBeNull();
@@ -229,14 +229,7 @@ describe('ElectronShellComponent configuration gate', () => {
         '[role="tablist"].electron-tabs button[role="tab"]',
       ),
     );
-    const names = [
-      'Chat',
-      'Voice',
-      'Apps',
-      'Tasks',
-      'Analytics',
-      'Setup hub',
-    ];
+    const names = ['Chat', 'Voice', 'Apps', 'Tasks', 'Analytics', 'Setup'];
     expect(tabs.map((tab) => tab.title)).toEqual(names);
     expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(names);
     expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual([
@@ -250,15 +243,15 @@ describe('ElectronShellComponent configuration gate', () => {
     expect(shell().querySelectorAll('[role="tab"]')).toHaveLength(6);
   });
 
-  it('opens Setup hub from its tab and marks the tab active once the surface settles', () => {
+  it('opens onboarding from Setup and marks the tab active once the surface settles', () => {
     layoutStub.hasWorkspaceFolders.set(true);
     fixture.detectChanges();
     const setupHub = shell().querySelector<HTMLButtonElement>(
       '[role="tab"][data-test="config-menu-item-setup-hub"]',
     )!;
     setupHub.click();
-    expect(appStateStub.setCurrentView).toHaveBeenCalledWith('setup-hub');
-    appStateStub.openConfigurationSurface.set('setup-hub');
+    expect(appStateStub.setCurrentView).toHaveBeenCalledWith('onboarding');
+    appStateStub.openConfigurationSurface.set('onboarding');
     fixture.detectChanges();
     expect(setupHub.getAttribute('aria-selected')).toBe('true');
     expect(setupHub.getAttribute('aria-current')).toBe('true');
@@ -296,7 +289,7 @@ describe('ElectronShellComponent configuration gate', () => {
     expect(hook(actionsHost?.nextElementSibling)).toBe('ptah-theme-toggle');
   });
 
-  it('renders exactly one Setup hub entry: an icon button without a workspace, the tab with one', () => {
+  it('renders exactly one Setup entry: an icon button without a workspace, the tab with one', () => {
     const setupHubEntries = () =>
       Array.from(
         shell().querySelectorAll<HTMLElement>(
@@ -354,8 +347,8 @@ describe('ElectronShellComponent configuration gate', () => {
     expect(backButton()).not.toBeNull();
   });
 
-  it('shows welcome when Setup hub settles on a non-configuration surface without a workspace', async () => {
-    appStateStub.openConfigurationSurface.set('setup-hub');
+  it('shows welcome when Setup settles on a non-configuration surface without a workspace', async () => {
+    appStateStub.openConfigurationSurface.set('onboarding');
     fixture.detectChanges();
     expectBareOutlet();
     appStateStub.currentView.set('tasks');

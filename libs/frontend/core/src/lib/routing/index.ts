@@ -13,11 +13,15 @@ export {
   ACCEPTED_INITIAL_VIEWS,
   DEFAULT_SURFACE_ID,
   LEGACY_SURFACE_ALIASES,
+  LEGACY_SURFACE_TARGETS,
   SURFACE_ROUTE_IDS,
   isAcceptedInitialView,
+  isLegacySurfaceAlias,
   isSurfaceRouteId,
+  resolveSurfaceAlias,
   surfaceIdFromSegment,
   surfaceRoutePath,
+  type LegacySurfaceAlias,
 } from './surface-routes';
 
 export {

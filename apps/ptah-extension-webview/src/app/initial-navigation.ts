@@ -12,7 +12,9 @@ import {
 import {
   DEFAULT_SURFACE_ID,
   WEBVIEW_ROUTE_STATE_KEY,
+  isAcceptedInitialView,
   parseWebviewRouteState,
+  resolveSurfaceAlias,
   type ViewType,
   type WebviewRouteState,
 } from '@ptah-extension/shared';
@@ -106,6 +108,7 @@ export function injectInitialNavigation(): () => Promise<SurfaceNavigationResult
       return navigateToHostSurface(plan.rawView);
     }
 
+    // SurfaceRouterService normalizes legacy setup URLs before navigating.
     const result = await surfaceRouter.navigateToUrl(plan.route);
     if (!surfaceNavigationLanded(result)) {
       if (supersededByNewerNavigation()) return result;
@@ -118,7 +121,10 @@ export function injectInitialNavigation(): () => Promise<SurfaceNavigationResult
     // (`/thoth` to `/thoth/memory`) is the restore; the wildcard sending a
     // stale `/settings/obsolete` to `/chat` is not.
     const settledSegment = firstSegmentPath(router, router.url);
-    const plannedSegment = firstSegmentPath(router, plan.route);
+    const savedSegment = firstSegmentPath(router, plan.route);
+    const plannedSegment = isAcceptedInitialView(savedSegment)
+      ? resolveSurfaceAlias(savedSegment)
+      : savedSegment;
     if (settledSegment === plannedSegment) return result;
     // A restore that settles on onboarding went through the first-run guard
     // (its only producer), whether `/chat` was restored or a stale route fell

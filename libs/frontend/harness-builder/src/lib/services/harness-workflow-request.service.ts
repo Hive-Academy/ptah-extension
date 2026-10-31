@@ -1,4 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   LoggingService,
@@ -6,6 +7,7 @@ import {
   SurfaceRouterService,
   VSCodeService,
   surfaceNavigationLanded,
+  onboardingHarnessTarget,
 } from '@ptah-extension/core';
 import type {
   HarnessOpenWorkflowPayload,
@@ -43,6 +45,7 @@ export class HarnessWorkflowRequestService {
   private readonly controller = inject(HarnessSessionController);
   private readonly records = inject(HarnessBuilderRecordsService);
   private readonly router = inject(SurfaceRouterService);
+  private readonly angularRouter = inject(Router);
   private readonly vscode = inject(VSCodeService);
   private readonly logger = inject(LoggingService);
   private readonly appState = inject(AppStateManager);
@@ -132,7 +135,10 @@ export class HarnessWorkflowRequestService {
     const pending = this._pendingIntent();
     if (pending) {
       if (
-        this.router.currentSurface() === 'harness-builder' &&
+        this.router.currentSurface() === 'onboarding' &&
+        /^\/onboarding\/(?:new-project|team-builder)\//.test(
+          this.angularRouter.url,
+        ) &&
         this.tabs.findTabByIdAcrossWorkspaces(pending.sourceTabId)
       ) {
         return 'cancelled';
@@ -256,10 +262,14 @@ export class HarnessWorkflowRequestService {
     mode: HarnessBuilderMode,
     tabId: string,
   ): Promise<HarnessWorkflowRequestOutcome> {
-    const result = await this.router.navigateToSurface('harness-builder', [
-      mode,
-      tabId,
-    ]);
+    const target = onboardingHarnessTarget(mode, tabId, 'workspace');
+    const result = await this.router.navigateToSurface(
+      'onboarding',
+      target.subPath,
+      {
+        queryParams: target.queryParams,
+      },
+    );
     return surfaceNavigationLanded(result)
       ? 'landed'
       : result === 'cancelled'
@@ -289,7 +299,10 @@ export class HarnessWorkflowRequestService {
     if (result.kind === 'failed') {
       const tabId = session.record()?.tabId;
       if (tabId) {
-        this._entryErrors.update((errors) => ({ ...errors, [tabId]: result.error }));
+        this._entryErrors.update((errors) => ({
+          ...errors,
+          [tabId]: result.error,
+        }));
         await this.navigateToBuilder(mode, tabId);
       } else this.reportHubError(result.error);
       return 'failed';
@@ -297,8 +310,13 @@ export class HarnessWorkflowRequestService {
     const outcome = await this.navigateToBuilder(mode, result.tabId);
     if (outcome !== 'landed' && result.kind === 'started') {
       const left = await this.controller.leave(mode, 'discard');
-      if (left === 'uncertain') this.reportHubError('The builder started, but navigation failed. Keep this session open and retry navigation.');
+      if (left === 'uncertain')
+        this.reportHubError(
+          'The builder started, but navigation failed. Keep this session open and retry navigation.',
+        );
     }
-    return outcome === 'landed' && result.kind === 'reused' ? 'resumed' : outcome;
+    return outcome === 'landed' && result.kind === 'reused'
+      ? 'resumed'
+      : outcome;
   }
 }

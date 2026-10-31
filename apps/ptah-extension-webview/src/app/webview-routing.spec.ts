@@ -348,22 +348,25 @@ describe('webview routing composition', () => {
   });
 
   describe('initial navigation from the host deep link', () => {
-    it('lands a setup-wizard panel on the setup-wizard route', async () => {
-      // `ptah.setupAgents` opens a dedicated panel whose HTML hardcodes this
-      // (webview-lifecycle.service.ts:153). The user is already waiting on it,
-      // which is why its route is eager.
-      (window as unknown as HostWindow).ptahConfig = {
-        initialView: 'setup-wizard',
-      };
+    it.each(['setup-wizard', 'setup-hub', 'harness-builder'] as const)(
+      'lands a legacy %s initialView on onboarding Home',
+      async (legacyView) => {
+        // `ptah.setupAgents` opens a dedicated panel whose HTML hardcodes this
+        // (webview-lifecycle.service.ts:153). The user is already waiting on it,
+        // which is why its route is eager.
+        (window as unknown as HostWindow).ptahConfig = {
+          initialView: legacyView,
+        };
 
-      await bootWithInitialView('setup-wizard');
+        await bootWithInitialView(legacyView);
 
-      expect(TestBed.inject(Router).url).toBe('/setup-wizard');
-      expect(TestBed.inject(AppStateManager).currentView()).toBe(
-        'setup-wizard',
-      );
-      expect(history['pushState']).not.toHaveBeenCalled();
-    });
+        expect(TestBed.inject(Router).url).toBe('/onboarding');
+        expect(TestBed.inject(AppStateManager).currentView()).toBe(
+          'onboarding',
+        );
+        expect(history['pushState']).not.toHaveBeenCalled();
+      },
+    );
 
     it.each([...SURFACE_ROUTE_IDS])(
       'lands a %s deep link on its route',
@@ -468,6 +471,17 @@ describe('webview routing composition', () => {
     function persisted(): unknown {
       return TestBed.inject(VSCodeService).getState(WEBVIEW_ROUTE_STATE_KEY);
     }
+
+    it.each([
+      '/setup-hub/old',
+      '/setup-wizard/generation/setup-agent-generation/old-tab',
+      '/harness-builder/configure-harness/old-tab',
+    ])('restores legacy %s to onboarding Home', async (route) => {
+      installHost(savedRoute(route, null), null);
+      expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+      expect(TestBed.inject(Router).url).toBe('/onboarding');
+      expect(TestBed.inject(AppStateManager).currentView()).toBe('onboarding');
+    });
 
     it('restores a saved /chat/<tabId> when the host sends no deep link', async () => {
       installHost(savedRoute(`/chat/${tabId}`, null), null);
@@ -988,9 +1002,17 @@ describe('app.routes', () => {
   // Parameter routes (e.g. `harness-builder/:mode/:tabId`) are deep links
   // into an existing surface, not surfaces of their own.
   const paths = allPaths.filter((path) => !path.includes('/:'));
+  const canonicalPaths = paths.filter((path) =>
+    SURFACE_ROUTE_IDS.some((id) => id === path),
+  );
 
-  it('declares exactly the surfaces in SURFACE_ROUTE_IDS, in the same order', () => {
-    expect(paths).toEqual([...SURFACE_ROUTE_IDS]);
+  it('declares canonical surfaces in order and retains legacy routes for B5b', () => {
+    expect(canonicalPaths).toEqual([...SURFACE_ROUTE_IDS]);
+    expect(paths.filter((path) => !canonicalPaths.includes(path))).toEqual([
+      'setup-wizard',
+      'harness-builder',
+      'setup-hub',
+    ]);
   });
 
   it('roots every parameter route in a declared surface', () => {
@@ -1000,25 +1022,21 @@ describe('app.routes', () => {
       'harness-builder/:mode/:tabId',
     ]);
     for (const path of paramRoutes) {
-      expect(SURFACE_ROUTE_IDS).toContain(path.split('/')[0]);
+      expect(paths).toContain(path.split('/')[0]);
     }
   });
 
   it('cannot drift from the HOST allow-list (F4)', () => {
     // `WebviewHtmlGenerator` validates `initialView` against
     // `ACCEPTED_INITIAL_VIEWS` from `@ptah-extension/shared`. This is the gate
-    // that stops the two from disagreeing again: the host must accept exactly
-    // this route table plus the legacy aliases the renderer rewrites, and
-    // nothing else. Before revision 1 the host list was six ids, four of them
-    // not routes and two of them not surfaces at all.
+    // The host accepts canonical surfaces plus the legacy aliases even while
+    // their old routes remain declared for B5b cleanup.
     expect([...ACCEPTED_INITIAL_VIEWS].sort()).toEqual(
-      [...paths, ...LEGACY_SURFACE_ALIASES].sort(),
+      [...SURFACE_ROUTE_IDS, ...LEGACY_SURFACE_ALIASES].sort(),
     );
 
-    // Each alias must be something the renderer can actually resolve, or the
-    // host would accept a value that lands nowhere.
+    // Each alias must be something the renderer can resolve.
     for (const alias of LEGACY_SURFACE_ALIASES) {
-      expect(paths).not.toContain(alias);
       expect(isAcceptedInitialView(alias)).toBe(true);
     }
   });

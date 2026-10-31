@@ -23,8 +23,7 @@
 /**
  * A surface the user can be looking at.
  *
- * Every member except `orchestra-canvas` is a route id — see
- * {@link SURFACE_ROUTE_IDS}. `orchestra-canvas` is the one legacy alias: it
+ * Legacy wire values remain accepted but resolve to current routes. `orchestra-canvas`
  * used to be a view and is now a layout mode of the chat surface, so
  * `AppStateManager.normalizeInitialView` maps it onto `chat` plus grid layout.
  * It is still a legal wire value — `ptah.openOrchestraCanvas` sends it — which
@@ -43,8 +42,8 @@
  *
  * `onboarding` (TASK_2026_ONBOARDING) is the first-run and setup surface. It
  * is routable on every host; only the automatic first-run redirect onto it is
- * Electron-only (the chat route's guard). It will replace `setup-wizard`,
- * `setup-hub` and `harness-builder`, which stay routable until the cut-over.
+ * Electron-only (the chat route's guard). The three former setup ids remain
+ * accepted wire aliases while their old routes await removal.
  */
 export type ViewType =
   | 'chat'
@@ -72,11 +71,8 @@ export type ViewType =
 export const SURFACE_ROUTE_IDS: readonly ViewType[] = [
   'chat',
   'onboarding',
-  'setup-wizard',
   'settings',
   'analytics',
-  'harness-builder',
-  'setup-hub',
   'thoth',
   'marketplace',
   'tasks',
@@ -85,17 +81,45 @@ export const SURFACE_ROUTE_IDS: readonly ViewType[] = [
 ];
 
 /**
- * View ids the host may still send that are NOT routes, each of which the
- * renderer rewrites onto a real surface.
- *
- * One entry, and it is load-bearing: `ptah.openOrchestraCanvas`
+ * Older view ids the host may still send. The renderer rewrites each onto
+ * its current surface. The orchestra alias remains load-bearing: `ptah.openOrchestraCanvas`
  * (`apps/ptah-extension-vscode/src/core/ptah-extension.ts`) passes
  * `initialView: 'orchestra-canvas'`. Dropping it from the host allow-list is
  * what made that command open an empty panel — the generator threw, the public
  * boundary swallowed the throw and returned fallback HTML whose root element
  * does not match the app's selector.
  */
-export const LEGACY_SURFACE_ALIASES: readonly ViewType[] = ['orchestra-canvas'];
+export type LegacySurfaceAlias =
+  'orchestra-canvas' | 'setup-hub' | 'setup-wizard' | 'harness-builder';
+
+export const LEGACY_SURFACE_ALIASES: readonly LegacySurfaceAlias[] = [
+  'orchestra-canvas',
+  'setup-hub',
+  'setup-wizard',
+  'harness-builder',
+];
+
+export const LEGACY_SURFACE_TARGETS: Readonly<
+  Record<LegacySurfaceAlias, ViewType>
+> = {
+  'orchestra-canvas': 'chat',
+  'setup-hub': 'onboarding',
+  'setup-wizard': 'onboarding',
+  'harness-builder': 'onboarding',
+};
+
+export function isLegacySurfaceAlias(
+  value: unknown,
+): value is LegacySurfaceAlias {
+  return (
+    typeof value === 'string' &&
+    (LEGACY_SURFACE_ALIASES as readonly string[]).includes(value)
+  );
+}
+
+export function resolveSurfaceAlias(view: ViewType): ViewType {
+  return isLegacySurfaceAlias(view) ? LEGACY_SURFACE_TARGETS[view] : view;
+}
 
 /**
  * Every value a host may legally pass as `initialView`, or send in a
@@ -134,7 +158,7 @@ export function isAcceptedInitialView(value: unknown): value is ViewType {
 
 /** The absolute router URL that addresses `id`. */
 export function surfaceRoutePath(id: ViewType): string {
-  return `/${id}`;
+  return `/${resolveSurfaceAlias(id)}`;
 }
 
 /**

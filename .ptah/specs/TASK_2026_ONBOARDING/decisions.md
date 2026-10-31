@@ -142,3 +142,26 @@
 - Deferred visual minors: 6/N1 disabled Review pill keeps the primary fill in ptah-glass dark;
   8 narrow stepper trailing circle (shared stepper component); N2 "Applied revision" card
   spacing (~2 px vs ~20 px). Minor 7 is the known deferred heading focus box (item 11).
+
+## B5a
+- Codex lane implemented (39 files); it stopped at 37 min while its verify waited in the lock
+  queue. Coordinator stopped its orphan verify and changed the electron-shell.apps-tab.spec.ts
+  label expectation "Setup hub" → "Setup" (the B5a menu label).
+- Logic review APPROVE 8/10 (code-logic-review.b5a.md), 7 minors.
+- Coordinator verify: core:test failed (surface-router "has no route" warning) → fix lane;
+  `ptah-electron-e2e:lint` fails on `src/specs/git-watcher.spec.ts` (4 `fs.watch` errors,
+  TASK_2026_437 INV-1). That file and the rule are identical to main, so the failure predates
+  this task; it is reported, not fixed here. Electron and VS Code host specs pass.
+- Lane limits on 2026-10-31: Grok weekly 100% (resets 2026-11-03 17:40 UTC); Ollama weekly 100%.
+- Fix round 1 (Codex): core warning restored; minors 2, 4, 6, 7 fixed → review APPROVE 8.5/10.
+  New minors R1-2 (warn condition readability) and R1-3 (hardcoded flow regex) deferred.
+- Restore target (review minor 1): B5a made Home and /onboarding/ready restore targets again.
+  The B1 review recorded that as a defect (context.md B1 entry), and the B5a plan asks only for the
+  binding parser swap. Coordinator decision: persist only onboarding URLs with a validated
+  identity binding; Home, ready and unbound pages keep the previous route. Fix round 2 (Codex),
+  together with the missing cancel-path spec (R1-1).
+- Fix round 2 (Codex) → review APPROVE 9/10. Harness proposal URLs are not persisted (no identity
+  validator exists for them); legacy saved routes keep landing on Home. Open by decision: minors 3
+  (resume store reads the first tab per workflow), 5 (resume uses raw Router.navigate), R1-2, R1-3.
+- Final verify: 29/30 (webview lint cycle only) and host lint/typecheck 11/12 (the pre-existing
+  ptah-electron-e2e lint only); Electron and VS Code host specs 7/7 and 33/33.

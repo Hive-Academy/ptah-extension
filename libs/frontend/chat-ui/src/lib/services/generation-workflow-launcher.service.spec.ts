@@ -45,11 +45,13 @@ describe('GenerationWorkflowLauncherService', () => {
       tabId: 'owner',
     });
     expect(tabs.createWorkflowTabForWorkspace).not.toHaveBeenCalled();
-    expect(router.navigateToSurface).toHaveBeenCalledWith('setup-wizard', [
-      'generation',
-      'setup-agent-generation',
-      'owner',
-    ]);
+    expect(router.navigateToSurface).toHaveBeenCalledWith(
+      'onboarding',
+      ['analyze', 'agents'],
+      {
+        queryParams: { tab: 'owner' },
+      },
+    );
     expect(tabs.switchTab).toHaveBeenCalledWith('owner');
     expect(launcher.consumeOrigin('owner')).toBe('analysis-result-continue');
     expect(launcher.consumeOrigin('owner')).toBeNull();

@@ -5,6 +5,7 @@ import {
   inject,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 import { SetupStatusStore } from '@ptah-extension/chat-ui';
 import { AppStateManager, ONBOARDING_QUERY } from '@ptah-extension/core';
 import {
@@ -28,6 +29,11 @@ import { ReadyStripComponent } from '../ready/ready-strip.component';
 import { readyStripSettingsWord } from '../ready/ready-strip-state';
 import { onboardingStepLink } from '../shell/onboarding-step-link';
 import { OnboardingPathTileComponent } from './path-tile.component';
+import {
+  OnboardingResumeStore,
+  type OnboardingResumeItem,
+} from './onboarding-resume.store';
+import { ResumeBannerComponent } from './resume-banner.component';
 
 const NO_WORKSPACE_REASON = 'Open a folder to use this path.';
 
@@ -54,6 +60,7 @@ interface StatusChip {
     OnboardingPathTileComponent,
     ReadyStripComponent,
     ClaudeReadinessBannerComponent,
+    ResumeBannerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block', 'data-testid': 'onboarding-home' },
@@ -98,6 +105,18 @@ interface StatusChip {
           placement="home"
           [state]="readiness().state"
         />
+      }
+
+      @if (resume.items().length > 0) {
+        <div class="mt-5 grid gap-3" data-testid="onboarding-resume-banners">
+          @for (item of resume.items(); track item.id) {
+            <ptah-resume-banner
+              [title]="item.title"
+              [detail]="item.detail"
+              (resumeRequested)="resumeItem(item)"
+            />
+          }
+        </div>
       }
 
       @if (status.workspaceNotOpen()) {
@@ -295,6 +314,8 @@ export class OnboardingHomeComponent {
   private readonly flag = inject(OnboardingFlagService);
   private readonly appState = inject(AppStateManager);
   private readonly readinessStore = inject(ClaudeReadinessStore);
+  protected readonly resume = inject(OnboardingResumeStore);
+  private readonly router = inject(Router);
 
   /** The Get ready strip, banner and footer link exist only in Electron. */
   protected readonly readyAvailable = this.readinessStore.available;
@@ -387,6 +408,13 @@ export class OnboardingHomeComponent {
     // Re-read Claude Code on every visit so the banner is never stale; it
     // clears without a flag write once the read returns ready.
     if (this.readyAvailable) void this.readinessStore.refresh(false);
+    void this.resume.refresh();
+  }
+
+  protected resumeItem(item: OnboardingResumeItem): void {
+    void this.router.navigate(['/onboarding', ...item.target.subPath], {
+      queryParams: { ...item.target.queryParams },
+    });
   }
 
   protected retryStatus(): void {

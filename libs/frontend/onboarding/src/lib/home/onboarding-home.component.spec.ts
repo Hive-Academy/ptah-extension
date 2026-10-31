@@ -1,6 +1,6 @@
 import { signal, type WritableSignal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { SetupStatusStore } from '@ptah-extension/chat-ui';
 import { AppStateManager } from '@ptah-extension/core';
 import type { SetupStatusGetResponse } from '@ptah-extension/shared';
@@ -14,6 +14,10 @@ import {
   type ClaudeReadinessView,
 } from '../ready/claude-readiness.store';
 import { OnboardingHomeComponent } from './onboarding-home.component';
+import {
+  OnboardingResumeStore,
+  type OnboardingResumeItem,
+} from './onboarding-resume.store';
 
 /** The `SetupStatusStore` surface Home reads, as writable signals. */
 function createStatusStore() {
@@ -47,6 +51,10 @@ describe('OnboardingHomeComponent', () => {
   let fixture: ComponentFixture<OnboardingHomeComponent>;
   let readiness: ReturnType<typeof createReadinessStore>;
   let flag: WritableSignal<OnboardingFlag>;
+  const resume = {
+    items: signal<readonly OnboardingResumeItem[]>([]),
+    refresh: jest.fn().mockResolvedValue(undefined),
+  };
 
   function createReadinessStore(available: boolean) {
     return {
@@ -87,6 +95,8 @@ describe('OnboardingHomeComponent', () => {
     setCurrentView = jest.fn<void, [string]>();
     flag = signal<OnboardingFlag>({});
     readiness = createReadinessStore(true);
+    resume.items.set([]);
+    resume.refresh.mockClear();
     TestBed.configureTestingModule({
       imports: [OnboardingHomeComponent],
       providers: [
@@ -95,6 +105,7 @@ describe('OnboardingHomeComponent', () => {
         { provide: OnboardingFlagService, useValue: { markDismissed, flag } },
         { provide: ClaudeReadinessStore, useValue: readiness },
         { provide: AppStateManager, useValue: { setCurrentView } },
+        { provide: OnboardingResumeStore, useValue: resume },
       ],
     });
   });
@@ -108,6 +119,40 @@ describe('OnboardingHomeComponent', () => {
     expect(headings[0].textContent?.trim()).toBe('Set up Ptah for your work');
     expect(headings[0].getAttribute('tabindex')).toBe('-1');
     expect(store.refresh).toHaveBeenCalledTimes(1);
+    expect(resume.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('places resume banners after the Claude banner and opens their target', () => {
+    resume.items.set([
+      {
+        id: 'generation:tab-1',
+        title: 'Continue agent generation',
+        detail: null,
+        target: {
+          subPath: ['analyze', 'agents'],
+          queryParams: { tab: 'tab-1' },
+        },
+      },
+    ]);
+    render();
+    const claude = el().querySelector('ptah-claude-readiness-banner');
+    const banners = byTestId('onboarding-resume-banners');
+    expect(claude).not.toBeNull();
+    expect(banners?.textContent).toContain('Continue agent generation');
+    expect(
+      claude!.compareDocumentPosition(banners!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const navigate = jest
+      .spyOn(TestBed.inject(Router), 'navigate')
+      .mockResolvedValue(true);
+    banners?.querySelector('button')?.click();
+    expect(navigate).toHaveBeenCalledWith(
+      ['/onboarding', 'analyze', 'agents'],
+      {
+        queryParams: { tab: 'tab-1' },
+      },
+    );
   });
 
   it('shows the three paths in order, Analyze first, each named by its h2 link', () => {

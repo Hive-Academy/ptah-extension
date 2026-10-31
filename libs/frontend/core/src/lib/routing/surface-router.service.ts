@@ -12,11 +12,12 @@ import { filter, map } from 'rxjs/operators';
 import {
   DEFAULT_SURFACE_ID,
   GENERATION_ROUTE_TAB_VALIDATOR,
-  generationRouteBinding,
   isSurfaceRouteId,
+  resolveSurfaceAlias,
   surfaceIdFromSegment,
   type ViewType,
 } from './surface-routes';
+import { onboardingGenerationBinding } from './onboarding-routes';
 
 /**
  * What happened to a requested surface navigation.
@@ -148,8 +149,13 @@ export class SurfaceRouterService {
       readonly queryParams?: Readonly<Record<string, string>>;
     } = {},
   ): Promise<SurfaceNavigationResult> {
-    const target = isSurfaceRouteId(id) ? id : DEFAULT_SURFACE_ID;
-    if (target !== id) {
+    const resolved = resolveSurfaceAlias(id);
+    const resolvedHasRoute = isSurfaceRouteId(resolved);
+    const target = resolvedHasRoute ? resolved : DEFAULT_SURFACE_ID;
+    if (
+      !resolvedHasRoute ||
+      (id !== resolved && target === DEFAULT_SURFACE_ID)
+    ) {
       // The sub-path belonged to the surface that was asked for. Applied under
       // the fallback it would address a child that surface does not have.
       console.warn(
@@ -189,13 +195,24 @@ export class SurfaceRouterService {
    */
   async navigateToUrl(route: string): Promise<SurfaceNavigationResult> {
     try {
-      const targetTree = this.urlSerializer.parse(route);
+      const targetTree = this.urlSerializer.parse(
+        this.normalizeRestoredRoute(route),
+      );
       const segments =
         targetTree.root.children[PRIMARY_OUTLET]?.segments.map(
           (segment) => segment.path,
         ) ?? [];
-      if (segments[0] === 'setup-wizard' && segments[1] === 'generation') {
-        const binding = generationRouteBinding(segments);
+      if (
+        segments[0] === 'onboarding' &&
+        (segments[1] === 'guidance' ||
+          (segments[1] === 'analyze' &&
+            ['agents', 'generate', 'guidance'].includes(segments[2] ?? ''))) &&
+        targetTree.queryParams['tab'] !== undefined
+      ) {
+        const binding = onboardingGenerationBinding(
+          segments,
+          targetTree.queryParams,
+        );
         if (
           !binding ||
           !this.generationRouteTabValidator?.(binding.tabId, binding.workflow)
@@ -212,6 +229,21 @@ export class SurfaceRouterService {
       return await this.navigateToTree(targetTree);
     } catch (error: unknown) {
       return this.reportFailure(route, error);
+    }
+  }
+
+  /** Any saved legacy child route resumes at onboarding Home. */
+  normalizeRestoredRoute(route: string): string {
+    try {
+      const tree = this.urlSerializer.parse(route);
+      const first = this.firstPrimaryPath(tree);
+      return first === 'setup-hub' ||
+        first === 'setup-wizard' ||
+        first === 'harness-builder'
+        ? '/onboarding'
+        : route;
+    } catch {
+      return route;
     }
   }
 
