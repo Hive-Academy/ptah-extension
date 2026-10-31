@@ -54,6 +54,9 @@ async function resolveScenarios(rootDir, requestedScenarios) {
   return ids;
 }
 
+const SEND_BUTTON_SELECTOR =
+  'ptah-chat-input button[data-testid="chat-send-btn"]:not([disabled]), ptah-chat-input button[aria-label*="Send"]:not([disabled])';
+
 async function waitForScenarioCompletion(page, timeoutMs) {
   const deadline = performance.now() + timeoutMs;
   while (performance.now() < deadline) {
@@ -63,6 +66,13 @@ async function waitForScenarioCompletion(page, timeoutMs) {
     }));
     if (snapshot.state?.complete === true) {
       return { timedOut: false, snapshot };
+    }
+    // On-send scenarios wait for the visitor to click Send in the composer.
+    if (snapshot.state?.waitingForSend === true) {
+      const sendButton = page.locator(SEND_BUTTON_SELECTOR).first();
+      if (await sendButton.isVisible().catch(() => false)) {
+        await sendButton.click().catch(() => undefined);
+      }
     }
     if (
       Array.isArray(snapshot.misses) &&

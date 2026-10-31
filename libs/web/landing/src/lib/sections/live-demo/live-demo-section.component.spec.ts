@@ -108,4 +108,45 @@ describe('LiveDemoSectionComponent', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('50');
     fixture.destroy();
   });
+
+  it('re-sends pause when the replay plays while the section is not visible', async () => {
+    TestBed.configureTestingModule({ imports: [LiveDemoSectionComponent] });
+    const fixture = TestBed.createComponent(LiveDemoSectionComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.componentInstance.startDemo();
+    fixture.detectChanges();
+    const frameWindow = (fixture.nativeElement as HTMLElement).querySelector('iframe')?.contentWindow;
+    expect(frameWindow).toBeTruthy();
+    const postMessage = jest.spyOn(frameWindow as Window, 'postMessage').mockImplementation(() => undefined);
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: window.location.origin,
+      source: frameWindow ?? null,
+      data: { source: 'ptah-replay-state', state: replayState() },
+    }));
+    expect(postMessage).toHaveBeenCalledWith({ source: 'ptah-replay-control', cmd: 'pause' }, window.location.origin);
+    fixture.destroy();
+  });
+
+  it('binds the mobile video source on the video element so a tab change reloads it', async () => {
+    const width = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 500 });
+    try {
+      TestBed.configureTestingModule({ imports: [LiveDemoSectionComponent] });
+      const fixture = TestBed.createComponent(LiveDemoSectionComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      expect(root.querySelector('video')?.getAttribute('src')).toBe('/assets/live-demo/orchestration.webm');
+      expect(root.textContent).not.toContain('Click Send in the demo to start');
+      fixture.componentInstance.selectTab(1);
+      fixture.detectChanges();
+      expect(root.querySelector('video')?.getAttribute('src')).toBe('/assets/live-demo/tribunal-council.webm');
+      expect(root.querySelector('iframe')).toBeNull();
+      fixture.destroy();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    }
+  });
 });

@@ -31,7 +31,7 @@ type ReplayCommand = 'play' | 'pause' | 'speed' | 'restart';
           <h2 id="ptah-live-demo-heading" class="mt-5 text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl">
             See PtahCode work
           </h2>
-          <p class="mt-4 max-w-2xl text-base leading-relaxed text-ink-200 sm:text-lg">
+          <p class="mt-4 max-w-2xl text-base leading-relaxed text-ink-300 sm:text-lg">
             Explore PtahCode sessions at your own pace. Choose a replay, then follow the work as it unfolds.
           </p>
         </div>
@@ -56,9 +56,8 @@ type ReplayCommand = 'play' | 'pause' | 'speed' | 'restart';
           class="mt-5 rounded-2xl border border-ink-600 bg-ink-900 p-3 shadow-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 sm:p-5">
           <div class="relative aspect-[8/5] overflow-hidden rounded-lg bg-ink-950">
             @if (isMobile()) {
-              <video #replayVideo class="h-full w-full object-contain" [poster]="selected().poster" muted playsinline controls preload="none"
+              <video #replayVideo class="h-full w-full object-contain" [src]="selected().video" [poster]="selected().poster" [muted]="true" playsinline controls preload="none"
                 [attr.aria-label]="'PtahCode ' + selected().label + ' replay video'">
-                <source [src]="selected().video" type="video/webm" />
                 Your browser cannot play this PtahCode video.
               </video>
             } @else if (active() && frameUrl()) {
@@ -81,8 +80,8 @@ type ReplayCommand = 'play' | 'pause' | 'speed' | 'restart';
           <div class="mt-5 flex flex-wrap items-center justify-between gap-4">
             <div>
               <p class="text-base font-semibold text-white">{{ selected().label }}</p>
-              <p class="mt-1 text-sm leading-relaxed text-ink-200">{{ selected().description }}</p>
-              @if (selected().id === 'orchestration') {
+              <p class="mt-1 text-sm leading-relaxed text-ink-300">{{ selected().description }}</p>
+              @if (selected().id === 'orchestration' && !isMobile()) {
                 <p class="mt-2 text-sm font-medium text-amber-300">Click Send in the demo to start</p>
               }
             </div>
@@ -145,6 +144,7 @@ export class LiveDemoSectionComponent {
   private readonly reducedMotion = signal(false);
   private saveData = false;
   private wideViewport = false;
+  private sectionVisible = false;
 
   readonly frameUrl = computed<SafeResourceUrl | null>(() => {
     const id = this.selected().id;
@@ -162,11 +162,10 @@ export class LiveDemoSectionComponent {
       const reduced = view.matchMedia?.('(prefers-reduced-motion: reduce)');
       this.reducedMotion.set(reduced?.matches ?? false);
       this.saveData = Boolean((view.navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData);
-      let visible = false;
       const updateViewport = () => {
         this.isMobile.set(view.innerWidth < 768);
         this.wideViewport = view.innerWidth >= 1024;
-        if (visible && this.wideViewport && !this.reducedMotion() && !this.saveData) this.startDemo();
+        if (this.sectionVisible && this.wideViewport && !this.reducedMotion() && !this.saveData) this.startDemo();
       };
       updateViewport();
       const onVisibility = () => {
@@ -179,8 +178,8 @@ export class LiveDemoSectionComponent {
       let observer: IntersectionObserver | undefined;
       if (typeof view.IntersectionObserver === 'function' && this.section()) {
         observer = new view.IntersectionObserver((entries) => {
-          visible = entries[0]?.isIntersecting ?? false;
-          if (!visible) this.pauseMedia();
+          this.sectionVisible = entries[0]?.isIntersecting ?? false;
+          if (!this.sectionVisible) this.pauseMedia();
           else if (this.wideViewport && !this.reducedMotion() && !this.saveData && !this.isMobile()) this.startDemo();
         }, { threshold: 0.1 });
         observer.observe(this.section()!.nativeElement);
@@ -260,6 +259,8 @@ export class LiveDemoSectionComponent {
     const data = event.data as { source?: unknown; state?: ReplayState } | null;
     if (data?.source !== 'ptah-replay-state' || !data.state || data.state.scenario !== this.selected().id) return;
     this.state.set(data.state);
+    // A pause sent while the iframe was still loading is lost, so re-send it.
+    if (data.state.playing && (!this.sectionVisible || this.document.visibilityState === 'hidden')) this.sendControl('pause');
     if ([1, 2, 4].includes(data.state.speed)) this.speed.set(data.state.speed);
   }
 }

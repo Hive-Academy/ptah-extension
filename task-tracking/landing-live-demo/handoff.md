@@ -79,3 +79,7 @@ node scripts/landing/check-live-demo.mjs --root /tmp/ptah-demo-try
 - Review B6/R (`review-b6-scenarios.md`, 1 blocker: real identifiers in orchestration.json):
   codex lane 0f42d235 fixes it + majors + visual defects, notes `batch-b6-review-fixes.md`.
   B8 media must be re-captured after that lane ends.
+- Done after that: B7 review (`review-b7-section.md`) fixed; smoke checker clicks Send for
+  on-send; command-center result stats removed; media re-captured; B9 done (headless script
+  `evidence/b9-review.cjs`, evidence `evidence/b9-*`); combined verify 21/21 passed.
+  Status and remaining steps: see `final-report.md`.
