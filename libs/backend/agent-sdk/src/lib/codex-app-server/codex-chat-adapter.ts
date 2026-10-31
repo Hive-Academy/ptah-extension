@@ -48,6 +48,8 @@ import {
 } from './codex-chat-session-controls';
 import { z } from 'zod';
 import { publishUntilAdmitted, type CodexChatAdmission } from './codex-chat-admission';
+import { CodexChatPeerQueue } from './codex-chat-peer-queue';
+import { SessionAdmissionRefusedError } from '../errors/session-admission-refused.error';
 
 export interface CodexChatMetadataPort {
   save(
@@ -142,6 +144,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
   >[0];
   private stats?: Parameters<IAgentAdapter['setResultStatsCallback']>[0];
   private readonly controls: CodexChatSessionControls;
+  private readonly peerQueue: CodexChatPeerQueue;
 
   constructor(
     private readonly ports: CodexChatAdapterPorts,
@@ -150,6 +153,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       'markGenerating' | 'settleTurn' | 'recordFailure' | 'forceIdle'
     >,
   ) {
+    this.peerQueue = new CodexChatPeerQueue(this.ports.logger);
     this.controls = new CodexChatSessionControls({
       sessions: this.sessions,
       opening: this.opening,
@@ -548,6 +552,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       notifyCompaction: (active, trigger) => this.notifyCompaction(active, trigger),
       error: (code, operation) => new CodexChatAdapterError(code, operation),
       failure: (error, operation) => this.failure(error, operation),
+      onIdle: (active) => this.peerQueue.onIdle(active),
       admission,
     }, clientMessageId, inboundPeer);
   }
@@ -579,13 +584,45 @@ export class CodexChatAdapter implements NativeChatAdapter {
         ...image,
       })),
     ];
+    const requireIdle = options?.admission === 'require-idle';
+    if (requireIdle) {
+      const current = this.sessions.get(id);
+      if (!current || current.closing || current.abort.signal.aborted)
+        throw new SessionAdmissionRefusedError('session-ended', id);
+      if (current.busy || current.blocked || this.peerQueue.hasPending(current))
+        throw new SessionAdmissionRefusedError('busy', id);
+    }
     const session = this.session(id);
-    await publishUntilAdmitted(
-      (admission) => this.publish(
-        session, { text, attachments }, clientMessageId, admission, inboundPeer,
-      ),
-      this.ports.logger,
-    );
+    if (inboundPeer) {
+      await this.peerQueue.send(session, () => publishUntilAdmitted(
+        (admission) => this.publish(
+          session, { text, attachments }, clientMessageId, admission, inboundPeer,
+        ),
+        this.ports.logger,
+      ), requireIdle ? id : undefined);
+      return;
+    }
+    if (this.peerQueue.hasPending(session))
+      throw new CodexChatAdapterError('busy', 'turn');
+    try {
+      await publishUntilAdmitted(
+        (admission) => this.publish(
+          session, { text, attachments }, clientMessageId, admission, inboundPeer,
+        ),
+        this.ports.logger,
+      );
+    } catch (error) {
+      if (requireIdle && error instanceof CodexChatAdapterError &&
+          error.operation === 'turn' &&
+          (error.code === 'busy' || error.code === 'unavailable')) {
+        const ended = this.sessions.get(id) !== session ||
+          !!session.closing || session.abort.signal.aborted;
+        throw new SessionAdmissionRefusedError(
+          ended ? 'session-ended' : 'busy', id, { cause: error },
+        );
+      }
+      throw error;
+    }
   }
   owns(id: SessionId): boolean {
     return this.controls.owns(id);
@@ -621,6 +658,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     return this.controls.endSessionIfTokenMatches(_id, _token);
   }
   private close(session: Session): Promise<void> {
+    this.peerQueue.rejectPending(session);
     return this.controls.close(session);
   }
   interruptCurrentTurn(id: SessionId): Promise<boolean> {

@@ -109,7 +109,11 @@ The first live run (live-test-p10dP.md) found three blockers. Each has a correct
 Second Electron live run (live-test-p10dP-r2.md, head 0feebb6ab, 7 of 10 turns, settings `cmp` 0): G1 PASS, G3 PASS,
 G2 PASS for a fresh lane but FAIL for the resumed lane (`delivery-failed ... "Codex chat turn: busy"`: the lane's
 report started a main-chat turn, and the completion message arrived while that turn ran; native Codex refuses
-instead of queueing like Claude), G4 NOT-OBSERVED. New corrective batch 10d.L4 (busy race). Still open: G5 token
+instead of queueing like Claude), G4 NOT-OBSERVED. Corrective batch 10d.L4 (+ revisions 1-2): native Codex
+`sendMessageToSession` queues peer-origin messages in a bounded (32) per-session FIFO and starts each as the next turn
+after the active turn releases (Claude `session.messageQueue` parity, peer row on start, queue survives Stop like
+Claude); `require-idle` is refused with Claude's `SessionAdmissionRefusedError` (`busy` / `session-ended`). Reviews
+code-logic-review-10d-L4.md (7.5), -r1.md (REVISE 7.5), -r2.md (APPROVED 9). G2 for a resumed lane is PENDING-LIVE. Still open: G5 token
 columns NULL and 0 report receipts, no reasoning segments, resume replaces the earlier lane output, old app-server
 exit logged as "Codex process failure".
 

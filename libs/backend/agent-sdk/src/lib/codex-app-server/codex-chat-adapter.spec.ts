@@ -25,6 +25,7 @@ import {
 } from './codex-chat-adapter-error';
 import { SessionApprovalRouter } from './session-approval-router';
 import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
+import { SessionAdmissionRefusedError } from '../errors/session-admission-refused.error';
 
 const id = SessionId.from('11111111-1111-4111-8111-111111111111');
 const tabId = SessionId.from('22222222-2222-4222-8222-222222222222');
@@ -336,6 +337,240 @@ describe('CodexChatAdapter', () => {
       text: message, attachments: [],
     }));
     await h.adapter.dispose();
+  });
+  it('queues a peer message during an active turn and renders its peer row on the next turn', async () => {
+    const h = setup();
+    const release = deferred<void>();
+    const events: FlatStreamEventUnion[] = [];
+    let subscriptions = 0;
+    h.context.events.mockImplementation(() => {
+      subscriptions++;
+      return (async function* () {
+        if (subscriptions === 1) {
+          yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const, itemId: 'item', delta: 'working' };
+          await release.promise;
+        }
+        yield terminal;
+      })();
+    });
+    jest.mocked(h.ports.publish).mockImplementation(async (_id, stream) => {
+      for await (const event of stream) events.push(event);
+    });
+    const stream = await h.adapter.startChatSession({ tabId, prompt: 'first' });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    const send = h.adapter.sendMessageToSession(id, 'completion', {
+      origin: { kind: 'peer', from: 'ptah-agent:lane-a', name: 'Codex lane' },
+    });
+    expect(h.context.startTurn).toHaveBeenCalledTimes(1);
+    release.resolve();
+    while (!(await iterator.next()).done) { /* Drain the active turn. */ }
+    await send;
+    await waitFor(() => h.context.startTurn.mock.calls.length === 2);
+    await waitFor(() => events.some((event) => event.eventType === 'message_start'));
+    expect(events).toContainEqual(expect.objectContaining({
+      eventType: 'message_start', source: 'complete', role: 'user',
+      inboundPeer: { label: 'Codex lane' },
+    }));
+    expect(h.context.startTurn.mock.calls[1]?.[0]).toMatchObject({ text: 'completion' });
+    await h.adapter.dispose();
+  });
+
+  it('starts two queued peer messages in FIFO order', async () => {
+    const h = setup();
+    const release = deferred<void>();
+    let subscriptions = 0;
+    h.context.events.mockImplementation(() => {
+      subscriptions++;
+      return (async function* () {
+        if (subscriptions === 1) {
+          yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const, itemId: 'item', delta: 'working' };
+          await release.promise;
+        }
+        yield terminal;
+      })();
+    });
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    const first = h.adapter.sendMessageToSession(id, 'report', {
+      origin: { kind: 'peer', from: 'ptah-agent:lane-a', name: 'Codex lane' },
+    });
+    const second = h.adapter.sendMessageToSession(id, 'completion', {
+      origin: { kind: 'peer', from: 'ptah-agent:lane-a', name: 'Codex lane' },
+    });
+    release.resolve();
+    while (!(await iterator.next()).done) { /* Drain the active turn. */ }
+    await Promise.all([first, second]);
+    await waitFor(() => h.context.startTurn.mock.calls.length === 3);
+    expect(h.context.startTurn.mock.calls.map(([input]) => input.text))
+      .toEqual(['', 'report', 'completion']);
+    await h.adapter.dispose();
+  });
+
+  it('refuses require-idle peers while a turn runs or another peer is queued', async () => {
+    const h = setup();
+    const release = deferred<void>();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const, itemId: 'item', delta: 'working' };
+      await release.promise;
+      yield terminal;
+    })());
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    const origin = { kind: 'peer' as const, from: 'ptah-agent:lane-a' };
+    const runningRefusal = h.adapter.sendMessageToSession(id, 'idle-only', {
+      origin, admission: 'require-idle',
+    });
+    await expect(runningRefusal).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
+    await expect(runningRefusal).rejects.toMatchObject({ reason: 'busy' });
+    const queued = h.adapter.sendMessageToSession(id, 'queued', { origin });
+    const queuedRefusal = h.adapter.sendMessageToSession(id, 'idle-only-again', {
+      origin, admission: 'require-idle',
+    });
+    await expect(queuedRefusal).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
+    await expect(queuedRefusal).rejects.toMatchObject({ reason: 'busy' });
+    expect(h.context.startTurn).toHaveBeenCalledTimes(1);
+    release.resolve();
+    while (!(await iterator.next()).done) { /* Drain the active turn. */ }
+    await queued;
+    expect(h.context.startTurn.mock.calls.map(([input]) => input.text))
+      .toEqual(['', 'queued']);
+    await h.adapter.dispose();
+  });
+
+  it('refuses require-idle peers when an idle session already has a peer turn reserved', async () => {
+    const h = setup();
+    const stream = await h.adapter.startChatSession({ tabId });
+    for await (const event of stream) void event;
+    const origin = { kind: 'peer' as const, from: 'ptah-agent:lane-a' };
+    const reserved = h.adapter.sendMessageToSession(id, 'reserved', { origin });
+    const refusal = h.adapter.sendMessageToSession(id, 'idle-only', {
+      origin, admission: 'require-idle',
+    });
+    await expect(refusal).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
+    await expect(refusal).rejects.toMatchObject({ reason: 'busy' });
+    await reserved;
+    expect(h.context.startTurn.mock.calls.map(([input]) => input.text))
+      .toEqual(['', 'reserved']);
+    await h.adapter.dispose();
+  });
+
+  it('refuses require-idle messages for a closed session with session-ended', async () => {
+    const h = setup();
+    const stream = await h.adapter.startChatSession({ tabId });
+    for await (const event of stream) void event;
+    await h.adapter.closeSession(id);
+    const origin = { kind: 'peer' as const, from: 'ptah-agent:lane-a' };
+    const peerSend = h.adapter.sendMessageToSession(id, 'late', {
+      origin, admission: 'require-idle',
+    });
+    await expect(peerSend).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
+    await expect(peerSend).rejects.toMatchObject({ reason: 'session-ended' });
+    const directSend = h.adapter.sendMessageToSession(id, 'late', {
+      admission: 'require-idle',
+    });
+    await expect(directSend).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
+    await expect(directSend).rejects.toMatchObject({ reason: 'session-ended' });
+  });
+
+  it('refuses a require-idle peer while a session is closing', async () => {
+    const h = setup();
+    const stream = await h.adapter.startChatSession({ tabId });
+    for await (const event of stream) void event;
+    const release = deferred<void>();
+    h.context.close.mockImplementation(async () => release.promise);
+    const closing = h.adapter.closeSession(id);
+    const send = h.adapter.sendMessageToSession(id, 'late', {
+      origin: { kind: 'peer', from: 'ptah-agent:lane-a' },
+      admission: 'require-idle',
+    });
+    await expect(send).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
+    await expect(send).rejects.toMatchObject({ reason: 'session-ended' });
+    release.resolve();
+    await closing;
+  });
+
+  it('refuses a require-idle non-peer while a turn runs', async () => {
+    const h = setup();
+    const release = deferred<void>();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const, itemId: 'item', delta: 'working' };
+      await release.promise;
+      yield terminal;
+    })());
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    const send = h.adapter.sendMessageToSession(id, 'idle-only', {
+      admission: 'require-idle',
+    });
+    await expect(send).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
+    await expect(send).rejects.toMatchObject({ reason: 'busy' });
+    release.resolve();
+    while (!(await iterator.next()).done) { /* Drain the active turn. */ }
+    await h.adapter.dispose();
+  });
+
+  it('rejects and logs a queued peer message when its session closes', async () => {
+    const h = setup();
+    const release = deferred<void>();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const, itemId: 'item', delta: 'working' };
+      await release.promise;
+      yield terminal;
+    })());
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    const send = h.adapter.sendMessageToSession(id, 'completion', {
+      origin: { kind: 'peer', from: 'ptah-agent:lane-a' },
+    });
+    const rejected = expect(send).rejects.toMatchObject({
+      code: 'unavailable', operation: 'peerMessage',
+    });
+    await h.adapter.closeSession(id);
+    await rejected;
+    expect(h.ports.logger.error).toHaveBeenCalledWith(
+      '[CodexChatAdapter] Queued peer message rejected: session unavailable.',
+      expect.objectContaining({ code: 'unavailable' }),
+    );
+    release.resolve();
+    await iterator.return?.();
+  });
+
+  it('refuses a peer message with a coded error when the queue is full', async () => {
+    const h = setup();
+    const release = deferred<void>();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const, itemId: 'item', delta: 'working' };
+      await release.promise;
+      yield terminal;
+    })());
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    const sends = Array.from({ length: 32 }, (_, index) =>
+      h.adapter.sendMessageToSession(id, `peer-${index}`, {
+        origin: { kind: 'peer', from: 'ptah-agent:lane-a' },
+      }));
+    const outcomes = Promise.allSettled(sends);
+    await expect(h.adapter.sendMessageToSession(id, 'overflow', {
+      origin: { kind: 'peer', from: 'ptah-agent:lane-a' },
+    })).rejects.toMatchObject({ code: 'busy', operation: 'peerQueueFull' });
+    const idleOnly = h.adapter.sendMessageToSession(id, 'overflow-idle-only', {
+      origin: { kind: 'peer', from: 'ptah-agent:lane-a' },
+      admission: 'require-idle',
+    });
+    await expect(idleOnly).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
+    await expect(idleOnly).rejects.toMatchObject({ reason: 'busy' });
+    await h.adapter.closeSession(id);
+    expect((await outcomes).every((outcome) =>
+      outcome.status === 'rejected' && outcome.reason instanceof CodexChatAdapterError &&
+      outcome.reason.code === 'unavailable')).toBe(true);
+    release.resolve();
+    await iterator.return?.();
   });
   it('admits a live follow-up before its native event stream ends', async () => {
     const h = setup();

@@ -103,6 +103,7 @@ interface CodexChatTurnDependencies {
     operation: string,
   ): CodexChatAdapterError;
   failure(error: unknown, operation: string): CodexChatAdapterError;
+  onIdle(session: CodexChatSession): void;
   readonly admission?: CodexChatAdmission;
 }
 
@@ -441,6 +442,7 @@ export async function* streamCodexChatTurn(
       session.blocked = false;
       session.pendingInterrupt = false;
       session.stopRequested = false;
+      deps.onIdle(session);
     };
     if (
       !terminal &&
