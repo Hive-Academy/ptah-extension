@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { WallClockService } from '@ptah-extension/core';
 import type { BackendReadiness, BootPhase } from '@ptah-extension/shared';
 
 import {
@@ -47,6 +48,7 @@ describe('BootProgressComponent', () => {
 
   afterEach(() => {
     fixture.destroy();
+    jest.restoreAllMocks();
     jest.useRealTimers();
   });
 
@@ -271,13 +273,26 @@ describe('BootProgressComponent', () => {
     });
   });
 
-  it('clears its elapsed timer on destroy', () => {
-    const clearSpy = jest.spyOn(global, 'clearInterval');
+  it('releases the shared elapsed clock on destroy', () => {
+    const clock = TestBed.inject(WallClockService);
+    const acquireClock = clock.acquire.bind(clock);
+    const release = jest.fn();
+    const acquire = jest.spyOn(clock, 'acquire').mockImplementation((cadence) => {
+      const releaseClock = acquireClock(cadence);
+      return () => {
+        releaseClock();
+        release();
+      };
+    });
     render({ phase: 'starting' });
-
+    expect(acquire).toHaveBeenCalledWith('second');
     fixture.destroy();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
 
-    expect(clearSpy).toHaveBeenCalled();
-    clearSpy.mockRestore();
+  it('does not tick after the boot phase settles', () => {
+    const acquire = jest.spyOn(TestBed.inject(WallClockService), 'acquire');
+    render({ phase: 'settled' });
+    expect(acquire).not.toHaveBeenCalled();
   });
 });

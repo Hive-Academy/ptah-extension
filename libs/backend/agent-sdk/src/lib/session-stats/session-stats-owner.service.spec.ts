@@ -88,6 +88,7 @@ function prefix(
   cost: number | null,
   options: {
     tokens?: number;
+    turnCount?: number;
     subagentIds?: readonly string[];
     savedCostState?: SavedCostState | null;
   } = {},
@@ -101,6 +102,7 @@ function prefix(
       knownCost: cost,
       tokens: { input: tokens, output: 0, cacheRead: 0, cacheCreation: 0 },
       tokenCount: tokens,
+      ...(options.turnCount !== undefined && { turnCount: options.turnCount }),
       messageCount: 4,
       modelUsageList: [
         {
@@ -267,6 +269,101 @@ describe('SessionStatsOwnerService', () => {
         owner.replaceRun(SESSION, prep.generation, 'run-1', r).snapshot;
       return { owner, prep, offer };
     }
+
+    it('adds accepted results to the prefix turn count', async () => {
+      const { offer } = await resumedRun(prefix(0, { turnCount: 4 }));
+      offer(run(1, [{ input: 10 }]));
+      expect(offer(run(2, [{ input: 20 }]))?.turnCount).toBe(6);
+    });
+
+    it('counts an ignored error between accepted results and skips a duplicate', async () => {
+      const { owner, prep } = await resumedRun(prefix(0, { turnCount: 4 }));
+      const first = run(1, [{ input: 10 }]);
+      const last = run(2, [{ input: 20 }]);
+
+      expect(owner.replaceRun(SESSION, prep.generation, 'run-1', first).snapshot?.turnCount).toBe(5);
+      const ignored = owner.replaceRun(
+        SESSION,
+        prep.generation,
+        'run-1',
+        run(0, [{ input: 0, output: 0, costUSD: 0 }], { isErrorResult: true }),
+      );
+      expect(ignored.outcome).toBe('ignored-error');
+      expect(ignored.snapshot?.turnCount).toBe(6);
+      expect(owner.replaceRun(SESSION, prep.generation, 'run-1', last).snapshot?.turnCount).toBe(7);
+
+      const duplicate = owner.replaceRun(SESSION, prep.generation, 'run-1', last);
+      expect(duplicate.outcome).toBe('duplicate');
+      expect(duplicate.snapshot?.turnCount).toBe(7);
+    });
+
+    it.each([
+      ['rejected-invalid', run(-1)],
+      ['rejected-non-monotonic', run(0, [{ input: 0 }])],
+    ])('counts a %s result as a prompt', async (outcome, rejected) => {
+      const { owner, prep } = await resumedRun(prefix(0, { turnCount: 4 }));
+      owner.replaceRun(SESSION, prep.generation, 'run-1', run(1, [{ input: 10 }]));
+
+      const result = owner.replaceRun(SESSION, prep.generation, 'run-1', rejected);
+      expect(result.outcome).toBe(outcome);
+      expect(result.snapshot?.turnCount).toBe(6);
+      expect(result.snapshot?.totalCost).toBe(1);
+    });
+
+    it('does not count a duplicate result twice', async () => {
+      const { owner, prep, offer } = await resumedRun(prefix(0, { turnCount: 4 }));
+      offer(run(1, [{ input: 10 }]));
+      const second = run(2, [{ input: 20 }]);
+      offer(second);
+      const duplicate = owner.replaceRun(SESSION, prep.generation, 'run-1', second);
+      expect(duplicate.outcome).toBe('duplicate');
+      expect(duplicate.snapshot?.turnCount).toBe(6);
+    });
+
+    it('keeps an in-flight live estimate out of the completed turn count', async () => {
+      const { owner, prep, offer } = await resumedRun(prefix(0, { turnCount: 4 }));
+      offer(run(1, [{ input: 10 }]));
+      offer(run(2, [{ input: 20 }]));
+      const live = owner.publishLive(
+        SESSION,
+        prep.generation,
+        'run-1',
+        run(1, [{ input: 5 }]).models,
+      );
+      expect(live?.provisional).toBe(true);
+      expect(live?.turnCount).toBe(6);
+      expect(owner.snapshot(SESSION)?.turnCount).toBe(6);
+    });
+
+    it('omits turn count after an unattributed result, including live estimates', async () => {
+      const { owner, prep } = await resumedRun(prefix(0, { turnCount: 4 }));
+      const incomplete = owner.markRunIncomplete(SESSION, prep.generation, 'run-1');
+      expect(incomplete).not.toBeNull();
+      expect('turnCount' in (incomplete ?? {})).toBe(false);
+      const live = owner.publishLive(
+        SESSION,
+        prep.generation,
+        'run-1',
+        run(1, [{ input: 5 }]).models,
+      );
+      expect(live?.provisional).toBe(true);
+      expect('turnCount' in (live ?? {})).toBe(false);
+      expect('turnCount' in (owner.snapshot(SESSION) ?? {})).toBe(false);
+    });
+
+    it('retains the unattributed completed turn when a later result restores coverage', async () => {
+      const { owner, prep, offer } = await resumedRun(prefix(0, { turnCount: 4 }));
+      offer(run(1, [{ input: 10 }]));
+      owner.markRunIncomplete(SESSION, prep.generation, 'run-1');
+      expect(offer(run(3, [{ input: 30 }]))?.turnCount).toBe(7);
+    });
+
+    it('omits turn count when the prefix cannot be read', async () => {
+      const { offer } = await resumedRun(null);
+      const snapshot = offer(run(1, [{ input: 10 }]));
+      expect(snapshot).not.toBeNull();
+      expect('turnCount' in (snapshot ?? {})).toBe(false);
+    });
 
     it('restored: prefix 10, cost-state 10, R1 13 -> 13, then 15 -> 15', async () => {
       const { offer } = await resumedRun(prefix(10, { savedCostState: SAVED_10 }));
@@ -439,7 +536,7 @@ describe('SessionStatsOwnerService', () => {
     );
     expect(truncated.outcome).toBe('rejected-non-monotonic');
     expect(truncated.firstRejection).toBe(true);
-    expect(truncated.snapshot).toBe(both);
+    expect(truncated.snapshot?.turnCount).toBe((both?.turnCount ?? 0) + 1);
     expect(truncated.snapshot?.tokens.input).toBe(150);
     expect(truncated.snapshot?.totalCost).toBe(15);
 
@@ -545,7 +642,9 @@ describe('SessionStatsOwnerService', () => {
     );
 
     expect(zeroed.outcome).toBe('ignored-error');
-    expect(owner.snapshot(SESSION)).toBe(before);
+    expect(zeroed.snapshot?.totalCost).toBe(before?.totalCost);
+    expect(zeroed.snapshot?.tokens).toEqual(before?.tokens);
+    expect(zeroed.snapshot?.turnCount).toBe((before?.turnCount ?? 0) + 1);
   });
 
   it('retains accepted state for empty and malformed results', () => {
@@ -578,7 +677,10 @@ describe('SessionStatsOwnerService', () => {
       ),
     ).toBe('rejected-invalid');
 
-    expect(owner.snapshot(SESSION)).toBe(accepted);
+    const rejected = owner.snapshot(SESSION);
+    expect(rejected?.turnCount).toBe((accepted?.turnCount ?? 0) + 3);
+    expect(rejected?.totalCost).toBe(accepted?.totalCost);
+    expect(rejected?.tokens).toEqual(accepted?.tokens);
   });
 
   it('accepts a complete result that adds an unpriced model and nulls the total', () => {

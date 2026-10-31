@@ -13,12 +13,18 @@ import {
   type AgentLaneStatsView,
 } from '@ptah-extension/chat-ui';
 import {
+  cliUsageTokenTotal,
+  isValidTokenCount,
+  messageTokenTotal,
+  type CliUsageTotals,
+} from '@ptah-extension/shared';
+import {
   NOT_REPORTED,
   usageTotalsFromSegments,
 } from '../components/molecules/agent-card/stats-bar.utils';
 
 const positive = (value: number | undefined): value is number =>
-  value !== undefined && Number.isFinite(value) && value > 0;
+  isValidTokenCount(value) && value > 0;
 
 /** "in 1,200 · out 300 · cache read 4,000" for the parts that were reported. */
 function tokenBreakdown(
@@ -38,14 +44,16 @@ export function subagentLaneStats(
   const view = subagentUsageView(record, now);
   const usage = record.usage;
   const usageSum = usage
-    ? usage.input +
-      usage.output +
-      (usage.cacheRead ?? 0) +
-      (usage.cacheWrite ?? 0)
-    : undefined;
+    ? messageTokenTotal({
+        input: usage.input,
+        output: usage.output,
+        cacheRead: usage.cacheRead,
+        cacheCreation: usage.cacheWrite,
+      })
+    : null;
   const tokens = positive(record.totalTokens)
     ? record.totalTokens
-    : positive(usageSum)
+    : usageSum !== null && positive(usageSum)
       ? usageSum
       : null;
   const cache = view.cacheState === 'unknown' ? null : view.cacheState;
@@ -75,23 +83,42 @@ export function subagentLaneStats(
   };
 }
 
+/** One CLI lane's reported usage, with retained output identified as partial. */
+export interface CliLaneUsage {
+  usage: CliUsageTotals | null;
+  structured: CliUsageTotals | null;
+  partial: boolean;
+  tokens: number | null;
+  tokensExact: boolean;
+}
+
+export function resolveCliLaneUsage(source: MonitoredAgent): CliLaneUsage {
+  const structured = source.usageTotals ?? null;
+  const fallback = structured === null
+    ? usageTotalsFromSegments(source.segments)
+    : null;
+  const usage = structured ?? fallback;
+  const tokenTotal = cliUsageTokenTotal(usage);
+  return {
+    usage,
+    structured,
+    partial: fallback !== null,
+    tokens: tokenTotal?.value ?? null,
+    tokensExact: tokenTotal?.exact ?? false,
+  };
+}
+
 /** Stats bar figures of a CLI lane (structured totals, else retained segments). */
 export function cliLaneStats(agent: MonitoredAgent): AgentLaneStatsView {
-  const structured = agent.usageTotals ?? null;
-  const usage = structured ?? usageTotalsFromSegments(agent.segments);
-  const summed =
-    usage?.inputTokens !== undefined || usage?.outputTokens !== undefined
-      ? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0)
-      : undefined;
-  const tokens = usage?.totalTokens ?? summed;
-  const segmentFallback = structured === null && usage !== null;
+  const { usage, structured, partial, tokens, tokensExact } =
+    resolveCliLaneUsage(agent);
   return {
     model: agent.model ?? null,
     contextTokens: structured?.contextTokens ?? null,
-    tokens: positive(tokens) ? tokens : null,
-    // Only a reported total is exact; a sum of in/out or a retained-segment
-    // fold may miss turns (the former header-meta rule).
-    tokensPartial: structured?.totalTokens === undefined,
+    tokens,
+    // Only a host-reported total is safe to display as exact. Split counts
+    // and retained output may miss turns.
+    tokensPartial: partial || !tokensExact,
     tokensTitle: usage
       ? tokenBreakdown([
           ['in', usage.inputTokens],
@@ -101,7 +128,7 @@ export function cliLaneStats(agent: MonitoredAgent): AgentLaneStatsView {
         ])
       : null,
     cost: usage?.costUsd,
-    costPartial: segmentFallback && usage?.costUsd !== undefined,
+    costPartial: partial && usage?.costUsd !== undefined,
     cache: null,
     cacheTitle: null,
   };

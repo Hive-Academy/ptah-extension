@@ -74,6 +74,7 @@ interface Harness {
   sendMessageToSession: jest.Mock;
   routeFollowUpSlashCommand: jest.Mock;
   streamEventsToWebview: jest.Mock;
+  admitUserTurn: jest.Mock;
   startStream: () => void;
   completeStream: () => void;
 }
@@ -92,6 +93,7 @@ function harness(
   const resumeSession = jest.fn().mockResolvedValue(emptyStream());
   const sendMessageToSession = jest.fn().mockResolvedValue(undefined);
   const routeFollowUpSlashCommand = jest.fn().mockResolvedValue(null);
+  const admitUserTurn = jest.fn();
   let streamAttached = streaming;
   const streamEventsToWebview = jest.fn(() => {
     streamAttached = true;
@@ -169,6 +171,7 @@ function harness(
         }),
       },
       sentryService: { captureException: jest.fn() },
+      hostRouting: { admitUserTurn },
     },
   );
   return {
@@ -177,6 +180,7 @@ function harness(
     sendMessageToSession,
     routeFollowUpSlashCommand,
     streamEventsToWebview,
+    admitUserTurn,
     startStream: () => { streamAttached = true; },
     completeStream: () => { streamAttached = false; },
   };
@@ -386,6 +390,13 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
       h.routeFollowUpSlashCommand.mock.invocationCallOrder[0],
     );
     expect(h.sendMessageToSession).not.toHaveBeenCalled();
+    // The resumed turn is a dispatched user turn, so host routing admits it once.
+    expect(h.admitUserTurn).toHaveBeenCalledTimes(1);
+    expect(h.admitUserTurn).toHaveBeenCalledWith({
+      tabId: TAB_ID,
+      sessionId: SESSION_ID,
+      prompt: 'follow up',
+    });
   });
 
   it('resumes an attachment-only Codex follow-up as exactly one turn', async () => {

@@ -1,8 +1,8 @@
 import {
-  ChangeDetectionStrategy, Component, NgZone, computed, effect, inject, input, output, signal, untracked,
+  ChangeDetectionStrategy, Component, computed, inject, input, output,
 } from '@angular/core';
 import { CheckCircle, LucideAngularModule } from 'lucide-angular';
-import { AppStateManager } from '@ptah-extension/core';
+import { AppStateManager, injectWallClock } from '@ptah-extension/core';
 import type { ConnectionCheckFailureReason, ConnectionCheckRecord } from '@ptah-extension/shared';
 import type { ProviderConnectionCardStatus } from '../provider-connection-card.state';
 import type { UsedBy } from '../connection-usage';
@@ -118,9 +118,6 @@ export function checkedAgo(checkedAt: string, now: number): string | null {
   const hours = Math.round(minutes / 60);
   return hours < 24 ? `Checked ${hours} h ago` : `Checked on ${new Date(at).toLocaleDateString()}`;
 }
-
-/** The relative time is refreshed this often while a record is shown (one timer, only while the tab shows one). */
-const AGE_REFRESH_MS = 30000;
 
 const DOT: Readonly<Record<StatusTone, string>> = {
   success: 'bg-success', warning: 'bg-warning', error: 'bg-error', neutral: 'bg-base-content-muted',
@@ -275,13 +272,13 @@ export class OverviewTabComponent {
   /** A "Follows main agent →" link raised its deep link; the drawer closes. */
   readonly roleLinkOpened = output<void>();
 
-  /** "Now" for the check's age; ticks only while a record is shown (see the constructor). */
-  private readonly now = signal(Date.now());
   /** The record, when it describes the status line shown (`overviewCheckApplies`). */
   private readonly shownCheck = computed(() => {
     const check = this.lastCheck();
     return check && overviewCheckApplies(this.status(), check) ? check : null;
   });
+  /** The check's age advances while its record is visible. */
+  private readonly now = injectWallClock('coarse', () => this.shownCheck() !== null);
   protected readonly statusView = computed(() => overviewCheckedStatus(
     overviewStatus(this.status(), this.positiveProbeEvidence(), this.isActive(), this.kind()), this.status(), this.shownCheck()));
   /** Under the status: a failed check's fixed reason, then when the check ran. */
@@ -301,19 +298,6 @@ export class OverviewTabComponent {
     const count = this.usedBy().length;
     return `${count} active ${count === 1 ? 'route' : 'routes'}`;
   });
-
-  constructor() {
-    // One timer for the check's age, only while a record is shown; released when it goes or the tab is destroyed.
-    // Outside the zone (as `streaming-quotes.component.ts`), so it never keeps the app unstable; the signal write
-    // still schedules the render.
-    const zone = inject(NgZone);
-    effect((onCleanup) => {
-      if (!this.shownCheck()) return;
-      untracked(() => this.now.set(Date.now()));
-      const timer = zone.runOutsideAngular(() => setInterval(() => this.now.set(Date.now()), AGE_REFRESH_MS));
-      onCleanup(() => clearInterval(timer));
-    });
-  }
 
   protected detail(entry: UsedBy): string {
     return entry.followsMain ? 'Uses the main agent\'s provider' : KIND_DETAIL[entry.kind];

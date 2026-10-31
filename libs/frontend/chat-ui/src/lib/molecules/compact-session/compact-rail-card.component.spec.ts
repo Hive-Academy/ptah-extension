@@ -96,7 +96,7 @@ describe(CompactRailCardComponent.name, () => {
       b.textContent?.trim().startsWith(name),
     ) as HTMLButtonElement | undefined;
 
-  it('shows only known positive summary badges and preserves the diff', () => {
+  it('shows known summary badges including zero context and preserves the diff', () => {
     const f = render();
     const value = summary();
     f.componentRef.setInput('summary', { ...value, metrics: { ...value.metrics, agentCount: 2 } });
@@ -113,17 +113,19 @@ describe(CompactRailCardComponent.name, () => {
     f.componentRef.setInput('contextPercent', null);
     f.detectChanges();
     expect(badges()).toEqual([]);
+    expect(f.componentInstance.roundedContextPercent()).toBeNull();
     f.componentRef.setInput('contextPercent', 0);
     f.componentRef.setInput('lanes', lanes(4));
     f.detectChanges();
     // Three rows plus "+1 more": the badge still counts every CLI lane.
-    expect(badges()).toEqual(['4 CLI']);
+    expect(badges()).toEqual(['4 CLI', '0% ctx']);
+    expect(f.componentInstance.roundedContextPercent()).toBe(0);
     f.componentRef.setInput('lanes', {
       ...lanes(6),
       kinds: { cli: 2, subagent: 4, background: 0 },
     });
     f.detectChanges();
-    expect(badges()).toEqual(['2 CLI']);
+    expect(badges()).toEqual(['2 CLI', '0% ctx']);
   });
 
   it('uses the shared height for both densities', () => {

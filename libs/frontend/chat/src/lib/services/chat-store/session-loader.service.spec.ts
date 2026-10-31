@@ -25,13 +25,14 @@ import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { TestBed } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { sessionContextCue } from '@ptah-extension/chat-ui';
 import { SessionLoaderService } from './session-loader.service';
 import { mapChatSendFailureText } from '../message-sender.service';
 import { SessionHistoryReplayer } from './session-history-replayer.service';
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
 import { StreamViewportController } from '../stream-viewport-controller.service';
 import { HistoryPagingService } from './history-paging.service';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import { TabManagerService, type LiveModelStatsPayload } from '@ptah-extension/chat-state';
 import {
   BatchedUpdateService,
   BackgroundAgentStore,
@@ -105,6 +106,26 @@ function makeSummary(
   } as ChatSessionSummary;
 }
 
+function priorContextReading(
+  model: string,
+  source: 'sdk-native' | 'provider-catalog' = 'sdk-native',
+): LiveModelStatsPayload {
+  const trusted = source === 'sdk-native';
+  return {
+    model,
+    contextKnown: true,
+    contextCapacity: {
+      tokens: 200_000,
+      source,
+      providerId: null,
+      model,
+    },
+    contextUsed: 30_000,
+    contextWindow: trusted ? 200_000 : 0,
+    contextPercent: trusted ? 15 : 0,
+  };
+}
+
 describe('SessionLoaderService', () => {
   let service: SessionLoaderService;
   let rpcCall: jest.Mock;
@@ -124,6 +145,9 @@ describe('SessionLoaderService', () => {
   let activeTabIdSignal: ReturnType<typeof signal<string | null>>;
   let applyLoadedSessionStats: jest.Mock;
   let setLiveModelStats: jest.Mock;
+  let priorLiveModelStats: LiveModelStatsPayload | null;
+  let priorTabSessionId: string | null | undefined;
+  let priorTabLookupCount: number;
   let consoleError: jest.SpyInstance;
   let consoleWarn: jest.SpyInstance;
   let consoleLog: jest.SpyInstance;
@@ -143,6 +167,9 @@ describe('SessionLoaderService', () => {
     >([]);
     applyLoadedSessionStats = jest.fn();
     setLiveModelStats = jest.fn();
+    priorLiveModelStats = null;
+    priorTabSessionId = undefined;
+    priorTabLookupCount = 0;
     historyPagingMock.tailRequest.mockClear();
     historyPagingMock.recordTail.mockClear();
 
@@ -154,10 +181,12 @@ describe('SessionLoaderService', () => {
       activeTabId: computed(() => activeTabIdSignal()),
       tabs: computed(() => tabBindingsSignal()),
       findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
-        const sessionId = activeTabSessionIdSignal();
+        const sessionId = priorTabSessionId !== undefined && priorTabLookupCount++ > 0
+          ? priorTabSessionId
+          : activeTabSessionIdSignal();
         return sessionId
           ? {
-              tab: { id: tabId, claudeSessionId: sessionId },
+               tab: { id: tabId, claudeSessionId: sessionId, liveModelStats: priorLiveModelStats },
               workspacePath: 'D:/repo',
             }
           : null;
@@ -851,6 +880,119 @@ describe('SessionLoaderService', () => {
         contextWindow: 400_000,
         contextPercent: 10,
       });
+    });
+
+    it.each([
+      { priorModel: 'claude-opus-5', expectedWindow: 200_000, expectedPercent: 65 },
+      { priorModel: 'claude-sonnet-4', expectedWindow: 0, expectedPercent: 0 },
+      { priorModel: null, expectedWindow: 0, expectedPercent: 0 },
+      { priorModel: 'Anthropic/claude-opus-5-20260101[1m]', expectedWindow: 200_000, expectedPercent: 65 },
+    ])('carries trusted snapshot context for prior model $priorModel', async ({ priorModel, expectedWindow, expectedPercent }) => {
+      const restoredTabId = TabId.from('316f183b-6a94-4c3c-99eb-3023d58cbadc');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      priorLiveModelStats = priorModel ? priorContextReading(priorModel) : null;
+      const stats = {
+        sessionId: SESSION,
+        totalCost: 1,
+        tokens: { input: 130_000, output: 2, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 1,
+        model: 'claude-opus-5',
+        contextSnapshot: { model: 'claude-opus-5', contextTokens: 130_000, contextWindow: 0 },
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(setLiveModelStats).toHaveBeenLastCalledWith(
+        restoredTabId,
+        expect.objectContaining({
+          contextUsed: 130_000,
+          contextWindow: expectedWindow,
+          contextPercent: expectedPercent,
+        }),
+      );
+    });
+
+    it.each([
+      { priorModel: 'claude-opus-5', source: 'sdk-native' as const, expectedWindow: 200_000, expectedPercent: 15 },
+      { priorModel: 'claude-sonnet-4', source: 'sdk-native' as const, expectedWindow: 0, expectedPercent: 0 },
+      { priorModel: 'claude-opus-5', source: 'provider-catalog' as const, expectedWindow: 0, expectedPercent: 0 },
+      { priorModel: null, source: 'sdk-native' as const, expectedWindow: 0, expectedPercent: 0 },
+      { priorModel: 'Anthropic/claude-opus-5-20260101[1m]', source: 'sdk-native' as const, expectedWindow: 200_000, expectedPercent: 15 },
+    ])('carries context across a compact boundary for prior model $priorModel and source $source', async ({ priorModel, source, expectedWindow, expectedPercent }) => {
+      const restoredTabId = TabId.from('acf18347-7818-4203-a09c-247f159a66fb');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      priorLiveModelStats = priorModel ? priorContextReading(priorModel, source) : null;
+      const stats = {
+        sessionId: SESSION,
+        totalCost: 1,
+        tokens: { input: 30_000, output: 2, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 1,
+        model: 'claude-opus-5',
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(setLiveModelStats).toHaveBeenLastCalledWith(
+        restoredTabId,
+        expect.objectContaining({
+          contextKnown: expectedWindow > 0,
+          contextWindow: expectedWindow,
+          contextPercent: expectedPercent,
+          contextUsed: expectedWindow > 0 ? 30_000 : 0,
+        }),
+      );
+    });
+
+    it('does not carry a trusted prior from a different tab session', async () => {
+      const restoredTabId = TabId.from('acf18347-7818-4203-a09c-247f159a66fb');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      priorLiveModelStats = priorContextReading('claude-opus-5');
+      priorTabSessionId = 'another-session';
+      const stats = {
+        sessionId: SESSION,
+        totalCost: 1,
+        tokens: { input: 30_000, output: 2, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 1,
+        model: 'claude-opus-5',
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(setLiveModelStats).toHaveBeenLastCalledWith(restoredTabId, {
+        model: 'claude-opus-5',
+        contextKnown: false,
+        contextUsed: 0,
+        contextWindow: 0,
+        contextPercent: 0,
+      });
+      expect(sessionContextCue(setLiveModelStats.mock.lastCall?.[1] ?? null).label).toBe('—');
     });
 
     it('leaves resume capacity unknown without provider evidence', async () => {

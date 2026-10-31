@@ -30,6 +30,8 @@ import {
   type ChatResumeResult,
   type FlatStreamEventUnion,
   type SessionListParams,
+  normalizeModelKey,
+  trustedContextWindow,
 } from '@ptah-extension/shared';
 import {
   SessionManager,
@@ -40,6 +42,8 @@ import {
   TabManagerService,
   isValidSessionStatsSnapshot,
   commandCenterPersonaFor,
+  contextFillStats,
+  type LiveModelStatsPayload,
 } from '@ptah-extension/chat-state';
 import {
   SessionHistoryReplayer,
@@ -1273,11 +1277,10 @@ export class SessionLoaderService {
     // Capture before applying persisted stats: applyLoadedSessionStats creates a
     // unknown live-model placeholder, which would otherwise erase the fresh
     // post-compaction seed before this targeted-reload guard can preserve it.
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    const prior = tab?.claudeSessionId === sessionId ? tab.liveModelStats ?? null : null;
     const compactionContextSeed =
-      options?.preserveCompactionContextSeed === true
-        ? (this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab
-            .liveModelStats ?? null)
-        : null;
+      options?.preserveCompactionContextSeed === true ? prior : null;
 
     this.tabManager.applyLoadedSessionStats(
       tabId,
@@ -1297,17 +1300,23 @@ export class SessionLoaderService {
 
     const snapshot = stats.contextSnapshot;
     if (!snapshot) {
+      const carried =
+        this.sameModel(prior, stats.model) &&
+        trustedContextWindow(prior?.contextCapacity, prior?.model ?? '') !== null
+          ? contextFillStats(prior, prior?.contextUsed)
+          : null;
       this.tabManager.setLiveModelStats(
         tabId,
-        stats.model
-          ? {
-              model: stats.model,
-              contextKnown: false,
-              contextUsed: 0,
-              contextWindow: 0,
-              contextPercent: 0,
-            }
-          : null,
+        carried ??
+          (stats.model
+            ? {
+                model: stats.model,
+                contextKnown: false,
+                contextUsed: 0,
+                contextWindow: 0,
+                contextPercent: 0,
+              }
+            : null),
       );
       return;
     }
@@ -1325,7 +1334,29 @@ export class SessionLoaderService {
       ],
       { hasCompacted: false },
     );
-    if (derived) this.tabManager.setLiveModelStats(tabId, derived.live);
+    if (derived) {
+      const carried =
+        trustedContextWindow(
+          derived.live.contextCapacity,
+          derived.live.model,
+        ) === null &&
+        this.sameModel(prior, snapshot.model) &&
+        trustedContextWindow(prior?.contextCapacity, prior?.model ?? '') !== null
+          ? contextFillStats(prior, snapshot.contextTokens)
+          : null;
+      this.tabManager.setLiveModelStats(tabId, carried ?? derived.live);
+    }
+  }
+
+  private sameModel(
+    prior: LiveModelStatsPayload | null,
+    model: string | null | undefined,
+  ): boolean {
+    return (
+      !!model &&
+      !!prior &&
+      normalizeModelKey(prior.model) === normalizeModelKey(model)
+    );
   }
 
   /**

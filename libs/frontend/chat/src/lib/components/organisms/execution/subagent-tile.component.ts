@@ -26,6 +26,7 @@ import { laneKey } from '../../molecules/compact-session/compact-lane-rows';
 import { BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionHistoryReplayer } from '../../../services/chat-store/session-history-replayer.service';
+import { subagentToolCount } from '../../../utils/subagent-tool-count';
 
 /** One transcript row for an agent. The full execution tree lives in the selected lane. */
 @Component({
@@ -90,7 +91,7 @@ import { SessionHistoryReplayer } from '../../../services/chat-store/session-his
         <span class="text-base-content-muted" data-testid="subagent-status">{{
           statusLabel()
         }}</span>
-        <span class="ml-auto whitespace-nowrap text-base-content-muted"
+        <span class="ml-auto whitespace-nowrap text-base-content-muted" title="Current known count"
           >{{ toolCount() }} tools</span
         >
         @if (duration(); as elapsed) {
@@ -234,16 +235,11 @@ export class SubagentTileComponent {
       })[this.status()],
   );
   protected readonly toolCount = computed(() => {
-    const count = (nodes: readonly ExecutionNode[]): number =>
-      nodes.reduce(
-        (total, child) =>
-          total + (child.type === 'tool' ? 1 : 0) + count(child.children),
-        0,
-      );
     const tree = this.tree();
-    return tree.length > 0
-      ? count(tree)
-      : (this.record()?.toolUses ?? count(this.node().children));
+    return subagentToolCount(
+      this.record(),
+      tree.length > 0 ? tree : this.node().children,
+    );
   });
   protected readonly duration = computed(() =>
     formatAgentElapsed(

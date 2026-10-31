@@ -555,4 +555,173 @@ describe('OutcomeWritePipeline', () => {
     expect((await store.get('subagent:z'))?.reviseRounds).toBe(1);
     await pipeline.dispose();
   });
+
+  it('calls insert callback once for a new subagent row and skips duplicates', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    const inserted = jest.fn();
+    const pipeline = trackedPipeline(
+      store,
+      logger,
+      undefined,
+      undefined,
+      inserted,
+    );
+    const row = outcomeRow('subagent:once');
+    pipeline.enqueue({ kind: 'subagent-stop', row });
+    pipeline.enqueue({ kind: 'subagent-stop', row });
+    await pipeline.flush();
+    expect(inserted).toHaveBeenCalledTimes(1);
+    expect(inserted).toHaveBeenCalledWith(row);
+  });
+
+  it('keeps one row for two stop producers and fills its missing join fields', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    const inserted = jest.fn();
+    const pipeline = trackedPipeline(
+      store,
+      logger,
+      undefined,
+      undefined,
+      inserted,
+    );
+    pipeline.enqueue({
+      kind: 'subagent-stop',
+      row: {
+        ...outcomeRow('subagent:pair'),
+        subagentSessionId: 'session-sub',
+        parentSessionId: null,
+        workspaceRoot: null,
+      },
+    });
+    pipeline.enqueue({
+      kind: 'subagent-stop',
+      row: {
+        ...outcomeRow('subagent:pair'),
+        subagentSessionId: null,
+        parentSessionId: 'session-parent',
+        workspaceRoot: '/workspace',
+      },
+    });
+    await pipeline.flush();
+    expect(await store.get('subagent:pair')).toMatchObject({
+      subagentSessionId: 'session-sub',
+      parentSessionId: 'session-parent',
+      workspaceRoot: '/workspace',
+    });
+    expect(inserted).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds a review before its subagent stop without held deliverables and joins it', async () => {
+    const store = new InMemoryLaneOutcomeStore();
+    const inserted = jest.fn();
+    const pipeline = trackedPipeline(
+      store,
+      logger,
+      new MemoryState(),
+      { isOpen: () => true },
+      inserted,
+    );
+    expect(
+      await pipeline.submit(report('subagent:early', 20, 'review')),
+    ).toEqual({ ok: true, state: 'held', runId: 'subagent:early' });
+    expect(await store.listHeldReports(Date.now())).toHaveLength(1);
+    pipeline.enqueue({
+      kind: 'subagent-stop',
+      row: outcomeRow('subagent:early'),
+    });
+    await pipeline.flush();
+    expect((await store.get('subagent:early'))?.reviseRounds).toBe(1);
+    expect(await store.hasReceipt('report-20')).toBe(true);
+    expect(await store.listHeldReports(Date.now())).toHaveLength(0);
+    expect(inserted).toHaveBeenCalledTimes(1);
+  });
+
+  it('still refuses deliverables to a missing lane run on a readable store', async () => {
+    const storage = new MemoryState();
+    const pipeline = trackedPipeline(
+      new InMemoryLaneOutcomeStore(),
+      logger,
+      storage,
+      { isOpen: () => true },
+    );
+    await pipeline.flush();
+    const before = new KeyValueOutcomeJournal<OutcomeWriteOp>(
+      storage,
+    ).snapshot();
+    expect(await pipeline.submit(report('lane:absent', 21))).toEqual({
+      ok: false,
+      error: 'run lane:absent not found',
+    });
+    expect(
+      new KeyValueOutcomeJournal<OutcomeWriteOp>(storage).snapshot(),
+    ).toEqual(before);
+  });
+
+  it('counts pending lane review holds against the 500 cap', async () => {
+    const storage = new MemoryState();
+    const expiresAt = Date.now() + 86_400_000;
+    storage.values.set('ptah.laneOutcomes.journal.v1', {
+      nextSeq: 1,
+      entries: [],
+      droppedAtCapacity: 0,
+      heldRuns: [
+        {
+          runId: 'lane:capped',
+          expiresAt: 0,
+          holdExpiries: Array.from({ length: 499 }, () => expiresAt),
+        },
+      ],
+    });
+    const pipeline = trackedPipeline(
+      new InMemoryLaneOutcomeStore(),
+      logger,
+      storage,
+      { isOpen: () => false },
+    );
+    expect(
+      await pipeline.submit(report('lane:capped', 22, 'review')),
+    ).toMatchObject({ ok: true, state: 'held' });
+    expect(
+      await pipeline.submit(report('lane:capped', 23, 'review')),
+    ).toEqual({ ok: false, error: 'too many held reports' });
+  });
+
+  it('moves an expired held review into the rejected ledger with one warning', async () => {
+    jest.useFakeTimers();
+    const now = Date.now();
+    jest.setSystemTime(now);
+    try {
+      const store = new SeededStore();
+      const storage = new MemoryState();
+      store.seed({
+        ...reportOp('lane:never', 612, 'review').report,
+        expiresAt: now - 1,
+      });
+      const warnings = { ...logger, warn: jest.fn() };
+      const pipeline = trackedPipeline(store, warnings, storage);
+      await pipeline.flush();
+      expect(
+        storage.get<{ entries: readonly unknown[] }>(OUTCOME_REJECTED_KEY)
+          ?.entries,
+      ).toEqual([
+        {
+          kind: 'review',
+          runId: 'lane:never',
+          reportId: 'report-612',
+          reason: 'held-report-expired',
+        },
+      ]);
+      expect(warnings.warn).toHaveBeenCalledTimes(1);
+      expect(warnings.warn).toHaveBeenCalledWith(
+        'Outcome hold expired',
+        expect.objectContaining({
+          reportId: 'report-612',
+          reason: 'held-report-expired',
+        }),
+      );
+      await pipeline.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

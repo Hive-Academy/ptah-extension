@@ -49,6 +49,8 @@ import {
   type PluginInfo,
   type PluginConfigState,
   type PluginConfigHomeStatus,
+  type PluginSessionNotice,
+  type PluginSessionOverride,
   type PluginHealthIssue,
   type PluginHealthStatus,
   type PluginSkillEntry,
@@ -978,13 +980,19 @@ export class PluginLoaderService {
    * With no root asked for and no active folder, the injected storage answers
    * as before.
    */
-  private storageFor(workspaceRoot?: string): IStateStorage | null {
+  private storageFor(
+    workspaceRoot?: string,
+    readOnly = false,
+  ): IStateStorage | null {
     const storage = this.workspaceState;
     if (storage === null) return null;
     if (this.configHome !== null) {
       const target = workspaceRoot ?? this.workspace?.getWorkspaceRoot();
       if (target === undefined) return storage;
-      return this.configHome.viewFor(this.configHome.harnessRootFor(target));
+      return this.configHome.viewFor(
+        this.configHome.harnessRootFor(target),
+        readOnly,
+      );
     }
     if (workspaceRoot === undefined) return storage;
     if (!isWorkspaceScopedStateStorage(storage)) return storage;
@@ -1023,6 +1031,75 @@ export class PluginLoaderService {
     const target = workspaceRoot ?? this.workspace?.getWorkspaceRoot();
     if (target === undefined) return null;
     return this.configHome.status(this.configHome.harnessRootFor(target));
+  }
+
+  /** Choices recorded at the session's root or an ancestor nearer than the project. */
+  getSessionPluginNotice(
+    sessionFolder: string,
+    ancestorRoots: readonly string[],
+    projectRoot: string,
+  ): PluginSessionNotice | null {
+    const home = this.configHome;
+    if (home === null) return null;
+
+    const sessionRoot = home.harnessRootFor(sessionFolder);
+    const projectKey = canonicalRootKey(home.harnessRootFor(projectRoot));
+    const keyOf = (root: string): string =>
+      canonicalRootKey(home.harnessRootFor(root));
+    if (canonicalRootKey(sessionRoot) === projectKey) return null;
+
+    const seenRoots = new Set<string>();
+    const seenPlugins = new Set<string>();
+    const seenSkills = new Set<string>();
+    const overrides: PluginSessionOverride[] = [];
+    let inheritsProjectSettings = false;
+    let incomplete = false;
+
+    for (const layer of [sessionFolder, ...ancestorRoots]) {
+      const key = keyOf(layer);
+      if (seenRoots.has(key)) continue;
+      seenRoots.add(key);
+      if (key === projectKey) {
+        inheritsProjectSettings = true;
+        break;
+      }
+
+      const read = this.readWorkspaceLayer(layer, true, true);
+      if (read.status === 'error') {
+        incomplete = true;
+        this.logger.warn(
+          '[PluginLoaderService] Session plugin layer unreadable',
+          { root: home.harnessRootFor(layer), reason: read.reason },
+        );
+        continue;
+      }
+
+      const root = home.harnessRootFor(layer);
+      const config = pluginConfigLayer(read.config);
+      for (const [id, value] of config.plugins) {
+        if (seenPlugins.has(id)) continue;
+        seenPlugins.add(id);
+        overrides.push({ kind: 'plugin', id, value, root });
+      }
+      for (const [id, value] of config.skills) {
+        if (seenSkills.has(id)) continue;
+        seenSkills.add(id);
+        overrides.push({ kind: 'skill', id, value, root });
+      }
+    }
+
+    return {
+      sessionRoot,
+      inheritsProjectSettings,
+      overrides: inheritsProjectSettings
+        ? overrides.sort((a, b) =>
+            a.kind === b.kind
+              ? a.id.localeCompare(b.id)
+              : a.kind.localeCompare(b.kind),
+          )
+        : [],
+      incomplete,
+    };
   }
 
   /**
@@ -1098,12 +1175,15 @@ export class PluginLoaderService {
    * value that is not an object, or an id list that is present but not a list
    * of strings is an error here (TASK_2026_560, N3). Absent storage and absent
    * values keep their legacy meaning (nothing recorded).
+   * `readOnly` prevents the configuration home from importing a legacy layer;
+   * plain workspace storage still uses its usual get method.
    */
   private readWorkspaceLayer(
     workspaceRoot?: string,
     requireStorage = false,
+    readOnly = false,
   ): WorkspaceLayerRead {
-    const storage = this.storageFor(workspaceRoot);
+    const storage = this.storageFor(workspaceRoot, readOnly);
     if (storage === null) {
       if (requireStorage) {
         return {

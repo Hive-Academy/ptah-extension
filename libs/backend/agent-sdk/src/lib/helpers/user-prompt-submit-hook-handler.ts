@@ -13,6 +13,10 @@ import { resolveHookCwd, resolveHookSessionId } from './hook-session-resolver';
 import { agentIdField } from './callback-registry.base';
 import { UserPromptSubmitCallbackRegistry } from './user-prompt-submit-callback-registry';
 import type { SubagentBudgetMonitor } from './compaction/subagent-budget-monitor';
+import type {
+  NextTurnReminder,
+  NextTurnReminderQueue,
+} from './next-turn-reminder.queue';
 
 /**
  * Upper bound for the pending-handoff pointer of one prompt. It backs the
@@ -55,6 +59,11 @@ export class UserPromptSubmitHookHandler {
       SubagentBudgetMonitor,
       'handoffPointer'
     >,
+    @inject(SDK_TOKENS.SDK_NEXT_TURN_REMINDER_QUEUE, { isOptional: true })
+    private readonly nextTurnReminderQueue?: Pick<
+      NextTurnReminderQueue,
+      'takeEntry' | 'allows'
+    >,
   ) {}
 
   createHooks(
@@ -88,10 +97,27 @@ export class UserPromptSubmitHookHandler {
               if (input.agent_id || !resolvedSessionId) {
                 return { continue: true };
               }
-              const additionalContext = await this.pointer(
+              let drained: NextTurnReminder | null = null;
+              try {
+                drained =
+                  this.nextTurnReminderQueue?.takeEntry(resolvedSessionId) ??
+                  null;
+              } catch (error: unknown) {
+                // degradation-audit: reported - an optional reminder failure cannot stop a prompt.
+                this.logger.warn(
+                  '[UserPromptSubmitHookHandler] Reminder drain failed, skipping',
+                  { errorType: callbackErrorType(error) },
+                );
+              }
+              const pointer = await this.pointer(
                 resolvedSessionId,
                 resolveHookCwd(input.cwd, cwd) ?? undefined,
               );
+              // Re-checked after the await: its producer may be off by now.
+              const reminder = this.stillAllowed(drained);
+              const additionalContext = [pointer, reminder]
+                .filter(Boolean)
+                .join('\n\n');
               return additionalContext
                 ? {
                     continue: true,
@@ -142,6 +168,27 @@ export class UserPromptSubmitHookHandler {
           sessionId: closureSessionId,
         },
       );
+    }
+  }
+
+  /**
+   * The drained reminder's text if its owner still allows injection right
+   * now (for host routing: the live setting); otherwise `null`. Untagged
+   * reminders of other producers always pass.
+   */
+  private stillAllowed(drained: NextTurnReminder | null): string | null {
+    if (!drained || !this.nextTurnReminderQueue) return null;
+    try {
+      return this.nextTurnReminderQueue.allows(drained.owner)
+        ? drained.text
+        : null;
+    } catch (error: unknown) {
+      // degradation-audit: reported - an unreadable gate withholds only that optional reminder.
+      this.logger.warn(
+        '[UserPromptSubmitHookHandler] Reminder check failed, skipping',
+        { errorType: callbackErrorType(error) },
+      );
+      return null;
     }
   }
 

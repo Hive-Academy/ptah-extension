@@ -5,11 +5,15 @@ import {
   DeliverablesPayloadSchema,
   OutcomeReportArgsSchema,
   ReviewPayloadSchema,
+  deterministicReviewReportId,
+  isSelfReview,
+  reportedSubagentStopRow,
   type LaneOutcomeLogger,
   type LaneOutcomeStore,
   type OutcomeWritePipeline,
 } from '@ptah-extension/lane-outcomes';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import { getCallerAgentId, getCallerSessionId } from '../mcp-request-context';
 import { flattenOperationUnion } from '../surface-tools';
 import type { MCPToolDefinition } from '../types/mcp-protocol.types';
 
@@ -80,13 +84,14 @@ export function buildOutcomeReportTool(): MCPToolDefinition {
     description:
       'Declare checked deliverables for a run or attach a review verdict. ' +
       'Use the Ptah run tag when available, otherwise the Agent result agentId. ' +
+      'For reviews, supply reviewerRunId to pair the reviewer with the reviewed run; a review may be reported before that run finishes. ' +
       'A held report joins the run when its stop arrives; queued means the outcome store is temporarily unavailable.',
     inputSchema: outcomeInputSchema(),
     annotations: { readOnlyHint: false, idempotentHint: false },
   };
 }
 
-/** Parse once at the boundary; report IDs are deliberately unique per call. */
+/** Parse once at the boundary; paired reviews use a stable report ID. */
 export async function runOutcomeReport(
   input: unknown,
   deps: OutcomeReportDependencies,
@@ -98,6 +103,7 @@ export async function runOutcomeReport(
     throw new Error('session workspace root unavailable');
 
   let runId: string;
+  let externalSubagentAgentId: string | null = null;
   if ('runId' in args.target) {
     runId = args.target.runId;
   } else {
@@ -112,7 +118,18 @@ export async function runOutcomeReport(
           recorded: false,
           reason: `ambiguous agentId ${args.target.agentId}`,
         };
-      runId = subagent ? subagentId : (lane?.runId ?? subagentId);
+      // An unseen agent's review is held under the bare agent id, which joins
+      // the agent's first inserted row, lane or subagent; deliverables are
+      // held only for a subagent run.
+      const unseen = args.kind === 'review' ? args.target.agentId : subagentId;
+      runId = subagent ? subagentId : (lane?.runId ?? unseen);
+      if (
+        args.kind === 'deliverables' &&
+        !subagent &&
+        !lane &&
+        !getCallerSessionId()
+      )
+        externalSubagentAgentId = args.target.agentId;
     } catch (error: unknown) {
       deps.logger.warn('Outcome target lookup failed', {
         agentId: args.target.agentId,
@@ -120,6 +137,24 @@ export async function runOutcomeReport(
       });
       return { recorded: false, reason: 'outcome store unavailable' };
     }
+  }
+
+  // A lane's MCP URL names the calling agent, which outranks the claimed
+  // reviewer: host capture keys the same review by that agent, so both paths
+  // share one report id, and a reviewer cannot grade its own run. Without
+  // either, the caller session attributes the review; an anonymous review is
+  // refused, since it could neither be self-checked nor deduplicated.
+  let reviewer: string | undefined;
+  if (args.kind === 'review') {
+    const sessionId = getCallerSessionId();
+    reviewer =
+      getCallerAgentId() ??
+      args.reviewerRunId ??
+      (sessionId ? `session:${sessionId}` : undefined);
+    if (reviewer === undefined)
+      return { recorded: false, reason: 'reviewer identity required' };
+    if (isSelfReview(runId, reviewer))
+      return { recorded: false, reason: 'self-review' };
   }
 
   let payload: string;
@@ -179,9 +214,18 @@ export async function runOutcomeReport(
     );
   }
 
-  const reportId = randomUUID();
+  // Every review has a reviewer here, so only deliverables get a random id.
+  const reportId =
+    reviewer !== undefined
+      ? deterministicReviewReportId(runId, reviewer)
+      : randomUUID();
   const heldAt = Date.now();
   try {
+    if (externalSubagentAgentId)
+      deps.pipeline.enqueue({
+        kind: 'subagent-stop',
+        row: reportedSubagentStopRow(externalSubagentAgentId, heldAt),
+      });
     const result = await deps.pipeline.submit({
       kind: args.kind,
       report: {

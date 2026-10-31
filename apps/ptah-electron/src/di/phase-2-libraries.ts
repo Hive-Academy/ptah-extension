@@ -32,7 +32,10 @@ import {
   registerWorkspaceIntelligenceServices,
   registerTypeScriptDiagnosticsProvider,
 } from '@ptah-extension/workspace-intelligence';
-import { TreeSitterCodeOutliner, mcpAttachmentObserver } from '@ptah-extension/vscode-lm-tools';
+import {
+  TreeSitterCodeOutliner,
+  mcpAttachmentObserver,
+} from '@ptah-extension/vscode-lm-tools';
 import {
   registerSdkServices,
   wireAgentAdapterAliases,
@@ -296,6 +299,9 @@ export function registerPhase2Libraries(
   container.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, {
     useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
   });
+  container.register(LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER, {
+    useToken: LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER,
+  });
   registerElectronCodexLaneFactory(container, logger, {
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
@@ -304,7 +310,9 @@ export function registerPhase2Libraries(
     platform: process,
   });
   registerCliAgentRuntimeServices(container, logger);
-  container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { useValue: mcpAttachmentObserver });
+  container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, {
+    useValue: mcpAttachmentObserver,
+  });
 
   wireAgentAdapterAliases(container);
   try {
@@ -411,7 +419,9 @@ export function registerPhase2Libraries(
   logger.info('[Electron DI] Named Claude account persistence', {
     bound: namedAccountsBound,
   });
-  startAndRegisterLaneOutcomes(container, logger);
+  startAndRegisterLaneOutcomes(container, logger, {
+    observeSubagentEnded: true,
+  });
   // Register the skill trigger and telemetry seam for library RPC handlers.
   registerSkillSynthesisServices(container, logger);
   registerTaskSpecsServices(container, logger);

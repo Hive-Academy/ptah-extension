@@ -31,7 +31,7 @@ import {
   Code,
   Brain,
 } from 'lucide-angular';
-import { AppStateManager } from '@ptah-extension/core';
+import { AppStateManager, injectWallClock } from '@ptah-extension/core';
 import type { IndexingPipeline } from '@ptah-extension/shared';
 import { WorkspaceIndexingService } from './workspace-indexing.service';
 
@@ -46,6 +46,7 @@ import { WorkspaceIndexingService } from './workspace-indexing.service';
 export class WorkspaceIndexingComponent {
   private readonly service = inject(WorkspaceIndexingService);
   private readonly appState = inject(AppStateManager);
+  private readonly now = injectWallClock('coarse');
 
   readonly uiState = this.service.uiState;
   readonly status = this.service.status;
@@ -146,8 +147,8 @@ export class WorkspaceIndexingComponent {
 
   /** Compact relative time formatter — e.g. "2 minutes ago". */
   formatRelativeTime(epochMs: number | null): string {
-    if (!epochMs) return 'just now';
-    const deltaMs = Date.now() - epochMs;
+    if (epochMs === null) return '—';
+    const deltaMs = this.now() - epochMs;
     if (deltaMs < 60_000) return 'just now';
     const minutes = Math.floor(deltaMs / 60_000);
     if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
