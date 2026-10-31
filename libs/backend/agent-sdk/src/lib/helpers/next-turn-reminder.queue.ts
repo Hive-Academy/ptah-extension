@@ -12,6 +12,7 @@ const MAX_TEXT_LENGTH = 600;
 export interface NextTurnReminder {
   readonly text: string;
   readonly owner: string | null;
+  readonly generation?: number;
 }
 
 /** In-memory, single-use reminders for the next main-thread prompt. */
@@ -19,10 +20,10 @@ export interface NextTurnReminder {
 export class NextTurnReminderQueue {
   private readonly entries = new Map<
     string,
-    { text: string; order: number; owner: string | null }
+    { text: string; order: number; owner: string | null; generation?: number }
   >();
   private readonly aliases = new Map<string, string>();
-  private readonly gates = new Map<string, () => boolean>();
+  private readonly gates = new Map<string, (generation?: number) => boolean>();
   private nextOrder = 0;
   private readonly unsubscribe: () => void;
 
@@ -34,13 +35,19 @@ export class NextTurnReminderQueue {
   }
 
   /** `owner` tags the entry so its producer can drop all of its own entries. */
-  put(sessionKey: string, text: string, owner: string | null = null): void {
+  put(
+    sessionKey: string,
+    text: string,
+    owner: string | null = null,
+    generation?: number,
+  ): void {
     const key = this.aliases.get(sessionKey) ?? sessionKey;
     this.entries.delete(key);
     this.entries.set(key, {
       text: text.slice(0, MAX_TEXT_LENGTH),
       order: ++this.nextOrder,
       owner,
+      generation,
     });
     if (this.entries.size > MAX_ENTRIES) {
       const oldest = this.entries.keys().next().value;
@@ -53,8 +60,12 @@ export class NextTurnReminderQueue {
     const key = this.aliases.get(sessionId) ?? sessionId;
     const entry = this.entries.get(key);
     this.entries.delete(key);
-    if (!entry || !this.allows(entry.owner)) return null;
-    return { text: entry.text, owner: entry.owner };
+    if (!entry || !this.allows(entry.owner, entry.generation)) return null;
+    return {
+      text: entry.text,
+      owner: entry.owner,
+      generation: entry.generation,
+    };
   }
 
   take(sessionId: string): string | null {
@@ -77,7 +88,10 @@ export class NextTurnReminderQueue {
    * injected; while it reads false those entries are withheld. Returns the
    * release.
    */
-  gateOwner(owner: string, allows: () => boolean): () => void {
+  gateOwner(
+    owner: string,
+    allows: (generation?: number) => boolean,
+  ): () => void {
     this.gates.set(owner, allows);
     return () => {
       if (this.gates.get(owner) === allows) this.gates.delete(owner);
@@ -85,9 +99,9 @@ export class NextTurnReminderQueue {
   }
 
   /** Whether an entry of `owner` may be injected now; untagged always may. */
-  allows(owner: string | null): boolean {
+  allows(owner: string | null, generation?: number): boolean {
     const gate = owner === null ? undefined : this.gates.get(owner);
-    return gate === undefined || gate();
+    return gate === undefined || gate(generation);
   }
 
   /** Remove every queued reminder `owner` put, in all sessions. */
