@@ -600,6 +600,46 @@ describe('plugin catalog panel — per-workspace skill selection', () => {
       expect(normalizedText(host)).not.toContain('/sessions/first');
     });
 
+    it('clears the current notice as soon as the session changes', async () => {
+      const pending = new Map<string, (value: unknown) => void>();
+      setResponder('plugins:get-config', (params) => {
+        const sessionId = (params as { sessionId?: string }).sessionId;
+        if (!sessionId) return ok(pluginConfig());
+        return new Promise((resolve) => pending.set(sessionId, resolve));
+      });
+      activeTabSessionId.set(FIRST_SESSION_ID);
+
+      const fixture = await mount();
+      const host = fixture.nativeElement as HTMLElement;
+      pending.get(FIRST_SESSION_ID)?.(
+        ok(pluginConfig(sessionNotice({ sessionRoot: '/sessions/first' }))),
+      );
+      await settle(fixture);
+      expect(normalizedText(host)).toContain('/sessions/first');
+      expect(
+        host.querySelector('[data-testid="plugin-session-notice"]'),
+      ).not.toBeNull();
+
+      activeTabSessionId.set(SECOND_SESSION_ID);
+      TestBed.flushEffects();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.sessionNotice()).toBeNull();
+      expect(
+        host.querySelector('[data-testid="plugin-session-notice"]'),
+      ).toBeNull();
+      expect(pending.has(SECOND_SESSION_ID)).toBe(true);
+
+      pending.get(SECOND_SESSION_ID)?.(
+        ok(pluginConfig(sessionNotice({ sessionRoot: '/sessions/second' }))),
+      );
+      await settle(fixture);
+      expect(fixture.componentInstance.sessionNotice()?.sessionRoot).toBe(
+        '/sessions/second',
+      );
+      expect(normalizedText(host)).toContain('/sessions/second');
+      expect(normalizedText(host)).not.toContain('/sessions/first');
+    });
+
     it('drops the notice after an RPC failure and still loads the panel', async () => {
       activeTabSessionId.set(FIRST_SESSION_ID);
       setResponder('plugins:get-config', (params) => {

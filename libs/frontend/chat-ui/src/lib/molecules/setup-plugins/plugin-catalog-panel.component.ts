@@ -802,8 +802,8 @@ export class PluginCatalogPanelComponent implements OnInit {
       const requestId = ++this.sessionNoticeRequestId;
 
       untracked(() => {
+        this.sessionNotice.set(null);
         if (sessionId === null) {
-          this.sessionNotice.set(null);
           return;
         }
 

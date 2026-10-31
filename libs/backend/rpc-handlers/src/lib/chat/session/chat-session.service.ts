@@ -541,7 +541,12 @@ export class ChatSessionService {
   async readSessionPolicyRoots(
     sessionId: SessionId,
   ): Promise<{ folder: string; ancestorRoots: readonly string[] }> {
-    const folder = await this.historyRead.resolveSessionFolder(sessionId);
+    const candidate = await this.historyRead.resolveSessionFolder(sessionId);
+    const folder = await validateSessionPolicyRoot(
+      candidate,
+      this.workspaceProvider,
+      this.platformInfo,
+    );
     const { roots } = await this.restoreLineage(sessionId, folder);
     return { folder, ancestorRoots: roots };
   }

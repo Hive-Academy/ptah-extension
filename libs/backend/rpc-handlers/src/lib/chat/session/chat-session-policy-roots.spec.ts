@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 /**
@@ -242,6 +242,34 @@ describe('readSessionPolicyRoots', () => {
       ancestorRoots: [PROJECT_B],
     });
     assertReadOnly(h);
+  });
+
+  it('returns the physical folder for a symlink into a worktree subdirectory', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ptah-session-worktree-link-'));
+    try {
+      const worktree = join(root, 'worktree');
+      const physicalFolder = join(worktree, 'packages', 'app');
+      const linkedFolder = join(root, 'app-link');
+      mkdirSync(physicalFolder, { recursive: true });
+      mkdirSync(join(worktree, '.git'));
+      symlinkSync(physicalFolder, linkedFolder, 'dir');
+
+      const h = makeHarness({
+        folders: [root],
+        metadata: {
+          workspaceId: root,
+          workingDirectory: linkedFolder,
+          pluginConfigAncestorRoots: [root],
+        },
+      });
+      expect(await h.service.readSessionPolicyRoots(SESSION_ID)).toEqual({
+        folder: realpathSync(linkedFolder),
+        ancestorRoots: [root],
+      });
+      assertReadOnly(h);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('restores the immediate root for legacy distinct cwd', async () => {
