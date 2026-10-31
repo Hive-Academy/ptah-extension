@@ -10,7 +10,7 @@ import 'reflect-metadata';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PTAH_LANE_POLICY } from '@ptah-extension/cli-agent-runtime';
-import { PTAH_SYSTEM_PROMPT } from './ptah-system-prompt.constant';
+import { PTAH_CORE_SYSTEM_PROMPT } from '@ptah-extension/agent-sdk';
 
 const CANARY_LINE = 'Lane policy id: ptah-lane-policy-v1';
 
@@ -28,6 +28,12 @@ const SHARED_TOOL_NAMES = [
   'ptah_browser_navigate',
   'ptah_browser_screenshot',
 ] as const;
+
+// The core prompt omits browser tools to keep its token budget; lane policy still names them.
+const PARENT_PROMPT_EXEMPT = new Set([
+  'ptah_browser_navigate',
+  'ptah_browser_screenshot',
+]);
 
 const MODE_WORD =
   /\b(?:steer|interrupt(?:-resume)?|queue(?:-next-turn)?|messaging)\b/i;
@@ -88,7 +94,9 @@ describe('lane policy stays aligned with the parent prompt and agent-lanes', () 
   it('names the same tools in the policy and the parent prompt', () => {
     for (const toolName of SHARED_TOOL_NAMES) {
       expect(PTAH_LANE_POLICY).toContain(toolName);
-      expect(PTAH_SYSTEM_PROMPT).toContain(toolName);
+      if (!PARENT_PROMPT_EXEMPT.has(toolName)) {
+        expect(PTAH_CORE_SYSTEM_PROMPT).toContain(toolName);
+      }
     }
   });
 
@@ -120,7 +128,7 @@ describe('lane policy stays aligned with the parent prompt and agent-lanes', () 
       ),
     ).toEqual([]);
     expect(unconditionalModeSentences(PTAH_LANE_POLICY)).toEqual([]);
-    expect(unconditionalModeSentences(PTAH_SYSTEM_PROMPT)).toEqual([]);
+    expect(unconditionalModeSentences(PTAH_CORE_SYSTEM_PROMPT)).toEqual([]);
     expect(unconditionalModeSentences(section7)).toEqual([]);
   });
 });

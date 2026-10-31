@@ -212,8 +212,8 @@ export interface AISessionConfig {
    * If not specified, defaults to 'enhanced' if enhanced prompts are generated,
    * otherwise falls back to 'claude_code'.
    *
-   * PTAH_SYSTEM_PROMPT (MCP documentation) is always injected regardless of
-   * preset selection when the MCP server is running.
+   * The core Ptah prompt is assembled by the host according to the selected
+   * preset; MCP tool documentation comes from the tool surface.
    */
   readonly preset?: 'claude_code' | 'enhanced';
   /**
