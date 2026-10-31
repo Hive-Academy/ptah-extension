@@ -253,13 +253,15 @@ function readCloneSourceRef(cloneDir: string): string | undefined {
   try {
     raw = readFileSync(join(cloneDir, ORIGIN_SIDECAR_FILENAME), 'utf-8');
   } catch {
-    // ENOENT (user-authored) or an IO error: neither proves retirement.
+    // degradation-audit: optional-capability - ENOENT (user-authored) or an
+    // IO error: neither proves retirement, so the clone stays active.
     return undefined;
   }
   try {
     return parseOriginSidecar(JSON.parse(raw))?.sourceRef;
   } catch {
-    // Malformed JSON reads as "no sidecar", as everywhere else.
+    // degradation-audit: optional-capability - malformed JSON reads as "no
+    // sidecar", as everywhere else; it retires nothing.
     return undefined;
   }
 }
