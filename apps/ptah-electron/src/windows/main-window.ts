@@ -2,6 +2,7 @@ import { BrowserWindow, Menu } from 'electron';
 import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import { PRODUCT_DISPLAY_NAME } from '../config/product-identity';
 import { installPermissionPolicy } from './permission-policy';
 import {
   installNavigationGuard,
@@ -50,7 +51,7 @@ export function createMainWindow(
     ...(useSavedBounds ? { x: savedBounds.x, y: savedBounds.y } : {}),
     minWidth: 800,
     minHeight: 600,
-    title: 'Ptah - Coding Orchestra',
+    title: PRODUCT_DISPLAY_NAME,
     icon: path.join(__dirname, 'assets', 'icons', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

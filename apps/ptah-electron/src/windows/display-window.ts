@@ -25,6 +25,7 @@ import {
   type DisplayWindowOpenResult,
   type DisplayWindowSnapshot,
 } from '@ptah-extension/shared';
+import { PRODUCT_DISPLAY_NAME } from '../config/product-identity';
 import {
   installNavigationGuard,
   isOnScreen,
@@ -33,7 +34,7 @@ import {
 
 /** Storage key, beside the main window's `window.bounds`. */
 export const DISPLAY_WINDOW_BOUNDS_KEY = 'displayWindow.bounds';
-export const DISPLAY_WINDOW_TITLE = 'Ptah - Display';
+export const DISPLAY_WINDOW_TITLE = `${PRODUCT_DISPLAY_NAME} - Display`;
 export const DISPLAY_WINDOW_MIN_WIDTH = 360;
 export const DISPLAY_WINDOW_MIN_HEIGHT = 400;
 export const DISPLAY_WINDOW_DEFAULT_WIDTH = 520;

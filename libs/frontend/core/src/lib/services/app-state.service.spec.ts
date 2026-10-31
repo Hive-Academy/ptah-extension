@@ -583,10 +583,10 @@ describe('AppStateManager', () => {
         type: 'workspace',
       };
       service.setWorkspaceInfo(workspace);
-      expect(service.appTitle()).toBe('Ptah - demo-app');
+      expect(service.appTitle()).toBe('PtahCode - demo-app');
 
       service.setWorkspaceInfo(null);
-      expect(service.appTitle()).toBe('Ptah');
+      expect(service.appTitle()).toBe('PtahCode');
     });
 
     it('setConnected(true) clears loading and sets a status message', () => {

@@ -30,7 +30,7 @@ function available(): UpdateLifecycleState {
     releaseNotesMarkdown: null,
     downloadUrl: 'https://dl.example/0.1.49.exe',
     releaseUrl:
-      'https://github.com/Hive-Academy/ptah-extension/releases/tag/electron-v0.1.49',
+      'https://github.com/Hive-Academy/PtahCode/releases/tag/electron-v0.1.49',
   };
 }
 

@@ -82,14 +82,14 @@ const SEARCH_DEBOUNCE_MS = 300;
         />
         <p class="text-sm font-medium">Memory lives in the desktop app</p>
         <p class="text-xs text-base-content-muted">
-          Memory curation needs the local index and runs only in Ptah desktop.
+          Memory curation needs the local index and runs only in PtahCode desktop.
         </p>
         <a
           class="btn btn-sm btn-primary mt-1"
-          href="https://github.com/HiveAcademy/ptah-extension/releases"
+          href="https://github.com/Hive-Academy/PtahCode/releases"
           target="_blank"
           rel="noopener noreferrer"
-          >Download Ptah desktop</a
+          >Download PtahCode desktop</a
         >
       </div>
     } @else {

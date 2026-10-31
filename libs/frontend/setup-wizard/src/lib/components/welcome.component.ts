@@ -56,7 +56,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
       <div class="animate-fadeIn w-full max-w-2xl">
         <!-- Title -->
         <h1 class="text-base font-semibold mb-1 text-center">
-          Let's Personalize Your Ptah Experience
+          Let's Personalize Your PtahCode Experience
         </h1>
         <p class="text-xs text-base-content-muted mb-4 text-center">
           Analyze your existing codebase and generate tailored AI agents for

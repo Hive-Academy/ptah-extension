@@ -69,14 +69,14 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
         />
         <p class="text-sm font-medium">Messaging is desktop-only</p>
         <p class="text-xs text-base-content-muted">
-          The gateway runs adapters locally, so it needs the Ptah desktop app.
+          The gateway runs adapters locally, so it needs the PtahCode desktop app.
         </p>
         <a
           class="link link-primary text-xs"
-          href="https://github.com/Hive-Academy/ptah-extension/releases"
+          href="https://github.com/Hive-Academy/PtahCode/releases"
           rel="noopener noreferrer"
           target="_blank"
-          >Download Ptah desktop</a
+          >Download PtahCode desktop</a
         >
       </div>
     } @else {
@@ -97,7 +97,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
             <div>
               <h1 class="text-xl font-semibold tracking-tight">Messaging</h1>
               <p class="mt-0.5 text-sm text-base-content-muted">
-                Drive Ptah agents from Telegram, Discord, and Slack.
+                Drive PtahCode agents from Telegram, Discord, and Slack.
               </p>
               <p class="mt-0.5 text-xs text-base-content-muted">
                 {{

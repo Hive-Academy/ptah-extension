@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Ptah, please report it responsibly.
+If you discover a security vulnerability in PtahCode, please report it responsibly.
 
 **Do NOT open a public GitHub issue for security vulnerabilities.**
 
@@ -26,9 +26,9 @@ Instead, please email: **security@ptah.live**
 This policy applies to:
 
 - The Ptah VS Code extension
-- The Ptah desktop application (Electron)
-- The Ptah license server (api.ptah.live)
-- The Ptah website (ptah.live)
+- The PtahCode desktop application (Electron)
+- The PtahCode license server (api.ptah.live)
+- The PtahCode website (ptah.live)
 
 ### Out of Scope
 

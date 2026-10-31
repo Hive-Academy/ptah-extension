@@ -6,7 +6,7 @@
  * The tray is always created. It carries the "Pause memory" checkbox
  * (`memory.enabled`), a Quit item, and a tooltip naming the pause state.
  *
- * ## R10 — the "Quit Ptah" item is UNCONDITIONAL, and its absence is a defect
+ * ## R10 — the "Quit PtahCode" item is UNCONDITIONAL, and its absence is a defect
  *
  * Two mechanisms enforce that, because one is not enough:
  *
@@ -59,6 +59,7 @@ import {
   type IDisposable,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import { PRODUCT_DISPLAY_NAME } from '../../config/product-identity';
 
 /** The configuration section every Ptah setting lives under. */
 export const PTAH_CONFIG_SECTION = 'ptah';
@@ -67,8 +68,8 @@ export const PTAH_CONFIG_SECTION = 'ptah';
 export const MEMORY_ENABLED_KEY = 'memory.enabled';
 
 export const PAUSE_MEMORY_ITEM_LABEL = 'Pause memory';
-export const QUIT_ITEM_LABEL = 'Quit Ptah';
-export const TRAY_TOOLTIP = 'Ptah';
+export const QUIT_ITEM_LABEL = `Quit ${PRODUCT_DISPLAY_NAME}`;
+export const TRAY_TOOLTIP = PRODUCT_DISPLAY_NAME;
 
 /**
  * The slice of the logger this service uses. Structurally satisfied by
@@ -126,7 +127,7 @@ export function trayTooltip(state: TrayPauseState): string {
 /**
  * Build the tray's context-menu template.
  *
- * R10: the "Quit Ptah" item is emitted unconditionally. There is exactly one
+ * R10: the "Quit PtahCode" item is emitted unconditionally. There is exactly one
  * `return` and the quit item is a literal member of it — do not make it
  * conditional, and do not reorder it behind an early return.
  */
@@ -154,7 +155,7 @@ export function buildTrayMenuTemplate(
 }
 
 /**
- * Throw unless the template carries a usable "Quit Ptah" item.
+ * Throw unless the template carries a usable "Quit PtahCode" item.
  *
  * "Usable" means present, not disabled, and actually wired to a handler — a
  * greyed-out or inert quit item is the same defect as a missing one.

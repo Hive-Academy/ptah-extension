@@ -1,13 +1,13 @@
 {
   "name": "ptah-desktop",
   "version": "0.1.70",
-  "description": "Ptah - AI Coding Orchestra. Standalone desktop app.",
+  "description": "PtahCode - The Coding Orchestra. Standalone desktop app.",
   "main": "main.mjs",
   "author": {
     "name": "Ptah Orchestra",
     "email": "support@ptah.live"
   },
-  "homepage": "https://github.com/Hive-Academy/ptah-extension",
+  "homepage": "https://github.com/Hive-Academy/PtahCode",
   "private": true,
   "dependencies": {
     "@agentclientprotocol/sdk": "1.7.0",

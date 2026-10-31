@@ -1,10 +1,10 @@
-# Ptah
+# PtahCode
 
-> Ptah is a persistent, multi-agent AI coding agent desktop app for Windows, macOS, and Linux. It remembers your codebase across sessions, works in parallel across up to nine agents, runs on a schedule, and is reachable from Telegram, Discord, and Slack. It is provider-agnostic: Claude, GitHub Copilot, OpenAI Codex, OpenRouter (200+ models), local Ollama, Kimi K2, and GLM all run through the same app.
+> PtahCode is a persistent, multi-agent AI coding agent desktop app for Windows, macOS, and Linux. It remembers your codebase across sessions, works in parallel across up to nine agents, runs on a schedule, and is reachable from Telegram, Discord, and Slack. It is provider-agnostic: Claude, GitHub Copilot, OpenAI Codex, OpenRouter (200+ models), local Ollama, Kimi K2, and GLM all run through the same app.
 
-## What Ptah is
+## What PtahCode is
 
-Ptah's desktop app is the primary product. Unlike autocomplete-class tools (Cursor, GitHub Copilot inline completion), Ptah is designed around four properties: persistence (it remembers), multi-agent execution (it parallelizes), schedulability (it runs unattended), and reachability (it answers outside the editor). Ptah also ships as a VS Code extension and a headless CLI, sharing one license with the desktop app, for users who want a lighter footprint without the desktop-exclusive suite below.
+PtahCode's desktop app is the primary product. Unlike autocomplete-class tools (Cursor, GitHub Copilot inline completion), PtahCode is designed around four properties: persistence (it remembers), multi-agent execution (it parallelizes), schedulability (it runs unattended), and reachability (it answers outside the editor). PtahCode also ships as a VS Code extension and a headless CLI, sharing one license with the desktop app, for users who want a lighter footprint without the desktop-exclusive suite below.
 
 ## The seven differentiators
 
@@ -29,7 +29,7 @@ Claude, GitHub Copilot, OpenAI Codex, OpenRouter (200+ models), Ollama (local mo
 
 ## License
 
-Ptah is open source under the MIT license.
+PtahCode is open source under the MIT license.
 
 ## Canonical links
 
@@ -37,4 +37,4 @@ Ptah is open source under the MIT license.
 - Download: https://ptah.live/download
 - Pricing: https://ptah.live/pricing
 - Documentation: https://docs.ptah.live
-- GitHub: https://github.com/Hive-Academy/ptah-extension
+- GitHub: https://github.com/Hive-Academy/PtahCode

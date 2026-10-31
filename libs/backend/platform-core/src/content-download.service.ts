@@ -92,7 +92,7 @@ export class ContentDownloadService {
 
   /** GitHub manifest URL (main branch) */
   private static readonly MANIFEST_URL =
-    'https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/content-manifest.json';
+    'https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/content-manifest.json';
 
   constructor() {
     this.ptahDir = path.join(homedir(), '.ptah');

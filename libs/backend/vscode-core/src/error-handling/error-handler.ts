@@ -275,7 +275,7 @@ export class ErrorHandler {
           handler: async () => {
             await vscode.env.openExternal(
               vscode.Uri.parse(
-                'https://github.com/your-repo/ptah-extension#claude-cli-setup',
+                'https://github.com/Hive-Academy/PtahCode#claude-cli-setup',
               ),
             );
           },

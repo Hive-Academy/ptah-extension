@@ -107,7 +107,7 @@ const ELAPSED_TICK_MS = 1000;
       aria-live="polite"
     >
       <div class="flex flex-col items-center gap-1">
-        <span class="text-lg font-semibold tracking-wide">Ptah</span>
+        <span class="text-lg font-semibold tracking-wide">PtahCode</span>
         <span
           [class]="'text-sm ' + headlineClass()"
           data-testid="boot-headline"

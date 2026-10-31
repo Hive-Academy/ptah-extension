@@ -88,7 +88,7 @@ const LOG_CONTEXT = 'ElectronWelcome';
         <div class="ptah-welcome__hero">
           <img
             [src]="ptahIconUri"
-            alt="Ptah"
+            alt="PtahCode"
             class="size-12"
             width="48"
             height="48"

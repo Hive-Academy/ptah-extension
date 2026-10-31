@@ -2,7 +2,7 @@
 
 ## 1. Purpose & scope
 
-Authoritative shape and naming rules for the Ptah monorepo. One page, on purpose.
+Authoritative shape and naming rules for the PtahCode monorepo. One page, on purpose.
 
 Every library CLAUDE.md may link here instead of restating. If a rule here
 conflicts with a library-level CLAUDE.md, THIS file wins.

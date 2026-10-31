@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "contentHash": "sha256:3795730bbbcd97a170396411bc9b29ec95920ea605f8183434ba1b5b0c7fc2cb",
   "generatedAt": "2026-10-30T17:12:38.082Z",
-  "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
+  "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/PtahCode/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
     "files": [
