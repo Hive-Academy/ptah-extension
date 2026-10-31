@@ -551,6 +551,20 @@ export class ChatSessionService {
     return { roots, legacy: !!metadata?.workspaceId };
   }
 
+  /** Read the session's physical folder and validated policy ancestors without changing metadata. */
+  async readSessionPolicyRoots(
+    sessionId: SessionId,
+  ): Promise<{ folder: string; ancestorRoots: readonly string[] }> {
+    const candidate = await this.historyRead.resolveSessionFolder(sessionId);
+    const folder = await validateSessionPolicyRoot(
+      candidate,
+      this.workspaceProvider,
+      this.platformInfo,
+    );
+    const { roots } = await this.restoreLineage(sessionId, folder);
+    return { folder, ancestorRoots: roots };
+  }
+
   /**
    * Fold the `agent-sdk` MCP-status fan-out into the registry and push it to
    * the webview (TASK_2026_375 B4.3).
