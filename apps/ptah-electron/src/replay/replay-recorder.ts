@@ -135,7 +135,9 @@ function formatRpcError(error: unknown): string {
       return msg;
     }
   }
-  return error !== undefined && error !== null ? String(error) : 'Unknown error';
+  return error !== undefined && error !== null
+    ? String(error)
+    : 'Unknown error';
 }
 
 /**
@@ -211,6 +213,7 @@ export function tapReplayRecorder<T extends object>(
   try {
     fn(recorder);
   } catch (error) {
+    // degradation-audit: reported - the recorder is disabled and the error goes to disableOnError or console.warn
     disabledRecorderSet.add(recorder);
     if (
       'disableOnError' in recorder &&
@@ -579,7 +582,11 @@ export class ReplayRecorder {
       return snapshot;
     }
     try {
-      const payload = this.serializeIncrementalCapture(rpc, rpcCases, rpcErrors);
+      const payload = this.serializeIncrementalCapture(
+        rpc,
+        rpcCases,
+        rpcErrors,
+      );
       this.writeFile(this.outputPath, payload);
     } catch (error) {
       this.disableOnError(error);
@@ -654,6 +661,7 @@ export function createReplayRecorderIfEnabled(
 
     return recorder;
   } catch (error) {
+    // degradation-audit: reported - replay recording is optional; the init failure is logged and no recorder is used
     console.warn(
       '[ReplayRecorder] Failed to initialize recorder:',
       error instanceof Error ? error.message : String(error),

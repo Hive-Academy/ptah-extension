@@ -63,6 +63,7 @@ const scenarioPromise = (queryError ? Promise.reject<ReplayScenarioData>(queryEr
   engine.fail(code, message);
   throw error;
 });
+// degradation-audit: reported — the load failure is reported and failed in the handler above
 void scenarioPromise.catch(() => undefined);
 
 let bootQuiet: ReturnType<typeof waitForBootQuiet> | undefined;
@@ -107,7 +108,10 @@ const readyDetector = detectReady((at, timedOut) => {
       };
       fill();
     }
-  }).catch(() => undefined);
+  }).catch((error: unknown) => {
+    // A scenario load failure already failed the engine; report any other boot error.
+    if (!engine.state.error) engine.fail('BOOT', error instanceof Error ? error.message : String(error));
+  });
 });
 onRpcCall = () => { readyDetector?.rpcCall(); bootQuiet?.noteActivity(); };
 

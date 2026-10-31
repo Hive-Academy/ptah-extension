@@ -91,215 +91,217 @@ export interface SanitizeScenarioResult {
  * Default allow-list of RPC methods permitted in published replay scenarios.
  * Excludes credential mutators, key setters, token setters, and raw settings export.
  */
-export const DEFAULT_ALLOWED_RPC_METHODS: ReadonlySet<string> = new Set<string>([
-  'artifacts:list',
-  'artifacts:openLink',
-  'displayWindow:open',
-  'displayWindow:close',
-  'displayWindow:status',
-  'displayWindow:publishState',
-  'displayWindow:getState',
-  'displayWindow:action',
-  'analytics:spendSummary',
-  'attention:getSnapshot',
-  'chat:start',
-  'chat:continue',
-  'chat:setStreamViewport',
-  'chat:abort',
-  'chat:pending-questions',
-  'chat:running-agents',
-  'chat:agent-sessions',
-  'chat:resume',
-  'chat:history-page',
-  'chat:subagent-query',
-  'chat:dismiss-resumable-subagents',
-  'subagent:send-message',
-  'subagent:stop',
-  'subagent:interrupt',
-  'subagent:background',
-  'subagent:history-page',
-  'session:list',
-  'session:load',
-  'session:validate',
-  'session:cli-sessions',
-  'session:cli-output-page',
-  'session:stats-batch',
-  'session:status',
-  'session:getOrganization',
-  'session:listForTasks',
-  'context:getAllFiles',
-  'context:getFileSuggestions',
-  'autocomplete:agents',
-  'autocomplete:commands',
-  'file:viewContent',
-  'file:read',
-  'file:exists',
-  'editor:detectTargets',
-  'config:model-switch',
-  'config:model-get',
-  'config:model-set',
-  'config:autopilot-toggle',
-  'config:autopilot-get',
-  'config:models-list',
-  'config:effort-get',
-  'config:effort-set',
-  'config:pricing-get',
-  'config:getScopes',
-  'auth:getHealth',
-  'auth:getAuthStatus',
-  'auth:copilotStatus',
-  'auth:getEffectiveRoute',
-  'auth:checkConnection',
-  'auth:getScope',
-  'auth:getStatus',
-  'auth:getApiKeyStatus',
-  'setup-status:get-status',
-  'wizard:get-resumable-run',
-  'wizard:analysis-status',
-  'wizard:recommend-agents',
-  'wizard:get-generation-run-state',
-  'wizard:preview-generation',
-  'wizard:list-analyses',
-  'wizard:load-analysis',
-  'wizard:list-agent-packs',
-  'wizard:plan-pack-install',
-  'license:getStatus',
-  'llm:getProviderStatus',
-  'llm:getDefaultProvider',
-  'llm:listVsCodeModels',
-  'llm:listProviderModels',
-  'llm:getProviderBaseUrl',
-  'provider:listModels',
-  'provider:getModelTiers',
-  'provider:listCustomEntries',
-  'provider:getAccountUsage',
-  'provider:getPlanLimits',
-  'provider:listAccounts',
-  'provider:getAccountStatus',
-  'provider:getAmbientClaudeStatus',
-  'enhancedPrompts:getStatus',
-  'enhancedPrompts:getRunState',
-  'enhancedPrompts:getPromptContent',
-  'quality:getAssessment',
-  'quality:getHistory',
-  'plugins:list-available',
-  'plugins:get-config',
-  'plugins:list-skills',
-  'plugins:list-marketplaces',
-  'plugins:browse-marketplace',
-  'agent:getConfig',
-  'agent:getClaudeBuiltins',
-  'agent:detectClis',
-  'agent:listCliModels',
-  'agent:permissionResponse',
-  'agent:stop',
-  'agent:continue',
-  'agent:resumeCliSession',
-  'agent:backgroundList',
-  'agent:getLanePlanLimits',
-  'agent:outcomeSignals',
-  'agent:listDecisionModels',
-  'ptahCli:list',
-  'ptahCli:listModels',
-  'skillsSh:search',
-  'skillsSh:listInstalled',
-  'skillsSh:getPopular',
-  'skillsSh:detectRecommended',
-  'mcpDirectory:search',
-  'mcpDirectory:getDetails',
-  'mcpDirectory:listInstalled',
-  'mcpDirectory:getPopular',
-  'mcpDirectory:getSmitheryKeyStatus',
-  'mcpDirectory:listSmitheryInstalled',
-  'mcpDirectory:listSmitheryConnections',
-  'mcpDirectory:smitheryConnectionStatus',
-  'mcpDirectory:oauthStatus',
-  'mcpDirectory:listOAuthConnected',
-  'capabilities:getState',
-  'capabilities:getEffective',
-  'workspace:getInfo',
-  'workspace:switch',
-  'workspace:listRecent',
-  'settings:get',
-  'webSearch:getApiKeyStatus',
-  'webSearch:getConfig',
-  'git:info',
-  'git:watchRoots',
-  'git:reviewChanges',
-  'git:reviewFile',
-  'git:worktrees',
-  'git:prStatus',
-  'git:log',
-  'git:showFile',
-  'git:diffFile',
-  'git:branches',
-  'git:stashList',
-  'git:stashShow',
-  'git:tags',
-  'git:remotes',
-  'git:lastCommit',
-  'git:turnChangeSets',
-  'harness:search-skills',
-  'harness:discover-mcp',
-  'harness:load-presets',
-  'harness:get-proposal',
-  'harness:health',
-  'harness:get-skill-selection',
-  'memory:list',
-  'memory:search',
-  'memory:get',
-  'memory:stats',
-  'memory:searchSymbols',
-  'memory:diagnostics',
-  'memory:getTriggers',
-  'memory:listQuarantined',
-  'mem:searchIndex',
-  'mem:timeline',
-  'mem:getObservations',
-  'corpus:list',
-  'corpus:get',
-  'corpus:query',
-  'corpus:suggest',
-  'skillSynthesis:listClones',
-  'skillSynthesis:getClone',
-  'skillSynthesis:getHistoryBody',
-  'skillSynthesis:listQuarantinedAgents',
-  'skillSynthesis:getAgentModels',
-  'skillSynthesis:invocationStats',
-  'skillSynthesis:getScorecards',
-  'skillSynthesis:getScorecardDetail',
-  'skillSynthesis:listSpecs',
-  'cron:list',
-  'cron:get',
-  'cron:runs',
-  'cron:nextFire',
-  'gateway:status',
-  'gateway:listBindings',
-  'gateway:listMessages',
-  'gateway:getAllowList',
-  'voice:getConfig',
-  'voice:getTtsConfig',
-  'voice:listProviders',
-  'voice:listVoices',
-  'voice:getProviderConfig',
-  'boot:getReadiness',
-  'db:health',
-  'embedder:status',
-  'indexing:getStatus',
-  'update:get-state',
-  'diagnostics:go-vet-consent-get',
-  'tasks:list',
-  'tasks:get',
-  'tasks:getArtifact',
-  'tasks:board',
-  'tasks:doctorPlan',
-  'tasks:getViews',
-  'outputStyle:list',
-  'outputStyle:get',
-  'outputStyle:diagnose',
-  'peerSession:list',
-  'surface:read',
-]);
+export const DEFAULT_ALLOWED_RPC_METHODS: ReadonlySet<string> = new Set<string>(
+  [
+    'artifacts:list',
+    'artifacts:openLink',
+    'displayWindow:open',
+    'displayWindow:close',
+    'displayWindow:status',
+    'displayWindow:publishState',
+    'displayWindow:getState',
+    'displayWindow:action',
+    'analytics:spendSummary',
+    'attention:getSnapshot',
+    'chat:start',
+    'chat:continue',
+    'chat:setStreamViewport',
+    'chat:abort',
+    'chat:pending-questions',
+    'chat:running-agents',
+    'chat:agent-sessions',
+    'chat:resume',
+    'chat:history-page',
+    'chat:subagent-query',
+    'chat:dismiss-resumable-subagents',
+    'subagent:send-message',
+    'subagent:stop',
+    'subagent:interrupt',
+    'subagent:background',
+    'subagent:history-page',
+    'session:list',
+    'session:load',
+    'session:validate',
+    'session:cli-sessions',
+    'session:cli-output-page',
+    'session:stats-batch',
+    'session:status',
+    'session:getOrganization',
+    'session:listForTasks',
+    'context:getAllFiles',
+    'context:getFileSuggestions',
+    'autocomplete:agents',
+    'autocomplete:commands',
+    'file:viewContent',
+    'file:read',
+    'file:exists',
+    'editor:detectTargets',
+    'config:model-switch',
+    'config:model-get',
+    'config:model-set',
+    'config:autopilot-toggle',
+    'config:autopilot-get',
+    'config:models-list',
+    'config:effort-get',
+    'config:effort-set',
+    'config:pricing-get',
+    'config:getScopes',
+    'auth:getHealth',
+    'auth:getAuthStatus',
+    'auth:copilotStatus',
+    'auth:getEffectiveRoute',
+    'auth:checkConnection',
+    'auth:getScope',
+    'auth:getStatus',
+    'auth:getApiKeyStatus',
+    'setup-status:get-status',
+    'wizard:get-resumable-run',
+    'wizard:analysis-status',
+    'wizard:recommend-agents',
+    'wizard:get-generation-run-state',
+    'wizard:preview-generation',
+    'wizard:list-analyses',
+    'wizard:load-analysis',
+    'wizard:list-agent-packs',
+    'wizard:plan-pack-install',
+    'license:getStatus',
+    'llm:getProviderStatus',
+    'llm:getDefaultProvider',
+    'llm:listVsCodeModels',
+    'llm:listProviderModels',
+    'llm:getProviderBaseUrl',
+    'provider:listModels',
+    'provider:getModelTiers',
+    'provider:listCustomEntries',
+    'provider:getAccountUsage',
+    'provider:getPlanLimits',
+    'provider:listAccounts',
+    'provider:getAccountStatus',
+    'provider:getAmbientClaudeStatus',
+    'enhancedPrompts:getStatus',
+    'enhancedPrompts:getRunState',
+    'enhancedPrompts:getPromptContent',
+    'quality:getAssessment',
+    'quality:getHistory',
+    'plugins:list-available',
+    'plugins:get-config',
+    'plugins:list-skills',
+    'plugins:list-marketplaces',
+    'plugins:browse-marketplace',
+    'agent:getConfig',
+    'agent:getClaudeBuiltins',
+    'agent:detectClis',
+    'agent:listCliModels',
+    'agent:permissionResponse',
+    'agent:stop',
+    'agent:continue',
+    'agent:resumeCliSession',
+    'agent:backgroundList',
+    'agent:getLanePlanLimits',
+    'agent:outcomeSignals',
+    'agent:listDecisionModels',
+    'ptahCli:list',
+    'ptahCli:listModels',
+    'skillsSh:search',
+    'skillsSh:listInstalled',
+    'skillsSh:getPopular',
+    'skillsSh:detectRecommended',
+    'mcpDirectory:search',
+    'mcpDirectory:getDetails',
+    'mcpDirectory:listInstalled',
+    'mcpDirectory:getPopular',
+    'mcpDirectory:getSmitheryKeyStatus',
+    'mcpDirectory:listSmitheryInstalled',
+    'mcpDirectory:listSmitheryConnections',
+    'mcpDirectory:smitheryConnectionStatus',
+    'mcpDirectory:oauthStatus',
+    'mcpDirectory:listOAuthConnected',
+    'capabilities:getState',
+    'capabilities:getEffective',
+    'workspace:getInfo',
+    'workspace:switch',
+    'workspace:listRecent',
+    'settings:get',
+    'webSearch:getApiKeyStatus',
+    'webSearch:getConfig',
+    'git:info',
+    'git:watchRoots',
+    'git:reviewChanges',
+    'git:reviewFile',
+    'git:worktrees',
+    'git:prStatus',
+    'git:log',
+    'git:showFile',
+    'git:diffFile',
+    'git:branches',
+    'git:stashList',
+    'git:stashShow',
+    'git:tags',
+    'git:remotes',
+    'git:lastCommit',
+    'git:turnChangeSets',
+    'harness:search-skills',
+    'harness:discover-mcp',
+    'harness:load-presets',
+    'harness:get-proposal',
+    'harness:health',
+    'harness:get-skill-selection',
+    'memory:list',
+    'memory:search',
+    'memory:get',
+    'memory:stats',
+    'memory:searchSymbols',
+    'memory:diagnostics',
+    'memory:getTriggers',
+    'memory:listQuarantined',
+    'mem:searchIndex',
+    'mem:timeline',
+    'mem:getObservations',
+    'corpus:list',
+    'corpus:get',
+    'corpus:query',
+    'corpus:suggest',
+    'skillSynthesis:listClones',
+    'skillSynthesis:getClone',
+    'skillSynthesis:getHistoryBody',
+    'skillSynthesis:listQuarantinedAgents',
+    'skillSynthesis:getAgentModels',
+    'skillSynthesis:invocationStats',
+    'skillSynthesis:getScorecards',
+    'skillSynthesis:getScorecardDetail',
+    'skillSynthesis:listSpecs',
+    'cron:list',
+    'cron:get',
+    'cron:runs',
+    'cron:nextFire',
+    'gateway:status',
+    'gateway:listBindings',
+    'gateway:listMessages',
+    'gateway:getAllowList',
+    'voice:getConfig',
+    'voice:getTtsConfig',
+    'voice:listProviders',
+    'voice:listVoices',
+    'voice:getProviderConfig',
+    'boot:getReadiness',
+    'db:health',
+    'embedder:status',
+    'indexing:getStatus',
+    'update:get-state',
+    'diagnostics:go-vet-consent-get',
+    'tasks:list',
+    'tasks:get',
+    'tasks:getArtifact',
+    'tasks:board',
+    'tasks:doctorPlan',
+    'tasks:getViews',
+    'outputStyle:list',
+    'outputStyle:get',
+    'outputStyle:diagnose',
+    'peerSession:list',
+    'surface:read',
+  ],
+);
 
 /**
  * Default allow-list of host-to-webview push types permitted in published scenarios.
@@ -397,8 +399,7 @@ const CREDENTIAL_ASSIGNMENT_GLOBAL_RE =
 const AUTHORIZATION_GLOBAL_RE =
   /\b(?:Authorization\s*:\s*)?(Bearer\s+\S+|Basic\s+[A-Za-z0-9+/]+={0,2})/gi;
 const PEM_TEST_RE = /-----BEGIN [A-Z ]*(?:PRIVATE KEY|CERTIFICATE)-----/;
-const LONG_BASE64_TEST_RE =
-  /(?:[A-Za-z0-9+/]{201,}={0,2}|[A-Za-z0-9_-]{201,})/;
+const LONG_BASE64_TEST_RE = /(?:[A-Za-z0-9+/]{201,}={0,2}|[A-Za-z0-9_-]{201,})/;
 const LONG_BASE64_REPLACE_RE =
   /(?:[A-Za-z0-9+/]{201,}={0,2}|[A-Za-z0-9_-]{201,})/g;
 const BASE64_SEGMENT_GLOBAL_RE =
@@ -440,11 +441,7 @@ const USERNAME_FIELD_NAMES = new Set([
   'osUsername',
 ]);
 
-const EMAIL_FIELD_NAMES = new Set([
-  'email',
-  'authorEmail',
-  'committerEmail',
-]);
+const EMAIL_FIELD_NAMES = new Set(['email', 'authorEmail', 'committerEmail']);
 
 const HOST_FIELD_NAMES = new Set(['hostname', 'host']);
 
@@ -458,12 +455,7 @@ const FILE_CONTENT_RPC_METHODS = new Set([
   'git:reviewChanges',
 ]);
 
-const DIFF_FIELD_NAMES = new Set([
-  'diff',
-  'patch',
-  'rawDiff',
-  'unifiedDiff',
-]);
+const DIFF_FIELD_NAMES = new Set(['diff', 'patch', 'rawDiff', 'unifiedDiff']);
 
 const FILE_CONTENT_FIELD_NAMES = new Set([
   'fileContent',
@@ -527,10 +519,7 @@ function unescapeBackslashes(text: string): string {
   ) {
     return text;
   }
-  return text
-    .replace(/\\\\/g, '\\')
-    .replace(/\\\//g, '/')
-    .replace(/\\"/g, '"');
+  return text.replace(/\\\\/g, '\\').replace(/\\\//g, '/').replace(/\\"/g, '"');
 }
 
 /**
@@ -561,6 +550,7 @@ export function tryDecodePrintableBase64(segment: string): string | null {
     }
     return decoded;
   } catch {
+    // degradation-audit: optional-capability - a segment that does not decode is not base64 text, so it is not scanned
     return null;
   }
 }
@@ -615,12 +605,10 @@ export function scanScenarioPrivacy(value: unknown): PrivacyFinding[] {
     const isDecoded = depth > 0;
 
     for (const match of text.matchAll(EMAIL_REPLACE_RE)) {
-      if (
-        !(
-          (allowSyntheticEmail || match[0] === SYNTHETIC_EMAIL) &&
-          match[0] === SYNTHETIC_EMAIL
-        )
-      ) {
+      if (!(
+        (allowSyntheticEmail || match[0] === SYNTHETIC_EMAIL) &&
+        match[0] === SYNTHETIC_EMAIL
+      )) {
         add(path, 'email', isDecoded);
       }
     }
@@ -868,7 +856,9 @@ export function sanitizeScenario(
         ? raw['id']
         : 'demo-scenario';
   if (!SCENARIO_ID_RE.test(rawId)) {
-    throw new Error(`Invalid scenario id '${rawId}': must match /^[a-z0-9-]+$/`);
+    throw new Error(
+      `Invalid scenario id '${rawId}': must match /^[a-z0-9-]+$/`,
+    );
   }
 
   const rawTitle =
@@ -918,7 +908,9 @@ export function sanitizeScenario(
     rawConfig['workspaceRoot'].trim().length > 1 &&
     rawConfig['workspaceRoot'] !== SYNTHETIC_WORKSPACE_ROOT
   ) {
-    workspaceRoots.add(rawConfig['workspaceRoot'].trim().replace(/[\\/]+$/, ''));
+    workspaceRoots.add(
+      rawConfig['workspaceRoot'].trim().replace(/[\\/]+$/, ''),
+    );
   }
   const rawRpc =
     raw['rpc'] && typeof raw['rpc'] === 'object' && !Array.isArray(raw['rpc'])
@@ -1101,16 +1093,13 @@ export function sanitizeScenario(
     );
 
     // 5. Replace /var/folders/... paths
-    text = text.replace(
-      /\/var\/folders\/[A-Za-z0-9._/-]*/g,
-      (matched) => {
-        replacedPathsCount++;
-        const base = matched.split('/').filter(Boolean).pop() ?? '';
-        return base && base !== 'folders'
-          ? `${SYNTHETIC_WORKSPACE_ROOT}/${base}`
-          : SYNTHETIC_WORKSPACE_ROOT;
-      },
-    );
+    text = text.replace(/\/var\/folders\/[A-Za-z0-9._/-]*/g, (matched) => {
+      replacedPathsCount++;
+      const base = matched.split('/').filter(Boolean).pop() ?? '';
+      return base && base !== 'folders'
+        ? `${SYNTHETIC_WORKSPACE_ROOT}/${base}`
+        : SYNTHETIC_WORKSPACE_ROOT;
+    });
 
     // 6. Replace any remaining non-/workspace/acme-app absolute paths matched by privacy-scan
     text = text.replace(
@@ -1403,10 +1392,7 @@ export function sanitizeScenario(
     if (num >= EPOCH_MS_MIN && num <= EPOCH_MS_MAX) {
       const offset = Math.max(
         0,
-        Math.min(
-          MAX_RELATIVE_TIME_OFFSET_MS,
-          Math.round(num - sourceTimeBase),
-        ),
+        Math.min(MAX_RELATIVE_TIME_OFFSET_MS, Math.round(num - sourceTimeBase)),
       );
       const normalized = targetTimeBase + offset;
       if (normalized !== num) {
@@ -1751,11 +1737,10 @@ export function sanitizeScenario(
         const matchFile = extractFilePathFromObject(rawMatch);
         const allowFile = isFileAllowed(matchFile);
         return {
-          match: sanitizeValue(
-            rawMatch,
-            `$.rpcCases.${method}[${idx}].match`,
-            { rpcMethod: method, allowFileContent: allowFile },
-          ) as Record<string, unknown>,
+          match: sanitizeValue(rawMatch, `$.rpcCases.${method}[${idx}].match`, {
+            rpcMethod: method,
+            allowFileContent: allowFile,
+          }) as Record<string, unknown>,
           data: sanitizeValue(
             entry.data ?? null,
             `$.rpcCases.${method}[${idx}].data`,
@@ -1958,7 +1943,9 @@ export function sanitizeScenario(
         prompt: sanitizeStringValue(startRec['prompt'], '$.start.prompt'),
       };
     } else {
-      throw new Error('Scenario start must be { mode: "auto" } or { mode: "on-send", prompt }');
+      throw new Error(
+        'Scenario start must be { mode: "auto" } or { mode: "on-send", prompt }',
+      );
     }
   }
 

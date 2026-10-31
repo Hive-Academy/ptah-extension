@@ -10,7 +10,10 @@ export function installNetworkGuard(report: (kind: ReplayMiss['kind'], value: st
         else if (url.protocol === 'wss:') url.protocol = 'https:';
       }
       return url.origin === base.origin && url.pathname.startsWith(base.pathname.endsWith('/') ? base.pathname : `${base.pathname}/`);
-    } catch { return false; }
+    } catch {
+      // degradation-audit: reported — an unparsable URL is blocked; check() reports it as blocked-network
+      return false;
+    }
   };
   const check = (raw: string, socket = false): boolean => {
     if (allowed(raw, socket)) return true;

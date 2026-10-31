@@ -25,6 +25,7 @@ export function createRpcResponder(
       return;
     }
     onCall(method, payload['params']);
+    // degradation-audit: reported — a scenario load failure is reported as a scenario-load miss
     void getScenario().then((scenario) => {
       const cases = scenario.rpcCases?.[method] ?? [];
       const selected = cases.find((entry) => subset(entry.match, payload['params'] ?? {}));

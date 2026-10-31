@@ -95,7 +95,15 @@ orchestration 2.75 MB, tribunal-council 1.82 MB, command-center 1.55 MB, multi-a
 
 ## Pull request
 
-PENDING_PR
+Draft PR #873: https://github.com/Hive-Academy/ptah-extension/pull/873 (base `main`).
+Head at open: `a44ba7119`. CI at `a44ba7119`: all test, typecheck, docs and e2e jobs pass.
+`checks` failed on the degradation audit: `libs/web/landing` 4 (baseline 0) and
+`apps/ptah-electron` 7 (baseline 4; 3 new sites in `src/replay/`). The next commit adds audit
+markers to these sites and reports boot errors in `replay-bridge.entry.ts`. Local audit:
+exit 0, `apps/ptah-electron` 4 (baseline 4), no `libs/web/landing` sites.
+`npm run verify -- -p web-landing,ptah-electron`: 12/12 tasks pass.
+GitGuardian fails on fake canaries (user action, see "Known limits"). CI and review state for
+the new head: see the session report.
 
 ## Known limits and follow-ups
 
@@ -103,3 +111,8 @@ PENDING_PR
 - B4/B5 minor findings F3–F9 (see above).
 - Keyboard order passes through the iframe before the replay controls.
 - DigitalOcean static sites cannot set `frame-ancestors` headers (documented in B3).
+- GitGuardian check fails on 7 fake canary values in the privacy specs
+  (`scenario-sanitizer.spec.ts`, `scenario-privacy.spec.ts`; commits `dce8ed46a`, `0ff7085dc`).
+  They are test fixtures, not real secrets. They are in branch history, so only marking the
+  incidents as false positives in the GitGuardian dashboard clears the check (no history rewrite
+  was done). User action needed.
