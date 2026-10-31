@@ -5,6 +5,7 @@ import { ComparisonSectionComponent } from './sections/comparison/comparison-sec
 import { CTASectionComponent } from './sections/cta/cta-section.component';
 import { FooterComponent } from '@ptah-web/ui';
 import { HeroComponent } from './sections/hero/hero.component';
+import { LiveDemoSectionComponent } from './sections/live-demo/live-demo-section.component';
 import { ProblemSectionComponent } from './sections/problem/problem-section.component';
 import { VideoShowcaseComponent } from './sections/video-showcase/video-showcase.component';
 import { PillarsSpineComponent } from './sections/pillars/pillars-spine.component';
@@ -19,6 +20,7 @@ import { AlsoAvailableComponent } from './sections/also-available/also-available
   imports: [
     NavigationComponent,
     HeroComponent,
+    LiveDemoSectionComponent,
     ProblemSectionComponent,
     VideoShowcaseComponent,
     PillarsSpineComponent,
@@ -37,6 +39,7 @@ import { AlsoAvailableComponent } from './sections/also-available/also-available
       <main>
         <!-- S1 Promise -->
         <ptah-hero />
+        <ptah-live-demo-section />
 
         <!-- S2 Problem -->
         <ptah-problem-section />

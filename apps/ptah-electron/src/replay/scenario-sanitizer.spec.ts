@@ -171,6 +171,26 @@ const SHARED_PRIVACY_CANARY_CORPUS: ReadonlyArray<{
     value: 'ASIAY34FZKBOKMUTVV7A',
     expectedKind: 'credential shape',
   },
+  {
+    label: 'sk_live_ prefix',
+    value: 'sk_live_abcdefghijklmnopqr',
+    expectedKind: 'credential shape',
+  },
+  {
+    label: 'rk_live_ prefix',
+    value: 'rk_live_abcdefgh12345678',
+    expectedKind: 'credential shape',
+  },
+  {
+    label: 'prefixed PASSWORD assignment',
+    value: 'DB_PASSWORD=hunter2hunter2',
+    expectedKind: 'credential assignment',
+  },
+  {
+    label: 'prefixed SECRET assignment with suffix',
+    value: 'export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG',
+    expectedKind: 'credential assignment',
+  },
   // Home paths
   {
     label: 'tilde home path ~/...',
@@ -715,6 +735,26 @@ describe('scenario-sanitizer (B5)', () => {
       },
     );
 
+    it('keeps the on-send start mode and rejects an unknown start mode', () => {
+      const raw = {
+        rpc: {},
+        timeline: [],
+        start: { mode: 'on-send', prompt: 'Review the demo workspace.' },
+      };
+      const { scenario } = sanitizeScenario(raw, { id: 'start-mode' });
+      expect(scenario.start).toEqual({
+        mode: 'on-send',
+        prompt: 'Review the demo workspace.',
+      });
+
+      expect(() =>
+        sanitizeScenario(
+          { rpc: {}, timeline: [], start: { mode: 'later' } },
+          { id: 'start-mode' },
+        ),
+      ).toThrow(/Scenario start/);
+    });
+
     it('preserves placeholder credential assignments and version strings while flagging private IPs', () => {
       expect(
         scanScenarioPrivacy({
@@ -776,8 +816,9 @@ describe('scenario-sanitizer (B5)', () => {
           'credential field',
         ]),
       );
+      // `file:///home/...` decodes to a URL, so only the home-path rule applies.
       expect(scanScenarioPrivacy(urlEncodedPath).map((f) => f.kind)).toEqual(
-        expect.arrayContaining(['home path', 'absolute path']),
+        expect.arrayContaining(['home path']),
       );
       expect(
         scanScenarioPrivacy(urlEncodedEmailAndToken).map((f) => f.kind),
@@ -1074,7 +1115,7 @@ describe('scenario-sanitizer (B5)', () => {
         expect(cliOutput.id).toBe('cli-smoke');
         expect(cliOutput.report.redactedFields).toEqual([
           '$.rpc.auth:getAuthStatus.apiKey',
-          '$.rpc.auth:getAuthStatus.[REDACTED]_token',
+          '$.rpc.auth:getAuthStatus.[REDACTED]',
         ]);
 
         const writtenScenario = JSON.parse(readFileSync(outPath, 'utf8'));

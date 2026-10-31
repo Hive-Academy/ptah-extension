@@ -3,7 +3,7 @@ import type { ReplayScenario } from '../scenario/replay-scenario.types';
 
 export const scenario = {
   "id": "orchestration",
-  "title": "Orchestrated plugin review",
+  "title": "PtahCode orchestration session",
   "timeBase": 1793476800000,
   "config": {
     "initialView": "chat",
@@ -257,6 +257,49 @@ export const scenario = {
     "chat:start": {
       "success": true,
       "sessionId": "11111111-1111-4111-8111-111111111111"
+    },
+    "chat:running-agents": {
+      "agents": []
+    },
+    "session:stats-batch": {
+      "sessionStats": [
+        {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "model": "claude-sonnet-4-5",
+          "totalCost": 0.084,
+          "knownCost": 0.084,
+          "tokens": {
+            "input": 5400,
+            "output": 1750,
+            "cacheRead": 2100,
+            "cacheCreation": 350
+          },
+          "tokenCount": 9600,
+          "messageCount": 3,
+          "agentSessionCount": 1,
+          "cliAgents": [
+            "ptah-cli",
+            "codex",
+            "antigravity"
+          ],
+          "modelUsageList": [
+            {
+              "model": "claude-sonnet-4-5",
+              "inputTokens": 5400,
+              "outputTokens": 1750,
+              "cacheRead": 2100,
+              "cacheCreation": 350,
+              "costUSD": 0.084,
+              "contextWindow": 200000
+            }
+          ],
+          "status": "ok",
+          "coverage": "complete",
+          "pricingCoverage": "full",
+          "scope": "session",
+          "revision": 5
+        }
+      ]
     }
   },
   "timeline": [
@@ -311,7 +354,53 @@ export const scenario = {
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
             "blockIndex": 0,
-            "delta": "I will review the plugin session notice, "
+            "delta": "I will review the session notice, "
+          }
+        }
+      }
+    },
+    {
+      "at": 800,
+      "message": {
+        "type": "session:stats-live",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-sonnet-4-5",
+            "totalCost": 0.017,
+            "knownCost": 0.017,
+            "tokens": {
+              "input": 1200,
+              "output": 300,
+              "cacheRead": 400,
+              "cacheCreation": 60
+            },
+            "tokenCount": 1960,
+            "messageCount": 1,
+            "agentSessionCount": 0,
+            "cliAgents": [],
+            "modelUsageList": [
+              {
+                "model": "claude-sonnet-4-5",
+                "inputTokens": 1200,
+                "outputTokens": 300,
+                "cacheRead": 400,
+                "cacheCreation": 60,
+                "costUSD": 0.017,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 1,
+            "provisional": true
+          },
+          "context": {
+            "model": "claude-sonnet-4-5",
+            "contextTokens": 1500
           }
         }
       }
@@ -364,11 +453,11 @@ export const scenario = {
             "timestamp": 1793476803200,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_real_0",
+            "toolCallId": "demo-call-real-0",
             "toolName": "mcp__ptah__ptah_agent_spawn",
             "toolInput": {
               "cli": "ptah-cli",
-              "task": "Revise round 1 for batch 3 of FIX_PLUGIN_SESSION_ROOT. The branch was rebased on origin/main; line n"
+              "task": "Fix the stale session notice and add a regression test."
             },
             "isTaskTool": false
           }
@@ -383,7 +472,7 @@ export const scenario = {
           "agentId": "22222222-2222-4222-8222-222222222222",
           "cli": "ptah-cli",
           "displayName": "Kimi Code",
-          "task": "Revise round 1 for batch 3 of FIX_PLUGIN_SESSION_ROOT. The branch was rebased on origin/main; line n",
+          "task": "Fix the stale session notice and add a regression test.",
           "workingDirectory": "/workspace/acme-app",
           "status": "running",
           "startedAt": "2026-10-31T20:00:03.500Z",
@@ -397,13 +486,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "22222222-2222-4222-8222-222222222222",
-          "stdoutDelta": "Session started: 33333333-3333-4333-8333-333333333333 (model: k3.1-pro[1m])\n",
+          "stdoutDelta": "Kimi Code started the focused fix (model: demo-model).\n",
           "stderrDelta": "",
           "timestamp": 1793476804500,
           "segments": [
             {
               "type": "info",
-              "content": "[sanitized cli output]"
+              "content": "Kimi Code started the focused fix (model: demo-model)."
             }
           ]
         }
@@ -421,11 +510,11 @@ export const scenario = {
             "timestamp": 1793476806700,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_real_1",
+            "toolCallId": "demo-call-real-1",
             "toolName": "mcp__ptah__ptah_agent_spawn",
             "toolInput": {
               "cli": "codex",
-              "task": "Revise round 1 for FIX_PLUGIN_SESSION_ROOT (backend). The branch was rebased on origin/main; line nu"
+              "task": "Harden the session folder resolver against symlinks."
             },
             "isTaskTool": false
           }
@@ -440,7 +529,7 @@ export const scenario = {
           "agentId": "44444444-4444-4444-8444-444444444444",
           "cli": "codex",
           "displayName": "Codex",
-          "task": "Revise round 1 for FIX_PLUGIN_SESSION_ROOT (backend). The branch was rebased on origin/main; line nu",
+          "task": "Harden the session folder resolver against symlinks.",
           "workingDirectory": "/workspace/acme-app",
           "status": "running",
           "startedAt": "2026-10-31T20:00:07.000Z",
@@ -454,13 +543,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "44444444-4444-4444-8444-444444444444",
-          "stdoutDelta": "I’ll inspect the current policy-roots code and the callers of `resolveSessionFolder`, then make the scoped fix and add the symlink regressio\n",
+          "stdoutDelta": "I will inspect the session folder code and add a regression test for symlinks.\n",
           "stderrDelta": "",
           "timestamp": 1793476808000,
           "segments": [
             {
               "type": "text",
-              "content": "[sanitized cli output]"
+              "content": "I will inspect the session folder code and add a regression test for symlinks."
             }
           ]
         }
@@ -478,7 +567,7 @@ export const scenario = {
             "timestamp": 1793476809000,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_01JYMVj5xzSaik91rixgtdk9",
+            "toolCallId": "demo-subagent-call-1",
             "toolName": "Task",
             "toolInput": {
               "description": "Electron after-only visual review",
@@ -504,11 +593,11 @@ export const scenario = {
             "timestamp": 1793476809400,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_01JYMVj5xzSaik91rixgtdk9",
+            "toolCallId": "demo-subagent-call-1",
             "agentType": "visual-reviewer",
             "agentId": "a379c9a5178f6519a",
             "agentDescription": "Electron after-only visual review",
-            "taskId": "task-a379c9a5178f6519a"
+            "taskId": "99999999-9999-4999-8999-999999999999"
           }
         }
       }
@@ -519,13 +608,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "22222222-2222-4222-8222-222222222222",
-          "stdoutDelta": "I\n",
+          "stdoutDelta": "Reviewed the current session notice.\n",
           "stderrDelta": "",
           "timestamp": 1793476805500,
           "segments": [
             {
               "type": "text",
-              "content": "[sanitized cli output]"
+              "content": "Reviewed the current session notice."
             }
           ]
         }
@@ -543,11 +632,11 @@ export const scenario = {
             "timestamp": 1793476810200,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_real_2",
+            "toolCallId": "demo-call-real-2",
             "toolName": "mcp__ptah__ptah_agent_spawn",
             "toolInput": {
               "cli": "antigravity",
-              "task": "Objective: confirm whether each finding is fixed correctly and whether the fixes add new defects."
+              "task": "Confirm each finding is fixed and no new defect was added."
             },
             "isTaskTool": false
           }
@@ -562,7 +651,7 @@ export const scenario = {
           "agentId": "55555555-5555-4555-8555-555555555555",
           "cli": "antigravity",
           "displayName": "Antigravity",
-          "task": "Objective: confirm whether each finding is fixed correctly and whether the fixes add new defects.",
+          "task": "Confirm each finding is fixed and no new defect was added.",
           "workingDirectory": "/workspace/acme-app",
           "status": "running",
           "startedAt": "2026-10-31T20:00:10.500Z",
@@ -576,13 +665,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "55555555-5555-4555-8555-555555555555",
-          "stdoutDelta": "Usage: 12861 input, 592 output tokens\n",
+          "stdoutDelta": "Read 6 files.\n",
           "stderrDelta": "",
           "timestamp": 1793476811500,
           "segments": [
             {
               "type": "info",
-              "content": "[sanitized cli output]"
+              "content": "Read 6 files."
             }
           ]
         }
@@ -600,11 +689,11 @@ export const scenario = {
             "timestamp": 1793476813700,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_real_3",
+            "toolCallId": "demo-call-real-3",
             "toolName": "mcp__ptah__ptah_agent_spawn",
             "toolInput": {
               "cli": "codex",
-              "task": "Defect (CodeRabbit, confirmed by the coordinator):"
+              "task": "Fix the read-only notice path and add focused specs."
             },
             "isTaskTool": false
           }
@@ -617,13 +706,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "44444444-4444-4444-8444-444444444444",
-          "stdoutDelta": "## Workspace Analysis **Project Type:** nx-monorepo **Root:** /workspace/acme-app/.claude-worktrees/plugin-session-root **Version:** 0\n",
+          "stdoutDelta": "Workspace setup complete.\n",
           "stderrDelta": "",
           "timestamp": 1793476809000,
           "segments": [
             {
               "type": "tool-result",
-              "content": "[sanitized cli output]"
+              "content": "Workspace setup complete."
             }
           ]
         }
@@ -637,7 +726,7 @@ export const scenario = {
           "agentId": "66666666-6666-4666-8666-666666666666",
           "cli": "codex",
           "displayName": "Codex",
-          "task": "Defect (CodeRabbit, confirmed by the coordinator):",
+          "task": "Fix the read-only notice path and add focused specs.",
           "workingDirectory": "/workspace/acme-app",
           "status": "running",
           "startedAt": "2026-10-31T20:00:14.000Z",
@@ -651,13 +740,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "66666666-6666-4666-8666-666666666666",
-          "stdoutDelta": "I’ll trace the storage and layer-read paths, add a read-only notice path with focused specs, then run the required `agent-sdk` verification.\n",
+          "stdoutDelta": "I will add the read-only notice path and focused specs.\n",
           "stderrDelta": "",
           "timestamp": 1793476815000,
           "segments": [
             {
               "type": "text",
-              "content": "[sanitized cli output]"
+              "content": "I will add the read-only notice path and focused specs."
             }
           ]
         }
@@ -669,13 +758,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "22222222-2222-4222-8222-222222222222",
-          "stdoutDelta": " will\n",
+          "stdoutDelta": "Updated the session notice.\n",
           "stderrDelta": "",
           "timestamp": 1793476806500,
           "segments": [
             {
               "type": "text",
-              "content": "[sanitized cli output]"
+              "content": "Updated the session notice."
             }
           ]
         }
@@ -693,11 +782,11 @@ export const scenario = {
             "timestamp": 1793476817200,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_real_4",
+            "toolCallId": "demo-call-real-4",
             "toolName": "mcp__ptah__ptah_agent_spawn",
             "toolInput": {
               "cli": "antigravity",
-              "task": "Review round 2 for FIX_PLUGIN_SESSION_ROOT (PR #868). Read-only review; do not edit source files and"
+              "task": "Read-only review of the final change set."
             },
             "isTaskTool": false
           }
@@ -712,7 +801,7 @@ export const scenario = {
           "agentId": "77777777-7777-4777-8777-777777777777",
           "cli": "antigravity",
           "displayName": "Antigravity",
-          "task": "Review round 2 for FIX_PLUGIN_SESSION_ROOT (PR #868). Read-only review; do not edit source files and",
+          "task": "Read-only review of the final change set.",
           "workingDirectory": "/workspace/acme-app",
           "status": "running",
           "startedAt": "2026-10-31T20:00:17.500Z",
@@ -726,13 +815,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "55555555-5555-4555-8555-555555555555",
-          "stdoutDelta": "175 lines, 24655 bytes\n",
+          "stdoutDelta": "Read 4 files.\n",
           "stderrDelta": "",
           "timestamp": 1793476812500,
           "segments": [
             {
               "type": "tool-result",
-              "content": "[sanitized cli output]"
+              "content": "Read 4 files."
             }
           ]
         }
@@ -744,13 +833,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "77777777-7777-4777-8777-777777777777",
-          "stdoutDelta": "Usage: 12841 input, 875 output tokens\n",
+          "stdoutDelta": "Reviewing the final change set.\n",
           "stderrDelta": "",
           "timestamp": 1793476818500,
           "segments": [
             {
               "type": "info",
-              "content": "[sanitized cli output]"
+              "content": "Reviewing the final change set."
             }
           ]
         }
@@ -762,13 +851,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "44444444-4444-4444-8444-444444444444",
-          "stdoutDelta": "{\"parseStatus\":\"ok\",\"errorNodeCount\":0,\"errorNodeCountCapped\":false,\"coverage\":{\"clean\":true,\"analyzed\":1},\"file\":\"/workspace/acme-app\n",
+          "stdoutDelta": "Checked the session folder code.\n",
           "stderrDelta": "",
           "timestamp": 1793476810000,
           "segments": [
             {
               "type": "tool-result",
-              "content": "[sanitized cli output]"
+              "content": "Checked the session folder code."
             }
           ]
         }
@@ -780,13 +869,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "66666666-6666-4666-8666-666666666666",
-          "stdoutDelta": "## Workspace Analysis **Project Type:** nx-monorepo **Root:** /workspace/acme-app/.claude-worktrees/plugin-session-root **Version:** 0\n",
+          "stdoutDelta": "Workspace setup complete.\n",
           "stderrDelta": "",
           "timestamp": 1793476816000,
           "segments": [
             {
               "type": "tool-result",
-              "content": "[sanitized cli output]"
+              "content": "Workspace setup complete."
             }
           ]
         }
@@ -804,8 +893,8 @@ export const scenario = {
             "timestamp": 1793476821700,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_real_0",
-            "output": "[sanitized tool output]",
+            "toolCallId": "demo-call-real-0",
+            "output": "Focused work complete; checks passed.",
             "isError": false
           }
         }
@@ -819,7 +908,7 @@ export const scenario = {
           "agentId": "22222222-2222-4222-8222-222222222222",
           "cli": "ptah-cli",
           "displayName": "Kimi Code",
-          "task": "Revise round 1 for batch 3 of FIX_PLUGIN_SESSION_ROOT. The branch was rebased on origin/main; line n",
+          "task": "Fix the stale session notice and add a regression test.",
           "workingDirectory": "/workspace/acme-app",
           "status": "completed",
           "startedAt": "2026-10-31T20:00:03.500Z",
@@ -834,13 +923,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "55555555-5555-4555-8555-555555555555",
-          "stdoutDelta": "36 lines, 1824 bytes\n",
+          "stdoutDelta": "Wrote 2 files.\n",
           "stderrDelta": "",
           "timestamp": 1793476813500,
           "segments": [
             {
               "type": "tool-result",
-              "content": "[sanitized cli output]"
+              "content": "Wrote 2 files."
             }
           ]
         }
@@ -852,13 +941,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "77777777-7777-4777-8777-777777777777",
-          "stdoutDelta": "263 lines, 19473 bytes\n",
+          "stdoutDelta": "Ran focused tests: 18 passed.\n",
           "stderrDelta": "",
           "timestamp": 1793476819500,
           "segments": [
             {
               "type": "tool-result",
-              "content": "[sanitized cli output]"
+              "content": "Ran focused tests: 18 passed."
             }
           ]
         }
@@ -876,8 +965,8 @@ export const scenario = {
             "timestamp": 1793476826200,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_real_1",
-            "output": "[sanitized tool output]",
+            "toolCallId": "demo-call-real-1",
+            "output": "Focused work complete; checks passed.",
             "isError": false
           }
         }
@@ -891,7 +980,7 @@ export const scenario = {
           "agentId": "44444444-4444-4444-8444-444444444444",
           "cli": "codex",
           "displayName": "Codex",
-          "task": "Revise round 1 for FIX_PLUGIN_SESSION_ROOT (backend). The branch was rebased on origin/main; line nu",
+          "task": "Harden the session folder resolver against symlinks.",
           "workingDirectory": "/workspace/acme-app",
           "status": "completed",
           "startedAt": "2026-10-31T20:00:07.000Z",
@@ -906,13 +995,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "66666666-6666-4666-8666-666666666666",
-          "stdoutDelta": "{\"parseStatus\":\"ok\",\"errorNodeCount\":0,\"errorNodeCountCapped\":false,\"coverage\":{\"clean\":true,\"analyzed\":1},\"file\":\"/workspace/acme-app\n",
+          "stdoutDelta": "Confirmed the source parses cleanly.\n",
           "stderrDelta": "",
           "timestamp": 1793476817000,
           "segments": [
             {
               "type": "tool-result",
-              "content": "[sanitized cli output]"
+              "content": "Confirmed the source parses cleanly."
             }
           ]
         }
@@ -930,8 +1019,8 @@ export const scenario = {
             "timestamp": 1793476828000,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_01JYMVj5xzSaik91rixgtdk9",
-            "output": "[sanitized tool output]",
+            "toolCallId": "demo-subagent-call-1",
+            "output": "Focused work complete; checks passed.",
             "isError": false
           }
         }
@@ -946,7 +1035,7 @@ export const scenario = {
           "cwd": "/workspace/acme-app",
           "agentId": "a379c9a5178f6519a",
           "agentType": "visual-reviewer",
-          "toolCallId": "toolu_01JYMVj5xzSaik91rixgtdk9",
+          "toolCallId": "demo-subagent-call-1",
           "lastAssistantMessage": "Visual review completed.",
           "backgroundTasks": [],
           "timestamp": 1793476828500
@@ -965,8 +1054,8 @@ export const scenario = {
             "timestamp": 1793476830700,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_real_2",
-            "output": "[sanitized tool output]",
+            "toolCallId": "demo-call-real-2",
+            "output": "Focused work complete; checks passed.",
             "isError": false
           }
         }
@@ -980,7 +1069,7 @@ export const scenario = {
           "agentId": "55555555-5555-4555-8555-555555555555",
           "cli": "antigravity",
           "displayName": "Antigravity",
-          "task": "Objective: confirm whether each finding is fixed correctly and whether the fixes add new defects.",
+          "task": "Confirm each finding is fixed and no new defect was added.",
           "workingDirectory": "/workspace/acme-app",
           "status": "completed",
           "startedAt": "2026-10-31T20:00:10.500Z",
@@ -995,13 +1084,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "77777777-7777-4777-8777-777777777777",
-          "stdoutDelta": "29 lines, 2457 bytes\n",
+          "stdoutDelta": "Read the final diff.\n",
           "stderrDelta": "",
           "timestamp": 1793476820500,
           "segments": [
             {
               "type": "tool-result",
-              "content": "[sanitized cli output]"
+              "content": "Read the final diff."
             }
           ]
         }
@@ -1019,8 +1108,8 @@ export const scenario = {
             "timestamp": 1793476835200,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_real_3",
-            "output": "[sanitized tool output]",
+            "toolCallId": "demo-call-real-3",
+            "output": "Focused work complete; checks passed.",
             "isError": false
           }
         }
@@ -1034,7 +1123,7 @@ export const scenario = {
           "agentId": "66666666-6666-4666-8666-666666666666",
           "cli": "codex",
           "displayName": "Codex",
-          "task": "Defect (CodeRabbit, confirmed by the coordinator):",
+          "task": "Fix the read-only notice path and add focused specs.",
           "workingDirectory": "/workspace/acme-app",
           "status": "completed",
           "startedAt": "2026-10-31T20:00:14.000Z",
@@ -1121,8 +1210,8 @@ export const scenario = {
             "timestamp": 1793476839700,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "main-assistant",
-            "toolCallId": "toolu_real_4",
-            "output": "[sanitized tool output]",
+            "toolCallId": "demo-call-real-4",
+            "output": "Focused work complete; checks passed.",
             "isError": false
           }
         }
@@ -1136,7 +1225,7 @@ export const scenario = {
           "agentId": "77777777-7777-4777-8777-777777777777",
           "cli": "antigravity",
           "displayName": "Antigravity",
-          "task": "Review round 2 for FIX_PLUGIN_SESSION_ROOT (PR #868). Read-only review; do not edit source files and",
+          "task": "Read-only review of the final change set.",
           "workingDirectory": "/workspace/acme-app",
           "status": "completed",
           "startedAt": "2026-10-31T20:00:17.500Z",
@@ -1233,6 +1322,76 @@ export const scenario = {
       }
     },
     {
+      "at": 46100,
+      "message": {
+        "type": "session:stats",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "turnCost": 0.084,
+          "tokens": {
+            "input": 5400,
+            "output": 1750,
+            "cacheRead": 2100,
+            "cacheCreation": 350
+          },
+          "duration": 30000,
+          "modelUsage": [
+            {
+              "model": "claude-sonnet-4-5",
+              "inputTokens": 5400,
+              "outputTokens": 1750,
+              "cacheReadInputTokens": 2100,
+              "contextWindow": 200000,
+              "contextCapacity": {
+                "model": "claude-sonnet-4-5",
+                "tokens": 200000,
+                "source": "sdk-native",
+                "providerId": null
+              },
+              "costUSD": 0.084,
+              "lastTurnContextTokens": 6800
+            }
+          ],
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-sonnet-4-5",
+            "totalCost": 0.084,
+            "knownCost": 0.084,
+            "tokens": {
+              "input": 5400,
+              "output": 1750,
+              "cacheRead": 2100,
+              "cacheCreation": 350
+            },
+            "tokenCount": 9600,
+            "messageCount": 3,
+            "agentSessionCount": 1,
+            "cliAgents": [
+              "ptah-cli",
+              "codex",
+              "antigravity"
+            ],
+            "modelUsageList": [
+              {
+                "model": "claude-sonnet-4-5",
+                "inputTokens": 5400,
+                "outputTokens": 1750,
+                "cacheRead": 2100,
+                "cacheCreation": 350,
+                "costUSD": 0.084,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 5
+          }
+        }
+      }
+    },
+    {
       "at": 46500,
       "message": {
         "type": "chat:chunk",
@@ -1272,6 +1431,6 @@ export const scenario = {
   ],
   "start": {
     "mode": "on-send",
-    "prompt": "Review the plugin session notice, delegate focused fixes to CLI agents, and get an independent visual review."
+    "prompt": "Review the session notice, delegate focused fixes to CLI agents, and get an independent visual review."
   }
 } satisfies ReplayScenario;

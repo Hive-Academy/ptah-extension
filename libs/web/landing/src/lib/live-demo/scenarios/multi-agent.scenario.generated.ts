@@ -412,6 +412,52 @@ export const scenario = {
       }
     },
     {
+      "at": 800,
+      "message": {
+        "type": "session:stats-live",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-sonnet-4-5",
+            "totalCost": 0.017,
+            "knownCost": 0.017,
+            "tokens": {
+              "input": 1200,
+              "output": 300,
+              "cacheRead": 400,
+              "cacheCreation": 60
+            },
+            "tokenCount": 1960,
+            "messageCount": 1,
+            "agentSessionCount": 0,
+            "cliAgents": [],
+            "modelUsageList": [
+              {
+                "model": "claude-sonnet-4-5",
+                "inputTokens": 1200,
+                "outputTokens": 300,
+                "cacheRead": 400,
+                "cacheCreation": 60,
+                "costUSD": 0.017,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 1,
+            "provisional": true
+          },
+          "context": {
+            "model": "claude-sonnet-4-5",
+            "contextTokens": 1500
+          }
+        }
+      }
+    },
+    {
       "at": 1300,
       "message": {
         "type": "chat:chunk",
@@ -441,7 +487,7 @@ export const scenario = {
             "timestamp": 1793476803400,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_sdk_0",
+            "toolCallId": "demo-call-sdk-0",
             "toolName": "Task",
             "toolInput": {
               "description": "Review keyboard flow and labels.",
@@ -467,7 +513,7 @@ export const scenario = {
             "timestamp": 1793476803700,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_sdk_0",
+            "toolCallId": "demo-call-sdk-0",
             "agentType": "Explore",
             "agentId": "access-a1",
             "agentDescription": "Review keyboard flow and labels.",
@@ -490,7 +536,7 @@ export const scenario = {
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "sdk-0",
             "role": "assistant",
-            "parentToolUseId": "toolu_sdk_0"
+            "parentToolUseId": "demo-call-sdk-0"
           }
         }
       }
@@ -509,7 +555,7 @@ export const scenario = {
             "messageId": "sdk-0",
             "blockIndex": 0,
             "delta": "Use semantic buttons, visible focus states, and an aria-live status for refreshes.",
-            "parentToolUseId": "toolu_sdk_0"
+            "parentToolUseId": "demo-call-sdk-0"
           }
         }
       }
@@ -526,7 +572,7 @@ export const scenario = {
             "timestamp": 1793476805200,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "sdk-0",
-            "parentToolUseId": "toolu_sdk_0"
+            "parentToolUseId": "demo-call-sdk-0"
           }
         }
       }
@@ -560,7 +606,7 @@ export const scenario = {
             "timestamp": 1793476805600,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "parentToolUseId": "toolu_sdk_0",
+            "parentToolUseId": "demo-call-sdk-0",
             "taskId": "task-access-a1",
             "agentId": "access-a1",
             "description": "Review keyboard flow and labels.",
@@ -579,13 +625,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "22222222-2222-4222-8222-222222222222",
-          "stdoutDelta": "Reading src/dashboard.ts and src/dashboard.css\n",
+          "stdoutDelta": "Checked the focused change; no issues found.\n",
           "stderrDelta": "",
           "timestamp": 1793476806500,
           "segments": [
             {
               "type": "info",
-              "content": "[sanitized cli output]",
+              "content": "Checked the focused change; no issues found.",
               "usage": {
                 "model": "gpt-5",
                 "inputTokens": 2300,
@@ -611,7 +657,7 @@ export const scenario = {
             "timestamp": 1793476807700,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_sdk_1",
+            "toolCallId": "demo-call-sdk-1",
             "toolName": "Task",
             "toolInput": {
               "description": "Trace dashboard loading and errors.",
@@ -637,7 +683,7 @@ export const scenario = {
             "timestamp": 1793476808000,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_sdk_1",
+            "toolCallId": "demo-call-sdk-1",
             "agentType": "Explore",
             "agentId": "state-b2",
             "agentDescription": "Trace dashboard loading and errors.",
@@ -660,7 +706,7 @@ export const scenario = {
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "sdk-1",
             "role": "assistant",
-            "parentToolUseId": "toolu_sdk_1"
+            "parentToolUseId": "demo-call-sdk-1"
           }
         }
       }
@@ -679,7 +725,7 @@ export const scenario = {
             "messageId": "sdk-1",
             "blockIndex": 0,
             "delta": "Keep loading, empty, and error states explicit; avoid clearing stale data during refresh.",
-            "parentToolUseId": "toolu_sdk_1"
+            "parentToolUseId": "demo-call-sdk-1"
           }
         }
       }
@@ -708,7 +754,7 @@ export const scenario = {
             "timestamp": 1793476809500,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "sdk-1",
-            "parentToolUseId": "toolu_sdk_1"
+            "parentToolUseId": "demo-call-sdk-1"
           }
         }
       }
@@ -742,7 +788,7 @@ export const scenario = {
             "timestamp": 1793476809900,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "parentToolUseId": "toolu_sdk_1",
+            "parentToolUseId": "demo-call-sdk-1",
             "taskId": "task-state-b2",
             "agentId": "state-b2",
             "description": "Trace dashboard loading and errors.",
@@ -767,7 +813,7 @@ export const scenario = {
             "timestamp": 1793476810400,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "parentToolUseId": "toolu_sdk_0",
+            "parentToolUseId": "demo-call-sdk-0",
             "taskId": "task-access-a1",
             "agentId": "access-a1",
             "status": "completed",
@@ -792,8 +838,8 @@ export const scenario = {
             "timestamp": 1793476810700,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_sdk_0",
-            "output": "[sanitized tool output]",
+            "toolCallId": "demo-call-sdk-0",
+            "output": "Focused work complete; checks passed.",
             "isError": false
           }
         }
@@ -805,13 +851,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "33333333-3333-4333-8333-333333333333",
-          "stdoutDelta": "Reviewing src/dashboard.test.ts\n",
+          "stdoutDelta": "Checked the focused change; no issues found.\n",
           "stderrDelta": "",
           "timestamp": 1793476810800,
           "segments": [
             {
               "type": "info",
-              "content": "[sanitized cli output]",
+              "content": "Checked the focused change; no issues found.",
               "usage": {
                 "model": "claude-sonnet-4-5",
                 "inputTokens": 2300,
@@ -834,7 +880,7 @@ export const scenario = {
           "cwd": "/workspace/acme-app",
           "agentId": "access-a1",
           "agentType": "Explore",
-          "toolCallId": "toolu_sdk_0",
+          "toolCallId": "demo-call-sdk-0",
           "lastAssistantMessage": "Use semantic buttons, visible focus states, and an aria-live status for refreshes.",
           "backgroundTasks": [],
           "timestamp": 1793476810900
@@ -877,7 +923,7 @@ export const scenario = {
             "timestamp": 1793476814700,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "parentToolUseId": "toolu_sdk_1",
+            "parentToolUseId": "demo-call-sdk-1",
             "taskId": "task-state-b2",
             "agentId": "state-b2",
             "status": "completed",
@@ -902,8 +948,8 @@ export const scenario = {
             "timestamp": 1793476815000,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_sdk_1",
-            "output": "[sanitized tool output]",
+            "toolCallId": "demo-call-sdk-1",
+            "output": "Focused work complete; checks passed.",
             "isError": false
           }
         }
@@ -918,7 +964,7 @@ export const scenario = {
           "cwd": "/workspace/acme-app",
           "agentId": "state-b2",
           "agentType": "Explore",
-          "toolCallId": "toolu_sdk_1",
+          "toolCallId": "demo-call-sdk-1",
           "lastAssistantMessage": "Keep loading, empty, and error states explicit; avoid clearing stale data during refresh.",
           "backgroundTasks": [],
           "timestamp": 1793476815200
@@ -1097,6 +1143,75 @@ export const scenario = {
       }
     },
     {
+      "at": 34900,
+      "message": {
+        "type": "session:stats",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "turnCost": 0.084,
+          "tokens": {
+            "input": 5400,
+            "output": 1750,
+            "cacheRead": 2100,
+            "cacheCreation": 350
+          },
+          "duration": 30000,
+          "modelUsage": [
+            {
+              "model": "claude-sonnet-4-5",
+              "inputTokens": 5400,
+              "outputTokens": 1750,
+              "cacheReadInputTokens": 2100,
+              "contextWindow": 200000,
+              "contextCapacity": {
+                "model": "claude-sonnet-4-5",
+                "tokens": 200000,
+                "source": "sdk-native",
+                "providerId": null
+              },
+              "costUSD": 0.084,
+              "lastTurnContextTokens": 6800
+            }
+          ],
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-sonnet-4-5",
+            "totalCost": 0.084,
+            "knownCost": 0.084,
+            "tokens": {
+              "input": 5400,
+              "output": 1750,
+              "cacheRead": 2100,
+              "cacheCreation": 350
+            },
+            "tokenCount": 9600,
+            "messageCount": 3,
+            "agentSessionCount": 2,
+            "cliAgents": [
+              "codex",
+              "copilot"
+            ],
+            "modelUsageList": [
+              {
+                "model": "claude-sonnet-4-5",
+                "inputTokens": 5400,
+                "outputTokens": 1750,
+                "cacheRead": 2100,
+                "cacheCreation": 350,
+                "costUSD": 0.084,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 5
+          }
+        }
+      }
+    },
+    {
       "at": 35100,
       "message": {
         "type": "chat:chunk",
@@ -1172,7 +1287,7 @@ export const scenario = {
             "coverage": "complete",
             "pricingCoverage": "full",
             "scope": "session",
-            "revision": 4
+            "revision": 6
           }
         }
       }

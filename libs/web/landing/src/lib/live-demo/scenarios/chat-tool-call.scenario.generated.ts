@@ -324,7 +324,7 @@ export const scenario = {
             "timestamp": 1793476801300,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "demo-assistant",
-            "toolCallId": "toolu_demo_read",
+            "toolCallId": "demo-call-demo-read",
             "toolName": "Read",
             "toolInput": {
               "file_path": "/workspace/acme-app/src/main.ts"
@@ -346,7 +346,7 @@ export const scenario = {
             "timestamp": 1793476801800,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "demo-assistant",
-            "toolCallId": "toolu_demo_read",
+            "toolCallId": "demo-call-demo-read",
             "output": "import { bootstrapApplication } from '@angular/platform-browser';\nbootstrapApplication(AppComponent, appConfig);",
             "isError": false
           }
@@ -383,6 +383,72 @@ export const scenario = {
             "timestamp": 1793476802400,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "demo-assistant"
+          }
+        }
+      }
+    },
+    {
+      "at": 2500,
+      "message": {
+        "type": "session:stats",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "turnCost": 0.017,
+          "tokens": {
+            "input": 1200,
+            "output": 300,
+            "cacheRead": 400,
+            "cacheCreation": 60
+          },
+          "duration": 30000,
+          "modelUsage": [
+            {
+              "model": "claude-sonnet-4-5",
+              "inputTokens": 1200,
+              "outputTokens": 300,
+              "cacheReadInputTokens": 400,
+              "contextWindow": 200000,
+              "contextCapacity": {
+                "model": "claude-sonnet-4-5",
+                "tokens": 200000,
+                "source": "sdk-native",
+                "providerId": null
+              },
+              "costUSD": 0.017,
+              "lastTurnContextTokens": 6800
+            }
+          ],
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-sonnet-4-5",
+            "totalCost": 0.017,
+            "knownCost": 0.017,
+            "tokens": {
+              "input": 1200,
+              "output": 300,
+              "cacheRead": 400,
+              "cacheCreation": 60
+            },
+            "tokenCount": 1960,
+            "messageCount": 1,
+            "agentSessionCount": 0,
+            "cliAgents": [],
+            "modelUsageList": [
+              {
+                "model": "claude-sonnet-4-5",
+                "inputTokens": 1200,
+                "outputTokens": 300,
+                "cacheRead": 400,
+                "cacheCreation": 60,
+                "costUSD": 0.017,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 1
           }
         }
       }

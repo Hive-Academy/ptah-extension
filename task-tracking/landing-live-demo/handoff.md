@@ -64,3 +64,18 @@ node scripts/landing/check-live-demo.mjs --root /tmp/ptah-demo-try
   section, B8 mobile video, B9 visual review, central verify for every changed project
   (ptah-electron, web-landing, core, shared, ptah-landing-page and dependent hosts),
   then push and a DRAFT PR against main. Phase 4 (remove old mocks) is NOT approved.
+
+## Continuation session (branch feat/landing-live-demo-replay, worktree feat-landing-live-demo-replay-e96db388896a)
+
+- 21:14 UTC: started B7 (codex lane ad15212d, notes `batch-b7-notes.md`), B8 (antigravity lane
+  679e2dc1, `capture-live-demo-media.mjs` + `batch-b8-notes.md`), Claude reviews
+  (`review-b4b5-fixes.md`, `review-b6-scenarios.md`), central `npm run verify -- -p ptah-electron`
+  (log `/tmp/verify-electron.log`) and the webview build under the verify lock
+  (log `/tmp/webview-build.log`, output `dist/apps/ptah-extension-webview/browser` in this worktree).
+- Catalog decision: tabs orchestration, tribunal-council, command-center, multi-agent.
+- Review B4+B5 (`review-b4b5-fixes.md`, REVISE, 0 blockers): coordinator fixed F1 (credential
+  regexes, parity in `scenario-sanitizer.ts` + `privacy-scan.ts`, canaries in both specs) and F2
+  (sanitizer keeps `start`, spec added). Minor F3–F9 left open (listed in final report).
+- Review B6/R (`review-b6-scenarios.md`, 1 blocker: real identifiers in orchestration.json):
+  codex lane 0f42d235 fixes it + majors + visual defects, notes `batch-b6-review-fixes.md`.
+  B8 media must be re-captured after that lane ends.

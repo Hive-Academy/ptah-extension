@@ -510,6 +510,75 @@ export const scenario = {
       }
     },
     {
+      "at": 600,
+      "message": {
+        "type": "session:stats",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "turnCost": 0.084,
+          "tokens": {
+            "input": 5400,
+            "output": 1750,
+            "cacheRead": 2100,
+            "cacheCreation": 350
+          },
+          "duration": 30000,
+          "modelUsage": [
+            {
+              "model": "claude-sonnet-4-5",
+              "inputTokens": 5400,
+              "outputTokens": 1750,
+              "cacheReadInputTokens": 2100,
+              "contextWindow": 200000,
+              "contextCapacity": {
+                "model": "claude-sonnet-4-5",
+                "tokens": 200000,
+                "source": "sdk-native",
+                "providerId": null
+              },
+              "costUSD": 0.084,
+              "lastTurnContextTokens": 6800
+            }
+          ],
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-sonnet-4-5",
+            "totalCost": 0.084,
+            "knownCost": 0.084,
+            "tokens": {
+              "input": 5400,
+              "output": 1750,
+              "cacheRead": 2100,
+              "cacheCreation": 350
+            },
+            "tokenCount": 9600,
+            "messageCount": 3,
+            "agentSessionCount": 2,
+            "cliAgents": [
+              "codex",
+              "copilot"
+            ],
+            "modelUsageList": [
+              {
+                "model": "claude-sonnet-4-5",
+                "inputTokens": 5400,
+                "outputTokens": 1750,
+                "cacheRead": 2100,
+                "cacheCreation": 350,
+                "costUSD": 0.084,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 3
+          }
+        }
+      }
+    },
+    {
       "at": 3500,
       "message": {
         "type": "agent-monitor:spawned",
@@ -531,13 +600,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "44444444-4444-4444-8444-444444444444",
-          "stdoutDelta": "Checked dashboard empty, loading, and error states.\n",
+          "stdoutDelta": "Checked the focused change; no issues found.\n",
           "stderrDelta": "",
           "timestamp": 1793476807500,
           "segments": [
             {
               "type": "info",
-              "content": "[sanitized cli output]",
+              "content": "Checked the focused change; no issues found.",
               "usage": {
                 "model": "gpt-5",
                 "inputTokens": 2300,
@@ -573,13 +642,13 @@ export const scenario = {
         "type": "agent-monitor:output",
         "payload": {
           "agentId": "55555555-5555-4555-8555-555555555555",
-          "stdoutDelta": "Keyboard order and refresh status are clear.\n",
+          "stdoutDelta": "Checked the focused change; no issues found.\n",
           "stderrDelta": "",
           "timestamp": 1793476816500,
           "segments": [
             {
               "type": "info",
-              "content": "[sanitized cli output]",
+              "content": "Checked the focused change; no issues found.",
               "usage": {
                 "model": "claude-sonnet-4-5",
                 "inputTokens": 2300,

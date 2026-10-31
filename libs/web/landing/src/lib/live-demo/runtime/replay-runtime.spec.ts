@@ -52,6 +52,24 @@ describe('PtahCode replay runtime', () => {
     expect(engine.state.complete).toBe(true);
   });
 
+  it('stamps on-send assistant events after a delayed send', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(10_000);
+    const injected = jest.fn();
+    const engine = new PlaybackEngine('on-send', 1, injected, jest.fn());
+    engine.load({ ...sample([{ at: 100, message: { type: 'chat:chunk', payload: {
+      event: { timestamp: 1_100, eventType: 'message_start' },
+    } } }]), start: { mode: 'on-send', prompt: 'Review the change' } });
+    engine.ready(10_000);
+    engine.boot(false);
+    jest.advanceTimersByTime(30_000);
+    const sendTime = Date.now();
+    engine.sent();
+    jest.advanceTimersByTime(100);
+    expect(injected).toHaveBeenCalledTimes(1);
+    expect((injected.mock.calls[0][0].payload?.event as { timestamp: number }).timestamp).toBe(sendTime + 100);
+  });
+
   it('waits for another quiet period after boot RPC activity', async () => {
     jest.useFakeTimers();
     const settled = jest.fn();

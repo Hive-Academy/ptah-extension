@@ -30,8 +30,16 @@ describe('scenario privacy', () => {
     ['GitHub key', 'ghp_1234567890abcdef'],
     ['AWS key', 'AKIA1234567890abcdef'],
     ['Slack key', 'xoxb-1234567890abcdef'],
+    ['Stripe live key', 'sk_live_abcdefghijklmnopqr'],
+    ['Stripe restricted key', 'rk_live_abcdefgh12345678'],
+    ['prefixed password assignment', 'DB_PASSWORD=hunter2hunter2'],
+    ['prefixed secret assignment', 'export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG'],
     ['PEM', '-----BEGIN PRIVATE KEY-----'],
     ['base64', 'A'.repeat(205)],
+    ['Claude tool id', 'toolu_01JYMVj5xzSaik91rixgtdk9'],
+    ['pull request number', 'PR #868'],
+    ['internal worktree', '.claude-worktrees/plugin-session-root'],
+    ['internal task code', 'FIX_PLUGIN_SESSION_ROOT'],
   ])('detects %s', (_kind, value) => {
     expect(scanScenarioPrivacy({ value }).length).toBeGreaterThan(0);
   });

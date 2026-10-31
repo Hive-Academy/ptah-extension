@@ -69,6 +69,9 @@ export interface SanitizedScenario {
     readonly payload?: unknown;
     readonly [key: string]: unknown;
   }>;
+  readonly start?:
+    | { readonly mode: 'auto' }
+    | { readonly mode: 'on-send'; readonly prompt: string };
   readonly timeline: Array<{
     readonly at: number;
     readonly message: {
@@ -388,9 +391,9 @@ const IPV6_TEST_RE =
 const IPV6_REPLACE_RE =
   /(^|[\s[(/])((?=[a-f\d:]*:[a-f\d:]*:)(?:[a-f\d]{0,4}:){2,}[a-f\d]{0,4})(?=$|[\s\]/),])/gi;
 const SECRET_SHAPE_TEST_RE =
-  /\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|\b(?:sk-|pk-|rk-|github_pat_|gh[opusr]_|glpat-|xox[a-z]-|sk-ant-|sk-proj-|AIza|npm_|hf_|AKIA|ASIA)[A-Za-z0-9_-]{8,}/i;
+  /\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|\b(?:sk-|pk-|rk-|(?:sk|pk|rk)_(?:live|test)_|github_pat_|gh[opusr]_|glpat-|xox[a-z]-|sk-ant-|sk-proj-|AIza|npm_|hf_|AKIA|ASIA)[A-Za-z0-9_-]{8,}/i;
 const CREDENTIAL_ASSIGNMENT_GLOBAL_RE =
-  /\b(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|auth)\b["']?\s*[=:]\s*(?:"([^"]*)"|'([^']*)'|(<[^>]*>|\[[^\]]*\]|\$\{[^}]*\}|[^\s,;}\]]+))/gi;
+  /(?<![A-Za-z0-9])(?:[A-Za-z0-9]+_)*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|auth)(?:_[A-Za-z0-9]+)*\b["']?\s*[=:]\s*(?:"([^"]*)"|'([^']*)'|(<[^>]*>|\[[^\]]*\]|\$\{[^}]*\}|[^\s,;}\]]+))/gi;
 const AUTHORIZATION_GLOBAL_RE =
   /\b(?:Authorization\s*:\s*)?(Bearer\s+\S+|Basic\s+[A-Za-z0-9+/]+={0,2})/gi;
 const PEM_TEST_RE = /-----BEGIN [A-Z ]*(?:PRIVATE KEY|CERTIFICATE)-----/;
@@ -422,7 +425,7 @@ const EXTRA_SECRET_REPLACE_PATTERNS: ReadonlyArray<RegExp> = [
   /-----BEGIN [A-Z0-9 ]*-----[\s\S]*?-----END [A-Z0-9 ]*-----/g,
   /-----BEGIN [A-Z0-9 ]*-----/g,
   /\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
-  /\b(?:sk-ant-|sk-proj-|sk-|pk-|rk-|github_pat_|gh[opusr]_|glpat-|xox[a-z]-|AIza|npm_|hf_|AKIA|ASIA)[A-Za-z0-9_-]{8,}/gi,
+  /\b(?:sk-ant-|sk-proj-|sk-|pk-|rk-|(?:sk|pk|rk)_(?:live|test)_|github_pat_|gh[opusr]_|glpat-|xox[a-z]-|AIza|npm_|hf_|AKIA|ASIA)[A-Za-z0-9_-]{8,}/gi,
   /\b(?:Authorization\s*:\s*)?(?:Bearer|Basic)\s+(?!\[REDACTED\])\S+/gi,
   /\b(?:Set-Cookie|Cookie)\s*[:=]\s*[^\r\n;"']+/gi,
 ];
@@ -1052,7 +1055,7 @@ export function sanitizeScenario(
 
     // 2. Replace tilde home paths (~/... or bare ~/)
     text = text.replace(
-      /(^|[\s"'=:(,{>\[])~\/([A-Za-z0-9._/-]*)/g,
+      /(^|[\s"'=:(,{>[])~\/([A-Za-z0-9._/-]*)/g,
       (_m, prefix: string, rest: string | undefined) => {
         replacedPathsCount++;
         const cleanRest = (rest ?? '').replace(/^\/+/, '');
@@ -1111,7 +1114,7 @@ export function sanitizeScenario(
 
     // 6. Replace any remaining non-/workspace/acme-app absolute paths matched by privacy-scan
     text = text.replace(
-      /(^|[\s"'=:(,{>\[])(\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*)/g,
+      /(^|[\s"'=:(,{>[])(\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*)/g,
       (full, prefix: string, candidate: string) => {
         if (
           candidate === SYNTHETIC_WORKSPACE_ROOT ||
@@ -1242,7 +1245,7 @@ export function sanitizeScenario(
       }
     }
     text = text.replace(
-      /\b((?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|auth)\b["']?\s*[=:]\s*)(?:"([^"]*)"|'([^']*)'|(<[^>]*>|\[[^\]]*\]|\$\{[^}]*\}|[^\s,;}\]]+))/gi,
+      /(?<![A-Za-z0-9])((?:[A-Za-z0-9]+_)*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|auth)(?:_[A-Za-z0-9]+)*\b["']?\s*[=:]\s*)(?:"([^"]*)"|'([^']*)'|(<[^>]*>|\[[^\]]*\]|\$\{[^}]*\}|[^\s,;}\]]+))/gi,
       (full, prefix: string, dq?: string, sq?: string, bare?: string) => {
         const captured = dq ?? sq ?? bare ?? '';
         if (isPlaceholder(captured)) return full;
@@ -1939,6 +1942,26 @@ export function sanitizeScenario(
       ? 'command-center'
       : 'chat');
 
+  // Keep the playback start mode (on-send scenarios break without it)
+  const rawStart = raw['start'];
+  let start: SanitizedScenario['start'];
+  if (rawStart && typeof rawStart === 'object' && !Array.isArray(rawStart)) {
+    const startRec = rawStart as Record<string, unknown>;
+    if (startRec['mode'] === 'auto') {
+      start = { mode: 'auto' };
+    } else if (
+      startRec['mode'] === 'on-send' &&
+      typeof startRec['prompt'] === 'string'
+    ) {
+      start = {
+        mode: 'on-send',
+        prompt: sanitizeStringValue(startRec['prompt'], '$.start.prompt'),
+      };
+    } else {
+      throw new Error('Scenario start must be { mode: "auto" } or { mode: "on-send", prompt }');
+    }
+  }
+
   const scenario: SanitizedScenario = {
     id: rawId,
     title: sanitizeStringValue(rawTitle, '$.title'),
@@ -1957,6 +1980,7 @@ export function sanitizeScenario(
       : {}),
     ...(rawBootMessages ? { bootMessages: sanitizedBootMessages } : {}),
     timeline: sanitizedTimeline,
+    ...(start ? { start } : {}),
   };
 
   // Final fail-closed privacy scan (prints sanitized key paths only, never values)

@@ -1,4 +1,5 @@
 import type { ReplayControls, ReplayMessage, ReplayMiss, ReplayScenarioData, ReplayState } from './types';
+import { shiftRecordedTimes } from './time-shift';
 
 export class PlaybackEngine implements ReplayControls {
   readonly misses: ReplayMiss[] = [];
@@ -62,7 +63,17 @@ export class PlaybackEngine implements ReplayControls {
     this.pulse = null;
     this.changed(this.state);
   }
-  sent(): void { this.state.waitingForSend = false; this.changed(this.state); this.play(); }
+  sent(): void {
+    if (!this.state.waitingForSend || !this.scenarioData) return;
+    const { timeBase, timeline } = this.scenarioData;
+    const sentAt = Date.now();
+    this.scenarioData.timeline = timeline.map((entry) => ({
+      ...entry, message: shiftRecordedTimes(entry.message, timeBase, sentAt),
+    }));
+    this.state.waitingForSend = false;
+    this.changed(this.state);
+    this.play();
+  }
   play(): void {
     if (this.state.waitingForSend) return;
     if (!this.state.booted) {

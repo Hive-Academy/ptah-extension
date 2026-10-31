@@ -16,11 +16,12 @@ const publicSuffix = new Set(['com', 'net', 'org', 'io', 'dev', 'live', 'app', '
 const fileSuffix = new Set(['ts', 'js', 'json']);
 const ipv4 = /\d{1,3}(?:\.\d{1,3}){3}\b/g;
 const ipv6 = /(?:^|[\s[(/])(?=[a-f\d:]*:[a-f\d:]*:)(?:[a-f\d]{0,4}:){2,}[a-f\d]{0,4}(?=$|[\s\]/),])/i;
-const secretShape = /\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|\b(?:sk-|github_pat_|gh[opusr]_|glpat-|xox[abps]-|sk-ant-|sk-proj-|AIza|npm_|hf_|AKIA|ASIA)[A-Za-z0-9_-]{8,}/i;
-const credentialAssignment = /\b(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|auth)\b["']?\s*[=:]\s*(?:"([^"]*)"|'([^']*)'|(<[^>]*>|\[[^\]]*\]|\$\{[^}]*\}|[^\s,;}\]]+))/gi;
+const secretShape = /\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|\b(?:sk-|(?:sk|pk|rk)_(?:live|test)_|github_pat_|gh[opusr]_|glpat-|xox[abps]-|sk-ant-|sk-proj-|AIza|npm_|hf_|AKIA|ASIA)[A-Za-z0-9_-]{8,}/i;
+const credentialAssignment = /(?<![A-Za-z0-9])(?:[A-Za-z0-9]+_)*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|auth)(?:_[A-Za-z0-9]+)*\b["']?\s*[=:]\s*(?:"([^"]*)"|'([^']*)'|(<[^>]*>|\[[^\]]*\]|\$\{[^}]*\}|[^\s,;}\]]+))/gi;
 const authorization = /\b(?:Authorization\s*:\s*)?(Bearer\s+\S+|Basic\s+[A-Za-z0-9+/]+={0,2})/gi;
 const pem = /-----BEGIN [A-Z ]*(?:PRIVATE KEY|CERTIFICATE)-----/;
 const longBase64 = /(?:[A-Za-z0-9+/]{201,}={0,2}|[A-Za-z0-9_-]{201,})/;
+const internalIdentifier = /\btoolu_[A-Za-z0-9]{8,}|\bPR #\d+|\.claude-worktrees\/|\bFIX_[A-Z_]+\b/;
 const absolutePath = /(?:^|[\s"'=:(,{>]|\[)(?:\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*|[A-Z]:[\\/][^\s"']+)/g;
 
 function isPlaceholder(value: string): boolean {
@@ -74,6 +75,7 @@ export function scanScenarioPrivacy(value: unknown): PrivacyFinding[] {
     if (secretShape.test(text)) add(path, 'credential shape');
     if (pem.test(text)) add(path, 'PEM block');
     if (longBase64.test(text)) add(path, 'long base64');
+    if (internalIdentifier.test(text)) add(path, 'internal identifier');
     for (const match of text.matchAll(url)) {
       try {
         const host = new URL(match[0]).hostname.toLowerCase();

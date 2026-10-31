@@ -6,6 +6,7 @@ import type {
   PermissionRequest,
   RpcMethodName,
   RpcMethodParams,
+  ResultStatsPayload,
   RpcMethodResult,
   SessionStatsLiveWire,
   ViewChangedPayload,
@@ -64,6 +65,7 @@ type LocalPush =
   | { readonly type: 'chat:chunk'; readonly payload: { readonly tabId?: string; readonly sessionId?: string; readonly event: JsonWire<FlatStreamEventUnion> } }
   | { readonly type: 'chat:complete'; readonly payload: { readonly sessionId?: string; readonly tabId?: string; readonly command?: string } }
   | { readonly type: 'session:id-resolved'; readonly payload: { readonly sessionId?: string; readonly realSessionId: string; readonly tabId?: string } }
+  | { readonly type: 'session:stats'; readonly payload: JsonWire<ResultStatsPayload> }
   | { readonly type: 'session:stats-live'; readonly payload: SessionStatsLiveWire }
   | { readonly type: 'agent-monitor:spawned'; readonly payload: JsonWire<AgentProcessInfo> }
   | { readonly type: 'agent-monitor:output'; readonly payload: JsonWire<AgentOutputDelta> }

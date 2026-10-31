@@ -6,11 +6,12 @@ import { createRequire } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 const require = createRequire(import.meta.url);
 const args = Object.fromEntries(process.argv.slice(2).flatMap((arg, i, all) => arg.startsWith('--') && all[i + 1] && !all[i + 1].startsWith('--') ? [[arg.slice(2), all[i + 1]]] : []));
-if (!args.session || !args.window || !args.out) throw new Error('Usage: --session <id> --window <index|auto> --id <id> --title <title> [--prompt <text>] --out <file>');
-const project = args['project-dir'] ?? join(process.env.HOME, '.claude/projects/-home-amun-ptah-extension');
+if (!args.session || !args.window || !args.out || !args['project-dir']) throw new Error('Usage: --project-dir <dir> --session <id> --window <index|auto> --id <id> --title <title> [--prompt <text>] [--redact <from=to>] --out <file>');
+const project = resolve(args['project-dir']);
+const stateDir = process.env.PTAH_STATE_DIR ?? join(process.env.HOME, '.ptah/state');
 const rows = readFileSync(join(project, `${args.session}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse);
 const userRows = rows.flatMap((row, index) => row.type === 'user' && typeof row.message?.content === 'string' && !row.message.content.startsWith('<task-notification>') && !row.message.content.startsWith('Another Claude session') ? [{ row, index }] : []);
-const db = new DatabaseSync(join(process.env.HOME, '.ptah/state/sessions.sqlite'), { readOnly: true });
+const db = new DatabaseSync(join(stateDir, 'sessions.sqlite'), { readOnly: true });
 const record = db.prepare('select detail_json from sessions where session_id = ?').get(args.session);
 if (!record) throw new Error('Session not found in read-only lane index');
 const lanes = JSON.parse(record.detail_json).cliSessions.filter(x => x.status === 'completed');
@@ -35,29 +36,36 @@ if (!choice) throw new Error('No single user turn has two completed CLI spawns a
 const sessionId = '11111111-1111-4111-8111-111111111111', base = 1793476800000;
 const fixture = JSON.parse(readFileSync('libs/web/landing/src/lib/live-demo/scenarios/chat-tool-call.json', 'utf8'));
 const multi = JSON.parse(readFileSync('libs/web/landing/src/lib/live-demo/scenarios/multi-agent.json', 'utf8'));
-const prompt = args.prompt ?? choice.row.message.content.replace(/<[^>]+>/g, '').slice(0, 240);
+const truncate = (text, limit) => text.length <= limit ? text : `${text.slice(0, limit - 1).replace(/\s+\S*$/, '')}…`;
+const prompt = args.prompt ?? 'Review the session notice, delegate focused fixes, and get an independent visual review.';
 const timeline = [], push = (at, type, payload) => timeline.push({ at: Math.round(at), message: { type, payload } });
 let serial = 0;
-const chunk = (at, eventType, extra = {}, messageId = 'main-assistant') => push(at, 'chat:chunk', { sessionId, event: { id: `real-${++serial}`, eventType, timestamp: base + Math.round(at), sessionId, messageId, ...extra } });
+const chunk = (at, eventType, extra = {}, messageId = 'main-assistant') => push(at, 'chat:chunk', { sessionId, event: { id: `demo-${++serial}`, eventType, timestamp: base + Math.round(at), sessionId, messageId, ...extra } });
 chunk(200, 'turn_state', { phase: 'generating', revision: 2, backgroundTasks: [], sessionCrons: [], terminalReason: null }, `turn-state-${sessionId}`);
 chunk(500, 'message_start', { role: 'assistant' });
 const say = (at, line, messageId = 'main-assistant') => line.match(/.{1,42}(?:\s|$)/g)?.forEach((part,i) => chunk(at+i*180, 'text_delta', { blockIndex: 0, delta: part }, messageId));
-say(750, 'I will review the plugin session notice, delegate focused fixes, and check the results.');
+say(750, 'I will review the session notice, delegate focused fixes, and check the results.');
 const selected = lanes.slice(0, 5);
 selected.forEach((lane, index) => {
   const start = 3500 + index * 3500, finish = 22000 + index * 4500;
-  const id = lane.agentId;
+  const id = `${String(index + 2).repeat(8)}-${String(index + 2).repeat(4)}-4${String(index + 2).repeat(3)}-8${String(index + 2).repeat(3)}-${String(index + 2).repeat(12)}`;
   const label = lane.cli === 'ptah-cli' ? 'Kimi Code' : lane.cli === 'antigravity' ? 'Antigravity' : 'Codex';
-  const task = lane.task.split('\n').find(x => /Defect|Objective|Review|Revise/.test(x))?.slice(0, 100) ?? `${label} reviews the session notice`;
-  const call = `toolu_real_${index}`;
+  const task = [
+    'Fix the stale session notice and add a regression test.',
+    'Harden the session folder resolver against symlinks.',
+    'Confirm each finding is fixed and no new defect was added.',
+    'Fix the read-only notice path and add focused specs.',
+    'Read-only review of the final change set.',
+  ][index] ?? truncate(`${label} reviews the session notice.`, 100);
+  const call = `demo-cli-call-${index + 1}`;
   chunk(start - 300, 'tool_start', { toolCallId: call, toolName: 'mcp__ptah__ptah_agent_spawn', toolInput: { cli: lane.cli, task }, isTaskTool: false });
   push(start, 'agent-monitor:spawned', { agentId: id, cli: lane.cli, displayName: label, task, workingDirectory: '/workspace/acme-app', status: 'running', startedAt: new Date(base + start).toISOString(), parentSessionId: sessionId });
-  const file = join(process.env.HOME, '.ptah/state/sessions', args.session, `agent-output.${id}.json`);
+  const file = join(stateDir, 'sessions', args.session, `agent-output.${lane.agentId}.json`);
   let segments = [];
   try { segments = JSON.parse(readFileSync(file, 'utf8')).segments ?? []; } catch { /* missing output remains visible as a short summary */ }
   const representative = segments.filter(s => s.content && ['text','info','tool-call','tool-result'].includes(s.type)).slice(0, 3);
   (representative.length ? representative : [{ type: 'info', content: `${label} completed its review.` }]).forEach((seg, j, arr) => {
-    const content = seg.content.replace(/\s+/g, ' ').slice(0, 140);
+    const content = ['Read 6 files (model: demo-model).', 'Applied the focused fix.', 'Ran focused tests: 18 passed.'][j] ?? 'Review complete.';
     push(start + 1000 + j * ((finish-start-2000)/Math.max(1,arr.length)), 'agent-monitor:output', { agentId: id, stdoutDelta: `${content}\n`, stderrDelta: '', timestamp: base + start + 1000 + j * 1000, segments: [{ type: seg.type, content }] });
   });
   chunk(finish-300, 'tool_result', { toolCallId: call, output: `${label} completed the assigned review.`, isError: false });
@@ -65,11 +73,11 @@ selected.forEach((lane, index) => {
 });
 const subId = subfiles[0].replace(/^agent-|\.jsonl$/g, '');
 const subMeta = JSON.parse(readFileSync(join(project, args.session, 'subagents', `agent-${subId}.meta.json`), 'utf8'));
-const subCall = subMeta.toolUseId, subType = subMeta.agentType, subDescription = subMeta.description;
+const subCall = 'demo-subagent-call-1', subType = subMeta.agentType, subDescription = 'Independent visual review';
 chunk(9000, 'tool_start', { toolCallId: subCall, toolName: 'Task', toolInput: { description: subDescription, subagent_type: subType, run_in_background: true }, isTaskTool: true, agentType: subType, agentDescription: subDescription });
-chunk(9400, 'agent_start', { toolCallId: subCall, agentType: subType, agentId: subId, agentDescription: subDescription, taskId: `task-${subId}` });
+chunk(9400, 'agent_start', { toolCallId: subCall, agentType: subType, agentId: '88888888-8888-4888-8888-888888888888', agentDescription: subDescription, taskId: '99999999-9999-4999-8999-999999999999' });
 chunk(28000, 'tool_result', { toolCallId: subCall, output: 'Visual review completed.', isError: false });
-push(28500, 'session:subagentEnded', { sessionId, cwd: '/workspace/acme-app', agentId: subId, agentType: subType, toolCallId: subCall, lastAssistantMessage: 'Visual review completed.', backgroundTasks: [], timestamp: base + 28500 });
+push(28500, 'session:subagentEnded', { sessionId, cwd: '/workspace/acme-app', agentId: '88888888-8888-4888-8888-888888888888', agentType: subType, toolCallId: subCall, lastAssistantMessage: 'Visual review completed.', backgroundTasks: [], timestamp: base + 28500 });
 chunk(39500, 'message_complete');
 chunk(40000, 'message_start', { role: 'assistant' }, 'main-summary');
 say(40500, 'The focused fixes and independent review are complete. The session notice now follows the active session.', 'main-summary');
@@ -78,6 +86,21 @@ chunk(46500, 'turn_state', { phase: 'idle', revision: 3, backgroundTasks: [], se
 const stats = structuredClone(multi.timeline.find(x => x.message.type === 'session:stats-live').message.payload);
 stats.sessionId = sessionId; stats.sessionStats.sessionId = sessionId; stats.sessionStats.agentSessionCount = 1; stats.sessionStats.cliAgents = [...new Set(selected.map(x => x.cli))];
 push(38000, 'session:stats-live', stats);
+const earlyStats = structuredClone(stats);
+earlyStats.sessionStats.tokens = { input: 1200, output: 300, cacheRead: 400, cacheCreation: 60 };
+Object.assign(earlyStats.sessionStats, { tokenCount: 1960, totalCost: 0.017, knownCost: 0.017,
+  revision: 1, provisional: true, agentSessionCount: 0, cliAgents: [] });
+earlyStats.context.contextTokens = 1500;
+push(800, 'session:stats-live', earlyStats);
+const resultStats = structuredClone(stats.sessionStats);
+delete resultStats.provisional;
+resultStats.revision = 5;
+push(46100, 'session:stats', { sessionId, turnCost: resultStats.totalCost, tokens: resultStats.tokens,
+  duration: 30000, modelUsage: [{ model: resultStats.model, inputTokens: resultStats.tokens.input,
+    outputTokens: resultStats.tokens.output, cacheReadInputTokens: resultStats.tokens.cacheRead,
+    costUSD: resultStats.totalCost, lastTurnContextTokens: 6800,
+    contextCapacity: { model: resultStats.model, tokens: 200000, source: 'sdk-native', providerId: null } }],
+  sessionStats: resultStats });
 push(47000, 'session:turnEnded', { sessionId, cwd: '/workspace/acme-app', lastAssistantMessage: 'The fixes and review are complete.', backgroundTasks: [], sessionCrons: [], terminalReason: 'completed', timestamp: base+47000 });
 const raw = { id: args.id ?? 'orchestration', title: args.title ?? 'PtahCode orchestrates a review', timeBase: base, config: { initialView: 'chat', workspaceRoot: '/workspace/acme-app', workspaceName: 'acme-app' }, rpc: { ...fixture.rpc, 'chat:start': { success: true, sessionId } }, timeline: timeline.sort((a,b)=>a.at-b.at) };
 raw.rpc['provider:getPlanLimits'] = { generatedAt: base, owners: multi.rpc['provider:getPlanLimits'].owners.slice(0, 1), sessionOwners: { [sessionId]: { ownerKey: multi.rpc['provider:getPlanLimits'].owners[0].owner.key, modelScope: null } } };
@@ -88,7 +111,20 @@ const jiti = require('jiti')(import.meta.url, { interopDefault: true });
 const { sanitizeScenario } = jiti(resolve('apps/ptah-electron/src/replay/scenario-sanitizer.ts'));
 const result = sanitizeScenario(raw, { id: raw.id, title: raw.title, strict: true });
 const safePrompt = sanitizeScenario({ id: 'prompt', title: prompt, config: raw.config, rpc: {}, timeline: [] }, { id: 'prompt', strict: true }).scenario.title;
-const scenario = { ...result.scenario, start: { mode: 'on-send', prompt: safePrompt } };
+const redactPairs = args.redact ? [args.redact] : [];
+const redact = (value) => redactPairs.reduce((text, pair) => {
+  const split = pair.indexOf('=');
+  if (split <= 0) throw new Error('--redact requires <from=to>');
+  return text.replaceAll(pair.slice(0, split), pair.slice(split + 1));
+}, JSON.stringify(value));
+const scenario = JSON.parse(redact({ ...result.scenario, start: { mode: 'on-send', prompt: safePrompt } })
+  .replaceAll('[sanitized cli output]', 'Checked the focused change; no issues found.')
+  .replaceAll('[sanitized tool output]', 'Focused work complete; checks passed.'));
+for (const entry of scenario.timeline) {
+  if (entry.message.type !== 'agent-monitor:output') continue;
+  const payload = entry.message.payload;
+  if (payload?.segments?.[0]?.content) payload.stdoutDelta = `${payload.segments[0].content}\n`;
+}
 const { scanScenarioPrivacy } = jiti(resolve('libs/web/landing/src/lib/live-demo/scenario/privacy-scan.ts'));
 if (scanScenarioPrivacy(scenario).length) throw new Error('Final scenario failed B2 privacy scan');
 mkdirSync(dirname(resolve(args.out)), { recursive: true });

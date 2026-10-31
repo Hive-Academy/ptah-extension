@@ -412,6 +412,52 @@ export const scenario = {
       }
     },
     {
+      "at": 800,
+      "message": {
+        "type": "session:stats-live",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-sonnet-4-5",
+            "totalCost": 0.017,
+            "knownCost": 0.017,
+            "tokens": {
+              "input": 1200,
+              "output": 300,
+              "cacheRead": 400,
+              "cacheCreation": 60
+            },
+            "tokenCount": 1960,
+            "messageCount": 1,
+            "agentSessionCount": 0,
+            "cliAgents": [],
+            "modelUsageList": [
+              {
+                "model": "claude-sonnet-4-5",
+                "inputTokens": 1200,
+                "outputTokens": 300,
+                "cacheRead": 400,
+                "cacheCreation": 60,
+                "costUSD": 0.017,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 1,
+            "provisional": true
+          },
+          "context": {
+            "model": "claude-sonnet-4-5",
+            "contextTokens": 1500
+          }
+        }
+      }
+    },
+    {
       "at": 1200,
       "message": {
         "type": "chat:chunk",
@@ -441,7 +487,7 @@ export const scenario = {
             "timestamp": 1793476803900,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_council_0",
+            "toolCallId": "demo-call-council-0",
             "toolName": "Task",
             "toolInput": {
               "description": "Review how the app can isolate feature flags.",
@@ -467,7 +513,7 @@ export const scenario = {
             "timestamp": 1793476804250,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_council_0",
+            "toolCallId": "demo-call-council-0",
             "agentType": "Architecture",
             "agentId": "arch-a1",
             "agentDescription": "Review how the app can isolate feature flags.",
@@ -490,7 +536,7 @@ export const scenario = {
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "member-0",
             "role": "assistant",
-            "parentToolUseId": "toolu_council_0"
+            "parentToolUseId": "demo-call-council-0"
           }
         }
       }
@@ -509,7 +555,7 @@ export const scenario = {
             "messageId": "member-0",
             "blockIndex": 0,
             "delta": "A staged rollout keeps the feature flag boundary in src/features/launch.ts and avoids changes to the app shell.",
-            "parentToolUseId": "toolu_council_0"
+            "parentToolUseId": "demo-call-council-0"
           }
         }
       }
@@ -526,7 +572,7 @@ export const scenario = {
             "timestamp": 1793476806000,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "member-0",
-            "parentToolUseId": "toolu_council_0"
+            "parentToolUseId": "demo-call-council-0"
           }
         }
       }
@@ -543,7 +589,7 @@ export const scenario = {
             "timestamp": 1793476806400,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "parentToolUseId": "toolu_council_0",
+            "parentToolUseId": "demo-call-council-0",
             "taskId": "task-arch-a1",
             "agentId": "arch-a1",
             "description": "Review how the app can isolate feature flags.",
@@ -568,7 +614,7 @@ export const scenario = {
             "timestamp": 1793476807500,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "parentToolUseId": "toolu_council_0",
+            "parentToolUseId": "demo-call-council-0",
             "taskId": "task-arch-a1",
             "agentId": "arch-a1",
             "status": "completed",
@@ -593,8 +639,8 @@ export const scenario = {
             "timestamp": 1793476807800,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_council_0",
-            "output": "[sanitized tool output]",
+            "toolCallId": "demo-call-council-0",
+            "output": "Focused work complete; checks passed.",
             "isError": false
           }
         }
@@ -609,7 +655,7 @@ export const scenario = {
           "cwd": "/workspace/acme-app",
           "agentId": "arch-a1",
           "agentType": "Architecture",
-          "toolCallId": "toolu_council_0",
+          "toolCallId": "demo-call-council-0",
           "lastAssistantMessage": "Architecture favors staged rollout: the change stays isolated.",
           "backgroundTasks": [],
           "timestamp": 1793476808000
@@ -628,7 +674,7 @@ export const scenario = {
             "timestamp": 1793476810000,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_council_1",
+            "toolCallId": "demo-call-council-1",
             "toolName": "Task",
             "toolInput": {
               "description": "Assess rollback and telemetry for the release.",
@@ -654,7 +700,7 @@ export const scenario = {
             "timestamp": 1793476810350,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_council_1",
+            "toolCallId": "demo-call-council-1",
             "agentType": "Reliability",
             "agentId": "rel-b2",
             "agentDescription": "Assess rollback and telemetry for the release.",
@@ -677,7 +723,7 @@ export const scenario = {
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "member-1",
             "role": "assistant",
-            "parentToolUseId": "toolu_council_1"
+            "parentToolUseId": "demo-call-council-1"
           }
         }
       }
@@ -696,7 +742,7 @@ export const scenario = {
             "messageId": "member-1",
             "blockIndex": 0,
             "delta": "Ship behind a flag, watch error rate and latency for one day, then widen exposure.",
-            "parentToolUseId": "toolu_council_1"
+            "parentToolUseId": "demo-call-council-1"
           }
         }
       }
@@ -713,7 +759,7 @@ export const scenario = {
             "timestamp": 1793476812100,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "member-1",
-            "parentToolUseId": "toolu_council_1"
+            "parentToolUseId": "demo-call-council-1"
           }
         }
       }
@@ -730,7 +776,7 @@ export const scenario = {
             "timestamp": 1793476812500,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "parentToolUseId": "toolu_council_1",
+            "parentToolUseId": "demo-call-council-1",
             "taskId": "task-rel-b2",
             "agentId": "rel-b2",
             "description": "Assess rollback and telemetry for the release.",
@@ -755,7 +801,7 @@ export const scenario = {
             "timestamp": 1793476813600,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "parentToolUseId": "toolu_council_1",
+            "parentToolUseId": "demo-call-council-1",
             "taskId": "task-rel-b2",
             "agentId": "rel-b2",
             "status": "completed",
@@ -780,8 +826,8 @@ export const scenario = {
             "timestamp": 1793476813900,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_council_1",
-            "output": "[sanitized tool output]",
+            "toolCallId": "demo-call-council-1",
+            "output": "Focused work complete; checks passed.",
             "isError": false
           }
         }
@@ -796,7 +842,7 @@ export const scenario = {
           "cwd": "/workspace/acme-app",
           "agentId": "rel-b2",
           "agentType": "Reliability",
-          "toolCallId": "toolu_council_1",
+          "toolCallId": "demo-call-council-1",
           "lastAssistantMessage": "Reliability favors a canary with a clear rollback threshold.",
           "backgroundTasks": [],
           "timestamp": 1793476814100
@@ -864,7 +910,7 @@ export const scenario = {
             "timestamp": 1793476816100,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_council_2",
+            "toolCallId": "demo-call-council-2",
             "toolName": "Task",
             "toolInput": {
               "description": "Assess user impact and release timing.",
@@ -890,7 +936,7 @@ export const scenario = {
             "timestamp": 1793476816450,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_council_2",
+            "toolCallId": "demo-call-council-2",
             "agentType": "Product",
             "agentId": "prod-c3",
             "agentDescription": "Assess user impact and release timing.",
@@ -913,7 +959,7 @@ export const scenario = {
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "member-2",
             "role": "assistant",
-            "parentToolUseId": "toolu_council_2"
+            "parentToolUseId": "demo-call-council-2"
           }
         }
       }
@@ -932,7 +978,7 @@ export const scenario = {
             "messageId": "member-2",
             "blockIndex": 0,
             "delta": "Start with internal users, document the toggle, and announce availability after the metrics hold.",
-            "parentToolUseId": "toolu_council_2"
+            "parentToolUseId": "demo-call-council-2"
           }
         }
       }
@@ -949,7 +995,7 @@ export const scenario = {
             "timestamp": 1793476818200,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "member-2",
-            "parentToolUseId": "toolu_council_2"
+            "parentToolUseId": "demo-call-council-2"
           }
         }
       }
@@ -966,7 +1012,7 @@ export const scenario = {
             "timestamp": 1793476818600,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "parentToolUseId": "toolu_council_2",
+            "parentToolUseId": "demo-call-council-2",
             "taskId": "task-prod-c3",
             "agentId": "prod-c3",
             "description": "Assess user impact and release timing.",
@@ -991,7 +1037,7 @@ export const scenario = {
             "timestamp": 1793476819700,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "parentToolUseId": "toolu_council_2",
+            "parentToolUseId": "demo-call-council-2",
             "taskId": "task-prod-c3",
             "agentId": "prod-c3",
             "status": "completed",
@@ -1016,8 +1062,8 @@ export const scenario = {
             "timestamp": 1793476820000,
             "sessionId": "11111111-1111-4111-8111-111111111111",
             "messageId": "assistant-main",
-            "toolCallId": "toolu_council_2",
-            "output": "[sanitized tool output]",
+            "toolCallId": "demo-call-council-2",
+            "output": "Focused work complete; checks passed.",
             "isError": false
           }
         }
@@ -1032,7 +1078,7 @@ export const scenario = {
           "cwd": "/workspace/acme-app",
           "agentId": "prod-c3",
           "agentType": "Product",
-          "toolCallId": "toolu_council_2",
+          "toolCallId": "demo-call-council-2",
           "lastAssistantMessage": "Product favors a staged release with a short internal preview.",
           "backgroundTasks": [],
           "timestamp": 1793476820200
@@ -1113,6 +1159,75 @@ export const scenario = {
       }
     },
     {
+      "at": 32400,
+      "message": {
+        "type": "session:stats",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "turnCost": 0.084,
+          "tokens": {
+            "input": 5400,
+            "output": 1750,
+            "cacheRead": 2100,
+            "cacheCreation": 350
+          },
+          "duration": 30000,
+          "modelUsage": [
+            {
+              "model": "claude-sonnet-4-5",
+              "inputTokens": 5400,
+              "outputTokens": 1750,
+              "cacheReadInputTokens": 2100,
+              "contextWindow": 200000,
+              "contextCapacity": {
+                "model": "claude-sonnet-4-5",
+                "tokens": 200000,
+                "source": "sdk-native",
+                "providerId": null
+              },
+              "costUSD": 0.084,
+              "lastTurnContextTokens": 6800
+            }
+          ],
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-sonnet-4-5",
+            "totalCost": 0.084,
+            "knownCost": 0.084,
+            "tokens": {
+              "input": 5400,
+              "output": 1750,
+              "cacheRead": 2100,
+              "cacheCreation": 350
+            },
+            "tokenCount": 9600,
+            "messageCount": 3,
+            "agentSessionCount": 2,
+            "cliAgents": [
+              "codex",
+              "copilot"
+            ],
+            "modelUsageList": [
+              {
+                "model": "claude-sonnet-4-5",
+                "inputTokens": 5400,
+                "outputTokens": 1750,
+                "cacheRead": 2100,
+                "cacheCreation": 350,
+                "costUSD": 0.084,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 5
+          }
+        }
+      }
+    },
+    {
       "at": 32600,
       "message": {
         "type": "chat:chunk",
@@ -1188,7 +1303,7 @@ export const scenario = {
             "coverage": "complete",
             "pricingCoverage": "full",
             "scope": "session",
-            "revision": 4
+            "revision": 6
           }
         }
       }

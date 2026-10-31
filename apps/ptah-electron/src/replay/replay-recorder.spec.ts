@@ -78,8 +78,15 @@ function loadEsbuildConfigWithEnv(env: Record<string, string | undefined>): {
       process.env['PTAH_REPLAY_RECORDER_BUILD'] =
         env['PTAH_REPLAY_RECORDER_BUILD'];
     }
-    delete require.cache[require.resolve(ESBUILD_CONFIG_PATH)];
-    return require(ESBUILD_CONFIG_PATH) as { define?: Record<string, string> };
+    // Jest keeps its own module registry, so require.cache deletion does not
+    // force a fresh evaluation of the config with the new env.
+    let config: { define?: Record<string, string> } = {};
+    jest.isolateModules(() => {
+      config = require(ESBUILD_CONFIG_PATH) as {
+        define?: Record<string, string>;
+      };
+    });
+    return config;
   } finally {
     if (prevNodeEnv === undefined) {
       delete process.env['NODE_ENV'];

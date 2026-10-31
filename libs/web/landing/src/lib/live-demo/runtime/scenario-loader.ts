@@ -59,7 +59,9 @@ export async function loadScenario(query: ReplayQuery, baseURI = document.baseUR
   return { ...value,
     rpc: shiftRecordedTimes(scenario.rpc, scenario.timeBase),
     rpcCases: shiftRecordedTimes(scenario.rpcCases, scenario.timeBase),
-    timeline: scenario.timeline.map((entry) => ({ ...entry, message: shiftRecordedTimes(entry.message, scenario.timeBase) })),
+    // The visitor may wait arbitrarily long before sending. Stamp on-send events at send time.
+    timeline: scenario.start?.mode === 'on-send' ? scenario.timeline :
+      scenario.timeline.map((entry) => ({ ...entry, message: shiftRecordedTimes(entry.message, scenario.timeBase) })),
     bootMessages: shiftRecordedTimes(scenario.bootMessages, scenario.timeBase),
   } as ReplayScenarioData;
 }
