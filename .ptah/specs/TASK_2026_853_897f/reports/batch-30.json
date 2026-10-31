@@ -19,6 +19,6 @@
   "handoffBatch31": "system-namespace.builders.ts ~230 createSkill scope default; ~258 installMcpServer signature with scope?, workspace default, 'user' = global, home targets need 'user', result includes scope.",
   "verification": {
     "scopedTest": "--testPathPatterns='harness-namespace|tool-description|protocol-dispatcher': 4 suites, 515 passed, 3 skipped, exit 0 (/tmp/tpd-b30-test2.log)",
-    "combinedVerify": "PENDING (/tmp/tpd-b27-30-32-verify.log)"
+    "combinedVerify": "77 tasks over shared, rpc-handlers, vscode-lm-tools, agent-generation and all hosts: only known ptah-extension-webview:lint and vscode-lm-tools:test failed (/tmp/tpd-b27-30-32-verify.log). vscode-lm-tools: install_mcp_server description 1002 > 780 budget (fixed in Batch 30, now ~700 chars) and outliner timing under load; rerun of mcp-contract.sweep, tool-description, code-outliner.adapter: 3 suites 218/218 exit 0 (/tmp/tpd-b30-fix-test.log). degradation-audit:lint exit 0"
   }
 }
