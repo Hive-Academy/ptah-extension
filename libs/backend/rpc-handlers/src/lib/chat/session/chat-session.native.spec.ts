@@ -648,7 +648,12 @@ describe('chat:continue after a completed native turn', () => {
       ptahCli: { handleContinue: async () => ({ error: '__NOT_PTAH_CLI__' }) },
       slashCommandRouter: { routeFollowUpSlashCommand: async () => null },
       subagentContextInjector: {
-        injectInterruptedAgentsContext: async (prompt: string) => ({ prompt }),
+        injectInterruptedAgentsContext: async (prompt: string) => ({
+          prompt,
+          injected: false,
+          commit: async () => undefined,
+          release: () => undefined,
+        }),
       },
       configManager: { getWithDefault: <T>(_key: string, fallback: T) => fallback },
     });
@@ -709,6 +714,7 @@ describe('typed Codex RPC failures', () => {
       subagentRegistry: {
         isResumeStateHydrated: () => true,
         getInterruptedBySession: () => [],
+        hydrateResumeState: () => 0,
         restoreResumableBySession: () => 0,
         registerFromHistoryEvents: () => 0,
         getResumableBySession: () => [],

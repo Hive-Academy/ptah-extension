@@ -161,7 +161,12 @@ function harness(
       },
       slashCommandRouter: { routeFollowUpSlashCommand },
       subagentContextInjector: {
-        injectInterruptedAgentsContext: async (prompt: string) => ({ prompt }),
+        injectInterruptedAgentsContext: async (prompt: string) => ({
+          prompt,
+          injected: false,
+          commit: async () => undefined,
+          release: () => undefined,
+        }),
       },
       sentryService: { captureException: jest.fn() },
     },
