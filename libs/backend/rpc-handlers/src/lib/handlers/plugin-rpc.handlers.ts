@@ -381,6 +381,8 @@ export class PluginRpcHandlers {
         ) ?? undefined
       );
     } catch (error) {
+      // degradation-audit: reported — logged below; the notice is optional,
+      // so plugins:get-config still returns the project configuration.
       if (error instanceof RpcUserError) {
         this.logger.debug(
           'RPC: plugins:get-config session notice unavailable',

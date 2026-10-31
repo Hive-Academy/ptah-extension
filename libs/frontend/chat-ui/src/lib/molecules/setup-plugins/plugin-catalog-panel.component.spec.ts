@@ -696,6 +696,27 @@ describe('plugin catalog panel — per-workspace skill selection', () => {
         'Failed to save configuration.',
       );
     });
+
+    it('treats a success:false save reply as a failure', async () => {
+      setResponder('plugins:save-config', () =>
+        ok({ success: false, error: 'disk full' }),
+      );
+      const fixture = await mount();
+      const host = fixture.nativeElement as HTMLElement;
+      const saved = jest.fn();
+      fixture.componentInstance.saved.subscribe(saved);
+
+      clickSave(host);
+      await settle(fixture);
+
+      expect(
+        host.querySelector('[data-testid="plugin-save-applies-notice"]'),
+      ).toBeNull();
+      expect(saved).not.toHaveBeenCalled();
+      expect(fixture.componentInstance.saveError()).toBe(
+        'Failed to save configuration.',
+      );
+    });
   });
 });
 

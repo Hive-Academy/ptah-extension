@@ -998,7 +998,13 @@ export class PluginCatalogPanelComponent implements OnInit {
         { timeout: 10000 },
       );
 
-      if (result.isSuccess()) {
+      if (result.isSuccess() && result.data?.success === false) {
+        console.error(
+          '[PluginCatalogPanel] Failed to save config:',
+          result.data.error,
+        );
+        this.saveError.set('Failed to save configuration.');
+      } else if (result.isSuccess()) {
         // The shared catalog now holds the PREVIOUS config. Re-read it before
         // anything renders from it — this panel's own header reads the same
         // signals, and leaving it stale would show the old count until the
