@@ -123,7 +123,8 @@ describe('raw stdout fallback', () => {
     });
     fixture.detectChanges();
     await fixture.whenStable();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    // A running node publishes streamed text on the next animation frame.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
