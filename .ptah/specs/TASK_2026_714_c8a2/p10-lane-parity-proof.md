@@ -106,6 +106,13 @@ The first live run (live-test-p10dP.md) found three blockers. Each has a correct
 | G4 MCP error shown as "null" | 10d.L2 | Failed tool with null output shows the App Server error text, or `Tool call failed`. | PENDING-LIVE |
 | G2 completion signal to the tab id | 10d.L3 + revision 1 | Manager keeps a bounded (256) tab->session map for later spawns; native Codex chat accepts `origin: peer` and renders it like Claude (`inboundPeer`, `source: 'complete'`); outcome `parent_session_id` persisted only for an active resolved session. | PENDING-LIVE |
 
+Second Electron live run (live-test-p10dP-r2.md, head 0feebb6ab, 7 of 10 turns, settings `cmp` 0): G1 PASS, G3 PASS,
+G2 PASS for a fresh lane but FAIL for the resumed lane (`delivery-failed ... "Codex chat turn: busy"`: the lane's
+report started a main-chat turn, and the completion message arrived while that turn ran; native Codex refuses
+instead of queueing like Claude), G4 NOT-OBSERVED. New corrective batch 10d.L4 (busy race). Still open: G5 token
+columns NULL and 0 report receipts, no reasoning segments, resume replaces the earlier lane output, old app-server
+exit logged as "Codex process failure".
+
 Reviews: code-logic-review-10d-L.md (REVISE 6/10), code-logic-review-10d-L-r1.md (APPROVED 8.5/10), codex-review-coordinator-spec-fix.md (APPROVED). Open minors from r1: a context can stay open but unregistered when close fails on the open-failure path; a half-closed lane is re-registered after a failed close; origin kinds `channel`, `task-notification`, `coordinator` have no effect on Codex (plain user text); Codex rejects an empty peer `from`.
 
 ## Proposed Removals
