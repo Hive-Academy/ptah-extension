@@ -22,3 +22,4 @@ export { BuilderApplySectionComponent } from './lib/components/sidebar/builder-a
 export { BuilderAiHelpersSectionComponent } from './lib/components/sidebar/builder-ai-helpers-section.component';
 export { BuilderPresetsSectionComponent } from './lib/components/sidebar/builder-presets-section.component';
 export { HarnessSessionController } from './lib/services/harness-session.controller';
+export { canonicalHarnessRoot } from './lib/services/harness-workflow-utils';

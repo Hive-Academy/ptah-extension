@@ -120,3 +120,25 @@
   `start` (add `.catch` on the awaited pending); stop skips abort on a `loaded` tab that still
   has background agents; a cancelled navigation discards a just-started session (confirm in
   B4b UX).
+
+## B4b
+- Codex lane implemented; logic review REVISE 5/10 (1 blocking: raw vs canonical workspace
+  root; majors: apply attributed at response time, restore wiped overrides, Save draft left
+  the session out of conflict detection, unreported cancelled stop) → round 1 (Codex) →
+  REVISE 7/10 (N2 stale override on restore; N1 apply start by button text; N3 no Save draft
+  result) → round 2 (Codex) → APPROVE 8/10. Review in code-logic-review.b4b.md.
+- `canonicalHarnessRoot` is now exported from `@ptah-extension/harness-builder`.
+  `BuilderApplySectionComponent` gained `applyStarted` / `applyFailed` outputs.
+- Save draft stops the session first, then saves and navigates to `/onboarding`.
+  A failed cancelled stop is published through `NotificationService` (the route store can be
+  destroyed by then).
+- Coordinator ran Prettier on the lane files before round 3 (format only).
+- Deferred minors: N5 restoring a nested field (persona, agents, skills, prompt, mcp) that
+  already has an override deep-merges instead of replacing it; N6 no apply-section spec asserts
+  `applyFailed` emission.
+- Visual review (visual-review.b4b.md): REVISE (3 major: duplicate stack chips, apply result
+  out of frame in captures, New/Changed badge contrast in anubis themes) → Codex fix →
+  APPROVE; axe 0 violations in 76/76 captures (was 12 color-contrast nodes).
+- Deferred visual minors: 6/N1 disabled Review pill keeps the primary fill in ptah-glass dark;
+  8 narrow stepper trailing circle (shared stepper component); N2 "Applied revision" card
+  spacing (~2 px vs ~20 px). Minor 7 is the known deferred heading focus box (item 11).

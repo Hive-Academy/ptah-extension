@@ -12,7 +12,10 @@ import {
 } from '@angular/core';
 import { LoggingService } from '@ptah-extension/core';
 import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
-import type { HarnessApplyResponse, HarnessConfig } from '@ptah-extension/shared';
+import type {
+  HarnessApplyResponse,
+  HarnessConfig,
+} from '@ptah-extension/shared';
 import { HarnessProposalHydrationService } from '../../services/harness-proposal-hydration.service';
 import { HarnessRpcService } from '../../services/harness-rpc.service';
 import { fullConfig } from './builder-sidebar-helpers';
@@ -200,7 +203,9 @@ export class BuilderApplySectionComponent {
   readonly agentBusy = input(false);
   readonly document = input<string | null>(null);
   readonly config = input<Partial<HarnessConfig> | null>(null);
+  readonly applyStarted = output<void>();
   readonly applied = output<HarnessApplyResponse>();
+  readonly applyFailed = output<void>();
   readonly openDashboard = output<void>();
   protected readonly hydration = inject(HarnessProposalHydrationService);
   protected readonly health = inject(HarnessHealthStore);
@@ -216,7 +221,9 @@ export class BuilderApplySectionComponent {
   protected readonly applyError = signal(false);
   protected readonly applying = signal(false);
   protected readonly showAllPaths = signal(false);
-  protected readonly preview = computed(() => this.config() ?? this.hydration.config());
+  protected readonly preview = computed(
+    () => this.config() ?? this.hydration.config(),
+  );
   protected readonly hasPreview = computed(
     () => Object.keys(this.preview()).length > 0 || !!this.document(),
   );
@@ -290,6 +297,7 @@ export class BuilderApplySectionComponent {
     this.result.set(null);
     this.appliedPreview.set(null);
     try {
+      this.applyStarted.emit();
       const result = await this.rpc.apply({
         config: fullConfig(this.preview(), this.workspaceRoot()),
         outputFormat: 'claude-md',
@@ -310,6 +318,7 @@ export class BuilderApplySectionComponent {
         error instanceof Error ? error : new Error(String(error)),
       );
       this.applyError.set(true);
+      this.applyFailed.emit();
       queueMicrotask(() => this.applyButton()?.nativeElement.focus());
     } finally {
       if (!this.destroyRef.destroyed) this.applying.set(false);
