@@ -63,6 +63,7 @@ export {
   COMPOSER_TEXTAREA_CLASS,
   COMPOSER_TOOLBAR_CLASS,
 } from './lib/molecules/composer-card';
+export { ComposerCompactBarComponent } from './lib/molecules/composer-compact-bar.component';
 export {
   AgentLaneStatsComponent,
   type AgentLaneStatsView,

@@ -386,6 +386,7 @@ export class ChatTranscriptComponent {
   private retentionReleaseRafId: number | null = null;
   private retentionReleaseTimeoutId: number | null = null;
   private lastContentHeight = 0;
+  private lastViewportHeight = 0;
   /** Distance from bottom (px) within which the user is considered "pinned". */
   private readonly NEAR_BOTTOM_PX = 120;
 
@@ -1428,18 +1429,32 @@ export class ChatTranscriptComponent {
     if (!this.workActive() || typeof ResizeObserver === 'undefined') return;
     const wrapper = this.contentWrapper()?.nativeElement;
     if (!wrapper || this.resizeObserver) return;
+    const viewport = this.scrollContainer()?.nativeElement ?? null;
 
+    // The viewport is observed too: when the composer below grows (the
+    // streaming composer expanding), the viewport shrinks with no scroll
+    // event, and a pinned transcript would leave its last lines hidden.
     const observer = new ResizeObserver((entries) => {
       if (!this.workActive() || this.resizeObserver !== observer) return;
-      const height = entries[0]?.contentRect.height ?? 0;
-      if (Math.abs(height - this.lastContentHeight) < 1) return;
-      this.lastContentHeight = height;
-      if (this.pinnedToBottom()) {
+      let changed = false;
+      for (const entry of entries) {
+        const height = entry.contentRect.height;
+        if (entry.target === viewport) {
+          if (Math.abs(height - this.lastViewportHeight) < 1) continue;
+          this.lastViewportHeight = height;
+        } else {
+          if (Math.abs(height - this.lastContentHeight) < 1) continue;
+          this.lastContentHeight = height;
+        }
+        changed = true;
+      }
+      if (changed && this.pinnedToBottom()) {
         this.scheduleStickToBottom();
       }
     });
     this.resizeObserver = observer;
     observer.observe(wrapper);
+    if (viewport) observer.observe(viewport);
   }
 
   private cancelScrollFrame(): void {

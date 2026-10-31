@@ -5,12 +5,16 @@ import {
   computed,
   effect,
   untracked,
+  afterNextRender,
+  Injector,
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   viewChild,
   ElementRef,
   OnInit,
   OnDestroy,
 } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
 import {
   LucideAngularModule,
   ArrowUp,
@@ -44,6 +48,9 @@ import {
   SESSION_START_GUARD,
   SESSION_STOP_HANDLER,
 } from '../../../tokens/session-context.token';
+import { ComposerCompactStore } from '../../../services/composer-compact.store';
+import { ComposerActivityDirective } from '../../../directives/composer-activity.directive';
+import { ComposerTypeToExpandDirective } from './composer-type-to-expand.directive';
 import {
   ComposerDraftStore,
   type ComposerDraft,
@@ -66,6 +73,7 @@ import {
 import { ModelSelectorComponent } from './model-selector.component';
 import {
   AutopilotPopoverComponent,
+  ComposerCompactBarComponent,
   COMPOSER_CARD_BORDER_CLASS,
   COMPOSER_CARD_CLASS,
   PROMPT_CATALOGUE,
@@ -161,12 +169,18 @@ function folderName(root: string): string {
     McpStatusChipComponent,
     PeerSessionSendComponent,
     NativePopoverComponent,
+    ComposerActivityDirective,
+    ComposerCompactBarComponent,
+    ComposerTypeToExpandDirective,
   ],
-  providers: [VoiceInputService],
+  providers: [VoiceInputService, ComposerCompactStore],
   template: `
     <div
       class="ptah-composer relative flex flex-col px-3 pt-2 pb-2 bg-surface-0"
       data-testid="chat-composer"
+      [ptahComposerTypeToExpand]="isCompact()"
+      (typeToExpand)="expandComposer()"
+      (pasteToExpand)="pasteIntoCompact($event)"
       (dragover)="handleDragOver($event)"
       (dragleave)="handleDragLeave($event)"
       (drop)="handleDrop($event)"
@@ -190,6 +204,24 @@ function folderName(root: string): string {
         </div>
       }
 
+      <!-- Two-state streaming composer. Both states share one grid cell and
+           fold by animating grid-template-rows 0fr <-> 1fr, so no height is
+           measured in script. The folded state is inert (no tab stops, hidden
+           from assistive tech). ComposerCompactStore owns the rules. -->
+      <div
+        class="ptah-composer-stage"
+        [attr.data-compact]="isCompact() ? '' : null"
+        data-testid="chat-composer-stage"
+      >
+      <div class="ptah-composer-fold ptah-composer-fold--full">
+      <div
+        class="ptah-composer-fold-clip"
+        [class.is-unclipped]="compactStore.unclipped()"
+        [id]="composerFullId"
+        [attr.inert]="isCompact() ? '' : null"
+        ptahComposerActivity
+        data-testid="chat-composer-full"
+      >
       <!-- Composer card (design-spec §6): workspace / branch hints, attachments,
            textarea, toolbar. A form landmark; sending stays on the Send click
            and Enter handlers, so a native submit is always prevented. The
@@ -232,7 +264,7 @@ function folderName(root: string): string {
              stops, design D8); absent when neither is known. -->
         @if (workspaceName() || branchName()) {
           <div
-            class="h-[38px] flex items-center gap-3.5 px-3 min-w-0 border-b border-surface-border text-xs text-base-content-muted"
+            class="ptah-fold-fade h-[38px] flex items-center gap-3.5 px-3 min-w-0 border-b border-surface-border text-xs text-base-content-muted"
             data-testid="composer-top-strip"
           >
             @if (workspaceName(); as name) {
@@ -272,7 +304,7 @@ function folderName(root: string): string {
 
         <!-- File Tags + Image Thumbnails Row (above textarea) -->
         @if (selectedFiles().length > 0 || pastedImages().length > 0) {
-          <div class="flex flex-wrap gap-2 px-3 pt-3">
+          <div class="ptah-fold-fade flex flex-wrap gap-2 px-3 pt-3">
             @for (file of selectedFiles(); track file.path) {
               <ptah-file-tag
                 [file]="file"
@@ -320,7 +352,7 @@ function folderName(root: string): string {
             #inputElement
             [id]="inputId"
             style="field-sizing: content"
-            class="block w-full min-h-[60px] max-h-[calc(8lh+1rem)] overflow-y-auto resize-none bg-transparent border-0 px-3.5 pt-3 pb-1 text-[13px] leading-[1.6] text-base-content placeholder:text-base-content-muted outline-none focus:outline-none focus:ring-0"
+            class="ptah-fold-fade block w-full min-h-[60px] max-h-[calc(8lh+1rem)] overflow-y-auto resize-none bg-transparent border-0 px-3.5 pt-3 pb-1 text-[13px] leading-[1.6] text-base-content placeholder:text-base-content-muted outline-none focus:outline-none focus:ring-0"
             [placeholder]="
               commandCenterHeld()
                 ? 'Command Center voice owns this session — sends held'
@@ -352,8 +384,13 @@ function folderName(root: string): string {
             (slashQueryChanged)="handleQueryChanged($event)"
           ></textarea>
 
-          <!-- File/Folder Suggestions Dropdown - positioned above textarea -->
-          @if (showSuggestions() && textareaOrigin()) {
+          <!-- File/Folder Suggestions Dropdown - positioned above textarea.
+               Rendered only once the fold has settled: while the card still
+               moves, its clip box carries a translate, which makes it the
+               containing block of this position:fixed panel. Floating UI
+               would then write box-relative left/top that land near the
+               window's top-left once the translate returns to none. -->
+          @if (showSuggestions() && textareaOrigin() && compactStore.unclipped()) {
             <ptah-unified-suggestions-dropdown
               #suggestionsDropdown
               [overlayOrigin]="textareaOrigin()!"
@@ -548,7 +585,7 @@ function folderName(root: string): string {
 
       <!-- Status line under the card: MCP, peer send, auth (unchanged) -->
       <div
-        class="chat-composer-column flex items-center gap-2 px-1 mt-1.5 min-w-0 w-full mx-auto"
+        class="ptah-composer-status-line chat-composer-column flex items-center gap-2 px-1 mt-1.5 min-w-0 w-full mx-auto"
         data-glass-surface="plate"
       >
         <div class="flex items-center gap-0.5 min-w-0">
@@ -571,54 +608,42 @@ function folderName(root: string): string {
           >
         }
       </div>
+      </div>
+      </div>
+
+      <!-- Compact bar: shown only while the tab streams and the composer is
+           idle; any expand request moves focus into the textarea. -->
+      <div class="ptah-composer-fold ptah-composer-fold--bar">
+        <div
+          class="ptah-composer-fold-clip"
+          [attr.inert]="isCompact() ? null : ''"
+        >
+          <ptah-composer-compact-bar
+            [statusLabel]="compactStatusLabel()"
+            [modelLabel]="compactModelLabel()"
+            [controlsId]="composerFullId"
+            [showStop]="isActiveTabStreaming()"
+            [collapsed]="!isCompact()"
+            (expandRequested)="expandComposer()"
+            (stopRequested)="stopFromCompact()"
+          />
+        </div>
+      </div>
+      </div>
+
+      <!-- Announces the fold politely; empty until the first change. -->
+      <div
+        class="sr-only"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="chat-composer-fold-announcer"
+      >
+        {{ compactAnnouncement() }}
+      </div>
     </div>
   `,
-  // Narrow-width behaviour (canvas tiles). The webview Tailwind config has no
-  // container-queries plugin, so this is a native CSS container query: the
-  // composer root is the query container, and below 400px the secondary text
-  // labels on the child pill triggers (effort, autopilot, peer — each marked
-  // `ptah-composer-label`) collapse to icon-only so the rows never wrap. The
-  // model name is not hidden; it truncates. `::ng-deep` is required because
-  // those labels live in child component views. Below 640px (design-spec
-  // §2.1) the workspace hint shows its icon only and the effort selector its
-  // icon-only trigger; both stay rendered.
-  styles: [
-    `
-      .ptah-composer {
-        container-type: inline-size;
-        container-name: ptah-composer;
-      }
-
-      .chat-composer-column {
-        max-width: var(--chat-content-max-width, 758px);
-      }
-
-      @container ptah-composer (max-width: 639px) {
-        .ptah-composer-workspace-label,
-        :host ::ng-deep ptah-effort-selector .ptah-composer-label {
-          display: none;
-        }
-      }
-
-      @container ptah-composer (max-width: 400px) {
-        :host ::ng-deep .ptah-composer-label {
-          display: none;
-        }
-        /* Icon-only controls can still exceed a ~200px pane: the start group keeps its
-           content width and the model/send group wraps to its own right-aligned row
-           instead of overlapping it. */
-        .ptah-composer-toolbar {
-          flex-wrap: wrap;
-        }
-        .ptah-composer-toolbar-start {
-          flex-basis: auto;
-        }
-        .ptah-composer-toolbar-end {
-          margin-left: auto;
-        }
-      }
-    `,
-  ],
+  // Narrow-width container queries and the streaming fold live in the sheet.
+  styleUrl: './chat-input.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChatInputComponent implements OnInit, OnDestroy {
@@ -776,6 +801,9 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   /** Ties the visually hidden label to the textarea. */
   protected readonly inputId = `ptah-composer-input-${nextComposerId++}`;
 
+  /** The full composer region; the compact bar's `aria-controls` target. */
+  protected readonly composerFullId = `${this.inputId}-full`;
+
   /**
    * Tab and session ids of the tab this composer belongs to, resolved exactly
    * as `ChatViewComponent` resolves them: a canvas tile scopes to its own tab
@@ -834,6 +862,109 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   );
   private readonly textareaRef =
     viewChild<ElementRef<HTMLTextAreaElement>>('inputElement');
+
+  // ---- Two-state streaming composer (rules in ComposerCompactStore) ----
+  protected readonly compactStore = inject(ComposerCompactStore);
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly injector = inject(Injector);
+  private readonly document = inject(DOCUMENT);
+  private readonly composerActivity = viewChild(ComposerActivityDirective);
+  private readonly modelSelector = viewChild(ModelSelectorComponent);
+
+  /** The composer is folded into its one-row bar. */
+  readonly isCompact = this.compactStore.compact;
+
+  protected readonly compactStatusLabel = computed(() =>
+    this.resolvedIsCompacting() ? 'Optimizing context…' : 'Ptah is working…',
+  );
+
+  /** The model chip reuses the selector's own display rule. */
+  protected readonly compactModelLabel = computed(
+    () => this.modelSelector()?.effectiveModelDisplay() ?? '',
+  );
+
+  /** Polite screen-reader note for each fold change (empty at first). */
+  protected readonly compactAnnouncement = signal('');
+
+  /**
+   * Open the full composer and put focus in the textarea now, inside the
+   * triggering event. The view is checked first so the region is no longer
+   * inert; a key press that expanded it then types into the textarea.
+   */
+  expandComposer(): void {
+    this.compactStore.expand();
+    this.cdr.detectChanges();
+    this.textareaRef()?.nativeElement.focus({ preventScroll: true });
+  }
+
+  /**
+   * Stop from the bar. The bar turns inert when the stream ends, which drops
+   * its focus; the textarea takes it back on that expand.
+   */
+  protected stopFromCompact(): Promise<void> {
+    this.focusTextareaOnExpand = true;
+    return this.handleStop();
+  }
+  private focusTextareaOnExpand = false;
+
+  /** Paste while folded: expand, then take the clipboard text and images. */
+  protected pasteIntoCompact(event: ClipboardEvent): void {
+    const text = event.clipboardData?.getData('text/plain') ?? '';
+    event.preventDefault();
+    this.expandComposer();
+    if (text) this._currentMessage.update((current) => current + text);
+    this.handlePaste(event);
+  }
+
+  /** Wire the store and the polite fold announcement. */
+  private setupCompactComposer(): void {
+    this.compactStore.connect({
+      scope: computed(
+        () => this._sessionContext?.() ?? this.tabManager.activeTabId(),
+      ),
+      streaming: this.isActiveTabStreaming,
+      hasContent: computed(
+        () =>
+          this._currentMessage().length > 0 ||
+          this._selectedFiles().length > 0 ||
+          this._pastedImages().length > 0,
+      ),
+      focused: computed(
+        () => this.composerActivity()?.focusWithin() ?? false,
+      ),
+      overlayOpen: computed(
+        () =>
+          this._showSuggestions() ||
+          this._attachMenuOpen() ||
+          (this.composerActivity()?.popoverOpen() ?? false),
+      ),
+      dragging: this._isDraggingOver,
+    });
+
+    let announced = false;
+    effect(() => {
+      const compact = this.isCompact();
+      if (!announced && !compact) return;
+      announced = true;
+      untracked(() => {
+        this.compactAnnouncement.set(
+          compact
+            ? 'Composer minimized while Ptah works. Start typing to expand it.'
+            : 'Composer expanded.',
+        );
+        if (compact || !this.focusTextareaOnExpand) return;
+        this.focusTextareaOnExpand = false;
+        afterNextRender(
+          () => {
+            const active = this.document.activeElement;
+            if (active && active !== this.document.body) return;
+            this.textareaRef()?.nativeElement.focus({ preventScroll: true });
+          },
+          { injector: this.injector },
+        );
+      });
+    });
+  }
 
   /**
    * Textarea origin for Floating UI positioning.
@@ -1244,6 +1375,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       event.preventDefault();
       event.stopPropagation();
       this._isDraggingOver.set(true);
+      if (this.isCompact()) this.compactStore.expand();
     }
   }
 
@@ -1837,11 +1969,20 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     }
 
     this._currentMessage.set(content);
-    // `field-sizing: content` sizes the box to the restored value.
-    this.textareaRef()?.nativeElement.focus();
+    // `field-sizing: content` sizes the box to the restored value. A folded
+    // composer opens on the new text; focus once it is no longer inert.
+    const textarea = this.textareaRef()?.nativeElement;
+    if (textarea?.closest('[inert]')) {
+      afterNextRender(() => textarea.focus({ preventScroll: true }), {
+        injector: this.injector,
+      });
+    } else {
+      textarea?.focus();
+    }
   }
 
   constructor() {
+    this.setupCompactComposer();
     this.draftTabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
     if (this.draftTabId) this.restoreDraft(this.draftTabId);
     effect(() => {
