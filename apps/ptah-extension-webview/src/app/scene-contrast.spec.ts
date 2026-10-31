@@ -1,11 +1,5 @@
-import { join } from 'node:path';
-import { CHILD_SILVER_INK } from './command-scene-renderer';
-
 const { wcagContrast } = require('culori/require');
-const config = require(join(
-  __dirname,
-  '../../../../../../apps/ptah-extension-webview/tailwind.config.js',
-));
+const config = require('../../tailwind.config.js');
 const themes: Record<string, Record<string, string>> = config.daisyui.themes.find(
   (entry: object) => 'anubis' in entry && 'anubis-light' in entry,
 );
@@ -21,7 +15,8 @@ describe.each(['anubis', 'anubis-light'])('%s scene state inks', (themeName) => 
     },
   );
 
-  it('keeps the child ring and ownership tether above 3:1 on the stage', () => {
+  it('keeps the child ring and ownership tether above 3:1 on the stage', async () => {
+    const { CHILD_SILVER_INK } = await import('@ptah-extension/command-center');
     const theme = themes[themeName];
     const silver = themeName === 'anubis'
       ? CHILD_SILVER_INK.dark

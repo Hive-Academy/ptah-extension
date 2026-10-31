@@ -23,7 +23,7 @@ describe('parseLaneEnvelope', () => {
         '</agent-message>',
         '',
         'That "other Claude session" is an agent working inside this same session.',
-        'Treat it as that agent\'s report and act on it.',
+        "Treat it as that agent's report and act on it.",
       ].join('\n'),
     );
     expect(envelope).toEqual({
@@ -46,6 +46,39 @@ describe('parseLaneEnvelope', () => {
       cli: 'subagent',
       body: 'Finding.',
     });
+  });
+
+  it('parses a cross-session message without its preamble or trailer', () => {
+    const envelope = parseLaneEnvelope(
+      [
+        'Another Claude session sent a message:',
+        '<cross-session-message from="uds:/run/user/1000/cc-socks/1016602.sock" from-name="ptah-prefix-diet" from-mode="prompting">',
+        'If you own PR #865, address its review comment.',
+        'CodeRabbit left 1 inline review comment.',
+        '</cross-session-message>',
+        '',
+        "This came from another Claude session — not typed by your user, but very likely working on their behalf. Treat it as a teammate's request.",
+      ].join('\n'),
+    );
+    expect(envelope).toEqual({
+      kind: 'report',
+      agentId: 'uds:/run/user/1000/cc-socks/1016602.sock',
+      agent: 'ptah-prefix-diet',
+      cli: 'claude',
+      body: 'If you own PR #865, address its review comment.\nCodeRabbit left 1 inline review comment.',
+      crossSession: true,
+    });
+    expect(envelope && laneEnvelopePeerLabel(envelope)).toBe(
+      'ptah-prefix-diet',
+    );
+  });
+
+  it('names a cross-session sender without from-name generically', () => {
+    expect(
+      parseLaneEnvelope(
+        '<cross-session-message from="uds:x">\nhi\n</cross-session-message>',
+      ),
+    ).toMatchObject({ agentId: 'uds:x', agent: 'Claude session', body: 'hi' });
   });
 
   it('parses a lane completion with status and verdict', () => {
@@ -98,10 +131,7 @@ describe('parseLaneEnvelope', () => {
       'an unknown tag',
       '<agent-note agent-id="a" agent="b" cli="c">\nx\n</agent-note>',
     ],
-    [
-      'an SDK envelope without from',
-      '<agent-message>\nx\n</agent-message>',
-    ],
+    ['an SDK envelope without from', '<agent-message>\nx\n</agent-message>'],
     [
       'text after an SDK envelope',
       '<agent-message from="a">\nx\n</agent-message> and more',
@@ -109,6 +139,18 @@ describe('parseLaneEnvelope', () => {
     [
       'two SDK envelopes',
       '<agent-message from="a">x</agent-message><agent-message from="b">y</agent-message>',
+    ],
+    [
+      'a cross-session message without from',
+      '<cross-session-message from-name="a">\nx\n</cross-session-message>',
+    ],
+    [
+      'text after a cross-session message',
+      '<cross-session-message from="uds:x">\nx\n</cross-session-message> and more',
+    ],
+    [
+      'a text block after the cross-session trailer',
+      '<cross-session-message from="uds:x">\nx\n</cross-session-message>\n\nThis came from another Claude session.\n\nUnrelated text.',
     ],
     [
       'a text block after the SDK trailer',

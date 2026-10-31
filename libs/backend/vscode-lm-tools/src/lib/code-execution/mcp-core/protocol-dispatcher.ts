@@ -680,8 +680,8 @@ const APPROVAL_PROMPT_TOOL_NAME = 'approval_prompt';
  * Tools that should load eagerly on every runtime instead of being deferred
  * behind the SDK's built-in tool-search tool.
  *
- * `ptah_route_decide` and `ptah_outcome_report` are listed on every
- * tools/list and are deliberately absent here, so they stay deferred.
+ * Lane discovery and spawning are eager so delegation is visible without
+ * tool search. Other agent tools, route_decide and outcome_report stay deferred.
  */
 const ALWAYS_EAGER_TOOLS: ReadonlySet<string> = new Set([
   'ptah_search_files',
@@ -689,6 +689,8 @@ const ALWAYS_EAGER_TOOLS: ReadonlySet<string> = new Set([
   'ptah_context_enrich_file',
   'ptah_get_diagnostics',
   'ptah_workspace_analyze',
+  'ptah_agent_list',
+  'ptah_agent_spawn',
 ]);
 
 /** Eager only where VS Code IDE capabilities are present. */
