@@ -1,0 +1,28 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": "27",
+  "title": "D-3 skills.sh RPC surfaces",
+  "executor": "claude backend-developer subagent",
+  "changed": [
+    "libs/backend/rpc-handlers/src/lib/handlers/skills-sh-rpc.handlers.ts",
+    "libs/backend/rpc-handlers/src/lib/handlers/skills-sh-rpc.schema.ts",
+    "libs/backend/rpc-handlers/src/lib/handlers/skills-sh-rpc.handlers.spec.ts",
+    "libs/backend/rpc-handlers/src/lib/harness/io/harness-skill-install.service.ts (stale SKILLS_SH_SCOPE comment only)",
+    "libs/shared/src/lib/types/rpc.types.ts (skillsSh:makeGlobal join only, like decision #63)"
+  ],
+  "contract": {
+    "install": "scope zod default workspace; no folder -> RpcUserError(SKILLS_SH_NO_WORKSPACE_ERROR, WORKSPACE_NOT_OPEN) before any write; explicit global passes through.",
+    "makeGlobal": "skillsSh:makeGlobal calls sourceRoots.makeGlobal(name, ws, hooks) from Batch 25; propagate hook = propagateWithReport, isDiscovered hook = pluginLoader.discoverSkillsShPluginPaths(); fixed error text; degradation-audit: reported marker.",
+    "listUninstall": "list uses listInstalled(ws|null); uninstall resolves the root that holds the name (workspace first, then global).",
+    "retiredId": "cleared by the service only after a successful global install (on-disk test)."
+  },
+  "openItems": [
+    "After an interrupted Make global, uninstall removes the workspace copy first; shared uninstall contract stays {name} (Batch 17 owner).",
+    "Pre-existing: install failure messages echo source/raw error; harness apply installs to global.",
+    "host-source-registry.baseline.ts does not list either makeGlobal method (same as Batch 28)."
+  ],
+  "verification": {
+    "scopedTest": "--testPathPatterns='skills-sh-rpc': 1 suite, 58/58, exit 0 (/tmp/tpd-b27-test.log)",
+    "combinedVerify": "PENDING (/tmp/tpd-b27-30-32-verify.log)"
+  }
+}

@@ -940,8 +940,9 @@ export interface HarnessDismissInstallMigrationNoticeResult {
  * these methods exist, joining this interface into `RpcMethodRegistry` would
  * fail that check at dev-time boot. The join (`extends` plus the
  * `RPC_METHOD_ENTRIES` keys) lands in the same change as the handlers'
- * `METHODS` entries, one method at a time: `mcpDirectory:makeGlobal` is
- * joined (its handler is `McpDirectoryRpcHandlers`); the others are not yet.
+ * `METHODS` entries, one method at a time: `mcpDirectory:makeGlobal`
+ * (`McpDirectoryRpcHandlers`) and `skillsSh:makeGlobal`
+ * (`SkillsShRpcHandlers`) are joined; the notice methods are not yet.
  */
 export interface InstallScopeRpcMethodRegistry {
   'skillsSh:makeGlobal': {
@@ -986,7 +987,10 @@ export interface InstallScopeRpcMethodRegistry {
 export interface RpcMethodRegistry
   extends
     ProviderAccountRpcMethodRegistry,
-    Pick<InstallScopeRpcMethodRegistry, 'mcpDirectory:makeGlobal'> {
+    Pick<
+      InstallScopeRpcMethodRegistry,
+      'mcpDirectory:makeGlobal' | 'skillsSh:makeGlobal'
+    > {
   'artifacts:list': {
     params: ArtifactListRequest;
     result: ArtifactListResponse;
@@ -3559,6 +3563,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillsSh:listInstalled': true,
   'skillsSh:install': true,
   'skillsSh:uninstall': true,
+  'skillsSh:makeGlobal': true,
   'skillsSh:getPopular': true,
   'skillsSh:detectRecommended': true,
   'mcpDirectory:search': true,
