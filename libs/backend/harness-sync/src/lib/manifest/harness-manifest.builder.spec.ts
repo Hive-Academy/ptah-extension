@@ -16,7 +16,10 @@ import {
 } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import type { AgentModelLayers } from '@ptah-extension/shared';
+import {
+  ORIGIN_SIDECAR_FILENAME,
+  type AgentModelLayers,
+} from '@ptah-extension/shared';
 import {
   desiredAgentModel,
   desiredAgentSourceHash,
@@ -433,5 +436,268 @@ describe('HarnessManifestBuilder agent models (C6)', () => {
     expect(hashContent(written)).toBe(plan.writes[0].hash);
     expect(result.written[relPath]?.hash).toBe(plan.writes[0].hash);
     expect(seen.every((source) => source.model === 'gpt-5-codex')).toBe(true);
+  });
+});
+
+describe('HarnessManifestBuilder retirement and workspace skills.sh roots (TASK_2026_853 D-2/D-3)', () => {
+  let root: string;
+  let builder: HarnessManifestBuilder;
+
+  /** A user-layer clone with a sidecar naming its source. */
+  function writeClone(slug: string, sourceRef?: string, pluginId?: string) {
+    const dir = join(root, 'skills', slug);
+    writeSkill(join(root, 'skills'), slug);
+    writeFileSync(
+      join(dir, ORIGIN_SIDECAR_FILENAME),
+      JSON.stringify({
+        kind: 'skill',
+        slug,
+        pluginId: pluginId ?? null,
+        version: null,
+        sourceHash: 'h',
+        clonedAt: 1,
+        diverged: false,
+        lastEnhancedAt: null,
+        historyDir: '',
+        ...(sourceRef === undefined ? {} : { sourceRef }),
+      }),
+      'utf-8',
+    );
+  }
+
+  /** A plugin directory with one skill, under `parent`. */
+  function writePlugin(parent: string, pluginId: string, slug: string): string {
+    const dir = join(parent, pluginId);
+    writeSkill(join(dir, 'skills'), slug);
+    return dir;
+  }
+
+  const slugs = (skills: { slug: string }[]): string[] =>
+    skills.map((s) => s.slug);
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'harness-sync-builder-retired-'));
+    builder = new HarnessManifestBuilder();
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('[D-2] a clone whose sourceRef names a retired skills.sh root is inactive under absent, all and an explicit selection of its slug; other refs stay', async () => {
+    const globalPlugins = join(root, 'home', '.ptah', 'plugins');
+    const retiredRoot = join(globalPlugins, 'ptah-skillssh-anthropics-skills');
+    writeClone('retired-skill', 'skills-sh:ptah-skillssh-anthropics-skills');
+    writeClone('live-skillssh', 'skills-sh:ptah-skillssh-acme-tools');
+    writeClone('bundled', 'ptah:ptah-core', 'ptah-core');
+    writeClone('no-ref');
+    writeSkill(join(root, 'skills'), 'hand-authored');
+    const state: HarnessSourceState = {
+      ...emptyState(root),
+      retired: { skillSourceRoots: [retiredRoot], mcpServerKeys: [] },
+    };
+    const kept = ['bundled', 'hand-authored', 'live-skillssh', 'no-ref'];
+
+    expect(slugs((await builder.build(state)).skills)).toEqual(kept);
+    expect(
+      slugs(
+        (await builder.build(state, { skillSync: { mode: 'all', slugs: [] } }))
+          .skills,
+      ),
+    ).toEqual(kept);
+    const selected = await builder.build(state, {
+      skillSync: { mode: 'selected', slugs: ['retired-skill', 'no-ref'] },
+    });
+    expect(slugs(selected.skills)).toEqual(['no-ref']);
+    expect(
+      (await builder.build(state)).skills.map((s) => s.sourceDir),
+    ).not.toContain(join(root, 'skills', 'retired-skill'));
+  });
+
+  it('[D-2] absent or empty retired sources retire nothing, and a prefix-only or malformed sidecar fails open (decision #56)', async () => {
+    writeClone('was-retired', 'skills-sh:ptah-skillssh-anthropics-skills');
+    writeClone('prefix-only', 'skills-sh:');
+    writeSkill(join(root, 'skills'), 'broken-sidecar');
+    writeFileSync(
+      join(root, 'skills', 'broken-sidecar', ORIGIN_SIDECAR_FILENAME),
+      '{not json',
+      'utf-8',
+    );
+    const all = ['broken-sidecar', 'prefix-only', 'was-retired'];
+
+    expect(slugs((await builder.build(emptyState(root))).skills)).toEqual(all);
+    expect(
+      slugs(
+        (
+          await builder.build({
+            ...emptyState(root),
+            retired: { skillSourceRoots: [], mcpServerKeys: [] },
+          })
+        ).skills,
+      ),
+    ).toEqual(all);
+    // A retired root with a DIFFERENT id leaves both clones alone, and the
+    // empty id after the prefix never matches.
+    expect(
+      slugs(
+        (
+          await builder.build({
+            ...emptyState(root),
+            retired: {
+              skillSourceRoots: [join(root, 'plugins', 'ptah-skillssh-other')],
+              mcpServerKeys: [],
+            },
+          })
+        ).skills,
+      ),
+    ).toEqual(all);
+  });
+
+  it('[D-2] an overlay path that IS a retired root contributes no skills or commands; a live global skills.sh root still does', async () => {
+    const globalPlugins = join(root, 'home', '.ptah', 'plugins');
+    const retiredRoot = writePlugin(
+      globalPlugins,
+      'ptah-skillssh-anthropics-skills',
+      'pdf',
+    );
+    mkdirSync(join(retiredRoot, 'commands'), { recursive: true });
+    writeFileSync(join(retiredRoot, 'commands', 'old.md'), '# old\n', 'utf-8');
+    const liveRoot = writePlugin(globalPlugins, 'ptah-skillssh-acme', 'lint');
+
+    const desired = await builder.build({
+      ...emptyState(root),
+      overlayPluginPaths: [retiredRoot, liveRoot],
+      // A trailing separator must not defeat the directory match.
+      retired: { skillSourceRoots: [`${retiredRoot}/`], mcpServerKeys: [] },
+    });
+
+    expect(desired.skills.map((s) => [s.slug, s.sourceDir])).toEqual([
+      ['lint', join(liveRoot, 'skills', 'lint')],
+    ]);
+    expect(desired.commands).toHaveLength(0);
+  });
+
+  describe('[D-D4] workspace skills.sh roots bypass the selection', () => {
+    let wsA: string;
+    let wsB: string;
+    let state: HarnessSourceState;
+    const empty = { mode: 'selected' as const, slugs: [] as string[] };
+
+    beforeEach(() => {
+      wsA = join(root, 'ws-a');
+      wsB = join(root, 'ws-b');
+      const globalPlugins = join(root, 'home', '.ptah', 'plugins');
+      // Both workspaces' roots are on the overlay at once, which no correct
+      // resolver produces: it proves the exemption is keyed by the workspace
+      // being BUILT, not by mere presence on the overlay.
+      state = {
+        ...emptyState(root),
+        overlayPluginPaths: [
+          writePlugin(
+            join(wsA, '.ptah', 'plugins'),
+            'ptah-skillssh-a-tools',
+            'a-skill',
+          ),
+          writePlugin(
+            join(wsB, '.ptah', 'plugins'),
+            'ptah-skillssh-b-tools',
+            'b-skill',
+          ),
+          writePlugin(globalPlugins, 'ptah-skillssh-global', 'global-skill'),
+          writePlugin(globalPlugins, 'ptah-harness-mine', 'harness-skill'),
+          writePlugin(join(root, 'bundled'), 'ptah-core', 'bundled-skill'),
+          writePlugin(
+            join(wsA, '.ptah', 'plugins'),
+            'ptah-harness-local',
+            'a-harness-skill',
+          ),
+        ],
+      };
+    });
+
+    it("an empty selection in workspace A keeps only A's skills.sh skills, sourced from A; B gets only B's", async () => {
+      const a = await builder.build(state, {
+        skillSync: empty,
+        workspaceRoot: wsA,
+      });
+      expect(a.skills.map((s) => [s.slug, s.sourceDir])).toEqual([
+        [
+          'a-skill',
+          join(
+            wsA,
+            '.ptah',
+            'plugins',
+            'ptah-skillssh-a-tools',
+            'skills',
+            'a-skill',
+          ),
+        ],
+      ]);
+
+      const b = await builder.build(state, {
+        skillSync: empty,
+        workspaceRoot: `${wsB}/`,
+      });
+      expect(b.skills.map((s) => [s.slug, s.sourceDir])).toEqual([
+        [
+          'b-skill',
+          join(
+            wsB,
+            '.ptah',
+            'plugins',
+            'ptah-skillssh-b-tools',
+            'skills',
+            'b-skill',
+          ),
+        ],
+      ]);
+    });
+
+    it('other overlays stay subject to the selection: a selected slug is admitted, an unselected one is not, whatever its workspace', async () => {
+      const desired = await builder.build(state, {
+        skillSync: {
+          mode: 'selected',
+          slugs: ['global-skill', 'bundled-skill'],
+        },
+        workspaceRoot: wsA,
+      });
+      expect(slugs(desired.skills)).toEqual([
+        'a-skill',
+        'bundled-skill',
+        'global-skill',
+      ]);
+      expect(slugs(desired.skills)).not.toContain('a-harness-skill');
+      expect(slugs(desired.skills)).not.toContain('harness-skill');
+      expect(slugs(desired.skills)).not.toContain('b-skill');
+    });
+
+    it('without a workspaceRoot nothing is exempt', async () => {
+      const desired = await builder.build(state, { skillSync: empty });
+      expect(desired.skills).toHaveLength(0);
+    });
+
+    it('the exempt root still honours disabledSkillIds and disabledPluginIds', async () => {
+      const disabledSkill = await builder.build(
+        { ...state, disabledSkillIds: ['a-skill'] },
+        { skillSync: empty, workspaceRoot: wsA },
+      );
+      expect(disabledSkill.skills).toHaveLength(0);
+
+      const disabledPlugin = await builder.build(
+        { ...state, disabledPluginIds: ['ptah-skillssh-a-tools'] },
+        { skillSync: empty, workspaceRoot: wsA },
+      );
+      expect(disabledPlugin.skills).toHaveLength(0);
+    });
+
+    it('a bundled plugin outside the enabled overlay keeps its user-layer clone gated per workspace', async () => {
+      writeClone('bundled-clone', 'ptah:ptah-other', 'ptah-other');
+      const desired = await builder.build(
+        { ...state, overlayPluginPathsKnown: true },
+        { workspaceRoot: wsA },
+      );
+      expect(slugs(desired.skills)).not.toContain('bundled-clone');
+      expect(slugs(desired.skills)).toContain('a-skill');
+    });
   });
 });
