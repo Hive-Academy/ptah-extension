@@ -52,6 +52,7 @@ export {
   GatewayRpcHandlers,
   VoiceRpcHandlers,
   UpdateRpcHandlers,
+  GitWatchRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,
   IndexingRpcHandlers,
@@ -85,6 +86,7 @@ export {
   type LinkedFileResolution,
 } from './lib/handlers/workspace-file-path';
 export { ArtifactRpcHandlers } from './lib/handlers/artifact-rpc.handlers';
+export { DisplayWindowRpcHandlers } from './lib/handlers/display-window-rpc.handlers';
 export type {
   DbHealthResult,
   DbHealthParams,

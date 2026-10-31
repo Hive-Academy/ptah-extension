@@ -1,0 +1,114 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": 9,
+  "status": "IMPLEMENTED",
+  "filesChanged": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/agent-sdk/src/lib/helpers/synced-claude-skills.reader.ts",
+      "change": "CREATED: readSyncedClaudeSkills, resolveClaudeConfigDir, pure manifest and SKILL.md parsers, mtime cache per config dir"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/agent-sdk/src/lib/helpers/synced-claude-skills.reader.spec.ts",
+      "change": "CREATED"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/agent-sdk/src/lib/helpers/claude-builtin-catalog.ts",
+      "change": "MODIFIED: SYNCED_CLAUDE_SKILL_PREFIX, syncedClaudeSkillId, isSyncedClaudeSkillId; the policy counts qualified synced ids only; degradation-audit marker on the opt-in read catch (coordinator request)"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/agent-sdk/src/lib/helpers/claude-builtin-catalog.spec.ts",
+      "change": "MODIFIED: added the describe 'synced skill ids in the policy (TASK_2026_853 Phase B)'"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/agent-sdk/src/index.ts",
+      "change": "MODIFIED: exports the reader, the config-dir resolver, the SyncedClaudeSkill type and the synced id helpers"
+    }
+  ],
+  "acceptance": [
+    {
+      "item": "manifest read with SKILL.md fallback",
+      "tests": [
+        "reads a manifest into qualified ids with descriptions and costs",
+        "falls back to SKILL.md frontmatter when the manifest is missing"
+      ]
+    },
+    {
+      "item": "qualified ids only",
+      "tests": [
+        "never returns a bare name",
+        "skips a name it cannot key exactly",
+        "never denies a bare name passed as a synced id"
+      ]
+    },
+    {
+      "item": "account dedupe",
+      "tests": [
+        "dedupes the same skill across two accounts, first account folder wins",
+        "ignores the .bucket marker files next to the account folders"
+      ]
+    },
+    {
+      "item": "malformed/missing/read-error -> [] + debug, never throws",
+      "tests": [
+        "missing synced directory → [] with a debug log",
+        "missing config directory → []",
+        "malformed manifest (%s) → [] with a debug log (4 cases)",
+        "a SKILL.md without frontmatter → []",
+        "a read error → [] and never throws"
+      ]
+    },
+    {
+      "item": "approxTokens = ceil(chars/2.64)",
+      "tests": [
+        "syncedSkillApproxTokens is ceil(listing chars / 2.64)"
+      ]
+    },
+    {
+      "item": "mtime cache per config dir",
+      "tests": [
+        "reuses the result while the manifest is unchanged, re-reads after a change",
+        "keeps one entry per config dir",
+        "notices a new account folder",
+        "returns a copy, so a caller cannot change the cache"
+      ]
+    },
+    {
+      "item": "pure policy keeps Phase A semantics",
+      "tests": [
+        "denies every synced id by default, next to the Phase A defaults",
+        "a synced opt-in and a terminal opt-in are independent",
+        "keeps the dependency rule with synced ids present",
+        "an opt-in for a synced id that is not on this machine denies nothing",
+        "the same-name guard drops a colliding terminal denial and keeps the qualified synced one",
+        "all existing Phase A catalog tests kept unchanged"
+      ]
+    },
+    {
+      "item": "never move/delete synced dirs, no destructive sync-disable setting; temp fixtures only",
+      "tests": [
+        "never writes, moves or deletes anything under the config dir"
+      ],
+      "note": "The reader only calls readdir, stat and readFile. All specs use mkdtemp fixture dirs."
+    }
+  ],
+  "verification": {
+    "command": "npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/cli-agent-runtime,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview > /tmp/tpd-b911-verify.log 2>&1",
+    "result": "71 tasks: 70 succeeded (27 cached), 1 failed",
+    "failedTasks": [
+      "ptah-extension-webview:lint — this failure was already there: Circular dependency ptah-extension-webview <-> @ptah-extension/command-center at app.routes.ts:214 (decisions #33); git diff main for apps/ptah-extension-webview and libs/frontend/command-center is empty"
+    ],
+    "followUps": [
+      "npm run verify -- -t lint,test -p @ptah-extension/agent-sdk (after the degradation-audit comment markers): 2 tasks, 2 succeeded",
+      "npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts: exit 0, no FAIL (agent-sdk was at 6 FAIL against a baseline of 4 before the markers)"
+    ],
+    "earlierNarrowRuns": [
+      "/tmp/tpd-b911-narrow.log: agent-sdk:test and cli-agent-runtime:test failed. Causes: specs read the developer's real ~/.claude synced skills, and a HOME override does not reach os.homedir() under Jest. Fixed (decisions #42, #44)",
+      "/tmp/tpd-b911-narrow2.log: 6 tasks, 6 succeeded"
+    ]
+  },
+  "deviations": [
+    "Manifest validation uses zod (already an agent-sdk dependency), per implementation-plan.md:1019 'parsed with schemas'",
+    "Synced opt-ins live in the existing enabledClaudeBuiltinSkills key (decision #39)",
+    "Failure scope: the whole result becomes [] (decision #40)"
+  ]
+}

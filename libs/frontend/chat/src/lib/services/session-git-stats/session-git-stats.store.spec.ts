@@ -103,6 +103,19 @@ describe(SessionGitStatsStore.name, () => {
     ).toBe('/fallback');
   });
 
+  it('prefers the organization worktree over every other candidate (TASK_2026_855)', () => {
+    const tab = { agentOrigin: { worktreePath: '/child' } } as Parameters<
+      typeof sessionWorkingRoot
+    >[0];
+    expect(
+      sessionWorkingRoot(tab, '/partition', '/fallback', '/wt/organized'),
+    ).toBe('/wt/organized');
+    // Without one, the result is unchanged.
+    expect(sessionWorkingRoot(tab, '/partition', '/fallback', null)).toBe(
+      '/child',
+    );
+  });
+
   it('sums file counts, ignores directories, and marks null or binary counts partial', async () => {
     call.mockResolvedValue(
       success(

@@ -75,11 +75,6 @@ export {
   type ISessionSubmitHandler,
   type SessionSubmitCancellation,
 } from './lib/code-execution/mcp-stdio';
-export {
-  PTAH_SYSTEM_PROMPT,
-  PTAH_SYSTEM_PROMPT_TOKENS,
-  buildPlatformSystemPrompt,
-} from './lib/code-execution/ptah-system-prompt.constant';
 export { PermissionPromptService } from './lib/permission/permission-prompt.service';
 export {
   TavilySearchProvider,

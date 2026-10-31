@@ -151,10 +151,38 @@ export const CLAUDE_BUILTIN_SETTING_KEYS = {
   skills: 'agentOrchestration.enabledClaudeBuiltinSkills',
 } as const;
 
+/**
+ * The qualifier claude.ai account-synced skills are listed under. Only the
+ * qualified key hides a synced skill without hiding a same-name workspace,
+ * user or plugin skill (A0 spike case b; a bare key hides both, case c).
+ */
+export const SYNCED_CLAUDE_SKILL_PREFIX = 'anthropic-skills:';
+
+/** The qualified id of a synced skill name. Pure. */
+export function syncedClaudeSkillId(name: string): string {
+  return `${SYNCED_CLAUDE_SKILL_PREFIX}${name}`;
+}
+
+/** Whether `id` is a qualified synced-skill id with a non-empty name. Pure. */
+export function isSyncedClaudeSkillId(id: string): boolean {
+  return (
+    id.startsWith(SYNCED_CLAUDE_SKILL_PREFIX) &&
+    id.length > SYNCED_CLAUDE_SKILL_PREFIX.length
+  );
+}
+
 export interface ClaudeBuiltinPolicyInput {
   readonly enabledTools: readonly string[];
+  /**
+   * Enabled terminal-skill ids and enabled synced ids
+   * (`anthropic-skills:<name>`); both live in the one skills setting.
+   */
   readonly enabledSkills: readonly string[];
-  /** Account-synced skill ids found on this machine; none until Phase B. */
+  /**
+   * Account-synced skill ids found for the session's config dir. Only
+   * qualified ids count; a bare name here is ignored, so this list can never
+   * produce a bare key that hides a same-name skill.
+   */
   readonly syncedSkillIds?: readonly string[];
 }
 
@@ -192,8 +220,8 @@ export function normalizeClaudeBuiltinIds(
  *
  * - `disallowedTools`: every catalog tool that is not enabled.
  * - `deniedSkillNames`: every terminal skill that is not enabled, every
- *   terminal skill whose needed tool is disallowed, and every synced skill id
- *   that is not enabled.
+ *   terminal skill whose needed tool is disallowed, and every qualified
+ *   synced skill id (`anthropic-skills:<name>`) that is not enabled.
  *
  * Names that are not in the catalog or the synced set are ignored, so a
  * hand-edited setting can never deny a skill or tool outside these lists.
@@ -213,7 +241,7 @@ export function resolveClaudeBuiltinPolicy(
       (row.needsTool !== undefined && disallowed.has(row.needsTool)),
   ).map((row) => row.id);
   const deniedSynced = (input.syncedSkillIds ?? []).filter(
-    (id) => !enabledSkills.has(id),
+    (id) => isSyncedClaudeSkillId(id) && !enabledSkills.has(id),
   );
   return {
     disallowedTools: sortedUnique(disallowedTools),
@@ -304,7 +332,8 @@ export interface ClaudeBuiltinOptIns {
  * Read both opt-in lists from the global file settings. A read failure, a
  * missing provider or a malformed value is treated as `[]`: every catalog
  * item off, the safe default for the prefix. Skill ids are not filtered here
- * because synced ids (Phase B) are not part of the static catalog;
+ * because the same list also holds synced opt-ins (`anthropic-skills:<name>`,
+ * Phase B), which are not part of the static catalog;
  * {@link resolveClaudeBuiltinPolicy} ignores unknown names.
  */
 export function readClaudeBuiltinOptInSettings(

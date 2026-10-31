@@ -1275,7 +1275,7 @@ describe('protocol-handlers › tools/list eager _meta marking', () => {
     );
   }
 
-  it('marks the always-eager core tools with _meta alwaysLoad === true', async () => {
+  it('marks the always-eager tools with _meta alwaysLoad === true', async () => {
     const tools = await listTools();
     for (const name of [
       'ptah_search_files',
@@ -1283,8 +1283,25 @@ describe('protocol-handlers › tools/list eager _meta marking', () => {
       'ptah_context_enrich_file',
       'ptah_get_diagnostics',
       'ptah_workspace_analyze',
+      'ptah_agent_list',
+      'ptah_agent_spawn',
     ]) {
       expect(isEager(tools.find((t) => t.name === name))).toBe(true);
+    }
+  });
+
+  it('keeps other agent and routing tools deferred', async () => {
+    const tools = await listTools();
+    for (const name of [
+      'ptah_agent_read',
+      'ptah_agent_status',
+      'ptah_agent_stop',
+      'ptah_agent_message',
+      'ptah_agent_wait',
+      'ptah_route_decide',
+      'ptah_outcome_report',
+    ]) {
+      expect(isEager(tools.find((tool) => tool.name === name))).toBe(false);
     }
   });
 

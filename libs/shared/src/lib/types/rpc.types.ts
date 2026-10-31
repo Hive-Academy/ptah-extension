@@ -12,7 +12,10 @@ export * from './rpc/rpc-chat.types';
 export * from './rpc/rpc-attention.types';
 export * from './rpc/rpc-session.types';
 export * from './rpc/rpc-analytics.types';
-import type { UsageSummary, UsageSummaryParams } from './rpc/rpc-analytics.types';
+import type {
+  UsageSummary,
+  UsageSummaryParams,
+} from './rpc/rpc-analytics.types';
 import type { WorkspaceListRecentResult } from './rpc/rpc-workspace.types';
 export * from './rpc/rpc-config.types';
 export * from './rpc/rpc-auth.types';
@@ -48,6 +51,8 @@ export * from './rpc/rpc-plugin-marketplace.types';
 export * from './rpc/rpc-peer-session.types';
 
 export * from './rpc/rpc-surface.types';
+
+export * from './rpc/rpc-display-window.types';
 
 export * from './rpc/rpc-capability.types';
 
@@ -136,6 +141,8 @@ import type {
   ChatPendingQuestionsResult,
   ChatRunningAgentsParams,
   ChatRunningAgentsResult,
+  ChatDismissResumableSubagentsParams,
+  ChatDismissResumableSubagentsResult,
   ChatAgentSessionsParams,
   ChatAgentSessionsResult,
 } from './rpc/rpc-chat.types';
@@ -463,6 +470,8 @@ import type {
   GitRemotesResult,
   GitLastCommitParams,
   GitLastCommitResult,
+  GitWatchRootsParams,
+  GitWatchRootsResult,
 } from './rpc/rpc-git.types';
 import type {
   GitTurnChangeSetsParams,
@@ -780,6 +789,20 @@ import type {
   SurfaceReadResult,
   SurfaceSelectParams,
 } from './rpc/rpc-surface.types';
+import type {
+  DisplayWindowActionParams,
+  DisplayWindowActionResult,
+  DisplayWindowCloseParams,
+  DisplayWindowCloseResult,
+  DisplayWindowGetStateParams,
+  DisplayWindowGetStateResult,
+  DisplayWindowOpenParams,
+  DisplayWindowOpenResult,
+  DisplayWindowPublishStateParams,
+  DisplayWindowPublishStateResult,
+  DisplayWindowStatusParams,
+  DisplayWindowStatusResult,
+} from './rpc/rpc-display-window.types';
 
 /**
  * RPC Method Registry
@@ -808,6 +831,32 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
   'artifacts:openLink': {
     params: { url: string };
     result: { opened: boolean };
+  };
+  // Detached Display window (TASK_2026_853_3401). Electron only; other hosts
+  // answer `open` with `{ ok: false, reason: 'desktop-only' }`.
+  'displayWindow:open': {
+    params: DisplayWindowOpenParams;
+    result: DisplayWindowOpenResult;
+  };
+  'displayWindow:close': {
+    params: DisplayWindowCloseParams;
+    result: DisplayWindowCloseResult;
+  };
+  'displayWindow:status': {
+    params: DisplayWindowStatusParams;
+    result: DisplayWindowStatusResult;
+  };
+  'displayWindow:publishState': {
+    params: DisplayWindowPublishStateParams;
+    result: DisplayWindowPublishStateResult;
+  };
+  'displayWindow:getState': {
+    params: DisplayWindowGetStateParams;
+    result: DisplayWindowGetStateResult;
+  };
+  'displayWindow:action': {
+    params: DisplayWindowActionParams;
+    result: DisplayWindowActionResult;
   };
   'analytics:spendSummary': {
     params: UsageSummaryParams;
@@ -1244,6 +1293,10 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
   'chat:subagent-query': {
     params: SubagentQueryParams;
     result: SubagentQueryResult;
+  };
+  'chat:dismiss-resumable-subagents': {
+    params: ChatDismissResumableSubagentsParams;
+    result: ChatDismissResumableSubagentsResult;
   };
   'subagent:send-message': {
     params: SubagentSendMessageParams;
@@ -1820,6 +1873,10 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     result: { success: boolean };
   };
   'git:info': { params: GitInfoParams; result: GitInfoResult };
+  'git:watchRoots': {
+    params: GitWatchRootsParams;
+    result: GitWatchRootsResult;
+  };
   'git:reviewChanges': {
     params: GitReviewChangesParams;
     result: GitReviewChangesResult;
@@ -3156,6 +3213,12 @@ export type RpcMethodName = keyof RpcMethodRegistry;
 const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'artifacts:list': true,
   'artifacts:openLink': true,
+  'displayWindow:open': true,
+  'displayWindow:close': true,
+  'displayWindow:status': true,
+  'displayWindow:publishState': true,
+  'displayWindow:getState': true,
+  'displayWindow:action': true,
   'analytics:spendSummary': true,
   'attention:getSnapshot': true,
   'chat:start': true,
@@ -3283,6 +3346,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'provider:setAccountDefault': true,
   'provider:getAmbientClaudeStatus': true,
   'chat:subagent-query': true,
+  'chat:dismiss-resumable-subagents': true,
   'subagent:send-message': true,
   'subagent:stop': true,
   'subagent:interrupt': true,
@@ -3391,6 +3455,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'webSearch:getConfig': true,
   'webSearch:setConfig': true,
   'git:info': true,
+  'git:watchRoots': true,
   'git:reviewChanges': true,
   'git:reviewFile': true,
   'git:worktrees': true,

@@ -383,6 +383,48 @@ describe('SystemMessageTransformer', () => {
       expect(state.markTaskStartedEmitted).not.toHaveBeenCalled();
     });
 
+    it('names agent_start by subagent_type, not the local_agent task category', () => {
+      // task_started can beat the Task tool_use; its agent_start then is the
+      // only one, and the sidebar showed "local_agent" as the agent name.
+      const helpers = makeHelpers();
+      const msg = {
+        task_id: 'task-race',
+        tool_use_id: 'toolu_race',
+        skip_transcript: false,
+        task_type: 'local_agent',
+        subagent_type: 'code-reviewer',
+        description: 'Review the diff',
+      } as never;
+      const events = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+      expect(events[0]).toMatchObject({
+        eventType: 'agent_start',
+        toolCallId: 'toolu_race',
+        agentType: 'code-reviewer',
+      });
+    });
+
+    it('falls back to the task category when no subagent_type is known', () => {
+      const helpers = makeHelpers();
+      const msg = {
+        task_id: 'task-plain',
+        tool_use_id: 'toolu_plain',
+        skip_transcript: false,
+        task_type: 'local_agent',
+      } as never;
+      const events = transformer.transformTaskStarted(
+        msg,
+        state,
+        helpers,
+        'sess' as never,
+      );
+      expect(events[0]).toMatchObject({ agentType: 'local_agent' });
+    });
+
     it('rejects a local_bash task_started: no agent_start, no bookkeeping, task marked', () => {
       const helpers = makeHelpers();
       const msg = {

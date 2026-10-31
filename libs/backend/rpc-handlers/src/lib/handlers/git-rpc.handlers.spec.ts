@@ -369,18 +369,14 @@ describe('git:info handler', () => {
     expect(gitInfo.getGitInfo).toHaveBeenCalledWith('D:\\projects\\other');
   });
 
-  it('returns the non-git default for an unregistered workspaceRoot', async () => {
+  it('rejects an unregistered workspaceRoot with GIT_ROOT_UNAVAILABLE', async () => {
     const { handlers, rpc, gitInfo } = buildSuite();
     handlers.register();
     const handler = getHandler(rpc, 'git:info');
 
-    const result = (await handler({ workspaceRoot: '/elsewhere' })) as {
-      isGitRepo: boolean;
-      files: unknown[];
-    };
-
-    expect(result.isGitRepo).toBe(false);
-    expect(result.files).toEqual([]);
+    await expect(handler({ workspaceRoot: '/elsewhere' })).rejects.toMatchObject(
+      { errorCode: 'GIT_ROOT_UNAVAILABLE' },
+    );
     expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
   });
 
@@ -397,10 +393,11 @@ describe('git:info handler', () => {
 });
 
 // ===========================================================================
-// Read-only worktree roots (git:info, git:diffFile)
+// Worktree roots (TASK_2026_855 D5/D17/D18): every git:* method but worktree
+// create/remove accepts a live worktree of an open folder, re-validated per call
 // ===========================================================================
 
-describe('read-only worktree roots', () => {
+describe('worktree roots', () => {
   const WORKTREE = '/workspace/.claude-worktrees/feature';
 
   function suiteWithWorktree(): Suite {
@@ -441,11 +438,14 @@ describe('read-only worktree roots', () => {
   it('git:info refuses a path git does not list as a worktree', async () => {
     const { rpc, gitInfo } = suiteWithWorktree();
 
-    const result = (await getHandler(rpc, 'git:info')({
-      workspaceRoot: '/workspace/.claude-worktrees/other',
-    })) as { isGitRepo: boolean };
-
-    expect(result.isGitRepo).toBe(false);
+    await expect(
+      getHandler(
+        rpc,
+        'git:info',
+      )({
+        workspaceRoot: '/workspace/.claude-worktrees/other',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
     expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
   });
 
@@ -454,11 +454,9 @@ describe('read-only worktree roots', () => {
     gitInfo.getWorktrees.mockRejectedValue(new Error('git failed'));
     handlers.register();
 
-    const result = (await getHandler(rpc, 'git:info')({
-      workspaceRoot: WORKTREE,
-    })) as { isGitRepo: boolean };
-
-    expect(result.isGitRepo).toBe(false);
+    await expect(
+      getHandler(rpc, 'git:info')({ workspaceRoot: WORKTREE }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
     expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
   });
 
@@ -468,11 +466,9 @@ describe('read-only worktree roots', () => {
       dir === WORKTREE ? '/elsewhere/.git' : '/workspace/.git',
     );
 
-    const result = (await getHandler(rpc, 'git:info')({
-      workspaceRoot: WORKTREE,
-    })) as { isGitRepo: boolean };
-
-    expect(result.isGitRepo).toBe(false);
+    await expect(
+      getHandler(rpc, 'git:info')({ workspaceRoot: WORKTREE }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
     expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
   });
 
@@ -489,8 +485,9 @@ describe('read-only worktree roots', () => {
       },
     ]);
 
-    await getHandler(rpc, 'git:info')({ workspaceRoot: WORKTREE });
-
+    await expect(
+      getHandler(rpc, 'git:info')({ workspaceRoot: WORKTREE }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
     expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
   });
 
@@ -498,8 +495,9 @@ describe('read-only worktree roots', () => {
     const { rpc, gitInfo, fileSystem } = suiteWithWorktree();
     fileSystem.stat.mockRejectedValue(new Error('ENOENT'));
 
-    await getHandler(rpc, 'git:info')({ workspaceRoot: WORKTREE });
-
+    await expect(
+      getHandler(rpc, 'git:info')({ workspaceRoot: WORKTREE }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
     expect(gitInfo.getCommonDir).not.toHaveBeenCalled();
     expect(gitInfo.getGitInfo).not.toHaveBeenCalled();
   });
@@ -507,7 +505,10 @@ describe('read-only worktree roots', () => {
   it('git:diffFile reads from a registered worktree', async () => {
     const { rpc, gitInfo } = suiteWithWorktree();
 
-    await getHandler(rpc, 'git:diffFile')({
+    await getHandler(
+      rpc,
+      'git:diffFile',
+    )({
       workspaceRoot: WORKTREE,
       path: 'src/a.ts',
       comparison: 'worktree',
@@ -529,15 +530,146 @@ describe('read-only worktree roots', () => {
     expect(gitInfo.getGitInfo).toHaveBeenCalledWith('/workspace');
   });
 
-  it('mutating methods still refuse a worktree that is not an open folder', async () => {
+  it('git:stage runs in a registered worktree', async () => {
     const { rpc, gitInfo } = suiteWithWorktree();
 
-    await getHandler(rpc, 'git:stage')({
+    await getHandler(
+      rpc,
+      'git:stage',
+    )({
       workspaceRoot: WORKTREE,
       paths: ['src/a.ts'],
     });
 
+    expect(gitInfo.stageFiles).toHaveBeenCalledWith(WORKTREE, ['src/a.ts']);
+  });
+
+  it('git:commit runs in a registered worktree', async () => {
+    const { rpc, gitInfo } = suiteWithWorktree();
+
+    await getHandler(
+      rpc,
+      'git:commit',
+    )({
+      workspaceRoot: WORKTREE,
+      message: 'feat: x',
+    });
+
+    expect(gitInfo.commit).toHaveBeenCalledWith(WORKTREE, 'feat: x');
+  });
+
+  it('git:discard runs in a registered worktree', async () => {
+    const { rpc, gitInfo } = suiteWithWorktree();
+
+    await getHandler(
+      rpc,
+      'git:discard',
+    )({
+      workspaceRoot: WORKTREE,
+      paths: ['src/a.ts'],
+    });
+
+    expect(gitInfo.discardChanges).toHaveBeenCalledWith(
+      WORKTREE,
+      ['src/a.ts'],
+      { worktreeOnly: false },
+    );
+  });
+
+  it('git:removeWorktree refuses a worktree root (folder-only) and warns', async () => {
+    const { rpc, gitInfo, logger } = suiteWithWorktree();
+
+    await expect(
+      getHandler(
+        rpc,
+        'git:removeWorktree',
+      )({
+        workspaceRoot: WORKTREE,
+        path: WORKTREE,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
+    expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[GitRoot] git:removeWorktree refused workspaceRoot',
+      expect.objectContaining({ workspaceRoot: WORKTREE, policy: 'folder' }),
+    );
+  });
+
+  it('git:addWorktree refuses a worktree root (folder-only)', async () => {
+    const { rpc, gitInfo } = suiteWithWorktree();
+
+    await expect(
+      getHandler(
+        rpc,
+        'git:addWorktree',
+      )({
+        workspaceRoot: WORKTREE,
+        branch: 'x',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
+    expect(gitInfo.addWorktree).not.toHaveBeenCalled();
+  });
+
+  it('refuses the second write after the worktree is removed between two writes', async () => {
+    const { rpc, gitInfo } = suiteWithWorktree();
+    const stage = getHandler(rpc, 'git:stage');
+
+    await stage({ workspaceRoot: WORKTREE, paths: ['src/a.ts'] });
+    gitInfo.getWorktrees.mockResolvedValue([
+      {
+        path: '/workspace',
+        branch: 'main',
+        head: 'a',
+        isMain: true,
+        isBare: false,
+      },
+    ]);
+    await expect(
+      stage({ workspaceRoot: WORKTREE, paths: ['src/b.ts'] }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
+
+    expect(gitInfo.stageFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refused named root never falls back to the active folder', async () => {
+    const { rpc, gitInfo } = suiteWithWorktree();
+
+    await expect(
+      getHandler(
+        rpc,
+        'git:commit',
+      )({
+        workspaceRoot: '/workspace/.claude-worktrees/other',
+        message: 'feat: x',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
+
+    expect(gitInfo.commit).not.toHaveBeenCalled();
+  });
+
+  it('a refused named root on a write rejects with the worktree message', async () => {
+    const { rpc, gitInfo, logger } = suiteWithWorktree();
+
+    await expect(
+      getHandler(
+        rpc,
+        'git:stage',
+      )({
+        workspaceRoot: '/workspace/.claude-worktrees/other',
+        paths: ['src/a.ts'],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: 'GIT_ROOT_UNAVAILABLE',
+      message: 'This worktree is no longer available.',
+    });
+
     expect(gitInfo.stageFiles).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[GitRoot] git:stage refused workspaceRoot',
+      expect.objectContaining({
+        workspaceRoot: '/workspace/.claude-worktrees/other',
+      }),
+    );
   });
 });
 
@@ -586,17 +718,17 @@ describe('historical review handlers', () => {
   it('rejects a well-formed but unissued/unregistered review file boundary', async () => {
     const { handlers, rpc, gitInfo } = buildSuite();
     handlers.register();
-    const result = (await getHandler(
-      rpc,
-      'git:reviewFile',
-    )({
-      workspaceRoot: '/elsewhere',
-      baseSha: 'a'.repeat(40),
-      headSha: 'b'.repeat(40),
-      path: 'src/a.ts',
-    })) as { success: boolean };
-
-    expect(result.success).toBe(false);
+    await expect(
+      getHandler(
+        rpc,
+        'git:reviewFile',
+      )({
+        workspaceRoot: '/elsewhere',
+        baseSha: 'a'.repeat(40),
+        headSha: 'b'.repeat(40),
+        path: 'src/a.ts',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
     expect(gitInfo.reviewFile).not.toHaveBeenCalled();
   });
 
@@ -661,14 +793,9 @@ describe.each([
     const { handlers, rpc, gitInfo } = buildSuite();
     handlers.register();
 
-    const result = (await getHandler(
-      rpc,
-      method,
-    )({
-      workspaceRoot: '/elsewhere',
-    })) as { success: boolean };
-
-    expect(result.success).toBe(false);
+    await expect(
+      getHandler(rpc, method)({ workspaceRoot: '/elsewhere' }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
     expect(gitInfo[serviceMethod]).not.toHaveBeenCalled();
   });
 
@@ -915,17 +1042,14 @@ describe('git mutation result pass-through (TASK_2026_576 RC1)', () => {
 
 describe('git:discard handler workspace scoping', () => {
   it('rejects an unregistered workspaceRoot instead of falling back to the active folder', async () => {
-    const { handlers, rpc } = buildSuite();
+    const { handlers, rpc, gitInfo } = buildSuite();
     handlers.register();
     const handler = getHandler(rpc, 'git:discard');
 
-    const result = (await handler({
-      paths: ['src/main.ts'],
-      workspaceRoot: '/elsewhere',
-    })) as { success: boolean; error?: string };
-
-    expect(result.success).toBe(false);
-    expect(result.error).toBeDefined();
+    await expect(
+      handler({ paths: ['src/main.ts'], workspaceRoot: '/elsewhere' }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
+    expect(gitInfo.discardChanges).not.toHaveBeenCalled();
   });
 
   it('forwards worktreeOnly only when the caller asks for it', async () => {
@@ -988,17 +1112,16 @@ describe('worktree handlers workspace scoping', () => {
     expect(gitInfo.getWorktrees).toHaveBeenCalledWith('/other');
   });
 
-  it('git:worktrees returns an empty list for an unregistered workspaceRoot', async () => {
+  it('git:worktrees rejects an unregistered workspaceRoot', async () => {
     const { handlers, rpc, gitInfo } = buildSuite();
     handlers.register();
 
-    const result = await getHandler(
-      rpc,
-      'git:worktrees',
-    )({ workspaceRoot: '/elsewhere' });
-
-    expect(result).toEqual({ worktrees: [] });
-    expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+    await expect(
+      getHandler(rpc, 'git:worktrees')({ workspaceRoot: '/elsewhere' }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
+    // The root check lists the open folder's worktrees; the refused root
+    // itself is never listed.
+    expect(gitInfo.getWorktrees).not.toHaveBeenCalledWith('/elsewhere');
   });
 
   it('git:worktrees returns an empty list and warns for malformed params', async () => {
@@ -1038,14 +1161,12 @@ describe('worktree handlers workspace scoping', () => {
     const { handlers, rpc, gitInfo } = buildSuite();
     handlers.register();
 
-    const result = (await getHandler(
-      rpc,
-      'git:addWorktree',
-    )({ branch: 'feature', workspaceRoot: '/elsewhere' })) as {
-      success: boolean;
-    };
-
-    expect(result.success).toBe(false);
+    await expect(
+      getHandler(
+        rpc,
+        'git:addWorktree',
+      )({ branch: 'feature', workspaceRoot: '/elsewhere' }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
     expect(gitInfo.addWorktree).not.toHaveBeenCalled();
   });
 
@@ -1070,14 +1191,12 @@ describe('worktree handlers workspace scoping', () => {
     const { handlers, rpc, gitInfo } = buildSuite();
     handlers.register();
 
-    const result = (await getHandler(
-      rpc,
-      'git:removeWorktree',
-    )({ path: '/elsewhere/wt', workspaceRoot: '/elsewhere' })) as {
-      success: boolean;
-    };
-
-    expect(result.success).toBe(false);
+    await expect(
+      getHandler(
+        rpc,
+        'git:removeWorktree',
+      )({ path: '/elsewhere/wt', workspaceRoot: '/elsewhere' }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
     expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
   });
 });
@@ -1530,25 +1649,37 @@ describe('git:applyHunks handler', () => {
     handlers.register();
     const handler = getHandler(rpc, 'git:applyHunks');
 
-    const result = (await handler({
-      ...validParams,
-      workspaceRoot: '/somewhere/else',
-    })) as { success: boolean; code: string };
+    await expect(
+      handler({ ...validParams, workspaceRoot: '/somewhere/else' }),
+    ).rejects.toMatchObject({ errorCode: 'GIT_ROOT_UNAVAILABLE' });
 
     expect(gitInfo.applyHunks).not.toHaveBeenCalled();
-    expect(result.code).toBe('NOT_A_REPO');
     expect(logger.warn).toHaveBeenCalled();
   });
 
-  it('returns NOT_A_REPO when no workspace is open', async () => {
+  it('returns NOT_A_REPO when no root is named and no workspace is open', async () => {
     const { handlers, rpc, gitInfo } = buildSuite(null);
     handlers.register();
     const handler = getHandler(rpc, 'git:applyHunks');
 
-    const result = (await handler(validParams)) as { code: string };
+    const result = (await handler({
+      ...validParams,
+      workspaceRoot: undefined,
+    })) as { code: string };
 
     expect(gitInfo.applyHunks).not.toHaveBeenCalled();
     expect(result.code).toBe('NOT_A_REPO');
+  });
+
+  it('rejects a named root when no workspace is open', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite(null);
+    handlers.register();
+    const handler = getHandler(rpc, 'git:applyHunks');
+
+    await expect(handler(validParams)).rejects.toMatchObject({
+      errorCode: 'GIT_ROOT_UNAVAILABLE',
+    });
+    expect(gitInfo.applyHunks).not.toHaveBeenCalled();
   });
 
   it('maps a thrown rejection to a sanitized failure, not a transport fault', async () => {

@@ -1,0 +1,86 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": 10,
+  "status": "IMPLEMENTED",
+  "filesChanged": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts",
+      "change": "MODIFIED: resolves the config dir (named launch env, then auth env, then process.env, then ~/.claude); reads synced skills on the verified path only; the same dir feeds the same-name guard; the info log shows the synced count only, never names"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.spec.ts",
+      "change": "MODIFIED: added the describe 'account-synced skills (Phase B)'; the buildWith named option now accepts a route/launch pair; the synced cache is cleared in beforeEach"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet/libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.capabilities.spec.ts",
+      "change": "MODIFIED (outside the batch list, test isolation only): CLAUDE_CONFIG_DIR -> empty temp dir (decision #44)"
+    }
+  ],
+  "acceptance": [
+    {
+      "item": "named certified launch CLAUDE_CONFIG_DIR first",
+      "tests": [
+        "named run: reads the certified launch config dir, not the host one"
+      ]
+    },
+    {
+      "item": "then effective auth/process env, then home",
+      "tests": [
+        "auth env CLAUDE_CONFIG_DIR wins over the host env",
+        "resolveClaudeConfigDir: takes the first non-blank CLAUDE_CONFIG_DIR in order / falls back to <home>/.claude"
+      ]
+    },
+    {
+      "item": "qualified denials only on the verified path",
+      "tests": [
+        "hides every synced skill by its qualified key by default",
+        "shows a synced skill the user opted in to",
+        "unverified policy: isolation unchanged, no synced keys"
+      ]
+    },
+    {
+      "item": "same-name workspace skill remains visible",
+      "tests": [
+        "keeps a same-name workspace skill visible"
+      ]
+    },
+    {
+      "item": "discovery failure is non-fatal",
+      "tests": [
+        "a malformed manifest is not fatal: Phase A denials only"
+      ]
+    },
+    {
+      "item": "proxy route accepted",
+      "tests": [
+        "proxied base URL: the qualified keys ride along and the session builds"
+      ]
+    },
+    {
+      "item": "Phase A tools, settingSources, capability isolation and named certification kept",
+      "tests": [
+        "all existing 'Claude built-in policy (TASK_2026_853)' cases unchanged, incl. 'named run: the certified launch still passes with the new keys'",
+        "named run synced case asserts assertCertifiedLaunch passes"
+      ]
+    }
+  ],
+  "verification": {
+    "command": "npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/cli-agent-runtime,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview > /tmp/tpd-b911-verify.log 2>&1",
+    "result": "71 tasks: 70 succeeded (27 cached), 1 failed",
+    "failedTasks": [
+      "ptah-extension-webview:lint — this failure was already there: Circular dependency ptah-extension-webview <-> @ptah-extension/command-center at app.routes.ts:214 (decisions #33); git diff main for apps/ptah-extension-webview and libs/frontend/command-center is empty"
+    ],
+    "followUps": [
+      "npm run verify -- -t lint,test -p @ptah-extension/agent-sdk (after the degradation-audit comment markers): 2 tasks, 2 succeeded",
+      "npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts: exit 0, no FAIL (agent-sdk was at 6 FAIL against a baseline of 4 before the markers)"
+    ],
+    "earlierNarrowRuns": [
+      "/tmp/tpd-b911-narrow.log: agent-sdk:test and cli-agent-runtime:test failed. Causes: specs read the developer's real ~/.claude synced skills, and a HOME override does not reach os.homedir() under Jest. Fixed (decisions #42, #44)",
+      "/tmp/tpd-b911-narrow2.log: 6 tasks, 6 succeeded"
+    ]
+  },
+  "deviations": [
+    "Two specs outside the batch file lists were edited, test isolation only (decision #44)",
+    "The 'settingSources ... includesUserSettingSource(' form is kept (coordinator constraint 3)"
+  ]
+}

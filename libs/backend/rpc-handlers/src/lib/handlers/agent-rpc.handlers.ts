@@ -52,9 +52,13 @@ import {
   SDK_TOKENS,
   SessionMetadataStore,
   SdkPermissionHandler,
+  isSyncedClaudeSkillId,
   normalizeClaudeBuiltinIds,
   readClaudeBuiltinOptIns,
+  readSyncedClaudeSkills,
+  resolveClaudeConfigDir,
   resolveSessionCapabilityPolicy,
+  type SyncedClaudeSkill,
 } from '@ptah-extension/agent-sdk';
 import {
   DecisionModelSelectionSchema,
@@ -66,6 +70,7 @@ import {
 } from '@ptah-extension/lane-routing';
 import { z } from 'zod';
 import type {
+  AuthEnv,
   AgentGetClaudeBuiltinsParams,
   AgentGetClaudeBuiltinsResult,
   AgentSetClaudeBuiltinParams,
@@ -102,7 +107,10 @@ import {
   DECISION_MODEL_INVALID_MODEL,
 } from '@ptah-extension/shared';
 import { classifyProviderAccountBinding } from '@ptah-extension/shared/schemas';
-import { ProviderAccountService } from '@ptah-extension/auth-providers';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  ProviderAccountService,
+} from '@ptah-extension/auth-providers';
 import { AgentResumeCliSessionParamsSchema } from './agent-rpc.schema';
 import {
   DecisionModelWriter,
@@ -591,6 +599,10 @@ export class AgentRpcHandlers {
       AgentGetClaudeBuiltinsResult
     >('agent:getClaudeBuiltins', async () => {
       const optIns = this.getClaudeBuiltinOptIns();
+      const [syncedSkills, policyStatus] = await Promise.all([
+        this.readSyncedSkills(),
+        this.activeCapabilityPolicyStatus(),
+      ]);
       return {
         tools: CLAUDE_BUILTIN_TOOLS.map((row) => ({
           id: row.id,
@@ -604,11 +616,17 @@ export class AgentRpcHandlers {
           approxTokens: row.approxTokens,
           ...(row.needsTool === undefined ? {} : { needsTool: row.needsTool }),
         })),
-        // Account-synced skills are discovered in Phase B.
-        syncedSkills: [],
+        // The account-synced skills a new main session would list, under
+        // their qualified `anthropic-skills:<name>` ids (Phase B).
+        syncedSkills: syncedSkills.map((skill) => ({
+          id: skill.id,
+          name: skill.name,
+          description: skill.description,
+          approxTokens: skill.approxTokens,
+        })),
         enabledTools: optIns.enabledClaudeBuiltinTools,
         enabledSkills: optIns.enabledClaudeBuiltinSkills,
-        policyStatus: await this.activeCapabilityPolicyStatus(),
+        policyStatus,
       };
     });
   }
@@ -646,12 +664,12 @@ export class AgentRpcHandlers {
       return this.claudeBuiltinFailure('Unsupported Claude built-in change.');
     }
     const { kind, id, enabled } = parsed.data;
-    // Phase A has no account-synced skills, so the skill catalog is the
-    // terminal skills; the same ids `agent:setConfig` keeps.
+    // A skill id is a terminal skill or a synced skill the reader finds now
+    // for the main session's config dir (decision #37).
     const catalog =
       kind === 'tool'
         ? CLAUDE_BUILTIN_TOOL_IDS
-        : CLAUDE_BUILTIN_TERMINAL_SKILL_IDS;
+        : await this.knownClaudeSkillIds();
     if (!catalog.includes(id)) {
       return this.claudeBuiltinFailure('Unknown Claude built-in.');
     }
@@ -660,11 +678,13 @@ export class AgentRpcHandlers {
         kind === 'tool'
           ? 'enabledClaudeBuiltinTools'
           : 'enabledClaudeBuiltinSkills';
-      // Read and compute synchronously; the write is the only await.
+      // Read and compute synchronously; the write is the only await. The
+      // read keeps stored synced opt-ins the reader does not find now (for
+      // example another account's), so this write never drops them.
       const stored = this.getClaudeBuiltinOptIns()[key];
       const next = normalizeClaudeBuiltinIds(
         enabled ? [...stored, id] : stored.filter((entry) => entry !== id),
-        catalog,
+        [...catalog, ...stored],
       );
       await this.setAgentCfg(key, next);
       const after = this.getClaudeBuiltinOptIns();
@@ -705,13 +725,19 @@ export class AgentRpcHandlers {
   }
 
   /**
-   * The stored Claude built-in opt-ins, kept to the catalog. A malformed
-   * hand-edited value reads as `[]`, the same value a session build uses.
+   * The stored Claude built-in opt-ins: tools kept to the catalog, skills
+   * kept to the terminal catalog plus every qualified synced id
+   * (`anthropic-skills:<name>`), which the session build reads from the same
+   * list. A malformed hand-edited value reads as `[]`, the same value a
+   * session build uses.
    */
   private getClaudeBuiltinOptIns(): Pick<
     AgentOrchestrationConfig,
     'enabledClaudeBuiltinTools' | 'enabledClaudeBuiltinSkills'
   > {
+    const skills = readClaudeBuiltinOptIns(
+      this.getAgentCfg<unknown>('enabledClaudeBuiltinSkills', []),
+    );
     return {
       enabledClaudeBuiltinTools: normalizeClaudeBuiltinIds(
         readClaudeBuiltinOptIns(
@@ -719,13 +745,45 @@ export class AgentRpcHandlers {
         ),
         CLAUDE_BUILTIN_TOOL_IDS,
       ),
-      enabledClaudeBuiltinSkills: normalizeClaudeBuiltinIds(
-        readClaudeBuiltinOptIns(
-          this.getAgentCfg<unknown>('enabledClaudeBuiltinSkills', []),
-        ),
-        CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
-      ),
+      enabledClaudeBuiltinSkills: normalizeClaudeBuiltinIds(skills, [
+        ...CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
+        ...skills.filter(isSyncedClaudeSkillId),
+      ]),
     };
+  }
+
+  /**
+   * The config dir a new main session's Claude child reads, in the order
+   * `SdkQueryOptionsBuilder` uses for a session without a named launch: the
+   * auth env, then the host env, then `~/.claude` (decision #42). The
+   * settings card serves no named launch, so that branch does not apply.
+   */
+  private mainSessionClaudeConfigDir(): string {
+    const authEnv = this.runtimeContainer.isRegistered(
+      AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV,
+      true,
+    )
+      ? this.runtimeContainer.resolve<AuthEnv>(
+          AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV,
+        )
+      : undefined;
+    return resolveClaudeConfigDir([authEnv, process.env]);
+  }
+
+  /** The account-synced skills for that config dir; `[]` on any read error. */
+  private readSyncedSkills(): Promise<SyncedClaudeSkill[]> {
+    return readSyncedClaudeSkills(
+      this.mainSessionClaudeConfigDir(),
+      this.logger,
+    );
+  }
+
+  /** Skill ids a write may store: the terminal catalog plus the synced skills found now. */
+  private async knownClaudeSkillIds(): Promise<string[]> {
+    return [
+      ...CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
+      ...(await this.readSyncedSkills()).map((skill) => skill.id),
+    ];
   }
 
   /**
@@ -1092,11 +1150,19 @@ export class AgentRpcHandlers {
         );
       }
       if (params.enabledClaudeBuiltinSkills !== undefined) {
+        // The submitted list decides the ids the reader finds now. A stored
+        // synced opt-in the reader does not find now (another account's, or
+        // any after a read error) is kept, as `agent:setClaudeBuiltin` does.
+        const known = await this.knownClaudeSkillIds();
+        const kept =
+          this.getClaudeBuiltinOptIns().enabledClaudeBuiltinSkills.filter(
+            (id) => isSyncedClaudeSkillId(id) && !known.includes(id),
+          );
         await this.setAgentCfg(
           'enabledClaudeBuiltinSkills',
           normalizeClaudeBuiltinIds(
-            params.enabledClaudeBuiltinSkills,
-            CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
+            [...params.enabledClaudeBuiltinSkills, ...kept],
+            [...known, ...kept],
           ),
         );
       }
@@ -1579,7 +1645,10 @@ export class AgentRpcHandlers {
             cli: parsed.data.cli,
             code: accountRefusal,
           });
-          return { success: false, error: resumeAccountRefusal(accountRefusal) };
+          return {
+            success: false,
+            error: resumeAccountRefusal(accountRefusal),
+          };
         }
 
         let result: SpawnAgentResult;
@@ -1677,7 +1746,6 @@ export class AgentRpcHandlers {
       sessionId: parentSessionId,
       metadataStore: this.sessionMetadataStore,
       workspaceProvider: this.workspace,
-      fileSystemProvider: this.fileSystemProvider,
       platformInfo: this.platformInfo,
       logger: this.logger,
     });

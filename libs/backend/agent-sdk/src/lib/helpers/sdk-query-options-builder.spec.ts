@@ -32,6 +32,7 @@ import {
   certifiedEnvDigest,
 } from './claude-certified-launch';
 import { CLAUDE_BUILTIN_SETTING_KEYS } from './claude-builtin-catalog';
+import { clearSyncedClaudeSkillsCache } from './synced-claude-skills.reader';
 import type {
   ClaudeAccountNamedRoute,
   ClaudeCertifiedLaunchContext,
@@ -2231,7 +2232,13 @@ describe('SdkQueryOptionsBuilder.build — Claude built-in policy (TASK_2026_853
     settings?: Record<string, unknown>;
     capabilityPolicy?: EffectiveCapabilitySet;
     authEnv?: AuthEnv;
-    named?: boolean;
+    /** `true` for the shared fixture route, or a route/launch pair. */
+    named?:
+      | boolean
+      | {
+          route: ClaudeAccountNamedRoute;
+          launch: ClaudeCertifiedLaunchContext;
+        };
     projectPath?: string;
   }
 
@@ -2241,6 +2248,7 @@ describe('SdkQueryOptionsBuilder.build — Claude built-in policy (TASK_2026_853
   let previousConfigDir: string | undefined;
   beforeEach(() => {
     fixtureRoot = mkdtempSync(join(tmpdir(), 'ptah-builder-builtins-'));
+    clearSyncedClaudeSkillsCache();
     previousConfigDir = process.env['CLAUDE_CONFIG_DIR'];
     process.env['CLAUDE_CONFIG_DIR'] = join(fixtureRoot, 'account');
   });
@@ -2313,7 +2321,12 @@ describe('SdkQueryOptionsBuilder.build — Claude built-in policy (TASK_2026_853
       authEnvOverride: input.authEnv ?? {},
       capabilityPolicy: input.capabilityPolicy ?? verifiedPolicy(),
       ...(input.named
-        ? { accountRoute: NAMED_ROUTE, accountLaunch: NAMED_LAUNCH }
+        ? input.named === true
+          ? { accountRoute: NAMED_ROUTE, accountLaunch: NAMED_LAUNCH }
+          : {
+              accountRoute: input.named.route,
+              accountLaunch: input.named.launch,
+            }
         : {}),
     });
     return {
@@ -2517,6 +2530,168 @@ describe('SdkQueryOptionsBuilder.build — Claude built-in policy (TASK_2026_853
       expect(
         (built.settings['skillOverrides'] as Record<string, string>)['init'],
       ).toBeUndefined();
+    });
+  });
+
+  // TASK_2026_853 Phase B (Batch 10): claude.ai account-synced skills.
+  describe('account-synced skills (Phase B)', () => {
+    const ACCOUNT =
+      '09058677-0000-4000-8000-000000000001_6563c852-0000-4000-8000-000000000001';
+    const SYNCED = ['anthropic-skills:docs', 'anthropic-skills:pdf'];
+
+    function syncedAt(configDir: string, names: readonly string[]): void {
+      const dir = join(configDir, 'skills', 'synced', ACCOUNT);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, 'manifest.json'),
+        JSON.stringify({
+          lastUpdated: 1,
+          skills: names.map((name) => ({
+            skillId: name,
+            name,
+            description: `${name} skill`,
+            source: 'anthropic',
+          })),
+        }),
+      );
+    }
+    function overridesOf(built: {
+      settings: Record<string, unknown>;
+    }): Record<string, string> {
+      return built.settings['skillOverrides'] as Record<string, string>;
+    }
+    /** A named route and certified launch whose config dir is `dir`. */
+    function namedAt(dir: string): {
+      route: ClaudeAccountNamedRoute;
+      launch: ClaudeCertifiedLaunchContext;
+    } {
+      const env: Record<string, string> = {
+        ...NAMED_ENV,
+        CLAUDE_CONFIG_DIR: dir,
+        CLAUDE_SECURESTORAGE_CONFIG_DIR: dir,
+      };
+      return {
+        route: { ...NAMED_ROUTE, canonicalConfigDir: dir },
+        launch: { ...NAMED_LAUNCH, env, envDigest: certifiedEnvDigest(env) },
+      };
+    }
+
+    it('hides every synced skill by its qualified key by default', async () => {
+      syncedAt(join(fixtureRoot, 'account'), ['docs', 'pdf']);
+      const built = await buildWith();
+      expect(built.options.disallowedTools).toEqual(DEFAULT_TOOLS);
+      expect(overridesOf(built)).toEqual(
+        Object.fromEntries(
+          [...DEFAULT_SKILLS, ...SYNCED].map((name) => [name, 'off']),
+        ),
+      );
+      expect(overridesOf(built)['docs']).toBeUndefined();
+      expect(overridesOf(built)['pdf']).toBeUndefined();
+    });
+
+    it('shows a synced skill the user opted in to', async () => {
+      syncedAt(join(fixtureRoot, 'account'), ['docs', 'pdf']);
+      const built = await buildWith({
+        settings: {
+          [CLAUDE_BUILTIN_SETTING_KEYS.skills]: ['anthropic-skills:pdf'],
+        },
+      });
+      expect(overridesOf(built)['anthropic-skills:pdf']).toBeUndefined();
+      expect(overridesOf(built)['anthropic-skills:docs']).toBe('off');
+      expect(built.options.disallowedTools).toEqual(DEFAULT_TOOLS);
+    });
+
+    it('keeps a same-name workspace skill visible', async () => {
+      syncedAt(join(fixtureRoot, 'account'), ['docs', 'init']);
+      const projectPath = join(fixtureRoot, 'ws');
+      for (const name of ['docs', 'init']) {
+        mkdirSync(join(projectPath, '.claude', 'skills', name), {
+          recursive: true,
+        });
+        writeFileSync(
+          join(projectPath, '.claude', 'skills', name, 'SKILL.md'),
+          `---\nname: ${name}\n---\n`,
+        );
+      }
+      const built = await buildWith({ projectPath });
+      const overrides = overridesOf(built);
+      // Qualified keys only: the synced copies are hidden...
+      expect(overrides['anthropic-skills:docs']).toBe('off');
+      expect(overrides['anthropic-skills:init']).toBe('off');
+      // ...and no bare key hides the workspace `docs` or `init`.
+      expect(overrides['docs']).toBeUndefined();
+      expect(overrides['init']).toBeUndefined();
+    });
+
+    it('unverified policy: isolation unchanged, no synced keys', async () => {
+      syncedAt(join(fixtureRoot, 'account'), ['docs', 'pdf']);
+      const built = await buildWith({
+        capabilityPolicy: verifiedPolicy({
+          status: 'unverified',
+          reasons: [{ path: PROJECT, error: 'unreadable' }],
+        }),
+      });
+      expect(built.options.skills).toEqual([]);
+      expect(built.options.strictMcpConfig).toBe(true);
+      expect(built.settings['skillOverrides']).toBeUndefined();
+      expect(built.options.disallowedTools).toEqual(DEFAULT_TOOLS);
+    });
+
+    it('proxied base URL: the qualified keys ride along and the session builds', async () => {
+      syncedAt(join(fixtureRoot, 'account'), ['docs', 'pdf']);
+      const built = await buildWith({
+        authEnv: {
+          ANTHROPIC_BASE_URL: 'http://127.0.0.1:8080',
+          ANTHROPIC_AUTH_TOKEN: 'proxy-token',
+        },
+      });
+      expect(built.options.settingSources).toEqual(['project', 'local']);
+      expect(built.options.disallowedTools).toEqual(DEFAULT_TOOLS);
+      expect(Object.keys(overridesOf(built))).toEqual(
+        expect.arrayContaining(SYNCED),
+      );
+    });
+
+    it('a malformed manifest is not fatal: Phase A denials only', async () => {
+      const dir = join(fixtureRoot, 'account', 'skills', 'synced', ACCOUNT);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'manifest.json'), '{ not json');
+      const built = await buildWith();
+      expect(overridesOf(built)).toEqual(
+        Object.fromEntries(DEFAULT_SKILLS.map((name) => [name, 'off'])),
+      );
+    });
+
+    it('named run: reads the certified launch config dir, not the host one', async () => {
+      syncedAt(join(fixtureRoot, 'account'), ['pdf']);
+      const namedDir = join(fixtureRoot, 'named');
+      syncedAt(namedDir, ['docs']);
+      const named = namedAt(namedDir);
+      const built = await buildWith({ named });
+      expect(overridesOf(built)['anthropic-skills:docs']).toBe('off');
+      expect(overridesOf(built)['anthropic-skills:pdf']).toBeUndefined();
+      expect(() =>
+        assertCertifiedLaunch(
+          named.launch,
+          namedActualLaunch(built.options),
+          'final',
+        ),
+      ).not.toThrow();
+    });
+
+    it('auth env CLAUDE_CONFIG_DIR wins over the host env', async () => {
+      syncedAt(join(fixtureRoot, 'account'), ['pdf']);
+      const authDir = join(fixtureRoot, 'auth-account');
+      syncedAt(authDir, ['docs']);
+      const built = await buildWith({
+        // Not part of the AuthEnv type; the child still inherits it at runtime.
+        authEnv: Object.assign<AuthEnv, Record<string, string>>(
+          {},
+          { CLAUDE_CONFIG_DIR: authDir },
+        ),
+      });
+      expect(overridesOf(built)['anthropic-skills:docs']).toBe('off');
+      expect(overridesOf(built)['anthropic-skills:pdf']).toBeUndefined();
     });
   });
 

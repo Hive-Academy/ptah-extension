@@ -317,6 +317,9 @@ export {
   CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
   CLAUDE_BUILTIN_SETTING_KEYS,
   PROTECTED_CLAUDE_TOOLS,
+  SYNCED_CLAUDE_SKILL_PREFIX,
+  isSyncedClaudeSkillId,
+  syncedClaudeSkillId,
   normalizeClaudeBuiltinIds,
   readClaudeBuiltinOptIns,
   readClaudeBuiltinOptInSettings,
@@ -340,6 +343,14 @@ export {
   type ClaudeSkillDiscoveryInput,
   type ClaudeSkillNameDiscovery,
 } from './lib/helpers/claude-skill-name-discovery';
+// claude.ai account-synced skills, hidden by default under their qualified
+// `anthropic-skills:<name>` key (TASK_2026_853, Phase B); shared with the
+// Claude lanes and the settings RPC.
+export {
+  readSyncedClaudeSkills,
+  resolveClaudeConfigDir,
+  type SyncedClaudeSkill,
+} from './lib/helpers/synced-claude-skills.reader';
 export { redactMcpUrl, redactMcpOverrideMap } from './lib/helpers';
 export {
   TIER_ENV_VAR_MAP,

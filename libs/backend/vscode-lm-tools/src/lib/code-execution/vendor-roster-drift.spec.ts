@@ -31,7 +31,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import { PTAH_CORE_SYSTEM_PROMPT } from '@ptah-extension/agent-sdk';
-import { PTAH_SYSTEM_PROMPT } from './ptah-system-prompt.constant';
 import { HELP_DOCS } from './namespace-builders/system-namespace.builders';
 import {
   buildAgentSpawnTool,
@@ -67,7 +66,6 @@ function agentFacingStrings(): ReadonlyArray<readonly [string, string]> {
     { description?: string }
   >;
   return [
-    ['PTAH_SYSTEM_PROMPT', PTAH_SYSTEM_PROMPT],
     // The one that is actually appended to every top-level `query()`. It was
     // absent from this list while it hardcoded a three-vendor roster AND a
     // priority order — the exact assertion the suite was written to stop, in the
@@ -122,10 +120,9 @@ describe('the system CLI family is derived, not written down', () => {
     expect(cli.enum).toEqual([...SYSTEM_CLI_TYPES]);
   });
 
-  it('the system prompt lists every shipped adapter', () => {
-    for (const cli of SYSTEM_CLI_TYPES) {
-      expect(PTAH_SYSTEM_PROMPT).toContain(cli);
-    }
+  it('the core prompt sends selection to the runtime roster', () => {
+    expect(PTAH_CORE_SYSTEM_PROMPT).toContain('call `ptah_agent_list`');
+    expect(PTAH_CORE_SYSTEM_PROMPT).toContain('never rank the results');
   });
 
   /**

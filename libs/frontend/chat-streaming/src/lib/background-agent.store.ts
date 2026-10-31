@@ -26,6 +26,7 @@
 
 import { Injectable, signal, computed } from '@angular/core';
 import type {
+  AgentCompletedEvent,
   BackgroundAgentStartedEvent,
   BackgroundAgentCompletedEvent,
   BackgroundAgentStoppedEvent,
@@ -402,6 +403,43 @@ export class BackgroundAgentStore {
       }
 
       return this.evictOldCompleted(next);
+    });
+  }
+
+  /**
+   * Settle a known entry from the stream's `agent_completed`
+   * (`task_notification`). For most background spawns the transformer emits
+   * no `background_agent_completed`, so without this the tray entry stayed
+   * `running` while the monitor record had finished. Only an existing entry
+   * is touched: a foreground agent's completion never creates one.
+   */
+  onAgentCompleted(event: AgentCompletedEvent): void {
+    const entry =
+      (event.agentId
+        ? this.findByAgentId(event.agentId as BackgroundAgentId)
+        : null) ?? this.findByToolCallId(event.parentToolUseId);
+    if (!entry) return;
+    // The entry's own key and toolCallId, so both handlers land on it even
+    // when it is still filed under its toolCallId.
+    const target = {
+      id: event.id,
+      timestamp: event.timestamp,
+      sessionId: event.sessionId,
+      messageId: event.messageId,
+      toolCallId: entry.toolCallId,
+      agentId: entry.agentId,
+      agentType: entry.agentType,
+    };
+    if (event.status === 'stopped') {
+      this.onStopped({ ...target, eventType: 'background_agent_stopped' });
+      return;
+    }
+    this.onCompleted({
+      ...target,
+      eventType: 'background_agent_completed',
+      status: event.status,
+      result: event.summary || undefined,
+      duration: event.durationMs,
     });
   }
 

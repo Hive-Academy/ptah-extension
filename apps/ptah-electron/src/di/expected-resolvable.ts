@@ -9,7 +9,9 @@ import {
   ElectronFileOpenRpcHandlers,
   FileViewRpcHandlers,
   FileEditRpcHandlers,
+  GitWatchRpcHandlers,
   RecentWorkspacesService,
+  DisplayWindowRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import { CHAT_TOKENS } from '@ptah-extension/rpc-handlers';
 import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
@@ -27,7 +29,10 @@ export const EXPECTED_RESOLVABLE = [
   ElectronFileOpenRpcHandlers,
   FileViewRpcHandlers,
   FileEditRpcHandlers,
+  // `git:watchRoots` (TASK_2026_855 D20); needs GIT_ROOT_WATCH_REGISTRY_TOKEN.
+  GitWatchRpcHandlers,
   RecentWorkspacesService,
+  DisplayWindowRpcHandlers,
 ] as const;
 
 /** Lib-owned tokens composed by Electron in addition to handler classes. */
@@ -38,6 +43,16 @@ export const EXPECTED_RESOLVABLE_TOKENS = [
   ['OUTCOME_TASK_KIND_CLASSIFIER', LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER],
   ['SDK_NEXT_TURN_REMINDER_QUEUE', SDK_TOKENS.SDK_NEXT_TURN_REMINDER_QUEUE],
 ] as const;
+
+/**
+ * Electron-only port bound in `phase-4-handlers.ts` (TASK_2026_855 D20).
+ * Same symbol as `PLATFORM_TOKENS.GIT_ROOT_WATCH_REGISTRY`. Kept out of
+ * `EXPECTED_RESOLVABLE` because that list is handler classes and the smoke
+ * title reads `.name`.
+ */
+export const GIT_ROOT_WATCH_REGISTRY_TOKEN = Symbol.for(
+  'PlatformGitRootWatchRegistry',
+);
 
 /** Phase-2 singleton; kept separate from the handler-class census. */
 export const HOST_ATTENTION_COORDINATOR_TOKEN = Symbol.for(

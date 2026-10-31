@@ -15,11 +15,7 @@ export type ProviderId = 'claude-cli' | 'vscode-lm' | 'ptah-cli';
  * Provider Status Types
  */
 export type ProviderStatus =
-  | 'available'
-  | 'unavailable'
-  | 'error'
-  | 'initializing'
-  | 'disabled';
+  'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
 
 /**
  * Provider Capability Flags
@@ -165,6 +161,8 @@ export interface AISessionConfig {
   readonly ptahUiFence?: boolean;
   readonly projectPath?: string;
   readonly workspaceId?: string;
+  /** Ordered governing plugin-config roots, nearest ancestor first. Internal session context. */
+  readonly pluginConfigAncestorRoots?: readonly string[];
   readonly maxTokens?: number;
   readonly systemPrompt?: string;
   readonly model?: string;
@@ -207,8 +205,8 @@ export interface AISessionConfig {
    * If not specified, defaults to 'enhanced' if enhanced prompts are generated,
    * otherwise falls back to 'claude_code'.
    *
-   * PTAH_SYSTEM_PROMPT (MCP documentation) is always injected regardless of
-   * preset selection when the MCP server is running.
+   * The core Ptah prompt is assembled by the host according to the selected
+   * preset; MCP tool documentation comes from the tool surface.
    */
   readonly preset?: 'claude_code' | 'enhanced';
   /**

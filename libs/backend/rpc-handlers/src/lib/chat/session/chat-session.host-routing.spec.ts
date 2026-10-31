@@ -163,7 +163,12 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
     {
       injectInterruptedAgentsContext: jest
         .fn()
-        .mockImplementation(async (prompt: string) => ({ prompt })),
+        .mockImplementation(async (prompt: string) => ({
+          prompt,
+          injected: false,
+          commit: async () => undefined,
+          release: () => undefined,
+        })),
     } as never,
     { routeFollowUpSlashCommand } as never,
     createMockModelSettings() as never,

@@ -108,6 +108,7 @@
           [resumableSubagents]="resolvedResumableSubagents()"
           (resumeRequested)="handleResumeAgent($event)"
           (resumeAllRequested)="handleResumeAllAgents($event)"
+          (dismissRequested)="handleDismissResumableAgents($event)"
         />
       </div>
 
@@ -214,11 +215,6 @@
 
       </div>
       <!-- Input Area (in normal flow at the bottom). -->
-      @if (displaySheetEnabled) {
-        @if (resolvedTabId(); as displayTabId) {
-          <ptah-display-sheet sessionSheet [tabId]="displayTabId" />
-        }
-      }
       @if (!readOnly) {
         <div sessionComposer class="flex-shrink-0">
           <ptah-chat-input />
@@ -227,6 +223,75 @@
       </ptah-chat-session-layout>
     }
   </div>
+
+  <!-- Display sidebar (Electron): right column, overlay drawer when narrow,
+       or a rail while the panel is in its separate window. -->
+  @if (displaySheetEnabled && !showCompactCard()) {
+    @if (resolvedTabId(); as displayTabId) {
+      @if (displayDetached()) {
+        <aside
+          class="flex w-36 flex-shrink-0 flex-col gap-2 border-l border-base-content/15 bg-base-200 p-2 text-xs"
+          data-glass-surface="chrome"
+          aria-label="Display"
+          data-testid="display-detached-rail"
+        >
+          <p class="font-semibold">
+            Display · {{ displayWindowCount() }}
+            <span class="font-normal text-base-content-muted">(separate window)</span>
+          </p>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs justify-start"
+            (click)="focusDisplayWindow()"
+            data-testid="display-window-focus"
+          >
+            Focus
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs justify-start"
+            (click)="attachDisplayWindow()"
+            data-testid="display-window-attach"
+          >
+            Re-attach
+          </button>
+          @if (displayWindowError(); as windowError) {
+            <p role="alert" class="text-error">{{ windowError }}</p>
+          }
+        </aside>
+      } @else {
+        @if (panelOpen() && !isOverlay()) {
+          <div
+            class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group touch-none focus-visible:outline focus-visible:outline-2"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize Display panel"
+            tabindex="0"
+            [attr.aria-valuenow]="dockWidth()"
+            [attr.aria-valuemin]="dockMinWidth()"
+            [attr.aria-valuemax]="dockMaxWidth()"
+            title="Drag to resize · double-click to reset"
+            (pointerdown)="onResizeStart($event)"
+            (keydown)="onDockSeparatorKeydown($event)"
+            (dblclick)="onResizeReset()"
+            data-testid="display-sidebar-separator"
+          >
+            <div
+              class="w-0.5 h-full rounded-full bg-base-content/20 group-hover:bg-primary/60 group-active:bg-primary transition-colors"
+            ></div>
+          </div>
+        }
+        <ptah-display-sheet
+          [tabId]="displayTabId"
+          [detachable]="displayDetachable()"
+          [overlay]="isOverlay()"
+          [detachError]="displayWindowError()"
+          [style.width.px]="panelOpen() ? dockWidth() : null"
+          (detachRequested)="detachDisplay()"
+        />
+      }
+    }
+  }
 
   @if (!dockEnabled && !hideAgentSidebar && !showCompactCard()) {
     <!-- Agents vertical toggle tab (per-session). In overlay mode, hide when open to give chat 100% width. -->

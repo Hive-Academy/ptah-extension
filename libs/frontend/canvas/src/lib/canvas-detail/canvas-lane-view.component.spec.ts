@@ -151,6 +151,7 @@ describe('CanvasLaneViewComponent', () => {
             release,
             syncRecord,
             ensureHistory,
+            refreshLiveHistory: jest.fn(),
             revisionFor: () => 0,
             entryFor: (key: string) => entries().get(key),
           },

@@ -317,7 +317,11 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
   let backgroundAgentStore: jest.Mocked<
     Pick<
       BackgroundAgentStore,
-      'onStarted' | 'onCompleted' | 'onStopped' | 'isBackgroundAgent'
+      | 'onStarted'
+      | 'onCompleted'
+      | 'onStopped'
+      | 'onAgentCompleted'
+      | 'isBackgroundAgent'
     >
   >;
   let agentMonitorStore: jest.Mocked<
@@ -371,6 +375,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       onStarted: jest.fn(),
       onCompleted: jest.fn(),
       onStopped: jest.fn(),
+      onAgentCompleted: jest.fn(),
       isBackgroundAgent: jest.fn().mockReturnValue(false),
     } as jest.Mocked<
       Pick<
@@ -379,6 +384,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
         | 'onProgress'
         | 'onCompleted'
         | 'onStopped'
+        | 'onAgentCompleted'
         | 'isBackgroundAgent'
       >
     >;
@@ -1038,6 +1044,25 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       core.process(state, bgAgentStopped(), makeCtx());
       expect(backgroundAgentStore.onStopped).toHaveBeenCalled();
     });
+    it('agent_completed also settles the background store entry', () => {
+      // Most background spawns get no background_agent_completed, so the
+      // tray entry stayed running while the monitor record finished.
+      const event: FlatStreamEventUnion = {
+        id: 'completed-bg',
+        eventType: 'agent_completed',
+        timestamp: 17,
+        sessionId: SESSION_ID,
+        messageId: MESSAGE_ID,
+        parentToolUseId: 'toolu_agent_1',
+        taskId: 'task-1',
+        status: 'completed',
+        summary: 'Done',
+        outputFile: '',
+      };
+      core.process(state, event, makeCtx());
+      expect(agentMonitorStore.onAgentCompleted).toHaveBeenCalledWith(event);
+      expect(backgroundAgentStore.onAgentCompleted).toHaveBeenCalledWith(event);
+    });
   });
 
   // ---- Subagent usage via message_complete (TASK_2026_597 N6) -------------
@@ -1137,6 +1162,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       expect(agentMonitorStore.onAgentProgress).not.toHaveBeenCalled();
       expect(agentMonitorStore.onAgentStatus).not.toHaveBeenCalled();
       expect(agentMonitorStore.onAgentCompleted).not.toHaveBeenCalled();
+      expect(backgroundAgentStore.onAgentCompleted).not.toHaveBeenCalled();
       expect(sessionManager.registerAgent).not.toHaveBeenCalled();
     });
 

@@ -916,8 +916,8 @@ export class EnhancedPromptsService {
    *
    * Extracts the "## Project-Specific Guidance" section and all its subsections
    * (Project Context, Framework Guidelines, Coding Standards, Architecture Notes)
-   * while excluding PTAH_CORE_SYSTEM_PROMPT and PTAH_SYSTEM_PROMPT which are
-   * Claude-specific and not applicable to CLI agents (Codex, Copilot).
+   * while excluding the core Ptah prompt, which belongs to the host prompt
+   * assembly rather than project-specific CLI lane guidance.
    *
    * Bounded at {@link PROJECT_GUIDANCE_MAX_BYTES}: this string is prepended to
    * every CLI spawn and resent with every tool call of that lane.

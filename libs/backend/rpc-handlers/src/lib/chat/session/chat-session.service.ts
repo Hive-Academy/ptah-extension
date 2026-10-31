@@ -18,6 +18,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { isAbsolute, resolve } from 'node:path';
 import {
   Logger,
   RpcUserError,
@@ -58,6 +59,7 @@ import {
   type SessionEndCallbackRegistry,
   type SessionMcpStatusCallbackRegistry,
   type SessionBudgetService,
+  type SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
@@ -107,6 +109,7 @@ import {
   type ChatSlashCommandRouterService,
 } from './chat-slash-command-router.service';
 import type { ChatHistoryReadService } from './chat-history-read.service';
+import { validateSessionPolicyRoot } from './session-folder';
 import {
   selectDeliveredBlockOwners,
   selectDeliveredSyntheticResults,
@@ -209,6 +212,7 @@ interface SdkSessionLaunch {
   readonly workspaceId: string;
   /** Where the session runs. */
   readonly projectPath: string;
+  readonly pluginConfigAncestorRoots?: readonly string[];
   readonly prompt?: string;
   readonly name?: string;
   readonly options?: NonNullable<ChatStartParams['options']>;
@@ -253,6 +257,14 @@ type ChatHostRouting = Pick<HostRoutingCoordinator, 'admitUserTurn'>;
 
 @injectable()
 export class ChatSessionService {
+  private readonly pendingLineage = new Map<
+    string,
+    {
+      readonly executionRoot: string;
+      readonly roots: readonly string[];
+    }
+  >();
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.WEBVIEW_MANAGER)
@@ -337,9 +349,206 @@ export class ChatSessionService {
      */
     @inject(CHAT_TOKENS.HOST_ROUTING_COORDINATOR, { isOptional: true })
     private readonly hostRouting?: ChatHostRouting,
+    @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY, {
+      isOptional: true,
+    })
+    private readonly sessionIdResolvedEvents?: SessionIdResolvedCallbackRegistry,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
+    this.sessionIdResolvedEvents?.register(({ tabId }) => {
+      if (tabId) this.pendingLineage.delete(tabId);
+    });
+  }
+
+  private canonicalRoot(root: string): string {
+    if (typeof root !== 'string' || !root.trim() || !isAbsolute(root)) {
+      throw new RpcUserError(
+        'Session policy root is invalid.',
+        'SESSION_FOLDER_UNAVAILABLE',
+      );
+    }
+    return resolve(root);
+  }
+
+  private async validatedLineage(
+    roots: readonly string[],
+    executionRoot: string,
+  ): Promise<string[]> {
+    const local = await validateSessionPolicyRoot(
+      executionRoot,
+      this.workspaceProvider,
+      this.platformInfo,
+    );
+    if (!Array.isArray(roots)) {
+      throw new RpcUserError(
+        'Session policy lineage is malformed.',
+        'SESSION_FOLDER_UNAVAILABLE',
+      );
+    }
+    const seen = new Set([local]);
+    const result: string[] = [];
+    for (const root of roots) {
+      const canonical = await validateSessionPolicyRoot(
+        root,
+        this.workspaceProvider,
+        this.platformInfo,
+      );
+      if (!seen.has(canonical)) {
+        seen.add(canonical);
+        result.push(canonical);
+      }
+    }
+    return result;
+  }
+
+  private async captureLineage(
+    sourceSessionId: SessionId | undefined,
+    workspaceRoot: string,
+    executionRoot: string,
+  ): Promise<readonly string[]> {
+    const immediate = await validateSessionPolicyRoot(
+      workspaceRoot,
+      this.workspaceProvider,
+      this.platformInfo,
+    );
+    if (!sourceSessionId)
+      return await this.validatedLineage([immediate], executionRoot);
+    const metadata = await this.sessionMetadataStore.get(sourceSessionId);
+    let sourceRoot: string;
+    let ancestors: readonly string[];
+    if (metadata) {
+      sourceRoot = metadata.workingDirectory || metadata.workspaceId;
+      if (!sourceRoot) {
+        throw new RpcUserError(
+          'Source session execution root is unavailable.',
+          'SESSION_FOLDER_UNAVAILABLE',
+        );
+      }
+      const state =
+        SessionMetadataStore.readPluginConfigAncestorRoots(metadata);
+      if (state.status === 'malformed') {
+        throw new RpcUserError(
+          'Source session policy lineage is malformed.',
+          'SESSION_FOLDER_UNAVAILABLE',
+        );
+      }
+      ancestors =
+        state.status === 'valid'
+          ? state.roots
+          : metadata.workingDirectory &&
+              metadata.workspaceId &&
+              this.canonicalRoot(metadata.workingDirectory) !==
+                this.canonicalRoot(metadata.workspaceId)
+            ? [metadata.workspaceId]
+            : [];
+    } else {
+      const live = this.pendingLineage.get(sourceSessionId);
+      if (!live) {
+        throw new RpcUserError(
+          'Source session policy lineage is unavailable.',
+          'SESSION_NOT_FOUND',
+        );
+      }
+      sourceRoot = live.executionRoot;
+      ancestors = live.roots;
+    }
+    if (
+      (await validateSessionPolicyRoot(
+        sourceRoot,
+        this.workspaceProvider,
+        this.platformInfo,
+      )) !== immediate
+    ) {
+      throw new RpcUserError(
+        'Source session root does not match the launch root.',
+        'SESSION_FOLDER_UNAVAILABLE',
+      );
+    }
+    const physicalExecution = await validateSessionPolicyRoot(
+      executionRoot,
+      this.workspaceProvider,
+      this.platformInfo,
+    );
+    const physicalAncestors = await Promise.all(
+      ancestors.map((root) =>
+        validateSessionPolicyRoot(
+          root,
+          this.workspaceProvider,
+          this.platformInfo,
+        ),
+      ),
+    );
+    if (physicalAncestors.includes(physicalExecution)) {
+      throw new RpcUserError(
+        'Session policy lineage would contain a cycle.',
+        'SESSION_FOLDER_UNAVAILABLE',
+      );
+    }
+    return await this.validatedLineage(
+      [sourceRoot, ...ancestors],
+      executionRoot,
+    );
+  }
+
+  private async restoreLineage(
+    sessionId: SessionId,
+    executionRoot: string,
+  ): Promise<{ roots: readonly string[]; legacy: boolean }> {
+    const metadata = await this.sessionMetadataStore.get(sessionId);
+    const state = SessionMetadataStore.readPluginConfigAncestorRoots(metadata);
+    if (state.status === 'malformed') {
+      throw new RpcUserError(
+        'Session policy lineage is malformed.',
+        'SESSION_FOLDER_UNAVAILABLE',
+      );
+    }
+    if (state.status === 'missing') {
+      await this.validatedLineage([], executionRoot);
+      return { roots: [], legacy: false };
+    }
+    if (state.status === 'valid') {
+      const physicalExecution = await validateSessionPolicyRoot(
+        executionRoot,
+        this.workspaceProvider,
+        this.platformInfo,
+      );
+      const physicalRoots = await Promise.all(
+        state.roots.map((root) =>
+          validateSessionPolicyRoot(
+            root,
+            this.workspaceProvider,
+            this.platformInfo,
+          ),
+        ),
+      );
+      if (physicalRoots.includes(physicalExecution)) {
+        throw new RpcUserError(
+          'Session policy lineage contains a cycle.',
+          'SESSION_FOLDER_UNAVAILABLE',
+        );
+      }
+      return {
+        roots: await this.validatedLineage(state.roots, executionRoot),
+        legacy: false,
+      };
+    }
+    const immediate = metadata?.workspaceId;
+    const distinct =
+      immediate &&
+      metadata?.workingDirectory &&
+      this.canonicalRoot(immediate) !== this.canonicalRoot(executionRoot);
+    const roots = await this.validatedLineage(
+      distinct ? [immediate] : [],
+      executionRoot,
+    );
+    if (roots.length) {
+      this.logger.warn(
+        '[RPC] Legacy session policy lineage has unknown earlier ancestors',
+        { sessionId },
+      );
+    }
+    return { roots, legacy: !!metadata?.workspaceId };
   }
 
   /**
@@ -376,13 +585,66 @@ export class ChatSessionService {
   /** Persist resume continuity whenever any SDK lifecycle path ends a session. */
   private subscribeToSessionEnd(): void {
     this.sessionEndEvents.register(({ sessionId, workspaceRoot }) => {
-      const resumableSdkSubagents =
-        this.subagentRegistry.getResumableBySession(sessionId);
-      return this.sessionMetadataStore.saveResumeState(sessionId, {
-        workingDirectory: workspaceRoot,
-        resumableSdkSubagents,
-      });
+      this.pendingLineage.delete(sessionId);
+      // `notifyAll` does not await subscribers, and shutdown flushes the
+      // metadata write queue right after it. So in the normal case (the
+      // registry already holds the session's durable state: a new session,
+      // or one chat:resume / chat:continue loaded) the write is queued
+      // synchronously, before this callback returns.
+      if (this.subagentRegistry.isResumeStateHydrated(sessionId)) {
+        return this.saveSessionEndResumeState(sessionId, workspaceRoot);
+      }
+      // Cold registry: `saveResumeState` REPLACES the durable list, so load it
+      // first. If it cannot be loaded, the stored list is left as it is rather
+      // than overwritten by a partial one.
+      return this.ensureResumeStateHydrated(sessionId).then((hydrated) =>
+        hydrated
+          ? this.saveSessionEndResumeState(sessionId, workspaceRoot)
+          : undefined,
+      );
     });
+  }
+
+  /** Queue the session-end write of the durable resume state. */
+  private saveSessionEndResumeState(
+    sessionId: string,
+    workspaceRoot: string,
+  ): Promise<void> {
+    // Dismissed records are still owed one injection, so they stay durable.
+    return this.sessionMetadataStore.saveResumeState(sessionId, {
+      workingDirectory: workspaceRoot,
+      resumableSdkSubagents:
+        this.subagentRegistry.getInterruptedBySession(sessionId),
+    });
+  }
+
+  /**
+   * Load the session's durable resume state (retired ids and the interrupted
+   * subagent snapshot) into the registry once per process. chat:resume does
+   * this as part of loading history; chat:continue, session end and abort
+   * call this so they never act on, or persist, a registry that has not seen
+   * the snapshot (a follow-up sent after a restart, before chat:resume).
+   *
+   * @returns Whether the registry now holds the session's durable state. A
+   *   failed metadata read is logged and answers `false`; callers then skip
+   *   anything that would replace the durable list.
+   */
+  private async ensureResumeStateHydrated(sessionId: string): Promise<boolean> {
+    if (this.subagentRegistry.isResumeStateHydrated(sessionId)) return true;
+    try {
+      const metadata = await this.sessionMetadataStore.get(sessionId);
+      this.subagentRegistry.hydrateResumeState(sessionId, {
+        retiredToolCallIds: metadata?.retiredSubagentToolCallIds,
+        resumableSdkSubagents: metadata?.resumableSdkSubagents,
+      });
+      return true;
+    } catch (error) {
+      this.logger.error(
+        '[RPC] Could not load durable subagent resume state',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return false;
+    }
   }
 
   /** Push one session's MCP picture. Never throws into the SDK's path. */
@@ -818,6 +1080,11 @@ export class ChatSessionService {
         inheritedSource: true,
         accountSelection: params.accountSelection,
       });
+      const pluginConfigAncestorRoots = await this.captureLineage(
+        params.sourceSessionId,
+        workspaceRoot,
+        worktreePath,
+      );
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       const permissionLevel = this.childPermissionLevel(params.permissionLevel);
       this.logger.info('[ptah.main] agent child session - session config', {
@@ -833,6 +1100,7 @@ export class ChatSessionService {
         tabId,
         workspaceId: workspaceRoot,
         projectPath: worktreePath,
+        pluginConfigAncestorRoots,
         prompt,
         name: sessionName,
         options: model ? { model } : undefined,
@@ -919,6 +1187,11 @@ export class ChatSessionService {
         inheritedSource: true,
         accountSelection: params.accountSelection,
       });
+      const pluginConfigAncestorRoots = await this.captureLineage(
+        params.sourceSessionId,
+        workspaceRoot,
+        cwd,
+      );
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       this.logger.info('[ptah.main] handoff session - session config', {
         tabId,
@@ -933,6 +1206,7 @@ export class ChatSessionService {
         tabId,
         workspaceId: workspaceRoot,
         projectPath: cwd,
+        pluginConfigAncestorRoots,
         prompt,
         name: sessionName,
         options: model ? { model } : undefined,
@@ -1008,6 +1282,14 @@ export class ChatSessionService {
    */
   private async launchSdkSession(input: SdkSessionLaunch): Promise<void> {
     const { logLabel, tabId, workspaceId, projectPath, options } = input;
+    if (input.pluginConfigAncestorRoots !== undefined) {
+      await validateSessionPolicyRoot(
+        workspaceId,
+        this.workspaceProvider,
+        this.platformInfo,
+      );
+      await this.validatedLineage(input.pluginConfigAncestorRoots, projectPath);
+    }
     const files = options?.files ?? [];
     const images = options?.images ?? [];
 
@@ -1074,48 +1356,62 @@ export class ChatSessionService {
         };
       },
     );
-    const stream = await this.sdkAdapter.startChatSession({
-      tabId,
-      workspaceId,
-      model: currentModel,
-      systemPrompt: options?.systemPrompt,
-      projectPath,
-      name: input.name,
-      prompt: input.prompt,
-      files,
-      images, // inline pasted/dropped images
-      mcpServerRunning: input.mcpServerRunning,
-      enhancedPromptsContent,
-      thinking: options?.thinking,
-      effort: options?.effort,
-      workflowsDisabled: this.resolveWorkflowsDisabled(),
-      includePartialMessages: options?.includePartialMessages,
-      mcpServersOverride,
-      providerProfile,
-      // Only agent-started sessions pass a level; `chat:start` keeps the
-      // global default.
-      ...(input.permissionLevel
-        ? { permissionLevel: input.permissionLevel }
-        : {}),
-      ...outputStyle,
-      ...(input.mcpToolProfile ? { mcpToolProfile: input.mcpToolProfile } : {}),
-      ...(input.ptahUiFence !== undefined
-        ? { ptahUiFence: input.ptahUiFence }
-        : {}),
-      // Named only; the ambient launch config keeps its existing fields.
-      ...(input.accountSelection
-        ? {
-            accountSelection: input.accountSelection,
-            admissionDeadline: input.admissionDeadline,
-          }
-        : {}),
+    this.pendingLineage.set(tabId, {
+      executionRoot: this.canonicalRoot(projectPath),
+      roots: input.pluginConfigAncestorRoots ?? [],
     });
-    this.streamBroadcaster.streamEventsToWebview(
-      tabId as SessionId,
-      stream,
-      tabId,
-      input.surfaceMode,
-    );
+    try {
+      const stream = await this.sdkAdapter.startChatSession({
+        tabId,
+        workspaceId,
+        model: currentModel,
+        systemPrompt: options?.systemPrompt,
+        projectPath,
+        ...(input.pluginConfigAncestorRoots !== undefined
+          ? { pluginConfigAncestorRoots: input.pluginConfigAncestorRoots }
+          : {}),
+        name: input.name,
+        prompt: input.prompt,
+        files,
+        images, // inline pasted/dropped images
+        mcpServerRunning: input.mcpServerRunning,
+        enhancedPromptsContent,
+        thinking: options?.thinking,
+        effort: options?.effort,
+        workflowsDisabled: this.resolveWorkflowsDisabled(),
+        includePartialMessages: options?.includePartialMessages,
+        mcpServersOverride,
+        providerProfile,
+        // Only agent-started sessions pass a level; `chat:start` keeps the
+        // global default.
+        ...(input.permissionLevel
+          ? { permissionLevel: input.permissionLevel }
+          : {}),
+        ...outputStyle,
+        ...(input.mcpToolProfile
+          ? { mcpToolProfile: input.mcpToolProfile }
+          : {}),
+        ...(input.ptahUiFence !== undefined
+          ? { ptahUiFence: input.ptahUiFence }
+          : {}),
+        // Named only; the ambient launch config keeps its existing fields.
+        ...(input.accountSelection
+          ? {
+              accountSelection: input.accountSelection,
+              admissionDeadline: input.admissionDeadline,
+            }
+          : {}),
+      });
+      this.streamBroadcaster.streamEventsToWebview(
+        tabId as SessionId,
+        stream,
+        tabId,
+        input.surfaceMode,
+      );
+    } catch (error) {
+      this.pendingLineage.delete(tabId);
+      throw error;
+    }
   }
 
   /**
@@ -1188,7 +1484,20 @@ export class ChatSessionService {
       const isSlashCommand = SlashCommandInterceptor.isSlashCommand(prompt);
 
       let justResumed = false;
+      let slashLineage:
+        { roots: readonly string[]; legacy: boolean } | undefined;
       if (isSlashCommand) {
+        try {
+          slashLineage = await this.restoreLineage(sessionId, workspacePath);
+        } catch (error) {
+          if (!(error instanceof RpcUserError)) throw error;
+          return {
+            success: false,
+            sessionId,
+            error: error.message,
+            errorCode: error.errorCode,
+          };
+        }
         await this.endDeadRecordBeforeSlashCommand(sessionId, tabId);
       } else {
         const resumeOutcome = await this.autoResumeIfInactive(
@@ -1217,55 +1526,74 @@ export class ChatSessionService {
           sessionId,
           tabId,
           workspacePath,
-          params,
+          slashLineage
+            ? { ...params, pluginConfigAncestorRoots: slashLineage.roots }
+            : params,
         );
       if (slashResult) {
+        if (slashResult.success && slashLineage?.legacy) {
+          await this.upgradeLegacyLineage(sessionId, slashLineage.roots);
+        }
         return slashResult;
       }
-      const { prompt: enhancedPrompt } =
+      // After a restart the session's interrupted agents may live only in
+      // metadata (no chat:resume yet); load them before deciding what to inject.
+      await this.ensureResumeStateHydrated(sessionId);
+      const injection =
         await this.subagentContextInjector.injectInterruptedAgentsContext(
           prompt,
           sessionId,
           workspacePath,
         );
-      if (!justResumed && hasStopIntent(prompt)) {
-        const autopilotEnabled = this.configManager.getWithDefault<boolean>(
-          'autopilot.enabled',
-          false,
-        );
-        const permissionLevel = this.configManager.getWithDefault<string>(
-          'autopilot.permissionLevel',
-          'ask',
-        );
-        if (
-          autopilotEnabled &&
-          (permissionLevel === 'yolo' || permissionLevel === 'auto-edit')
-        ) {
-          this.logger.info(
-            'RPC: chat:continue - stop intent detected, interrupting current turn',
-            { sessionId, permissionLevel, prompt: prompt.substring(0, 80) },
+      const enhancedPrompt = injection.prompt;
+      // Injected agents are retired only once the prompt was accepted. Any
+      // early return or throw below hands them back, still resumable.
+      let sent = false;
+      try {
+        if (!justResumed && hasStopIntent(prompt)) {
+          const autopilotEnabled = this.configManager.getWithDefault<boolean>(
+            'autopilot.enabled',
+            false,
           );
-          const interrupted =
-            await this.sdkAdapter.interruptCurrentTurn(sessionId);
-          if (!interrupted) {
-            return {
-              success: false,
-              error:
-                'The current turn could not be interrupted safely. Your follow-up was not sent. Retry to resume the session.',
-            };
+          const permissionLevel = this.configManager.getWithDefault<string>(
+            'autopilot.permissionLevel',
+            'ask',
+          );
+          if (
+            autopilotEnabled &&
+            (permissionLevel === 'yolo' || permissionLevel === 'auto-edit')
+          ) {
+            this.logger.info(
+              'RPC: chat:continue - stop intent detected, interrupting current turn',
+              { sessionId, permissionLevel, prompt: prompt.substring(0, 80) },
+            );
+            const interrupted =
+              await this.sdkAdapter.interruptCurrentTurn(sessionId);
+            if (!interrupted) {
+              return {
+                success: false,
+                error:
+                  'The current turn could not be interrupted safely. Your follow-up was not sent. Retry to resume the session.',
+              };
+            }
           }
         }
+        const images = params.images ?? [];
+        await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
+          files,
+          images,
+          clientMessageId: params.clientMessageId,
+        });
+        sent = true;
+      } finally {
+        if (!sent) injection.release();
       }
-      const images = params.images ?? [];
-      await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
-        files,
-        images,
-        clientMessageId: params.clientMessageId,
-      });
       // A slash command the router passed through is still not a turn to route.
       if (!isSlashCommand) {
         this.admitHostRoutingTurn({ tabId, sessionId, prompt });
       }
+      // Only now has the model actually been told about them.
+      await injection.commit();
 
       return { success: true, sessionId, enqueued: true };
     } catch (error) {
@@ -1339,11 +1667,19 @@ export class ChatSessionService {
       // Recompute the stage from the resume figure (N7); no stats, no budget.
       const budget = this.sessionBudget?.observeLoaded(stats ?? null);
 
-      const restoredFromMetadata =
-        this.subagentRegistry.restoreResumableBySession(
-          sessionId,
-          metadata?.resumableSdkSubagents ?? [],
-        );
+      // Retired agents were already described to the model once; hydration
+      // marks them before restoring the snapshot or replaying history. The
+      // in-memory injected set does not survive a restart, and the history
+      // registrar would otherwise re-register them from their unmatched
+      // agent_start events. Always re-applied here (not only once per
+      // process): the injected set is TTL-pruned.
+      const restoredFromMetadata = this.subagentRegistry.hydrateResumeState(
+        sessionId,
+        {
+          retiredToolCallIds: metadata?.retiredSubagentToolCallIds,
+          resumableSdkSubagents: metadata?.resumableSdkSubagents,
+        },
+      );
       if (restoredFromMetadata > 0) {
         this.logger.info(
           '[RPC] Restored interrupted SDK agents from session metadata',
@@ -1363,8 +1699,6 @@ export class ChatSessionService {
           registeredCount: registeredFromHistory,
         });
       }
-      const resumableSubagents =
-        this.subagentRegistry.getResumableBySession(sessionId);
       let cliSessions: CliSessionReference[] | undefined;
       try {
         // Lean references only (TASK_2026_411): no segments or stream events.
@@ -1399,7 +1733,8 @@ export class ChatSessionService {
         eventCount: fullEvents.length,
         hasStats: !!stats,
         totalCost: stats?.totalCost,
-        resumableSubagentCount: resumableSubagents.length,
+        resumableSubagentCount:
+          this.subagentRegistry.getResumableBySession(sessionId).length,
         cliSessionCount: cliSessions?.length ?? 0,
       });
       let activated = false;
@@ -1444,6 +1779,10 @@ export class ChatSessionService {
         }
       }
 
+      // Read after every await above, so a dismiss (or an injection by a
+      // concurrent chat:continue) that landed meanwhile is respected.
+      const resumableSubagents =
+        this.subagentRegistry.getResumableBySession(sessionId);
       const page = params.historyPage
         ? selectHistoryPage(fullEvents, {
             endIndex: fullEvents.length,
@@ -1540,9 +1879,16 @@ export class ChatSessionService {
       // nothing changed this call, and the registry may simply never have
       // restored that list (a tab restored after a restart and closed
       // unopened), so writing its snapshot would wipe resumable agents.
-      if (hadLiveRecord) {
+      // Dismissed records are hidden from the reply below but still owed one
+      // injection, so the durable list keeps them.
+      if (
+        hadLiveRecord &&
+        (await this.ensureResumeStateHydrated(sessionId as string))
+      ) {
         await this.sessionMetadataStore.saveResumeState(sessionId, {
-          resumableSdkSubagents: resumableSubagents,
+          resumableSdkSubagents: this.subagentRegistry.getInterruptedBySession(
+            sessionId as string,
+          ),
         });
       }
 
@@ -1806,6 +2152,21 @@ export class ChatSessionService {
     const mcpServerRunning =
       this.sdkContext.isMcpServerRunning() && mcpRegisteredForSubagents;
 
+    let lineage: { roots: readonly string[]; legacy: boolean };
+    try {
+      lineage = await this.restoreLineage(sessionId, workspacePath);
+    } catch (error) {
+      if (!(error instanceof RpcUserError)) throw error;
+      return {
+        error: {
+          success: false,
+          sessionId,
+          error: error.message,
+          errorCode: error.errorCode,
+        },
+      };
+    }
+
     this.logger.info('[ptah.main] chat:continue resume - session config', {
       mcpServerRunning,
       mcpPort: this.codeExecutionMcp.getPort(),
@@ -1859,6 +2220,7 @@ export class ChatSessionService {
 
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
         projectPath: workspacePath,
+        pluginConfigAncestorRoots: lineage.roots,
         model: currentModel,
         mcpServerRunning,
         enhancedPromptsContent,
@@ -1887,6 +2249,8 @@ export class ChatSessionService {
         tabId,
         params.surfaceMode,
       );
+      if (lineage.legacy)
+        await this.upgradeLegacyLineage(sessionId, lineage.roots);
       this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
       return { justResumed: true };
     } catch (resumeError) {
@@ -1915,6 +2279,32 @@ export class ChatSessionService {
           ...this.authErrorFields(resumeError),
         },
       };
+    }
+  }
+
+  private async upgradeLegacyLineage(
+    sessionId: SessionId,
+    roots: readonly string[],
+  ): Promise<void> {
+    try {
+      const upgraded =
+        await this.sessionMetadataStore.upgradeLegacyPluginConfigAncestorRoots(
+          sessionId,
+          roots,
+        );
+      if (upgraded.status === 'malformed') {
+        this.logger.warn(
+          '[RPC] Legacy session policy lineage upgrade was malformed',
+          {
+            sessionId,
+          },
+        );
+      }
+    } catch (error) {
+      this.logger.warn('[RPC] Legacy session policy lineage upgrade failed', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
