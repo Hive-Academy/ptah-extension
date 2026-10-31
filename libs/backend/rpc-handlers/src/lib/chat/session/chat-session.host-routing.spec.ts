@@ -12,6 +12,9 @@
  */
 
 import 'reflect-metadata';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // `ChatSessionService` imports `@ptah-extension/cli-agent-runtime`, whose barrel
 // transitively pulls `@ptah-extension/workspace-intelligence`. That lib's
@@ -58,7 +61,12 @@ import type { AdmitUserTurnInput } from '../host-routing/host-routing.coordinato
 import { ChatSessionService } from './chat-session.service';
 import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
-const WORKSPACE = '/c/projects/host-routing';
+// A slash follow-up validates its execution root on disk, so the workspace
+// must exist.
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-host-routing-'));
+afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
+mkdirSync(join(TEST_ROOT, 'host-routing'), { recursive: true });
+const WORKSPACE = `${TEST_ROOT}/host-routing`;
 const SESSION_ID = '0d4c3f0e-6a51-4c55-9a8e-2d3f8c1b7a10' as SessionId;
 const TAB_ID = '5b0f6c2e-1d7a-4f3b-8e9c-a1b2c3d4e5f6';
 const PROMPT = 'add retries to the uploader';
@@ -126,6 +134,8 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
     } as never,
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),
+      hydrateResumeState: jest.fn().mockReturnValue(0),
+      isResumeStateHydrated: jest.fn().mockReturnValue(true),
       registerFromHistoryEvents: jest.fn().mockReturnValue(0),
       getResumableBySession: jest.fn().mockReturnValue([]),
     } as never,
