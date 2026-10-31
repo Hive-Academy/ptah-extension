@@ -315,8 +315,8 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
         throw new CodexLaneResumeIdentityError();
       sessionId = context.identity.threadId;
       await this.identities.persist(context.identity);
-      if (options.onAccountBinding) {
-        if (!options.accountBinding || !options.accountBindingId)
+      if (options.accountBinding !== undefined || options.accountBindingId !== undefined) {
+        if (!options.accountBinding || !options.accountBindingId || !options.onAccountBinding)
           throw new Error('Codex lane account binding is incomplete');
         await options.onAccountBinding({
           accountBinding: options.accountBinding,

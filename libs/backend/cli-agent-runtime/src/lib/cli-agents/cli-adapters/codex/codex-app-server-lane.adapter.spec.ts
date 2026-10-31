@@ -183,6 +183,12 @@ async function terminal(context: FakeContext, turnId = 'turn-1', status: 'comple
 }
 
 describe('CodexAppServerLaneAdapter', () => {
+  const binding: ProviderAccountBinding = {
+    version: 1, provider: 'codex', profileId: 'profile-1',
+    routeRevision: 1, routeFingerprint: 'fingerprint', authEpoch: 1,
+    runId: 'run-1', identity: { kind: 'unknown' },
+  };
+
   it('preserves line breaks while removing bare carriage returns from output', () => {
     const h = harness();
     expect(h.adapter.parseOutput('line 1\nline 2\r\n')).toBe('line 1\nline 2\r\n');
@@ -237,23 +243,34 @@ describe('CodexAppServerLaneAdapter', () => {
     handle.abort.abort();
   });
 
+  it('starts a default-account lane without invoking the binding callback', async () => {
+    const h = harness();
+    const onAccountBinding = jest.fn(async () => undefined);
+    const handle = await h.adapter.runSdk(options({ onAccountBinding }));
+    expect(h.context.inputs).toHaveLength(1);
+    expect(onAccountBinding).not.toHaveBeenCalled();
+    await terminal(h.context);
+    expect(await handle.done).toBe(0);
+    handle.abort.abort();
+  });
+
   it('awaits account binding before the prompt and continues on the same context with role resend', async () => {
     const h = harness();
-    const binding: ProviderAccountBinding = {
-      version: 1, provider: 'codex', profileId: 'profile-1',
-      routeRevision: 1, routeFingerprint: 'fingerprint', authEpoch: 1,
-      runId: 'run-1', identity: { kind: 'unknown' },
-    };
+    const onAccountBinding = jest.fn(async (..._args: Parameters<NonNullable<CliCommandOptions['onAccountBinding']>>) => {
+      expect(h.context.inputs).toHaveLength(0);
+      h.order.push('binding');
+    });
     const handle = await h.adapter.runSdk(options({
       role: { name: 'Reviewer', body: 'Review code', sourcePath: '/role.md', bytes: 11 },
       accountBinding: binding,
       accountBindingId: 'binding-1',
-      onAccountBinding: async () => {
-        expect(h.context.inputs).toHaveLength(0);
-        h.order.push('binding');
-      },
+      onAccountBinding,
     }));
     expect(h.order).toEqual(['open', 'persist', 'binding']);
+    expect(onAccountBinding).toHaveBeenCalledTimes(1);
+    expect(onAccountBinding).toHaveBeenCalledWith({
+      accountBinding: binding, accountBindingId: 'binding-1',
+    }, 'thread-1');
     expect(h.context.inputs[0].text).toContain('write report');
     expect(h.context.inputs[0].text).not.toContain('## Role: Reviewer');
     expect(h.profile.developerPrompt).toContain('## Role: Reviewer');
@@ -272,6 +289,36 @@ describe('CodexAppServerLaneAdapter', () => {
     expect(handle.getRoleDelivery?.()).toBe('task-prompt');
     expect(h.runtime.open).toHaveBeenCalledTimes(1);
     handle.abort.abort();
+  });
+
+  it('refuses either partial account binding and closes the opened context once', async () => {
+    for (const fields of [{ accountBinding: binding }, { accountBindingId: 'binding-1' }]) {
+      const h = harness();
+      const onAccountBinding = jest.fn(async () => undefined);
+      await expect(h.adapter.runSdk(options({ ...fields, onAccountBinding })))
+        .rejects.toThrow('Codex lane account binding is incomplete');
+      expect(h.context.inputs).toHaveLength(0);
+      expect(h.context.close).toHaveBeenCalledTimes(1);
+      expect(onAccountBinding).not.toHaveBeenCalled();
+    }
+  });
+
+  it('refuses either partial account binding without a callback and closes once', async () => {
+    for (const fields of [{ accountBinding: binding }, { accountBindingId: 'binding-1' }]) {
+      const h = harness();
+      await expect(h.adapter.runSdk(options(fields)))
+        .rejects.toThrow('Codex lane account binding is incomplete');
+      expect(h.context.inputs).toHaveLength(0);
+      expect(h.context.close).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('refuses a full account binding without a callback and closes once', async () => {
+    const h = harness();
+    await expect(h.adapter.runSdk(options({ accountBinding: binding, accountBindingId: 'binding-1' })))
+      .rejects.toThrow('Codex lane account binding is incomplete');
+    expect(h.context.inputs).toHaveLength(0);
+    expect(h.context.close).toHaveBeenCalledTimes(1);
   });
 
   it('refuses resume without a full matching identity and resumes with one', async () => {
