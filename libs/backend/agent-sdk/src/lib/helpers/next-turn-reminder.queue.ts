@@ -8,6 +8,12 @@ import {
 const MAX_ENTRIES = 200;
 const MAX_TEXT_LENGTH = 600;
 
+/** A drained reminder and the producer that put it (`null` = untagged). */
+export interface NextTurnReminder {
+  readonly text: string;
+  readonly owner: string | null;
+}
+
 /** In-memory, single-use reminders for the next main-thread prompt. */
 @injectable()
 export class NextTurnReminderQueue {
@@ -16,6 +22,7 @@ export class NextTurnReminderQueue {
     { text: string; order: number; owner: string | null }
   >();
   private readonly aliases = new Map<string, string>();
+  private readonly gates = new Map<string, () => boolean>();
   private nextOrder = 0;
   private readonly unsubscribe: () => void;
 
@@ -41,17 +48,46 @@ export class NextTurnReminderQueue {
     }
   }
 
-  take(sessionId: string): string | null {
+  /** Drains the session's reminder; one whose owner's gate is closed is dropped. */
+  takeEntry(sessionId: string): NextTurnReminder | null {
     const key = this.aliases.get(sessionId) ?? sessionId;
     const entry = this.entries.get(key);
     this.entries.delete(key);
-    return entry?.text ?? null;
+    if (!entry || !this.allows(entry.owner)) return null;
+    return { text: entry.text, owner: entry.owner };
   }
 
-  /** Remove a reminder by its tab key or its resolved SDK session id. */
-  discard(sessionKey: string): void {
-    this.entries.delete(sessionKey);
-    this.entries.delete(this.aliases.get(sessionKey) ?? sessionKey);
+  take(sessionId: string): string | null {
+    return this.takeEntry(sessionId)?.text ?? null;
+  }
+
+  /**
+   * Remove the reminder `owner` put under a tab key or its resolved SDK
+   * session id. Another producer's entry at the same key stays.
+   */
+  discard(sessionKey: string, owner: string): void {
+    const keys = [sessionKey, this.aliases.get(sessionKey) ?? sessionKey];
+    for (const key of keys) {
+      if (this.entries.get(key)?.owner === owner) this.entries.delete(key);
+    }
+  }
+
+  /**
+   * `allows` is read each time an entry of `owner` is drained or about to be
+   * injected; while it reads false those entries are withheld. Returns the
+   * release.
+   */
+  gateOwner(owner: string, allows: () => boolean): () => void {
+    this.gates.set(owner, allows);
+    return () => {
+      if (this.gates.get(owner) === allows) this.gates.delete(owner);
+    };
+  }
+
+  /** Whether an entry of `owner` may be injected now; untagged always may. */
+  allows(owner: string | null): boolean {
+    const gate = owner === null ? undefined : this.gates.get(owner);
+    return gate === undefined || gate();
   }
 
   /** Remove every queued reminder `owner` put, in all sessions. */
@@ -65,6 +101,7 @@ export class NextTurnReminderQueue {
     this.unsubscribe();
     this.entries.clear();
     this.aliases.clear();
+    this.gates.clear();
   }
 
   private rekey({

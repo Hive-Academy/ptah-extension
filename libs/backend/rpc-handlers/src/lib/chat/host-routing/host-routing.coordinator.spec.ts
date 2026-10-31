@@ -58,6 +58,7 @@ import { ROUTING_NUDGE_TEXT } from './routing-reminder.format';
 const TAB = 'tab-1';
 const SDK = 'sdk-1';
 const SETTING_KEY = 'ptah.agentOrchestration.hostRouting';
+const MODEL_KEY = 'ptah.agentOrchestration.decisionModel';
 
 interface Deferred<T> {
   readonly promise: Promise<T>;
@@ -305,6 +306,14 @@ function harness(options: { readonly model?: boolean } = {}) {
     toggle(on: boolean): void {
       workspace.__state.config.set(SETTING_KEY, on);
       workspace.__state.fireConfigurationChange(SETTING_KEY);
+    },
+    /** The trailing change event of an Electron file-backed write. */
+    announce(key: string = SETTING_KEY): void {
+      workspace.__state.fireConfigurationChange(key);
+    },
+    /** A decision model write whose change event has not fired yet. */
+    setModel(model: string): void {
+      workspace.__state.config.set(MODEL_KEY, { kind: 'ollama', model });
     },
     turn(prompt: string, sessionId: string | null = SDK): void {
       coordinator.admitUserTurn({ tabId: TAB, sessionId, prompt });
@@ -815,6 +824,134 @@ describe('HostRoutingCoordinator', () => {
       await flush();
       h.toggle(false);
       expect(h.queue.take(SDK)).toBeNull();
+    });
+  });
+
+  // Electron applies a file-backed write in memory, persists it, then fires
+  // the change event: `setEnabled` / `setModel` are the in-memory part and
+  // `announce` is the trailing event.
+  describe('deferred setting events (review fix round 2)', () => {
+    it('the value reads off before its event: an old pre-flight settling in that window changes nothing', async () => {
+      const h = harness();
+      const oldDecide = h.deferDecide();
+      h.nextAnswer({ e: 'yes', s: 'yes' });
+      h.turn('add retries to the downloader');
+      await flush();
+      expect(h.decide).toHaveBeenCalledTimes(1);
+
+      h.setEnabled(false);
+      oldDecide.resolve(preflight());
+      await flush();
+      expect(h.queue.take(SDK)).toBeNull();
+      expect(h.hit()).toBeNull();
+      h.announce();
+
+      h.setEnabled(true);
+      h.nextAnswer({ e: 'yes', r: 'continuation', m: 'no', s: 'yes' });
+      h.turn('same plan');
+      await flush();
+      expect(h.decide).toHaveBeenCalledTimes(2);
+      expect(h.queue.take(SDK)).toContain('Routing: pre-flight');
+    });
+
+    it('a late "on" event keeps a new same-revision request admitted after the value read on', async () => {
+      const h = harness();
+      const oldDecide = h.deferDecide();
+      h.nextAnswer({ e: 'yes', s: 'yes' });
+      h.turn('add retries to the downloader');
+      await flush();
+
+      h.toggle(false);
+      h.setEnabled(true); // its event is still pending
+      const newDecide = h.deferDecide();
+      h.nextAnswer({ e: 'yes', r: 'continuation', m: 'no', s: 'yes' });
+      h.turn('resume, same plan');
+      await flush();
+      expect(h.decide).toHaveBeenCalledTimes(2);
+
+      oldDecide.resolve(preflight('BUGFIX'));
+      await flush();
+      expect(h.queue.take(SDK)).toBeNull();
+      expect(h.hit()).toBeNull();
+
+      h.announce();
+      newDecide.resolve(preflight('FEATURE'));
+      await flush();
+      const reminder = h.queue.take(SDK);
+      expect(reminder).toContain('taskType=FEATURE');
+      expect(reminder).not.toContain('BUGFIX');
+      expect(h.hit()?.taskType.value).toBe('FEATURE');
+    });
+
+    it('both events late: an old result is discarded and the new request survives both events', async () => {
+      const h = harness();
+      const oldDecide = h.deferDecide();
+      h.nextAnswer({ e: 'yes', s: 'yes' });
+      h.turn('add retries to the downloader');
+      await flush();
+
+      h.setEnabled(false);
+      h.turn('pause that'); // reads off: the change counts from here
+      h.setEnabled(true);
+      const newDecide = h.deferDecide();
+      h.nextAnswer({ e: 'yes', r: 'continuation', m: 'no', s: 'yes' });
+      h.turn('resume, same plan');
+      await flush();
+      expect(h.decide).toHaveBeenCalledTimes(2);
+
+      oldDecide.resolve(preflight('BUGFIX'));
+      await flush();
+      expect(h.queue.take(SDK)).toBeNull();
+      expect(h.hit()).toBeNull();
+
+      h.announce();
+      h.announce();
+      newDecide.resolve(preflight('FEATURE'));
+      await flush();
+      expect(h.queue.take(SDK)).toContain('taskType=FEATURE');
+      expect(h.hit()?.taskType.value).toBe('FEATURE');
+    });
+
+    it('a decision model change before its event discards an old pre-flight', async () => {
+      const h = harness();
+      const oldDecide = h.deferDecide();
+      h.nextAnswer({ e: 'yes', s: 'yes' });
+      h.turn('add retries to the downloader');
+      await flush();
+
+      h.setModel('other-model');
+      oldDecide.resolve(preflight());
+      await flush();
+      expect(h.queue.take(SDK)).toBeNull();
+      expect(h.hit()).toBeNull();
+    });
+  });
+
+  describe('owner-scoped keyed discard (review fix round 2, F3)', () => {
+    it("a reset keeps another producer's entry at the routing tab's session key", async () => {
+      const h = harness();
+      h.nextAnswer({ e: 'yes', s: 'yes' });
+      h.turn('add retries to the downloader');
+      await flush();
+      // Another producer replaces routing's entry at the same key.
+      h.queue.put(SDK, 'other context', 'other-producer');
+      h.toggle(false);
+      expect(h.queue.take(SDK)).toBe('other context');
+    });
+
+    it("a revision change keeps another producer's entry at the same key", async () => {
+      const h = harness();
+      h.nextAnswer({ e: 'yes', s: 'no' });
+      h.turn('make the uploader better');
+      await flush();
+      h.queue.put(SDK, 'other context', 'other-producer');
+      // A new revision whose pre-flight is still pending puts nothing yet.
+      h.deferDecide();
+      h.nextAnswer({ e: 'yes', r: 'new-task', s: 'yes' });
+      h.turn('actually, rewrite the downloader');
+      await flush();
+      expect(h.decide).toHaveBeenCalledTimes(1);
+      expect(h.queue.take(SDK)).toBe('other context');
     });
   });
 

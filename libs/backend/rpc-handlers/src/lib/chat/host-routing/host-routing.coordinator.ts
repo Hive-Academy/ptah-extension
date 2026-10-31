@@ -15,10 +15,15 @@
  *  - `epoch` (bumped by every Disable reset, Gate 2 carry-forward): an
  *    assessment or pre-flight that started before a reset is discarded
  *    before any state, cache or queue mutation, even when the setting is on
- *    again by the time it settles. A write to the host-routing switch (or a
- *    decision model write that leaves routing off) resets every tab and drops
- *    this coordinator's queued reminders at once, so an off->on toggle with
- *    no admitted turn in between still cancels the old work.
+ *    again by the time it settles. A configuration change (switch or decision
+ *    model) resets every tab and drops this coordinator's queued reminders.
+ *    It is detected from the live values at each admission and settlement,
+ *    not only from the change event, which Electron fires after persisting
+ *    (`HostRoutingConfigTracker`). A late event for an already observed change
+ *    keeps work admitted under the current values.
+ *  - The queue gate: the hook re-reads the live setting before injecting a
+ *    reminder of this coordinator, so a reminder drained while routing turns
+ *    off is withheld.
  *  - `inFlight` is cleared only by the pre-flight that owns it (promise
  *    identity), so an old settle never clears a newer request.
  *  - The tab state object itself: a tab evicted from the LRU while work is
@@ -44,7 +49,6 @@ import {
   buildPreflightScopeSummary,
   type DecisionModelConfig,
   type HostRoutingSetting,
-  type HostRoutingSettingChange,
   type PreflightResult,
   type PreflightReuseCache,
   type RouteCandidateSource,
@@ -61,6 +65,7 @@ import {
   formatRoutingReminder,
   type RoutingCandidates,
 } from './routing-reminder.format';
+import { HostRoutingConfigTracker } from './host-routing-config-tracker';
 
 const MAX_TABS = 200;
 const MAX_ALIASES = 200;
@@ -120,7 +125,7 @@ type ReuseCache = Pick<
 >;
 type ReminderQueue = Pick<
   NextTurnReminderQueue,
-  'put' | 'discard' | 'discardOwned'
+  'put' | 'discard' | 'discardOwned' | 'gateOwner'
 >;
 type TurnEvents = Pick<SdkAdapterEvents, 'onTurnEnded'>;
 type SessionIdRegistry = Pick<SessionIdResolvedCallbackRegistry, 'register'>;
@@ -136,6 +141,9 @@ export class HostRoutingCoordinator {
   private readonly aliases = new Map<string, string>();
   private readonly releases: Array<() => void> = [];
   private candidateSource: RouteCandidateSource | null = null;
+  private readonly config = new HostRoutingConfigTracker(() =>
+    this.configStamp(),
+  );
 
   constructor(
     @inject(TOKENS.LOGGER)
@@ -164,10 +172,11 @@ export class HostRoutingCoordinator {
     })
     sessionIds?: SessionIdRegistry,
   ) {
-    const settingChanges = setting.onDidChange((change) =>
-      this.onSettingChanged(change),
-    );
+    const settingChanges = setting.onDidChange(() => this.onSettingChanged());
     this.releases.push(() => settingChanges.dispose());
+    this.releases.push(
+      queue.gateOwner(REMINDER_OWNER, () => setting.isEnabled()),
+    );
     if (events) {
       this.releases.push(
         events.onTurnEnded((event) => this.onTurnEnded(event)),
@@ -188,6 +197,7 @@ export class HostRoutingCoordinator {
     try {
       const text = input.prompt.trim();
       if (text.length === 0 || text.startsWith('/')) return;
+      this.syncConfig();
       if (!this.setting.isEnabled()) {
         this.cache?.clear();
         const existing = this.tabs.get(input.tabId);
@@ -267,6 +277,7 @@ export class HostRoutingCoordinator {
       this.discarded(tabId, 'scope', 'evicted');
       return;
     }
+    this.syncConfig();
     if (state.epoch !== epoch) {
       this.discarded(tabId, 'scope', 'cancelled');
       return;
@@ -396,6 +407,7 @@ export class HostRoutingCoordinator {
     try {
       // Gate 2 carry-forward: a request started before a Disable reset (or
       // for an evicted tab) changes nothing at all.
+      this.syncConfig();
       if (this.tabs.get(tabId) !== state || state.epoch !== epoch) {
         this.discarded(tabId, 'pre-flight', 'cancelled');
         return;
@@ -504,25 +516,38 @@ export class HostRoutingCoordinator {
     state.nudgedRevision = null;
   }
 
-  /**
-   * A write to the switch is treated as a possible off->on toggle and resets
-   * every tab whatever it reads now; a decision model write resets only when
-   * it leaves routing off.
-   */
-  private onSettingChanged(change: HostRoutingSettingChange): void {
+  /** A change event resets unless it announces a change a read already saw. */
+  private onSettingChanged(): void {
     try {
-      if (!change.switchChanged && this.setting.isEnabled()) return;
-      this.cache?.clear();
-      for (const [tabId, state] of this.tabs) this.disableReset(tabId, state);
-      this.queue.discardOwned(REMINDER_OWNER);
+      if (this.config.onEvent()) this.resetAll();
     } catch (error: unknown) {
       this.reportFailure(null, 'setting-change', error);
     }
   }
 
+  /** Resets every tab when the live configuration changed since last read. */
+  private syncConfig(): void {
+    if (this.config.observe()) this.resetAll();
+  }
+
+  /** Effective configuration: off, or on with the selected decision model. */
+  private configStamp(): string {
+    if (!this.setting.isEnabled()) return 'off';
+    return `on:${JSON.stringify(this.decisionConfig.getSelection())}`;
+  }
+
+  private resetAll(): void {
+    this.cache?.clear();
+    for (const [tabId, state] of this.tabs) this.disableReset(tabId, state);
+    this.queue.discardOwned(REMINDER_OWNER);
+  }
+
+  /** Only this coordinator's entries; another producer's entry stays. */
   private discardQueued(tabId: string, state: TabRoutingState): void {
-    this.queue.discard(state.latestSessionKey);
-    if (state.latestSessionKey !== tabId) this.queue.discard(tabId);
+    this.queue.discard(state.latestSessionKey, REMINDER_OWNER);
+    if (state.latestSessionKey !== tabId) {
+      this.queue.discard(tabId, REMINDER_OWNER);
+    }
   }
 
   private onSessionIdResolved(payload: SessionIdResolvedPayload): void {

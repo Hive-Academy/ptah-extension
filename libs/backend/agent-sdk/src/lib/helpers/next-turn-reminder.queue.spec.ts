@@ -79,14 +79,47 @@ describe('NextTurnReminderQueue', () => {
 
   it('discard by tab clears a rekeyed reminder; missing keys are no-ops', () => {
     const { queue, resolve } = setup();
-    queue.discard('absent');
-    queue.put('tab', 'pending');
+    queue.discard('absent', 'routing');
+    queue.put('tab', 'pending', 'routing');
     resolve('tab', 'sdk');
-    queue.discard('tab');
+    queue.discard('tab', 'routing');
     expect(queue.take('sdk')).toBeNull();
-    queue.put('tab', 'next');
-    queue.discard('sdk');
+    queue.put('tab', 'next', 'routing');
+    queue.discard('sdk', 'routing');
     expect(queue.take('sdk')).toBeNull();
+  });
+
+  it("a keyed discard keeps another producer's entry at the same session key", () => {
+    const { queue, resolve } = setup();
+    queue.put('tab', 'routing', 'routing');
+    resolve('tab', 'sdk');
+    // Another producer replaces routing's entry at the same resolved key.
+    queue.put('sdk', 'other producer', 'other');
+    queue.discard('tab', 'routing');
+    queue.discard('sdk', 'routing');
+    expect(queue.take('sdk')).toBe('other producer');
+    queue.put('sdk', 'untagged');
+    queue.discard('sdk', 'routing');
+    expect(queue.take('sdk')).toBe('untagged');
+  });
+
+  it("withholds a gated owner's entries while its gate reads false, until released", () => {
+    const { queue } = setup();
+    const enabled = { on: false };
+    const release = queue.gateOwner('routing', () => enabled.on);
+    queue.put('a', 'routing a', 'routing');
+    queue.put('b', 'other b', 'other');
+    expect(queue.allows('routing')).toBe(false);
+    expect(queue.allows(null)).toBe(true);
+    expect(queue.takeEntry('a')).toBeNull();
+    // Withheld entries are drained, not kept for later.
+    enabled.on = true;
+    expect(queue.take('a')).toBeNull();
+    expect(queue.takeEntry('b')).toEqual({ text: 'other b', owner: 'other' });
+    enabled.on = false;
+    release();
+    queue.put('a', 'routing again', 'routing');
+    expect(queue.take('a')).toBe('routing again');
   });
 
   it('bounds aliases and releases its one registry subscription on dispose', () => {
