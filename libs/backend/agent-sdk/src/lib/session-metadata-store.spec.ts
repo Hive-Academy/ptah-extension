@@ -24,7 +24,7 @@
 
 import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   AgentOutputCursorStaleError,
   CodexSessionMetadataError,
@@ -52,6 +52,8 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
+import { createCodexThreadIdentityStore } from './wiring/codex-thread-identity-store';
+import { initializeSessionRuntimeIdentityLookup } from './wiring/session-runtime-identity-cache';
 import type {
   AgentId,
   CliOutputSegment,
@@ -345,6 +347,71 @@ describe('SessionMetadataStore', () => {
   // -------------------------------------------------------------------------
 
   describe('getForWorkspace', () => {
+    // A Codex lane identity needs an absolute workspace on every platform.
+    const LANE_WORKSPACE = resolve(WORKSPACE);
+
+    it('keeps lane thread rows out of chat listings and chat resume', async () => {
+      const identity = {
+        threadId: SessionId.from('11111111-1111-4111-8111-111111111111'),
+        contextId: 'lane-context',
+        processGeneration: 1,
+        normalizedHome: '/codex-home',
+        workspaceId: LANE_WORKSPACE,
+        providerId: 'codex',
+        profileFingerprint: 'lane-fingerprint',
+      };
+      const laneStore = createCodexThreadIdentityStore(store, store, 'lane');
+      await laneStore.persist(identity);
+
+      expect((await store.get(identity.threadId))?.codexThread?.consumer).toBe('lane');
+      expect(await laneStore.read(identity.contextId)).toEqual(identity);
+      expect(await createCodexThreadIdentityStore(store, store).read(identity.contextId))
+        .toBeUndefined();
+      expect(await store.getForWorkspace(LANE_WORKSPACE)).toEqual([]);
+      expect(await store.getForWorkspace(LANE_WORKSPACE, true)).toEqual([]);
+
+      const chatLookup = await initializeSessionRuntimeIdentityLookup(store, asLogger(logger));
+      try {
+        expect(chatLookup.lookup(identity.threadId)).toBeUndefined();
+      } finally {
+        chatLookup.dispose();
+      }
+    });
+
+    it('keeps lane thread rows out of records-backed chat listings and chat resume', async () => {
+      const records = createMockSessionRecordRepository();
+      const recordsStore = new SessionMetadataStore(storage, asLogger(logger), records);
+      const identity = {
+        threadId: SessionId.from('22222222-2222-4222-8222-222222222222'),
+        contextId: 'records-lane-context',
+        processGeneration: 1,
+        normalizedHome: '/codex-home',
+        workspaceId: LANE_WORKSPACE,
+        providerId: 'codex',
+        profileFingerprint: 'records-lane-fingerprint',
+      };
+      const laneStore = createCodexThreadIdentityStore(recordsStore, recordsStore, 'lane');
+      await laneStore.persist(identity);
+
+      expect(records.__records.get(identity.threadId)?.isChild).toBe(true);
+      expect((await recordsStore.get(identity.threadId))?.codexThread?.consumer).toBe('lane');
+      expect(await laneStore.read(identity.contextId)).toEqual(identity);
+      expect(await createCodexThreadIdentityStore(recordsStore, recordsStore)
+        .read(identity.contextId)).toBeUndefined();
+      expect(await recordsStore.getForWorkspace(LANE_WORKSPACE)).toEqual([]);
+      expect(await recordsStore.getForWorkspace(LANE_WORKSPACE, true)).toEqual([]);
+      expect(records.listForWorkspace).toHaveBeenCalled();
+
+      const chatLookup = await initializeSessionRuntimeIdentityLookup(
+        recordsStore, asLogger(logger),
+      );
+      try {
+        expect(chatLookup.lookup(identity.threadId)).toBeUndefined();
+      } finally {
+        chatLookup.dispose();
+      }
+    });
+
     it('excludes child sessions by default and includes them when asked', async () => {
       await store.create('parent-1', WORKSPACE, 'Parent');
       await store.createChild('child-1', WORKSPACE, 'Child');

@@ -41,6 +41,11 @@ export async function initializeSessionRuntimeIdentityLookup(
   const replace = (id: string, metadata: SessionMetadata | null) => {
     // Only a delete event may remove a known native binding.
     if (!metadata) return;
+    if (metadata.codexThread?.consumer === 'lane') {
+      entries.delete(id);
+      workspacePaths.delete(id);
+      return;
+    }
     const workspacePath = metadata.codexThread?.workspaceId;
     if (workspacePath === undefined) workspacePaths.delete(id);
     else workspacePaths.set(id, workspacePath);

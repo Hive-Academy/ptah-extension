@@ -48,6 +48,7 @@ export {
   CodexAppServerLaneAdapter,
   CodexLaneResumeIdentityError,
 } from './lib/cli-agents/cli-adapters/codex/codex-app-server-lane.adapter';
+export { CODEX_LANE_DEFAULT_MODEL } from './lib/cli-agents/cli-adapters/codex/codex-app-server-lane-models';
 export type {
   CodexLaneRuntimeProvider,
   CodexLaneProfileResolver,

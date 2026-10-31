@@ -40,6 +40,14 @@ describe('FileCodexLaneCredentialProbe', () => {
     await expect(new FileCodexLaneCredentialProbe().check()).resolves.toBe('unreadable');
   });
 
+  it('checks the resolved lane home even when the process environment selects another account', async () => {
+    const laneHome = join(root, 'lane-account');
+    await mkdir(laneHome);
+    await writeFile(join(laneHome, 'auth.json'), JSON.stringify({ openai_api_key: 'lane' }));
+    process.env['CODEX_HOME'] = join(root, 'other-account');
+    await expect(new FileCodexLaneCredentialProbe().check(laneHome)).resolves.toBe('fresh');
+  });
+
   it('treats an auth path beneath a file as missing', async () => {
     const file = join(root, 'not-a-directory');
     await writeFile(file, 'fixture');

@@ -117,7 +117,7 @@ type EventPart = CodexRuntimeEvent extends infer Event
     : never
   : never;
 
-function harness(configure?: (context: FakeContext, attempt: number) => void) {
+function harness(configure?: (context: FakeContext, attempt: number) => void, home?: string) {
   let context: FakeContext | undefined;
   const contexts: FakeContext[] = [];
   let openedProfile: CodexExecutionProfile | undefined;
@@ -165,6 +165,7 @@ function harness(configure?: (context: FakeContext, attempt: number) => void) {
   };
   const adapter = new CodexAppServerLaneAdapter(
     runtime, profiles, identities, logger, binary, credentials,
+    async () => home,
   );
   return {
     adapter, runtime, profiles, identities, order, contexts, binary, credentials, logger,
@@ -182,6 +183,23 @@ async function terminal(context: FakeContext, turnId = 'turn-1', status: 'comple
 }
 
 describe('CodexAppServerLaneAdapter', () => {
+  it('preserves line breaks while removing bare carriage returns from output', () => {
+    const h = harness();
+    expect(h.adapter.parseOutput('line 1\nline 2\r\n')).toBe('line 1\nline 2\r\n');
+    expect(h.adapter.parseOutput('a\rb')).toBe('ab');
+  });
+
+  it('uses the selected account home for credential and catalog probes', async () => {
+    const h = harness(undefined, '/home');
+    expect(await h.adapter.ensureTokensFresh()).toBe(true);
+    expect(h.credentials.check).toHaveBeenCalledWith('/home');
+    const handle = await h.adapter.runSdk(options());
+    await terminal(h.context);
+    await handle.done;
+    handle.abort.abort();
+    await h.adapter.listModels();
+    expect(h.runtime.openCatalog).toHaveBeenCalledWith('/bin/codex', '/home');
+  });
   it('opens one lane context with exact settings, projects text, tool and usage once, and reports Ptah MCP URL', async () => {
     const h = harness();
     const handle = await h.adapter.runSdk(options());

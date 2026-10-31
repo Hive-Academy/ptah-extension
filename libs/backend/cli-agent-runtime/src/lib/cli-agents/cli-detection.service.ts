@@ -38,7 +38,7 @@ function unavailableCodexAdapter(cause: Error): CliAdapter {
   });
   return {
     name: 'codex',
-    displayName: 'Codex',
+    displayName: 'Codex CLI',
     roleChannel: 'developer-instructions',
     supportsMcp: false,
     capabilities: () => ({ steer: false, interrupt: false, continuation: false }),

@@ -121,6 +121,7 @@ import { ElectronSetupWizardService } from '../services/electron-setup-wizard.se
 import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
 import { createUserLayerRefresher } from '../activation/plugin-activation';
 import { registerClaudeNamedAccountBindings } from './claude-named-account-bindings';
+import { registerElectronCodexLaneFactory } from './codex-lane-composition';
 
 /**
  * `harness.preflightTimeoutMs` — how long a session start may wait for the
@@ -294,6 +295,13 @@ export function registerPhase2Libraries(
   });
   container.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, {
     useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
+  });
+  registerElectronCodexLaneFactory(container, logger, {
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+    env: process.env,
+    platform: process,
   });
   registerCliAgentRuntimeServices(container, logger);
   container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { useValue: mcpAttachmentObserver });

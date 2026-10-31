@@ -223,10 +223,11 @@ export interface ElectronCodexScopeInput extends ElectronCodexRoutingInput {
  */
 export function createElectronCodexScopeFactory(
   input: ElectronCodexScopeInput,
+  consumer: 'chat' | 'lane' = 'chat',
 ) {
   const routing = createElectronCodexRouting(input);
   return (sink: ApprovalSink): CodexChatScope => {
-    if (!routing.capabilities.nativeCodex) {
+    if (consumer === 'chat' && !routing.capabilities.nativeCodex) {
       throw new Error('Native Codex chat is disabled');
     }
     // Resolve only on native open: an absent bundle must not fail host startup.

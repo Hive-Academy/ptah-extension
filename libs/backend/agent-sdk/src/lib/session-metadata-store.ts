@@ -121,6 +121,7 @@ const codexThreadRecordSchema = z
     workspaceId: z.string().min(1),
     profileFingerprint: z.string().min(1),
     state: z.enum(['active', 'inactive']),
+    consumer: z.literal('lane').optional(),
   })
   .strict();
 
@@ -1164,6 +1165,8 @@ export class SessionMetadataStore {
         providerId: execution.providerId,
         codexExecution: execution,
         ...(threadRecord?.success ? { codexThread: threadRecord.data } : {}),
+        ...(threadRecord?.success && threadRecord.data.consumer === 'lane'
+          ? { isChildSession: true } : {}),
         createdAt: existing?.createdAt ?? now,
         lastActiveAt: now,
         totalCost: existing?.totalCost ?? 0,
@@ -1573,7 +1576,8 @@ export class SessionMetadataStore {
       const rows = await this.records.listForWorkspace(workspaceId, {
         includeChildren,
       });
-      return rows.map((r) => listAccountLinkage(r.summary));
+      return rows.map((r) => listAccountLinkage(r.summary))
+        .filter((row) => row.codexThread?.consumer !== 'lane');
     }
     const all = await this.getAll();
     const normalizedQuery = normalizeWorkspaceId(workspaceId);
@@ -1581,6 +1585,7 @@ export class SessionMetadataStore {
       .filter(
         (m) =>
           normalizeWorkspaceId(m.workspaceId) === normalizedQuery &&
+          m.codexThread?.consumer !== 'lane' &&
           (includeChildren || !m.isChildSession),
       )
       .sort((a, b) => b.lastActiveAt - a.lastActiveAt);

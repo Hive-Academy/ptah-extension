@@ -52,10 +52,11 @@ function sameBinding(
   );
 }
 
-function toIdentity(row: SessionMetadata): CodexThreadIdentity | undefined {
+function toIdentity(row: SessionMetadata, consumer: 'chat' | 'lane'): CodexThreadIdentity | undefined {
   const thread = parseCodexThreadRecord(row.codexThread);
   const execution = row.codexExecution;
   if (!thread || !execution) return undefined;
+  if ((thread.consumer === 'lane' ? 'lane' : 'chat') !== consumer) return undefined;
   return Object.freeze({
     threadId: row.sessionId,
     contextId: thread.contextId,
@@ -76,6 +77,7 @@ function toIdentity(row: SessionMetadata): CodexThreadIdentity | undefined {
 export function createCodexThreadIdentityStore(
   writer: Pick<SessionMetadataStore, 'updateCodexExecution'>,
   reader: Pick<SessionMetadataStore, 'getAll' | 'get'>,
+  consumer: 'chat' | 'lane' = 'chat',
 ): CodexThreadIdentityStore {
   return {
     async persist(identity) {
@@ -94,6 +96,8 @@ export function createCodexThreadIdentityStore(
             codex: { normalizedHome: identity.normalizedHome },
           }),
           (current) => {
+            if (current && (current.consumer === 'lane' ? 'lane' : 'chat') !== consumer)
+              throw new CodexThreadIdentityPersistError('context-mismatch');
             if (current && current.contextId !== identity.contextId)
               throw new CodexThreadIdentityPersistError('context-mismatch');
             if (
@@ -108,6 +112,7 @@ export function createCodexThreadIdentityStore(
               workspaceId: identity.workspaceId,
               profileFingerprint: identity.profileFingerprint,
               state: 'active',
+              ...(consumer === 'lane' ? { consumer: 'lane' as const } : {}),
             };
           },
         );
@@ -132,6 +137,7 @@ export function createCodexThreadIdentityStore(
         (current, execution) =>
           current &&
           current.state === 'active' &&
+          (current.consumer === 'lane' ? 'lane' : 'chat') === consumer &&
           sameBinding(identity, current, execution)
             ? { ...current, state: 'inactive' }
             : current,
@@ -141,7 +147,7 @@ export function createCodexThreadIdentityStore(
     async read(contextId) {
       let match: CodexThreadIdentity | undefined;
       for (const row of await reader.getAll()) {
-        const identity = toIdentity(row);
+        const identity = toIdentity(row, consumer);
         if (
           identity?.contextId === contextId &&
           (!match || identity.processGeneration > match.processGeneration)
@@ -151,7 +157,7 @@ export function createCodexThreadIdentityStore(
       if (!match) return undefined;
       // Listings are lean summaries; the detail row is authoritative.
       const detail = await reader.get(match.threadId);
-      const identity = detail ? toIdentity(detail) : undefined;
+      const identity = detail ? toIdentity(detail, consumer) : undefined;
       return identity?.contextId === contextId ? identity : undefined;
     },
   };

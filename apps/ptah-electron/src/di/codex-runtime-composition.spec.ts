@@ -49,6 +49,7 @@ import {
   createElectronCodexScopeFactory,
   type ElectronCodexScopeInput,
 } from './codex-runtime-composition';
+import { resolveElectronCodexLaneRuntime } from './codex-lane-composition';
 
 jest.mock('@ptah-extension/codex-runtime', () => ({
   ...jest.requireActual<typeof import('@ptah-extension/codex-runtime')>(
@@ -159,6 +160,52 @@ describe('Electron Codex runtime infrastructure', () => {
     );
     expect(resolveCodexNativeBinaryPath).not.toHaveBeenCalled();
     await parent.dispose();
+  });
+
+  it('owns lane and chat runtimes in separate scopes with separate approval sinks', async () => {
+    const { input, parent } = setup(false, { PTAH_CODEX_RUNTIME_DEV: '1' });
+    const chatSink = { request: jest.fn(async () => 'decline' as const) };
+    const laneSink = { request: jest.fn(async () => 'decline' as const) };
+    const chat = createElectronCodexScopeFactory(input)(chatSink);
+    const lane = createElectronCodexScopeFactory(input, 'lane')(laneSink);
+    try {
+      expect(chat.container.resolve(CODEX_RUNTIME_TOKENS.Runtime))
+        .not.toBe(lane.container.resolve(CODEX_RUNTIME_TOKENS.Runtime));
+      expect(chat.container.resolve(CODEX_RUNTIME_TOKENS.ApprovalSink)).toBe(chatSink);
+      expect(lane.container.resolve(CODEX_RUNTIME_TOKENS.ApprovalSink)).toBe(laneSink);
+      expect(resolveGatedCodexRuntime(chat.container, 'chat', platform)).toBeDefined();
+      expect(resolveElectronCodexLaneRuntime(lane.container, {
+        isPackaged: false, platform,
+      })).toBe(lane.container.resolve(CODEX_RUNTIME_TOKENS.Runtime));
+      expect(() => resolveElectronCodexLaneRuntime(lane.container, {
+        isPackaged: true, platform,
+      })).toThrow('parity gate');
+      expect(input.ports.spawner.spawnProcess).not.toHaveBeenCalled();
+    } finally {
+      await lane.dispose();
+      await chat.dispose();
+      await parent.dispose();
+    }
+  });
+
+  it('uses the gated runtime for a packaged lane after parity admission', async () => {
+    const original = Object.getOwnPropertyDescriptor(CodexParityGate.prototype, 'isEnabled');
+    Object.defineProperty(CodexParityGate.prototype, 'isEnabled', {
+      configurable: true, value: () => true,
+    });
+    const { input, parent } = setup(true);
+    const lane = createElectronCodexScopeFactory(input, 'lane')({
+      request: async () => 'decline',
+    });
+    try {
+      expect(resolveElectronCodexLaneRuntime(lane.container, {
+        isPackaged: true, platform,
+      })).toBe(resolveGatedCodexRuntime(lane.container, 'lane', platform));
+    } finally {
+      await lane.dispose();
+      await parent.dispose();
+      if (original) Object.defineProperty(CodexParityGate.prototype, 'isEnabled', original);
+    }
   });
 
   it('defers a missing bundled binary until native scope creation without allocating a child', async () => {

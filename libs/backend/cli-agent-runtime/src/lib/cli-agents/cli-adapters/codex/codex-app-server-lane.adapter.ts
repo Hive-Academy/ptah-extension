@@ -34,6 +34,7 @@ import {
 } from './codex-lane-profile';
 import { CODEX_RESUME_RESENDS_ROLE } from './codex-lane-config.builder';
 import { CodexLaneEvents } from './codex-lane-events';
+import { readCodexUserMcpServerNames } from './codex-user-mcp-servers';
 import { withCodexLaneStartupTimeout } from './codex-app-server-lane-startup';
 import { readCodexLaneCatalog } from './codex-app-server-lane-catalog';
 import { handledRequirements, identitySchema } from './codex-app-server-lane-profile';
@@ -74,7 +75,7 @@ export interface CodexLaneRuntimeProvider {
     binaryPath: string,
   ): Promise<CodexContext>;
   /** A separate lane context for catalog reads; its owner closes it after listing. */
-  openCatalog(binaryPath: string): Promise<CodexContext>;
+  openCatalog(binaryPath: string, home?: string): Promise<CodexContext>;
 }
 
 /** Host resolves account, paths, budgets and trusted user MCP names. */
@@ -115,6 +116,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     private readonly logger: Logger,
     private readonly binary: CodexLaneBinaryProbe = new NativeCodexLaneBinaryProbe(),
     private readonly credentials: CodexLaneCredentialProbe = new FileCodexLaneCredentialProbe(),
+    private readonly home: () => Promise<string | undefined> = async () => undefined,
   ) {}
 
   private catalogProbe: {
@@ -134,6 +136,10 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       return { cli: 'codex', installed: true, path: binary.path,
         version: binary.version, messagingMode };
     } catch (error: unknown) {
+      if (error instanceof Error && error.message === 'Codex home is empty') {
+        this.logger.warn('[CodexAppServerLaneAdapter] Codex home is empty');
+        return { cli: 'codex', installed: false, messagingMode };
+      }
       this.logger.warn('[CodexAppServerLaneAdapter] Codex detection failed', {
         errorClass: error instanceof Error ? error.constructor.name : typeof error,
       });
@@ -142,7 +148,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
   }
 
   async ensureTokensFresh(): Promise<boolean> {
-    const status = await this.credentials.check();
+    const status = await this.credentials.check(await this.home());
     if (status === 'stale' || status === 'unreadable')
       this.logger.warn('[CodexAppServerLaneAdapter] Codex credentials are not usable', { status });
     return status === 'fresh';
@@ -155,8 +161,9 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
         const binary = await this.binary.resolve();
         if (!binary) throw new Error('Pinned Codex executable is unavailable');
         const output = (async (): Promise<CliModelInfo[]> => {
+          const home = await this.home();
           const models = codexLaneModels(await readCodexLaneCatalog(
-            () => this.runtime.openCatalog(binary.path), this.logger,
+            () => this.runtime.openCatalog(binary.path, home), this.logger,
           ));
           if (models.length === 0) throw new Error('Codex model catalog is empty');
           return models;
@@ -183,6 +190,13 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       options,
       options.resumeSessionId ? 'resume' : 'first-turn',
     );
+    const userServers = await readCodexUserMcpServerNames(resolved.lane.config.workingDirectory, {
+      codexHome: resolved.lane.identity.normalizedHome,
+    });
+    if (userServers.warnings.length > 0) this.logger.warn(
+      '[CodexAppServerLaneAdapter] Some user MCP servers could not be classified',
+      { warningCount: userServers.warnings.length },
+    );
     const requestedEffort = options.reasoningEffort ?? resolved.lane.config.reasoningEffort;
     const reasoningEffort = validatedEffort(requestedEffort);
     const defaultModelApplied = !options.model && !resolved.lane.identity.model;
@@ -195,8 +209,9 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       },
       config: {
         ...resolved.lane.config,
+        userMcpServerNames: [...resolved.lane.config.userMcpServerNames, ...userServers.names],
         reasoningEffort,
-        workingDirectory: options.workingDirectory,
+          workingDirectory: resolved.lane.config.workingDirectory,
         mcpPort: options.mcpPort,
         agentId: options.agentId,
         developerInstructions: [

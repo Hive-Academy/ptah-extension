@@ -14,15 +14,15 @@ const authSchema = z.object({
 export type CodexLaneCredentialStatus = 'fresh' | 'stale' | 'missing' | 'unreadable';
 
 export interface CodexLaneCredentialProbe {
-  check(): Promise<CodexLaneCredentialStatus>;
+  check(home?: string): Promise<CodexLaneCredentialStatus>;
 }
 
 /** Reads only the selected account home; no refresh or login is possible here. */
 export class FileCodexLaneCredentialProbe implements CodexLaneCredentialProbe {
-  async check(): Promise<CodexLaneCredentialStatus> {
+  async check(selectedHome?: string): Promise<CodexLaneCredentialStatus> {
     const home = process.env['HOME'] || process.env['USERPROFILE'] || homedir();
-    const selected = process.env['CODEX_HOME'] !== undefined
-      ? process.env['CODEX_HOME'] : join(home, '.codex');
+    const selected = selectedHome ?? (process.env['CODEX_HOME'] !== undefined
+      ? process.env['CODEX_HOME'] : join(home, '.codex'));
     if (!selected) return 'unreadable';
     let raw: string;
     try {
