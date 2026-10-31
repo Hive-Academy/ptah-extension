@@ -130,6 +130,16 @@ PASS, G4 NOT-OBSERVED, G5 still open (NULL token columns, 0 report receipts). Ne
 (`ptah_agent_message` after the handoff) was not run (budget). Live scope: Electron only; CLI, TUI and VS Code rows
 stay PENDING-LIVE.
 
+Fourth Electron live run (live-test-p10dP-r4.md, head 2d1c69dd2 = batch 10d.L5, 7 of 8 turns, settings `cmp` 0):
+G5 token columns PASS (`input_tokens 53511`, `output_tokens 434`; receipts empty by design). G1, G3 PASS; G2 PASS
+for Scenario A. Gate S FAIL: the new log shows the real cause of `Lane outcomes start failed`: the
+`StructuredDecisionAdapter` chain reaches `ActiveProviderResolver`, which needs `WorkspaceScopeResolver`; Electron
+registers it only once `ACTIVE_WORKSPACE_SOURCE` exists (electron-settings-registration.ts:86-104). Scenario C:
+`ptah_agent_message` routed to the resumed agent with `isError false` in mode `queue-next-turn` (the declared Codex
+lane capability, same as Claude and legacy Codex lanes). The test told the lane to wait inside its turn, so it slept
+and the queued message was never started; this is a test design gap, not a parity defect. Delivery of a queued
+message to a resumed lane at the next turn stays PENDING-LIVE.
+
 ## Proposed Removals
 
 None. D26 is the only already accepted reduction. The gaps in parity-inventory.md:63-67 remain gaps; no Codex chat subagent, canUseTool prompt, partial-streaming, or compaction capability is inferred from this lane proof. No source or capability is approved for Removal B.
