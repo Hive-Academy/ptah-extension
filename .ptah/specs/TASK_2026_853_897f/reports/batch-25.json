@@ -1,0 +1,40 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": 25,
+  "title": "D-3 metadata, ownership and safe conversion service",
+  "executor": "claude backend-developer subagent",
+  "changed": [
+    "libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.ts",
+    "libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.service.ts",
+    "libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.service.spec.ts"
+  ],
+  "acceptance": {
+    "roots": "Global ~/.ptah/plugins/<id>; workspace workspacePluginsDir(ws)/ptah-skillssh-<id>; no workspace -> SKILLS_SH_NO_WORKSPACE_ERROR with the plan's exact text.",
+    "metadataV2": "Written for both scopes; file hashes from staged bytes before the metadata write; v1 still readable; reinstall over v1 leaves legacy files unlisted (unproven).",
+    "staging": "Install staging in ~/.ptah/tmp; Make global staging ~/.ptah/plugins/.staging-ptah-skillssh-<id>-<nonce>; nothing staged under workspacePluginsDir(ws) (Batch 24 follow-up).",
+    "verifyOwnedRoot": "Exported from skills-sh-source-root.ts; owned only for v2 + owner + marker + contained paths + regular non-link files + matching hashes + no unlisted file; never uses the dir name or clone sidecars.",
+    "makeGlobal": "D-D9 order: proof + collision (owned mismatch refuses, equal hashes resume), stage/copy/hash/metadata/rename, clear retired id + propagate, validate, re-check and remove workspace root last; rollback removes the global root only while still owned with identical hashes and restores the retired entry.",
+    "tests": "54 tests in the spec (38 new), incl. metadata write failure, propagation rejection, unrefreshed user layer, validation failure + rollback, rollback failure resume, workspace-root removal failure retry, edited workspace root kept, collision refuse, equal-hash resume, v1/unproven refuse, verifyOwnedRoot link/extra/escape/edited cases."
+  },
+  "helperContract": "verifyOwnedRoot(rootDir): Promise<{status:'owned';metadata:SkillsShRootMetadataV2} | {status:'unproven';reason:SkillsShUnprovenReason;path?}> (never throws). Service: install(request, location={scope:'global'}), uninstall(name, location), listRoots/listInstalled/installedSlugs(ws?), makeGlobal(name, workspaceRoot, hooks:{propagate(phase:'register'|'rollback'|'workspace-removed'):Promise<{userLayerRefreshed}>; isDiscovered(globalRootDir)}): Promise<SkillsShMakeGlobalOutcome> with failure codes no-workspace|not-installed|workspace-root-unproven|global-collision|staging-failed|metadata-write-failed|commit-failed|registration-failed|propagation-failed|validation-failed.",
+  "verification": {
+    "command": "npm run verify -- -p @ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview",
+    "log": "/tmp/tpd-b25-verify.log",
+    "result": "exit 1. 68 tasks: 67 succeeded (33 cached), 1 failed: the known ptah-extension-webview:lint. Ran with Batch 24a changes present (cohort, decision #60). degradation-audit rpc-handlers 1 (baseline 1)."
+  },
+  "decisions": [
+    "verifyOwnedRoot and hashing helpers sit beside the metadata schema in skills-sh-source-root.ts.",
+    "install/uninstall default to global scope so existing callers are unchanged; Batch 27 switches the RPC default to workspace.",
+    "SKILLS_SH_SCOPE removed (file-internal); stale comment at harness/io/harness-skill-install.service.ts:26 left for Batch 27.",
+    "The service writes the retired registry (clear on global install / Make global step 6, restore on rollback) via temp file + rename."
+  ],
+  "risks": [
+    "If Make global step 8 removal fails, the workspace lists the skill from both roots until a retry.",
+    "Legacy adoption into a v2 root rewrites metadata as v1 (unproven, safe direction)."
+  ],
+  "followUps": {
+    "batch26": "Skip retired ids for GLOBAL roots only (workspace roots carry their own v2 proof); Make global relies on discoverSkillsShPluginPaths() listing a root once its retired id is cleared; keep .staging-ptah-skillssh-* excluded.",
+    "batch27": "Pass scope/workspace root through skillsSh:install, listInstalled(ws), uninstall(name, location); makeGlobal hooks: propagate -> userLayerRefreshed = health !== null && userLayer === 'refreshed'; isDiscovered -> discoverSkillsShPluginPaths().includes(dir); map codes to fixed UI copy; fix stale SKILLS_SH_SCOPE comment.",
+    "batch33": "verifyOwnedRoot is the only deletion gate for skills.sh roots; delete only on status 'owned'."
+  }
+}
