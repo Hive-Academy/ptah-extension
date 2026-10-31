@@ -18,8 +18,8 @@ const MENU_WIDTH_PX = 112;
 const MENU_WIDTH_COMPACT_PX = 44;
 const COMPACT_BELOW_PX = 480;
 /**
- * Rosters up to this size stay inline with a named chip per agent and no
- * overflow menu; the row wraps instead of hiding anyone.
+ * Rosters up to this size keep every non-finished agent inline with a named
+ * chip; the row wraps instead of hiding anyone for width.
  */
 export const DOCK_INLINE_MAX = 5;
 
@@ -68,29 +68,65 @@ function overflowRank(agent: SessionAgent, selectedKey: string): number {
   }
 }
 
+function isFinished(agent: SessionAgent): boolean {
+  return agent.status === 'done' || agent.status === 'stopped';
+}
+
+/** Menu status order. Agents with no status sit beside queued agents. */
+function menuRank(agent: SessionAgent): number {
+  switch (agent.status) {
+    case 'running': return 0;
+    case 'waiting': return 1;
+    case 'failed': return 2;
+    case 'queued': return 3;
+    case 'done': return 4;
+    case 'stopped': return 5;
+    default: return 3;
+  }
+}
+
+/** Every menu entry, sorted by status with dock order preserved within a status. */
+export function orderDockMenuAgents(agents: readonly SessionAgent[]): readonly SessionAgent[] {
+  return agents
+    .map((agent, index) => ({ agent, index }))
+    .sort((a, b) => menuRank(a.agent) - menuRank(b.agent) || a.index - b.index)
+    .map(({ agent }) => agent);
+}
+
 /**
- * Rosters of `DOCK_INLINE_MAX` or fewer stay inline. Larger rosters fill
- * `capacity + 1` slots (the extra slot is the pill) by rank, then both lists
- * are returned in dock order. A worse rank is never visible while a better
- * rank is hidden.
+ * Finished agents move to the menu except the orchestrator and selection.
+ * Small rosters keep the remaining agents inline. Larger rosters fill
+ * `capacity + 1` slots (the extra slot is the pill) by rank, with both pinned
+ * agents retained even when the measured width is zero.
  */
 export function planDockOverflow(
   agents: readonly SessionAgent[],
   selectedKey: string,
   capacity: number,
 ): { visible: readonly SessionAgent[]; hidden: readonly SessionAgent[] } {
-  if (agents.length <= DOCK_INLINE_MAX || !Number.isFinite(capacity))
-    return { visible: agents, hidden: [] };
+  const eligible = agents.filter((agent) =>
+    !isFinished(agent) || agent.kind === 'orchestrator' || agent.key === selectedKey,
+  );
+  if (agents.length <= DOCK_INLINE_MAX || !Number.isFinite(capacity)) {
+    const visibleKeys = new Set(eligible.map((agent) => agent.key));
+    return {
+      visible: eligible,
+      hidden: agents.filter((agent) => !visibleKeys.has(agent.key)),
+    };
+  }
   const slots = Math.max(0, Math.floor(capacity)) + 1;
+  const pinnedCount = eligible.filter((agent) =>
+    agent.kind === 'orchestrator' || agent.key === selectedKey,
+  ).length;
   const chosen = new Set(
-    agents
+    eligible
       .map((agent, index) => ({
         agent,
         index,
         rank: overflowRank(agent, selectedKey),
       }))
       .sort((a, b) => a.rank - b.rank || a.index - b.index)
-      .slice(0, Math.min(slots, agents.length))
+      .slice(0, Math.max(slots, pinnedCount))
       .map((row) => row.agent.key),
   );
   const visible: SessionAgent[] = [];

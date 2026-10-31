@@ -238,13 +238,13 @@ describe('CanvasLaneTabsComponent', () => {
     fixture.destroy();
   });
 
-  it.each([1, 5, 6])('shows the dropdown only above five agents (%i total)', (count) => {
+  it.each([1, 5, 6])('hides the dropdown when no agent is hidden (%i total)', (count) => {
     agents.set(Array.from({ length: count - 1 }, (_, i) => cli({ agentId: `c${i}`, parentSessionId: 'owner', cli: `CLI ${i}` })));
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('[role="tab"]')).toHaveLength(count);
-    expect(!!fixture.nativeElement.querySelector('[aria-haspopup="menu"]')).toBe(count > 5);
+    expect(fixture.nativeElement.querySelector('[aria-haspopup="menu"]')).toBeNull();
     fixture.destroy();
   });
 
@@ -363,7 +363,7 @@ describe('CanvasLaneTabsComponent', () => {
     }
   });
 
-  it('orders populated groups and keeps terminal lanes', () => {
+  it('moves terminal lanes into the menu even in a small roster', () => {
     subagents.set(
       new Map([
         [
@@ -400,30 +400,235 @@ describe('CanvasLaneTabsComponent', () => {
     const dock = fixture.nativeElement.querySelector('[role="tablist"]') as HTMLElement;
     expect(dock.classList.contains('z-10')).toBe(true);
     expect(dock.classList.contains('z-20')).toBe(false);
-    expect(dock.querySelector('ptah-agent-dock-menu')).toBeNull();
-    expect(dock.classList.contains('py-0.5')).toBe(true);
-    expect(dock.classList.contains('shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]')).toBe(true);
+    expect(dock.querySelector('ptah-agent-dock-menu')).not.toBeNull();
+    expect(dock.classList.contains('pt-1')).toBe(true);
+    expect(dock.classList.contains('pb-0.5')).toBe(true);
     expect(dock.classList.contains('border-b')).toBe(true);
     expect(dock.classList.contains('border-surface-border')).toBe(true);
     expect(dock.classList.contains('bg-surface-1')).toBe(true);
-    const tabs = [
-      ...fixture.nativeElement.querySelectorAll('[role="tab"]'),
-    ] as HTMLElement[];
-    expect(tabLabels(fixture.nativeElement)).toEqual([
-      'Orchestrator, done',
-      'Worker, Sub-agent, done',
-      'Codex, CLI lane, done',
-      'Review, Background, done',
-    ]);
-    expect(fixture.nativeElement.querySelectorAll('[data-testid="dock-divider"]')).toHaveLength(3);
-    expect(tabs[2].getAttribute('aria-label')).toContain('done');
-    expect(tabs[2].getAttribute('title')).toBeNull();
+    expect(tabLabels(fixture.nativeElement)).toEqual(['Orchestrator, done']);
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="dock-divider"]')).toHaveLength(0);
 
     tabStatus.set('streaming');
     fixture.detectChanges();
     expect(tabLabels(fixture.nativeElement)[0]).toBe('Orchestrator, running');
 
-    expect(dock.querySelector('[aria-haspopup="menu"]')).toBeNull();
+    expect(dock.querySelector('[aria-haspopup="menu"]')).not.toBeNull();
+    const trigger = dock.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+    expect(trigger.textContent).toContain('3 more');
+    expect(trigger.getAttribute('aria-label')).toBe('3 more agents');
+  });
+
+  it('keeps a focused finished chip inline until focus leaves the dock', () => {
+    agents.set(cliRoster(2));
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+    const chip = root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c0')!;
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    try {
+      chip.focus();
+      fixture.detectChanges();
+      agents.set(cliRoster(2).map((agent) =>
+        agent.agentId === 'c0' ? { ...agent, status: 'completed' } : agent,
+      ));
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(chip);
+      expect(chip.isConnected).toBe(true);
+      outside.focus();
+      fixture.detectChanges();
+      expect(root.querySelector('#canvas-lane-panel-tab-cli\\:c0')).toBeNull();
+      expect(root.querySelector('[aria-haspopup="menu"]')).not.toBeNull();
+    } finally {
+      outside.remove();
+      root.remove();
+      fixture.destroy();
+    }
+  });
+
+  it('does not freeze visible chips after a pointer click focuses a tab', () => {
+    agents.set(cliRoster(2));
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+    try {
+      const chip = root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c0')!;
+      chip.dispatchEvent(mousePointer('pointerdown'));
+      chip.focus();
+      chip.click();
+      fixture.detectChanges();
+      agents.set(cliRoster(2).map((agent) =>
+        agent.agentId === 'c1' ? { ...agent, status: 'completed' } : agent,
+      ));
+      fixture.detectChanges();
+      expect(root.querySelector('#canvas-lane-panel-tab-cli\\:c1')).toBeNull();
+      expect(root.querySelector('[aria-haspopup="menu"]')).not.toBeNull();
+    } finally {
+      root.remove();
+      fixture.destroy();
+    }
+  });
+
+  it('freezes visible chips while a tab has keyboard focus', () => {
+    agents.set(cliRoster(2));
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    try {
+      const chip = root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c0')!;
+      chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      chip.focus();
+      fixture.detectChanges();
+      agents.set(cliRoster(2).map((agent) =>
+        agent.agentId === 'c1' ? { ...agent, status: 'completed' } : agent,
+      ));
+      fixture.detectChanges();
+      expect(root.querySelector('#canvas-lane-panel-tab-cli\\:c1')).not.toBeNull();
+      outside.focus();
+      fixture.detectChanges();
+      expect(root.querySelector('#canvas-lane-panel-tab-cli\\:c1')).toBeNull();
+    } finally {
+      outside.remove();
+      root.remove();
+      fixture.destroy();
+    }
+  });
+
+  it.each(['waiting', 'failed'])('shows a new %s agent inline while keyboard focus freezes the dock', (status) => {
+    agents.set(cliRoster(2));
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+    try {
+      root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c0')!.focus();
+      fixture.detectChanges();
+      agents.set([...cliRoster(2), cli({
+        agentId: 'new',
+        parentSessionId: 'owner',
+        cli: 'New',
+        status: status === 'waiting' ? 'running' : status,
+        permissionQueue: status === 'waiting' ? [{ requestId: 'request-new' }] : [],
+      })]);
+      fixture.detectChanges();
+      expect(root.querySelector('#canvas-lane-panel-tab-cli\\:new')).not.toBeNull();
+    } finally {
+      root.remove();
+      fixture.destroy();
+    }
+  });
+
+  it('clears the remembered chip when focus moves to the menu', async () => {
+    agents.set([
+      cli({ agentId: 'c0', parentSessionId: 'owner', cli: 'Running' }),
+      cli({ agentId: 'c1', parentSessionId: 'owner', cli: 'Finished', status: 'completed' }),
+    ]);
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+    try {
+      root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c0')!.focus();
+      const trigger = root.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+      trigger.focus();
+      fixture.detectChanges();
+      agents.set(agents().filter((agent) => agent.agentId !== 'c0'));
+      fixture.detectChanges();
+      trigger.blur();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      root.remove();
+      fixture.destroy();
+    }
+  });
+
+  it('restores focus to the selected tab when a focused agent leaves the roster', async () => {
+    agents.set(cliRoster(2));
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+    try {
+      root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c0')!.focus();
+      fixture.detectChanges();
+      agents.set(cliRoster(2).filter((agent) => agent.agentId !== 'c0'));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(document.activeElement).toBe(root.querySelector('[role="tab"][aria-selected="true"]'));
+    } finally {
+      root.remove();
+      fixture.destroy();
+    }
+  });
+
+  it('keeps a finished selected chip available for reverse arrow navigation', async () => {
+    agents.set([
+      cli({ agentId: 'c0', parentSessionId: 'owner', cli: 'Finished', status: 'completed' }),
+      cli({ agentId: 'c1', parentSessionId: 'owner', cli: 'Running' }),
+    ]);
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.componentRef.setInput('laneKey', 'cli:c0');
+    fixture.componentInstance.laneSelected.subscribe((key) => fixture.componentRef.setInput('laneKey', key));
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+    try {
+      const finished = root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c0')!;
+      finished.focus();
+      finished.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const running = root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c1')!;
+      expect(document.activeElement).toBe(running);
+      expect(root.querySelector('#canvas-lane-panel-tab-cli\\:c0')).not.toBeNull();
+      running.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(document.activeElement?.id).toBe('canvas-lane-panel-tab-cli:c0');
+    } finally {
+      root.remove();
+      fixture.destroy();
+    }
+  });
+
+  it('closes the hover card when its chip moves into the menu', () => {
+    jest.useFakeTimers();
+    try {
+      agents.set(cliRoster(5));
+      const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+      fixture.componentRef.setInput('tabId', TAB_ID);
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c0')!
+        .dispatchEvent(mousePointer('pointerenter'));
+      jest.advanceTimersByTime(220);
+      fixture.detectChanges();
+      expect(root.querySelector('[role="tooltip"]')).not.toBeNull();
+      agents.set(cliRoster(5).map((agent) =>
+        agent.agentId === 'c0' ? { ...agent, status: 'completed' } : agent,
+      ));
+      fixture.detectChanges();
+      expect(root.querySelector('#canvas-lane-panel-tab-cli\\:c0')).toBeNull();
+      expect(root.querySelector('[role="tooltip"]')).toBeNull();
+      fixture.destroy();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('excludes foreign and unresolved owners and falls back for an unknown key', () => {
@@ -646,7 +851,17 @@ describe('CanvasLaneTabsComponent', () => {
         fixture.nativeElement
           .querySelector('[aria-haspopup="menu"]')
           .getAttribute('aria-label'),
-      ).toBe('6 agents, 1 waiting, needs you, 1 failed');
+      ).toBe('5 more agents, 1 waiting, needs you, 1 failed');
+      const trigger = fixture.nativeElement.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+      trigger.click();
+      fixture.detectChanges();
+      const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+      expect(rows.map((row) => row.querySelector('.truncate')?.textContent?.trim())).toEqual([
+        'Runner', 'Waiter', 'Broken', 'Finished', 'Extra',
+      ]);
+      expect(rows).toHaveLength(Number(trigger.getAttribute('aria-label')?.match(/^\d+/)?.[0]));
+      expect(rows.some((row) => row.textContent?.includes('Orchestrator'))).toBe(false);
+      expect((fixture.nativeElement as HTMLElement).querySelectorAll('[role="tab"]')).toHaveLength(1);
       fixture.destroy();
       expect(disconnect).toHaveBeenCalledTimes(1);
     } finally {
@@ -695,8 +910,9 @@ describe('CanvasLaneTabsComponent', () => {
       fireResize(resize, 320);
       fixture.detectChanges();
       expect(tabLabels(fixture.nativeElement).some((label) => label.includes('Finished'))).toBe(
-        true,
+        false,
       );
+      expect(fixture.nativeElement.querySelector('[aria-haspopup="menu"]')).not.toBeNull();
       fixture.componentRef.setInput('laneKey', 'cli:fin');
       fixture.detectChanges();
       const selected = fixture.nativeElement.querySelector(
@@ -709,12 +925,58 @@ describe('CanvasLaneTabsComponent', () => {
     }
   });
 
+  it('keeps menu focus on a remaining hidden agent and restores the selected tab when overflow empties', async () => {
+    agents.set([
+      cli({ agentId: 'run', parentSessionId: 'owner', cli: 'Runner' }),
+      cli({ agentId: 'done-a', parentSessionId: 'owner', cli: 'Done A', status: 'completed' }),
+      cli({ agentId: 'done-b', parentSessionId: 'owner', cli: 'Done B', status: 'completed' }),
+    ]);
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+    try {
+      root.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const rows = () => [...root.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+      expect(rows()).toHaveLength(2);
+      expect(document.activeElement).toBe(rows()[0]);
+      expect(rows().filter((row) => row.tabIndex === 0)).toHaveLength(1);
+
+      agents.set(agents().filter((agent) => agent.agentId !== 'done-a'));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0].textContent).toContain('Done B');
+      expect(rows()[0].tabIndex).toBe(0);
+      expect(document.activeElement).toBe(rows()[0]);
+
+      agents.set(agents().filter((agent) => agent.agentId !== 'done-b'));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(root.querySelector('[role="menu"]')).toBeNull();
+      expect(root.querySelector('[aria-haspopup="menu"]')).toBeNull();
+      expect(document.activeElement).toBe(root.querySelector('[role="tab"][aria-selected="true"]'));
+    } finally {
+      root.remove();
+      fixture.destroy();
+    }
+  });
+
   it('selects from the menu with Enter, returns focus on Escape, and describes the hovered tab', async () => {
-    agents.set(Array.from({ length: 5 }, (_, i) => cli({ agentId: `c${i}`, parentSessionId: 'owner', cli: `CLI ${i}` })));
+    agents.set([
+      ...Array.from({ length: 5 }, (_, i) => cli({ agentId: `c${i}`, parentSessionId: 'owner', cli: `CLI ${i}` })),
+      cli({ agentId: 'finished', parentSessionId: 'owner', cli: 'Finished', status: 'completed' }),
+    ]);
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     const selected = jest.fn();
-    fixture.componentInstance.laneSelected.subscribe(selected);
+    fixture.componentInstance.laneSelected.subscribe((key) => {
+      selected(key);
+      fixture.componentRef.setInput('laneKey', key);
+    });
     fixture.detectChanges();
     const trigger = fixture.nativeElement.querySelector(
       '[aria-haspopup="menu"]',
@@ -725,6 +987,10 @@ describe('CanvasLaneTabsComponent', () => {
     await fixture.whenStable();
     const menu = fixture.nativeElement.querySelector('[role="menu"]') as HTMLElement;
     expect(menu).not.toBeNull();
+    const menuRows = [...menu.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+    expect(menuRows).toHaveLength(1);
+    expect(menuRows[0].textContent).toContain('Finished');
+    expect(trigger.getAttribute('aria-label')).toBe('1 more agent');
     menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[role="menu"]')).toBeNull();
@@ -736,7 +1002,7 @@ describe('CanvasLaneTabsComponent', () => {
     const reopened = fixture.nativeElement.querySelector('[role="menu"]') as HTMLElement;
     reopened.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     fixture.detectChanges();
-    expect(selected).toHaveBeenCalledWith('orchestrator');
+    expect(selected).toHaveBeenCalledWith('cli:finished');
     expect(fixture.nativeElement.querySelector('[role="menu"]')).toBeNull();
 
     jest.useFakeTimers();
@@ -749,7 +1015,7 @@ describe('CanvasLaneTabsComponent', () => {
           'pointerType',
           { value: pointerType },
         );
-      // Menu Enter returned keyboard focus to the tab, which opened its card.
+      // Menu Enter returned keyboard focus to the selected tab.
       document.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
       );
@@ -786,7 +1052,7 @@ describe('CanvasLaneTabsComponent', () => {
       expect(selected.mock.calls.length).toBe(calls);
       expect(
         fixture.nativeElement.querySelector('[role="tab"][aria-selected="true"]').id,
-      ).toContain('orchestrator');
+      ).toContain('cli:finished');
     } finally {
       jest.useRealTimers();
     }

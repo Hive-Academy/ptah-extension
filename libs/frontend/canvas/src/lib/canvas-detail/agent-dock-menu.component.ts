@@ -2,28 +2,27 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
+  afterNextRender,
   computed,
+  effect,
+  inject,
   input,
   output,
   signal,
   viewChild,
 } from '@angular/core';
 import type { SessionAgent } from '@ptah-extension/chat';
-import { AgentAvatarComponent, type AgentKind } from '@ptah-extension/chat-ui';
+import { AgentAvatarComponent } from '@ptah-extension/chat-ui';
 import { NativeDropdownComponent } from '@ptah-extension/ui';
-import { ChevronRight, LucideAngularModule, Users } from 'lucide-angular';
-import { agentDurationText, agentStatusInk } from './dock-overflow';
-
-interface MenuGroup {
-  readonly label: string;
-  readonly agents: readonly SessionAgent[];
-}
+import { ChevronRight, LucideAngularModule } from 'lucide-angular';
+import { agentDurationText, agentStatusInk, orderDockMenuAgents } from './dock-overflow';
 
 let nextMenuId = 0;
 
 /**
- * `N agents ›` overflow menu. Lists every agent in dock order, grouped by
- * kind. Always enabled, including when nothing is hidden.
+ * `N more ›` overflow menu. Lists hidden agents by status, retaining dock
+ * order within a status. The parent only renders it when agents are hidden.
  */
 @Component({
   selector: 'ptah-agent-dock-menu',
@@ -50,35 +49,26 @@ let nextMenuId = 0;
         (click)="toggle()"
       >
         @if (!compact()) {
-          @if (hidden().length === 0) {
-            <lucide-angular
-              [img]="usersIcon"
-              class="h-4 w-4"
-              aria-hidden="true"
-            />
-          } @else {
-            <span class="flex items-center -space-x-1.5" aria-hidden="true">
-              @for (agent of pile(); track agent.key) {
-                <ptah-agent-avatar
-                  [kind]="agent.kind"
-                  [status]="agent.status"
-                  [size]="24"
-                  [cliId]="agent.cliId"
-                  [agentType]="agent.agentType"
-                />
-              }
-            </span>
-          }
+          <span class="flex items-center -space-x-1.5" aria-hidden="true">
+            @for (agent of pile(); track agent.key) {
+              <ptah-agent-avatar
+                [kind]="agent.kind"
+                [status]="agent.status"
+                [size]="24"
+                [cliId]="agent.cliId"
+                [agentType]="agent.agentType"
+              />
+            }
+          </span>
         }
         @if (compact()) {
           <span
             class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-base-200 px-1 text-[11px] font-medium tabular-nums"
-            >{{ agents().length }}</span
+            >{{ hidden().length }}</span
           >
         } @else {
           <span class="whitespace-nowrap"
-            >{{ agents().length }}
-            {{ agents().length === 1 ? 'agent' : 'agents' }}</span
+            >{{ hidden().length }} more</span
           >
           <lucide-angular
             [img]="chevronIcon"
@@ -101,21 +91,14 @@ let nextMenuId = 0;
         class="max-h-[340px] w-64 overflow-y-auto motion-reduce:transition-none"
         (keydown)="onMenuKeydown($event)"
       >
-        @for (group of groups(); track group.label) {
-          <div
-            role="presentation"
-            class="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-base-content-muted"
-          >
-            {{ group.label }}
-          </div>
-          @for (agent of group.agents; track agent.key) {
+        @for (agent of orderedAgents(); track agent.key) {
             <button
               type="button"
               role="menuitemradio"
               class="relative flex min-h-6 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-base-content hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
               [id]="rowId(agent.key)"
               [attr.aria-checked]="agent.key === selectedKey()"
-              [tabIndex]="activeKey() === agent.key ? 0 : -1"
+              [tabIndex]="rovingKey() === agent.key ? 0 : -1"
               (click)="choose(agent.key)"
             >
               @if (agent.key === selectedKey()) {
@@ -143,24 +126,23 @@ let nextMenuId = 0;
                 }}</span>
               }
             </button>
-          }
         }
       </div>
     </ptah-native-dropdown>
   `,
 })
 export class AgentDockMenuComponent {
-  readonly agents = input.required<readonly SessionAgent[]>();
   readonly hidden = input.required<readonly SessionAgent[]>();
   readonly selectedKey = input.required<string>();
   readonly compact = input(false);
   readonly now = input.required<number>();
   readonly agentSelect = output<string>();
+  readonly openChange = output<boolean>();
 
   protected readonly open = signal(false);
   protected readonly activeKey = signal<string | null>(null);
-  protected readonly usersIcon = Users;
   protected readonly chevronIcon = ChevronRight;
+  private readonly injector = inject(Injector);
   private readonly menuUid = `agent-dock-menu-${++nextMenuId}`;
   private readonly trigger =
     viewChild<ElementRef<HTMLButtonElement>>('trigger');
@@ -169,7 +151,7 @@ export class AgentDockMenuComponent {
 
   protected readonly triggerLabel = computed(() => {
     const parts = [
-      `${this.agents().length} ${this.agents().length === 1 ? 'agent' : 'agents'}`,
+      `${this.hidden().length} more ${this.hidden().length === 1 ? 'agent' : 'agents'}`,
     ];
     let waiting = 0;
     let failed = 0;
@@ -191,20 +173,27 @@ export class AgentDockMenuComponent {
     return null;
   });
 
-  protected readonly groups = computed((): readonly MenuGroup[] => {
-    const agents = this.agents();
-    const ofKind = (kind: AgentKind) =>
-      agents.filter((agent) => agent.kind === kind);
-    const subagents = ofKind('subagent');
-    const cli = ofKind('cli');
-    const background = ofKind('background');
-    return [
-      { label: 'Orchestrator', agents: ofKind('orchestrator') },
-      { label: `Sub-agents ${subagents.length}`, agents: subagents },
-      { label: `CLI lanes ${cli.length}`, agents: cli },
-      { label: `Background ${background.length}`, agents: background },
-    ].filter((group) => group.agents.length > 0);
+  protected readonly orderedAgents = computed(() => orderDockMenuAgents(this.hidden()));
+  protected readonly rovingKey = computed(() => {
+    const active = this.activeKey();
+    return this.orderedAgents().some((agent) => agent.key === active)
+      ? active
+      : this.checkedKey();
   });
+
+  constructor() {
+    effect(() => {
+      if (!this.open() || this.activeKey() === this.rovingKey()) return;
+      const key = this.rovingKey();
+      this.activeKey.set(key);
+      if (!key) return;
+      afterNextRender(() => {
+        if (this.open() && document.activeElement === document.body) {
+          document.getElementById(this.rowId(key))?.focus();
+        }
+      }, { injector: this.injector });
+    });
+  }
 
   protected statusInk(status: SessionAgent['status']): string {
     return agentStatusInk(status);
@@ -220,52 +209,52 @@ export class AgentDockMenuComponent {
 
   protected toggle(): void {
     if (this.open()) {
-      this.open.set(false);
+      this.setOpen(false);
       return;
     }
     this.activeKey.set(this.checkedKey());
-    this.open.set(true);
+    this.setOpen(true);
   }
 
   protected onOpened(): void {
-    const key = this.activeKey() ?? this.checkedKey();
+    const key = this.rovingKey();
     if (!key) return;
     this.activeKey.set(key);
     document.getElementById(this.rowId(key))?.focus();
   }
 
   protected onClosed(): void {
-    this.open.set(false);
+    this.setOpen(false);
   }
 
   protected choose(key: string): void {
     this.agentSelect.emit(key);
-    this.open.set(false);
+    this.setOpen(false);
   }
 
   protected onMenuKeydown(event: KeyboardEvent): void {
-    const keys = this.agents().map((agent) => agent.key);
+    const keys = this.orderedAgents().map((agent) => agent.key);
     if (keys.length === 0) return;
     if (event.key === 'Tab') {
       event.stopPropagation();
-      this.open.set(false);
+      this.setOpen(false);
       return;
     }
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
-      this.open.set(false);
+      this.setOpen(false);
       this.trigger()?.nativeElement.focus();
       return;
     }
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       event.stopPropagation();
-      const key = this.activeKey() ?? this.checkedKey();
+      const key = this.rovingKey();
       if (key) this.choose(key);
       return;
     }
-    const index = keys.indexOf(this.activeKey() ?? '');
+    const index = keys.indexOf(this.rovingKey() ?? '');
     const next =
       event.key === 'ArrowDown'
         ? (index + 1) % keys.length
@@ -285,11 +274,17 @@ export class AgentDockMenuComponent {
   }
 
   private checkedKey(): string | null {
-    const agents = this.agents();
+    const agents = this.orderedAgents();
     if (agents.length === 0) return null;
     const selected = this.selectedKey();
     return agents.some((agent) => agent.key === selected)
       ? selected
       : agents[0].key;
+  }
+
+  private setOpen(open: boolean): void {
+    if (this.open() === open) return;
+    this.open.set(open);
+    this.openChange.emit(open);
   }
 }
