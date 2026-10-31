@@ -940,7 +940,8 @@ export interface HarnessDismissInstallMigrationNoticeResult {
  * these methods exist, joining this interface into `RpcMethodRegistry` would
  * fail that check at dev-time boot. The join (`extends` plus the
  * `RPC_METHOD_ENTRIES` keys) lands in the same change as the handlers'
- * `METHODS` entries.
+ * `METHODS` entries, one method at a time: `mcpDirectory:makeGlobal` is
+ * joined (its handler is `McpDirectoryRpcHandlers`); the others are not yet.
  */
 export interface InstallScopeRpcMethodRegistry {
   'skillsSh:makeGlobal': {
@@ -979,8 +980,13 @@ export interface InstallScopeRpcMethodRegistry {
  *
  * Provider account methods (`provider:*Account*`, TASK_2026_712) are declared
  * in `rpc/rpc-provider-accounts.types.ts` and merged in through `extends`.
+ * Install-scope methods from {@link InstallScopeRpcMethodRegistry} join the
+ * same way, each once its handler serves it.
  */
-export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
+export interface RpcMethodRegistry
+  extends
+    ProviderAccountRpcMethodRegistry,
+    Pick<InstallScopeRpcMethodRegistry, 'mcpDirectory:makeGlobal'> {
   'artifacts:list': {
     params: ArtifactListRequest;
     result: ArtifactListResponse;
@@ -3560,6 +3566,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'mcpDirectory:install': true,
   'mcpDirectory:uninstall': true,
   'mcpDirectory:listInstalled': true,
+  'mcpDirectory:makeGlobal': true,
   'mcpDirectory:getPopular': true,
   'mcpDirectory:setSmitheryApiKey': true,
   'mcpDirectory:getSmitheryKeyStatus': true,

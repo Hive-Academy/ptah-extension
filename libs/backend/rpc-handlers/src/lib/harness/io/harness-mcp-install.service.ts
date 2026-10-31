@@ -11,6 +11,12 @@
  * workspace mcp.json, or written by a preset from before install support — are
  * reported back as warnings, so the caller tells the user to install them by
  * hand rather than silently implying they were wired up.
+ *
+ * Applying a harness configures the workspace it was applied to, so every
+ * server is recorded as a WORKSPACE intent (TASK_2026_853, D-4): no other
+ * workspace's reconcile writes it. A home-folder target (Codex, Copilot,
+ * Antigravity) would leak the server into every workspace, so it is left out
+ * with a warning; the user can make the server global from the MCP directory.
  */
 
 import { inject, injectable } from 'tsyringe';
@@ -24,6 +30,8 @@ import {
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   HARNESS_DEFAULT_MCP_TARGETS,
+  classifyMcpScope,
+  type McpInstallTarget,
   type McpServerConfig,
   type McpServerEntry,
 } from '@ptah-extension/shared';
@@ -89,10 +97,18 @@ export class HarnessMcpInstallService {
 
     for (const entry of installable) {
       const serverKey = entry.serverKey ?? entry.name;
-      const targets =
+      const requested =
         entry.installTargets && entry.installTargets.length > 0
           ? entry.installTargets
           : HARNESS_DEFAULT_MCP_TARGETS;
+      const homeTargets = requested.filter(isHomeTarget);
+      const targets = requested.filter((target) => !isHomeTarget(target));
+      if (homeTargets.length > 0) {
+        outcome.warnings.push(
+          `MCP server "${entry.name}" was not added to ${homeTargets.join(', ')}: those tools keep settings in your home folder. Make it global from the MCP directory to add it there.`,
+        );
+      }
+      if (targets.length === 0) continue;
 
       try {
         const results = await this.installService.install(
@@ -101,6 +117,7 @@ export class HarnessMcpInstallService {
           entry.config,
           targets,
           workspaceRoot,
+          'workspace',
         );
         for (const result of results) {
           if (result.success) {
@@ -132,4 +149,9 @@ export class HarnessMcpInstallService {
       warnings: outcome.warnings,
     };
   }
+}
+
+/** A target whose config file lives in the user's home folder. */
+function isHomeTarget(target: McpInstallTarget): boolean {
+  return classifyMcpScope({ origin: 'harness-config', target }) === 'global';
 }

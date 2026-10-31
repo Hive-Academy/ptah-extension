@@ -1127,7 +1127,11 @@ describe('McpDirectoryRpcHandlers — install writes an explicit capability ON',
       .mockResolvedValue(results);
   };
 
-  const install = (serverKey: string, targets: string[]) =>
+  const install = (
+    serverKey: string,
+    targets: string[],
+    scope?: 'workspace' | 'global',
+  ) =>
     rpc.handleMessage({
       method: 'mcpDirectory:install',
       params: {
@@ -1135,6 +1139,7 @@ describe('McpDirectoryRpcHandlers — install writes an explicit capability ON',
         serverKey,
         config: stdio,
         targets,
+        ...(scope === undefined ? {} : { scope }),
       },
       correlationId: 'c1',
     } as never);
@@ -1233,6 +1238,7 @@ describe('McpDirectoryRpcHandlers — install writes an explicit capability ON',
     expect(res.success).toBe(true);
     expect(res.data).toEqual({
       results: [{ target: 'claude', success: true, configPath: mcpJson }],
+      scope: 'workspace',
     });
     expect((await resolver.resolve(repo)).approvedProjectMcpServers).toEqual([
       'dual',
@@ -1278,7 +1284,7 @@ describe('McpDirectoryRpcHandlers — install writes an explicit capability ON',
     ]);
     build(repo, resolver);
 
-    const res = await install('github', ['codex']);
+    const res = await install('github', ['codex'], 'global');
 
     expect(resolver.setExplicit).not.toHaveBeenCalled();
     expect(res.data).not.toHaveProperty('capabilityWarning');
@@ -1302,5 +1308,306 @@ describe('McpDirectoryRpcHandlers — install writes an explicit capability ON',
     await install('github', ['claude']);
 
     expect(resolver.setExplicit).not.toHaveBeenCalled();
+  });
+});
+
+describe('McpDirectoryRpcHandlers — install scope and Make global (D-4)', () => {
+  const stdio = { type: 'stdio' as const, command: 'node', args: ['s.js'] };
+  const created: string[] = [];
+  // `os.homedir()` is the scratch home mocked at the top of this file, so the
+  // handler's default intent store writes here and never under the real home.
+  const intentPath = path.join(os.homedir(), '.ptah', 'mcp-installed.json');
+  let rpc: MockRpcHandler;
+
+  const workspaces = (): { a: string; b: string } => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-scope-ws-'));
+    created.push(base);
+    const make = (name: string): string => {
+      const root = path.join(base, name);
+      fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+      fs.mkdirSync(path.join(root, '.ptah'), { recursive: true });
+      return root;
+    };
+    return { a: make('a'), b: make('b') };
+  };
+
+  /** Build the handler for `root` (no folder when undefined) and register it. */
+  const buildFor = (root: string | undefined): void => {
+    rpc = createMockRpcHandler();
+    new McpDirectoryRpcHandlers(
+      createMockLogger() as unknown as Logger,
+      rpc as never,
+      createMockWorkspaceProvider({ folders: root === undefined ? [] : [root] }),
+      createMockSentryService() as unknown as SentryService,
+      createMockAuthSecretsService(),
+      createMockUserInteraction(),
+      createMockHttpServerProvider(),
+      makeContainerStub(),
+    ).register();
+  };
+
+  const call = (method: string, params: unknown) =>
+    rpc.handleMessage({ method, params, correlationId: 'c1' } as never);
+
+  const installParams = (
+    serverKey: string,
+    targets: string[],
+    scope?: 'workspace' | 'global',
+  ) => ({
+    serverName: `io.example/${serverKey}`,
+    serverKey,
+    config: stdio,
+    targets,
+    ...(scope === undefined ? {} : { scope }),
+  });
+
+  const store = (): McpIntentStore => new McpIntentStore(intentPath);
+  const keysFor = (root: string): string[] =>
+    store()
+      .listFor(root)
+      .map((intent) => intent.serverKey);
+
+  beforeEach(() => {
+    fs.rmSync(intentPath, { force: true });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    fs.rmSync(intentPath, { force: true });
+    for (const dir of created.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('declares makeGlobal in the METHODS tuple', () => {
+    expect(McpDirectoryRpcHandlers.METHODS).toContain('mcpDirectory:makeGlobal');
+  });
+
+  it('defaults to workspace scope: the intent is recorded for workspace A only and is absent from B', async () => {
+    const { a, b } = workspaces();
+    buildFor(a);
+
+    const res = await call(
+      'mcpDirectory:install',
+      installParams('alpha', ['claude', 'vscode']),
+    );
+
+    expect(res.success).toBe(true);
+    expect((res.data as { scope?: string }).scope).toBe('workspace');
+    expect(store().scopeOf('alpha', a)).toBe('workspace');
+    expect(keysFor(a)).toEqual(['alpha']);
+    expect(keysFor(b)).toEqual([]);
+    expect(store().scopeOf('alpha', b)).toBeUndefined();
+  });
+
+  it('refuses a workspace install that names a home-folder target before anything is written', async () => {
+    const { a } = workspaces();
+    buildFor(a);
+    const installSpy = jest.spyOn(McpInstallService.prototype, 'install');
+
+    const res = await call(
+      'mcpDirectory:install',
+      installParams('alpha', ['claude', 'codex']),
+    );
+
+    expect(res.success).toBe(false);
+    expect(res.errorCode).toBe('INVALID_PARAMS');
+    expect(res.error).toBe(
+      'This workspace writes only project files. Tools that keep settings in your home folder need All workspaces.',
+    );
+    expect(installSpy).not.toHaveBeenCalled();
+    expect(fs.existsSync(intentPath)).toBe(false);
+  });
+
+  it('refuses a workspace install with no folder open before anything is written', async () => {
+    buildFor(undefined);
+    const installSpy = jest.spyOn(McpInstallService.prototype, 'install');
+
+    const res = await call(
+      'mcpDirectory:install',
+      installParams('alpha', ['claude']),
+    );
+
+    expect(res.success).toBe(false);
+    expect(res.errorCode).toBe('WORKSPACE_NOT_OPEN');
+    expect(res.error).toBe(
+      'No workspace is open. Nothing was installed. Choose All workspaces to install for every workspace.',
+    );
+    expect(installSpy).not.toHaveBeenCalled();
+    expect(fs.existsSync(intentPath)).toBe(false);
+  });
+
+  it('refuses a malformed install request with fixed copy and no write', async () => {
+    const { a } = workspaces();
+    buildFor(a);
+
+    const res = await call('mcpDirectory:install', {
+      ...installParams('alpha', ['claude']),
+      scope: 'everywhere',
+    });
+
+    expect(res.success).toBe(false);
+    expect(res.errorCode).toBe('INVALID_PARAMS');
+    expect(res.error).toBe(
+      'This install request is not valid. Nothing was installed.',
+    );
+    expect(fs.existsSync(intentPath)).toBe(false);
+  });
+
+  it('explicit global records a global intent with home targets, visible in every workspace', async () => {
+    const { a, b } = workspaces();
+    buildFor(a);
+
+    const res = await call(
+      'mcpDirectory:install',
+      installParams('beta', ['claude', 'codex'], 'global'),
+    );
+
+    expect(res.success).toBe(true);
+    expect((res.data as { scope?: string }).scope).toBe('global');
+    expect(store().scopeOf('beta', b)).toBe('global');
+    expect(store().targetsIn('beta', 'global')).toEqual(
+      expect.arrayContaining(['claude', 'codex']),
+    );
+  });
+
+  it('explicit global with no folder open is still allowed', async () => {
+    buildFor(undefined);
+
+    const res = await call(
+      'mcpDirectory:install',
+      installParams('gamma', ['codex'], 'global'),
+    );
+
+    expect(res.success).toBe(true);
+    expect((res.data as { scope?: string }).scope).toBe('global');
+    expect(store().targetsIn('gamma', 'global')).toEqual(['codex']);
+  });
+
+  it('listInstalled reports the install scope of each Ptah-managed row', async () => {
+    const { a } = workspaces();
+    buildFor(a);
+    await call('mcpDirectory:install', installParams('local', ['claude']));
+    await call(
+      'mcpDirectory:install',
+      installParams('shared', ['claude'], 'global'),
+    );
+    // No reconciler is registered here, so the rows the config files would
+    // hold are supplied directly. All three sit in the project's `.mcp.json`
+    // and so carry the file-location scope `workspace`.
+    const row = (serverKey: string, managedByPtah: boolean) => ({
+      serverKey,
+      target: 'claude' as const,
+      configPath: path.join(a, '.mcp.json'),
+      config: stdio,
+      managedByPtah,
+      origin: 'harness-config' as const,
+      originLabel: 'Claude',
+      removal: 'ptah-managed' as const,
+      scope: 'workspace' as const,
+    });
+    jest
+      .spyOn(McpInstallService.prototype, 'listInstalled')
+      .mockResolvedValue([
+        row('local', true),
+        row('shared', true),
+        row('handwritten', false),
+      ]);
+
+    const res = await call('mcpDirectory:listInstalled', {});
+
+    expect(res.success).toBe(true);
+    const servers = (
+      res.data as { servers: { serverKey: string; scope?: string }[] }
+    ).servers;
+    const scopeOf = (key: string): string | undefined =>
+      servers.find((r) => r.serverKey === key)?.scope;
+    // Only the intent tells the two managed rows apart.
+    expect(scopeOf('local')).toBe('workspace');
+    expect(scopeOf('shared')).toBe('global');
+    expect(scopeOf('handwritten')).toBe('workspace');
+  });
+
+  it('Make global promotes the workspace install and adds only the opted-in home targets', async () => {
+    const { a, b } = workspaces();
+    buildFor(a);
+    await call('mcpDirectory:install', installParams('delta', ['claude']));
+    expect(keysFor(b)).toEqual([]);
+
+    const res = await call('mcpDirectory:makeGlobal', {
+      serverKey: 'delta',
+      homeTargets: ['codex'],
+    });
+
+    expect(res.success).toBe(true);
+    const data = res.data as { success: boolean; results: McpInstallResult[] };
+    expect(data.success).toBe(true);
+    expect(store().scopeOf('delta', b)).toBe('global');
+    const targets = store().targetsIn('delta', 'global');
+    expect(targets).toEqual(expect.arrayContaining(['claude', 'codex']));
+    expect(targets).not.toContain('copilot');
+    expect(targets).not.toContain('antigravity');
+  });
+
+  it('Make global with no home targets adds none', async () => {
+    const { a } = workspaces();
+    buildFor(a);
+    await call('mcpDirectory:install', installParams('eps', ['claude']));
+
+    const res = await call('mcpDirectory:makeGlobal', {
+      serverKey: 'eps',
+      homeTargets: [],
+    });
+
+    expect((res.data as { success: boolean }).success).toBe(true);
+    expect(store().targetsIn('eps', 'global')).toEqual(['claude']);
+  });
+
+  it('Make global for a server this workspace never recorded returns fixed copy and changes nothing', async () => {
+    const { a, b } = workspaces();
+    buildFor(a);
+
+    const res = await call('mcpDirectory:makeGlobal', {
+      serverKey: 'missing',
+      homeTargets: [],
+    });
+
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({
+      success: false,
+      results: [],
+      error: 'Could not change where missing is installed.',
+    });
+    expect(keysFor(b)).toEqual([]);
+  });
+
+  it('Make global with no folder open is refused before any write', async () => {
+    buildFor(undefined);
+    const spy = jest.spyOn(McpInstallService.prototype, 'makeGlobal');
+
+    const res = await call('mcpDirectory:makeGlobal', {
+      serverKey: 'delta',
+      homeTargets: [],
+    });
+
+    expect(res.success).toBe(false);
+    expect(res.errorCode).toBe('WORKSPACE_NOT_OPEN');
+    expect(spy).not.toHaveBeenCalled();
+    expect(fs.existsSync(intentPath)).toBe(false);
+  });
+
+  it('Make global rejects a non-home target in homeTargets', async () => {
+    const { a } = workspaces();
+    buildFor(a);
+    const spy = jest.spyOn(McpInstallService.prototype, 'makeGlobal');
+
+    const res = await call('mcpDirectory:makeGlobal', {
+      serverKey: 'delta',
+      homeTargets: ['claude'],
+    });
+
+    expect(res.success).toBe(false);
+    expect(res.errorCode).toBe('INVALID_PARAMS');
+    expect(spy).not.toHaveBeenCalled();
   });
 });

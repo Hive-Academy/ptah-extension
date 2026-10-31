@@ -7,6 +7,7 @@
  * - mcpDirectory:install - Install server to CLI/IDE targets
  * - mcpDirectory:uninstall - Remove server from targets
  * - mcpDirectory:listInstalled - List all installed MCP servers
+ * - mcpDirectory:makeGlobal - Promote a workspace install to every workspace
  * - mcpDirectory:getPopular - Get popular/trending servers (cached)
  * - mcpDirectory:smitheryAccount - Report the Smithery account + namespaces
  * - mcpDirectory:listSmitheryConnections - List connections in the namespace
@@ -36,6 +37,15 @@
  * A failed capability write never fails the install. The result carries a
  * `capabilityWarning` naming the server; the resolver's own error text stays
  * in the log.
+ *
+ * ## Install scope (TASK_2026_853, D-4)
+ *
+ * `mcpDirectory:install` records a WORKSPACE intent by default, so no other
+ * workspace's reconcile writes the server. A workspace install with no folder
+ * open, or one naming a home-folder target (Codex, Copilot, Antigravity), is
+ * refused with fixed copy before anything is recorded or written. `global` is
+ * the explicit opt-in. `mcpDirectory:makeGlobal` promotes a workspace install;
+ * home-folder targets are added only when the caller lists them.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -43,6 +53,7 @@ import type { DependencyContainer } from 'tsyringe';
 import {
   Logger,
   RpcHandler,
+  RpcUserError,
   TOKENS,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
@@ -83,8 +94,10 @@ import type {
   McpDirectorySearchResult,
   McpDirectoryGetDetailsParams,
   McpDirectoryGetDetailsResult,
-  McpDirectoryInstallParams,
-  McpDirectoryInstallResult,
+  McpDirectoryScopedInstallParams,
+  McpDirectoryScopedInstallResult,
+  McpDirectoryMakeGlobalParams,
+  McpDirectoryMakeGlobalResult,
   McpDirectoryUninstallParams,
   McpDirectoryUninstallResult,
   McpDirectoryListInstalledParams,
@@ -129,6 +142,8 @@ import type {
   McpDirectoryGetOAuthRedirectUriResult,
   McpRegistrySourceKind,
   McpInstallResult,
+  McpInstallTarget,
+  InstalledMcpServer,
   ICapabilityResolver,
   RpcMethodName,
 } from '@ptah-extension/shared';
@@ -138,6 +153,12 @@ import {
   InstallSmitherySchema,
   UninstallSmitherySchema,
   UninstallMcpSchema,
+  InstallMcpSchema,
+  MakeMcpGlobalSchema,
+  MCP_INSTALL_INVALID_ERROR,
+  MCP_NO_WORKSPACE_ERROR,
+  MCP_HOME_TARGET_NEEDS_GLOBAL_ERROR,
+  mcpMakeGlobalFailureCopy,
   SmitheryServerKeySchema,
   deriveSmitheryConnectionId,
   ConnectOAuthSchema,
@@ -159,6 +180,7 @@ export class McpDirectoryRpcHandlers {
     'mcpDirectory:install',
     'mcpDirectory:uninstall',
     'mcpDirectory:listInstalled',
+    'mcpDirectory:makeGlobal',
     'mcpDirectory:getPopular',
     'mcpDirectory:setSmitheryApiKey',
     'mcpDirectory:getSmitheryKeyStatus',
@@ -316,6 +338,7 @@ export class McpDirectoryRpcHandlers {
     this.registerInstall();
     this.registerUninstall();
     this.registerListInstalled();
+    this.registerMakeGlobal();
     this.registerGetPopular();
     this.registerSetSmitheryApiKey();
     this.registerGetSmitheryKeyStatus();
@@ -341,6 +364,7 @@ export class McpDirectoryRpcHandlers {
         'mcpDirectory:install',
         'mcpDirectory:uninstall',
         'mcpDirectory:listInstalled',
+        'mcpDirectory:makeGlobal',
         'mcpDirectory:getPopular',
         'mcpDirectory:setSmitheryApiKey',
         'mcpDirectory:getSmitheryKeyStatus',
@@ -437,27 +461,52 @@ export class McpDirectoryRpcHandlers {
     });
   }
 
+  /**
+   * `mcpDirectory:install`. The scope defaults to `workspace`. A workspace
+   * install with no folder open, or one that names a home-folder target, is
+   * refused with a fixed {@link RpcUserError} before anything is recorded or
+   * written; those checks sit outside the try so the per-target failure
+   * mapping below never swallows them.
+   */
   private registerInstall(): void {
     this.rpcHandler.registerMethod<
-      McpDirectoryInstallParams,
-      McpDirectoryInstallResult
+      McpDirectoryScopedInstallParams,
+      McpDirectoryScopedInstallResult
     >('mcpDirectory:install', async (params) => {
+      const parsed = InstallMcpSchema.safeParse(params);
+      if (!parsed.success) {
+        throw new RpcUserError(MCP_INSTALL_INVALID_ERROR, 'INVALID_PARAMS');
+      }
+      const input = parsed.data;
+      const workspaceRoot = this.getWorkspaceRoot();
+      if (input.scope === 'workspace') {
+        if (workspaceRoot === undefined) {
+          throw new RpcUserError(MCP_NO_WORKSPACE_ERROR, 'WORKSPACE_NOT_OPEN');
+        }
+        if (input.targets.some(isHomeTarget)) {
+          throw new RpcUserError(
+            MCP_HOME_TARGET_NEEDS_GLOBAL_ERROR,
+            'INVALID_PARAMS',
+          );
+        }
+      }
+
       try {
         this.logger.info('RPC: mcpDirectory:install', {
-          serverName: params.serverName,
-          serverKey: params.serverKey,
-          targets: params.targets,
-          configType: params.config.type,
+          serverName: input.serverName,
+          serverKey: input.serverKey,
+          targets: input.targets,
+          configType: input.config.type,
+          scope: input.scope,
         });
 
-        const workspaceRoot = this.getWorkspaceRoot();
-
         const results = await this.installService.install(
-          params.serverName,
-          params.serverKey,
-          params.config,
-          params.targets,
+          input.serverName,
+          input.serverKey,
+          input.config,
+          input.targets,
           workspaceRoot,
+          input.scope,
         );
 
         const successes = results.filter((r) => r.success);
@@ -465,14 +514,15 @@ export class McpDirectoryRpcHandlers {
 
         if (successes.length > 0) {
           this.logger.info('MCP server installed', {
-            serverKey: params.serverKey,
+            serverKey: input.serverKey,
+            scope: input.scope,
             successTargets: successes.map((r) => r.target),
           });
         }
 
         if (failures.length > 0) {
           this.logger.warn('MCP server install partial failure', {
-            serverKey: params.serverKey,
+            serverKey: input.serverKey,
             failures: failures.map((r) => ({
               target: r.target,
               error: r.error,
@@ -481,13 +531,13 @@ export class McpDirectoryRpcHandlers {
         }
 
         const capabilityWarning = await this.recordInstalledCapability(
-          params.serverKey,
+          input.serverKey,
           successes,
           workspaceRoot,
         );
         return capabilityWarning === undefined
-          ? { results }
-          : { results, capabilityWarning };
+          ? { results, scope: input.scope }
+          : { results, scope: input.scope, capabilityWarning };
       } catch (error) {
         this.sentryService.captureException(
           error instanceof Error ? error : new Error(String(error)),
@@ -497,12 +547,73 @@ export class McpDirectoryRpcHandlers {
           error: String(error),
         });
         return {
-          results: params.targets.map((target) => ({
+          results: input.targets.map((target) => ({
             target,
             success: false,
             configPath: '',
             error: error instanceof Error ? error.message : String(error),
           })),
+          scope: input.scope,
+        };
+      }
+    });
+  }
+
+  /**
+   * `mcpDirectory:makeGlobal`: promote this workspace's install of a server to
+   * global, adding only the home-folder targets the user ticked. Every failure
+   * returns the same fixed copy; the cause stays in the log.
+   */
+  private registerMakeGlobal(): void {
+    this.rpcHandler.registerMethod<
+      McpDirectoryMakeGlobalParams,
+      McpDirectoryMakeGlobalResult
+    >('mcpDirectory:makeGlobal', async (params) => {
+      const parsed = MakeMcpGlobalSchema.safeParse(params);
+      if (!parsed.success) {
+        throw new RpcUserError(MCP_INSTALL_INVALID_ERROR, 'INVALID_PARAMS');
+      }
+      const input = parsed.data;
+      const workspaceRoot = this.getWorkspaceRoot();
+      if (workspaceRoot === undefined) {
+        throw new RpcUserError(MCP_NO_WORKSPACE_ERROR, 'WORKSPACE_NOT_OPEN');
+      }
+
+      this.logger.info('RPC: mcpDirectory:makeGlobal', {
+        serverKey: input.serverKey,
+        homeTargets: input.homeTargets,
+      });
+      try {
+        const results = await this.installService.makeGlobal(
+          input.serverKey,
+          workspaceRoot,
+          input.homeTargets,
+        );
+        const failures = results.filter((r) => !r.success);
+        if (failures.length > 0) {
+          this.logger.warn('MCP make global partial failure', {
+            serverKey: input.serverKey,
+            failures: failures.map((r) => ({
+              target: r.target,
+              error: r.error,
+            })),
+          });
+        }
+        return { success: true, results };
+      } catch (error: unknown) {
+        // degradation-audit: reported - the cause is logged (and sent to Sentry
+        // unless it is the store's expected refusal); the user gets fixed copy.
+        const err = error instanceof Error ? error : new Error(String(error));
+        if (err.name !== 'McpIntentScopeError') {
+          this.sentryService.captureException(err, {
+            errorSource: 'McpDirectoryRpcHandlers.registerMakeGlobal',
+          });
+        }
+        this.logger.error('RPC: mcpDirectory:makeGlobal failed', err);
+        return {
+          success: false,
+          results: [],
+          error: mcpMakeGlobalFailureCopy(input.serverKey),
         };
       }
     });
@@ -553,9 +664,9 @@ export class McpDirectoryRpcHandlers {
         this.logger.debug('RPC: mcpDirectory:listInstalled');
 
         const workspaceRoot = this.getWorkspaceRoot();
-        const servers = await this.installService.listInstalled(workspaceRoot);
+        const rows = await this.installService.listInstalled(workspaceRoot);
 
-        return { servers };
+        return { servers: this.withInstallScope(rows, workspaceRoot) };
       } catch (error) {
         this.sentryService.captureException(
           error instanceof Error ? error : new Error(String(error)),
@@ -566,6 +677,29 @@ export class McpDirectoryRpcHandlers {
         });
         return { servers: [] };
       }
+    });
+  }
+
+  /**
+   * Report the INSTALL scope on each Ptah-managed row (D-4): a row whose
+   * server this workspace recorded says `workspace` or `global` from the
+   * intent, so a global install written to a project file (`.mcp.json`) is
+   * not shown as workspace-only and Make global is offered only for a real
+   * workspace install. Every other row keeps the file-location scope
+   * `listInstalled` classified.
+   */
+  private withInstallScope(
+    rows: readonly InstalledMcpServer[],
+    workspaceRoot: string | undefined,
+  ): InstalledMcpServer[] {
+    if (workspaceRoot === undefined) return [...rows];
+    return rows.map((row) => {
+      if (!row.managedByPtah) return row;
+      const scope = this.installService.intentScopeOf(
+        row.serverKey,
+        workspaceRoot,
+      );
+      return scope === undefined ? row : { ...row, scope };
     });
   }
 
@@ -1381,6 +1515,11 @@ export class McpDirectoryRpcHandlers {
   private getWorkspaceRoot(): string | undefined {
     return this.workspaceProvider.getWorkspaceRoot();
   }
+}
+
+/** A target whose config file lives in the user's home folder. */
+function isHomeTarget(target: McpInstallTarget): boolean {
+  return classifyMcpScope({ origin: 'harness-config', target }) === 'global';
 }
 
 /**
