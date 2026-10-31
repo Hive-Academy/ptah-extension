@@ -35,12 +35,8 @@ import type {
   HarnessPlanRemove,
 } from '../harness-target.port';
 import { WorkspaceHarnessTarget } from '../workspace-target';
-import {
-  applyMcpFacet,
-  planMcpFacet,
-  type GitTrackingProbe,
-  type GitTrackingState,
-} from './mcp-facet-planner';
+import type { GitTrackingProbe, GitTrackingState } from '../retirement-proof';
+import { applyMcpFacet, planMcpFacet } from './mcp-facet-planner';
 import type { IHarnessMcpFacet } from './mcp-facet.port';
 import { createMcpFacet } from './mcp-facet.registry';
 import { hashMcpConfig } from './mcp-json-format';

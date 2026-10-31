@@ -62,7 +62,6 @@ import {
   publishFailureReason,
 } from './artifact-retirement';
 import { isMigratableLink } from './link-ownership';
-import { createGitTrackingProbe } from './workspace-target';
 import { createMcpFacet } from './mcp/mcp-facet.registry';
 import type { IHarnessMcpFacet } from './mcp/mcp-facet.port';
 import {
@@ -70,6 +69,12 @@ import {
   planMcpFacet,
   type McpFacetPlan,
 } from './mcp/mcp-facet-planner';
+import {
+  createGitTrackingProbe,
+  removeRetiredCopy,
+  retiredSourceItemId,
+  type GitTrackingProbe,
+} from './retirement-proof';
 
 const SKILLS_REL = '.claude/skills';
 const COMMANDS_REL = '.claude/commands';
@@ -110,6 +115,9 @@ export class ClaudeTarget implements IHarnessTarget {
   };
 
   private readonly mcpFacet: IHarnessMcpFacet;
+  /** Answers rule 3 of the retired-copy proof (D-D7) for skills, commands and `.mcp.json`. */
+  private readonly probeGitTracking: GitTrackingProbe =
+    createGitTrackingProbe();
 
   constructor(
     private readonly manifestStore: ManagedManifestStore,
@@ -284,16 +292,25 @@ export class ClaudeTarget implements IHarnessTarget {
       retired?.mcpServerKeys ?? [],
     );
 
+    const retiredSkillRoots = retired?.skillSourceRoots ?? [];
     for (const relPath of Object.keys(baseEntries)) {
       if (desiredRel.has(relPath)) continue;
       const entry = baseEntries[relPath];
       // MCP entries live inside a shared config file and are swept by the facet
       // planner, which knows which config file each key belongs to.
       if (entry.kind === 'mcp' || mcpPlan.ownedKeys.has(relPath)) continue;
+      // A copy of a retired skills.sh root is no longer desired because its
+      // source is gone, not because the user deselected it: apply removes it
+      // only on proof (D-2) instead of snapshot-deleting it.
+      const retiredItemId = retiredSourceItemId(
+        entry.source,
+        retiredSkillRoots,
+      );
       removals.push({
         relPath,
         kind: entry.kind,
         isDirectory: relPath.startsWith(`${SKILLS_REL}/`),
+        ...(retiredItemId === undefined ? {} : { retiredItemId }),
       });
     }
 
@@ -372,6 +389,17 @@ export class ClaudeTarget implements IHarnessTarget {
 
     for (const removal of plan.removals) {
       if (removal.kind === 'mcp') continue;
+      if (removal.retiredItemId !== undefined) {
+        await removeRetiredCopy({
+          workspaceRoot,
+          removal,
+          itemId: removal.retiredItemId,
+          baseEntries: plan.baseEntries,
+          probeGitTracking: this.probeGitTracking,
+          result,
+        });
+        continue;
+      }
       const absolute = toAbsolute(workspaceRoot, removal.relPath);
       try {
         await removeManaged(absolute, removal.isDirectory);
@@ -399,7 +427,7 @@ export class ClaudeTarget implements IHarnessTarget {
       // without its owned hash and git probe fails owned on every pass.
       {
         baseEntries: plan.baseEntries,
-        probeGitTracking: createGitTrackingProbe(),
+        probeGitTracking: this.probeGitTracking,
       },
     );
 
@@ -448,7 +476,10 @@ export class ClaudeTarget implements IHarnessTarget {
         ownedHash: owned.hash,
       });
       if (gate.kind === 'failed') {
-        result.writeFailed.push({ relPath: write.relPath, reason: gate.reason });
+        result.writeFailed.push({
+          relPath: write.relPath,
+          reason: gate.reason,
+        });
         return;
       }
       if (gate.kind === 'kept-local-edit') {

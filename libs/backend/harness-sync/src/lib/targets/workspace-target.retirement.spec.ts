@@ -38,15 +38,15 @@ import type {
   HarnessApplyResult,
   HarnessRetiredSources,
 } from './harness-target.port';
-import type { GitTrackingProbe } from './mcp/mcp-facet-planner';
 import {
   classifyGitLsFiles,
   containedTargetPath,
   createGitTrackingProbe,
   GIT_NO_MATCH_MESSAGE,
   type GitRunner,
-  WorkspaceHarnessTarget,
-} from './workspace-target';
+  type GitTrackingProbe,
+} from './retirement-proof';
+import { WorkspaceHarnessTarget } from './workspace-target';
 
 const SKILL = '.cursor/skills/retired-skill';
 const COMMAND = '.cursor/commands/retired-cmd.md';

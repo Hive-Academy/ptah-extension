@@ -23,7 +23,6 @@
 import {
   mcpRetiredItemId,
   type HarnessRetiredItemId,
-  type HarnessRetiredKeptReason,
   type McpServerConfig,
 } from '@ptah-extension/shared';
 import type { HarnessDesiredMcpServer } from '../../manifest/desired-state.types';
@@ -37,6 +36,12 @@ import type {
   HarnessPlanRemove,
   HarnessPlanWrite,
 } from '../harness-target.port';
+import {
+  recordRetiredFailed,
+  recordRetiredKept,
+  recordRetiredRemoved,
+  type GitTrackingProbe,
+} from '../retirement-proof';
 import { hashMcpConfig } from './mcp-json-format';
 import { mcpEntryKey, type IHarnessMcpFacet } from './mcp-facet.port';
 
@@ -166,21 +171,6 @@ export function planMcpFacet(
 }
 
 /**
- * Whether git knows a workspace path (D-D7):
- * - `tracked`: `git ls-files --error-unmatch` exited 0;
- * - `untracked`: it exited 1 with git's "did not match any file(s)" message;
- * - `unverifiable`: anything else — git missing, timed out, not a repository
- *   (128), another exit or message, or a path that is not contained.
- */
-export type GitTrackingState = 'tracked' | 'untracked' | 'unverifiable';
-
-/** Answers {@link GitTrackingState} for a workspace-relative POSIX path. */
-export type GitTrackingProbe = (
-  workspaceRoot: string,
-  relPath: string,
-) => Promise<GitTrackingState>;
-
-/**
  * What applying a retired MCP removal needs beyond the removal itself (D-2).
  *
  * `baseEntries` supplies the hash Ptah recorded for the key, because a removal
@@ -189,42 +179,6 @@ export type GitTrackingProbe = (
 export interface McpRetirementContext {
   baseEntries: ManagedEntries;
   probeGitTracking: GitTrackingProbe;
-}
-
-/** A retired copy deleted on proof: in `removed` AND `removedRetired`. */
-export function recordRetiredRemoved(
-  result: HarnessApplyResult,
-  relPath: string,
-  itemId: HarnessRetiredItemId,
-): void {
-  result.removed.push(relPath);
-  (result.removedRetired ??= []).push({ relPath, itemId });
-}
-
-/**
- * A retired copy kept on disk and disowned: NOT in `removed`, never
- * snapshotted. The reconciler drops its manifest entry.
- */
-export function recordRetiredKept(
-  result: HarnessApplyResult,
-  relPath: string,
-  itemId: HarnessRetiredItemId,
-  reason: HarnessRetiredKeptReason,
-): void {
-  (result.keptRetired ??= []).push({ relPath, itemId, reason });
-}
-
-/**
- * A retired removal that hit an I/O failure. Out of `removed` and
- * `keptRetired`, so the entry stays owned and the next pass retries.
- */
-export function recordRetiredFailed(
-  result: HarnessApplyResult,
-  relPath: string,
-  itemId: HarnessRetiredItemId,
-  reason: string,
-): void {
-  result.writeFailed.push({ relPath, reason, itemId });
 }
 
 /**
@@ -323,6 +277,8 @@ async function applyRetiredMcpRemoval(
   try {
     current = facet.readAll(workspaceRoot).get(mcpServerKey);
   } catch (error: unknown) {
+    // degradation-audit: reported - recorded as writeFailed; the entry stays
+    // owned and the next pass retries it.
     recordRetiredFailed(
       result,
       relPath,
