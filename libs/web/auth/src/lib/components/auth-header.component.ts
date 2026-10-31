@@ -37,7 +37,7 @@ import { AuthMode } from '../models/auth.types';
     >
       <img
         ngSrc="/assets/icons/ptah-icon.png"
-        alt="Ptah Extension Logo"
+        alt="PtahCode logo"
         width="128"
         height="128"
         class="w-32 h-32 transition-transform duration-300 "

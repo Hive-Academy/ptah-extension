@@ -26,7 +26,7 @@ All four Hermes tracks share `~/.ptah/ptah.db` and live under their respective `
 
 Full, versioned release notes live on GitHub:
 
-[https://github.com/Hive-Academy/ptah-extension/releases](https://github.com/Hive-Academy/ptah-extension/releases)
+[https://github.com/Hive-Academy/PtahCode/releases](https://github.com/Hive-Academy/PtahCode/releases)
 
 Each release includes:
 

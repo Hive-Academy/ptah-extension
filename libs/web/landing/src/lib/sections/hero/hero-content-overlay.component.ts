@@ -63,7 +63,7 @@ const KEYWORDS = ['the SaaS.', 'the billing.', 'the auth.', 'the audit.'];
             class="w-5 h-5"
             aria-hidden="true"
           />
-          Download Ptah — it's free
+          Download PtahCode — it's free
         </a>
         <a
           href="#demo"

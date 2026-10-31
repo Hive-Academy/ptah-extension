@@ -27,7 +27,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
   template: `
     <section
       id="cta"
-      aria-label="Download Ptah"
+      aria-label="Download PtahCode"
       class="relative bg-ink-950 py-24 sm:py-32 overflow-hidden"
     >
       <ptah-console-grid-background [glow]="true" />
@@ -40,7 +40,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
           [viewportConfig]="headlineConfig"
           class="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white mb-6"
         >
-          Download Ptah.
+          Download PtahCode.
         </h2>
 
         <p
@@ -62,7 +62,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
               class="w-4 h-4"
               aria-hidden="true"
             />
-            Download Ptah
+            Download PtahCode
           </a>
         </div>
 

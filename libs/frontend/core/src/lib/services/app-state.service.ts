@@ -713,7 +713,7 @@ export class AppStateManager implements MessageHandler {
   });
   readonly appTitle = computed(() => {
     const workspace = this._workspaceInfo();
-    return workspace ? `Ptah - ${workspace.name}` : 'Ptah';
+    return workspace ? `PtahCode - ${workspace.name}` : 'PtahCode';
   });
 
   /**

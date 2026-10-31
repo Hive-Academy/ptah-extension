@@ -58,14 +58,14 @@
 - **App ID**: `7f4271fb-ff47-4cb7-bb97-8a2aed6eefe3`
 - **Region**: FRA1 (Frankfurt)
 - **Type**: Static Site (FREE tier)
-- **Source**: GitHub `Hive-Academy/ptah-extension`, branch `main`
+- **Source**: GitHub `Hive-Academy/PtahCode`, branch `main`
 - **Component**: `landing` (Static Site)
 - **Status**: First deploy failed (expected — needs proper build config)
 - **Cost**: $0/month
 
 ### 3. GitHub Actions Secrets ✅
 
-All 6 secrets configured at: `github.com/Hive-Academy/ptah-extension/settings/secrets/actions`
+All 6 secrets configured at: `github.com/Hive-Academy/PtahCode/settings/secrets/actions`
 
 | Secret                      | Purpose                        | Value                                       |
 | --------------------------- | ------------------------------ | ------------------------------------------- |
@@ -253,12 +253,12 @@ The Electron desktop app is built and distributed via GitHub Releases, triggered
    - Creates git tag `electron-v{version}`
    - Publishes a public GitHub Release with all installers
 
-**Landing page links:** "Download Desktop App" buttons point to `https://github.com/Hive-Academy/ptah-extension/releases/latest`
+**Landing page links:** "Download Desktop App" buttons point to `https://github.com/Hive-Academy/PtahCode/releases/latest`
 
 **Config files:**
 
 - `apps/ptah-electron/package.json` — Version source of truth
-- `apps/ptah-electron/electron-builder.yml` — Build config (publishes to `Hive-Academy/ptah-extension`)
+- `apps/ptah-electron/electron-builder.yml` — Build config (publishes to `Hive-Academy/PtahCode`)
 - `.github/workflows/publish-electron.yml` — CI workflow
 
 **Platform outputs:**
@@ -275,9 +275,9 @@ The Electron desktop app is built and distributed via GitHub Releases, triggered
 
 ## Quick Reference URLs
 
-- **GitHub Repo**: https://github.com/Hive-Academy/ptah-extension
-- **GitHub Releases (Electron)**: https://github.com/Hive-Academy/ptah-extension/releases
-- **GitHub Secrets**: https://github.com/Hive-Academy/ptah-extension/settings/secrets/actions
+- **GitHub Repo**: https://github.com/Hive-Academy/PtahCode
+- **GitHub Releases (Electron)**: https://github.com/Hive-Academy/PtahCode/releases
+- **GitHub Secrets**: https://github.com/Hive-Academy/PtahCode/settings/secrets/actions
 - **DO Droplet**: https://cloud.digitalocean.com/droplets (ptah-api-prod)
 - **DO App Platform**: https://cloud.digitalocean.com/apps/7f4271fb-ff47-4cb7-bb97-8a2aed6eefe3
 - **DO DNS**: https://cloud.digitalocean.com/networking/domains/ptah.live

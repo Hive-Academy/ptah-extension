@@ -129,7 +129,7 @@ test('SHOWCASE — landing page tour (ptah.live)', async ({ page, director }) =>
     .getByRole('heading', { name: 'It Remembers. It Learns. It Ships.' })
     .first();
   const heroDownload = heroOverlay
-    .getByRole('link', { name: 'Download Ptah' })
+    .getByRole('link', { name: 'Download PtahCode' })
     .first();
   const heroWatch = heroOverlay
     .getByRole('link', { name: 'Watch it work' })
@@ -319,11 +319,11 @@ test('SHOWCASE — landing page tour (ptah.live)', async ({ page, director }) =>
   await gotoSection(page, cta);
   const ctaHeading = page
     .locator(cta)
-    .getByRole('heading', { name: 'Download Ptah' })
+    .getByRole('heading', { name: 'Download PtahCode' })
     .first();
   const ctaDownload = page
     .locator(cta)
-    .getByRole('link', { name: 'Download Ptah' })
+    .getByRole('link', { name: 'Download PtahCode' })
     .first();
   await director.say(22, {
     target: ctaHeading,

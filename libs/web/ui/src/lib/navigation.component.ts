@@ -31,7 +31,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
  * Declutter & consolidate redesign (TASK_2026_168):
  * - Top row consolidated to: Product ▾ (Features, Builders), Pricing, Docs,
  *   Community ▾ (Community — authenticated only, Discord, GitHub, Reddit, LinkedIn),
- *   Download Ptah CTA, and — authenticated only — a User ▾ avatar menu
+ *   Download PtahCode CTA, and — authenticated only — a User ▾ avatar menu
  *   (Members, Profile, divider, Logout). Unauthenticated keeps Login + Sign Up
  *   inline before the CTA.
  * - Three disclosure menus are driven by a single tri-state `openMenu` signal
@@ -68,12 +68,12 @@ import { SubscriptionStateService } from '@ptah-web/core';
       <a
         routerLink="/"
         class="flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
-        aria-label="Ptah home"
+        aria-label="PtahCode home"
         (click)="closeMobileMenu()"
       >
         <img
           ngSrc="/assets/icons/ptah-icon.png"
-          alt="Ptah logo"
+          alt="PtahCode logo"
           width="96"
           height="96"
           class="w-11 h-11"
@@ -247,7 +247,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
 
               <!-- GitHub Link -->
               <a
-                href="https://github.com/Hive-Academy/ptah-extension"
+                href="https://github.com/Hive-Academy/PtahCode"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
@@ -339,14 +339,14 @@ import { SubscriptionStateService } from '@ptah-web/core';
           routerLink="/download"
           routerLinkActive="bg-amber-400"
           class="inline-flex items-center justify-center gap-2 bg-amber-500 text-ink-950 px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-          aria-label="Download the Ptah desktop app"
+          aria-label="Download the PtahCode desktop app"
         >
           <lucide-angular
             [img]="DownloadIcon"
             class="w-4 h-4"
             aria-hidden="true"
           />
-          Download Ptah
+          Download PtahCode
         </a>
 
         @if (isAuthenticated()) {
@@ -642,7 +642,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
 
           <!-- GitHub Link -->
           <a
-            href="https://github.com/Hive-Academy/ptah-extension"
+            href="https://github.com/Hive-Academy/PtahCode"
             target="_blank"
             rel="noopener noreferrer"
             class="flex items-center gap-2 px-4 py-3 text-white/70 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
@@ -721,7 +721,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
               class="w-5 h-5"
               aria-hidden="true"
             />
-            Download Ptah
+            Download PtahCode
           </a>
         </div>
       </div>

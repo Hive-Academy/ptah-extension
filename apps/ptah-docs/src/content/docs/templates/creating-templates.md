@@ -95,7 +95,7 @@ Drop your template under `~/.ptah/templates/` and run **Ptah: Reload Templates**
 
 ## Publishing
 
-Submit templates to the official catalog by opening a PR against [`libs/backend/agent-generation/templates/`](https://github.com/Hive-Academy/ptah-extension/tree/main/libs/backend/agent-generation/templates) and regenerating the manifest with `node scripts/generate-content-manifest.js`.
+Submit templates to the official catalog by opening a PR against [`libs/backend/agent-generation/templates/`](https://github.com/Hive-Academy/PtahCode/tree/main/libs/backend/agent-generation/templates) and regenerating the manifest with `node scripts/generate-content-manifest.js`.
 
 ## Next steps
 

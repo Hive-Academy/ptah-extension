@@ -194,7 +194,7 @@ domains:
 static_sites:
   - name: landing
     github:
-      repo: Hive-Academy/ptah-extension
+      repo: Hive-Academy/PtahCode
       branch: main
       deploy_on_push: false
     build_command: bash scripts/do-build.sh

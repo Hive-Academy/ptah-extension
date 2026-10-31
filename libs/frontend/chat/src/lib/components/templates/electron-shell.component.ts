@@ -199,14 +199,14 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
         <div class="flex items-center gap-2 no-drag">
           <img
             [src]="ptahIconUri"
-            alt="Ptah"
+            alt="PtahCode"
             class="w-5 h-5 flex-shrink-0"
             width="20"
             height="20"
           />
           <span
             class="text-sm font-semibold text-base-content-muted select-none"
-            >Ptah</span
+            >PtahCode</span
           >
         </div>
 

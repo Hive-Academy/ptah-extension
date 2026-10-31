@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { PRODUCT_DISPLAY_NAME } from '../config/product-identity';
 
 /**
  * The renderer channels that MUST have a main-process listener once a window
@@ -94,7 +95,7 @@ export function answerRpcInRecoveryMode(
     type: MESSAGE_TYPES.RPC_RESPONSE,
     correlationId,
     success: false,
-    error: `Ptah is in recovery mode and cannot serve requests (${reason}).`,
+    error: `${PRODUCT_DISPLAY_NAME} is in recovery mode and cannot serve requests (${reason}).`,
     errorCode: 'state-storage-recovery-required',
   });
 }

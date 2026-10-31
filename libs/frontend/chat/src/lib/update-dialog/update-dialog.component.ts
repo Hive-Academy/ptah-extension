@@ -142,6 +142,6 @@ export class UpdateDialogComponent {
   }
 
   releaseNotesUrl(version: string): string {
-    return `https://github.com/Hive-Academy/ptah-extension/releases/tag/electron-v${version}`;
+    return `https://github.com/Hive-Academy/PtahCode/releases/tag/electron-v${version}`;
   }
 }

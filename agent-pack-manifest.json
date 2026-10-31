@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Core development agent pack for the Ptah coding orchestra",
   "contentHash": "",
-  "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/.claude/agents",
+  "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/.claude/agents",
   "agents": [
     {
       "file": "backend-developer.md",

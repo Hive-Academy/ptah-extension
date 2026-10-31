@@ -332,12 +332,12 @@ git push origin release/electron
 
 - **electron-builder.yml**: `apps/ptah-electron/electron-builder.yml`
 - **App ID**: `com.ptah.desktop`
-- **Publish target**: GitHub Releases (`Hive-Academy/ptah-extension`)
+- **Publish target**: GitHub Releases (`Hive-Academy/PtahCode`)
 
 ### Download Links
 
 The landing page "Download Desktop App" buttons point to:
-`https://github.com/Hive-Academy/ptah-extension/releases/latest`
+`https://github.com/Hive-Academy/PtahCode/releases/latest`
 
 Users select the installer for their platform from the GitHub Release page.
 

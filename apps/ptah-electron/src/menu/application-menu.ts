@@ -23,6 +23,10 @@ import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceLifecycleProvider } from '@ptah-extension/platform-core';
 import { mintResetChallengeToken } from '@ptah-extension/rpc-handlers';
+import {
+  PRODUCT_DISPLAY_NAME,
+  PRODUCT_TAGLINE,
+} from '../config/product-identity';
 
 const isMac = process.platform === 'darwin';
 
@@ -38,10 +42,11 @@ export function createApplicationMenu(
 ): void {
   const template: MenuItemConstructorOptions[] = [];
   if (isMac) {
+    app.setAboutPanelOptions({ applicationName: PRODUCT_DISPLAY_NAME });
     template.push({
-      label: app.name,
+      label: PRODUCT_DISPLAY_NAME,
       submenu: [
-        { role: 'about', label: `About ${app.name}` },
+        { role: 'about', label: `About ${PRODUCT_DISPLAY_NAME}` },
         { type: 'separator' },
         {
           label: 'Preferences...',
@@ -53,11 +58,11 @@ export function createApplicationMenu(
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
-        { role: 'hide' },
+        { role: 'hide', label: `Hide ${PRODUCT_DISPLAY_NAME}` },
         { role: 'hideOthers' },
         { role: 'unhide' },
         { type: 'separator' },
-        { role: 'quit' },
+        { role: 'quit', label: `Quit ${PRODUCT_DISPLAY_NAME}` },
       ],
     });
   }
@@ -200,15 +205,15 @@ export function createApplicationMenu(
       ...(!isMac
         ? [
             {
-              label: `About ${app.name}`,
+              label: `About ${PRODUCT_DISPLAY_NAME}`,
               click: () => {
                 const win = getWindow();
                 if (win) {
                   dialog.showMessageBox(win, {
                     type: 'info',
-                    title: `About ${app.name}`,
-                    message: app.name,
-                    detail: `Version ${app.getVersion()}\n\nAI Coding Orchestra for Desktop`,
+                    title: `About ${PRODUCT_DISPLAY_NAME}`,
+                    message: PRODUCT_DISPLAY_NAME,
+                    detail: `Version ${app.getVersion()}\n\n${PRODUCT_TAGLINE} for Desktop`,
                   });
                 }
               },

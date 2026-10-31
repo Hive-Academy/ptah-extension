@@ -34,7 +34,7 @@ export interface ParsedRelease {
 }
 
 const GITHUB_API =
-  'https://api.github.com/repos/Hive-Academy/ptah-extension/releases';
+  'https://api.github.com/repos/Hive-Academy/PtahCode/releases';
 
 @Injectable({ providedIn: 'root' })
 export class GitHubReleaseService {
