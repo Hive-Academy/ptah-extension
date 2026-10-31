@@ -232,17 +232,17 @@ function skillSelectionKey(
           data-testid="plugin-session-notice"
         >
           @if (!notice.inheritsProjectSettings) {
-            <p class="break-all">
+            <p class="break-words">
               This session runs in {{ notice.sessionRoot }}. It does not use
               this project's plugin settings.
             </p>
           } @else if (notice.overrides.length === 0) {
-            <p class="break-all">
+            <p class="break-words">
               This session runs in {{ notice.sessionRoot }} and uses this
               project's plugin settings.
             </p>
           } @else {
-            <p class="break-all">
+            <p class="break-words">
               This session runs in {{ notice.sessionRoot }}. Its folder sets
               these itself, so changes here do not reach this session:
             </p>

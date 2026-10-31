@@ -475,9 +475,9 @@ describe('plugin catalog panel — per-workspace skill selection', () => {
       expect(normalizedText(notice)).toContain(
         "Some of this session's folder settings could not be read.",
       );
-      expect(notice?.querySelector('p')?.classList.contains('break-all')).toBe(
-        true,
-      );
+      expect(
+        notice?.querySelector('p')?.classList.contains('break-words'),
+      ).toBe(true);
     });
 
     it('uses catalog plugin names and retains unknown plugin and skill ids', async () => {
