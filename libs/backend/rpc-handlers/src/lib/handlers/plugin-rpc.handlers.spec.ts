@@ -128,7 +128,12 @@ import {
 import type { DependencyContainer } from 'tsyringe';
 
 import { PluginRpcHandlers } from './plugin-rpc.handlers';
-import { EXTERNAL_PLUGIN_MCP_TOKEN } from './external-plugin-mcp.service';
+import {
+  EXTERNAL_PLUGIN_MCP_TOKEN,
+  ExternalPluginMcpService,
+  NO_WORKSPACE_MCP_WARNING,
+  type ExternalMcpInstaller,
+} from './external-plugin-mcp.service';
 import { LocalItemApprovals } from './marketplace/local-item-approvals';
 import type { InstallLocalItemsService } from './marketplace/install-local-items.service';
 import type { MarketplaceLocalItemsService } from './marketplace/marketplace-local-items.service';
@@ -459,6 +464,8 @@ function makeHarness(
     discoveredSkills?: PluginSkillEntry[];
     /** The open folder; defaults to {@link WORKSPACE_ROOT}. `null`: none. */
     workspaceRoot?: string | null;
+    /** Replaces the mock MCP service registered under the override token. */
+    externalMcp?: ExternalPluginMcpService;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -476,7 +483,9 @@ function makeHarness(
   const externalState = createMockExternalState();
   const externalMcp = createMockExternalMcp();
   const container = createStubContainer(
-    new Map<symbol, unknown>([[EXTERNAL_PLUGIN_MCP_TOKEN, externalMcp]]),
+    new Map<symbol, unknown>([
+      [EXTERNAL_PLUGIN_MCP_TOKEN, opts.externalMcp ?? externalMcp],
+    ]),
   );
   const localItems = createMockLocalItems();
   const installLocalItems = createMockInstallLocalItems();
@@ -1287,10 +1296,12 @@ describe('PluginRpcHandlers', () => {
         consentToken: CONSENT_TOKEN,
       });
 
+      // No `mcpScope` on the call: the schema default is the workspace.
       expect(h.externalMcp.install).toHaveBeenCalledWith(
         PLUGIN_ID,
         [DECLARED_SERVER],
         WORKSPACE_ROOT,
+        'workspace',
       );
       expect(response.result.mcpServersInstalled).toEqual(['binlog']);
 
@@ -1301,6 +1312,92 @@ describe('PluginRpcHandlers', () => {
       const reconcileOrder =
         h.harnessPropagation.propagate.mock.invocationCallOrder[0];
       expect(intentOrder).toBeLessThan(reconcileOrder);
+    });
+
+    it('passes the explicit "All workspaces" choice through as the global scope', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(installResult());
+      h.externalState.findInstalled.mockReturnValue({
+        pluginId: PLUGIN_ID,
+        mcpServers: [DECLARED_SERVER],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+        mcpScope: 'global',
+      });
+
+      expect(h.externalMcp.install).toHaveBeenCalledWith(
+        PLUGIN_ID,
+        [DECLARED_SERVER],
+        WORKSPACE_ROOT,
+        'global',
+      );
+    });
+
+    it('rejects an mcpScope outside the two scopes before anything installs', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      await expect(
+        call(h, 'plugins:install-external', {
+          source: 'dotnet/skills',
+          plugin: 'dotnet',
+          consentToken: CONSENT_TOKEN,
+          mcpScope: 'user',
+        }),
+      ).rejects.toThrow();
+      expect(h.externalInstaller.confirmInstall).not.toHaveBeenCalled();
+      expect(h.externalMcp.install).not.toHaveBeenCalled();
+    });
+
+    it('installs the plugin files with no folder open while the workspace-scope servers are skipped with a warning', async () => {
+      // The REAL service over a fake installer: what is proven is the whole
+      // path — default scope, no folder, warning on the result, no intent.
+      const installs: string[] = [];
+      const installer: ExternalMcpInstaller = {
+        install: (_name, serverKey) => {
+          installs.push(serverKey);
+          return Promise.resolve([]);
+        },
+        uninstall: () => Promise.resolve([]),
+        intentScopeOf: () => undefined,
+        listInstalled: () => Promise.resolve([]),
+      };
+      const h = makeHarness({
+        workspaceRoot: null,
+        externalMcp: new ExternalPluginMcpService(
+          createMockLogger() as unknown as Logger,
+          installer,
+          { isInstalled: () => Promise.resolve(false) },
+        ),
+      });
+      h.externalInstaller.confirmInstall.mockResolvedValue(installResult());
+      h.externalState.findInstalled.mockReturnValue({
+        pluginId: PLUGIN_ID,
+        mcpServers: [DECLARED_SERVER],
+      });
+      h.handlers.register();
+
+      const response = await call<{
+        status: string;
+        result: { mcpServersInstalled?: string[]; mcpWarnings?: string[] };
+      }>(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+      });
+
+      expect(h.externalInstaller.confirmInstall).toHaveBeenCalledWith(
+        CONSENT_TOKEN,
+      );
+      expect(response.status).toBe('installed');
+      expect(installs).toEqual([]);
+      expect(response.result.mcpServersInstalled).toEqual([]);
+      expect(response.result.mcpWarnings).toEqual([NO_WORKSPACE_MCP_WARNING]);
     });
 
     it('installs from the CONSENT RECORD, so nothing outside what the user approved can reach a config file', async () => {
@@ -1786,6 +1883,22 @@ describe('PluginRpcHandlers — harness root, config home and local items (TASK_
       );
       expect(response.status).toBe('consent-required');
       expect(response.plan.localItems).toEqual([ITEM_EDITED, ITEM_AGENT]);
+    });
+
+    it('ignores mcpScope on the plan call: nothing is installed or recorded', async () => {
+      const h = makeHarness();
+      h.externalInstaller.planInstall.mockResolvedValue(makePlan());
+      h.handlers.register();
+
+      const response = await call<{ status: string }>(
+        h,
+        'plugins:install-external',
+        { source: 'dotnet/skills', plugin: 'dotnet', mcpScope: 'global' },
+      );
+
+      expect(response.status).toBe('consent-required');
+      expect(h.externalInstaller.confirmInstall).not.toHaveBeenCalled();
+      expect(h.externalMcp.install).not.toHaveBeenCalled();
     });
 
     it('omits localItems when nothing local is in the way', async () => {
