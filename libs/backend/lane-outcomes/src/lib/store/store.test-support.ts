@@ -12,6 +12,7 @@ export function outcomeRow(runId: string): LaneOutcomeRecord {
     model: 'lane-default',
     role: 'backend-developer',
     taskKind: 'implement',
+    taskKindSource: null,
     taskId: null,
     verdict: 'unverified',
     failureClass: null,

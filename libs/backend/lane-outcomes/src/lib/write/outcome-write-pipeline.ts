@@ -3,10 +3,12 @@
  * retains operations while the database is closed or a write fails.
  * `enqueue` returns immediately; `submit` awaits admission and resolves to
  * applied, held, queued, or an error result. It never rejects for admission.
- * Missing subagent reports are held for up to 24 hours, at most 500 at once;
- * lane reports are never held. Validation and constraint failures enter the
- * rejected ledger. Other failures retry after 250 ms to 60 s. The journal
- * admits at most OUTCOME_JOURNAL_LIMIT operations and counts refusals.
+ * Reviews to a missing lane or subagent run, and deliverables to a missing
+ * subagent run, are held for up to 24 hours, at most 500 at once. Lane and
+ * subagent rows share one insert path that joins the run's held reports; an
+ * expired hold enters the rejected ledger. Validation and constraint failures
+ * enter the rejected ledger. Other failures retry after 250 ms to 60 s. The
+ * journal admits at most OUTCOME_JOURNAL_LIMIT operations and counts refusals.
  */
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { LaneOutcomeRecord } from '@ptah-extension/shared';
@@ -127,6 +129,13 @@ function isReport(
   return op.kind === 'deliverables' || op.kind === 'review';
 }
 
+/** A review to any missing run, or deliverables to a missing subagent run. */
+function holdable(
+  op: Extract<OutcomeWriteOp, { kind: 'deliverables' | 'review' }>,
+): boolean {
+  return op.kind === 'review' || isSubagentRunId(op.report.runId);
+}
+
 function failureCode(error: unknown): string {
   if (
     error instanceof Error &&
@@ -241,13 +250,11 @@ export class OutcomeWritePipeline {
     );
     let readable = this.availability?.isOpen() ?? true;
     let row: LaneOutcomeRecord | null = null;
-    let heldDeliverables = false;
     let heldCount = 0;
     if (readable) {
       try {
-        [row, heldDeliverables, heldCount] = await Promise.all([
+        [row, heldCount] = await Promise.all([
           this.store.get(runId),
-          this.store.hasHeldDeliverables(runId, Date.now()),
           this.store.countHeldReports(Date.now()),
         ]);
       } catch (error: unknown) {
@@ -278,20 +285,21 @@ export class OutcomeWritePipeline {
         runId,
       };
     }
-    const subagent = isSubagentRunId(runId);
-    const pendingHold = pending.some(
-      (item) =>
-        isReport(item) &&
-        item.kind === 'deliverables' &&
-        item.report.runId === runId,
-    );
+    // A review waits for any run kind; deliverables wait only for a subagent
+    // run, whose stop may arrive after the report. While the store is closed
+    // a review is admitted only for a run the journal index already holds,
+    // since an unindexed run cannot be told apart from a stored one.
     const indexed =
-      !readable &&
-      (this.journal?.snapshot().heldRuns.find((item) => item.runId === runId)
-        ?.expiresAt ?? 0) > Date.now();
+      this.journal
+        ?.snapshot()
+        .heldRuns.find((item) => item.runId === runId)
+        ?.holdExpiries.some((expiry) => expiry > Date.now()) ?? false;
+    const pendingHold = pending.some(
+      (item) => isReport(item) && holdable(item) && item.report.runId === runId,
+    );
     if (
-      !subagent ||
-      (op.kind === 'review' && !pendingHold && !heldDeliverables && !indexed)
+      !holdable(op) ||
+      (op.kind === 'review' && !readable && !indexed && !pendingHold)
     ) {
       const suffix = readable
         ? ''
@@ -312,7 +320,7 @@ export class OutcomeWritePipeline {
     const pendingHolds = pending.filter(
       (item) =>
         isReport(item) &&
-        isSubagentRunId(item.report.runId) &&
+        holdable(item) &&
         !pending.some(
           (other) => 'row' in other && other.row.runId === item.report.runId,
         ),
@@ -511,6 +519,18 @@ export class OutcomeWritePipeline {
             ? 'budget-stop-expired'
             : 'held-report-expired',
       });
+    // An unmatched report hold (an early review whose target never arrived)
+    // ends in the rejected ledger; the warning above is its one log line.
+    for (const report of expired)
+      if (report.kind !== 'budget-stop')
+        await this.reject(
+          {
+            kind: report.kind === 'review' ? 'review' : 'deliverables',
+            report,
+          },
+          'held-report-expired',
+          false,
+        );
     if (this.journal && expired.length) {
       const counts = new Map<string, Map<number, number>>();
       for (const report of expired) {
@@ -553,10 +573,13 @@ export class OutcomeWritePipeline {
     op: OutcomeWriteOp,
     held: boolean,
   ): JournalValue<OutcomeWriteOp> {
-    if (op.kind === 'subagent-stop')
+    if ('row' in op)
       return {
         ...value,
-        heldRuns: value.heldRuns.filter((run) => run.runId !== op.row.runId),
+        // The insert also joins a review held under the row's bare agent id.
+        heldRuns: value.heldRuns.filter(
+          (run) => run.runId !== op.row.runId && run.runId !== op.row.agentId,
+        ),
       };
     if (!isReport(op) || !held) return value;
     const report = op.report;
@@ -605,58 +628,79 @@ export class OutcomeWritePipeline {
   private async apply(op: OutcomeWriteOp): Promise<boolean> {
     if ('row' in op) {
       const row = LaneOutcomeRowSchema.parse(op.row);
-      if (op.kind === 'subagent-stop') {
-        const result = await this.store.insertStopWithHeldReports(
-          row,
-          Date.now(),
-          reportEffectOf,
+      // One insert path for lane and subagent rows: it joins every report
+      // held for the run, so an early review applies on its target insert.
+      const result = await this.store.insertStopWithHeldReports(
+        row,
+        Date.now(),
+        reportEffectOf,
+      );
+      for (const report of result.invalid)
+        await this.reject(
+          {
+            kind: report.kind === 'review' ? 'review' : 'deliverables',
+            report,
+          },
+          'invalid-payload',
         );
-        for (const report of result.invalid)
-          await this.reject(
-            {
-              kind: report.kind === 'review' ? 'review' : 'deliverables',
-              report,
-            },
-            'invalid-payload',
-          );
-      } else {
-        const inserted = await this.store.insertIfAbsent(row);
-        if (inserted && this.onLaneRecordInserted) {
-          try {
-            this.onLaneRecordInserted(row);
-          } catch (error: unknown) {
-            this.logger.warn('Outcome insert callback failed', {
-              runId: row.runId,
-              code: error instanceof Error ? error.name : 'UNKNOWN',
-            });
-          }
-        }
-      }
+      if (result.inserted) this.notifyInserted(row);
+      else if (op.kind === 'subagent-stop')
+        // A later stop producer only fills join fields the first one lacked.
+        await this.store.fillMissingSubagentJoin(row.runId, {
+          subagentSessionId: row.subagentSessionId ?? null,
+          parentSessionId: row.parentSessionId ?? null,
+          workspaceRoot: row.workspaceRoot ?? null,
+        });
     } else if (op.kind === 'budget-stop') {
       await this.store.markBudgetStopped(op.runId, Date.now());
     } else return this.applyReport(op);
     return false;
   }
 
+  /** Fires the insert callback exactly once per newly inserted row. */
+  private notifyInserted(row: LaneOutcomeRecord): void {
+    if (!this.onLaneRecordInserted) return;
+    try {
+      this.onLaneRecordInserted(row);
+    } catch (error: unknown) {
+      // degradation-audit: reported - a failing post-insert hook never undoes the stored row
+      this.logger.warn('Outcome insert callback failed', {
+        runId: row.runId,
+        code: error instanceof Error ? error.name : 'UNKNOWN',
+      });
+    }
+  }
+
   private async applyReport(
     op: Extract<OutcomeWriteOp, { kind: 'deliverables' | 'review' }>,
   ): Promise<boolean> {
-    const { report } = op;
-    const result = await this.store.applyReportWithReceipt(
+    let { report } = op;
+    let result = await this.store.applyReportWithReceipt(
       report,
       Date.now(),
       reportEffectOf,
     );
+    if (result === 'missing' && op.kind === 'review') {
+      // A review naming a bare agent id whose run landed after the caller
+      // resolved it: inserts run only in this drain, so the agent's row is
+      // current here and the review joins it instead of a hold that no
+      // later insert would take.
+      const latest = await this.store.findLatestByAgent(report.runId);
+      if (latest) {
+        report = { ...report, runId: latest.runId };
+        result = await this.store.applyReportWithReceipt(
+          report,
+          Date.now(),
+          reportEffectOf,
+        );
+      }
+    }
     if (result === 'invalid') {
       await this.reject(op, 'invalid-payload');
       return false;
     }
     if (result === 'missing') {
-      if (
-        !isSubagentRunId(report.runId) ||
-        (op.kind === 'review' &&
-          !(await this.store.hasHeldDeliverables(report.runId, Date.now())))
-      ) {
+      if (!holdable(op)) {
         await this.reject(op, 'target-missing');
         return false;
       }
@@ -670,12 +714,17 @@ export class OutcomeWritePipeline {
     return false;
   }
 
-  private async reject(op: RejectableOp, reason: string): Promise<void> {
+  private async reject(
+    op: RejectableOp,
+    reason: string,
+    log = true,
+  ): Promise<void> {
     if (!this.storage) {
-      this.logger.warn('Outcome write rejected', {
-        runId: runIdOf(op),
-        reason,
-      });
+      if (log)
+        this.logger.warn('Outcome write rejected', {
+          runId: runIdOf(op),
+          reason,
+        });
       return;
     }
     const saved = this.readRejected() ?? {
@@ -701,11 +750,12 @@ export class OutcomeWritePipeline {
       entries: entries.slice(-REJECTED_LIMIT),
       overflow: saved.overflow + Math.max(0, entries.length - REJECTED_LIMIT),
     });
-    this.logger.warn('Outcome write rejected', {
-      runId: runIdOf(op),
-      reportId,
-      reason,
-    });
+    if (log)
+      this.logger.warn('Outcome write rejected', {
+        runId: runIdOf(op),
+        reportId,
+        reason,
+      });
   }
 
   async dispose(): Promise<void> {

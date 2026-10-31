@@ -7,7 +7,10 @@ import {
   PERSISTENCE_TOKENS,
   SqliteConnectionService,
 } from '@ptah-extension/persistence-sqlite';
-import type { LaneFailureClassifier } from '@ptah-extension/shared';
+import type {
+  LaneFailureClassifier,
+  LaneTaskKindClassifier,
+} from '@ptah-extension/shared';
 import { LaneOutcomeRecorder } from '../lane-outcome-recorder.service';
 import { LaneOutcomeReader } from '../lane-outcome-reader.service';
 import type { LaneOutcomeLogger } from '../lane-outcome-logger';
@@ -80,6 +83,11 @@ export function registerLaneOutcomeServices(
           c.isRegistered(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER)
             ? c.resolve<LaneFailureClassifier>(
                 LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER,
+              )
+            : undefined,
+          c.isRegistered(LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER)
+            ? c.resolve<LaneTaskKindClassifier>(
+                LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER,
               )
             : undefined,
         ),

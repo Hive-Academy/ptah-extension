@@ -8,6 +8,8 @@ import type { LaneOutcomeRecorder } from '@ptah-extension/lane-outcomes';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { classifyLaneFailureClass } from './limits/lane-failure-class';
 
+let recorderUnavailableWarned = false;
+
 /** Synchronous enqueue. Store I/O belongs to the recorder's later drain. */
 export function enqueueLaneCompletionOutcome(
   recorderForCompletion: () => Pick<
@@ -19,12 +21,20 @@ export function enqueueLaneCompletionOutcome(
   runId: string,
   signal: LaneCompletionSignal,
   authMatched: boolean,
+  rateLimited: boolean,
 ): void {
   const startedAt = Date.parse(info.startedAt);
   const endedAt = Date.parse(signal.completedAt);
   try {
     const recorder = recorderForCompletion();
-    if (!recorder) return;
+    if (!recorder) {
+      if (!recorderUnavailableWarned) {
+        recorderUnavailableWarned = true;
+        logger.warn('[LaneCompletionNotifier] Outcome recorder unavailable', { runId });
+      }
+      logger.debug('[LaneCompletionNotifier] Outcome not recorded', { runId });
+      return;
+    }
     recorder.recordLaneCompletion({
       runId,
       executorKind: info.cli === 'ptah-cli' ? 'ptah-cli' : 'cli',
@@ -46,6 +56,7 @@ export function enqueueLaneCompletionOutcome(
         status: info.status,
         failureKind: info.failureKind,
         authMatched,
+        rateLimited,
       }),
       startedAt: Number.isFinite(startedAt) ? startedAt : null,
       endedAt: Number.isFinite(endedAt) ? endedAt : Date.now(),
@@ -60,7 +71,7 @@ export function enqueueLaneCompletionOutcome(
       status: info.status,
       failureKind: info.failureKind ?? null,
       exitCode: info.exitCode ?? null,
-    });
+    }, { brief: info.task });
   } catch (error: unknown) {
     logger.warn('[LaneCompletionNotifier] Outcome enqueue failed', {
       runId,

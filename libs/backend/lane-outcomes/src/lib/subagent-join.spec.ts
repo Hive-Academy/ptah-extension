@@ -15,6 +15,7 @@ const row: LaneOutcomeRow = {
   model: 'lane-default',
   role: 'review',
   taskKind: null,
+  taskKindSource: null,
   taskId: null,
   verdict: 'no-deliverable',
   failureClass: null,

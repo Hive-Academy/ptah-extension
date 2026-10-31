@@ -40,9 +40,13 @@ import {
   type IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import { SessionId } from '@ptah-extension/shared';
-import type { LaneOutcomeRecorder } from '@ptah-extension/lane-outcomes';
+import {
+  resolveTaskKind,
+  type LaneOutcomeRecorder,
+} from '@ptah-extension/lane-outcomes';
 import { enqueueLaneCompletionOutcome } from './lane-completion-outcome';
 import { buildLaneCompletionEnvelope } from './lane-completion-envelope';
+import { readReviewDeliverables } from './review-deliverable.reader';
 import type {
   AgentProcessInfo,
   IAgentAdapter,
@@ -281,6 +285,8 @@ export interface LaneCompletionContext {
   /** Reports this lane delivered through `ptah_agent_report` before it ended. */
   readonly reportsDelivered: number;
   readonly authMatched?: boolean;
+  /** API rate-limit wording seen in this turn's bounded output; in memory only. */
+  readonly rateLimited?: boolean;
   /** Tool calls the lane guard counted for the lane's last task. */
   readonly toolCalls?: number;
   /** Caller messages a host stop discarded from the queue. */
@@ -315,10 +321,10 @@ export class LaneCompletionNotifier {
      */
     @inject(TOKENS.AGENT_ADAPTER, { isOptional: true })
     private readonly agentAdapter: IAgentAdapter | null = null,
-    private readonly outcomeRecorder: () => Pick<
-      LaneOutcomeRecorder,
-      'recordLaneCompletion'
-    > | null = () => null,
+    private readonly outcomeRecorder: () =>
+      | (Pick<LaneOutcomeRecorder, 'recordLaneCompletion'> &
+          Partial<Pick<LaneOutcomeRecorder, 'captureReview'>>)
+      | null = () => null,
   ) {}
 
   /**
@@ -357,7 +363,13 @@ export class LaneCompletionNotifier {
       key,
       signal,
       context.authMatched ?? false,
+      context.rateLimited ?? false,
     );
+
+    const queueReviewCapture = (): void => {
+      if (LaneCompletionNotifier.capturesReview(info, signal))
+        void this.captureReview(info, key, signal.deliverables);
+    };
 
     // `safeParse`, not `from`: `parentSessionId` holds the frontend tab id
     // until the real SDK uuid arrives, so a value that is not a session id
@@ -365,6 +377,7 @@ export class LaneCompletionNotifier {
     // exception — the same rule `AgentReportRouter` follows.
     const parentSessionId = SessionId.safeParse(info.parentSessionId?.trim());
     if (!parentSessionId) {
+      queueReviewCapture();
       return this.refuse('no-parent-recorded', signal, {
         detail: info.parentSessionId
           ? 'the parent session recorded at spawn never resolved to a real session id'
@@ -373,6 +386,7 @@ export class LaneCompletionNotifier {
     }
 
     if (!this.agentAdapter) {
+      queueReviewCapture();
       return this.refuse('chat-runtime-unavailable', signal, {
         detail:
           'no agent adapter is registered in this host, so no chat session ' +
@@ -381,6 +395,7 @@ export class LaneCompletionNotifier {
     }
 
     if (!this.agentAdapter.isSessionActive(parentSessionId)) {
+      queueReviewCapture();
       return this.refuse('parent-session-not-active', signal, {
         parentSessionId,
       });
@@ -399,11 +414,14 @@ export class LaneCompletionNotifier {
         },
       );
     } catch (error: unknown) {
+      queueReviewCapture();
       return this.refuse('delivery-failed', signal, {
         parentSessionId,
         detail: error instanceof Error ? error.message : String(error),
       });
     }
+
+    queueReviewCapture();
 
     this.logger.info('[LaneCompletionNotifier] Completion signal delivered', {
       agentId: signal.agentId,
@@ -597,9 +615,12 @@ export class LaneCompletionNotifier {
         info.status,
         info.stopReason,
         deliverables,
+        context.rateLimited ?? false,
       ),
       reportsDelivered: context.reportsDelivered,
-      ...(info.mcpAttachmentWarning ? { mcpAttachmentWarning: info.mcpAttachmentWarning } : {}),
+      ...(info.mcpAttachmentWarning
+        ? { mcpAttachmentWarning: info.mcpAttachmentWarning }
+        : {}),
       ...(info.cliSessionId ? { cliSessionId: info.cliSessionId } : {}),
       ...(info.stopReason ? { stopReason: info.stopReason } : {}),
       ...(context.toolCalls !== undefined
@@ -668,14 +689,71 @@ export class LaneCompletionNotifier {
     status: AgentProcessInfo['status'],
     stopReason: AgentProcessInfo['stopReason'],
     deliverables: readonly LaneDeliverableCheck[],
+    rateLimited: boolean,
   ): LaneCompletionVerdict {
     const hostStopped = status === 'stopped' && stopReason !== undefined;
     if (status !== 'completed' && !hostStopped) return 'failed';
+    const allFresh =
+      deliverables.length > 0 &&
+      deliverables.every(
+        (check) =>
+          check.exists &&
+          (check.bytes ?? 0) > 0 &&
+          check.writtenAfterSpawn !== false,
+      );
+    if (rateLimited && !allFresh) return 'failed';
     if (deliverables.length === 0) return 'unverified';
-    const allPresent = deliverables.every(
-      (check) => check.exists && (check.bytes ?? 0) > 0,
+    return allFresh ? 'delivered' : 'no-deliverable';
+  }
+
+  /**
+   * A review lane's run is captured only when it delivered: a failed run or
+   * one whose deliverables are missing, empty or stale left no review of its
+   * own, and a file from an earlier run must not count again under this run.
+   * Review kind is the row's own rule (explicit, then mapped from the role).
+   */
+  private static capturesReview(
+    info: AgentProcessInfo,
+    signal: LaneCompletionSignal,
+  ): boolean {
+    return (
+      resolveTaskKind(info.taskKind ?? null, info.role ?? null).taskKind ===
+        'review' &&
+      signal.verdict !== 'failed' &&
+      signal.verdict !== 'no-deliverable' &&
+      signal.deliverables.length > 0
     );
-    return allPresent ? 'delivered' : 'no-deliverable';
+  }
+
+  private async captureReview(
+    info: AgentProcessInfo,
+    runId: string,
+    deliverables: readonly LaneDeliverableCheck[],
+  ): Promise<void> {
+    try {
+      const recorder = this.outcomeRecorder();
+      if (!recorder?.captureReview) return;
+      const workingDirectory = resolve(info.workingDirectory);
+      const roots = info.taskFolder
+        ? [workingDirectory, resolve(workingDirectory, info.taskFolder)]
+        : [workingDirectory];
+      const read = await readReviewDeliverables(deliverables, roots, {
+        fileSystem: this.fileSystem,
+      });
+      if (read.skipped.length > 0)
+        this.logger.warn(
+          '[LaneCompletionNotifier] Review deliverables skipped',
+          { runId, skipped: read.skipped },
+        );
+      if (read.filesRead === 0) return;
+      await recorder.captureReview({ reviewerRunId: runId, text: read.text });
+    } catch (error: unknown) {
+      // degradation-audit: reported - review capture is optional evidence
+      this.logger.warn('[LaneCompletionNotifier] Review capture failed', {
+        runId,
+        code: error instanceof Error ? error.name : 'UNKNOWN',
+      });
+    }
   }
 
   /**

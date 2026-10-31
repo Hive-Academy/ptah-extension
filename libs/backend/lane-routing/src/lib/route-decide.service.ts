@@ -22,12 +22,9 @@ import {
   type LoggableErrorName,
 } from '@ptah-extension/shared';
 import type { DecisionModelConfig } from './decision-model/decision-model.config';
-import type { DecisionModelKind } from './decision-model/decision-model.types';
+import { DecisionCaller } from './decision-model/decision-caller';
 import type { StructuredDecisionCompleter } from './decision-model/structured-decision.port';
-import {
-  SystemOneClient,
-  type SystemOneClientOptions,
-} from './decision-model/system-one.client';
+import type { SystemOneClientOptions } from './decision-model/system-one.client';
 import type { LaneModelListing } from './lane-model-listing.port';
 import type { LaneRoutingLogger } from './lane-routing-logger';
 import type { RouteCandidateSource } from './route-candidate-source.port';
@@ -48,8 +45,6 @@ import {
 import {
   runFixedRequest,
   runLaneRequest,
-  systemOneClientOptions,
-  type ModelDispatch,
   type ModelRequestOutcome,
   type SystemOneCaller,
 } from './pipeline/model-refine';
@@ -76,8 +71,8 @@ import {
 } from './ranking/rotation.store';
 import { overallConfidence } from './reasons/confidence';
 import { compilePreflightReasons } from './reasons/compile-reasons';
+import type { PreflightReuseCache } from './scope/preflight-reuse-cache';
 import {
-  DECISION_REQUEST_TIMEOUT_MS,
   MODEL_LISTING_BUDGET_MS,
   QUESTIONS_PER_REQUEST,
   REQUEST_SIZE_LIMIT_BYTES,
@@ -98,6 +93,7 @@ export interface RouteDecideDependencies {
   readonly logger: LaneRoutingLogger;
   readonly listing?: LaneModelListing;
   readonly structured?: StructuredDecisionCompleter;
+  readonly reuse?: PreflightReuseCache;
   readonly seams?: RouteDecideSeams;
 }
 
@@ -109,24 +105,52 @@ type PreflightArgs = Extract<RouteDecideArgs, { stage: 'pre-flight' }>;
  * constructor tokens.
  */
 export class RouteDecideService {
-  constructor(private readonly deps: RouteDecideDependencies) {}
+  private readonly decisionCaller: DecisionCaller;
+
+  constructor(private readonly deps: RouteDecideDependencies) {
+    this.decisionCaller = new DecisionCaller(deps);
+  }
 
   async decide(
     args: unknown,
     source: RouteCandidateSource,
+    context?: { readonly sessionKey?: string },
   ): Promise<RouteDecideResult> {
     const parsed = RouteDecideArgsSchema.safeParse(args);
     if (!parsed.success) {
       throw schemaError('invalid route decide args', parsed.error);
     }
     if (parsed.data.stage === 'pre-flight') {
+      if (context?.sessionKey !== undefined && this.deps.reuse !== undefined) {
+        const fingerprint = JSON.stringify(this.deps.config.getSelection());
+        const cached = this.deps.reuse.get(context.sessionKey, fingerprint);
+        if (cached !== null) {
+          const reused = PreflightResultSchema.safeParse({
+            ...cached,
+            reasons: [...cached.reasons, 'reused host pre-flight result'],
+            usage: {
+              requests: 0,
+              inputTokens: null,
+              outputTokens: null,
+              costUsd: null,
+            },
+          });
+          if (!reused.success) {
+            throw schemaError(
+              'route decide result failed schema',
+              reused.error,
+            );
+          }
+          return reused.data;
+        }
+      }
       return this.decidePreflight(parsed.data);
     }
     return this.decideGate(parsed.data, source);
   }
 
   private async decidePreflight(args: PreflightArgs): Promise<PreflightResult> {
-    const caller = await this.openCaller();
+    const caller = await this.decisionCaller.openCaller();
     const tally = emptyTally();
     let outcome: ModelRequestOutcome | null = null;
     if (caller.kind === 'system-one' || caller.kind === 'structured') {
@@ -134,10 +158,10 @@ export class RouteDecideService {
         request: args.request,
         questions: preflightQuestions(),
         maxRequestBytes: this.maxBytes,
-        dispatch: this.dispatchFor(caller),
+        dispatch: this.decisionCaller.dispatchFor(caller),
         logger: this.deps.logger,
       });
-      await this.noteLive(caller, outcome);
+      await this.decisionCaller.noteLive(caller, outcome);
       noteUsage(tally, outcome);
     }
     const read = readPreflight(caller, outcome);
@@ -173,7 +197,7 @@ export class RouteDecideService {
     args: GateArgs,
     source: RouteCandidateSource,
   ): Promise<GateResult> {
-    const caller = await this.openCaller();
+    const caller = await this.decisionCaller.openCaller();
     const mode = dispatchMode(caller);
     const gathered = await gatherRouteCall({
       source,
@@ -267,10 +291,10 @@ export class RouteDecideService {
         request: args.request,
         phases: send.map(laneQuestion),
         maxRequestBytes: this.maxBytes,
-        dispatch: this.dispatchFor(caller),
+        dispatch: this.decisionCaller.dispatchFor(caller),
         logger: this.deps.logger,
       });
-      await this.noteLive(caller, outcome);
+      await this.decisionCaller.noteLive(caller, outcome);
     }
     return {
       outcome,
@@ -281,98 +305,6 @@ export class RouteDecideService {
         outcome,
       },
     };
-  }
-
-  /**
-   * A live 404/405 goes to the probe re-check. `markUnsupported` is only
-   * reached from inside that re-check, and only when the probe itself says
-   * the route is missing.
-   */
-  private async noteLive(
-    caller: OpenedCaller,
-    outcome: ModelRequestOutcome,
-  ): Promise<void> {
-    if (caller.kind !== 'system-one' || !outcome.sent) return;
-    if (outcome.notFoundDetail !== null) {
-      await this.deps.config.recheckAfterLiveNotFound(
-        { selection: caller.selection, baseUrl: caller.target.baseUrl },
-        outcome.notFoundDetail,
-      );
-      return;
-    }
-    if (outcome.succeeded) this.deps.config.recordLiveSuccess();
-  }
-
-  private dispatchFor(caller: OpenedCaller): ModelDispatch {
-    if (caller.kind === 'structured') {
-      const structured = this.deps.structured;
-      if (structured === undefined) {
-        throw new Error('structured decision port is not registered');
-      }
-      return {
-        kind: 'structured',
-        completer: structured,
-        providerId: caller.providerId,
-        model: caller.model,
-        signal: AbortSignal.timeout(DECISION_REQUEST_TIMEOUT_MS),
-      };
-    }
-    if (caller.kind !== 'system-one') {
-      throw new Error('decision model dispatch requires a caller');
-    }
-    const options = systemOneClientOptions(caller.target);
-    const factory =
-      this.deps.seams?.systemOne ??
-      ((next: SystemOneClientOptions) =>
-        openSystemOneFrom(next, this.deps.logger));
-    return {
-      kind: 'system-one',
-      caller: factory(options),
-      model: caller.target.model,
-    };
-  }
-
-  private async openCaller(): Promise<OpenedCaller> {
-    const selection = this.deps.config.getSelection();
-    if (selection.kind === 'unset') return { kind: 'unset' };
-    if (selection.kind === 'structured') {
-      if (this.deps.structured === undefined) {
-        this.deps.logger.warn(
-          '[lane-routing] structured decision port is not registered',
-          {
-            providerId: selection.providerId,
-          },
-        );
-        return { kind: 'blocked', cause: 'provider-error' };
-      }
-      return {
-        kind: 'structured',
-        providerId: selection.providerId,
-        model: selection.model,
-      };
-    }
-    try {
-      // Resolved from the selection read above, not re-read: a setting that
-      // changes during the key read cannot pair this selection (provider,
-      // 404 re-check identity) with another selection's endpoint.
-      const target = await this.deps.config.resolveSystemOneTarget(selection);
-      if (target === null) return { kind: 'blocked', cause: 'unreachable' };
-      if (selection.kind === 'jev' && target.apiKey === undefined) {
-        return { kind: 'blocked', cause: 'auth' };
-      }
-      return {
-        kind: 'system-one',
-        selection,
-        target,
-        provider: systemOneProvider(selection.kind),
-      };
-    } catch (error: unknown) {
-      this.deps.logger.warn(
-        '[lane-routing] decision model target could not be resolved',
-        errorFacts(error),
-      );
-      return { kind: 'blocked', cause: 'unreachable' };
-    }
   }
 
   private async persistRotation(
@@ -410,31 +342,6 @@ export class RouteDecideService {
 
   private get listingBudget(): number {
     return this.deps.seams?.listingBudgetMs ?? MODEL_LISTING_BUDGET_MS;
-  }
-}
-
-function openSystemOneFrom(
-  options: SystemOneClientOptions,
-  logger: LaneRoutingLogger,
-): SystemOneCaller {
-  return new SystemOneClient(options, { logger });
-}
-
-/**
- * The option-limit provider of a System One selection (DC9): every kind
- * that talks to an Ollama-compatible `/v1/systemone` uses the Ollama limit;
- * only TypeSafe Jev has its own.
- */
-function systemOneProvider(
-  kind: Exclude<DecisionModelKind, 'unset' | 'structured'>,
-): 'ollama' | 'jev' {
-  switch (kind) {
-    case 'jev':
-      return 'jev';
-    case 'ollama':
-    case 'ollama-cloud':
-    case 'custom':
-      return 'ollama';
   }
 }
 

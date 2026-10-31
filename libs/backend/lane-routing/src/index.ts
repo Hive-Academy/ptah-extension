@@ -69,3 +69,15 @@ export type {
   LaneModelListing,
 } from './lib/lane-model-listing.port';
 export type { RouteCandidateSource } from './lib/route-candidate-source.port';
+export { BUILTIN_SUBAGENT_ROLES } from './lib/pipeline/phase-plan';
+export {
+  HostRoutingSetting,
+  type HostRoutingSettingChange,
+} from './lib/scope/host-routing-setting';
+export { PreflightReuseCache } from './lib/scope/preflight-reuse-cache';
+export {
+  ScopeCheckService,
+  buildPreflightScopeSummary,
+  type ScopeAssessment,
+  type ScopeConversation,
+} from './lib/scope/scope-check.service';

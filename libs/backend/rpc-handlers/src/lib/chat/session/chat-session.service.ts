@@ -87,6 +87,7 @@ import type {
 import {
   MESSAGE_TYPES,
   NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
+  loggableErrorName,
   selectHistoryPage,
 } from '@ptah-extension/shared';
 
@@ -124,6 +125,10 @@ import type {
 } from './session-mcp-status.registry';
 import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
 import { HarnessProposalTurnAttributionService } from '../../harness/config/harness-proposal-turn-attribution.service';
+import type {
+  AdmitUserTurnInput,
+  HostRoutingCoordinator,
+} from '../host-routing/host-routing.coordinator';
 
 /**
  * Minimal shape consumed by {@link ChatSessionService.autoResumeIfInactive}.
@@ -247,6 +252,9 @@ function namedPreparationRefusal(): ProviderAccountPortRefusal {
 /** What `chat:resume` needs from the session budget (N7). */
 type ChatSessionBudget = Pick<SessionBudgetService, 'observeLoaded'>;
 
+/** What `chat:start` and `chat:continue` need from host routing (TASK_2026_857). */
+type ChatHostRouting = Pick<HostRoutingCoordinator, 'admitUserTurn'>;
+
 @injectable()
 export class ChatSessionService {
   private readonly pendingLineage = new Map<
@@ -335,6 +343,12 @@ export class ChatSessionService {
       isOptional: true,
     })
     private readonly activeProvider?: ActiveProviderResolver,
+    /**
+     * Host pre-flight routing (TASK_2026_857). Bound by Electron only; on
+     * VS Code and the CLI it is absent and no turn is admitted.
+     */
+    @inject(CHAT_TOKENS.HOST_ROUTING_COORDINATOR, { isOptional: true })
+    private readonly hostRouting?: ChatHostRouting,
     @inject(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY, {
       isOptional: true,
     })
@@ -856,6 +870,29 @@ export class ChatSessionService {
     };
   }
 
+  /**
+   * Hand one dispatched user turn to host routing (TASK_2026_857, Req 4).
+   *
+   * Called only after the turn was dispatched, and never awaited:
+   * `admitUserTurn` is synchronous and runs its scope check in the
+   * background, so the reply path pays one function call. No-op when the
+   * host did not bind the coordinator (VS Code, CLI).
+   */
+  private admitHostRoutingTurn(input: AdmitUserTurnInput): void {
+    if (!this.hostRouting) return;
+    try {
+      this.hostRouting.admitUserTurn(input);
+    } catch (error: unknown) {
+      // degradation-audit: reported - routing is advisory and the turn is already dispatched; a failed admission must not fail it.
+      // Only the error class is logged: a message could quote the prompt.
+      this.logger.warn(
+        '[RPC] host routing admission failed',
+        new Error(`admitUserTurn threw ${loggableErrorName(error)}`),
+        { tabId: input.tabId },
+      );
+    }
+  }
+
   async startSession(
     params: ChatStartParams & MainSessionAccountSelection,
   ): Promise<ChatStartResult> {
@@ -982,6 +1019,11 @@ export class ChatSessionService {
         accountSelection,
         admissionDeadline,
       });
+      // Only a plain prompt: a slash command that starts a new query is not
+      // an interactive turn to route.
+      if (prompt && interceptResult.action === 'passthrough') {
+        this.admitHostRoutingTurn({ tabId, sessionId: null, prompt });
+      }
 
       return { success: true };
     } catch (error) {
@@ -1442,7 +1484,8 @@ export class ChatSessionService {
       const isSlashCommand = SlashCommandInterceptor.isSlashCommand(prompt);
 
       let justResumed = false;
-      let slashLineage: { roots: readonly string[]; legacy: boolean } | undefined;
+      let slashLineage:
+        { roots: readonly string[]; legacy: boolean } | undefined;
       if (isSlashCommand) {
         try {
           slashLineage = await this.restoreLineage(sessionId, workspacePath);
@@ -1544,6 +1587,10 @@ export class ChatSessionService {
         sent = true;
       } finally {
         if (!sent) injection.release();
+      }
+      // A slash command the router passed through is still not a turn to route.
+      if (!isSlashCommand) {
+        this.admitHostRoutingTurn({ tabId, sessionId, prompt });
       }
       // Only now has the model actually been told about them.
       await injection.commit();
@@ -2246,9 +2293,12 @@ export class ChatSessionService {
           roots,
         );
       if (upgraded.status === 'malformed') {
-        this.logger.warn('[RPC] Legacy session policy lineage upgrade was malformed', {
-          sessionId,
-        });
+        this.logger.warn(
+          '[RPC] Legacy session policy lineage upgrade was malformed',
+          {
+            sessionId,
+          },
+        );
       }
     } catch (error) {
       this.logger.warn('[RPC] Legacy session policy lineage upgrade failed', {

@@ -131,6 +131,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // object written by `DecisionModelConfig.setSelection`. VS Code has no schema
   // for it, so without this entry every save is rejected there.
   'agentOrchestration.decisionModel',
+  'agentOrchestration.hostRouting',
   // Compaction budgets (TASK_2026_597 Wave D). `compaction.threshold` is NOT
   // here: it is still VS Code-contributed and moves with its migration.
   'compaction.toolOutputBudgetTokens',
@@ -354,6 +355,7 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // `null` reads as `{ kind: 'unset' }` in DecisionModelConfig.getSelection,
   // with no invalid-value warning.
   'agentOrchestration.decisionModel': null,
+  'agentOrchestration.hostRouting': true,
   // Compaction budgets: see ADVANCED_SETTINGS_DEFAULTS.
   'agentOrchestration.disabledClis': [],
   'agentOrchestration.disabledMcpNamespaces': [],

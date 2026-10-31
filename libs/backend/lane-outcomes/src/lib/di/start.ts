@@ -1,6 +1,7 @@
 import type { DependencyContainer } from 'tsyringe';
 import {
   SDK_TOKENS,
+  type SdkAdapterEvents,
   type SubagentBudgetStopCallbackRegistry,
   type SubagentStopCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
@@ -56,10 +57,20 @@ function warnDuringShutdown(
   }
 }
 
+/** Host toggles for {@link startLaneOutcomes}. */
+export interface StartLaneOutcomesOptions {
+  /**
+   * Also record `SdkAdapterEvents.subagentEnded`, the second subagent stop
+   * producer. Off by default; a host opts in from its composition root.
+   */
+  readonly observeSubagentEnded?: boolean;
+}
+
 /** Registers missing services, attaches SDK callbacks, and returns an awaited disposer. */
 export function startLaneOutcomes(
   container: DependencyContainer,
   logger: LaneOutcomeLogger,
+  options: StartLaneOutcomesOptions = {},
 ): () => Promise<void> {
   if (!container.isRegistered(LANE_OUTCOME_TOKENS.RECORDER))
     registerLaneOutcomeServices(container, logger);
@@ -104,6 +115,17 @@ export function startLaneOutcomes(
         registry.register((payload) =>
           recorder.markSubagentBudgetStop(payload.agentId),
         ),
+      );
+    }
+    if (
+      options.observeSubagentEnded &&
+      container.isRegistered(SDK_TOKENS.SDK_ADAPTER_EVENTS)
+    ) {
+      const events = container.resolve<SdkAdapterEvents>(
+        SDK_TOKENS.SDK_ADAPTER_EVENTS,
+      );
+      unsubs.push(
+        events.onSubagentEnded((event) => recorder.recordSubagentEnded(event)),
       );
     }
   } catch (error: unknown) {
@@ -169,10 +191,11 @@ function boundedDisposer(
 export function startAndRegisterLaneOutcomes(
   container: DependencyContainer,
   logger: LaneOutcomeLogger,
+  options: StartLaneOutcomesOptions = {},
 ): void {
   let drain: () => Promise<void> = async () => undefined;
   try {
-    drain = startLaneOutcomes(container, logger);
+    drain = startLaneOutcomes(container, logger, options);
   } catch (error: unknown) {
     logger.warn('Lane outcomes start failed (non-fatal)', {
       error: asError(error),
