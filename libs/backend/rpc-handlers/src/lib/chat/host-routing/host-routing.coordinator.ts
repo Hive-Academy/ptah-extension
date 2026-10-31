@@ -15,7 +15,10 @@
  *  - `epoch` (bumped by every Disable reset, Gate 2 carry-forward): an
  *    assessment or pre-flight that started before a reset is discarded
  *    before any state, cache or queue mutation, even when the setting is on
- *    again by the time it settles.
+ *    again by the time it settles. A write to the host-routing switch (or a
+ *    decision model write that leaves routing off) resets every tab and drops
+ *    this coordinator's queued reminders at once, so an off->on toggle with
+ *    no admitted turn in between still cancels the old work.
  *  - `inFlight` is cleared only by the pre-flight that owns it (promise
  *    identity), so an old settle never clears a newer request.
  *  - The tab state object itself: a tab evicted from the LRU while work is
@@ -41,6 +44,7 @@ import {
   buildPreflightScopeSummary,
   type DecisionModelConfig,
   type HostRoutingSetting,
+  type HostRoutingSettingChange,
   type PreflightResult,
   type PreflightReuseCache,
   type RouteCandidateSource,
@@ -67,6 +71,8 @@ const ROUTED_SCOPE_CAP = 1200;
 const MAX_CANDIDATE_LABELS = 4;
 /** Same budget as lane-routing's `MODEL_LISTING_BUDGET_MS` (not on its barrel). */
 const CANDIDATE_LISTING_BUDGET_MS = 2_000;
+/** Owner tag of this coordinator's entries in the next-turn reminder queue. */
+const REMINDER_OWNER = 'host-routing';
 
 export interface AdmitUserTurnInput {
   readonly tabId: string;
@@ -81,7 +87,8 @@ type HostRoutingStage =
   | 'pre-flight'
   | 'candidates'
   | 'turn-ended'
-  | 'session-alias';
+  | 'session-alias'
+  | 'setting-change';
 
 interface InFlightPreflight {
   readonly revision: number;
@@ -111,7 +118,10 @@ type ReuseCache = Pick<
   PreflightReuseCache,
   'beginTurn' | 'confirmRevision' | 'markUnknown' | 'put' | 'clear'
 >;
-type ReminderQueue = Pick<NextTurnReminderQueue, 'put' | 'discard'>;
+type ReminderQueue = Pick<
+  NextTurnReminderQueue,
+  'put' | 'discard' | 'discardOwned'
+>;
 type TurnEvents = Pick<SdkAdapterEvents, 'onTurnEnded'>;
 type SessionIdRegistry = Pick<SessionIdResolvedCallbackRegistry, 'register'>;
 /** The slice of `PtahAPIBuilder` the candidate source reads. */
@@ -131,7 +141,10 @@ export class HostRoutingCoordinator {
     @inject(TOKENS.LOGGER)
     private readonly logger: Pick<Logger, 'warn' | 'debug'>,
     @inject(LANE_ROUTING_TOKENS.HOST_ROUTING_SETTING)
-    private readonly setting: Pick<HostRoutingSetting, 'isEnabled'>,
+    private readonly setting: Pick<
+      HostRoutingSetting,
+      'isEnabled' | 'onDidChange'
+    >,
     @inject(LANE_ROUTING_TOKENS.SCOPE_CHECK_SERVICE)
     private readonly scopeCheck: ScopeCheck,
     @inject(LANE_ROUTING_TOKENS.ROUTE_DECIDE_SERVICE)
@@ -151,6 +164,10 @@ export class HostRoutingCoordinator {
     })
     sessionIds?: SessionIdRegistry,
   ) {
+    const settingChanges = setting.onDidChange((change) =>
+      this.onSettingChanged(change),
+    );
+    this.releases.push(() => settingChanges.dispose());
     if (events) {
       this.releases.push(
         events.onTurnEnded((event) => this.onTurnEnded(event)),
@@ -323,7 +340,7 @@ export class HostRoutingCoordinator {
       return;
     }
     if (state.nudgedRevision === revision) return;
-    this.queue.put(state.latestSessionKey, ROUTING_NUDGE_TEXT);
+    this.queue.put(state.latestSessionKey, ROUTING_NUDGE_TEXT, REMINDER_OWNER);
     state.nudgedRevision = revision;
   }
 
@@ -419,7 +436,7 @@ export class HostRoutingCoordinator {
         modelFingerprint: outcome.fingerprint,
         result: outcome.result,
       });
-      this.queue.put(state.latestSessionKey, reminder);
+      this.queue.put(state.latestSessionKey, reminder, REMINDER_OWNER);
     } catch (error: unknown) {
       this.reportFailure(tabId, 'pre-flight', error);
     }
@@ -485,6 +502,22 @@ export class HostRoutingCoordinator {
     state.attemptedRevision = null;
     state.routedRevision = null;
     state.nudgedRevision = null;
+  }
+
+  /**
+   * A write to the switch is treated as a possible off->on toggle and resets
+   * every tab whatever it reads now; a decision model write resets only when
+   * it leaves routing off.
+   */
+  private onSettingChanged(change: HostRoutingSettingChange): void {
+    try {
+      if (!change.switchChanged && this.setting.isEnabled()) return;
+      this.cache?.clear();
+      for (const [tabId, state] of this.tabs) this.disableReset(tabId, state);
+      this.queue.discardOwned(REMINDER_OWNER);
+    } catch (error: unknown) {
+      this.reportFailure(null, 'setting-change', error);
+    }
   }
 
   private discardQueued(tabId: string, state: TabRoutingState): void {

@@ -136,7 +136,10 @@ export class RouteDecideService {
             },
           });
           if (!reused.success) {
-            throw schemaError('route decide result failed schema', reused.error);
+            throw schemaError(
+              'route decide result failed schema',
+              reused.error,
+            );
           }
           return reused.data;
         }

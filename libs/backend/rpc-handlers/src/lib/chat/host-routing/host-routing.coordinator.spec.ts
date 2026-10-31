@@ -301,6 +301,11 @@ function harness(options: { readonly model?: boolean } = {}) {
     setEnabled(on: boolean): void {
       workspace.__state.config.set(SETTING_KEY, on);
     },
+    /** A settings write: the value changes and the change event fires. */
+    toggle(on: boolean): void {
+      workspace.__state.config.set(SETTING_KEY, on);
+      workspace.__state.fireConfigurationChange(SETTING_KEY);
+    },
     turn(prompt: string, sessionId: string | null = SDK): void {
       coordinator.admitUserTurn({ tabId: TAB, sessionId, prompt });
     },
@@ -742,6 +747,77 @@ describe('HostRoutingCoordinator', () => {
     });
   });
 
+  describe('setting transitions with no admitted turn (review fix F1/F2)', () => {
+    it('off then on before an old assessment settles: no reminder, no cache entry', async () => {
+      const h = harness();
+      const old = h.deferAnswer();
+      h.turn('add retries to the downloader');
+      h.toggle(false);
+      h.toggle(true);
+      old.resolve(answered({ e: 'yes', s: 'yes' }));
+      await flush();
+      expect(h.decide).not.toHaveBeenCalled();
+      expect(h.queue.take(SDK)).toBeNull();
+      expect(h.hit()).toBeNull();
+    });
+
+    it('off then on before an old pre-flight settles: no reminder, no cache entry', async () => {
+      const h = harness();
+      const oldDecide = h.deferDecide();
+      h.nextAnswer({ e: 'yes', s: 'yes' });
+      h.turn('add retries to the downloader');
+      await flush();
+      expect(h.decide).toHaveBeenCalledTimes(1);
+      h.toggle(false);
+      h.toggle(true);
+      oldDecide.resolve(preflight());
+      await flush();
+      expect(h.queue.take(SDK)).toBeNull();
+      expect(h.hit()).toBeNull();
+
+      // The revision is free again: the next settled turn routes anew.
+      h.nextAnswer({ e: 'yes', r: 'continuation', m: 'no', s: 'yes' });
+      h.turn('same plan');
+      await flush();
+      expect(h.decide).toHaveBeenCalledTimes(2);
+      expect(h.queue.take(SDK)).toContain('Routing: pre-flight');
+    });
+
+    it('a write that keeps the switch on still cancels work started before it', async () => {
+      const h = harness();
+      const old = h.deferAnswer();
+      h.turn('add retries to the downloader');
+      // off and on landed before the listener ran; it reads "on".
+      h.toggle(true);
+      old.resolve(answered({ e: 'yes', s: 'yes' }));
+      await flush();
+      expect(h.decide).not.toHaveBeenCalled();
+      expect(h.queue.take(SDK)).toBeNull();
+    });
+
+    it('turning routing off drops a queued reminder before the next hook drain', async () => {
+      const h = harness();
+      h.nextAnswer({ e: 'yes', s: 'yes' });
+      h.turn('add retries to the downloader');
+      await flush();
+      h.queue.put('other-session', 'unrelated context', 'other-producer');
+      h.toggle(false);
+      // `take` is what the UserPromptSubmit hook drains.
+      expect(h.queue.take(SDK)).toBeNull();
+      expect(h.hit()).toBeNull();
+      expect(h.queue.take('other-session')).toBe('unrelated context');
+    });
+
+    it('turning routing off drops a queued nudge too', async () => {
+      const h = harness();
+      h.nextAnswer({ e: 'yes', s: 'no' });
+      h.turn('make the uploader better');
+      await flush();
+      h.toggle(false);
+      expect(h.queue.take(SDK)).toBeNull();
+    });
+  });
+
   describe('conversation window and lifecycle', () => {
     it('stores the assistant reply for a start-turn tab once its session id resolves', async () => {
       const h = harness();
@@ -757,13 +833,17 @@ describe('HostRoutingCoordinator', () => {
       expect(snapshot.lastAssistantReply).toBe('Retry only network errors?');
     });
 
-    it('dispose releases both subscriptions', () => {
+    it('dispose releases its subscriptions', () => {
       const h = harness();
+      const discardOwned = jest.spyOn(h.queue, 'discardOwned');
       expect(h.events.size).toBe(1);
       expect(h.registry.size).toBe(2); // the queue's and the coordinator's
       h.coordinator.dispose();
       expect(h.events.size).toBe(0);
       expect(h.registry.size).toBe(1);
+      // The setting listener is released too.
+      h.toggle(false);
+      expect(discardOwned).not.toHaveBeenCalled();
     });
   });
 });

@@ -41,17 +41,20 @@ const RELATIONS = ['new-task', 'continuation'] as const;
 const QUESTIONS = [
   {
     key: 'engineering',
-    instructions: 'Is this software engineering work on this workspace, including code, design, tests, docs or research for a change?',
+    instructions:
+      'Is this software engineering work on this workspace, including code, design, tests, docs or research for a change?',
     criteria: criterionLabels(YES_NO),
   },
   {
     key: 'scope_settled',
-    instructions: "Are the goal and boundaries agreed enough to start? Count agreement with the assistant's last proposal.",
+    instructions:
+      "Are the goal and boundaries agreed enough to start? Count agreement with the assistant's last proposal.",
     criteria: criterionLabels(YES_NO),
   },
   {
     key: 'relation',
-    instructions: 'Is this a different piece of work from the scope under discussion or last routed, or the same work?',
+    instructions:
+      'Is this a different piece of work from the scope under discussion or last routed, or the same work?',
     criteria: criterionLabels(RELATIONS),
   },
   {
@@ -128,7 +131,12 @@ function answer<T extends string>(
   values: readonly T[],
 ): ScopeAnswer<T> | null {
   const validation = outcome.answers.get(key);
-  if (validation === undefined || validation.cause !== null || validation.choice === null) return null;
+  if (
+    validation === undefined ||
+    validation.cause !== null ||
+    validation.choice === null
+  )
+    return null;
   const index = optionIndex(validation.choice);
   const value = index === null ? undefined : values[index];
   return value === undefined
@@ -157,7 +165,9 @@ export function buildPreflightScopeSummary(
   ]);
 }
 
-function sections(fields: readonly (readonly [string, string | null, number])[]): string {
+function sections(
+  fields: readonly (readonly [string, string | null, number])[],
+): string {
   return fields
     .filter(([, value]) => value !== null)
     .map(([label, value, cap]) => `${label}\n${value?.slice(0, cap) ?? ''}`)

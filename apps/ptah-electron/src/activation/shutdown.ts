@@ -251,6 +251,9 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
   nonFatal('Memory trigger stop', () => refs.memoryTrigger?.stop());
   nonFatal('Memory curator stop', () => refs.memoryCurator?.stop());
   nonFatal('Gateway chat bridge stop', () => refs.chatBridge?.stop());
+  // Releases routing subscriptions while their producers (the SDK adapter and
+  // the session-id registry) are still alive. Synchronous, touches no SQLite.
+  nonFatal('Host routing dispose', () => refs.hostRouting?.dispose());
   return checksKilled;
 }
 

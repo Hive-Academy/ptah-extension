@@ -52,7 +52,8 @@ export class PreflightReuseCache {
       state === undefined ||
       state.continuity !== 'known' ||
       entry.revision !== state.currentRevision
-    ) return;
+    )
+      return;
     state.entry = entry;
     this.touch(key, state);
   }

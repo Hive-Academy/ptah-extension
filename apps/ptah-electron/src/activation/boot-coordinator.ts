@@ -146,6 +146,13 @@ export interface BootRefs extends ThothRuntimeRefs {
    * captured eagerly for the same reason as {@link cliRegistry}.
    */
   chatSessions: { disposeAllSessionsForShutdown: () => Promise<void> } | null;
+  /**
+   * Host routing coordinator (`CHAT_TOKENS.HOST_ROUTING_COORDINATOR`).
+   * `dispose()` is synchronous and releases its adapter, session-id and
+   * setting subscriptions. Captured eagerly for the same reason as
+   * {@link cliRegistry}; `null` when it was never registered or resolved.
+   */
+  hostRouting: { dispose: () => void } | null;
   /** Per-workspace isolated provider-proxy pool; shutdown-wide backstop. */
   providerProxyPool: { disposeAll: () => Promise<void> } | null;
   /**
@@ -194,6 +201,7 @@ export function createEmptyBootRefs(): BootRefs {
     laneOutcomesDisposer: null,
     sessionSpawner: null,
     chatSessions: null,
+    hostRouting: null,
     providerProxyPool: null,
     integrityService: null,
     workspaceWatcher: null,

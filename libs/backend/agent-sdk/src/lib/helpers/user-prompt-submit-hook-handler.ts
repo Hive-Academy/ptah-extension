@@ -57,7 +57,10 @@ export class UserPromptSubmitHookHandler {
       'handoffPointer'
     >,
     @inject(SDK_TOKENS.SDK_NEXT_TURN_REMINDER_QUEUE, { isOptional: true })
-    private readonly nextTurnReminderQueue?: Pick<NextTurnReminderQueue, 'take'>,
+    private readonly nextTurnReminderQueue?: Pick<
+      NextTurnReminderQueue,
+      'take'
+    >,
   ) {}
 
   createHooks(
@@ -93,7 +96,8 @@ export class UserPromptSubmitHookHandler {
               }
               let reminder: string | null = null;
               try {
-                reminder = this.nextTurnReminderQueue?.take(resolvedSessionId) ?? null;
+                reminder =
+                  this.nextTurnReminderQueue?.take(resolvedSessionId) ?? null;
               } catch (error: unknown) {
                 // degradation-audit: reported - an optional reminder failure cannot stop a prompt.
                 this.logger.warn(
@@ -105,7 +109,9 @@ export class UserPromptSubmitHookHandler {
                 resolvedSessionId,
                 resolveHookCwd(input.cwd, cwd) ?? undefined,
               );
-              const additionalContext = [pointer, reminder].filter(Boolean).join('\n\n');
+              const additionalContext = [pointer, reminder]
+                .filter(Boolean)
+                .join('\n\n');
               return additionalContext
                 ? {
                     continue: true,

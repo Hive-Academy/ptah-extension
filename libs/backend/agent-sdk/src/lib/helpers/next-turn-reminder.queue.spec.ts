@@ -8,12 +8,23 @@ function setup() {
   const queue = new NextTurnReminderQueue({
     register(callback) {
       callbacks.add(callback);
-      return () => { callbacks.delete(callback); };
+      return () => {
+        callbacks.delete(callback);
+      };
     },
   });
-  const resolve = (tabId: string | undefined, realSessionId: string, previousSessionId?: string) => {
+  const resolve = (
+    tabId: string | undefined,
+    realSessionId: string,
+    previousSessionId?: string,
+  ) => {
     for (const callback of callbacks) {
-      callback({ tabId, realSessionId, previousSessionId, timestamp: Date.now() });
+      callback({
+        tabId,
+        realSessionId,
+        previousSessionId,
+        timestamp: Date.now(),
+      });
     }
   };
   return { queue, resolve, callbacks };
@@ -88,5 +99,19 @@ describe('NextTurnReminderQueue', () => {
     expect(queue.take('sdk-200')).toBe('retained alias');
     queue.dispose();
     expect(callbacks.size).toBe(0);
+  });
+
+  it('discards only the entries of one owner, across tab and resolved keys', () => {
+    const { queue, resolve } = setup();
+    queue.put('tab-a', 'routing a', 'routing');
+    resolve('tab-a', 'sdk-a');
+    queue.put('tab-b', 'routing b', 'routing');
+    queue.put('tab-c', 'other producer', 'other');
+    queue.put('tab-d', 'untagged');
+    queue.discardOwned('routing');
+    expect(queue.take('sdk-a')).toBeNull();
+    expect(queue.take('tab-b')).toBeNull();
+    expect(queue.take('tab-c')).toBe('other producer');
+    expect(queue.take('tab-d')).toBe('untagged');
   });
 });

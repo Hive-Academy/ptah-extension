@@ -850,9 +850,7 @@ describe('SubagentHookHandler — SubagentStop parentSessionId rigour (TASK_2026
       registry.discardHeldUnboundStarts.mockImplementation(
         (agentId, parentSessionId) => {
           heldStarts.delete(
-            parentSessionId
-              ? `${agentId}:${parentSessionId}`
-              : `${agentId}:`,
+            parentSessionId ? `${agentId}:${parentSessionId}` : `${agentId}:`,
           );
         },
       );

@@ -12,8 +12,20 @@ import { PreflightReuseCache } from './preflight-reuse-cache';
 
 const RESULT: PreflightResult = {
   stage: 'pre-flight',
-  taskType: { value: null, source: 'skill-table', confidence: null, fallbackCause: 'bad-output', modelProposal: null },
-  depth: { value: null, source: 'skill-table', confidence: null, fallbackCause: 'bad-output', modelProposal: null },
+  taskType: {
+    value: null,
+    source: 'skill-table',
+    confidence: null,
+    fallbackCause: 'bad-output',
+    modelProposal: null,
+  },
+  depth: {
+    value: null,
+    source: 'skill-table',
+    confidence: null,
+    fallbackCause: 'bad-output',
+    modelProposal: null,
+  },
   overallConfidence: null,
   reasons: [],
   usage: { requests: 1, inputTokens: null, outputTokens: null, costUsd: null },
@@ -21,13 +33,24 @@ const RESULT: PreflightResult = {
 
 function harness() {
   const workspace = createMockWorkspaceProvider({
-    config: { 'ptah.agentOrchestration.decisionModel': { kind: 'ollama', model: 'nimble' } },
+    config: {
+      'ptah.agentOrchestration.decisionModel': {
+        kind: 'ollama',
+        model: 'nimble',
+      },
+    },
   });
   const logger: LaneRoutingLogger = {
-    debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn(),
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
   };
   const config = new DecisionModelConfig(
-    workspace, createMockSecretStorage(), createMockStateStorage(), logger,
+    workspace,
+    createMockSecretStorage(),
+    createMockStateStorage(),
+    logger,
   );
   const setting = new HostRoutingSetting(workspace, config);
   return { cache: new PreflightReuseCache(setting), setting };
@@ -37,7 +60,11 @@ describe('PreflightReuseCache', () => {
   it('hits only the same session, revision and model fingerprint', () => {
     const { cache } = harness();
     cache.confirmRevision('tab-a', 1);
-    cache.put('tab-a', { revision: 1, modelFingerprint: 'model-a', result: RESULT });
+    cache.put('tab-a', {
+      revision: 1,
+      modelFingerprint: 'model-a',
+      result: RESULT,
+    });
     expect(cache.get('tab-a', 'model-a')).toBe(RESULT);
     expect(cache.get('tab-b', 'model-a')).toBeNull();
     expect(cache.get('tab-a', 'model-b')).toBeNull();
@@ -100,11 +127,19 @@ describe('PreflightReuseCache', () => {
     const { cache } = harness();
     for (let i = 0; i < 100; i += 1) {
       cache.confirmRevision(`tab-${i}`, 1);
-      cache.put(`tab-${i}`, { revision: 1, modelFingerprint: 'm', result: RESULT });
+      cache.put(`tab-${i}`, {
+        revision: 1,
+        modelFingerprint: 'm',
+        result: RESULT,
+      });
     }
     expect(cache.get('tab-0', 'm')).toBe(RESULT);
     cache.confirmRevision('tab-100', 1);
-    cache.put('tab-100', { revision: 1, modelFingerprint: 'm', result: RESULT });
+    cache.put('tab-100', {
+      revision: 1,
+      modelFingerprint: 'm',
+      result: RESULT,
+    });
     expect(cache.get('tab-1', 'm')).toBeNull();
     expect(cache.get('tab-0', 'm')).toBe(RESULT);
     cache.invalidate('tab-0');

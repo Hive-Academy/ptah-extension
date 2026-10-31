@@ -13,7 +13,6 @@
  */
 
 import type { DependencyContainer } from 'tsyringe';
-import { app } from 'electron';
 
 import {
   PLATFORM_TOKENS,
@@ -68,8 +67,6 @@ import {
   registerHarnessServices,
   registerChatServices,
   registerHostRouting,
-  CHAT_TOKENS,
-  type HostRoutingCoordinator,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import { UpdateManager } from '../services/update/update-manager';
@@ -94,15 +91,6 @@ export function registerPhase4Handlers(
   registerHarnessServices(container);
   registerChatServices(container);
   registerHostRouting(container);
-  // This listener runs before the main quit sequence, which is registered
-  // after DI setup. Release routing subscriptions while their producers live.
-  if (typeof app?.once === 'function') {
-    app.once('will-quit', () => {
-      container
-        .resolve<HostRoutingCoordinator>(CHAT_TOKENS.HOST_ROUTING_COORDINATOR)
-        .dispose();
-    });
-  }
   container.registerSingleton(SessionRpcHandlers);
   container.registerSingleton(ArtifactRpcHandlers);
   container.registerSingleton(ChatRpcHandlers);

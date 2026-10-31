@@ -11,7 +11,10 @@ const MAX_TEXT_LENGTH = 600;
 /** In-memory, single-use reminders for the next main-thread prompt. */
 @injectable()
 export class NextTurnReminderQueue {
-  private readonly entries = new Map<string, { text: string; order: number }>();
+  private readonly entries = new Map<
+    string,
+    { text: string; order: number; owner: string | null }
+  >();
   private readonly aliases = new Map<string, string>();
   private nextOrder = 0;
   private readonly unsubscribe: () => void;
@@ -23,10 +26,15 @@ export class NextTurnReminderQueue {
     this.unsubscribe = registry.register((event) => this.rekey(event));
   }
 
-  put(sessionKey: string, text: string): void {
+  /** `owner` tags the entry so its producer can drop all of its own entries. */
+  put(sessionKey: string, text: string, owner: string | null = null): void {
     const key = this.aliases.get(sessionKey) ?? sessionKey;
     this.entries.delete(key);
-    this.entries.set(key, { text: text.slice(0, MAX_TEXT_LENGTH), order: ++this.nextOrder });
+    this.entries.set(key, {
+      text: text.slice(0, MAX_TEXT_LENGTH),
+      order: ++this.nextOrder,
+      owner,
+    });
     if (this.entries.size > MAX_ENTRIES) {
       const oldest = this.entries.keys().next().value;
       if (oldest !== undefined) this.entries.delete(oldest);
@@ -46,17 +54,30 @@ export class NextTurnReminderQueue {
     this.entries.delete(this.aliases.get(sessionKey) ?? sessionKey);
   }
 
+  /** Remove every queued reminder `owner` put, in all sessions. */
+  discardOwned(owner: string): void {
+    for (const [key, entry] of this.entries) {
+      if (entry.owner === owner) this.entries.delete(key);
+    }
+  }
+
   dispose(): void {
     this.unsubscribe();
     this.entries.clear();
     this.aliases.clear();
   }
 
-  private rekey({ tabId, realSessionId, previousSessionId }: SessionIdResolvedPayload): void {
-    const oldKeys = [tabId, previousSessionId].filter((key): key is string =>
-      !!key && key !== realSessionId,
+  private rekey({
+    tabId,
+    realSessionId,
+    previousSessionId,
+  }: SessionIdResolvedPayload): void {
+    const oldKeys = [tabId, previousSessionId].filter(
+      (key): key is string => !!key && key !== realSessionId,
     );
-    const keys = new Set(oldKeys.flatMap((key) => [key, this.aliases.get(key) ?? key]));
+    const keys = new Set(
+      oldKeys.flatMap((key) => [key, this.aliases.get(key) ?? key]),
+    );
     let latest = this.entries.get(realSessionId);
     for (const key of keys) {
       const entry = this.entries.get(key);

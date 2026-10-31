@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
 import { POINTER_BUDGET_MS } from './compaction/subagent-handoff-index';
+import { NextTurnReminderQueue } from './next-turn-reminder.queue';
 import { UserPromptSubmitCallbackRegistry } from './user-prompt-submit-callback-registry';
 import {
   POINTER_TIMEOUT_MS,
@@ -53,9 +54,17 @@ describe('UserPromptSubmitHookHandler', () => {
     it('drains once on a main prompt and joins a handoff pointer with a blank line', async () => {
       const logger = makeLogger();
       const registry = new UserPromptSubmitCallbackRegistry(logger);
-      const take = jest.fn().mockReturnValueOnce('Routing: use the selected lane').mockReturnValue(null);
+      const take = jest
+        .fn()
+        .mockReturnValueOnce('Routing: use the selected lane')
+        .mockReturnValue(null);
       const handoffPointer = jest.fn().mockResolvedValue(POINTER);
-      const handler = new UserPromptSubmitHookHandler(logger, registry, { handoffPointer }, { take });
+      const handler = new UserPromptSubmitHookHandler(
+        logger,
+        registry,
+        { handoffPointer },
+        { take },
+      );
       const fn = getHookCallback(handler, 'closure-sess', '/ws');
 
       expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({
@@ -86,15 +95,45 @@ describe('UserPromptSubmitHookHandler', () => {
         { take },
       );
       const fn = getHookCallback(handler, 'closure-sess', '/ws');
-      expect(await fn(promptInput({ agent_id: 'subagent' }), undefined, SIGNAL)).toEqual({ continue: true });
+      expect(
+        await fn(promptInput({ agent_id: 'subagent' }), undefined, SIGNAL),
+      ).toEqual({ continue: true });
       expect(take).not.toHaveBeenCalled();
       take.mockReturnValue(null);
-      expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({ continue: true });
+      expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({
+        continue: true,
+      });
+    });
+
+    it('injects no reminder its owner discarded before the drain and keeps the pointer', async () => {
+      const logger = makeLogger();
+      const queue = new NextTurnReminderQueue({
+        register: () => () => undefined,
+      });
+      queue.put('sdk-sess', 'Routing: use the selected lane', 'host-routing');
+      queue.discardOwned('host-routing');
+      const handoffPointer = jest.fn().mockResolvedValue(POINTER);
+      const handler = new UserPromptSubmitHookHandler(
+        logger,
+        new UserPromptSubmitCallbackRegistry(logger),
+        { handoffPointer },
+        queue,
+      );
+      const fn = getHookCallback(handler, 'closure-sess', '/ws');
+      expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: POINTER,
+        },
+      });
     });
 
     it('keeps the prompt running when the optional queue fails', async () => {
       const logger = makeLogger();
-      const take = jest.fn(() => { throw new TypeError('secret reminder'); });
+      const take = jest.fn(() => {
+        throw new TypeError('secret reminder');
+      });
       const handler = new UserPromptSubmitHookHandler(
         logger,
         new UserPromptSubmitCallbackRegistry(logger),
@@ -102,7 +141,9 @@ describe('UserPromptSubmitHookHandler', () => {
         { take },
       );
       const fn = getHookCallback(handler, 'closure-sess', '/ws');
-      expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({ continue: true });
+      expect(await fn(promptInput(), undefined, SIGNAL)).toEqual({
+        continue: true,
+      });
       expect(logger.warn).toHaveBeenCalledWith(
         '[UserPromptSubmitHookHandler] Reminder drain failed, skipping',
         { errorType: 'TypeError' },
@@ -244,9 +285,7 @@ describe('UserPromptSubmitHookHandler', () => {
         '[UserPromptSubmitHookHandler] hook fan-out threw, swallowing',
         { errorType: 'Error', sessionId: 'sess-1' },
       );
-      expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(
-        'PROMPT',
-      );
+      expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('PROMPT');
     },
   );
 
