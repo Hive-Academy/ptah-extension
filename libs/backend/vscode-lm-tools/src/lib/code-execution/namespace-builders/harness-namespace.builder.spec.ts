@@ -290,7 +290,9 @@ describe('buildHarnessNamespace — installMcpServer', () => {
       stdio,
       ['claude', 'vscode'],
       'D:/ws',
+      'workspace',
     );
+    expect(out.scope).toBe('workspace');
     expect(out.serverKey).toBe('server-name');
     expect(out.targets).toEqual(['claude', 'vscode']);
     expect(out.installedPaths).toEqual([
@@ -319,6 +321,7 @@ describe('buildHarnessNamespace — installMcpServer', () => {
       { type: 'http', url: 'https://example.com/mcp' },
       ['cursor'],
       'D:/ws',
+      'workspace',
     );
     expect(out.targets).toEqual(['cursor']);
   });
@@ -415,12 +418,111 @@ describe('buildHarnessNamespace — installMcpServer', () => {
     expect(mcpInstaller.install).not.toHaveBeenCalled();
   });
 
-  it('refuses to install when no workspace folder is open', async () => {
+  it('refuses a default (workspace) install when no folder is open and names the user scope', async () => {
     const mcpInstaller = makeInstaller();
     const { deps } = makeDeps({ mcpInstaller, workspaceRoot: '' });
+    const attempt = buildHarnessNamespace(deps).installMcpServer(
+      'owner/srv',
+      stdio,
+    );
+    await expect(attempt).rejects.toThrow(/No workspace folder is open/);
+    await expect(attempt).rejects.toThrow(
+      "or pass scope: 'user' to install for every workspace",
+    );
+    expect(mcpInstaller.install).not.toHaveBeenCalled();
+  });
+
+  it.each(['codex', 'copilot', 'antigravity'] as const)(
+    'refuses the home target %s in workspace scope before any write',
+    async (target) => {
+      const mcpInstaller = makeInstaller();
+      const { deps } = makeDeps({ mcpInstaller });
+      await expect(
+        buildHarnessNamespace(deps).installMcpServer(
+          'owner/srv',
+          stdio,
+          undefined,
+          ['claude', target],
+        ),
+      ).rejects.toThrow("Use scope 'user' to write home-folder CLI configs");
+      expect(mcpInstaller.install).not.toHaveBeenCalled();
+    },
+  );
+
+  it('maps explicit user scope to a global install, home targets allowed', async () => {
+    const mcpInstaller = makeInstaller([
+      {
+        target: 'codex',
+        success: true,
+        configPath: 'D:/home/.codex/config.toml',
+      },
+    ]);
+    const { deps } = makeDeps({ mcpInstaller });
+
+    const out = await buildHarnessNamespace(deps).installMcpServer(
+      'owner/srv',
+      stdio,
+      undefined,
+      ['codex'],
+      'user',
+    );
+
+    expect(mcpInstaller.install).toHaveBeenCalledWith(
+      'owner/srv',
+      'srv',
+      stdio,
+      ['codex'],
+      'D:/ws',
+      'global',
+    );
+    expect(out.scope).toBe('user');
+    expect(out.installedPaths).toEqual(['D:/home/.codex/config.toml']);
+  });
+
+  it('records an explicit user-scope install with no folder open', async () => {
+    const mcpInstaller = makeInstaller([
+      {
+        target: 'claude',
+        success: false,
+        configPath: '',
+        error: 'No workspace folder open',
+      },
+    ]);
+    const { deps } = makeDeps({ mcpInstaller, workspaceRoot: '' });
+
+    const out = await buildHarnessNamespace(deps).installMcpServer(
+      'owner/srv',
+      stdio,
+      undefined,
+      ['claude'],
+      'user',
+    );
+
+    expect(mcpInstaller.install).toHaveBeenCalledWith(
+      'owner/srv',
+      'srv',
+      stdio,
+      ['claude'],
+      undefined,
+      'global',
+    );
+    expect(out.warnings).toEqual([
+      'Failed to install "owner/srv" to claude: No workspace folder open',
+    ]);
+  });
+
+  it('rejects an unknown scope before any write', async () => {
+    const mcpInstaller = makeInstaller();
+    const { deps } = makeDeps({ mcpInstaller });
     await expect(
-      buildHarnessNamespace(deps).installMcpServer('owner/srv', stdio),
-    ).rejects.toThrow(/No workspace folder is open/);
+      buildHarnessNamespace(deps).installMcpServer(
+        'owner/srv',
+        stdio,
+        undefined,
+        undefined,
+        'global' as never,
+      ),
+    ).rejects.toThrow(/Invalid scope/);
     expect(mcpInstaller.install).not.toHaveBeenCalled();
   });
 });
@@ -1282,12 +1384,13 @@ describe('buildHarnessNamespace — createSkill', () => {
       'Reviews code',
       '# Body',
       ['mcp__ptah__execute_code'],
+      'user',
     );
 
     expect(result.skillId).toBe('code-review-helper');
     expect(result.skillPath).toMatch(/code-review-helper[\\/]SKILL.md$/);
-    // Default scope is user-global, and the result says so — the two scopes
-    // write to different roots and the caller cannot otherwise tell.
+    // Explicit user scope is echoed — the two scopes write to different roots
+    // and the caller cannot otherwise tell.
     expect(result.scope).toBe('user');
     expect(result.pluginId).toBe('ptah-harness-code-review-helper');
     expect(result.skillPath).toContain(
@@ -1328,19 +1431,20 @@ describe('buildHarnessNamespace — createSkill', () => {
   // be written user-global with no alternative, so it loaded everywhere.
   // -----------------------------------------------------------------------
 
-  it('writes a workspace-scoped skill under {ws}/.ptah/plugins', async () => {
+  it('defaults to a workspace-scoped skill under {ws}/.ptah/plugins', async () => {
     existsSync.mockReturnValue(false);
-    const { deps } = makeDeps();
+    const { deps, logger } = makeDeps();
 
     const result = await buildHarnessNamespace(deps).createSkill(
       'House Style',
       'This repo only',
       '# Body',
-      undefined,
-      'workspace',
     );
 
     expect(result.scope).toBe('workspace');
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('Created workspace-scoped skill'),
+    );
     expect(result.pluginId).toBe('ptah-harness-house-style');
     expect(result.skillPath).toBe(
       path.join(
@@ -1355,20 +1459,38 @@ describe('buildHarnessNamespace — createSkill', () => {
     );
   });
 
-  it('refuses a workspace-scoped skill when no folder is open', async () => {
+  it('refuses a default (workspace) skill when no folder is open and names the user scope', async () => {
     existsSync.mockReturnValue(false);
     const { deps } = makeDeps({ workspaceRoot: '' });
 
-    await expect(
-      buildHarnessNamespace(deps).createSkill(
-        'house-style',
-        'd',
-        'c',
-        undefined,
-        'workspace',
-      ),
-    ).rejects.toThrow(/no workspace folder is open/i);
+    const attempt = buildHarnessNamespace(deps).createSkill(
+      'house-style',
+      'd',
+      'c',
+    );
+    await expect(attempt).rejects.toThrow(/no workspace folder is open/i);
+    await expect(attempt).rejects.toThrow(
+      "or pass scope: 'user' to install for every workspace",
+    );
     expect(fsp.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('writes an explicit user-scoped skill with no folder open', async () => {
+    existsSync.mockReturnValue(false);
+    const { deps } = makeDeps({ workspaceRoot: '' });
+
+    const result = await buildHarnessNamespace(deps).createSkill(
+      'house-style',
+      'd',
+      'c',
+      undefined,
+      'user',
+    );
+
+    expect(result.scope).toBe('user');
+    expect(result.skillPath).toContain(
+      path.join('D:/home', '.ptah', 'plugins'),
+    );
   });
 
   it('refuses a slug already taken in the other scope rather than shadowing it', async () => {

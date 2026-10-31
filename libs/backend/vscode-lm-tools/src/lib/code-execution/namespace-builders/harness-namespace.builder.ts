@@ -24,8 +24,10 @@ import {
   HARNESS_PLUGIN_ID_PREFIX,
   MESSAGE_TYPES,
   buildSkillDescriptorId,
+  classifyMcpScope,
   isCapabilityPolicyUnknownError,
   workspacePluginsDir,
+  type CapabilityScope,
   type HarnessConfig,
   type HarnessConfigProposedPayload,
   type HarnessProposal,
@@ -102,13 +104,39 @@ export interface HarnessSourceReport {
 export type HarnessSearchStatus = 'ok' | 'degraded';
 
 /**
- * Where an authored skill lives, and therefore where it loads.
+ * Where a harness install applies. `workspace` is the default for both
+ * `createSkill` and `installMcpServer`; `user` is the explicit opt-in.
  *
- * - `user` — `~/.ptah/plugins`, every workspace on this machine.
- * - `workspace` — `{ws}/.ptah/plugins`, this project only, and committable
- *   alongside `.ptah/specs` so it travels with the repository.
+ * - `user` — every workspace on this machine: a skill goes to
+ *   `~/.ptah/plugins`, an MCP server is recorded with global scope.
+ * - `workspace` — this project only: a skill goes to `{ws}/.ptah/plugins`
+ *   (committable alongside `.ptah/specs`), an MCP server is recorded against
+ *   this workspace and never writes home-folder CLI configs.
  */
 export type HarnessSkillScope = 'user' | 'workspace';
+
+/** The MCP install store's scope for a tool-facing harness scope. */
+function toCapabilityScope(scope: HarnessSkillScope): CapabilityScope {
+  return scope === 'user' ? 'global' : 'workspace';
+}
+
+/** Validate a caller-supplied scope; an absent one is the workspace default. */
+function resolveHarnessScope(scope: unknown): HarnessSkillScope {
+  if (scope === undefined) return 'workspace';
+  if (scope === 'user' || scope === 'workspace') return scope;
+  throw new Error(
+    `Invalid scope: "${String(scope)}". Expected "user" or "workspace".`,
+  );
+}
+
+/** A target whose config file lives in the user's home folder. */
+function isHomeTarget(target: McpInstallTarget): boolean {
+  return classifyMcpScope({ origin: 'harness-config', target }) === 'global';
+}
+
+/** Recovery hint appended to every no-workspace-folder refusal. */
+const NO_WORKSPACE_USER_HINT =
+  "or pass scope: 'user' to install for every workspace.";
 
 /** What `searchSkills` returns — never a bare array, see `HarnessSourceReport`. */
 export interface HarnessSkillsSearchResult {
@@ -163,17 +191,19 @@ export interface HarnessMcpInstaller {
     config: McpServerConfig,
     targets: McpInstallTarget[],
     workspaceRoot?: string,
+    scope?: CapabilityScope,
   ): Promise<McpInstallResult[]>;
 }
 
 /**
- * Outcome of installMcpServer: the resolved identity of the install, the raw
- * per-target results, the deduped set of config files written, and any
+ * Outcome of installMcpServer: the resolved identity and scope of the install,
+ * the raw per-target results, the deduped set of config files written, and any
  * per-target failures surfaced as warnings rather than a hard throw.
  */
 export interface HarnessMcpInstallOutcome {
   serverName: string;
   serverKey: string;
+  scope: HarnessSkillScope;
   targets: McpInstallTarget[];
   installedPaths: string[];
   results: McpInstallResult[];
@@ -441,6 +471,7 @@ export interface HarnessNamespace {
     config: McpServerConfig,
     serverKey?: string,
     targets?: McpInstallTarget[],
+    scope?: HarnessSkillScope,
   ): Promise<HarnessMcpInstallOutcome>;
   proposeConfig(
     configUpdates: Partial<HarnessConfig>,
@@ -731,12 +762,7 @@ export function buildHarnessNamespace(
         );
       }
 
-      const resolvedScope: HarnessSkillScope = scope ?? 'user';
-      if (resolvedScope !== 'user' && resolvedScope !== 'workspace') {
-        throw new Error(
-          `Invalid scope: "${String(scope)}". Expected "user" or "workspace".`,
-        );
-      }
+      const resolvedScope = resolveHarnessScope(scope);
 
       const pluginId = `${HARNESS_PLUGIN_ID_PREFIX}${sanitizedName}`;
       const userPluginsDir = path.join(os.homedir(), '.ptah', 'plugins');
@@ -745,7 +771,7 @@ export function buildHarnessNamespace(
       if (resolvedScope === 'workspace' && workspacePluginsDirPath === null) {
         throw new Error(
           'Cannot create a workspace-scoped skill: no workspace folder is open. ' +
-            'Open a folder, or pass scope:"user" to write it to ~/.ptah/plugins instead.',
+            `Open a folder and retry, ${NO_WORKSPACE_USER_HINT}`,
         );
       }
 
@@ -820,8 +846,8 @@ export function buildHarnessNamespace(
 
       // `scope` is echoed on the result because the two write to different
       // roots and the caller cannot otherwise tell which it got — a default
-      // that silently went user-global is what made an agent believe it had
-      // scoped a project-specific skill to one project.
+      // that went user-global is what made an agent believe it had scoped a
+      // project-specific skill to one project.
       return {
         skillId: sanitizedName,
         skillPath: skillMdPath,
@@ -997,6 +1023,7 @@ export function buildHarnessNamespace(
       config: McpServerConfig,
       serverKey?: string,
       targets?: McpInstallTarget[],
+      scope?: HarnessSkillScope,
     ): Promise<HarnessMcpInstallOutcome> {
       if (!mcpInstaller) {
         throw new Error(
@@ -1047,19 +1074,39 @@ export function buildHarnessNamespace(
         resolvedTargets = [...parsedTargets.data];
       }
 
+      const resolvedScope = resolveHarnessScope(scope);
+
+      // A workspace install writes project files only; the home-folder CLI
+      // configs (codex, copilot, antigravity) are shared by every workspace,
+      // so they need the explicit user scope. Refused before any write.
+      if (resolvedScope === 'workspace') {
+        const homeTargets = resolvedTargets.filter(isHomeTarget);
+        if (homeTargets.length > 0) {
+          throw new Error(
+            `Use scope 'user' to write home-folder CLI configs (${homeTargets.join(', ')}). ` +
+              'A workspace-scoped install writes only project files.',
+          );
+        }
+      }
+
       const workspaceRoot = getWorkspaceRoot();
-      if (!workspaceRoot) {
+      if (!workspaceRoot && resolvedScope === 'workspace') {
         throw new Error(
-          'No workspace folder is open. Workspace-scoped MCP configs cannot be written — open a folder and retry.',
+          'No workspace folder is open. Workspace-scoped MCP configs cannot be written — ' +
+            `open a folder and retry, ${NO_WORKSPACE_USER_HINT}`,
         );
       }
 
+      // A user-scope install with no folder open still records the global
+      // intent; the per-target results then report the missing folder, and
+      // the next reconcile in any workspace writes the configs.
       const results = await mcpInstaller.install(
         trimmedName,
         resolvedKey,
         parsedConfig.data,
         resolvedTargets,
-        workspaceRoot,
+        workspaceRoot || undefined,
+        toCapabilityScope(resolvedScope),
       );
 
       const installedPaths: string[] = [];
@@ -1075,13 +1122,14 @@ export function buildHarnessNamespace(
       }
 
       logger.info(
-        `[Harness] installMcpServer "${trimmedName}" as "${resolvedKey}" -> ${resolvedTargets.join(', ')} ` +
+        `[Harness] installMcpServer "${trimmedName}" as "${resolvedKey}" (${resolvedScope} scope) -> ${resolvedTargets.join(', ')} ` +
           `(${installedPaths.length} written, ${warnings.length} failed)`,
       );
 
       return {
         serverName: trimmedName,
         serverKey: resolvedKey,
+        scope: resolvedScope,
         targets: resolvedTargets,
         installedPaths: Array.from(new Set(installedPaths)),
         results,
