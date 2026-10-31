@@ -40,6 +40,7 @@ import {
   ElectronLayoutService,
   LoggingService,
   VSCodeService,
+  injectWallClock,
 } from '@ptah-extension/core';
 import { ActivityGridComponent } from '@ptah-extension/chat-ui';
 // The welcome-only molecules come from the lazy `vitals` entry point: this
@@ -246,6 +247,7 @@ export class ElectronWelcomeComponent {
   private readonly logger = inject(LoggingService);
   private readonly recentWorkspaces = inject(RecentWorkspacesStore);
   private readonly vitals = inject(WelcomeVitalsStore);
+  private readonly coarse = injectWallClock('coarse');
 
   protected readonly FolderOpenIcon = FolderOpen;
   protected readonly ArrowRightIcon = ArrowRight;
@@ -269,13 +271,13 @@ export class ElectronWelcomeComponent {
     () => this.vitals.recents().status === 'error',
   );
   protected readonly recentItems = computed(() =>
-    toRecentItems(this.vitals.recents(), Date.now()),
+    toRecentItems(this.vitals.recents(), this.coarse()),
   );
   protected readonly grid = computed(() =>
     toGridView(
       this.firstRun() === true,
       this.vitals.activity90(),
-      localDayKey(new Date()),
+      localDayKey(new Date(this.coarse())),
     ),
   );
   protected readonly plan = computed(() => toPlanCell(this.vitals.planRing()));

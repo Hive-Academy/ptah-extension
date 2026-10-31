@@ -10,6 +10,8 @@ import {
 describe('per-agent usage formatters (N6)', () => {
   it('renders a missing token count as not reported, never 0', () => {
     expect(formatOptionalTokens(undefined)).toBe(NOT_REPORTED);
+    expect(formatOptionalTokens(Number.NaN)).toBe(NOT_REPORTED);
+    expect(formatOptionalTokens(-1)).toBe(NOT_REPORTED);
     expect(formatOptionalTokens(0)).toBe('0');
     expect(formatOptionalTokens(12_345)).toBe('12.3k');
   });

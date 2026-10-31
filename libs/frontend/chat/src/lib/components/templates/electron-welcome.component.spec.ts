@@ -20,6 +20,7 @@ import {
   type VitalsLoad,
 } from '../../services/vitals/vitals-load';
 import { WelcomeVitalsStore } from '../../services/vitals/welcome-vitals.store';
+import { localDayKey } from '../../services/vitals/usage-vitals.model';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
 
 const NOW = new Date('2026-10-26T12:00:00.000Z');
@@ -194,6 +195,25 @@ describe('ElectronWelcomeComponent', () => {
     const grid = host().querySelector('ptah-activity-grid');
     expect(grid?.getAttribute('data-mode')).toBe('history');
     expect(grid?.textContent).toContain('108 sessions · 90 days');
+  });
+
+  it('advances the recent age label and local grid day on a coarse tick', () => {
+    fixture.destroy();
+    const beforeMidnight = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate(), 23, 59, 45);
+    jest.setSystemTime(beforeMidnight);
+    vitals.isFirstRun.set(true);
+    vitals.recents.set(vitalsReady([{ ...RECENTS[0], lastOpenedAt: beforeMidnight.getTime() - 45_000 }]));
+    fixture = TestBed.createComponent(ElectronWelcomeComponent);
+    fixture.detectChanges();
+
+    const todayCell = () => host().querySelector('.ptah-activity-grid__today')?.getAttribute('data-date');
+    expect(recentButtons()[0].textContent).toContain('now');
+    expect(todayCell()).toBe(localDayKey(beforeMidnight));
+
+    jest.advanceTimersByTime(30_000);
+    fixture.detectChanges();
+    expect(recentButtons()[0].textContent).toContain('1m');
+    expect(todayCell()).toBe(localDayKey(new Date(beforeMidnight.getTime() + 30_000)));
   });
 
   it('shows four vitals cells for a returning user', () => {

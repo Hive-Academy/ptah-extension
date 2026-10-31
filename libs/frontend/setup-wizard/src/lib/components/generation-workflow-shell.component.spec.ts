@@ -5,7 +5,7 @@ import { BehaviorSubject } from 'rxjs';
 import { convertToParamMap } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
-import { SurfaceRouterService } from '@ptah-extension/core';
+import { SurfaceRouterService, WallClockService } from '@ptah-extension/core';
 import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
 import type { SetupGenerationRunState } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
@@ -28,8 +28,14 @@ describe('GenerationWorkflowShellComponent', () => {
       workspacePath: string;
       guidanceStartDeadline: number;
     } | null>(null);
+    const now = signal(Date.now());
+    const acquire = jest.fn(() => jest.fn());
     TestBed.configureTestingModule({
       providers: [
+        {
+          provide: WallClockService,
+          useValue: { now: () => now, acquire },
+        },
         {
           provide: ActivatedRoute,
           useValue: {
@@ -123,8 +129,7 @@ describe('GenerationWorkflowShellComponent', () => {
     const fixture = TestBed.createComponent(GenerationWorkflowShellComponent);
     fixture.detectChanges();
     // The selection list and next steps load through @defer (on immediate).
-    // whenStable() never settles here (the countdown interval), so let the
-    // deferred imports resolve on a macrotask and render again.
+    // Let deferred imports resolve on a macrotask and render again.
     await new Promise((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
@@ -152,15 +157,17 @@ describe('GenerationWorkflowShellComponent', () => {
     });
     pending.set({
       workspacePath: '/ws',
-      guidanceStartDeadline: Date.now() + 5000,
+      guidanceStartDeadline: now() + 5000,
     });
     fixture.detectChanges();
     await new Promise((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
     expect(root.textContent).toContain('Next steps');
-    expect(root.textContent).toMatch(
-      /Project guidance starts in [0-5] seconds/,
-    );
+    expect(root.textContent).toContain('Project guidance starts in 5 seconds');
+    expect(acquire).toHaveBeenCalledWith('second');
+    now.set(now() + 1_000);
+    fixture.detectChanges();
+    expect(root.textContent).toContain('Project guidance starts in 4 seconds');
     fixture.destroy();
   });
   it('docks a 336px sidebar beside full-height chat, then opens an inert-chat sheet with Stop at narrow host widths', () => {
