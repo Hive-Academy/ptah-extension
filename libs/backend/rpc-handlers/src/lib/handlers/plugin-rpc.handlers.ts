@@ -36,6 +36,9 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { SessionId } from '@ptah-extension/shared';
+import { CHAT_TOKENS } from '../chat/tokens';
+import type { ChatSessionService } from '../chat/session/chat-session.service';
 import type { DependencyContainer } from 'tsyringe';
 import {
   Logger,
@@ -74,6 +77,8 @@ import type {
   HarnessHealth,
   PluginInfo,
   PluginConfigStateWithHome,
+  PluginsGetConfigParams,
+  PluginSessionNotice,
   PluginSkillEntry,
   ExternalConsentReason,
   ExternalInstallResponse,
@@ -93,6 +98,7 @@ import type {
 import type { RpcMethodName } from '@ptah-extension/shared';
 import {
   ExternalInstallParamsSchema,
+  GetConfigParamsSchema,
   ExternalUninstallParamsSchema,
   MarketplaceBrowseParamsSchema,
   MarketplaceSourceParamsSchema,
@@ -231,6 +237,11 @@ export class PluginRpcHandlers {
     /** Read-only here: which family issued an approval id. */
     @inject(LocalItemApprovals)
     private readonly approvals: LocalItemApprovals,
+    @inject(CHAT_TOKENS.SESSION, { isOptional: true })
+    private readonly sessionRoots: Pick<
+      ChatSessionService,
+      'readSessionPolicyRoots'
+    > | null = null,
   ) {
     this.externalMcp = resolveExternalPluginMcpService(container, this.logger);
   }
@@ -304,14 +315,15 @@ export class PluginRpcHandlers {
    */
   private registerGetConfig(): void {
     this.rpcHandler.registerMethod<
-      Record<string, never>,
+      PluginsGetConfigParams,
       PluginConfigStateWithHome
-    >('plugins:get-config', async () => {
+    >('plugins:get-config', async (params) => {
+      let config: PluginConfigStateWithHome;
       try {
         this.logger.debug('RPC: plugins:get-config called');
 
         const harnessRoot = this.harnessRoot();
-        const config = this.pluginLoader.getWorkspacePluginConfig(
+        const body = this.pluginLoader.getWorkspacePluginConfig(
           this.configRoot(harnessRoot),
         );
         const configHome =
@@ -320,12 +332,12 @@ export class PluginRpcHandlers {
             : this.pluginLoader.getConfigHomeStatus(harnessRoot);
 
         this.logger.debug('RPC: plugins:get-config success', {
-          enabledCount: config.enabledPluginIds.length,
-          lastUpdated: config.lastUpdated,
+          enabledCount: body.enabledPluginIds.length,
+          lastUpdated: body.lastUpdated,
           configHome: configHome?.state,
         });
 
-        return configHome === null ? config : { ...config, configHome };
+        config = configHome === null ? body : { ...body, configHome };
       } catch (error) {
         this.logger.error(
           'RPC: plugins:get-config failed',
@@ -337,7 +349,53 @@ export class PluginRpcHandlers {
         );
         throw error;
       }
+      const sessionNotice = await this.sessionNoticeFor(params);
+      return sessionNotice ? { ...config, sessionNotice } : config;
     });
+  }
+
+  private async sessionNoticeFor(
+    params: PluginsGetConfigParams,
+  ): Promise<PluginSessionNotice | undefined> {
+    if (params?.sessionId === undefined) return undefined;
+    const parsed = GetConfigParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      this.logger.warn('RPC: plugins:get-config invalid session hint', {
+        issuePaths: parsed.error.issues.map((issue) => issue.path.join('.')),
+      });
+      return undefined;
+    }
+    if (!this.sessionRoots) return undefined;
+    const projectRoot = this.harnessRoot();
+    if (projectRoot === undefined) return undefined;
+    try {
+      const { folder, ancestorRoots } =
+        await this.sessionRoots.readSessionPolicyRoots(
+          SessionId.from(parsed.data.sessionId!),
+        );
+      return (
+        this.pluginLoader.getSessionPluginNotice(
+          folder,
+          ancestorRoots,
+          projectRoot,
+        ) ?? undefined
+      );
+    } catch (error) {
+      if (error instanceof RpcUserError) {
+        this.logger.debug(
+          'RPC: plugins:get-config session notice unavailable',
+          {
+            code: error.errorCode,
+          },
+        );
+      } else {
+        this.logger.warn(
+          'RPC: plugins:get-config session notice failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+      return undefined;
+    }
   }
 
   /**

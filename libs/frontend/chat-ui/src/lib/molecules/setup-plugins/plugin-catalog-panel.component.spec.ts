@@ -18,10 +18,19 @@
  * `[data-testid="plugin-catalog-save"]` rather than by modal chrome.
  */
 
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type { HarnessGetSkillSelectionResult } from '@ptah-extension/shared';
-import { PluginCatalogPanelComponent } from './plugin-catalog-panel.component';
+import {
+  SessionId,
+  type HarnessGetSkillSelectionResult,
+  type PluginSessionNotice,
+} from '@ptah-extension/shared';
+import {
+  PLUGIN_SAVE_APPLIES_NOTICE,
+  PluginCatalogPanelComponent,
+} from './plugin-catalog-panel.component';
 
 /**
  * Minimal stand-in for the core `RpcResult` shape: `isSuccess()`, `.data`,
@@ -49,6 +58,34 @@ function selection(
   };
 }
 
+function pluginConfig(sessionNotice?: PluginSessionNotice) {
+  return {
+    enabledPluginIds: [],
+    disabledPluginIds: [],
+    disabledSkillIds: [],
+    ...(sessionNotice ? { sessionNotice } : {}),
+  };
+}
+
+function sessionNotice(
+  over: Partial<PluginSessionNotice> = {},
+): PluginSessionNotice {
+  return {
+    sessionRoot: '/worktrees/session',
+    inheritsProjectSettings: true,
+    overrides: [],
+    incomplete: false,
+    ...over,
+  };
+}
+
+const FIRST_SESSION_ID = SessionId.from(
+  '11111111-1111-4111-8111-111111111111',
+);
+const SECOND_SESSION_ID = SessionId.from(
+  '22222222-2222-4222-8222-222222222222',
+);
+
 interface RpcCall {
   method: string;
   params: unknown;
@@ -56,9 +93,13 @@ interface RpcCall {
 
 describe('plugin catalog panel — per-workspace skill selection', () => {
   let calls: RpcCall[];
-  let responders: Map<string, () => unknown>;
+  let responders: Map<string, (params: unknown) => unknown>;
+  const activeTabSessionId = signal<SessionId | null>(null);
 
-  const setResponder = (method: string, factory: () => unknown): void => {
+  const setResponder = (
+    method: string,
+    factory: (params: unknown) => unknown,
+  ): void => {
     responders.set(method, factory);
   };
 
@@ -69,7 +110,7 @@ describe('plugin catalog panel — per-workspace skill selection', () => {
       if (!factory) {
         return Promise.resolve(ok(undefined));
       }
-      return Promise.resolve(factory());
+      return Promise.resolve(factory(params));
     }),
   };
 
@@ -110,16 +151,18 @@ describe('plugin catalog panel — per-workspace skill selection', () => {
   beforeEach(() => {
     calls = [];
     responders = new Map();
+    activeTabSessionId.set(null);
     rpcMock.call.mockClear();
     // Harmless empty plugin catalogue for every test here — that axis is
     // untouched by this port and irrelevant to what's being pinned.
     setResponder('plugins:list-available', () => ok({ plugins: [] }));
-    setResponder('plugins:get-config', () =>
-      ok({ enabledPluginIds: [], disabledPluginIds: [], disabledSkillIds: [] }),
-    );
+    setResponder('plugins:get-config', () => ok(pluginConfig()));
     setResponder('plugins:save-config', () => ok({ saved: true }));
     TestBed.configureTestingModule({
-      providers: [{ provide: ClaudeRpcService, useValue: rpcMock }],
+      providers: [
+        { provide: ClaudeRpcService, useValue: rpcMock },
+        { provide: TabManagerService, useValue: { activeTabSessionId } },
+      ],
     });
   });
 
@@ -364,6 +407,296 @@ describe('plugin catalog panel — per-workspace skill selection', () => {
     // The plugin axis still saved — only the skill-selection write is withheld.
     expect(calls.some((c) => c.method === 'plugins:save-config')).toBe(true);
   });
+
+  describe('session and save notices', () => {
+    const sessionConfigCalls = (): RpcCall[] =>
+      calls.filter(
+        (call) =>
+          call.method === 'plugins:get-config' &&
+          typeof call.params === 'object' &&
+          call.params !== null &&
+          'sessionId' in call.params,
+      );
+    const normalizedText = (element: Element | null): string =>
+      element?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+    it('does not request or render a session notice without a selected session', async () => {
+      const fixture = await mount();
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(sessionConfigCalls()).toEqual([]);
+      expect(host.querySelector('[data-testid="plugin-session-notice"]')).toBeNull();
+    });
+
+    it('requests a UUID session and renders the inherited-settings notice', async () => {
+      activeTabSessionId.set(FIRST_SESSION_ID);
+      setResponder('plugins:get-config', () =>
+        ok(pluginConfig(sessionNotice())),
+      );
+
+      const fixture = await mount();
+      const host = fixture.nativeElement as HTMLElement;
+      const notice = host.querySelector(
+        '[data-testid="plugin-session-notice"]',
+      );
+
+      expect(sessionConfigCalls().map((call) => call.params)).toEqual([
+        { sessionId: FIRST_SESSION_ID },
+      ]);
+      expect(notice?.getAttribute('role')).toBe('status');
+      expect(normalizedText(notice)).toContain(
+        "This session runs in /worktrees/session and uses this project's plugin settings.",
+      );
+      expect(notice?.querySelectorAll('button')).toHaveLength(0);
+    });
+
+    it('renders non-inherited settings, the incomplete line, and breakable paths', async () => {
+      activeTabSessionId.set(FIRST_SESSION_ID);
+      setResponder('plugins:get-config', () =>
+        ok(
+          pluginConfig(
+            sessionNotice({
+              sessionRoot: '/a/very/long/session/root/that/must/break',
+              inheritsProjectSettings: false,
+              incomplete: true,
+            }),
+          ),
+        ),
+      );
+
+      const fixture = await mount();
+      const notice = (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="plugin-session-notice"]',
+      );
+
+      expect(normalizedText(notice)).toContain(
+        "This session runs in /a/very/long/session/root/that/must/break. It does not use this project's plugin settings.",
+      );
+      expect(normalizedText(notice)).toContain(
+        "Some of this session's folder settings could not be read.",
+      );
+      expect(notice?.querySelector('p')?.classList.contains('break-all')).toBe(
+        true,
+      );
+    });
+
+    it('uses catalog plugin names and retains unknown plugin and skill ids', async () => {
+      activeTabSessionId.set(FIRST_SESSION_ID);
+      setResponder('plugins:list-available', () =>
+        ok({
+          plugins: [
+            {
+              id: 'ptah-core',
+              name: 'Ptah Core',
+              description: 'A bundled plugin.',
+              category: 'core-tools',
+              skillCount: 0,
+              commandCount: 0,
+              isDefault: true,
+            },
+          ],
+        }),
+      );
+      setResponder('plugins:get-config', () =>
+        ok(
+          pluginConfig(
+            sessionNotice({
+              overrides: [
+                {
+                  kind: 'plugin',
+                  id: 'ptah-core',
+                  value: 'off',
+                  root: '/worktrees/session',
+                },
+                {
+                  kind: 'plugin',
+                  id: 'unknown-plugin',
+                  value: 'on',
+                  root: '/worktrees/session',
+                },
+                {
+                  kind: 'skill',
+                  id: 'skill-x',
+                  value: 'off',
+                  root: '/worktrees/session',
+                },
+              ],
+            }),
+          ),
+        ),
+      );
+
+      const fixture = await mount();
+      const notice = (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="plugin-session-notice"]',
+      );
+      const text = normalizedText(notice);
+
+      expect(text).toContain('Ptah Core: off');
+      expect(text).toContain('unknown-plugin: on');
+      expect(text).toContain('skill-x: off');
+    });
+
+    it('limits the override list to ten entries and reports the remainder', async () => {
+      activeTabSessionId.set(FIRST_SESSION_ID);
+      setResponder('plugins:get-config', () =>
+        ok(
+          pluginConfig(
+            sessionNotice({
+              overrides: Array.from({ length: 12 }, (_, index) => ({
+                kind: 'skill' as const,
+                id: `skill-${index}`,
+                value: 'on' as const,
+                root: '/worktrees/session',
+              })),
+            }),
+          ),
+        ),
+      );
+
+      const fixture = await mount();
+      const notice = (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="plugin-session-notice"]',
+      );
+
+      expect(notice?.querySelectorAll('li')).toHaveLength(11);
+      expect(normalizedText(notice)).toContain('and 2 more');
+      expect(normalizedText(notice)).not.toContain('skill-10');
+    });
+
+    it('re-queries on a session switch and ignores the earlier late reply', async () => {
+      const pending = new Map<string, (value: unknown) => void>();
+      setResponder('plugins:get-config', (params) => {
+        const sessionId = (params as { sessionId?: string }).sessionId;
+        if (!sessionId) return ok(pluginConfig());
+        return new Promise((resolve) => pending.set(sessionId, resolve));
+      });
+      activeTabSessionId.set(FIRST_SESSION_ID);
+
+      const fixture = await mount();
+      expect(pending.has(FIRST_SESSION_ID)).toBe(true);
+
+      activeTabSessionId.set(SECOND_SESSION_ID);
+      TestBed.flushEffects();
+      await settle(fixture);
+      expect(pending.has(SECOND_SESSION_ID)).toBe(true);
+      expect(sessionConfigCalls().map((call) => call.params)).toEqual([
+        { sessionId: FIRST_SESSION_ID },
+        { sessionId: SECOND_SESSION_ID },
+      ]);
+
+      pending.get(SECOND_SESSION_ID)?.(
+        ok(pluginConfig(sessionNotice({ sessionRoot: '/sessions/second' }))),
+      );
+      await settle(fixture);
+      const host = fixture.nativeElement as HTMLElement;
+      expect(normalizedText(host)).toContain('/sessions/second');
+
+      pending.get(FIRST_SESSION_ID)?.(
+        ok(pluginConfig(sessionNotice({ sessionRoot: '/sessions/first' }))),
+      );
+      await settle(fixture);
+      expect(normalizedText(host)).toContain('/sessions/second');
+      expect(normalizedText(host)).not.toContain('/sessions/first');
+    });
+
+    it('clears the current notice as soon as the session changes', async () => {
+      const pending = new Map<string, (value: unknown) => void>();
+      setResponder('plugins:get-config', (params) => {
+        const sessionId = (params as { sessionId?: string }).sessionId;
+        if (!sessionId) return ok(pluginConfig());
+        return new Promise((resolve) => pending.set(sessionId, resolve));
+      });
+      activeTabSessionId.set(FIRST_SESSION_ID);
+
+      const fixture = await mount();
+      const host = fixture.nativeElement as HTMLElement;
+      pending.get(FIRST_SESSION_ID)?.(
+        ok(pluginConfig(sessionNotice({ sessionRoot: '/sessions/first' }))),
+      );
+      await settle(fixture);
+      expect(normalizedText(host)).toContain('/sessions/first');
+      expect(
+        host.querySelector('[data-testid="plugin-session-notice"]'),
+      ).not.toBeNull();
+
+      activeTabSessionId.set(SECOND_SESSION_ID);
+      TestBed.flushEffects();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.sessionNotice()).toBeNull();
+      expect(
+        host.querySelector('[data-testid="plugin-session-notice"]'),
+      ).toBeNull();
+      expect(pending.has(SECOND_SESSION_ID)).toBe(true);
+
+      pending.get(SECOND_SESSION_ID)?.(
+        ok(pluginConfig(sessionNotice({ sessionRoot: '/sessions/second' }))),
+      );
+      await settle(fixture);
+      expect(fixture.componentInstance.sessionNotice()?.sessionRoot).toBe(
+        '/sessions/second',
+      );
+      expect(normalizedText(host)).toContain('/sessions/second');
+      expect(normalizedText(host)).not.toContain('/sessions/first');
+    });
+
+    it('drops the notice after an RPC failure and still loads the panel', async () => {
+      activeTabSessionId.set(FIRST_SESSION_ID);
+      setResponder('plugins:get-config', (params) => {
+        const sessionId = (params as { sessionId?: string }).sessionId;
+        return sessionId
+          ? Promise.reject(new Error('notice unavailable'))
+          : ok(pluginConfig());
+      });
+
+      const fixture = await mount();
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(host.querySelector('[data-testid="plugin-session-notice"]')).toBeNull();
+      expect(fixture.componentInstance.isLoading()).toBe(false);
+      expect(fixture.componentInstance.error()).toBeNull();
+      expect(
+        host.querySelector('[data-testid="plugin-catalog-save"]'),
+      ).not.toBeNull();
+    });
+
+    it('shows the exact post-save notice and leaves the save payload unchanged', async () => {
+      const fixture = await mount();
+      const host = fixture.nativeElement as HTMLElement;
+
+      clickSave(host);
+      await settle(fixture);
+
+      const notice = host.querySelector(
+        '[data-testid="plugin-save-applies-notice"]',
+      );
+      expect(notice?.getAttribute('role')).toBe('status');
+      expect(normalizedText(notice)).toBe(PLUGIN_SAVE_APPLIES_NOTICE);
+      expect(
+        calls.find((call) => call.method === 'plugins:save-config')?.params,
+      ).toEqual({
+        enabledPluginIds: [],
+        disabledSkillIds: [],
+        disabledPluginIds: [],
+      });
+    });
+
+    it('does not show the post-save notice after a failed save', async () => {
+      setResponder('plugins:save-config', () => ok(undefined));
+      const fixture = await mount();
+      const host = fixture.nativeElement as HTMLElement;
+
+      clickSave(host);
+      await settle(fixture);
+
+      expect(
+        host.querySelector('[data-testid="plugin-save-applies-notice"]'),
+      ).toBeNull();
+      expect(fixture.componentInstance.saveError()).toBe(
+        'Failed to save configuration.',
+      );
+    });
+  });
 });
 
 /**
@@ -429,7 +762,13 @@ describe('plugin catalog panel — the skill selection stands alone', () => {
       ),
     );
     TestBed.configureTestingModule({
-      providers: [{ provide: ClaudeRpcService, useValue: rpcMock }],
+      providers: [
+        { provide: ClaudeRpcService, useValue: rpcMock },
+        {
+          provide: TabManagerService,
+          useValue: { activeTabSessionId: signal<SessionId | null>(null) },
+        },
+      ],
     });
   });
 
