@@ -1,0 +1,96 @@
+#!/usr/bin/env node
+/** Convert one read-only Claude transcript window and its linked CLI outputs into a public replay. */
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { dirname, resolve, join } from 'node:path';
+import { createRequire } from 'node:module';
+import { DatabaseSync } from 'node:sqlite';
+const require = createRequire(import.meta.url);
+const args = Object.fromEntries(process.argv.slice(2).flatMap((arg, i, all) => arg.startsWith('--') && all[i + 1] && !all[i + 1].startsWith('--') ? [[arg.slice(2), all[i + 1]]] : []));
+if (!args.session || !args.window || !args.out) throw new Error('Usage: --session <id> --window <index|auto> --id <id> --title <title> [--prompt <text>] --out <file>');
+const project = args['project-dir'] ?? join(process.env.HOME, '.claude/projects/-home-amun-ptah-extension');
+const rows = readFileSync(join(project, `${args.session}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse);
+const userRows = rows.flatMap((row, index) => row.type === 'user' && typeof row.message?.content === 'string' && !row.message.content.startsWith('<task-notification>') && !row.message.content.startsWith('Another Claude session') ? [{ row, index }] : []);
+const db = new DatabaseSync(join(process.env.HOME, '.ptah/state/sessions.sqlite'), { readOnly: true });
+const record = db.prepare('select detail_json from sessions where session_id = ?').get(args.session);
+if (!record) throw new Error('Session not found in read-only lane index');
+const lanes = JSON.parse(record.detail_json).cliSessions.filter(x => x.status === 'completed');
+const subfiles = readdirSync(join(project, args.session, 'subagents')).filter(x => x.endsWith('.jsonl'));
+const choices = userRows.map((u, i) => {
+  const blocks = rows.slice(u.index, userRows[i + 1]?.index ?? rows.length).flatMap(x => Array.isArray(x.message?.content) ? x.message.content : []);
+  const spawns = [...new Map(blocks.filter(b => b.type === 'tool_use' && b.name?.endsWith('ptah_agent_spawn')).map(b => [b.id, b])).values()];
+  const completedSpawns = spawns.filter(spawn => blocks.some(result => {
+    if (result.type !== 'tool_result' || result.tool_use_id !== spawn.id) return false;
+    const text = typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
+    return lanes.some(lane => text.includes(lane.agentId));
+  }));
+  const agentToolIds = new Set(blocks.filter(b => b.type === 'tool_use' && ['Agent', 'Task'].includes(b.name)).map(b => b.id));
+  const subagents = subfiles.filter(file => {
+    const meta = JSON.parse(readFileSync(join(project, args.session, 'subagents', file.replace(/\.jsonl$/, '.meta.json')), 'utf8'));
+    return agentToolIds.has(meta.toolUseId);
+  });
+  return { ...u, turn: i, end: userRows[i + 1]?.index ?? rows.length, spawns, completedSpawns, subagents };
+});
+const choice = args.window === 'auto' ? choices.filter(x => x.completedSpawns.length >= 2 && x.subagents.length >= 1).sort((a,b) => (a.end-a.index)-(b.end-b.index))[0] : choices[Number(args.window)];
+if (!choice) throw new Error('No single user turn has two completed CLI spawns and a subagent; select a turn index explicitly');
+const sessionId = '11111111-1111-4111-8111-111111111111', base = 1793476800000;
+const fixture = JSON.parse(readFileSync('libs/web/landing/src/lib/live-demo/scenarios/chat-tool-call.json', 'utf8'));
+const multi = JSON.parse(readFileSync('libs/web/landing/src/lib/live-demo/scenarios/multi-agent.json', 'utf8'));
+const prompt = args.prompt ?? choice.row.message.content.replace(/<[^>]+>/g, '').slice(0, 240);
+const timeline = [], push = (at, type, payload) => timeline.push({ at: Math.round(at), message: { type, payload } });
+let serial = 0;
+const chunk = (at, eventType, extra = {}, messageId = 'main-assistant') => push(at, 'chat:chunk', { sessionId, event: { id: `real-${++serial}`, eventType, timestamp: base + Math.round(at), sessionId, messageId, ...extra } });
+chunk(200, 'turn_state', { phase: 'generating', revision: 2, backgroundTasks: [], sessionCrons: [], terminalReason: null }, `turn-state-${sessionId}`);
+chunk(500, 'message_start', { role: 'assistant' });
+const say = (at, line, messageId = 'main-assistant') => line.match(/.{1,42}(?:\s|$)/g)?.forEach((part,i) => chunk(at+i*180, 'text_delta', { blockIndex: 0, delta: part }, messageId));
+say(750, 'I will review the plugin session notice, delegate focused fixes, and check the results.');
+const selected = lanes.slice(0, 5);
+selected.forEach((lane, index) => {
+  const start = 3500 + index * 3500, finish = 22000 + index * 4500;
+  const id = lane.agentId;
+  const label = lane.cli === 'ptah-cli' ? 'Kimi Code' : lane.cli === 'antigravity' ? 'Antigravity' : 'Codex';
+  const task = lane.task.split('\n').find(x => /Defect|Objective|Review|Revise/.test(x))?.slice(0, 100) ?? `${label} reviews the session notice`;
+  const call = `toolu_real_${index}`;
+  chunk(start - 300, 'tool_start', { toolCallId: call, toolName: 'mcp__ptah__ptah_agent_spawn', toolInput: { cli: lane.cli, task }, isTaskTool: false });
+  push(start, 'agent-monitor:spawned', { agentId: id, cli: lane.cli, displayName: label, task, workingDirectory: '/workspace/acme-app', status: 'running', startedAt: new Date(base + start).toISOString(), parentSessionId: sessionId });
+  const file = join(process.env.HOME, '.ptah/state/sessions', args.session, `agent-output.${id}.json`);
+  let segments = [];
+  try { segments = JSON.parse(readFileSync(file, 'utf8')).segments ?? []; } catch { /* missing output remains visible as a short summary */ }
+  const representative = segments.filter(s => s.content && ['text','info','tool-call','tool-result'].includes(s.type)).slice(0, 3);
+  (representative.length ? representative : [{ type: 'info', content: `${label} completed its review.` }]).forEach((seg, j, arr) => {
+    const content = seg.content.replace(/\s+/g, ' ').slice(0, 140);
+    push(start + 1000 + j * ((finish-start-2000)/Math.max(1,arr.length)), 'agent-monitor:output', { agentId: id, stdoutDelta: `${content}\n`, stderrDelta: '', timestamp: base + start + 1000 + j * 1000, segments: [{ type: seg.type, content }] });
+  });
+  chunk(finish-300, 'tool_result', { toolCallId: call, output: `${label} completed the assigned review.`, isError: false });
+  push(finish, 'agent-monitor:exited', { agentId: id, cli: lane.cli, displayName: label, task, workingDirectory: '/workspace/acme-app', status: 'completed', startedAt: new Date(base + start).toISOString(), completedAt: new Date(base + finish).toISOString(), parentSessionId: sessionId });
+});
+const subId = subfiles[0].replace(/^agent-|\.jsonl$/g, '');
+const subMeta = JSON.parse(readFileSync(join(project, args.session, 'subagents', `agent-${subId}.meta.json`), 'utf8'));
+const subCall = subMeta.toolUseId, subType = subMeta.agentType, subDescription = subMeta.description;
+chunk(9000, 'tool_start', { toolCallId: subCall, toolName: 'Task', toolInput: { description: subDescription, subagent_type: subType, run_in_background: true }, isTaskTool: true, agentType: subType, agentDescription: subDescription });
+chunk(9400, 'agent_start', { toolCallId: subCall, agentType: subType, agentId: subId, agentDescription: subDescription, taskId: `task-${subId}` });
+chunk(28000, 'tool_result', { toolCallId: subCall, output: 'Visual review completed.', isError: false });
+push(28500, 'session:subagentEnded', { sessionId, cwd: '/workspace/acme-app', agentId: subId, agentType: subType, toolCallId: subCall, lastAssistantMessage: 'Visual review completed.', backgroundTasks: [], timestamp: base + 28500 });
+chunk(39500, 'message_complete');
+chunk(40000, 'message_start', { role: 'assistant' }, 'main-summary');
+say(40500, 'The focused fixes and independent review are complete. The session notice now follows the active session.', 'main-summary');
+chunk(46000, 'message_complete', {}, 'main-summary');
+chunk(46500, 'turn_state', { phase: 'idle', revision: 3, backgroundTasks: [], sessionCrons: [], terminalReason: 'completed', lastAssistantMessage: 'The fixes and review are complete.' }, `turn-state-${sessionId}`);
+const stats = structuredClone(multi.timeline.find(x => x.message.type === 'session:stats-live').message.payload);
+stats.sessionId = sessionId; stats.sessionStats.sessionId = sessionId; stats.sessionStats.agentSessionCount = 1; stats.sessionStats.cliAgents = [...new Set(selected.map(x => x.cli))];
+push(38000, 'session:stats-live', stats);
+push(47000, 'session:turnEnded', { sessionId, cwd: '/workspace/acme-app', lastAssistantMessage: 'The fixes and review are complete.', backgroundTasks: [], sessionCrons: [], terminalReason: 'completed', timestamp: base+47000 });
+const raw = { id: args.id ?? 'orchestration', title: args.title ?? 'PtahCode orchestrates a review', timeBase: base, config: { initialView: 'chat', workspaceRoot: '/workspace/acme-app', workspaceName: 'acme-app' }, rpc: { ...fixture.rpc, 'chat:start': { success: true, sessionId } }, timeline: timeline.sort((a,b)=>a.at-b.at) };
+raw.rpc['provider:getPlanLimits'] = { generatedAt: base, owners: multi.rpc['provider:getPlanLimits'].owners.slice(0, 1), sessionOwners: { [sessionId]: { ownerKey: multi.rpc['provider:getPlanLimits'].owners[0].owner.key, modelScope: null } } };
+raw.rpc['session:list'] = { sessions: [], total: 0, hasMore: false };
+raw.rpc['session:load'] = { sessionId, messages: [], agentSessions: [] };
+raw.rpc['chat:resume'] = { success: true, sessionId, events: [], historyPage: { olderCursor: null }, cliSessions: [] };
+const jiti = require('jiti')(import.meta.url, { interopDefault: true });
+const { sanitizeScenario } = jiti(resolve('apps/ptah-electron/src/replay/scenario-sanitizer.ts'));
+const result = sanitizeScenario(raw, { id: raw.id, title: raw.title, strict: true });
+const safePrompt = sanitizeScenario({ id: 'prompt', title: prompt, config: raw.config, rpc: {}, timeline: [] }, { id: 'prompt', strict: true }).scenario.title;
+const scenario = { ...result.scenario, start: { mode: 'on-send', prompt: safePrompt } };
+const { scanScenarioPrivacy } = jiti(resolve('libs/web/landing/src/lib/live-demo/scenario/privacy-scan.ts'));
+if (scanScenarioPrivacy(scenario).length) throw new Error('Final scenario failed B2 privacy scan');
+mkdirSync(dirname(resolve(args.out)), { recursive: true });
+writeFileSync(args.out, `${JSON.stringify(scenario, null, 2)}\n`);
+console.log(JSON.stringify({ sourceSession: args.session, window: choice.turn, lanes: selected.length, subagents: subfiles.length, events: scenario.timeline.length, report: result.report }, null, 2));

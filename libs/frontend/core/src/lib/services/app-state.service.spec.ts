@@ -518,6 +518,37 @@ describe('AppStateManager', () => {
   });
 
   describe('handleMessage (SWITCH_VIEW)', () => {
+    it('opens a named session after switching to chat', () => {
+      const service = createService();
+      const switchSpy = jest.spyOn(service, 'handleViewSwitch');
+      const sessionId = '11111111-1111-4111-8111-111111111111';
+      service.handleMessage({ type: MESSAGE_TYPES.SWITCH_VIEW,
+        payload: { view: 'chat', sessionId, sessionName: 'Explore the project' } });
+      expect(service.sessionOpenRequest()).toEqual({ sessionId, name: 'Explore the project' });
+      expect(switchSpy).toHaveBeenCalledWith('chat');
+    });
+
+    it('drops a non-string session name while opening the session', () => {
+      const service = createService();
+      const sessionId = '11111111-1111-4111-8111-111111111111';
+      service.handleMessage({ type: MESSAGE_TYPES.SWITCH_VIEW,
+        payload: { view: 'chat', sessionId, sessionName: 42 } });
+      expect(service.sessionOpenRequest()).toEqual({ sessionId, name: undefined });
+    });
+
+    it.each(['', 123, null])('ignores an empty or non-string session id (%s)', (sessionId) => {
+      const service = createService();
+      service.handleMessage({ type: MESSAGE_TYPES.SWITCH_VIEW, payload: { view: 'chat', sessionId } });
+      expect(service.sessionOpenRequest()).toBeNull();
+    });
+
+    it('ignores a session id on another view', () => {
+      const service = createService();
+      service.handleMessage({ type: MESSAGE_TYPES.SWITCH_VIEW,
+        payload: { view: 'analytics', sessionId: '11111111-1111-4111-8111-111111111111' } });
+      expect(service.sessionOpenRequest()).toBeNull();
+    });
+
     it('delegates to handleViewSwitch for a valid view payload', () => {
       const service = createService();
       const spy = jest.spyOn(service, 'handleViewSwitch');

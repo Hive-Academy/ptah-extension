@@ -32,6 +32,11 @@ import {
   type ISdkPermissionHandler,
 } from '@ptah-extension/shared';
 import { isTrustedIpcSender } from './ipc-sender-policy';
+import {
+  createReplayRecorderIfEnabled,
+  tapReplayRecorder,
+  type ReplayRecorder,
+} from '../replay/replay-recorder';
 
 const STREAM_FLUSH_INTERVAL_MS = 16;
 
@@ -159,6 +164,7 @@ export class IpcBridge {
   private readonly warnedSenderIds = new Set<number>();
   /** `webContents.id` of the open detached Display window, or `null`. */
   private displayWindowSenderId: number | null = null;
+  private readonly recorder: ReplayRecorder | null;
 
   /**
    * @param trustedDocumentPaths - absolute paths of the documents the main
@@ -170,11 +176,18 @@ export class IpcBridge {
     private readonly container: DependencyContainer,
     private readonly getWindow: GetWindowFn,
     private readonly trustedDocumentPaths: readonly string[],
+    recorder?: ReplayRecorder | null,
   ) {
     this.rpcHandler = container.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
     this.stateStorage = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
     );
+    this.recorder =
+      recorder !== undefined
+        ? recorder
+        : __PTAH_REPLAY_RECORDER__
+          ? createReplayRecorderIfEnabled()
+          : null;
   }
 
   /**
@@ -217,6 +230,9 @@ export class IpcBridge {
       return false;
     }
     win.webContents.send('to-renderer', message);
+    if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+      tapReplayRecorder(this.recorder, (r) => r.recordPush(message));
+    }
     return true;
   }
 
@@ -327,16 +343,24 @@ export class IpcBridge {
       return;
     }
     if (events.length === 1) {
-      win.webContents.send('to-renderer', {
+      const singleMessage = {
         type: events[0].type,
         payload: events[0].payload,
-      });
+      };
+      win.webContents.send('to-renderer', singleMessage);
+      if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+        tapReplayRecorder(this.recorder, (r) => r.recordPush(singleMessage));
+      }
       return;
     }
-    win.webContents.send('to-renderer', {
+    const batchMessage = {
       type: MESSAGE_TYPES.BATCH,
       payload: { events },
-    });
+    };
+    win.webContents.send('to-renderer', batchMessage);
+    if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+      tapReplayRecorder(this.recorder, (r) => r.recordPush(batchMessage));
+    }
   }
 
   /**
@@ -456,6 +480,11 @@ export class IpcBridge {
           }
           return;
         }
+        if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+          tapReplayRecorder(this.recorder, (r) =>
+            r.recordRpcCall(method, params, correlationId),
+          );
+        }
         const response = await this.rpcHandler.handleMessage({
           method,
           params,
@@ -476,6 +505,11 @@ export class IpcBridge {
           error: response.error,
           errorCode: response.errorCode,
         });
+        if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+          tapReplayRecorder(this.recorder, (r) =>
+            r.recordRpcResult(correlationId, response),
+          );
+        }
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -777,6 +811,9 @@ export class IpcBridge {
    */
   dispose(): void {
     this.flushStreamQueue();
+    if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+      tapReplayRecorder(this.recorder, (r) => r.flush());
+    }
     ipcMain.removeAllListeners('rpc');
     ipcMain.removeAllListeners('get-state');
     ipcMain.removeAllListeners('set-state');

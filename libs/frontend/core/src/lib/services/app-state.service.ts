@@ -359,10 +359,24 @@ export class AppStateManager implements MessageHandler {
    * onto the chat surface.
    */
   handleMessage(message: { type: string; payload?: unknown }): void {
-    const payload = message.payload as { view?: string } | undefined;
+    const payload = message.payload as
+      { view?: string; sessionId?: unknown; sessionName?: unknown } | undefined;
     const view = payload?.view;
     if (isAcceptedInitialView(view)) {
       this.handleViewSwitch(view);
+      if (
+        view === 'chat' &&
+        typeof payload?.sessionId === 'string' &&
+        payload.sessionId.length > 0
+      ) {
+        this.requestOpenSession({
+          sessionId: payload.sessionId,
+          name:
+            typeof payload.sessionName === 'string'
+              ? payload.sessionName
+              : undefined,
+        });
+      }
     } else {
       console.warn(
         `[AppStateManager] switchView received with invalid or missing view: ${view}`,
