@@ -17,25 +17,23 @@ config break or data loss, except the items under "Open defects". Sources are in
    the same agent on the same run is dropped. Fix: a host-minted per-turn review event id shared by
    host capture and the MCP report path (stable on replay, new on a new turn). Items 1 and 2 have
    one shared fix: a stable review event identity.
-3. **Unseen off-then-on host-routing toggle** (row 29, `phase-b-fix-round2-report.md`). Fix round 2
-   tracks the live setting value (`host-routing-config-tracker.ts`), so a change counts from the
-   first read that sees it. If an off and an on both land before any read and an old assessment
-   settles between them, that result is applied. The first late change event then resets it, but
-   a hook in that short window can still inject the old `Routing:` reminder. A settings write that
-   never fires a change event (settings-store path, failed persist) can also make the tracker skip
-   the reset for a later unseen off/on pair. The settings UI does not send overlapping writes.
-   Fix: a write-time configuration generation from the platform settings layer (port in
-   platform-core), captured at admission and checked at settlement.
-4. Minor: `HostRoutingSettingChange.switchChanged` (lane-routing) is no longer read by the
-   coordinator; remove it or use it. Note: since fix round 2 a decision-model change while routing
-   stays on also resets routing work (both keys are tracked).
-5. **Stale `Routing:` reminder after a decision-model change** (row 31,
-   `code-logic-review-phase-b-round3.md` new finding 1, Serious). Since fix round 2 a change from
-   one valid decision model to another resets routing work, but the queue's owner gate checks only
-   `isEnabled()`. A reminder that is queued, or already drained by a hook that waits on the handoff
-   pointer, under the old model can still be injected. Latent before 87d090bfa. Fix: bind each
-   routing reminder to a configuration generation, check it at drain and immediately before
-   injection, and revoke drained entries when the generation changes (same fix as item 3).
+3. FIXED in 923950f27: **Unseen off-then-on host-routing toggle** (row 29). A platform
+   write-time routing configuration generation replaces the value tracker; admission captures it
+   and settlement discards work from an older generation, including event-less writes.
+4. FIXED in 923950f27: Minor `HostRoutingSettingChange.switchChanged` removed; the change event
+   has no payload.
+5. FIXED in 923950f27: **Stale `Routing:` reminder after a decision-model change** (row 31).
+   Routing reminders carry their generation; the owner gate checks it at drain and again before
+   hook injection.
+6. Deferred, Moderate (`code-logic-review-phase-b-round4.md` finding 1): the generation is an
+   optional `IWorkspaceProvider` method. A provider without it reads a constant 0, which turns off
+   stale-work detection for host routing (no reset on writes or change events). All three host
+   providers implement it today and host routing is Electron-only. Making it required changes 30+
+   spec doubles. Fix: make the method required, or warn once at construction when it is missing.
+7. Deferred, Moderate (review round 4 finding 2): one counter covers both routing keys, and a
+   same-value `set()` also bumps it, so re-saving an unchanged value resets every tab and drops
+   queued routing reminders. Bounded (two keys, rare UI writes). Fix: bump only on an effective
+   value change.
 
 ## Phase A - learning integrity (rows 25-27, `code-logic-review-phase-a.md`, `code-style-review-phase-a.md`)
 
