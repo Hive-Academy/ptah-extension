@@ -29,6 +29,7 @@ export const EXPECTED_NULL_RUNTIME_TOKENS = [
 export const EXPECTED_RUNTIME_TOKENS = [
   ...EXPECTED_NULL_RUNTIME_TOKENS,
   SDK_TOKENS.RUNTIME_HOST_CAPABILITIES,
+  SDK_TOKENS.SESSION_HISTORY_ROUTER,
 ] as const;
 
 /** Attention ports and ingress attached during phase 2. */

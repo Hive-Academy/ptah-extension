@@ -35,6 +35,12 @@ export type RpcUserErrorCode =
   | 'SESSION_ATTACHED_TO_GATEWAY'
   | 'OUTPUT_CURSOR_STALE'
   | 'HISTORY_CURSOR_STALE'
+  | 'HISTORY_UNAVAILABLE'
+  | 'HISTORY_BUSY'
+  | 'HISTORY_TIMEOUT'
+  | 'HISTORY_CANCELLED'
+  | 'HISTORY_NOT_FOUND'
+  | 'HISTORY_FAILED'
   /** The connection is the main agent's current driver and cannot be removed. */
   | 'CONNECTION_IN_USE'
   /**

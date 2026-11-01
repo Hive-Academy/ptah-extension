@@ -44,3 +44,6 @@ Release gate: inspect an authorized pinned-binary `thread/read` response (includ
 - M1 release gate: distinguish a missing child `thread/read` from a missing root thread in the history reader.
 - M2 release gate: replace key-order-sensitive serialized JSON comparison for embedded versus paged items with structural equality.
 - M4 release gate: index parent-to-child links for closure and assess full corpus listing cost on large histories.
+- D9 12d-2 release gate: confirm whether native resume must provide `includeBlockOwners` and `syntheticToolResults`; the current native route ignores `includeBlockOwners`.
+- D9 12d-2 release gate (minor): `SessionHistoryRouter` keeps the native failure as `cause`, but
+  nothing logs it; add a sanitized log of the cause where `nativeHistoryRpcError` maps it.

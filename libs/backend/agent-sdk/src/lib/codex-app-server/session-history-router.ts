@@ -17,15 +17,19 @@ export type SessionHistoryReadResult = Awaited<
 
 export type SessionHistoryRouteErrorCode =
   | 'nativePortUnavailable'
-  | 'invalidNativeIdentity';
+  | 'invalidNativeIdentity'
+  | 'nativeReadFailed';
 
 /** Public errors contain no session metadata, home path, or protocol payload. */
 export class SessionHistoryRouteError extends Error {
-  constructor(readonly code: SessionHistoryRouteErrorCode) {
+  constructor(readonly code: SessionHistoryRouteErrorCode, cause?: unknown) {
     super(
       code === 'nativePortUnavailable'
-        ? 'Native Codex history is unavailable in this host.'
-        : 'Saved Codex session identity is incomplete.',
+        ? 'Session history is unavailable in this host.'
+        : code === 'invalidNativeIdentity'
+          ? 'Saved session identity is incomplete.'
+          : 'Session history could not be read.',
+      { cause },
     );
     this.name = 'SessionHistoryRouteError';
   }
@@ -33,8 +37,8 @@ export class SessionHistoryRouteError extends Error {
 
 export class SessionHistoryRouter {
   constructor(
-    private readonly metadata: Pick<SessionMetadataStore, 'get'>,
-    private readonly legacy: Pick<
+    private readonly getMetadata: () => Pick<SessionMetadataStore, 'get'>,
+    private readonly getLegacy: () => Pick<
       SessionHistoryReaderService,
       'readSessionHistory' | 'readSessionEvents'
     >,
@@ -48,9 +52,9 @@ export class SessionHistoryRouter {
   ): Promise<SessionHistoryReadResult> {
     const session = await this.nativeSession(sessionId);
     if (!session)
-      return this.legacy.readSessionHistory(sessionId, workspacePath, options);
+      return this.getLegacy().readSessionHistory(sessionId, workspacePath, options);
     const snapshot = await this.nativeHistory(session);
-    const { events, stats } = projectCodexHistory(sessionId, snapshot);
+    const { events, stats } = this.projectHistory(sessionId, snapshot);
     return { events, stats };
   }
 
@@ -59,13 +63,13 @@ export class SessionHistoryRouter {
     workspacePath: string,
   ): Promise<SessionHistoryReadResult['events']> {
     const session = await this.nativeSession(sessionId);
-    if (!session) return this.legacy.readSessionEvents(sessionId, workspacePath);
+    if (!session) return this.getLegacy().readSessionEvents(sessionId, workspacePath);
     const snapshot = await this.nativeHistory(session);
-    return projectCodexHistory(sessionId, snapshot).events;
+    return this.projectHistory(sessionId, snapshot).events;
   }
 
   private async nativeSession(sessionId: string): Promise<SessionMetadata | null> {
-    const session = await this.metadata.get(sessionId);
+    const session = await this.getMetadata().get(sessionId);
     if (session?.codexExecution?.runtime !== 'codex-app-server') return null;
     if (session.codexExecution.sessionId !== sessionId)
       throw new SessionHistoryRouteError('invalidNativeIdentity');
@@ -78,8 +82,8 @@ export class SessionHistoryRouter {
           session.codexThread.workspaceId,
           process.platform,
         );
-      } catch {
-        throw new SessionHistoryRouteError('invalidNativeIdentity');
+      } catch (error: unknown) {
+        throw new SessionHistoryRouteError('invalidNativeIdentity', error);
       }
       if (workspaceKey !== session.codexExecution.workspaceId)
         throw new SessionHistoryRouteError('invalidNativeIdentity');
@@ -91,6 +95,25 @@ export class SessionHistoryRouter {
     const native = this.getNative();
     if (!native)
       throw new SessionHistoryRouteError('nativePortUnavailable');
-    return native.readHistory(session);
+    try {
+      return await native.readHistory(session);
+    } catch (error: unknown) {
+      // The Electron port has fixed codes. All other native failures are
+      // collapsed here so a host cannot expose paths or protocol payloads.
+      if (error instanceof Error && error.name === 'ElectronCodexHistoryError')
+        throw error;
+      throw new SessionHistoryRouteError('nativeReadFailed', error);
+    }
+  }
+
+  private projectHistory(
+    sessionId: string,
+    snapshot: CodexSessionHistory,
+  ): ReturnType<typeof projectCodexHistory> {
+    try {
+      return projectCodexHistory(sessionId, snapshot);
+    } catch (error: unknown) {
+      throw new SessionHistoryRouteError('nativeReadFailed', error);
+    }
   }
 }

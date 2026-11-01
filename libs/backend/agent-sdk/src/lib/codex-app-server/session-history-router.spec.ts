@@ -99,10 +99,28 @@ function fixture(
     readSessionHistory: jest.fn(async () => ({ events: [], stats: null })),
     readSessionEvents: jest.fn(async () => []),
   };
-  return { router: new SessionHistoryRouter(metadata, legacy, getNative), metadata, legacy };
+  const getMetadata = jest.fn(() => metadata);
+  const getLegacy = jest.fn(() => legacy);
+  return {
+    router: new SessionHistoryRouter(getMetadata, getLegacy, getNative),
+    metadata,
+    legacy,
+    getMetadata,
+    getLegacy,
+  };
 }
 
 describe('SessionHistoryRouter', () => {
+  it('resolves metadata and the legacy reader only when a read needs them', async () => {
+    const { router, getMetadata, getLegacy } = fixture(null);
+    expect(getMetadata).not.toHaveBeenCalled();
+    expect(getLegacy).not.toHaveBeenCalled();
+
+    await router.readSessionHistory(sessionId, workspacePath);
+    expect(getMetadata).toHaveBeenCalledTimes(1);
+    expect(getLegacy).toHaveBeenCalledTimes(1);
+  });
+
   it('passes a Claude session through the existing reader with its options', async () => {
     const { router, legacy } = fixture({ ...nativeSession, codexExecution: undefined, codexThread: undefined });
     const options = { checkCompactionBoundary: true, includeBlockOwners: true };
@@ -115,13 +133,14 @@ describe('SessionHistoryRouter', () => {
 
   it('reads and projects persisted native history through the optional port', async () => {
     const native = { readHistory: jest.fn(async () => snapshot) };
-    const { router, legacy } = fixture(nativeSession, () => native);
+    const { router, legacy, getLegacy } = fixture(nativeSession, () => native);
     const expected = projectCodexHistory(sessionId, snapshot);
     expect(await router.readSessionHistory(sessionId, workspacePath))
       .toEqual({ events: expected.events, stats: null });
     expect(native.readHistory).toHaveBeenCalledWith(nativeSession);
     expect(expected.events).toContainEqual(expect.objectContaining({ eventType: 'text_delta', delta: 'Hi' }));
     expect(legacy.readSessionHistory).not.toHaveBeenCalled();
+    expect(getLegacy).not.toHaveBeenCalled();
   });
 
   it('returns a full native snapshot for tail and older-page selection', async () => {
@@ -205,13 +224,18 @@ describe('SessionHistoryRouter', () => {
     expect(legacy.readSessionEvents).not.toHaveBeenCalled();
   });
 
-  it('propagates native port rejection without reading Claude history', async () => {
+  it('replaces unknown native port rejection with a safe coded error', async () => {
     const failure = new Error('read failed');
     const native = { readHistory: jest.fn(async (): Promise<CodexSessionHistory> => {
       throw failure;
     }) };
     const { router, legacy } = fixture(nativeSession, () => native);
-    await expect(router.readSessionHistory(sessionId, workspacePath)).rejects.toBe(failure);
+    await expect(router.readSessionHistory(sessionId, workspacePath))
+      .rejects.toMatchObject({
+        code: 'nativeReadFailed',
+        message: 'Session history could not be read.',
+        cause: failure,
+      });
     expect(legacy.readSessionHistory).not.toHaveBeenCalled();
   });
 

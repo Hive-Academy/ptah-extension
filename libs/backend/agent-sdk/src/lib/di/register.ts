@@ -312,8 +312,8 @@ export function registerSdkServices(
   container.register(SDK_TOKENS.SESSION_HISTORY_ROUTER, {
     useFactory: instanceCachingFactory((c) =>
       new SessionHistoryRouter(
-        c.resolve<SessionMetadataStore>(SDK_TOKENS.SDK_SESSION_METADATA_STORE),
-        c.resolve<SessionHistoryReaderService>(SDK_TOKENS.SDK_SESSION_HISTORY_READER),
+        () => c.resolve<SessionMetadataStore>(SDK_TOKENS.SDK_SESSION_METADATA_STORE),
+        () => c.resolve<SessionHistoryReaderService>(SDK_TOKENS.SDK_SESSION_HISTORY_READER),
         () =>
           c.isRegistered(SDK_TOKENS.NATIVE_SESSION_HISTORY_PORT, true)
             ? c.resolve<NativeSessionHistoryPort | null>(SDK_TOKENS.NATIVE_SESSION_HISTORY_PORT)

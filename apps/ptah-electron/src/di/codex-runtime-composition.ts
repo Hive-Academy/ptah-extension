@@ -630,6 +630,7 @@ export function createElectronCodexHistoryPort(
           rejectCancellation = reject;
         });
         // A synchronous setup failure must not leave the cancellation promise unobserved.
+        // degradation-audit: optional-capability — the race owns cancellation; this observer only prevents an unhandled rejection during setup.
         void cancelled.catch(() => undefined);
         const cancel = (code: 'cancelled' | 'timeout') => {
           rejectCancellation(new ElectronCodexHistoryError(code));
@@ -655,7 +656,6 @@ export function createElectronCodexHistoryPort(
           try {
             await scope.dispose();
           } catch (error) {
-            // degradation-audit: cleanup failure is logged while preserving the read outcome.
             deps.logger.error('Codex history scope disposal failed',
               error instanceof Error ? error : new Error('Codex history scope disposal failed'));
           }
