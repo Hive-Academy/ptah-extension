@@ -114,7 +114,7 @@ export class BackgroundTaskTilesComponent {
     this.dismissedTooltip.set(null);
   }
 
-  protected dismissTooltip(taskId: string, event: KeyboardEvent): void {
+  protected dismissTooltip(taskId: string, event: Event): void {
     this.dismissedTooltip.set(taskId);
     if (event.currentTarget instanceof HTMLElement) event.currentTarget.blur();
   }

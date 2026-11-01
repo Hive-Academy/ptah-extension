@@ -511,7 +511,11 @@ describe('SystemMessageTransformer', () => {
       );
 
       expect(events).toEqual([]);
-      expect(state.markNonAgentTask).toHaveBeenCalledWith('task-bash');
+      expect(state.markNonAgentTask).toHaveBeenCalledWith(
+        'task-bash',
+        'toolu_bash',
+        'sess',
+      );
       expect(state.setTaskParent).not.toHaveBeenCalled();
       expect(helpers.subagentRegistry.setTaskId).not.toHaveBeenCalled();
       expect(state.markTaskStartedEmitted).not.toHaveBeenCalled();
