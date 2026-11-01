@@ -90,7 +90,10 @@ interface ConnectorFact {
     OAuthSurfaceComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block', 'data-testid': 'connector-detail' },
+  host: {
+    class: 'block ptah-motion-panel',
+    'data-testid': 'connector-detail',
+  },
   templateUrl: './connector-detail.component.html',
 })
 export class ConnectorDetailComponent {

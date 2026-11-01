@@ -73,7 +73,7 @@ describe('ElectronShellComponent view-transition surface', () => {
   function expectOnlySurface(selector: string): HTMLElement {
     const surfaces = (
       fixture.nativeElement as HTMLElement
-    ).querySelectorAll<HTMLElement>('.ptah-vt-surface');
+    ).querySelectorAll<HTMLElement>('[data-shell-surface]');
     expect(surfaces).toHaveLength(1);
     expect(surfaces[0].matches(selector)).toBe(true);
     return surfaces[0];

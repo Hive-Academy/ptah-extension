@@ -245,9 +245,10 @@
           ariaLabel="Server details"
           (tabSelected)="selectTab($event)"
         >
-          <div class="pt-3">
+          <ng-container>
             @switch (activeTab()) {
               @case ('targets') {
+                <div class="ptah-motion-panel pt-3" [animate.enter]="hasSwitchedTab() ? 'ptah-motion-enter' : ''" animate.leave="ptah-motion-leave">
                 @if (server.kind !== 'config') {
                   <p
                     class="text-xs text-base-content-muted"
@@ -302,9 +303,11 @@
                     }
                   </ul>
                 }
+                </div>
               }
 
               @case ('config') {
+                <div class="ptah-motion-panel pt-3" [animate.enter]="hasSwitchedTab() ? 'ptah-motion-enter' : ''" animate.leave="ptah-motion-leave">
                 <dl
                   class="space-y-3 text-xs"
                   data-testid="server-detail-config"
@@ -389,9 +392,11 @@
                     variables and headers, never their values.
                   </p>
                 </dl>
+                </div>
               }
 
               @default {
+                <div class="ptah-motion-panel pt-3" [animate.enter]="hasSwitchedTab() ? 'ptah-motion-enter' : ''" animate.leave="ptah-motion-leave">
                 <div class="space-y-3 text-xs">
                   @if (server.description) {
                     <p
@@ -545,9 +550,10 @@
                     }
                   </dl>
                 </div>
+                </div>
               }
             }
-          </div>
+          </ng-container>
         </ptah-native-tab-group>
 
         @if (confirming()) {

@@ -1825,6 +1825,14 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     params: { key: string };
     result: { success: boolean; value?: unknown; error?: string };
   };
+  'settings:getMotion': {
+    params: Record<string, never>;
+    result: { success: boolean; preference?: 'always' | 'system' | 'reduce'; error?: string };
+  };
+  'settings:setMotion': {
+    params: { preference: 'always' | 'system' | 'reduce' };
+    result: { success: boolean; error?: string };
+  };
   'settings:set': {
     params: { key: string; value: unknown };
     result: { success: boolean; error?: string };
@@ -3447,6 +3455,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:getStatus': true,
   'auth:getApiKeyStatus': true,
   'settings:get': true,
+  'settings:getMotion': true,
+  'settings:setMotion': true,
   'settings:set': true,
   'settings:export': true,
   'settings:import': true,

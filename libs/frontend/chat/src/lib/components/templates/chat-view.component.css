@@ -102,19 +102,19 @@
 }
 
 .banner-enter {
-  animation: ptahFadeSlideIn 260ms var(--ptah-ease-soft) backwards;
+  animation: ptahFadeSlideIn var(--ptah-motion-in) var(--ptah-ease-soft) backwards;
 }
 
 .banner-leave {
-  animation: ptahFadeSlideOut 180ms var(--ptah-ease-gentle-in) both;
+  animation: ptahFadeSlideOut var(--ptah-motion-out) var(--ptah-ease-gentle-in) both;
 }
 
 .fade-enter {
-  animation: ptahFadeIn 240ms var(--ptah-ease-soft) both;
+  animation: ptahFadeIn var(--ptah-motion-in) var(--ptah-ease-soft) both;
 }
 
 .fade-leave {
-  animation: ptahFadeOut 160ms var(--ptah-ease-gentle-in) both;
+  animation: ptahFadeOut var(--ptah-motion-out) var(--ptah-ease-gentle-in) both;
 }
 
 /* Inspector rows enter during the tab's entrance window. */
