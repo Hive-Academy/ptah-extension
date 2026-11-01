@@ -233,6 +233,7 @@
       <!-- Input Area (in normal flow at the bottom). -->
       @if (!readOnly) {
         <div sessionComposer class="flex-shrink-0">
+          <ptah-background-task-tiles-container [tabId]="resolvedTabId()" />
           <ptah-chat-input />
         </div>
       }

@@ -150,6 +150,19 @@ export class AssistantMessageTransformer {
         }
       } else if (isToolUseBlock(block)) {
         const isTaskTool = isAgentDispatchTool(block.name);
+        if (
+          block.name === 'Bash' &&
+          block.input?.['run_in_background'] === true &&
+          typeof block.input['command'] === 'string'
+        ) {
+          const owner = sessionId || sdkMessage.session_id;
+          if (owner)
+            state.recordBackgroundBashCommand(
+              owner,
+              block.id,
+              block.input['command'],
+            );
+        }
 
         // The Workflow tool launches a fire-and-forget local workflow run.
         // Record its tool_use id as a run root so the eventual

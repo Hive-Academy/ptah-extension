@@ -18,7 +18,7 @@ describe('CLI roster activity', () => {
       startedAt: 1_000, completedAt: 4_000,
     };
     const rows = buildSessionAgentRoster({
-      sessionId: 'session-1', tabStatus: 'active', subagents: [subagent],
+      sessionId: 'session-1', tabStatus: 'streaming', subagents: [subagent],
       cliAgents: [], backgroundAgents: [], permissions: [], questions: [],
     });
     expect(rows[1].startedAt).toBe(1_000);
@@ -26,7 +26,7 @@ describe('CLI roster activity', () => {
   });
   it('uses the last non-usage line even when newer segments only report usage', () => {
     const rows = buildSessionAgentRoster({
-      sessionId: 'session-1', tabStatus: 'active', subagents: [],
+      sessionId: 'session-1', tabStatus: 'streaming', subagents: [],
       cliAgents: [lane([
         { type: 'info', content: 'Reading files' },
         { type: 'info', content: 'Usage: 11869 input', usage: { inputTokens: 11869, outputTokens: 30 } },

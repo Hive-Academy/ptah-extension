@@ -3,6 +3,7 @@ import { SystemMessageTransformer } from './system-message.transformer';
 import type { TransformerState } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
 import { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
+import type { SDKBackgroundTasksChangedMessage } from '../types/sdk-types/claude-sdk.types';
 
 function makeState(): jest.Mocked<TransformerState> {
   // Backs the announcement-mark mocks with a real Map (id → origin), so
@@ -30,6 +31,7 @@ function makeState(): jest.Mocked<TransformerState> {
       backgroundAnnounced.get(id),
     ),
     isNonAgentTask: jest.fn().mockReturnValue(false),
+    getBackgroundTaskCommand: jest.fn().mockReturnValue(undefined),
     hasActiveSkillToolUseId: jest.fn().mockReturnValue(false),
     activeSkillToolUseIdsCount: jest.fn().mockReturnValue(0),
     snapshotActiveSkillToolUseIds: jest.fn().mockReturnValue([]),
@@ -56,6 +58,9 @@ function makeState(): jest.Mocked<TransformerState> {
       backgroundAnnounced.delete(id);
     }),
     markNonAgentTask: jest.fn(),
+    recordBackgroundBashCommand: jest.fn(),
+    retainBackgroundTaskCommands: jest.fn(),
+    cacheBackgroundTasksSnapshot: jest.fn(),
     addActiveSkillToolUseId: jest.fn(),
     clearActiveSkillToolUseIds: jest.fn(),
     clearStreamingState: jest.fn(),
@@ -109,6 +114,68 @@ describe('SystemMessageTransformer', () => {
   beforeEach(() => {
     transformer = new SystemMessageTransformer();
     state = makeState();
+  });
+
+  it('emits one replacement snapshot and excludes ambient SDK tasks', () => {
+    const message: SDKBackgroundTasksChangedMessage = {
+      type: 'system',
+      subtype: 'background_tasks_changed',
+      uuid: '00000000-0000-0000-0000-000000000001',
+      session_id: 'session-1',
+      tasks: [
+        {
+          task_id: 'bash-1',
+          task_type: 'local_bash',
+          description: 'Compile',
+          ambient: false,
+        },
+        {
+          task_id: 'watch-1',
+          task_type: 'watcher',
+          description: 'Watch',
+          ambient: true,
+        },
+      ],
+    };
+    state.getBackgroundTaskCommand.mockImplementation((owner, taskId) =>
+      owner === 'session-1' && taskId === 'bash-1'
+        ? 'npm test -- --watch'
+        : undefined,
+    );
+    const [event] = transformer.transformBackgroundTasksChanged(message, state);
+    expect(event.eventType).toBe('background_tasks_snapshot');
+    expect(event.sessionId).toBe('session-1');
+    expect(state.cacheBackgroundTasksSnapshot).toHaveBeenCalledWith(event);
+    expect(event.tasks).toEqual([
+      {
+        taskId: 'bash-1',
+        taskType: 'local_bash',
+        description: 'Compile',
+        command: 'npm test -- --watch',
+        status: 'running',
+      },
+    ]);
+    expect(state.retainBackgroundTaskCommands).toHaveBeenCalledWith(
+      'session-1',
+      ['bash-1'],
+    );
+    expect(
+      transformer.transformBackgroundTasksChanged(
+        { ...message, tasks: [] },
+        state,
+      )[0].tasks,
+    ).toEqual([]);
+    expect(state.retainBackgroundTaskCommands).toHaveBeenLastCalledWith(
+      'session-1',
+      [],
+    );
+    // A malformed push with no owner cannot be routed to a session.
+    expect(
+      transformer.transformBackgroundTasksChanged(
+        { ...message, session_id: '' },
+        state,
+      ),
+    ).toEqual([]);
   });
 
   describe('compact_boundary', () => {
@@ -444,7 +511,11 @@ describe('SystemMessageTransformer', () => {
       );
 
       expect(events).toEqual([]);
-      expect(state.markNonAgentTask).toHaveBeenCalledWith('task-bash');
+      expect(state.markNonAgentTask).toHaveBeenCalledWith(
+        'task-bash',
+        'toolu_bash',
+        'sess',
+      );
       expect(state.setTaskParent).not.toHaveBeenCalled();
       expect(helpers.subagentRegistry.setTaskId).not.toHaveBeenCalled();
       expect(state.markTaskStartedEmitted).not.toHaveBeenCalled();

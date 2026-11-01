@@ -1206,6 +1206,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
       const messageTransformer = {
         transform: jest.fn().mockReturnValue([]),
         createIsolated: jest.fn(),
+        clearBackgroundTaskSession: jest.fn(),
       };
       messageTransformer.createIsolated.mockReturnValue(messageTransformer);
       const pricingProvider: IPricingProvider = {
