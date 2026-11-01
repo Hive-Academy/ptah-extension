@@ -182,10 +182,10 @@ describe('glass scene tint', () => {
   });
 
   it('paints the transcript column scrim only once a message exists, and clears the plates inside it', () => {
-    const column = block(/:root\[data-theme\]\[data-glass='on'\] :is\(ptah-chat-transcript, ptah-lane-transcript\) \.chat-scroll-content:has\(> \.chat-msg-slot\)/);
+    const column = block(/:root\[data-theme\]\[data-glass='on'\] :is\(ptah-chat-transcript, ptah-lane-transcript\) \.chat-scroll-content:has\(> :is\(\.chat-msg-slot, \.chat-msg-item\)\)/);
     expect(column).toContain('background: var(--glass-scrim-text);');
     expect(css).not.toMatch(/ptah-chat-transcript \.chat-scroll-content\s*\{[^}]*--glass-scrim-text/);
-    const inner = block(/:is\(ptah-chat-transcript, ptah-lane-transcript\) \.chat-scroll-content:has\(> \.chat-msg-slot\) :is\(\[data-glass-surface='content'\], \.chat-bubble:not\(\.chat-bubble-primary\):not\(\.cs-user-bubble\)\)/);
+    const inner = block(/:is\(ptah-chat-transcript, ptah-lane-transcript\) \.chat-scroll-content:has\(> :is\(\.chat-msg-slot, \.chat-msg-item\)\) :is\(\[data-glass-surface='content'\], \.chat-bubble:not\(\.chat-bubble-primary\):not\(\.cs-user-bubble\)\)/);
     expect(inner).toContain('background: transparent;');
   });
 

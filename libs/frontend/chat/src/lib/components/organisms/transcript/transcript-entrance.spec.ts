@@ -1,49 +1,96 @@
-import { selectVisibleEntrance } from './transcript-entrance';
+import { ENTRANCE_CAP, isStrictHeadPrepend, isTailSwap, planEntrance } from './transcript-entrance';
 
-const rect = (top: number, bottom: number): DOMRectReadOnly =>
-  DOMRectReadOnly.fromRect({ x: 0, y: top, width: 100, height: bottom - top });
-const item = (id: string, top: number, bottom: number) => ({ id, rect: rect(top, bottom) });
-const viewport = rect(0, 100);
+const defaults = {
+  previousIds: [] as readonly string[],
+  nextIds: [] as readonly string[],
+  suppressed: false,
+  replaying: false,
+  pinned: true,
+  cap: ENTRANCE_CAP,
+};
 
-describe('selectVisibleEntrance', () => {
-  it('gives a tall final reply index zero', () => {
-    expect(selectVisibleEntrance(viewport, [item('last', -300, 100), item('old', -400, -300)], 6))
-      .toEqual(['last']);
+function planned(overrides: Partial<typeof defaults> = {}): [string, number][] {
+  return Array.from(planEntrance({ ...defaults, ...overrides }));
+}
+
+describe('planEntrance', () => {
+  it('stagger indexes only the last six rows of a twenty-message open batch', () => {
+    const ids = Array.from({ length: 20 }, (_, index) => `m${index}`);
+    expect(planned({ nextIds: ids })).toEqual([
+      ['m14', 0], ['m15', 1], ['m16', 2],
+      ['m17', 3], ['m18', 4], ['m19', 5],
+    ]);
   });
 
-  it('orders fewer than six visible slots from oldest to newest', () => {
-    expect(selectVisibleEntrance(viewport, [item('c', 60, 100), item('b', 20, 60), item('a', -20, 20)], 6))
-      .toEqual(['a', 'b', 'c']);
+  it('indexes a single pinned append at zero', () => {
+    expect(planned({ previousIds: ['a'], nextIds: ['a', 'b'] })).toEqual([['b', 0]]);
   });
 
-  it('caps the newest six', () => {
-    const items = Array.from({ length: 10 }, (_, n) => item(String(9 - n), 90 - n * 10, 100 - n * 10));
-    expect(selectVisibleEntrance(viewport, items, 6)).toEqual(['4', '5', '6', '7', '8', '9']);
+  it('ignores a streaming update with the same ids', () => {
+    expect(planned({ previousIds: ['a', 'b'], nextIds: ['a', 'b'] })).toEqual([]);
   });
 
-  it('includes a partly visible top slot and stops at the fully above slot', () => {
-    const items = [item('bottom', 40, 80), item('top', -10, 40), item('above', -30, 0), item('older', -50, -30)];
-    expect(selectVisibleEntrance(viewport, items, 6)).toEqual(['top', 'bottom']);
+  it('does not re-enter a finalized tail that replaces streaming ids', () => {
+    expect(isTailSwap(['user', 'stream'], ['user', 'final'])).toBe(true);
+    expect(planned({ previousIds: ['user', 'stream'], nextIds: ['user', 'final'] }))
+      .toEqual([]);
+    expect(isTailSwap(['user', 'stream'], ['user'])).toBe(false);
+    expect(isTailSwap(['user'], ['user', 'reply'])).toBe(false);
+    expect(isTailSwap(['old'], ['new'])).toBe(false);
   });
 
-  it('skips below viewport when scrolled up', () => {
-    const items = [item('below', 100, 120), item('middle', 30, 70), item('top', -20, 30), item('above', -50, 0)];
-    expect(selectVisibleEntrance(viewport, items, 6)).toEqual(['top', 'middle']);
+  it('ignores a strict older-history prepend', () => {
+    expect(planned({ previousIds: ['a', 'b'], nextIds: ['older', 'a', 'b'] })).toEqual([]);
   });
 
-  it('does not spend a cap slot or an index on zero-height items', () => {
-    const items = [item('new', 70, 90), item('empty', 60, 60), item('old', 40, 60)];
-    expect(selectVisibleEntrance(viewport, items, 2)).toEqual(['old', 'new']);
+  it('ignores an append below the viewport when unpinned', () => {
+    expect(planned({ previousIds: ['a'], nextIds: ['a', 'b'], pinned: false })).toEqual([]);
   });
 
-  it('returns empty for no items or a zero cap', () => {
-    expect(selectVisibleEntrance(viewport, [], 6)).toEqual([]);
-    expect(selectVisibleEntrance(viewport, [item('a', 0, 20)], 0)).toEqual([]);
+  it('ignores replayed appends after the open batch', () => {
+    expect(planned({ previousIds: ['a'], nextIds: ['a', 'b'], replaying: true })).toEqual([]);
   });
 
-  it('does not read an item older than the first fully above slot', () => {
-    const older = { id: 'older', get rect(): DOMRectReadOnly { throw new Error('read beyond stop'); } };
-    expect(selectVisibleEntrance(viewport, [item('visible', 0, 10), item('above', -10, 0), older], 6))
-      .toEqual(['visible']);
+  it('staggers the replaying open batch even when unpinned', () => {
+    expect(planned({ nextIds: ['a', 'b'], replaying: true, pinned: false }))
+      .toEqual([['a', 0], ['b', 1]]);
+  });
+
+  it('suppresses a batch during the replay hold', () => {
+    expect(planned({ nextIds: ['a', 'b'], suppressed: true, replaying: false }))
+      .toEqual([]);
+  });
+
+  it('suppresses even a replaying open batch when the pane is switching', () => {
+    expect(planned({ nextIds: ['a'], suppressed: true, replaying: true })).toEqual([]);
+  });
+
+  it('staggers a replacement batch with no shared ids', () => {
+    expect(planned({ previousIds: ['old'], nextIds: ['new-1', 'new-2'], pinned: false }))
+      .toEqual([['new-1', 0], ['new-2', 1]]);
+  });
+
+  it('uses a custom cap and leaves old tail ids out of the index', () => {
+    expect(planned({ previousIds: ['a', 'b'], nextIds: ['a', 'b', 'c'], cap: 2 }))
+      .toEqual([['c', 0]]);
+  });
+
+  it('returns empty for empty input and a zero cap', () => {
+    expect(planned()).toEqual([]);
+    expect(planned({ nextIds: ['a'], cap: 0 })).toEqual([]);
+  });
+});
+
+describe('isStrictHeadPrepend', () => {
+  it('accepts a nonempty exact suffix for ids and anchor identities', () => {
+    expect(isStrictHeadPrepend(['a', 'b'], ['older', 'a', 'b'])).toBe(true);
+    expect(isStrictHeadPrepend([{ id: 'a' }], [{ id: 'older' }, { id: 'a' }]))
+      .toBe(true);
+  });
+
+  it('rejects empty previous, equal length, and changed suffixes', () => {
+    expect(isStrictHeadPrepend([], ['a'])).toBe(false);
+    expect(isStrictHeadPrepend(['a'], ['a'])).toBe(false);
+    expect(isStrictHeadPrepend(['a', 'b'], ['older', 'a', 'changed'])).toBe(false);
   });
 });

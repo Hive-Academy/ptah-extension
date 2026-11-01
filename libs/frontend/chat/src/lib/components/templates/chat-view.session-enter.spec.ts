@@ -35,18 +35,28 @@ import { HistoryPagingService } from '../../services/chat-store/history-paging.s
 import { SessionInspectorStore } from '../../services/session-inspector';
 import { SESSION_EMBED_CHROME } from '../../tokens/session-embed-chrome.token';
 import { SESSION_CONTEXT } from '../../tokens/session-context.token';
+import { TranscriptMotionDirective } from '../organisms/transcript/transcript-motion.directive';
 
 @Component({
   selector: 'ptah-chat-transcript',
   standalone: true,
+  imports: [TranscriptMotionDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '',
+  template: `<div [ptahTranscriptMotion]="messages()" [active]="active()"
+      [class.ptah-pane-switch-pending]="paneSwitching() && !entering()">
+      @for (message of messages(); track message.id) {
+        <div class="chat-msg-item" [attr.data-ptah-msg-item]="message.id"></div>
+      }
+    </div>`,
 })
 class TranscriptStubComponent {
   readonly tabId = input.required<string>();
   readonly entering = input(false);
   readonly leaving = input(false);
   readonly overlapping = input(false);
+  readonly paneSwitching = input(false);
+  readonly active = input(false);
+  readonly messages = input<readonly { id: string }[]>([]);
 }
 
 function mount(): {
@@ -131,6 +141,9 @@ function mount(): {
       imports: [TranscriptStubComponent],
       template: `@for (tabId of ['A', 'B']; track tabId) {
         <ptah-chat-transcript [tabId]="tabId" [entering]="tabId === enteringTabId()"
+          [paneSwitching]="tabId === pendingEntranceTabId() || tabId === enteringTabId()"
+          [active]="tabId === resolvedTabId()"
+          [messages]="resolvedMessages()"
           [leaving]="tabId === leavingTabId() && tabId !== resolvedTabId()"
           [overlapping]="tabId === leavingTabId() && enteringTabId() === resolvedTabId()" />
       }`,
@@ -291,6 +304,42 @@ describe('ChatView session entrance', () => {
     expect(transcripts()[0].overlapping()).toBe(true);
   });
 
+  it('plans the first open batch during a pending pane switch', () => {
+    const h = mount(); fixture = h.fixture;
+    jest.advanceTimersByTime(640); fixture.detectChanges();
+    h.activeTab.set({ id: 'B', messages: [], status: 'resuming' });
+    h.activeTabId.set('B'); fixture.detectChanges();
+    expect(transcripts()[1].paneSwitching()).toBe(true);
+    expect(transcripts()[1].entering()).toBe(false);
+
+    h.messages.set([{ id: 'first' }, { id: 'second' }]);
+    h.activeTab.set({ id: 'B', messages: [{ id: 'first' }, { id: 'second' }], status: 'resuming' });
+    fixture.detectChanges();
+    const directive = fixture.debugElement.queryAll(By.directive(TranscriptMotionDirective))
+      .map((element) => element.injector.get(TranscriptMotionDirective))[1];
+    expect(transcripts()[1].paneSwitching()).toBe(true);
+    expect(directive.index('first')).toBe(0);
+    expect(directive.index('second')).toBe(1);
+  });
+
+  it('does not stagger a switch to an already loaded tab', () => {
+    const h = mount(); fixture = h.fixture;
+    h.messages.set([{ id: 'first' }, { id: 'second' }]);
+    fixture.detectChanges();
+    h.activeTabId.set('B'); fixture.detectChanges();
+    const tab = fixture.debugElement.queryAll(By.directive(TranscriptStubComponent))[1].nativeElement as HTMLElement;
+    const row = tab.querySelector('[data-ptah-msg-item="first"]') as HTMLElement;
+    expect(row).not.toBeNull();
+    const directive = fixture.debugElement.queryAll(By.directive(TranscriptMotionDirective))[1]
+      .injector.get(TranscriptMotionDirective);
+    expect(directive.index('first')).toBeNull();
+    h.activeTabId.set('A'); fixture.detectChanges();
+    h.activeTabId.set('B'); fixture.detectChanges();
+    expect(tab.querySelector('[data-ptah-msg-item="first"]')).toBe(row);
+    expect(directive.index('first')).toBeNull();
+    expect(transcripts()[1].entering()).toBe(true);
+  });
+
   it('ends a pending leave when a resuming tab never becomes ready', () => {
     const h = mount(); fixture = h.fixture;
     h.activeTab.set({ id: 'B', messages: [], status: 'resuming' });
@@ -317,24 +366,25 @@ describe('ChatView session entrance', () => {
   it('uses the selected preset keyframes and cuts glass exits', () => {
     const css = readFileSync(join(__dirname, '../organisms/transcript/chat-transcript.component.css'), 'utf8');
     const compiled = encapsulateStyle(css, 'test');
-    expect(css).toContain('animation: ptahMotionEnter var(--ptah-motion-switch)');
+    expect(css).toContain('animation: ptahPaneCrossfade var(--ptah-motion-switch)');
+    expect(css).toMatch(/@keyframes ptahPaneCrossfade\s*\{\s*from \{ opacity: 0; \}\s*to \{ opacity: 1; \}/);
+    expect(css).toContain('.ptah-pane-switch-pending .chat-msg-item.ptah-msg-enter');
+    expect(css).toContain('animation-play-state: paused;');
     expect(css).toContain('animation: ptahMotionLeave var(--ptah-motion-out)');
     expect(css).toContain('animation-name: ptahMotionEnterGlass');
-    expect(css).toMatch(/:host-context\(\[data-glass='on'\]\) \.ptah-pane-switch-enter:has\([^{]+\)\s*\{\s*animation-name: ptahMotionEnterGlass;/);
     expect(css).toMatch(/:host-context\(\[data-glass='on'\]\) :host\(\.ptah-pane-switch-overlap\):has\([^{]+\)\s*\{\s*animation: none;\s*display: none;/);
     expect(css).toContain(":host-context([data-glass='on'][data-motion-style='fade'])");
     expect(css).toContain(":host-context([data-glass='on'][data-motion-style='scale'])");
     expect(css).not.toMatch(/^\.ptah-pane-switch-enter:has\(/m);
     expect(css).not.toMatch(/@keyframes ptahPaneSwitch(Enter|Leave)/);
     expect(compiled).toMatch(/\[data-glass='on'\]\s+\.ptah-pane-switch-overlap\[_nghost-test\]/);
-    expect(compiled).toMatch(/\[data-glass='on'\]\s+\[_nghost-test\]\s+\.ptah-pane-switch-enter/);
-    expect(compiled).toMatch(/\[data-glass='on'\]\[data-motion-style='fade'\]\s+\[_nghost-test\]\s+\.ptah-pane-switch-enter/);
-    expect(compiled).toMatch(/\[data-glass='on'\]\[data-motion-style='scale'\]\s+\[_nghost-test\]\s+\.ptah-pane-switch-enter/);
+    expect(compiled).toContain('.ptah-pane-switch-enter');
   });
 
   it('keeps the production transcript binding', () => {
     const template = readFileSync(join(__dirname, 'chat-view.component.html'), 'utf8');
     expect(template).toContain('[entering]="tabId === enteringTabId()"');
+    expect(template).toContain('[paneSwitching]="tabId === pendingEntranceTabId() || tabId === enteringTabId()"');
     expect(template).toContain('[leaving]="tabId === leavingTabId() && tabId !== resolvedTabId()"');
     expect(template).toContain('[overlapping]="tabId === leavingTabId() && enteringTabId() === resolvedTabId()"');
   });

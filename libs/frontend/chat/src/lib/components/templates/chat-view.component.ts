@@ -1051,6 +1051,7 @@ export class ChatViewComponent implements OnDestroy {
   });
 
   protected readonly enteringTabId = signal<string | null>(null);
+  protected readonly pendingEntranceTabId = signal<string | null>(null);
   /** The previous tab, kept on screen over the new one while it fades out. */
   protected readonly leavingTabId = signal<string | null>(null);
   private enteringTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1063,23 +1064,22 @@ export class ChatViewComponent implements OnDestroy {
    */
   private wireSessionEntrance(): void {
     let lastTabId: string | null = null;
-    let pendingTabId: string | null = null;
     effect(() => {
       const tabId = this.resolvedTabId();
       if (tabId === null) {
         lastTabId = null;
-        pendingTabId = null;
+        this.pendingEntranceTabId.set(null);
         untracked(() => this.startLeave(null));
         return;
       }
       if (tabId !== lastTabId) {
         const previous = lastTabId;
         lastTabId = tabId;
-        pendingTabId = tabId;
+        this.pendingEntranceTabId.set(tabId);
         untracked(() => this.startLeave(previous));
       }
-      if (pendingTabId !== tabId || !this.entranceContentReady()) return;
-      pendingTabId = null;
+      if (this.pendingEntranceTabId() !== tabId || !this.entranceContentReady()) return;
+      this.pendingEntranceTabId.set(null);
       untracked(() => this.startEnter(tabId));
     });
   }

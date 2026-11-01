@@ -1,8 +1,12 @@
 <div
   class="flex-1 chat-scroll-container"
   [class.ptah-pane-switch-enter]="entering() && workActive()"
+  [class.ptah-pane-switch-pending]="paneSwitching() && !entering()"
   data-testid="chat-transcript-scroller"
   #messageContainer
+  #motion="ptahTranscriptMotion"
+  [ptahTranscriptMotion]="vm().slots"
+  [suppressed]="replayMotionHold() || isFinalizingTransition()"
   #prependAnchor="ptahTranscriptPrependAnchor"
   [ptahTranscriptPrependAnchor]="vm().messages"
   [tabId]="tabId()"
@@ -34,6 +38,13 @@
       </div>
     }
     @for (slot of vm().slots; track slot.id; let i = $index) {
+      <div
+        class="chat-msg-item"
+        [attr.data-ptah-msg-item]="slot.id"
+        [animate.enter]="motion.enterClass(slot.id)"
+        [style.--ptah-msg-i]="motion.index(slot.id)"
+        animate.leave="ptah-msg-leave"
+      >
       <!-- Persistent slot: the session entrance marks this wrapper, which stays
            observed even while its bubble is unmounted. -->
       <div
@@ -169,6 +180,7 @@
           }
         }
       }
+      </div>
     }
   </div>
 </div>
