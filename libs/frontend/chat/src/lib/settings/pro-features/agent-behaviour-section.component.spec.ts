@@ -104,6 +104,9 @@ describe('AgentBehaviourSectionComponent', () => {
   describe('card shape', () => {
     it('renders one Agent behaviour table with the four rows in order', async () => {
       await render();
+      expect(
+        element.querySelector('section')?.getAttribute('data-glass-surface'),
+      ).toBe('content');
       expect(element.querySelector('#agent-behaviour-heading')?.textContent?.trim()).toBe('Agent behaviour');
       const rows = Array.from(element.querySelectorAll('tbody tr')).map((row) => row.getAttribute('data-testid'));
       expect(rows).toEqual([

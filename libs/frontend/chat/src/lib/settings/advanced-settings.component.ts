@@ -168,7 +168,7 @@ const FOCUS =
       <ptah-vscode-lm-config (modelChanged)="modelChanged.emit()" />
 
       <!-- Fine-tuning (TASK_2026_658): closed by default; its groups load in their own chunk once opened and in view. -->
-      <section class="border-t border-base-content/10 pt-6">
+      <section class="border-t border-base-content/10 pt-6" data-glass-surface="content">
         <details class="group" data-testid="fine-tuning-details">
           <summary
             [class]="
@@ -203,9 +203,9 @@ const FOCUS =
             class="mt-3 flex flex-col gap-4 border-t border-base-content/10 pt-3"
           >
             @defer (on viewport) {
-              <ptah-advanced-settings-group groupId="memory-upkeep" />
-              <ptah-advanced-settings-group groupId="scheduled-jobs" />
-              <ptah-advanced-settings-group groupId="workspace-harness" />
+              <ptah-advanced-settings-group groupId="memory-upkeep" [contentSurface]="false" />
+              <ptah-advanced-settings-group groupId="scheduled-jobs" [contentSurface]="false" />
+              <ptah-advanced-settings-group groupId="workspace-harness" [contentSurface]="false" />
             } @placeholder {
               <div
                 class="min-h-[2.75rem] border-b border-base-content/10"
@@ -216,6 +216,11 @@ const FOCUS =
         </details>
       </section>
     </div>
+  `,
+  styles: `
+    :host-context([data-glass='on']) [data-glass-surface='content'] {
+      padding: 1.25rem;
+    }
   `,
 })
 export class AdvancedSettingsComponent {

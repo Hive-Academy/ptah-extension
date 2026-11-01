@@ -87,6 +87,26 @@ const darkBlock = block(/:root\[data-theme\]\[data-glass='on'\]\[data-glass-mode
 const hatches = [...css.matchAll(/:root\[data-theme\]\[data-glass='on'\]:is\(\[data-glass-mode='dark'\], \[data-glass-mode='light'\]\)\s*\{([^}]+)\}/g)];
 
 describe('glass local scrim floors', () => {
+  it('clears routed roots and gives structural surfaces a glass reading plane', () => {
+    const roots = /:root\[data-glass='on'\] :is\(\s*\.electron-shell-root,[\s\S]*?\)\s*\{\s*background-color: transparent;\s*\}/.exec(css)?.[0] ?? '';
+    for (const selector of [
+      'ptah-tasks-view > .bg-base-100',
+      'ptah-workspace-sidebar > .bg-surface-1',
+      'ptah-dashboard-grid > .bg-surface-0',
+    ]) {
+      expect(roots).toContain(selector);
+    }
+    expect(roots).toContain('background-color: transparent;');
+
+    const readingPlane = block(/:root\[data-glass='on'\] :is\(\.surface-1, \.surface-2\):not\(\[data-glass-surface\], \[role='menu'\], \.dropdown-content, \.modal-box, \.navbar\)/);
+    expect(readingPlane).toContain('background-color: var(--glass-scrim-text);');
+    expect(readingPlane).toContain('border-color: var(--glass-frame, var(--glass-line));');
+    expect(readingPlane).toContain('box-shadow: var(--glass-content-shadow, inset 0 1px 0 var(--glass-glint), var(--glass-shadow));');
+
+    const stickyFloor = block(/:root\[data-glass='on'\] :is\(\.surface-1, \.surface-2\)\.sticky:not\(\[data-glass-surface\]\)/);
+    expect(stickyFloor).toContain('background-color: var(--glass-fill-overlay);');
+  });
+
   it('clears only Electron dock canvases and composer wrappers under glass', () => {
     const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
     const rules = [...plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector]) =>
@@ -171,14 +191,11 @@ describe('glass scene tint', () => {
     expect(numberValue(block(/:root\[data-theme='cupcake'\]\[data-glass='on'\]\[data-glass-mode='light'\]/), '--glass-tint-alpha')).toBe(0.38);
   });
 
-  it('pins the measured glass caption ink of dark and dracula, in dark glass only', () => {
+  it('pins the measured glass caption ink of dracula, in dark glass only', () => {
     const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
-    const measured: Record<string, string> = { dark: '69.9176% 0.013402 250.8703', dracula: '71.9009% 0.013235 170.6564' };
-    for (const [theme, bcm] of Object.entries(measured)) {
-      const rules = [...plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector, body]) => selector.includes(`[data-theme='${theme}']`) && body.includes(bcm));
-      expect(rules).toHaveLength(1);
-      expect(rules[0][1].trim()).toBe(`:root[data-theme='${theme}'][data-glass='on'][data-glass-mode='dark']`);
-    }
+    const rules = [...plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector, body]) => selector.includes("[data-theme='dracula']") && body.includes('71.9009% 0.013235 170.6564'));
+    expect(rules).toHaveLength(1);
+    expect(rules[0][1].trim()).toBe(":root[data-theme='dracula'][data-glass='on'][data-glass-mode='dark']");
   });
 
   it('paints the transcript column scrim only once a message exists, and clears the plates inside it', () => {
@@ -232,17 +249,17 @@ describe('glass scene tint', () => {
 describe('Ptah backdrop scenes', () => {
   const scenes = ['aurora', 'ember', 'tide', 'horizon'];
   const modes = [
-    { theme: 'ptah-glass', floors: [0.70, 0.62, 0.58, 0.50] },
-    { theme: 'ptah-glass-light', floors: [0.50, 0.42, 0.42, 0.38] },
+    { theme: 'ptah-glass', floors: [0.70, 0.50, 0.45, 0.42] },
+    { theme: 'ptah-glass-light', floors: [0.38, 0.35, 0.35, 0.32] },
   ];
 
-  it.each(modes)('keeps all $theme scenes at their measured tint floors and reuses each URI', ({ theme, floors }) => {
+  it.each(modes)('keeps all $theme scenes at their pane-contrast tint floors and reuses each URI', ({ theme, floors }) => {
     const selector = `:root[data-theme='${theme}'][data-glass='on']`;
-    const start = css.indexOf(`${selector} {\n  --glass-scene-aurora:`);
+    const start = css.indexOf(`${selector} {`);
     expect(start).toBeGreaterThan(-1);
     const body = css.slice(start, css.indexOf('}', start) + 1);
-    expect(body).toContain('--glass-scene: var(--glass-scene-aurora);');
-    expect(body).toContain('--glass-tint-alpha: var(--glass-tint-alpha-aurora);');
+    expect(body).not.toContain('--glass-scene:');
+    expect(body).not.toContain('--glass-tint-alpha:');
     for (const [index, scene] of scenes.entries()) {
       expect(numberValue(body, `--glass-tint-alpha-${scene}`)).toBeGreaterThanOrEqual(floors[index]);
       const encoded = new RegExp(`--glass-scene-${scene}: url\\("data:image/svg\\+xml,([^"\\n]+)"\\);`).exec(body)?.[1];
@@ -259,12 +276,43 @@ describe('Ptah backdrop scenes', () => {
     }
   });
 
-  it('scopes six overrides to the pair at specificity (0,4,0), after the dark tokens, without overriding opaque tint', () => {
+  it.each([
+    { theme: 'ptah-glass', floors: [0.68, 0.68] },
+    { theme: 'ptah-glass-light', floors: [0.55, 0.55] },
+  ])('uses local image assets beneath the $theme tint for pyramid and temple', ({ theme, floors }) => {
+    const body = block(new RegExp(`:root\\[data-theme='${theme}'\\]\\[data-glass='on'\\]`));
+    for (const [index, scene] of ['pyramid', 'temple'].entries()) {
+      const file = scene === 'pyramid' ? 'pyramid_energy_apex.webp' : 'temple-bg.webp';
+      expect(body).toContain(`--glass-scene-${scene}: url("./backgrounds/${file}");`);
+      expect(numberValue(body, `--glass-tint-alpha-${scene}`)).toBeGreaterThanOrEqual(floors[index]);
+      if (scene === 'pyramid') expect(numberValue(body, `--glass-tint-alpha-${scene}`)).toBe(floors[index]);
+    }
+  });
+
+  it.each(['ptah-glass', 'ptah-glass-light'])('limits $theme pane and overlay blur', (theme) => {
+    const body = block(new RegExp(`:root\\[data-theme='${theme}'\\]\\[data-glass='on'\\]`));
+    expect(body).toContain('--glass-blur: 0px;');
+    expect(body).toContain('--glass-blur-overlay: 6px;');
+    // Dark saturation comes from the (0,4,0) dark-mode block; only light sets it here.
+    if (theme === 'ptah-glass-light') expect(body).toContain('--glass-saturation: 1.08;');
+    else expect(body).not.toContain('--glass-saturation:');
+  });
+
+  it('backs dark chrome and light reading text locally as scene tint falls', () => {
+    const dark = block(/:root\[data-theme='ptah-glass'\]\[data-glass='on'\]/);
+    const light = block(/:root\[data-theme='ptah-glass-light'\]\[data-glass='on'\]/);
+    expect(dark).not.toContain('--glass-under:');
+    expect(b1Alpha(light, '--glass-fill')).toBeGreaterThanOrEqual(0.6);
+    expect(b1Alpha(light, '--glass-scrim-text')).toBeGreaterThanOrEqual(0.6);
+    expect(light).toContain('--bcm: 40% 0.0614 293.53;');
+  });
+
+  it('scopes all twelve scene overrides to the pair at specificity (0,4,0), after the dark tokens', () => {
     const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
     const rules = [...plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector]) => selector.includes('[data-scene='));
-    expect(rules).toHaveLength(6);
+    expect(rules).toHaveLength(12);
     for (const [, selector, body] of rules) {
-      expect(selector.trim()).toMatch(/^:root\[data-theme='ptah-glass(?:-light)?'\]\[data-glass='on'\]\[data-scene='(?:ember|tide|horizon)'\]$/);
+      expect(selector.trim()).toMatch(/^:root\[data-theme='ptah-glass(?:-light)?'\]\[data-glass='on'\]\[data-scene='(?:aurora|ember|tide|horizon|pyramid|temple)'\]$/);
       expect([...body.matchAll(/(--[\w-]+):/g)].map((match) => match[1])).toEqual(['--glass-scene', '--glass-tint-alpha']);
       expect(css.indexOf(selector.trim())).toBeGreaterThan(css.indexOf(":root[data-theme][data-glass='on'][data-glass-mode='dark']"));
       const scene = /data-scene='([^']+)'/.exec(selector)?.[1];

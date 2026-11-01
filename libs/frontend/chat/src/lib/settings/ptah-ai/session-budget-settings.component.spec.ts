@@ -128,6 +128,9 @@ describe('SessionBudgetSettingsComponent', () => {
   describe('load', () => {
     it('reads all ten sessionBudget keys and shows the saved values (TOKENS, 50M default)', async () => {
       await create();
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector('section')?.getAttribute('data-glass-surface'),
+      ).toBe('content');
       const read = mockRpcCall.mock.calls
         .filter((call) => call[1] === 'settings:get')
         .map((call) => (call[2] as { key: string }).key)

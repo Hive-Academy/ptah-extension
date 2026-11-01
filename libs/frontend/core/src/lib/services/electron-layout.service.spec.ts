@@ -1784,8 +1784,24 @@ describe('ElectronLayoutService — addFolder()', () => {
     });
     setup(rpc);
 
-    await service.addFolder();
+    expect(await service.addFolder()).toBe('cancelled');
+    expect(rpc.call).toHaveBeenCalledWith('workspace:addFolder', {}, { timeout: 300_000 });
     expect(service.workspaceFolders()).toHaveLength(0);
+  });
+
+  it('forwards the requested dialog mode to the workspace RPC', async () => {
+    rpc = buildRpc();
+    rpc.call = jest.fn(async () => rpcSuccess({ path: null }));
+    setup(rpc);
+
+    expect(await service.addFolder('open')).toBe('cancelled');
+    expect(await service.addFolder('create')).toBe('cancelled');
+    expect(rpc.call).toHaveBeenCalledWith(
+      'workspace:addFolder', { mode: 'open' }, { timeout: 300_000 },
+    );
+    expect(rpc.call).toHaveBeenCalledWith(
+      'workspace:addFolder', { mode: 'create' }, { timeout: 300_000 },
+    );
   });
 
   it('appends folder and auto-switches when addFolder succeeds', async () => {
@@ -1800,9 +1816,11 @@ describe('ElectronLayoutService — addFolder()', () => {
     setup(rpc);
 
     const addPromise = service.addFolder();
-    await addPromise;
+    expect(await addPromise).toBe('added');
+    expect(service.workspaceSwitchPending()).toBe(true);
     jest.advanceTimersByTime(150);
     await Promise.resolve();
+    expect(service.workspaceSwitchPending()).toBe(false);
     jest.useRealTimers();
 
     expect(service.workspaceFolders()).toEqual(
@@ -1842,8 +1860,18 @@ describe('ElectronLayoutService — addFolder()', () => {
     });
     setup(rpc);
 
-    await service.addFolder();
+    expect(await service.addFolder()).toBe('failed');
     expect(service.workspaceFolders()).toHaveLength(0);
+  });
+  it('reports an explicit picker failure separately from cancellation', async () => {
+    rpc = buildRpc();
+    rpc.call = jest.fn(async (method: string) =>
+      method === 'workspace:addFolder'
+        ? rpcSuccess({ path: null, name: null, error: 'picker failed' })
+        : rpcSuccess(undefined),
+    );
+    setup(rpc);
+    expect(await service.addFolder()).toBe('failed');
   });
 });
 
@@ -2422,6 +2450,67 @@ describe('ElectronLayoutService — syncFromBackend fallback paths', () => {
       ],
     });
   }
+
+  it('settles pending when backend sync supersedes an in-flight user switch', fakeAsync(() => {
+    let finishUserSwitch!: (result: RpcResult<{ success: boolean }>) => void;
+    const userSwitch = new Promise<RpcResult<{ success: boolean }>>((resolve) => {
+      finishUserSwitch = resolve;
+    });
+    const syncRpc = buildRpc();
+    syncRpc.call = jest.fn(async (method: string, params?: { path?: string }) => {
+      if (method === 'workspace:switch' && params?.path === '/two')
+        return userSwitch;
+      if (method === 'workspace:getInfo') return DEFAULT_GET_INFO_RESULT;
+      if (method === 'workspace:switch') return DEFAULT_SWITCH_RESULT;
+      return rpcSuccess(undefined);
+    });
+    setupWithRpc(syncRpc);
+    const service = TestBed.inject(ElectronLayoutService);
+    tick(0);
+    (service as never)['_workspaceFolders'].set([
+      { path: '/projects/my-repo', name: 'my-repo' },
+      { path: '/two', name: 'two' },
+    ]);
+
+    service.switchWorkspace(1);
+    tick(100);
+    expect(service.workspaceSwitchPending()).toBe(true);
+
+    void (service as never)['syncFromBackend'](null);
+    // The sync keeps the shell mounted and reports itself as pending.
+    expect(service.workspaceResolved()).toBe(true);
+    expect(service.workspaceSwitchPending()).toBe(true);
+    tick(0);
+    expect(service.workspaceResolved()).toBe(true);
+    expect(service.workspaceSwitchPending()).toBe(false);
+    expect(service.activeWorkspace()?.path).toBe('/projects/my-repo');
+
+    finishUserSwitch(DEFAULT_SWITCH_RESULT);
+    tick(0);
+    expect(service.workspaceSwitchPending()).toBe(false);
+    expect(service.activeWorkspace()?.path).toBe('/projects/my-repo');
+  }));
+
+  it('settles pending when a cached-folder fallback supersedes a user switch', fakeAsync(() => {
+    setupWithRpc(buildRpc());
+    const service = TestBed.inject(ElectronLayoutService);
+    tick(0);
+    (service as never)['_workspaceFolders'].set([
+      { path: '/projects/my-repo', name: 'my-repo' },
+      { path: '/two', name: 'two' },
+    ]);
+    service.switchWorkspace(1);
+    expect(service.workspaceSwitchPending()).toBe(true);
+
+    void (service as never)['fallBackToPersistedFolders']({
+      workspaceFolders: [{ path: '/cached', name: 'cached' }],
+      activeWorkspaceIndex: 0,
+    });
+    expect(service.workspaceSwitchPending()).toBe(false);
+    tick(100);
+    expect(service.workspaceSwitchPending()).toBe(false);
+    expect(service.activeWorkspace()?.path).toBe('/cached');
+  }));
 
   it('falls back to cachedState when getInfo returns empty folders and cachedState is available', fakeAsync(() => {
     const emptyRpc = buildRpc(

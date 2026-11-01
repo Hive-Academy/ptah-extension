@@ -20,7 +20,7 @@ import 'reflect-metadata';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
-import type { AuthEnv } from '@ptah-extension/shared';
+import type { AuthEnv, BackgroundTasksSnapshotEvent } from '@ptah-extension/shared';
 import { findModelPricing } from '@ptah-extension/shared';
 import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
@@ -30,6 +30,7 @@ import { LiveUsageTracker } from './helpers/live-usage-tracker';
 import { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
 import { CompactionBoundaryGenerationRegistry } from './helpers/compaction-boundary-generation-registry';
 import { SubagentStopNotices } from './helpers/compaction/subagent-stop-notices';
+import type { SDKBackgroundTasksChangedMessage } from './types/sdk-types/claude-sdk.types';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -286,6 +287,108 @@ describe('SdkMessageTransformer — task_started (Fix 1 + Fix 2)', () => {
       new SubagentStopNotices(),
     );
   }
+
+  it('correlates a Bash tool use to its task and prunes the command after completion', () => {
+    transformer = build();
+    transformer.recordBackgroundBashCommand(
+      'session-1',
+      'bash-tool',
+      'npm test -- --watch',
+    );
+    transformer.markNonAgentTask('bash-task', 'bash-tool', 'session-1');
+    expect(transformer.getBackgroundTaskCommand('session-1', 'bash-task')).toBe(
+      'npm test -- --watch',
+    );
+    transformer.retainBackgroundTaskCommands('session-1', ['bash-task']);
+    expect(transformer.getBackgroundTaskCommand('session-1', 'bash-task')).toBe(
+      'npm test -- --watch',
+    );
+    transformer.retainBackgroundTaskCommands('session-1', []);
+    expect(
+      transformer.getBackgroundTaskCommand('session-1', 'bash-task'),
+    ).toBeUndefined();
+  });
+
+  function snapshot(): SDKBackgroundTasksChangedMessage {
+    return {
+      type: 'system',
+      subtype: 'background_tasks_changed',
+      uuid: '00000000-0000-0000-0000-000000000001',
+      session_id: 'session-1',
+      tasks: [
+        { task_id: 'bash-task', task_type: 'local_bash', description: 'Compile' },
+      ],
+    };
+  }
+
+  function taskStarted() {
+    return {
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'bash-task',
+      tool_use_id: 'bash-tool',
+      session_id: 'session-1',
+      skip_transcript: false,
+      task_type: 'local_bash',
+    };
+  }
+
+  function bashToolUse() {
+    return makeAssistantWithToolUse({
+      toolUseId: 'bash-tool',
+      name: 'Bash',
+      input: { command: 'npm test -- --watch', run_in_background: true },
+    });
+  }
+
+  function snapshotsOf(events: ReturnType<SdkMessageTransformer['transform']>): BackgroundTasksSnapshotEvent[] {
+    return events.filter(
+      (event): event is BackgroundTasksSnapshotEvent =>
+        event.eventType === 'background_tasks_snapshot',
+    );
+  }
+
+  it('refreshes a snapshot when task_started links an earlier Bash tool use', () => {
+    transformer = build();
+    transformer.transform(bashToolUse() as never, 'session-1' as never);
+    expect(snapshotsOf(transformer.transform(snapshot(), 'session-1' as never))[0].tasks[0].command).toBeUndefined();
+    const refreshed = snapshotsOf(transformer.transform(taskStarted() as never, 'session-1' as never));
+    expect(refreshed).toHaveLength(1);
+    expect(refreshed[0].tasks[0].command).toBe('npm test -- --watch');
+  });
+
+  it('refreshes a snapshot when a late Bash tool use completes the task link', () => {
+    transformer = build();
+    transformer.transform(snapshot(), 'session-1' as never);
+    transformer.transform(taskStarted() as never, 'session-1' as never);
+    const refreshed = snapshotsOf(transformer.transform(bashToolUse() as never, 'session-1' as never));
+    expect(refreshed).toHaveLength(1);
+    expect(refreshed[0].tasks[0].command).toBe('npm test -- --watch');
+  });
+
+  for (const { name, messages } of [
+    { name: 'task_started then tool_use', messages: [taskStarted, bashToolUse] },
+    { name: 'tool_use then task_started', messages: [bashToolUse, taskStarted] },
+  ]) {
+    it(`includes the command when ${name} precedes the snapshot`, () => {
+      transformer = build();
+      for (const message of messages)
+        transformer.transform(message() as never, 'session-1' as never);
+      const emitted = snapshotsOf(transformer.transform(snapshot(), 'session-1' as never));
+      expect(emitted[0].tasks[0].command).toBe('npm test -- --watch');
+    });
+  }
+
+  it('truncates long commands and clears command state on an empty snapshot', () => {
+    transformer = build();
+    transformer.recordBackgroundBashCommand('session-1', 'bash-tool', 'x'.repeat(2_100));
+    transformer.markNonAgentTask('bash-task', 'bash-tool', 'session-1');
+    const command = snapshotsOf(transformer.transform(snapshot(), 'session-1' as never))[0].tasks[0].command;
+    expect(command).toHaveLength(2_000);
+    expect(command?.endsWith('…')).toBe(true);
+    transformer.transform({ ...snapshot(), tasks: [] }, 'session-1' as never);
+    expect(transformer.getBackgroundTaskCommand('session-1', 'bash-task')).toBeUndefined();
+  });
 
   it('Fix 1 — calls setTaskId(toolUseId, taskId) when task_started carries a tool_use_id', () => {
     transformer = build();

@@ -22,10 +22,7 @@ import {
 import type { MultiPhaseManifestV4 } from '../types/multi-phase.types';
 import { computeWorkspaceFingerprint } from './analysis-fingerprint';
 import { AnalysisStorageService } from './analysis-storage.service';
-import {
-  ANALYSIS_MAX_AGE_MS,
-  AnalysisFreshnessService,
-} from './analysis-freshness.service';
+import { AnalysisFreshnessService } from './analysis-freshness.service';
 
 const ROOT = resolve('/ws/demo');
 const DIR = join(ROOT, '.ptah', 'analysis', 'demo');
@@ -145,7 +142,22 @@ describe('AnalysisFreshnessService', () => {
       analysisDir: REL_DIR,
       checkedAt: NOW.toISOString(),
       analyzedAt: NOW.toISOString(),
+      sharing: 'shareable',
     });
+    expectNoWrites();
+  });
+
+  it.each([
+    ['.ptah\n', 'ignored-by-gitignore'],
+    ['.ptah/\n', 'ignored-by-gitignore'],
+    ['.ptah/**\n', 'ignored-by-gitignore'],
+    ['/.ptah\n', 'ignored-by-gitignore'],
+    ['.ptah/**\n!.ptah/analysis/\n!.ptah/analysis/**\n', 'shareable'],
+  ] as const)('reports analysis sharing under root ignore rules', async (ignore, sharing) => {
+    await saveManifest();
+    await fs.writeFile(join(ROOT, '.gitignore'), ignore);
+    jest.clearAllMocks();
+    expect(await service.getStatus(ROOT)).toMatchObject({ sharing });
     expectNoWrites();
   });
 
@@ -285,24 +297,27 @@ describe('AnalysisFreshnessService', () => {
     expectNoWrites();
   });
 
-  it('accepts the exact age boundary and expires one millisecond past it', async () => {
-    const manifest = await saveManifest({
-      updatedAt: new Date(NOW.getTime() - ANALYSIS_MAX_AGE_MS).toISOString(),
+  it('keeps a matching analysis fresh after 30 days', async () => {
+    await saveManifest({
+      updatedAt: new Date(NOW.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
     });
     expect(await service.getStatus(ROOT)).toMatchObject({
       state: 'fresh',
       reason: 'ok',
     });
-    manifest.updatedAt = new Date(
-      NOW.getTime() - ANALYSIS_MAX_AGE_MS - 1,
-    ).toISOString();
-    await fs.writeFile(join(DIR, 'manifest.json'), JSON.stringify(manifest));
-    jest.clearAllMocks();
-    expect(await service.getStatus(ROOT)).toMatchObject({
-      state: 'stale',
-      reason: 'expired',
-    });
     expectNoWrites();
+  });
+
+  it('accepts CRLF copies of phase markdown', async () => {
+    const manifest = await saveManifest();
+    await fs.writeFile(join(DIR, manifest.phases['project-profile'].file), 'verified analysis\r\n');
+    expect(await service.getStatus(ROOT)).toMatchObject({ state: 'fresh', reason: 'ok' });
+  });
+
+  it('checks v1 manifests with the v1 fingerprint algorithm', async () => {
+    const v1 = await computeWorkspaceFingerprint(ROOT, fs, 'sha256-v1');
+    await saveManifest({ workspaceFingerprint: v1 });
+    expect(await service.getStatus(ROOT)).toMatchObject({ state: 'fresh', reason: 'ok' });
   });
 
   it('detects changed workspace metadata', async () => {

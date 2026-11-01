@@ -46,6 +46,7 @@ import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IHarnessCliDetector } from '@ptah-extension/harness-sync';
 import type {
+  CapabilityScope,
   ExternalPluginMcpServer,
   InstalledMcpServer,
   McpInstallResult,
@@ -67,13 +68,20 @@ export interface ExternalMcpInstaller {
     serverKey: string,
     config: McpServerConfig,
     targets: McpInstallTarget[],
-    workspaceRoot?: string,
+    workspaceRoot: string | undefined,
+    scope: CapabilityScope,
   ): Promise<McpInstallResult[]>;
   uninstall(
     serverKey: string,
-    targets?: McpInstallTarget[],
-    workspaceRoot?: string,
+    targets: McpInstallTarget[] | undefined,
+    workspaceRoot: string | undefined,
+    options: { scope: CapabilityScope },
   ): Promise<McpInstallResult[]>;
+  /** The scope this workspace sees `serverKey` recorded in, if any. */
+  intentScopeOf(
+    serverKey: string,
+    workspaceRoot: string,
+  ): CapabilityScope | undefined;
   listInstalled(workspaceRoot?: string): Promise<InstalledMcpServer[]>;
 }
 
@@ -98,7 +106,8 @@ export interface ExternalMcpOutcome {
 }
 
 /**
- * Targets every install reaches regardless of what is installed on the machine.
+ * Targets every install reaches regardless of what is installed on the machine,
+ * in either scope.
  *
  * Not a policy choice — it mirrors the two targets the reconciler itself never
  * gates: `ClaudeTarget.detect()` is unconditionally `true` (Claude Code reads
@@ -111,7 +120,10 @@ const ALWAYS_INSTALLED_TARGETS: readonly McpInstallTarget[] = [
   'vscode',
 ];
 
-/** Targets that only make sense when the CLI is actually on this machine. */
+/**
+ * Targets that only make sense when the CLI is actually on this machine. A
+ * global install reaches every detected one.
+ */
 const DETECTED_TARGETS: readonly McpInstallTarget[] = [
   'codex',
   'copilot',
@@ -119,6 +131,22 @@ const DETECTED_TARGETS: readonly McpInstallTarget[] = [
   'antigravity',
   'opencode',
 ];
+
+/**
+ * The detected targets a WORKSPACE install may reach: the ones whose config
+ * lives in the workspace folder (`.cursor/mcp.json`, `opencode.json`). Codex,
+ * Copilot and Antigravity read only home-folder files that every workspace
+ * shares, so writing them is a global install by another name — the same rule
+ * the MCP directory applies to its workspace preselection.
+ */
+const WORKSPACE_DETECTED_TARGETS: readonly McpInstallTarget[] = [
+  'cursor',
+  'opencode',
+];
+
+/** The non-fatal warning for a workspace choice made with no folder open. */
+export const NO_WORKSPACE_MCP_WARNING =
+  "No workspace is open. The plugin's MCP servers were not installed. Choose All workspaces to install them for every workspace.";
 
 /**
  * The consent record is a FILE, and a file another process can edit, so its
@@ -149,27 +177,32 @@ export class ExternalPluginMcpService {
    * @param pluginId Carried into the intent store as the entry's registry name,
    *   so `~/.ptah/mcp-installed.json` says WHERE a server came from. Everything
    *   else in that file is a directory install named after a registry.
+   * @param scope `workspace` records the servers for the open workspace only
+   *   and needs one; with no folder open it records nothing and warns. `global`
+   *   is the user's explicit "All workspaces" choice and records without one —
+   *   the next reconcile in any workspace writes the files.
    */
   async install(
     pluginId: string,
     servers: readonly ExternalPluginMcpServer[],
     workspaceRoot: string | undefined,
+    scope: CapabilityScope,
   ): Promise<ExternalMcpOutcome> {
     const outcome: ExternalMcpOutcome = { serverKeys: [], warnings: [] };
     const declared = this.validate(servers, outcome.warnings);
     if (declared.length === 0) return outcome;
 
-    if (workspaceRoot === undefined || workspaceRoot === '') {
-      outcome.warnings.push(
-        'No workspace folder is open, so this plugin’s MCP servers were not installed. Open the folder and reinstall the plugin.',
-      );
+    const hasWorkspace = workspaceRoot !== undefined && workspaceRoot !== '';
+    if (scope === 'workspace' && !hasWorkspace) {
+      outcome.warnings.push(NO_WORKSPACE_MCP_WARNING);
       return outcome;
     }
+    const root = hasWorkspace ? workspaceRoot : undefined;
 
     // BEFORE any intent is recorded: recording flips `managedByPtah` to true
     // for the very key we are asking about, which would hide the collision.
-    const occupied = await this.findOccupiedKeys(declared, workspaceRoot);
-    const targets = await this.resolveTargets();
+    const occupied = await this.findOccupiedKeys(declared, root);
+    const targets = await this.resolveTargets(scope);
 
     for (const server of declared) {
       const conflicts = occupied.get(server.name);
@@ -185,19 +218,20 @@ export class ExternalPluginMcpService {
           server.name,
           toServerConfig(server),
           [...targets],
-          workspaceRoot,
+          root,
+          scope,
         );
-        outcome.serverKeys.push(server.name);
         this.collectFailures(server.name, results, outcome.warnings);
+        if (intentSaved(results)) outcome.serverKeys.push(server.name);
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
+        // Fixed copy for the UI (L6); the raw cause stays in the log.
         outcome.warnings.push(
-          `MCP server "${server.name}" could not be installed: ${message}`,
+          `MCP server "${server.name}" could not be installed. See the Ptah log for details.`,
         );
         this.logger.warn('External plugin MCP install failed', {
           pluginId,
           serverKey: server.name,
-          error: message,
+          error: error instanceof Error ? error.message : String(error),
         });
       }
     }
@@ -213,9 +247,15 @@ export class ExternalPluginMcpService {
    * deleted — after that there is nothing left to say which keys were the
    * plugin's, and its entries would sit in every config file forever.
    *
-   * Runs even with no workspace open. The intent store is user-global, so
-   * forgetting always lands; only the config-file rewrite needs a workspace,
-   * and the next reconcile in any workspace performs it.
+   * Each key is forgotten in the scope it was recorded in, as this workspace
+   * sees it (`intentScopeOf`): the global record, this workspace's own, or
+   * both when a workspace install was later repeated for all workspaces. A key
+   * recorded for neither — a workspace install made in ANOTHER folder — is not
+   * touched and is reported, because forgetting it needs that folder's root.
+   *
+   * Runs even with no workspace open: a global record is user-wide, so
+   * forgetting it always lands; only the config-file rewrite needs a
+   * workspace, and the next reconcile in any workspace performs it.
    */
   async uninstall(
     pluginId: string,
@@ -224,27 +264,50 @@ export class ExternalPluginMcpService {
   ): Promise<ExternalMcpOutcome> {
     const outcome: ExternalMcpOutcome = { serverKeys: [], warnings: [] };
     const declared = this.validate(servers, outcome.warnings);
+    const hasWorkspace = workspaceRoot !== undefined && workspaceRoot !== '';
+    const root = hasWorkspace ? workspaceRoot : '';
 
     for (const server of declared) {
       try {
-        const results = await this.installer.uninstall(
-          server.name,
-          undefined,
-          workspaceRoot,
-        );
-        outcome.serverKeys.push(server.name);
-        if (workspaceRoot !== undefined && workspaceRoot !== '') {
-          this.collectFailures(server.name, results, outcome.warnings);
+        const forgotten: CapabilityScope[] = [];
+        // The last pass's result per target wins: while the workspace record
+        // still declares the key, the global pass sees the entry kept and
+        // reports it as a refusal that the workspace pass then clears.
+        const latest = new Map<McpInstallTarget, McpInstallResult>();
+        // At most two passes (global, then this workspace's own); the guard on
+        // `forgotten` stops a store that keeps reporting the same scope.
+        for (
+          let scope = this.installer.intentScopeOf(server.name, root);
+          scope !== undefined && !forgotten.includes(scope);
+          scope = this.installer.intentScopeOf(server.name, root)
+        ) {
+          const passResults = await this.installer.uninstall(
+            server.name,
+            undefined,
+            hasWorkspace ? workspaceRoot : undefined,
+            { scope },
+          );
+          for (const result of passResults) latest.set(result.target, result);
+          forgotten.push(scope);
         }
+        const results = [...latest.values()];
+        if (forgotten.length === 0) {
+          outcome.warnings.push(
+            `MCP server "${server.name}" is not installed for this workspace or for all workspaces, so it was left as is. If it was installed for another workspace, remove it from that workspace's MCP servers.`,
+          );
+          continue;
+        }
+        this.collectFailures(server.name, results, outcome.warnings);
+        if (intentSaved(results)) outcome.serverKeys.push(server.name);
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
+        // Fixed copy for the UI (L6); the raw cause stays in the log.
         outcome.warnings.push(
-          `MCP server "${server.name}" could not be removed: ${message}`,
+          `MCP server "${server.name}" could not be removed. See the Ptah log for details.`,
         );
         this.logger.warn('External plugin MCP uninstall failed', {
           pluginId,
           serverKey: server.name,
-          error: message,
+          error: error instanceof Error ? error.message : String(error),
         });
       }
     }
@@ -253,7 +316,9 @@ export class ExternalPluginMcpService {
   }
 
   /**
-   * `claude` + `vscode` + whichever rival CLIs are actually installed.
+   * `claude` + `vscode` + whichever rival CLIs are actually installed — all of
+   * them for a global install, only the workspace-file ones
+   * ({@link WORKSPACE_DETECTED_TARGETS}) for a workspace install.
    *
    * Deliberately NOT `HARNESS_DEFAULT_MCP_TARGETS` (`['claude','vscode']`).
    * That default exists for the harness BUILDER, where an AI-designed preset
@@ -268,9 +333,13 @@ export class ExternalPluginMcpService {
    * anyway, so asking for one would make `McpInstallService` report a cheerful
    * success for a file it never touched.
    */
-  private async resolveTargets(): Promise<readonly McpInstallTarget[]> {
+  private async resolveTargets(
+    scope: CapabilityScope,
+  ): Promise<readonly McpInstallTarget[]> {
+    const candidates =
+      scope === 'global' ? DETECTED_TARGETS : WORKSPACE_DETECTED_TARGETS;
     const detected: McpInstallTarget[] = [];
-    for (const target of DETECTED_TARGETS) {
+    for (const target of candidates) {
       try {
         if (await this.detector.isInstalled(target)) detected.push(target);
       } catch (error: unknown) {
@@ -294,7 +363,7 @@ export class ExternalPluginMcpService {
    */
   private async findOccupiedKeys(
     declared: readonly DeclaredMcpServer[],
-    workspaceRoot: string,
+    workspaceRoot: string | undefined,
   ): Promise<Map<string, string[]>> {
     const occupied = new Map<string, string[]>();
     const wanted = new Set(declared.map((server) => server.name));
@@ -347,12 +416,23 @@ export class ExternalPluginMcpService {
     warnings: string[],
   ): void {
     for (const result of results) {
-      if (result.success) continue;
+      // A deferred result (no folder open) saved the request; the next
+      // reconcile of an opened folder writes it, so it is not a failure.
+      if (result.success || result.deferred === true) continue;
       warnings.push(
         `MCP server "${serverKey}" could not be written to ${result.target}: ${result.error ?? 'unknown error'}`,
       );
     }
   }
+}
+
+/**
+ * `McpInstallService` reports an intent-store failure as an `intent-not-saved`
+ * RESULT, not a throw, so the key only counts as recorded (or forgotten) when
+ * no result says the request was not saved.
+ */
+function intentSaved(results: readonly McpInstallResult[]): boolean {
+  return !results.some((result) => result.code === 'intent-not-saved');
 }
 
 /**

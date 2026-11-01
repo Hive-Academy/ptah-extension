@@ -88,25 +88,131 @@ export interface McpSseConfig extends McpServerConfigBase {
 /** Discriminated union of all MCP server transport configs */
 export type McpServerConfig = McpStdioConfig | McpHttpConfig | McpSseConfig;
 
-/** Package deployment info from the registry */
-export interface McpRegistryPackage {
-  /** Package registry type (e.g., "npm", "pypi", "docker") */
-  registry_name: string;
-  /** Package name on that registry */
-  name: string;
-  /** Package version */
-  version?: string;
-  /** Runtime environment (e.g., "node", "python", "docker") */
-  runtime?: string;
+/** A value accepted by a registry package argument, environment variable, or header. */
+export interface McpRegistryInput {
+  /** Human-readable description of the input. */
+  description?: string;
+  /** Whether the server requires this input. */
+  isRequired?: boolean;
+  /** Expected value format. */
+  format?: 'string' | 'number' | 'boolean' | 'filepath';
+  /** Literal value supplied by the registry. */
+  value?: string;
+  /** Whether the value is sensitive and must not be logged. */
+  isSecret?: boolean;
+  /** Default value used when no literal value is supplied. */
+  default?: string;
+  /** Placeholder text for a user-supplied value. */
+  placeholder?: string;
+  /** Allowed values for this input. */
+  choices?: string[];
 }
 
-/** Transport info from the registry */
-export interface McpRegistryTransport {
-  /** Transport type: "stdio" | "http" | "sse" */
-  type: string;
-  /** For remote transports, the default URL template */
-  url?: string;
+/** A named environment variable or HTTP header from the registry. */
+export interface McpRegistryKeyValueInput extends McpRegistryInput {
+  /** Environment variable or HTTP header name. */
+  name: string;
+  /** Values referenced by placeholders in the input value. */
+  variables?: Record<string, McpRegistryInput>;
 }
+
+interface McpRegistryPackageArgumentBase extends McpRegistryInput {
+  /** Values referenced by placeholders in the argument value. */
+  variables?: Record<string, McpRegistryInput>;
+  /** Whether the argument can occur more than once. */
+  isRepeated?: boolean;
+  /** Hint describing the expected argument value. */
+  valueHint?: string;
+}
+
+/** A positional package or runtime argument. */
+export type McpRegistryPackageArgument =
+  | (McpRegistryPackageArgumentBase & {
+      type: 'positional';
+      /** Optional positional argument label. */
+      name?: string;
+    })
+  | (McpRegistryPackageArgumentBase & {
+      type: 'named';
+      /** Flag or option name, for example `--port`. */
+      name: string;
+    });
+
+/** Transport used to connect to a registry package. */
+export type McpRegistryPackageTransport =
+  | {
+      /** Standard input/output transport. */
+      type: 'stdio';
+    }
+  | {
+      /** Remote transport type; unknown values remain representable. */
+      type: 'streamable-http' | 'sse' | (string & {});
+      /** Remote endpoint URL or URL template. */
+      url: string;
+      /** HTTP headers accepted by the remote endpoint. */
+      headers?: McpRegistryKeyValueInput[];
+    };
+
+/** Package deployment info in the 2025-12-11 server.json schema. */
+export interface McpRegistryServerPackage {
+  /** Package registry type, for example `npm`, `pypi`, `oci`, or `nuget`. */
+  registryType: string;
+  /** Package identifier in its registry. */
+  identifier: string;
+  /** Transport used to connect to the package. */
+  transport: McpRegistryPackageTransport;
+  /** Base URL of a non-default package registry. */
+  registryBaseUrl?: string;
+  /** Exact package version. */
+  version?: string;
+  /** SHA-256 digest for package formats that require verification. */
+  fileSha256?: string;
+  /** Suggested runtime command. */
+  runtimeHint?: string;
+  /** Arguments placed before the package identifier. */
+  runtimeArguments?: McpRegistryPackageArgument[];
+  /** Arguments placed after the package identifier. */
+  packageArguments?: McpRegistryPackageArgument[];
+  /** Environment variables accepted by the package. */
+  environmentVariables?: McpRegistryKeyValueInput[];
+}
+
+/** Remote endpoint in the 2025-12-11 server.json schema. */
+export interface McpRegistryRemote {
+  /** Remote transport type; unknown values remain representable. */
+  type: 'streamable-http' | 'sse' | (string & {});
+  /** Remote endpoint URL or URL template. */
+  url: string;
+  /** HTTP headers accepted by the remote endpoint. */
+  headers?: McpRegistryKeyValueInput[];
+  /** Values referenced by placeholders in the URL. */
+  variables?: Record<string, McpRegistryInput>;
+}
+
+/** Coded registry failures that have a user-safe explanation. */
+export type McpRegistryErrorCode =
+  | 'MCP_REGISTRY_SHAPE_UNKNOWN'
+  | 'MCP_REGISTRY_UNAVAILABLE'
+  | 'MCP_NO_INSTALL_SOURCE'
+  | 'MCP_PACKAGE_TYPE_UNSUPPORTED'
+  | 'MCP_PACKAGE_TRANSPORT_UNSUPPORTED'
+  | 'MCP_REMOTE_TRANSPORT_UNSUPPORTED';
+
+/** User-safe messages for registry failures; these contain no server data or secrets. */
+export const MCP_REGISTRY_ERROR_MESSAGES: Record<McpRegistryErrorCode, string> = {
+  MCP_REGISTRY_SHAPE_UNKNOWN:
+    'The registry returned a server format that Ptah does not recognize.',
+  MCP_REGISTRY_UNAVAILABLE:
+    'The MCP registry could not be reached. Try again later.',
+  MCP_NO_INSTALL_SOURCE:
+    'This server does not provide an installable package or remote endpoint.',
+  MCP_PACKAGE_TYPE_UNSUPPORTED:
+    'This server uses a package type that Ptah does not support.',
+  MCP_PACKAGE_TRANSPORT_UNSUPPORTED:
+    'This server uses a package transport that Ptah does not support.',
+  MCP_REMOTE_TRANSPORT_UNSUPPORTED:
+    'This server uses a remote transport that Ptah does not support.',
+};
 
 /** Icon metadata from the registry */
 export interface McpRegistryIcon {
@@ -128,30 +234,6 @@ export interface McpRegistryRepository {
   id?: string;
 }
 
-/** A version detail from the registry */
-export interface McpRegistryVersionDetail {
-  /** Semantic version string */
-  version: string;
-  /** Release date ISO string */
-  release_date?: string;
-  /** Package deployment options */
-  packages: McpRegistryPackage[];
-  /** Supported transports */
-  transports: McpRegistryTransport[];
-}
-
-/** Input argument that a server may require */
-export interface McpRegistryArgument {
-  /** Argument name (used as env var name typically) */
-  name: string;
-  /** Human-readable description */
-  description?: string;
-  /** Whether this argument is required */
-  required?: boolean;
-  /** Default value if not provided */
-  default?: string;
-}
-
 /**
  * A single connection option carried on a registry entry detail.
  * Smithery-specific: carries a per-connection `configSchema` (JSON Schema)
@@ -171,7 +253,9 @@ export interface McpRegistryConnection {
 
 /**
  * A single MCP server entry from an MCP registry source.
- * Maps to GET /v0.1/servers response items (official) and Smithery /servers.
+ * Official entries contain the `server` object returned in the `{server,_meta}` envelope by
+ * GET /v0.1/servers?version=latest and the versions/latest detail endpoint. Smithery entries
+ * keep their source-specific fields on the same shared contract.
  */
 export interface McpRegistryEntry {
   /** Fully qualified server name (e.g., "io.github.user/server-name") */
@@ -180,6 +264,16 @@ export interface McpRegistryEntry {
   displayName?: string;
   /** Human-readable description */
   description?: string;
+  /** Latest server.json version. */
+  version?: string;
+  /** Display title supplied by the official registry. */
+  title?: string;
+  /** Server website supplied by the official registry. */
+  websiteUrl?: string;
+  /** Package install options in the server.json schema. */
+  packages?: McpRegistryServerPackage[];
+  /** Remote endpoints in the server.json schema. */
+  remotes?: McpRegistryRemote[];
   /** Server icons */
   icons?: McpRegistryIcon[];
   /** Popularity signal — number of recorded uses (Smithery `useCount`). */
@@ -190,8 +284,6 @@ export interface McpRegistryEntry {
   homepage?: string;
   /** Source code repository */
   repository?: McpRegistryRepository;
-  /** Latest version detail (populated on detail fetch) */
-  version_detail?: McpRegistryVersionDetail;
   /** Server creation timestamp */
   created_at?: string;
   /** Last update timestamp */
@@ -230,9 +322,50 @@ export interface McpInstallResult {
   success: boolean;
   /** Absolute path of the config file that was written */
   configPath: string;
-  /** Error message if install failed */
+  /**
+   * Fixed copy for a result that is not a plain success. Never a caught
+   * exception's text: the host logs the cause and sends the copy for `code`.
+   */
   error?: string;
+  /** Why the result is not a plain success; see {@link MCP_INSTALL_RESULT_COPY}. */
+  code?: McpInstallResultCode;
+  /**
+   * The request was saved, but nothing was written yet: a global change with
+   * no folder open is applied at the next reconcile of an opened folder.
+   * `success` stays `false` (no file was written), but this is not a failure.
+   */
+  deferred?: boolean;
 }
+
+/** Fixed reasons a per-target MCP install, uninstall or make-global result carries. */
+export type McpInstallResultCode =
+  | 'deferred-no-workspace'
+  | 'intent-not-saved'
+  | 'reconciler-unavailable'
+  | 'reconcile-failed'
+  | 'write-failed'
+  | 'config-unresolved'
+  | 'remove-failed'
+  | 'install-failed';
+
+/**
+ * The one copy per {@link McpInstallResultCode}. Hosts send it as `error`, and
+ * the webview renders it by `code`, so host diagnostics (paths, config values,
+ * provider text) never reach the UI.
+ */
+export const MCP_INSTALL_RESULT_COPY: Readonly<
+  Record<McpInstallResultCode, string>
+> = {
+  'deferred-no-workspace':
+    'Saved for all workspaces. Config files are written when you open a folder.',
+  'intent-not-saved': 'Ptah could not save this change. Nothing was written.',
+  'reconciler-unavailable': 'This app cannot write MCP config files.',
+  'reconcile-failed': 'The config file could not be updated.',
+  'write-failed': 'The config file could not be written.',
+  'config-unresolved': 'No config file was found for this tool.',
+  'remove-failed': 'The entry could not be removed from the config file.',
+  'install-failed': 'The install did not finish.',
+};
 
 /**
  * Where an installed MCP server was read from.
@@ -733,6 +866,10 @@ export interface McpDirectorySearchParams {
 export interface McpDirectorySearchResult {
   servers: McpRegistryEntry[];
   nextCursor?: string;
+  /** Coded registry failure, when the source could not provide a usable list. */
+  errorCode?: McpRegistryErrorCode;
+  /** User-safe explanation for {@link errorCode}. */
+  error?: string;
 }
 
 /** Params for mcpDirectory:getDetails */
@@ -744,7 +881,12 @@ export interface McpDirectoryGetDetailsParams {
 }
 
 /** Result for mcpDirectory:getDetails */
-export type McpDirectoryGetDetailsResult = McpRegistryEntry;
+export type McpDirectoryGetDetailsResult = McpRegistryEntry & {
+  /** Coded detail failure, when the registry could not provide a usable entry. */
+  errorCode?: McpRegistryErrorCode;
+  /** User-safe explanation for {@link errorCode}. */
+  error?: string;
+};
 
 /** Params for mcpDirectory:install */
 export interface McpDirectoryInstallParams {
@@ -790,7 +932,32 @@ export interface McpDirectoryUninstallParams {
 /** Result for mcpDirectory:uninstall */
 export interface McpDirectoryUninstallResult {
   results: McpInstallResult[];
+  /**
+   * Set when the whole call failed and nothing was attempted; `results` is
+   * then empty and must not be read as "nothing to remove".
+   */
+  code?: McpDirectoryCallFailureCode;
+  /** Fixed copy for `code`; never a caught exception's text. */
+  error?: string;
 }
+
+/**
+ * Why a whole `mcpDirectory:listInstalled` or `mcpDirectory:uninstall` call
+ * failed. The host logs the cause; the UI shows
+ * {@link MCP_DIRECTORY_CALL_FAILURE_COPY} for the code.
+ */
+export type McpDirectoryCallFailureCode =
+  'intent-unreadable' | 'list-failed' | 'uninstall-failed';
+
+/** The one copy per {@link McpDirectoryCallFailureCode}. */
+export const MCP_DIRECTORY_CALL_FAILURE_COPY: Readonly<
+  Record<McpDirectoryCallFailureCode, string>
+> = {
+  'intent-unreadable':
+    'Ptah could not read its record of installed MCP servers. Check that Ptah can read the .ptah folder in your home folder.',
+  'list-failed': 'Could not load the installed MCP servers.',
+  'uninstall-failed': 'The MCP server could not be removed.',
+};
 
 /** Params for mcpDirectory:listInstalled (no params needed) */
 export type McpDirectoryListInstalledParams = Record<string, never>;
@@ -798,6 +965,13 @@ export type McpDirectoryListInstalledParams = Record<string, never>;
 /** Result for mcpDirectory:listInstalled */
 export interface McpDirectoryListInstalledResult {
   servers: InstalledMcpServer[];
+  /**
+   * Set when the list could not be read; `servers` is then empty and must not
+   * be shown as "no servers installed".
+   */
+  code?: McpDirectoryCallFailureCode;
+  /** Fixed copy for `code`; never a caught exception's text. */
+  error?: string;
 }
 
 /** Params for mcpDirectory:getPopular */
@@ -809,6 +983,10 @@ export interface McpDirectoryGetPopularParams {
 /** Result for mcpDirectory:getPopular */
 export interface McpDirectoryGetPopularResult {
   servers: McpRegistryEntry[];
+  /** Coded registry failure, when the source could not provide a usable list. */
+  errorCode?: McpRegistryErrorCode;
+  /** User-safe explanation for {@link errorCode}. */
+  error?: string;
 }
 
 /**

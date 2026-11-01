@@ -1,0 +1,58 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": 34,
+  "title": "D-6 independent fixture suite and notice RPC",
+  "executor": "claude senior-tester subagent (fixtures) + claude backend-developer subagent (notice RPC), file-disjoint, parallel (decision #66)",
+  "changed": [
+    "libs/backend/rpc-handlers/src/lib/install-scope/install-scope-migration.fixtures.spec.ts (new, tester)",
+    "libs/backend/rpc-handlers/src/lib/install-scope/install-scope-notice-rpc.handlers.ts (new, backend)",
+    "libs/backend/rpc-handlers/src/lib/install-scope/install-scope-notice-rpc.handlers.spec.ts (new, backend)"
+  ],
+  "fixtures": {
+    "setup": "Real `git init` temp workspaces under mkdtemp, os.homedir mocked to a temp home. The reconciler is a fixture double that does real file work: git-tracked copies are kept as git-tracked, untracked copies are deleted, the home fragment entry is removed from the temp ~/.claude.json, and one copy can fail once.",
+    "retired1Removed2": "Run 1 incomplete {retired 1, removed 1, kept 0, onDisk 0}: w1 done, w2 copy failed (failedPaths, no completedAt). Run 2 completed {1,2,0,0}: only w2 reconciled again (w1 1 call, w2 2 calls), w1 timestamp unchanged. Run 3 already-completed, no new reconcile calls.",
+    "mixedFragments": "Run 1 {1,2,1,0}: the shared home fragment counts once across two workspaces; tracked .cursor/rules copy kept as git-tracked. After retry {1,3,1,0}; home fragment timestamp and kept reason unchanged; hand-added `handmade` entry in ~/.claude.json and handmade/SKILL.md preserved and never in the ledger.",
+    "notice": "readNotice null with no ledger and while incomplete; non-null after completion; retired-only run {1,0,0,0}; identical across reads and new instances; dismissNotice writes ISO noticeSeenAt, later reads null (also new instance); later run already-completed; second dismiss leaves noticeSeenAt unchanged; dismiss with no ledger returns false.",
+    "tests": [
+      "ends retired 1 / removed 2 across two git workspaces after a partial failure and retry",
+      "keeps mixed fragments across the retry: nothing lost, nothing recounted, hand-added entries preserved",
+      "readNotice > is null before any run, and null while the migration is incomplete",
+      "readNotice > shows a retired-only state, persists it until dismissal and records seenAt",
+      "readNotice > dismissNotice reports false when no ledger exists"
+    ],
+    "serviceDefects": "none found"
+  },
+  "rpc": {
+    "class": "InstallScopeNoticeRpcHandlers (@injectable; injects TOKENS.LOGGER, TOKENS.RPC_HANDLER, InstallScopeMigrationService by class).",
+    "methods": "harness:get-install-migration-notice -> { notice: InstallMigrationNotice | null } from readNotice(); harness:dismiss-install-migration-notice -> { success } from dismissNotice(). Both validate params with z.object({}).strict() -> RpcUserError INVALID_PARAMS fixed copy. Dismiss rejection -> logger.error with the real Error + RpcUserError(INSTALL_MIGRATION_NOTICE_DISMISS_ERROR, PERSISTENCE_UNAVAILABLE); no fs text or path reaches the caller.",
+    "mapping": "ledger removed -> wire deleted; kept rows -> paths only; onDisk itemId prefix mcp: -> mcp-home-entry, else skills-sh-root. The service produces onDisk only for skills.sh roots today (install-scope-migration.service.ts:682).",
+    "methodsTyping": "METHODS satisfies readonly (keyof InstallScopeRpcMethodRegistry)[] (decision #67); the shared registry join is Batch 35.",
+    "tests": [
+      "declares exactly the two notice methods",
+      "returns a null notice when no ledger exists yet",
+      "returns a null notice before the migration completed",
+      "returns the persisted notice mapped to the shared contract",
+      "shows a retired-only run (decision #16)",
+      "refuses non-empty params with fixed copy",
+      "persists noticeSeenAt and hides the notice afterwards",
+      "reports success false when there is no ledger to dismiss",
+      "refuses non-empty params before touching the ledger",
+      "maps a real ledger failure to fixed copy and logs the cause",
+      "never forwards raw fs error text or paths to the caller"
+    ]
+  },
+  "handoffBatch35": [
+    "libs/shared/src/lib/types/rpc.types.ts:992 add the two notice names to the Pick<InstallScopeRpcMethodRegistry, ...> union",
+    "libs/shared/src/lib/types/rpc.types.ts:~945 update the doc comment that says the notice methods are not yet joined",
+    "libs/shared/src/lib/types/rpc.types.ts:~3675 add both names as true in RPC_METHOD_ENTRIES",
+    "libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts: direct import (as lines 87-90) and an entry near key 'harness' (line 279): { key: 'installScopeNotice', methods: InstallScopeNoticeRpcHandlers.METHODS, requires: [], handler: InstallScopeNoticeRpcHandlers }",
+    "libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts (~lines 78-92): registerSingleton(InstallScopeMigrationService) and, if handler classes register there, InstallScopeNoticeRpcHandlers; confirm the manifest path calls register()",
+    "apps/ptah-extension-vscode/src/di/expected-resolvable.ts: both classes (Batch 41)",
+    "optional: narrow METHODS to satisfies readonly RpcMethodName[] after the join"
+  ],
+  "verification": {
+    "scopedFixtures": "npm run verify -- -t test -p @ptah-extension/rpc-handlers -- --testPathPatterns=install-scope-migration.fixtures -> 5/5, exit 0 (/tmp/tpd-b34-fixtures.log)",
+    "scopedRpc": "npm run verify -- -t test -p @ptah-extension/rpc-handlers -- --testPathPatterns=install-scope-notice-rpc -> 11/11, exit 0 (/tmp/tpd-b34-rpc.log)",
+    "combinedVerify": "V-RPC: npm run verify -- -p @ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview -> NX 68 tasks: 67 succeeded (33 cached), 1 failed = known pre-existing ptah-extension-webview:lint (webview untouched by this batch) (/tmp/tpd-b34-verify.log); degradation-audit:lint --skip-nx-cache exit 0 (/tmp/tpd-b34-audit.log)"
+  }
+}

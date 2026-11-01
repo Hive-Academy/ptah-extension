@@ -62,6 +62,7 @@ interface Suite {
   sessionImporter: Mocked<SessionImporterService>;
   fileIndex: FileIndexDouble;
   recentWorkspaces: Mocked<Pick<RecentWorkspacesService, 'record' | 'list'>>;
+  userInteraction: Mocked<IUserInteraction>;
   switchHandler: SwitchHandler;
 }
 
@@ -95,7 +96,9 @@ function buildSuite(opts: SuiteOptions = {}): Suite {
     removeFolder: jest.fn(),
   } as unknown as Mocked<IWorkspaceLifecycleProvider>;
 
-  const userInteraction = {} as unknown as Mocked<IUserInteraction>;
+  const userInteraction = {
+    showOpenDialog: jest.fn().mockResolvedValue([]),
+  } as unknown as Mocked<IUserInteraction>;
 
   const contextManager = {
     switchWorkspace: jest.fn().mockResolvedValue('encoded-path'),
@@ -161,9 +164,60 @@ function buildSuite(opts: SuiteOptions = {}): Suite {
     sessionImporter,
     fileIndex,
     recentWorkspaces,
+    userInteraction,
     switchHandler,
   };
 }
+
+describe('WorkspaceRpcHandlers — folder picker', () => {
+  it('preserves the legacy picker when mode is absent', async () => {
+    const suite = buildSuite();
+    const handler = suite.rpc.__handlers().get('workspace:addFolder');
+    expect(handler).toBeDefined();
+    await handler?.({});
+    expect(suite.userInteraction.showOpenDialog).toHaveBeenCalledWith({
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Add Workspace Folder',
+    });
+    await handler?.(undefined);
+    expect(suite.userInteraction.showOpenDialog).toHaveBeenLastCalledWith({
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Add Workspace Folder',
+    });
+  });
+
+  it('uses a plain open dialog for open mode', async () => {
+    const suite = buildSuite();
+    const handler = suite.rpc.__handlers().get('workspace:addFolder');
+    await handler?.({ mode: 'open' });
+    expect(suite.userInteraction.showOpenDialog).toHaveBeenCalledWith({
+      properties: ['openDirectory'],
+      title: 'Open Folder',
+    });
+  });
+
+  it('enables directory creation with a clear title for create mode', async () => {
+    const suite = buildSuite();
+    const handler = suite.rpc.__handlers().get('workspace:addFolder');
+    await handler?.({ mode: 'create' });
+    expect(suite.userInteraction.showOpenDialog).toHaveBeenCalledWith({
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Create or choose an empty folder',
+    });
+  });
+
+  it('rejects an unknown picker mode before opening a dialog', async () => {
+    const suite = buildSuite();
+    const handler = suite.rpc.__handlers().get('workspace:addFolder');
+
+    await expect(handler?.({ mode: 'invalid' })).resolves.toEqual({
+      path: null,
+      name: null,
+      error: 'Invalid folder picker mode.',
+    });
+    expect(suite.userInteraction.showOpenDialog).not.toHaveBeenCalled();
+  });
+});
 
 describe('WorkspaceRpcHandlers — workspace:switch import deferral', () => {
   it('responds successfully WITHOUT awaiting scanAndImport', async () => {

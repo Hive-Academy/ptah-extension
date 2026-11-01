@@ -250,6 +250,13 @@ export class MarketplaceKeepReplaceComponent {
   }
 }
 
+const FOCUSABLE_SELECTOR =
+  'button, input, select, textarea, summary, a[href], [tabindex]:not([tabindex="-1"])';
+
+function isRadio(el: Element): el is HTMLInputElement {
+  return el instanceof HTMLInputElement && el.type === 'radio';
+}
+
 /**
  * Modal keyboard contract shared by the consent dialog and this prompt:
  * focus the first tab stop on open, wrap Tab / Shift+Tab inside the box, and
@@ -273,33 +280,72 @@ export class ModalFocusTrap {
     });
   }
 
-  /** Wraps Tab inside the box. Returns nothing; non-Tab keys are ignored. */
+  /**
+   * Moves Tab / Shift+Tab to the next / previous stop of the box, wrapping at
+   * either end, so focus never leaves the box. Non-Tab keys are ignored.
+   */
   public onTab(event: KeyboardEvent): void {
     if (event.key !== 'Tab') return;
+    event.preventDefault();
     const stops = this.focusable();
-    if (stops.length === 0) {
-      event.preventDefault();
-      return;
-    }
-    const first = stops[0];
-    const last = stops[stops.length - 1];
-    const active = document.activeElement;
-    const inside = stops.some((stop) => stop === active);
-    if (event.shiftKey && (active === first || !inside)) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && (active === last || !inside)) {
-      event.preventDefault();
-      first.focus();
-    }
+    if (stops.length === 0) return;
+    const active = this.stopFor(document.activeElement, stops);
+    const index = active === null ? -1 : stops.indexOf(active);
+    const step = event.shiftKey ? -1 : 1;
+    const next =
+      index === -1
+        ? event.shiftKey
+          ? stops.length - 1
+          : 0
+        : (index + step + stops.length) % stops.length;
+    stops[next].focus();
   }
 
-  private focusable(): HTMLButtonElement[] {
+  /**
+   * The box's tab stops in DOM order: enabled, not hidden, not `tabindex=-1`
+   * buttons, inputs, selects, textareas, links and `[tabindex]` elements.
+   * A radio group is one stop, as in the browser: its checked radio, or its
+   * first enabled radio while none is checked.
+   */
+  private focusable(): HTMLElement[] {
     const host = this.box();
     if (!host) return [];
-    return Array.from(
-      host.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
-    ).filter((button) => button.tabIndex !== -1 && !button.closest('[hidden]'));
+    const candidates = Array.from(
+      host.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    ).filter(
+      (el) =>
+        el.tabIndex >= 0 &&
+        !el.matches(':disabled') &&
+        !el.closest('[hidden], [inert]') &&
+        !(el instanceof HTMLInputElement && el.type === 'hidden'),
+    );
+    const groupStop = new Map<string, HTMLInputElement>();
+    for (const el of candidates) {
+      if (!isRadio(el) || !el.name) continue;
+      const current = groupStop.get(el.name);
+      if (!current || (el.checked && !current.checked)) {
+        groupStop.set(el.name, el);
+      }
+    }
+    return candidates.filter(
+      (el) => !isRadio(el) || !el.name || groupStop.get(el.name) === el,
+    );
+  }
+
+  /**
+   * Maps the focused element to its stop: itself, or for a radio that is not
+   * its group's stop (focused by a click before it was checked), that stop.
+   */
+  private stopFor(
+    active: Element | null,
+    stops: readonly HTMLElement[],
+  ): HTMLElement | null {
+    if (!(active instanceof HTMLElement)) return null;
+    if (stops.includes(active)) return active;
+    if (!isRadio(active) || !active.name) return null;
+    return (
+      stops.find((stop) => isRadio(stop) && stop.name === active.name) ?? null
+    );
   }
 
   private focusFirst(): void {

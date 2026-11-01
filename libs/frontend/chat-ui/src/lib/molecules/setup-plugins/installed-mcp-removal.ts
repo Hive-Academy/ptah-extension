@@ -1,4 +1,5 @@
 import type { ClaudeRpcService } from '@ptah-extension/core';
+import { MCP_DIRECTORY_CALL_FAILURE_COPY } from '@ptah-extension/shared';
 import {
   mcpTargetLabel,
   type InstalledServerGroup,
@@ -77,13 +78,15 @@ async function removeManaged(
   if (!result.isSuccess()) {
     return result.error ?? `Could not remove "${group.serverKey}".`;
   }
+  // The whole call failed (e.g. Ptah's MCP record is unreadable): show the
+  // host's coded copy, not the "nothing was removed" reading of no results.
+  if (result.data.code !== undefined) {
+    return MCP_DIRECTORY_CALL_FAILURE_COPY[result.data.code];
+  }
   const failures = result.data.results.filter((r) => !r.success);
   if (failures.length > 0) {
     return `Could not remove "${group.serverKey}" from: ${failures
-      .map(
-        (r) =>
-          `${mcpTargetLabel(r.target)} (${r.error ?? 'unknown error'})`,
-      )
+      .map((r) => `${mcpTargetLabel(r.target)} (${r.error ?? 'unknown error'})`)
       .join(', ')}`;
   }
   // A backend that reports zero results removed nothing. Saying so beats

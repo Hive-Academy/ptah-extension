@@ -1,0 +1,121 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": 21,
+  "title": "D-2 shared retirement/proof result contracts",
+  "status": "COMPLETE",
+  "filesChanged": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/shared/src/lib/types/origin-sidecar.types.ts",
+      "change": "MODIFIED: added SKILLS_SH_RETIRED_FILE, SKILLS_SH_OWNER_MARKER, SKILLS_SH_SOURCE_REF_PREFIX, SkillsShRetiredRootSchema, SkillsShRetiredRegistrySchema/SkillsShRetiredRegistry, parseSkillsShRetiredRegistry, isRetiredSkillsShRoot, isRetiredSourceRef beside isOptOutPluginId"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/shared/src/lib/types/origin-sidecar.types.spec.ts",
+      "change": "MODIFIED: exact constants, registry parse/reject, isRetiredSourceRef matching incl. prototype-chain keys; harnessPathIdentity, item ids and kept reasons (harness-sync.types.spec.ts is not owned by this batch)"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/shared/src/lib/types/harness-sync.types.ts",
+      "change": "MODIFIED: HARNESS_RETIRED_KEPT_REASONS/HarnessRetiredKeptReason, HarnessRetiredItemId + skillsShRetiredItemId/mcpRetiredItemId, HarnessRetiredPath, HarnessKeptRetiredPath, harnessPathIdentity; HarnessWriteFailure.itemId?; HarnessTargetHealth.removedRetired?/keptRetired?"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/backend/harness-sync/src/lib/targets/harness-target.port.ts",
+      "change": "MODIFIED: HarnessPlanRemove.retiredItemId?, new HarnessRetiredSources, HarnessApplyResult.removedRetired?/keptRetired?; writeFailed typed as shared HarnessWriteFailure[] (structurally identical plus optional itemId)"
+    }
+  ],
+  "contract": {
+    "exportedFrom": "@ptah-extension/shared (origin-sidecar.types.ts, harness-sync.types.ts, both already in libs/shared/src/index.ts); port types from harness-sync targets/harness-target.port.ts (relative import inside harness-sync)",
+    "constants": {
+      "SKILLS_SH_RETIRED_FILE": "'.ptah-skillssh-retired.json' (in ~/.ptah/plugins) — origin-sidecar.types.ts:136",
+      "SKILLS_SH_OWNER_MARKER": "'ptah.skills-sh.root.v2' (D-D8 metadata ownerMarker) — origin-sidecar.types.ts:144",
+      "SKILLS_SH_SOURCE_REF_PREFIX": "'skills-sh:' — origin-sidecar.types.ts:151",
+      "HARNESS_RETIRED_KEPT_REASONS": "['edited','git-tracked','unverifiable'] as const — harness-sync.types.ts:112"
+    },
+    "registry": {
+      "schema": "SkillsShRetiredRegistrySchema = { version: 1 (literal); roots: Record<rootId, { retiredAt: string /* ISO-8601 */ }> } — origin-sidecar.types.ts:162",
+      "rootId": "skills.sh root directory basename, e.g. 'ptah-skillssh-anthropics-skills' (same text after 'skills-sh:' in sidecar sourceRef)",
+      "parseSkillsShRetiredRegistry(raw: unknown): SkillsShRetiredRegistry | null": "null for anything not a well-formed v1 registry; reader decides (absent file = nothing retired)",
+      "isRetiredSkillsShRoot(rootId: string, registry: SkillsShRetiredRegistry | null | undefined): boolean": "own-property lookup; for the loader (discoverSkillsShPluginPaths) which has dir names",
+      "isRetiredSourceRef(sourceRef: string | null | undefined, registry): boolean": "true only for 'skills-sh:<rootId>' with rootId listed; for buildSkills pass 1 sidecar filter"
+    },
+    "itemIdentity": {
+      "HarnessRetiredItemId": "`skills-sh:${string}` | `mcp:${string}` — equals the ledger itemId; skills-sh form equals the clone sidecar sourceRef",
+      "skillsShRetiredItemId(rootId)": "'skills-sh:' + rootId",
+      "mcpRetiredItemId(serverKey)": "'mcp:' + serverKey"
+    },
+    "pathIdentity": {
+      "HarnessRetiredPath": "{ relPath: string /* target path exactly as HarnessPlanRemove.relPath: workspace-relative POSIX, '<config>#<serverKey>' fragment, or '~/'-prefixed home fragment */; itemId: HarnessRetiredItemId }",
+      "HarnessKeptRetiredPath": "HarnessRetiredPath & { reason: 'edited' | 'git-tracked' | 'unverifiable' }",
+      "harnessPathIdentity(workspaceRoot: string, relPath: string): string": "the ledger key (removedPaths/keptPaths/failedPaths) and notice path: '~/' relPath returned unchanged (counts once across workspaces); otherwise `${root}/${rel}` with backslashes -> '/', trailing root separators and leading rel separators dropped. Pass the resolveHarnessWorkspaceRoot value."
+    },
+    "results": {
+      "HarnessApplyResult.removedRetired?: HarnessRetiredPath[]": "deleted on proof; every relPath ALSO in `removed` (manifest pruning unchanged)",
+      "HarnessApplyResult.keptRetired?: HarnessKeptRetiredPath[]": "kept on disk and disowned; NOT in `removed`; reconciler must drop their manifest entries; never snapshot-removed",
+      "HarnessWriteFailure.itemId?: HarnessRetiredItemId": "set only for a failed retired removal; entry stays owned, next pass retries; ledger files it under failedPaths",
+      "HarnessTargetHealth.removedRetired? / keptRetired?": "same element types, merged per target by the reconciler; HarnessHealth carries them via targets[]"
+    },
+    "portInputs": {
+      "HarnessPlanRemove.retiredItemId?: HarnessRetiredItemId": "set by the planner when the manifest source lies under a retired skill root or the MCP key is retired; marks the removal for the D-2 proof policy",
+      "HarnessRetiredSources": "{ skillSourceRoots: readonly string[] /* absolute dirs; itemId = skillsShRetiredItemId(basename(root)) */; mcpServerKeys: readonly string[] } — the reconciler option `retired`, rebuilt from both registries every pass (threading into reconcile options/plan is Batch 22+ work)"
+    },
+    "consumers": [
+      "Batch 19 (registry writer / mcp retired keys -> HarnessRetiredSources)",
+      "Batches 22-26 (manifest filter isRetiredSourceRef, loader isRetiredSkillsShRoot, planner retiredItemId, workspace/MCP removal policy -> removedRetired/keptRetired/writeFailed.itemId, health merge)",
+      "Batches 32-35 (migration ledger keyed by itemId + harnessPathIdentity; D-3/D-6 read SKILLS_SH_OWNER_MARKER)"
+    ]
+  },
+  "verify": {
+    "command": "npm run verify -- -p @ptah-extension/shared,@ptah-extension/harness-sync,@ptah-extension/cli-agent-runtime,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview (one combined run for Batches 18, 20 and 21; log /tmp/tpd-b18-21-verify.log)",
+    "perTarget": {
+      "result": "74 tasks: 72 succeeded, 2 failed",
+      "failed": {
+        "@ptah-extension/harness-sync:test": "2 environmental failures in agent-workspace-scope.spec.ts only (634/636 pass; spec and source unchanged vs main; /tmp/tpd-hs-test.log)",
+        "ptah-extension-webview:lint": "pre-existing on main"
+      }
+    },
+    "note": "The earlier harness-sync failures in /tmp/tpd-b20-verify.log and /tmp/tpd-b21-verify.log came from runs concurrent with unfinished Batch 18 edits; they do not reproduce."
+  },
+  "decisions": [
+    {
+      "decision": "removedRetired/keptRetired live on HarnessTargetHealth (per target), not as new top-level HarnessHealth fields.",
+      "options": [
+        "top-level HarnessHealth arrays",
+        "per-target, like removed/removedLocalEdit"
+      ],
+      "evidence": "Every existing path list (removed, removedLocalEdit, writeFailed, keptLocalEdit) is per target in HarnessTargetHealth; HarnessHealth reaches them through targets[]. A second top-level copy would be a duplicate the reducers must keep in step.",
+      "reversible": true
+    },
+    {
+      "decision": "Result entries carry itemId, and HarnessWriteFailure gains optional itemId.",
+      "options": [
+        "string[] relPaths only",
+        "relPath + itemId"
+      ],
+      "evidence": "The D-D10 ledger groups removedPaths/keptPaths/failedPaths per itemId (implementation-plan.md:836-850); a bare relPath cannot be attributed to an item after the reconciler prunes its manifest entry.",
+      "reversible": true
+    },
+    {
+      "decision": "retiredAt is an ISO-8601 string.",
+      "options": [
+        "epoch number",
+        "ISO string"
+      ],
+      "evidence": "Neighbour stores use ISO strings: mcp-intent-store.ts installedAt z.string() (:51,:129), skills-sh-source-root.ts installedAt z.string() (:100).",
+      "reversible": true
+    },
+    {
+      "decision": "Helper tests for harness-sync.types additions sit in origin-sidecar.types.spec.ts.",
+      "options": [
+        "edit harness-sync.types.spec.ts (not owned)",
+        "owned spec"
+      ],
+      "evidence": "Batch file list owns origin-sidecar.types.spec.ts only; the coordinator may move the describe block.",
+      "reversible": true
+    }
+  ],
+  "environmentalFailures": [
+    {
+      "spec": "libs/backend/harness-sync/src/lib/state/agent-workspace-scope.spec.ts",
+      "classification": "environmental, pre-existing",
+      "cause": "Fixed path /home/amun/projects/alpha resolves to /home/amun/projects because /home/amun/projects/.ptah exists (user data, untouched)."
+    }
+  ]
+}

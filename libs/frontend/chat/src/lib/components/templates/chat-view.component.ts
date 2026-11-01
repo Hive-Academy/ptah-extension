@@ -35,6 +35,7 @@ import {
   type DisplaySidebarConnection,
 } from './display-sidebar-wiring';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
+import { BackgroundTaskTilesContainerComponent } from '../molecules/background-task-tiles/background-task-tiles-container.component';
 import { ChatSessionLayoutComponent } from './chat-session-layout.component';
 import {
   QuestionCardComponent,
@@ -48,6 +49,10 @@ import {
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { SessionBudgetBannerComponent } from '../molecules/notifications/session-budget-banner.component';
+import {
+  InstallScopeMigrationNoticeComponent,
+  type InstallScopeMigrationNoticeAction,
+} from '../molecules/notifications/install-scope-migration-notice.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/agent-origin-banner.component';
 import { SessionInspectorStore } from '../../services/session-inspector';
@@ -85,7 +90,9 @@ import {
   SESSION_VISIBLE,
   SESSION_FORCED_CARD,
   SESSION_START_GUARD,
+  SESSION_FOCUSED,
 } from '../../tokens/session-context.token';
+import { SESSION_EMBED_CHROME } from '../../tokens/session-embed-chrome.token';
 import {
   ClaudeRpcService,
   AppStateManager,
@@ -185,11 +192,13 @@ const VIEW_PANEL_KEY = '';
     AgentMonitorPanelComponent,
     DisplaySheetComponent,
     ChatInputComponent,
+    BackgroundTaskTilesContainerComponent,
     ChatSessionLayoutComponent,
     QuestionCardComponent,
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
     SessionBudgetBannerComponent,
+    InstallScopeMigrationNoticeComponent,
     CompactionNotificationComponent,
     CompactionMarkerComponent,
     SidebarTabComponent,
@@ -305,7 +314,8 @@ export class ChatViewComponent implements OnDestroy {
     this.staleOlderHistory.set(null);
     const outcome = await this.historyPaging.loadOlder(tabId);
     if (outcome === 'stale') {
-      const message = 'Earlier history changed. Reopen the session to load it again.';
+      const message =
+        'Earlier history changed. Reopen the session to load it again.';
       const tab = this._tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
       if (tab) {
         this.staleOlderHistory.set({
@@ -315,10 +325,7 @@ export class ChatViewComponent implements OnDestroy {
           message,
         });
       }
-      this.showActionError(
-        message,
-        tabId,
-      );
+      this.showActionError(message, tabId);
     } else if (outcome === 'failed') {
       this.showActionError(
         'Could not load earlier messages. Please try again.',
@@ -346,6 +353,43 @@ export class ChatViewComponent implements OnDestroy {
   /** Dismiss the re-auth banner. */
   protected onAuthBannerDismiss(): void {
     this._authState.clearAuthRequiredBanner();
+  }
+
+  /**
+   * The install-scope migration notice shows in one chat view at a time: the
+   * main panel (no SESSION_CONTEXT, VS Code) or, where every view is a
+   * session embed (Electron canvas), the focused full-chrome pane. Bare
+   * hosts (harness builder, setup wizard, Command Center) and read-only
+   * views never mount it, and an unfocused split pane or hidden workspace
+   * does not either, so one card shows however many session views exist.
+   */
+  private readonly _sessionFocused = inject(SESSION_FOCUSED, {
+    optional: true,
+  });
+  private readonly _embedChrome = inject(SESSION_EMBED_CHROME, {
+    optional: true,
+  });
+  private readonly _installNoticeReadOnly =
+    inject(SESSION_READ_ONLY, { optional: true }) ?? false;
+  protected readonly showInstallMigrationNotice = computed(() => {
+    if (this._installNoticeReadOnly) return false;
+    if (!this._sessionContext) return true;
+    return this._embedChrome !== 'bare' && (this._sessionFocused?.() ?? true);
+  });
+
+  /**
+   * After "Got it" the notice is gone, so focus moves to the chat input
+   * instead of falling back to the document body. "Open Marketplace" hides
+   * this view; the marketplace view takes over and focus is not forced into
+   * a hidden textarea.
+   */
+  protected onInstallMigrationNoticeDismissed(
+    action: InstallScopeMigrationNoticeAction,
+  ): void {
+    if (action !== 'got-it') return;
+    this.hostEl.nativeElement
+      .querySelector<HTMLTextAreaElement>('[sessionComposer] textarea')
+      ?.focus();
   }
 
   /**
@@ -1409,7 +1453,6 @@ export class ChatViewComponent implements OnDestroy {
         this.panelState.releaseAgentsUserClose(key);
       });
     });
-
 
     effect(() => {
       const request = this._appState.composerPrefillRequest();

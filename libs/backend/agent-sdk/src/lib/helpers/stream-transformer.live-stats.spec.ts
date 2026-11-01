@@ -135,7 +135,10 @@ function start({
 } = {}): Harness {
   const logger = makeLogger();
   const messageTransformer = {
-    createIsolated: () => ({ transform: jest.fn(() => []) }),
+    createIsolated: () => ({
+      transform: jest.fn(() => []),
+      clearBackgroundTaskSession: jest.fn(),
+    }),
   } as unknown as SdkMessageTransformer;
   const modelResolver = {
     resolveForPricing: (m: string) => m,

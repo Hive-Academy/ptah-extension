@@ -29,6 +29,7 @@ import {
 } from '@ptah-extension/chat-types';
 import type {
   AgentProgressEvent,
+  BackgroundTasksSnapshotEvent,
   AgentStartEvent,
   FlatStreamEventUnion,
   MessageCompleteEvent,
@@ -47,6 +48,7 @@ import { BatchedUpdateService } from './batched-update.service';
 import { MessageFinalizationService } from './message-finalization.service';
 import { TurnStateApplier } from './turn-state-applier.service';
 import { BackgroundAgentStore } from './background-agent.store';
+import { BackgroundTaskStore } from './background-task.store';
 import { AgentMonitorStore } from './agent-monitor.store';
 import { SubagentExecutionStore } from './subagent-execution.store';
 
@@ -416,6 +418,28 @@ describe('StreamingHandlerService', () => {
     }
     return tab.streamingState;
   }
+
+  it('routes a task snapshot by claudeSessionId without creating streaming state', () => {
+    const other = makeTab({ id: 'other-tab', claudeSessionId: ORPHAN_SESSION_ID, streamingState: null });
+    const owner = makeTab({ streamingState: null });
+    tabsSignal.set([other, owner]);
+    activeTabIdSignal.set('other-tab');
+    const event: BackgroundTasksSnapshotEvent = {
+      id: 'snapshot-1',
+      eventType: 'background_tasks_snapshot',
+      timestamp: 1,
+      sessionId: SESSION_ID,
+      messageId: 'background-tasks-' + SESSION_ID,
+      tasks: [{ taskId: 'bash-1', taskType: 'local_bash', description: 'Compile', status: 'running' }],
+    };
+
+    service.processStreamEvent(event);
+
+    expect(TestBed.inject(BackgroundTaskStore).tasksForSession(SESSION_ID)).toEqual(event.tasks);
+    expect(TestBed.inject(BackgroundTaskStore).tasksForSession(ORPHAN_SESSION_ID)).toEqual([]);
+    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+    expect(tabsSignal().every((tab) => tab.streamingState === null)).toBe(true);
+  });
 
   it('claims once before resolving tabs and leaves a late subagent event off the tab', () => {
     const event = textDelta({ id: 'late-subagent', messageId: 'child-message' });

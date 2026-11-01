@@ -1,0 +1,42 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": 24,
+  "title": "D-2 reconciler and health aggregation",
+  "executor": "claude backend-developer subagent",
+  "changed": [
+    "libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.service.ts",
+    "libs/backend/harness-sync/src/lib/health/harness-health.ts",
+    "libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.retirement.spec.ts",
+    "libs/backend/harness-sync/src/lib/targets/harness-target.port.ts (cross-owner, decision #58)",
+    "libs/backend/harness-sync/src/lib/targets/claude-target.ts (cross-owner, decision #58: MCP retirement plan + apply)"
+  ],
+  "acceptance": {
+    "workspaceRoot": "Passed to builder.build in verify() and runReconcile(); Batch 22 exemption now active.",
+    "retired": "source.retired ?? NO_RETIRED_SOURCES threaded into target.plan(..., signal, retired); no second retired filter.",
+    "manifest": "mergeEntries drops removed and keptRetired (disown); writeFailed entries (with itemId) stay owned; lock unchanged.",
+    "health": "appliedTargetHealth gains required workspaceRoot param; removedRetired/keptRetired merged and de-duplicated by harnessPathIdentity(workspaceRoot, relPath).",
+    "tests": [
+      "passes the workspace root to both builder.build calls (verify and reconcile)",
+      "activates the workspace skills.sh exemption: this workspace's own root bypasses an empty selection, another workspace's does not",
+      "mixed pass: one skill and one MCP key removed, one of each kept and disowned, one MCP key failed and kept owned; the retry removes it; a third pass is a no-op",
+      "late-discovered workspace: a workspace first reconciled after the retirement gets its own copies proven and removed, under its own identity",
+      "without a retired registry an orphaned copy is an ordinary removal with no retirement outcome"
+    ]
+  },
+  "verification": {
+    "command": "npm run verify -- -p @ptah-extension/harness-sync,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview",
+    "log": "/tmp/tpd-b24-verify.log",
+    "result": "exit 1. 68 tasks: 66 succeeded (27 cached), 2 failed: harness-sync:test 704/706 (only the 2 known agent-workspace-scope.spec.ts env failures) and the known ptah-extension-webview:lint."
+  },
+  "resultSchemaForBatch33": "Read HarnessHealth.targets[] after each reconcile. removedRetired?: {relPath,itemId}[] (also in removed); keptRetired?: {relPath,itemId,reason:'edited'|'git-tracked'|'unverifiable'}[] (disowned, reported once); writeFailed rows with itemId (owned, retried). itemId = skills-sh:<rootId> | mcp:<serverKey>. Ledger key = harnessPathIdentity(health.workspaceRoot, relPath); ~/ paths unchanged. Arrays present (maybe empty) after reconcile; absent on verify, preflight, undetected targets and remove.",
+  "risks": [
+    "HIGH: ClaudeTarget.plan still plans .claude/skills/<slug> copies of a retired root as plain removals with no retiredItemId, so they are removed without the D-2 proof and never appear in removedRetired. Fixed by Batch 24a.",
+    "freezeToMcp drops skill removals (retired ones too) on a frozen pass; handled on the next unfrozen pass.",
+    "Preflight with no drift, verify() and remove() produce no retirement outcomes."
+  ],
+  "followUps": {
+    "batch24a": "ClaudeTarget skill/command retirement proof via a shared retirement-proof module.",
+    "batch25": "Staging dirs must not use the ptah-skillssh- prefix directly under workspacePluginsDir(ws), or the exemption treats them as active.",
+    "batch26": "Loader skips retired ids and discovers only the active workspace root."
+  }
+}

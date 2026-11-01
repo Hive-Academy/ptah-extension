@@ -11,6 +11,7 @@ import {
   BackgroundAgentStartedEvent,
   BackgroundAgentCompletedEvent,
   BackgroundAgentStoppedEvent,
+  BackgroundTasksSnapshotEvent,
   ToolResultEvent,
   SessionId,
   isAgentTaskType,
@@ -22,6 +23,7 @@ import type {
   SDKTaskProgressMessage,
   SDKTaskUpdatedMessage,
   SDKTaskNotificationMessage,
+  SDKBackgroundTasksChangedMessage,
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
 import { toTurnStateEvent } from '../helpers/session-turn-state.registry';
@@ -33,6 +35,39 @@ import type {
 import type { TransformerHelpers } from './transformer-helpers';
 
 export class SystemMessageTransformer {
+  transformBackgroundTasksChanged(
+    msg: SDKBackgroundTasksChangedMessage,
+    state: TransformerState,
+    sessionId?: TransformerSessionId,
+  ): BackgroundTasksSnapshotEvent[] {
+    const owner = sessionId || msg.session_id;
+    if (!owner) return [];
+    const tasks = msg.tasks.filter((task) => task.ambient !== true);
+    state.retainBackgroundTaskCommands(
+      owner,
+      tasks.map((task) => task.task_id),
+    );
+    const snapshot: BackgroundTasksSnapshotEvent = {
+      id: generateEventId(),
+      eventType: 'background_tasks_snapshot',
+      messageId: `background-tasks-${owner}`,
+      timestamp: Date.now(),
+      sessionId: owner,
+      tasks: tasks.map((task) => {
+        const command = state.getBackgroundTaskCommand(owner, task.task_id);
+        return {
+          taskId: task.task_id,
+          taskType: task.task_type,
+          description: task.description,
+          ...(command !== undefined ? { command } : {}),
+          status: 'running' as const,
+        };
+      }),
+    };
+    state.cacheBackgroundTasksSnapshot(snapshot);
+    return [snapshot];
+  }
+
   transformCompactBoundary(
     sdkMessage: SDKMessage & {
       compact_metadata: {
@@ -189,7 +224,11 @@ export class SystemMessageTransformer {
     // rest of its lifecycle is rejected too — none of the bookkeeping below
     // (task parent link, subagent registry) applies to a shell command.
     if (!isAgentTaskType(msg.task_type)) {
-      state.markNonAgentTask(msg.task_id);
+      state.markNonAgentTask(
+        msg.task_id,
+        toolUseId,
+        sessionId || msg.session_id,
+      );
       helpers.logger.debug(
         '[SdkMessageTransformer] task_started with non-agent task_type — skipping AgentStartEvent',
         { taskId: msg.task_id, taskType: msg.task_type, toolUseId },
@@ -585,8 +624,7 @@ export class SystemMessageTransformer {
     // `task_started` entry may already have been re-keyed onto its real
     // agentId; `''` still finds it through the store's toolCallId fallback,
     // where a real agentId that misses would insert a duplicate entry.
-    const agentId =
-      origin === 'task_started' ? (record?.agentId ?? '') : '';
+    const agentId = origin === 'task_started' ? (record?.agentId ?? '') : '';
     const agentType = record?.agentType ?? 'unknown';
     const id = generateEventId();
     const timestamp = Date.now();

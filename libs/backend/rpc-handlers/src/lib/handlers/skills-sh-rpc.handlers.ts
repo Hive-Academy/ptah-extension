@@ -5,7 +5,8 @@
  * - skillsSh:search - Search skills via the public skills.sh API (CLI fallback)
  * - skillsSh:listInstalled - List installed skills from filesystem
  * - skillsSh:install - Install a skill
- * - skillsSh:uninstall - Remove a skill
+ * - skillsSh:uninstall - Remove a skill from the root that holds it
+ * - skillsSh:makeGlobal - Convert a workspace root into a global one
  * - skillsSh:getPopular - Get popular skills (cached)
  * - skillsSh:detectRecommended - Detect workspace technologies and recommend skills
  *
@@ -18,27 +19,36 @@ import { injectable, inject } from 'tsyringe';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import { RpcUserError, TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
   HARNESS_SYNC_TOKENS,
   resolveHarnessWorkspaceRoot,
   type HarnessPropagationService,
+  type SkillSyncGate,
 } from '@ptah-extension/harness-sync';
 import { isSafePathToken } from '@ptah-extension/shared';
 import type {
+  CapabilityScope,
   HarnessHealth,
   KeptItem,
   LibraryPassStatus,
   SkillShEntry,
   InstalledSkill,
   SkillDetectionResult,
+  SkillsShInstallParams,
+  SkillsShMakeGlobalParams,
+  SkillsShMakeGlobalResult,
   RpcMethodName,
 } from '@ptah-extension/shared';
 import {
+  SKILLS_SH_MAKE_GLOBAL_INVALID_ERROR,
   SkillsShInstallParamsSchema,
+  SkillsShMakeGlobalParamsSchema,
   SkillsShUninstallParamsSchema,
   sanitizeSearchQuery,
 } from './skills-sh-rpc.schema';
@@ -46,7 +56,15 @@ import {
   rejectUnsafeInstallRequest,
   runSkillsCli,
 } from '../utils/skills-sh-cli';
-import { SkillsShSourceRootService } from '../skills-sh/skills-sh-source-root.service';
+import {
+  SkillsShSourceRootService,
+  makeGlobalFailureCopy,
+  type SkillsShMakeGlobalHooks,
+} from '../skills-sh/skills-sh-source-root.service';
+import {
+  SKILLS_SH_NO_WORKSPACE_ERROR,
+  type SkillsShLocation,
+} from '../skills-sh/skills-sh-source-root';
 import { SkillsShApiClient } from '@ptah-extension/cli-agent-runtime';
 import { MarketplaceLocalItemsService } from './marketplace/marketplace-local-items.service';
 
@@ -149,6 +167,7 @@ export class SkillsShRpcHandlers {
     'skillsSh:listInstalled',
     'skillsSh:install',
     'skillsSh:uninstall',
+    'skillsSh:makeGlobal',
     'skillsSh:getPopular',
     'skillsSh:detectRecommended',
   ] as const satisfies readonly RpcMethodName[];
@@ -182,6 +201,19 @@ export class SkillsShRpcHandlers {
      */
     @inject(MarketplaceLocalItemsService)
     private readonly localItems: MarketplaceLocalItemsService,
+    /**
+     * Make global's step 7 asks the loader itself whether it discovers the
+     * new global root, rather than re-deriving its retired-id filter here.
+     */
+    @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
+    private readonly pluginLoader: PluginLoaderService,
+    /**
+     * Make global's step 8 keeps the moved slugs selected in this workspace:
+     * its own skills.sh root is exempt from the selection, a global root is
+     * not.
+     */
+    @inject(HARNESS_SYNC_TOKENS.SKILL_SYNC_GATE)
+    private readonly skillSyncGate: SkillSyncGate,
   ) {}
 
   register(): void {
@@ -189,6 +221,7 @@ export class SkillsShRpcHandlers {
     this.registerListInstalled();
     this.registerInstall();
     this.registerUninstall();
+    this.registerMakeGlobal();
     this.registerGetPopular();
     this.registerDetectRecommended();
 
@@ -277,7 +310,10 @@ export class SkillsShRpcHandlers {
       { skills: InstalledSkill[] }
     >('skillsSh:listInstalled', async () => {
       try {
-        const skills = await this.sourceRoots.listInstalled();
+        // Global roots plus THIS workspace's, each row with its own scope.
+        const skills = await this.sourceRoots.listInstalled(
+          this.getWorkspaceRoot() || null,
+        );
         this.logger.debug('RPC: skillsSh:listInstalled success', {
           totalCount: skills.length,
         });
@@ -313,10 +349,11 @@ export class SkillsShRpcHandlers {
    */
   private registerInstall(): void {
     this.rpcHandler.registerMethod<
-      { source: string; skillId?: string },
+      SkillsShInstallParams,
       {
         success: boolean;
         error?: string;
+        scope?: CapabilityScope;
         kept?: KeptItem[];
         libraryPass?: LibraryPassStatus;
       }
@@ -325,6 +362,7 @@ export class SkillsShRpcHandlers {
         this.logger.debug('RPC: skillsSh:install called', {
           source: params.source,
           skillId: params.skillId,
+          scope: params.scope,
         });
 
         // TWO checks, and neither is the other's duplicate. The schema settles
@@ -359,12 +397,27 @@ export class SkillsShRpcHandlers {
           return { success: false, error: rejection };
         }
 
+        // The default is THIS workspace (Phase D). With no folder open there
+        // is no workspace root to write, so the request is refused before the
+        // legacy sweep or any write; only an explicit `'global'` proceeds.
+        const workspaceRoot = this.getWorkspaceRoot();
+        if (parsed.data.scope === 'workspace' && workspaceRoot === '') {
+          throw new RpcUserError(
+            SKILLS_SH_NO_WORKSPACE_ERROR,
+            'WORKSPACE_NOT_OPEN',
+          );
+        }
+        const location: SkillsShLocation =
+          parsed.data.scope === 'global'
+            ? { scope: 'global' }
+            : { scope: 'workspace', workspaceRoot };
+
         await this.adoptLegacyInstalls();
 
-        const result = await this.sourceRoots.install({
-          source: parsed.data.source,
-          skillId: parsed.data.skillId,
-        });
+        const result = await this.sourceRoots.install(
+          { source: parsed.data.source, skillId: parsed.data.skillId },
+          location,
+        );
 
         if (!result.success) {
           this.logger.warn('RPC: skillsSh:install failed', {
@@ -386,11 +439,20 @@ export class SkillsShRpcHandlers {
         this.logger.info('RPC: skillsSh:install success', {
           source: params.source,
           rootId: result.rootId,
+          scope: result.scope,
           slugs: result.slugs,
           kept: kept.length,
         });
-        return { success: true, kept, libraryPass: pass.libraryPass };
+        return {
+          success: true,
+          scope: result.scope,
+          kept,
+          libraryPass: pass.libraryPass,
+        };
       } catch (error: unknown) {
+        // A user-facing refusal carries its own fixed copy; let RpcHandler
+        // deliver it as a structured error rather than flatten it here.
+        if (error instanceof RpcUserError) throw error;
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.error(
@@ -434,7 +496,11 @@ export class SkillsShRpcHandlers {
           };
         }
 
-        const result = await this.sourceRoots.uninstall(parsed.data.name);
+        const location = await this.locationHolding(parsed.data.name);
+        const result = await this.sourceRoots.uninstall(
+          parsed.data.name,
+          location,
+        );
         if (!result.success) {
           return { success: false, error: result.error };
         }
@@ -444,6 +510,7 @@ export class SkillsShRpcHandlers {
 
         this.logger.info('RPC: skillsSh:uninstall success', {
           name: params.name,
+          scope: location.scope,
           rootId: result.rootId,
           removedRoot: result.removedRoot,
         });
@@ -458,6 +525,123 @@ export class SkillsShRpcHandlers {
         return { success: false, error: errorMessage };
       }
     });
+  }
+
+  /**
+   * The source root that really holds `name`: this workspace's when it has
+   * one, else the global one. The workspace root wins because it is the
+   * narrower install the user sees for this folder; a skill left in both
+   * (an interrupted Make global, step 8) loses its workspace copy first and
+   * keeps loading from the global root. Nothing found → global, so the
+   * service reports its usual "not installed" answer.
+   */
+  private async locationHolding(name: string): Promise<SkillsShLocation> {
+    const workspaceRoot = this.getWorkspaceRoot();
+    const roots = await this.sourceRoots.listRoots(workspaceRoot || null);
+    const inWorkspace = roots.some(
+      (root) => root.scope === 'workspace' && root.slugs.includes(name),
+    );
+    return inWorkspace
+      ? { scope: 'workspace', workspaceRoot }
+      : { scope: 'global' };
+  }
+
+  /**
+   * `skillsSh:makeGlobal` — convert the workspace root holding `name` into a
+   * global root (D-D9). The ORDER and every rollback live in
+   * `SkillsShSourceRootService.makeGlobal`; this handler supplies the two
+   * things that service cannot own: the propagation (the single
+   * `propagateWithReport` entry point) and the plugin loader's discovery.
+   *
+   * The workspace root stays the active install until the service has
+   * proven, registered and validated the global copy, so every failure
+   * leaves it intact and a second call retries (or resumes) safely. Every
+   * failure answers with fixed copy; causes go to the log only.
+   */
+  private registerMakeGlobal(): void {
+    this.rpcHandler.registerMethod<
+      SkillsShMakeGlobalParams,
+      SkillsShMakeGlobalResult
+    >('skillsSh:makeGlobal', async (params) => {
+      const parsed = SkillsShMakeGlobalParamsSchema.safeParse(params);
+      if (!parsed.success || !isSafePathToken(parsed.data.name)) {
+        return { success: false, error: SKILLS_SH_MAKE_GLOBAL_INVALID_ERROR };
+      }
+      const name = parsed.data.name;
+      try {
+        const outcome = await this.sourceRoots.makeGlobal(
+          name,
+          this.getWorkspaceRoot() || null,
+          this.makeGlobalHooks(),
+        );
+        if (!outcome.success) {
+          this.logger.warn('RPC: skillsSh:makeGlobal refused or failed', {
+            name,
+            code: outcome.code,
+            reason: outcome.reason,
+            rootId: outcome.rootId,
+            rollbackComplete: outcome.rollbackComplete,
+          });
+          return { success: false, error: outcome.error };
+        }
+
+        this.invalidateCaches();
+        if (!outcome.workspaceRootRemoved) {
+          this.logger.warn(
+            'RPC: skillsSh:makeGlobal left the workspace root; the next call removes it',
+            { name, rootId: outcome.rootId },
+          );
+        }
+        this.logger.info('RPC: skillsSh:makeGlobal success', {
+          name,
+          rootId: outcome.rootId,
+          resumed: outcome.resumed,
+          convertedSkills: outcome.convertedSkills,
+        });
+        return { success: true, convertedSkills: outcome.convertedSkills };
+      } catch (error: unknown) {
+        // degradation-audit: reported - the service never throws by contract;
+        // an unexpected error is logged with its cause and answered with the
+        // fixed failure copy, never the raw host text.
+        this.logger.error(
+          'RPC: skillsSh:makeGlobal failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        return { success: false, error: makeGlobalFailureCopy(name) };
+      }
+    });
+  }
+
+  /**
+   * The hooks Make global runs. `propagate` lets a rejection through: for
+   * step 6 a throw IS the failure signal the service rolls back on.
+   */
+  private makeGlobalHooks(): SkillsShMakeGlobalHooks {
+    return {
+      propagate: async () => {
+        const harnessRoot = this.getHarnessRoot();
+        if (harnessRoot === '') return { userLayerRefreshed: false };
+        const report = await this.harnessPropagation.propagateWithReport(
+          harnessRoot,
+          'skillsSh:makeGlobal',
+        );
+        return {
+          userLayerRefreshed:
+            report.health !== null && report.userLayer === 'refreshed',
+        };
+      },
+      isDiscovered: (globalRootDir) => {
+        const target = path.resolve(globalRootDir);
+        return this.pluginLoader
+          .discoverSkillsShPluginPaths()
+          .some((dir) => path.resolve(dir) === target);
+      },
+      keepSelected: (slugs) => {
+        const harnessRoot = this.getHarnessRoot();
+        if (harnessRoot === '') return false;
+        return this.skillSyncGate.keepSelected(harnessRoot, slugs);
+      },
+    };
   }
 
   /** Drop the two caches whose contents encode install state. */
@@ -847,7 +1031,9 @@ export class SkillsShRpcHandlers {
    */
   private async getInstalledSkillNames(): Promise<Set<string>> {
     try {
-      return await this.sourceRoots.installedSlugs();
+      return await this.sourceRoots.installedSlugs(
+        this.getWorkspaceRoot() || null,
+      );
     } catch (error: unknown) {
       this.logger.warn('RPC: skillsSh could not read installed slugs', {
         error: error instanceof Error ? error.message : String(error),

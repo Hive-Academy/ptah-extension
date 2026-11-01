@@ -164,7 +164,7 @@ export type MultiPhaseAnalysisPhaseStatus =
 
 /** Digest of the bounded workspace metadata used to qualify analysis freshness. */
 export interface WorkspaceFingerprint {
-  algorithm: 'sha256-v1';
+  algorithm: 'sha256-v1' | 'sha256-v2';
   digest: string;
   capturedAt: string;
 }
@@ -172,12 +172,13 @@ export interface WorkspaceFingerprint {
 /** Freshness status for the current workspace analysis. */
 export interface AnalysisStatus {
   state: 'fresh' | 'stale' | 'missing';
+  /** Whether the root Git ignore rules allow committing the analysis. */
+  sharing?: 'shareable' | 'ignored-by-gitignore' | 'unknown';
   reason:
     | 'ok'
     | 'no-analysis'
     | 'legacy-v3'
     | 'incomplete'
-    | 'expired'
     | 'workspace-changed'
     | 'output-mismatch'
     | 'unreadable';

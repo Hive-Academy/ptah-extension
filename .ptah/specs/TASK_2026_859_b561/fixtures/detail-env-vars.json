@@ -1,0 +1,46 @@
+{
+  "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "ai.2kw/mcp-server",
+    "description": "EU-hosted AI platform: OpenAI-compatible LLM gateway, document extraction, transcription, agents.",
+    "title": "2kw.ai",
+    "version": "8.0.3",
+    "websiteUrl": "https://2kw.ai",
+    "packages": [
+      {
+        "registryType": "npm",
+        "registryBaseUrl": "https://registry.npmjs.org",
+        "identifier": "@2kw/ai-mcp-server",
+        "version": "8.0.3",
+        "transport": {
+          "type": "stdio"
+        },
+        "environmentVariables": [
+          {
+            "description": "API key for the 2kw.ai platform",
+            "isRequired": true,
+            "isSecret": true,
+            "name": "AI_2KW_API_KEY"
+          },
+          {
+            "description": "Override the API base URL for self-hosted deployments",
+            "name": "AI_2KW_BASE_URL"
+          },
+          {
+            "description": "true opts agent runs into agent memory (X-Backbone-Memory: enabled)",
+            "name": "AI_2KW_MEMORY"
+          }
+        ]
+      }
+    ]
+  },
+  "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+      "status": "active",
+      "statusChangedAt": "2026-10-25T22:46:43.86716Z",
+      "publishedAt": "2026-10-25T22:46:43.86716Z",
+      "updatedAt": "2026-10-25T22:46:43.86716Z",
+      "isLatest": true
+    }
+  }
+}

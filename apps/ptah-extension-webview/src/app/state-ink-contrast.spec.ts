@@ -78,8 +78,8 @@ describe('stock theme status inks in styles.css', () => {
   );
   const declared = declarationsByTheme();
 
-  it('covers all 32 stock themes of the picker', () => {
-    expect(stockThemes).toHaveLength(32);
+  it('covers all 31 stock themes of the picker', () => {
+    expect(stockThemes).toHaveLength(31);
   });
 
   it.each(stockThemes)('%s defines every status ink and the accent ink', (name) => {

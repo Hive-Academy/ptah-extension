@@ -55,6 +55,7 @@ function makeHarness(): Harness {
       forwarded.push(message);
       return [];
     }),
+    clearBackgroundTaskSession: jest.fn(),
   };
   const messageTransformer = {
     createIsolated: () => isolated,

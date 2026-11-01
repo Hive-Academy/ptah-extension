@@ -1,0 +1,57 @@
+{
+  "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "ai.achromat/mcp-server",
+    "description": "Recall and calibrate policy-compliant tool-call arguments before execution. Does not run the tool.",
+    "title": "Achromat MOM",
+    "repository": {
+      "url": "https://github.com/achromat-ai/achromat-mcp-server",
+      "source": "github"
+    },
+    "version": "0.1.4",
+    "websiteUrl": "https://mom.achromat.ai",
+    "packages": [
+      {
+        "registryType": "npm",
+        "registryBaseUrl": "https://registry.npmjs.org",
+        "identifier": "@achromat-ai/mcp-server",
+        "version": "0.1.3",
+        "transport": {
+          "type": "stdio"
+        },
+        "environmentVariables": [
+          {
+            "description": "Path of the agent's Ed25519 private key (unencrypted PKCS#8 PEM). Created on first use if the file does not exist.",
+            "format": "filepath",
+            "default": "~/.achromat/achromat_agent_key.pem",
+            "name": "ACHROMAT_AGENT_KEY_FILE"
+          },
+          {
+            "description": "Service origin. Must be https (plain http is accepted only for localhost).",
+            "default": "https://mom.achromat.ai",
+            "name": "ACHROMAT_BASE_URL"
+          },
+          {
+            "description": "Optional attribution tag (1 to 32 characters from a-z, 0-9, _ and -) sent as ?ref= on the registration calls only. An invalid tag is ignored.",
+            "name": "ACHROMAT_REF"
+          }
+        ]
+      }
+    ],
+    "remotes": [
+      {
+        "type": "streamable-http",
+        "url": "https://mom.achromat.ai/mcp"
+      }
+    ]
+  },
+  "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+      "status": "active",
+      "statusChangedAt": "2026-10-30T12:56:21.426569Z",
+      "publishedAt": "2026-10-30T12:56:21.426569Z",
+      "updatedAt": "2026-10-30T12:56:21.426569Z",
+      "isLatest": true
+    }
+  }
+}

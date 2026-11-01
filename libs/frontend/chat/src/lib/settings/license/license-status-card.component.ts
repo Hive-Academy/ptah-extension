@@ -71,7 +71,7 @@ const LOGOUT_FAILED = 'Could not log out.';
   host: { class: 'block' },
   template: `
     @if (!isLoadingLicenseStatus()) {
-      <div class="border-b border-base-content/10 pb-7">
+      <div class="border-b border-base-content/10 pb-7" data-glass-surface="content">
         <!-- Header: heading + one primary action; Export/Import are projected by the Advanced shell (A8/A9). -->
         <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
           <div class="flex items-center gap-1.5">
@@ -431,6 +431,11 @@ const LOGOUT_FAILED = 'Could not log out.';
           </p>
         }
       </div>
+    }
+  `,
+  styles: `
+    :host-context([data-glass='on']) [data-glass-surface='content'] {
+      padding: 1.25rem;
     }
   `,
 })

@@ -8,14 +8,18 @@
  * dependency on `agent-sdk`.
  */
 
+import { readFileSync } from 'fs';
 import * as os from 'os';
-import { join } from 'path';
+import { basename, join } from 'path';
 import {
   type AgentModelLayers,
   isCapabilityPolicyUnknownError,
+  parseSkillsShRetiredRegistry,
+  SKILLS_SH_RETIRED_FILE,
   USER_LAYER_AGENTS_DIR_NAME,
   userLayerAgentDirName,
 } from '@ptah-extension/shared';
+import type { HarnessRetiredSources } from '../targets/harness-target.port';
 import type {
   HarnessSourceLayout,
   HarnessSourceState,
@@ -112,6 +116,16 @@ export function defaultHarnessSourceLayout(
 }
 
 /**
+ * `~/.ptah/plugins` — where skills.sh roots are installed, and where the
+ * retired-root registry (`SKILLS_SH_RETIRED_FILE`) sits beside them.
+ */
+export function defaultSkillsShPluginsRoot(
+  homeDir: string = os.homedir(),
+): string {
+  return join(homeDir, '.ptah', 'plugins');
+}
+
+/**
  * Point a layout's `agentsRoot` at ONE workspace's clones.
  *
  * With no root the base is returned unchanged. No path that builds a desired
@@ -152,6 +166,8 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
      */
     private readonly mcpIntents: McpIntentStore = new McpIntentStore(),
     private readonly agentModelsFactory?: AgentModelsFactory,
+    /** The root the retired skills.sh registry and its roots live under. */
+    private readonly skillsShPluginsRoot: string = defaultSkillsShPluginsRoot(),
   ) {}
 
   /**
@@ -172,7 +188,11 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
   resolve(
     workspaceRoot?: string,
   ): HarnessSourceState | Promise<HarnessSourceState> {
-    const mcpIntents = this.readMcpIntents();
+    const mcpIntents = this.readMcpIntents(workspaceRoot);
+    // Read before the plugin reader is even asked: retirement is permanent and
+    // owes nothing to the policy, so every state below — the read failures
+    // and the frozen one included — carries the same answer.
+    const retired = this.readRetiredSources();
     // Scoped once, here, so the read-failure path below and the success path
     // cannot describe two different agent directories. The scope is a pure
     // function of the root and reads nothing, so it cannot itself fail.
@@ -187,6 +207,7 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
     const empty: HarnessSourceState = {
       layout,
       mcpIntents,
+      retired,
       overlayPluginPaths: [],
       disabledSkillIds: [],
       disabledPluginIds: [],
@@ -214,6 +235,7 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
       return {
         layout,
         mcpIntents,
+        retired,
         overlayPluginPaths: reader.resolveCurrentPluginPaths(workspaceRoot),
         // The one path that actually asked the plugin loader and got an answer,
         // so the one path entitled to say the overlay is authoritative.
@@ -250,6 +272,7 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
       return {
         layout: empty.layout,
         mcpIntents: empty.mcpIntents,
+        retired: empty.retired,
         overlayPluginPaths: effective.overlayPluginPaths,
         overlayPluginPathsKnown: true,
         disabledSkillIds: effective.config.disabledSkillIds,
@@ -289,12 +312,85 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
     }
   }
 
-  private readMcpIntents(): HarnessMcpIntent[] {
+  /**
+   * The global records plus this workspace's own. The store canonicalizes the
+   * root (`resolveHarnessWorkspaceRoot`), the key the reconciler locks and
+   * keeps its manifest on, so a sub-directory and its root read the same
+   * records. No root yields the global records only — never every
+   * workspace's, which is the leak v2 exists to close.
+   *
+   * NOT caught. An unreadable store (`McpIntentPersistError` 'read-failed')
+   * used to come back as `[]`, which is an AUTHORITATIVE "no Ptah-managed MCP
+   * servers here": the MCP facet then plans a removal for every owned entry.
+   * Thrown, it fails `resolve`, and the reconciler reads its source before it
+   * takes the lock or plans a target, so the pass writes and removes nothing.
+   * Every reconcile caller already catches that rejection and logs a warning
+   * (`HarnessPropagationService.propagate`, the preflight, host activation,
+   * `McpInstallService` maps it to fixed copy). The error's message is fixed;
+   * the filesystem cause stays on `cause`.
+   */
+  private readMcpIntents(workspaceRoot?: string): HarnessMcpIntent[] {
+    return this.mcpIntents.listFor(workspaceRoot ?? '');
+  }
+
+  /** Both registries, re-read on every pass and sorted so a pass is stable. */
+  private readRetiredSources(): HarnessRetiredSources {
+    return {
+      skillSourceRoots: this.readRetiredSkillSourceRoots(),
+      mcpServerKeys: this.readRetiredMcpServerKeys(),
+    };
+  }
+
+  /**
+   * Every key the intent store carried over from v1. A key that is ALSO
+   * recorded again stays listed: the reconciler consults the list only for a
+   * removal, and a copy that is no longer desired somewhere is exactly a v1
+   * leftover that must be removed on proof.
+   */
+  private readRetiredMcpServerKeys(): string[] {
     try {
-      return this.mcpIntents.list();
+      return this.mcpIntents.listRetired().map((intent) => intent.serverKey);
     } catch {
+      // degradation-audit: optional-capability - an unreadable store (corrupt
+      // included, #84) already fails the pass loudly where the desired MCP
+      // state is read; here it leaves nothing retired, so removals fall back
+      // to the ordinary manifest-hash rule and never widen.
       return [];
     }
+  }
+
+  /**
+   * Absolute roots, `<plugins root>/<rootId>`, so the reconciler can match a
+   * manifest `source` by prefix and name the item `skills-sh:<basename>`.
+   * A root id that is not a plain directory name is dropped: it could only
+   * point outside the plugins root, and its item id would not round-trip.
+   */
+  private readRetiredSkillSourceRoots(): string[] {
+    let registry: ReturnType<typeof parseSkillsShRetiredRegistry>;
+    try {
+      registry = parseSkillsShRetiredRegistry(
+        JSON.parse(
+          readFileSync(
+            join(this.skillsShPluginsRoot, SKILLS_SH_RETIRED_FILE),
+            'utf-8',
+          ),
+        ),
+      );
+    } catch {
+      // degradation-audit: optional-capability - an absent registry is the
+      // normal state (no root was ever retired), and unparseable JSON is
+      // treated like a malformed registry below: nothing is retired.
+      return [];
+    }
+    // A malformed registry retires nothing: a copy it would have named is
+    // still manifest-owned and removed only under the ordinary hash rule.
+    if (registry === null) return [];
+    return Object.keys(registry.roots)
+      .filter(
+        (id) => id !== '' && id !== '.' && id !== '..' && basename(id) === id,
+      )
+      .sort()
+      .map((id) => join(this.skillsShPluginsRoot, id));
   }
 }
 

@@ -29,6 +29,7 @@ export {
 } from './lib/services/setup-status.service';
 export { AnalysisStorageService } from './lib/services/analysis-storage.service';
 export { AnalysisFreshnessService } from './lib/services/analysis-freshness.service';
+export { AnalysisClaudeMdLinker } from './lib/services/analysis-claude-md-linker';
 export type { ResumableRun } from './lib/services/analysis-storage.service';
 export type { OrchestratorGenerationOptions } from './lib/services/orchestrator.service';
 export type {
@@ -155,6 +156,15 @@ export { HARNESS_PLUGIN_ID_PREFIX } from './lib/services/user-layer/origin-sidec
 export {
   classifyUpstream,
   collectUpstreamLiveness,
+  UserLayerOrphanReaper,
+} from './lib/services/user-layer/user-layer-orphan-reaper';
+// `ReapResult` is already exported above through the mirror service.
+export type {
+  ReapKeptReason,
+  ReapClonePath,
+  ReapedClonePath,
+  KeptClonePath,
+  FailedClonePath,
 } from './lib/services/user-layer/user-layer-orphan-reaper';
 export { UserLayerFsOps } from './lib/services/user-layer/user-layer-fs-ops';
 export { WizardAgentOriginStore } from './lib/services/wizard-agent-origin.store';

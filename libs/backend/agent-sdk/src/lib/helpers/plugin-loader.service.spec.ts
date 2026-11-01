@@ -32,7 +32,11 @@ import * as path from 'path';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
-import type { PluginConfigState } from '@ptah-extension/shared';
+import {
+  SKILLS_SH_RETIRED_FILE,
+  workspacePluginsDir,
+  type PluginConfigState,
+} from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -2363,5 +2367,330 @@ describe('PluginLoaderService — plugin source descriptors and contents', () =>
     expect(
       plugins.find((plugin) => plugin.id === 'ptah-core'),
     ).not.toHaveProperty('agentNames');
+  });
+});
+
+describe('PluginLoaderService — skills.sh roots: retired global, local workspace (TASK_2026_853 D-2/D-3)', () => {
+  function writeRetired(h: Harness, contents: unknown): void {
+    fs.writeFileSync(
+      path.join(h.pluginsBasePath, SKILLS_SH_RETIRED_FILE),
+      typeof contents === 'string' ? contents : JSON.stringify(contents),
+      'utf-8',
+    );
+  }
+
+  const retiredRegistry = (...ids: string[]) => ({
+    version: 1,
+    roots: Object.fromEntries(
+      ids.map((id) => [id, { retiredAt: '2026-10-31T00:00:00.000Z' }]),
+    ),
+  });
+
+  /** Every relative path under `root`, so a read-only claim is checkable. */
+  function listTree(root: string): string[] {
+    const out: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        out.push(path.relative(root, full));
+        if (entry.isDirectory()) walk(full);
+      }
+    };
+    walk(root);
+    return out.sort();
+  }
+
+  it('skips a retired user-global root on every discovery path', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-skillssh-legacy-kit', 'ptah-skillssh-fresh-kit'],
+        skills: {
+          'ptah-skillssh-legacy-kit': [{ dir: 'legacy' }],
+          'ptah-skillssh-fresh-kit': [{ dir: 'fresh' }],
+        },
+      }),
+    );
+    writeRetired(h, retiredRegistry('ptah-skillssh-legacy-kit'));
+    const legacy = path.join(h.pluginsBasePath, 'ptah-skillssh-legacy-kit');
+    const fresh = path.join(h.pluginsBasePath, 'ptah-skillssh-fresh-kit');
+
+    // Mirror sources in every host read this method.
+    expect(h.service.discoverSkillsShPluginPaths()).toEqual([fresh]);
+    // Harness overlay (reconciler desired state).
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([fresh]);
+    // Plugins panel.
+    const ids = h.service.getAvailablePlugins().map((plugin) => plugin.id);
+    expect(ids).toContain('ptah-skillssh-fresh-kit');
+    expect(ids).not.toContain('ptah-skillssh-legacy-kit');
+    // Source descriptors (clone identity).
+    const descriptors = h.service.getPluginSourceDescriptors();
+    expect(descriptors[fresh]).toBeDefined();
+    expect(descriptors[legacy]).toBeUndefined();
+    // The retired root stays on disk: retired, not deleted.
+    expect(fs.existsSync(path.join(legacy, 'skills', 'legacy'))).toBe(true);
+  });
+
+  it('lists a root again once its id is cleared from the registry (Make global)', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-skillssh-acme-kit'] }));
+    const root = path.join(h.pluginsBasePath, 'ptah-skillssh-acme-kit');
+    writeRetired(h, retiredRegistry('ptah-skillssh-acme-kit'));
+    expect(h.service.discoverSkillsShPluginPaths()).toEqual([]);
+
+    writeRetired(h, retiredRegistry());
+
+    expect(h.service.discoverSkillsShPluginPaths()).toEqual([root]);
+  });
+
+  it('retires nothing, and warns, when the registry is malformed or not JSON', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-skillssh-acme-kit'] }));
+    const root = path.join(h.pluginsBasePath, 'ptah-skillssh-acme-kit');
+
+    writeRetired(h, { version: 2, roots: { 'ptah-skillssh-acme-kit': {} } });
+    expect(h.service.discoverSkillsShPluginPaths()).toEqual([root]);
+    writeRetired(h, '{not json');
+    expect(h.service.discoverSkillsShPluginPaths()).toEqual([root]);
+
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Retired skills.sh registry malformed'),
+      expect.objectContaining({
+        path: path.join(h.pluginsBasePath, SKILLS_SH_RETIRED_FILE),
+      }),
+    );
+  });
+
+  it('does not warn when no registry file exists', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-skillssh-acme-kit'] }));
+
+    expect(h.service.discoverSkillsShPluginPaths()).toHaveLength(1);
+    expect(h.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('never skips a workspace root by the global retired registry', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-skillssh-acme-kit'],
+        workspaceHarnessDirs: ['ptah-skillssh-acme-kit'],
+      }),
+    );
+    writeRetired(h, retiredRegistry('ptah-skillssh-acme-kit'));
+    const local = wsPlugin(h, 'ptah-skillssh-acme-kit');
+
+    expect(h.service.discoverSkillsShPluginPaths()).toEqual([]);
+    expect(h.service.discoverWorkspaceSkillsShPluginPaths()).toEqual([local]);
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([local]);
+  });
+
+  it('excludes Make global staging dirs in both roots', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: [
+          'ptah-skillssh-acme-kit',
+          '.staging-ptah-skillssh-acme-kit-1a2b3c',
+        ],
+        workspaceHarnessDirs: ['.staging-ptah-skillssh-other-kit-4d5e6f'],
+      }),
+    );
+
+    expect(h.service.discoverSkillsShPluginPaths()).toEqual([
+      path.join(h.pluginsBasePath, 'ptah-skillssh-acme-kit'),
+    ]);
+    expect(h.service.discoverWorkspaceSkillsShPluginPaths()).toEqual([]);
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([
+      path.join(h.pluginsBasePath, 'ptah-skillssh-acme-kit'),
+    ]);
+  });
+
+  it('builds workspace roots on workspacePluginsDir(ws), equal to the builder exemption parent', () => {
+    const h = track(
+      makeHarness({ workspaceHarnessDirs: ['ptah-skillssh-acme-kit'] }),
+    );
+    const [root] = h.service.discoverWorkspaceSkillsShPluginPaths();
+
+    expect(path.dirname(path.resolve(root))).toBe(
+      path.resolve(workspacePluginsDir(h.workspaceRoot) as string),
+    );
+  });
+
+  it('includes the workspace root in the overlay but never in the user-global (mirror) discovery', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-harness-alpha', 'ptah-skillssh-global-kit'],
+        workspaceHarnessDirs: ['ptah-skillssh-local-kit'],
+        workspaceSkills: {
+          'ptah-skillssh-local-kit': [
+            { dir: 'local', description: 'this repo only' },
+          ],
+        },
+      }),
+    );
+    const local = wsPlugin(h, 'ptah-skillssh-local-kit');
+
+    expect(h.service.resolveCurrentPluginPaths()).toContain(local);
+    // Each host's buildMirrorSources reads only these two.
+    expect(h.service.discoverSkillsShPluginPaths()).not.toContain(local);
+    expect(h.service.discoverHarnessPluginPaths()).not.toContain(local);
+
+    const plugins = h.service.getAvailablePlugins();
+    const localInfo = plugins.find((p) => p.id === 'ptah-skillssh-local-kit');
+    const globalInfo = plugins.find(
+      (p) => p.id === 'ptah-skillssh-global-kit',
+    );
+    expect(localInfo).toMatchObject({
+      source: 'skillssh',
+      description: 'this repo only',
+      skillCount: 1,
+    });
+    expect(localInfo?.keywords).toContain('workspace');
+    expect(globalInfo?.keywords).toContain('global');
+    // Never labelled as a harness plugin.
+    expect(
+      plugins.filter((p) => p.id === 'ptah-skillssh-local-kit'),
+    ).toHaveLength(1);
+    expect(h.service.getPluginSourceDescriptors()[local]).toEqual({
+      sourceRef: 'skills-sh:ptah-skillssh-local-kit',
+      label: 'Local Kit',
+    });
+  });
+
+  it('honours disabledPluginIds for a workspace skills.sh root', () => {
+    const h = track(
+      makeHarness({
+        workspaceHarnessDirs: ['ptah-skillssh-local-kit'],
+        disabledPluginIds: ['ptah-skillssh-local-kit'],
+      }),
+    );
+
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([]);
+  });
+
+  it('lists one path per id for an equal global/workspace Make global remnant, the workspace one', () => {
+    const h = track(
+      makeHarness({
+        harnessDirs: ['ptah-skillssh-acme-kit'],
+        skills: { 'ptah-skillssh-acme-kit': [{ dir: 'acme' }] },
+        workspaceHarnessDirs: ['ptah-skillssh-acme-kit'],
+        workspaceSkills: { 'ptah-skillssh-acme-kit': [{ dir: 'acme' }] },
+      }),
+    );
+    const local = wsPlugin(h, 'ptah-skillssh-acme-kit');
+
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([local]);
+    expect(
+      h.service
+        .getAvailablePlugins()
+        .filter((p) => p.id === 'ptah-skillssh-acme-kit'),
+    ).toHaveLength(1);
+    expect(
+      h.service
+        .discoverSkillsForPlugins(h.service.resolveCurrentPluginPaths())
+        .filter((skill) => skill.skillId === 'acme'),
+    ).toHaveLength(1);
+    // Expected and self-healing, so it is not a warning.
+    expect(h.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('lists only the active workspace root, never another open folder', () => {
+    const pluginsBasePath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'ptah-skillssh-plugins-'),
+    );
+    const rootA = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-skillssh-wsA-'));
+    const rootB = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-skillssh-wsB-'));
+    created.push(pluginsBasePath, rootA, rootB);
+    for (const [root, id] of [
+      [rootA, 'ptah-skillssh-only-a'],
+      [rootB, 'ptah-skillssh-only-b'],
+    ] as const) {
+      fs.mkdirSync(path.join(root, '.ptah', 'plugins', id), {
+        recursive: true,
+      });
+    }
+    const externalStore = new ExternalPluginStateStore();
+    externalStore.initialize(pluginsBasePath);
+    const service = new PluginLoaderService(
+      createMockLogger() as unknown as Logger,
+      externalStore,
+      // A is the active folder throughout.
+      createWorkspaceProvider(rootA) as never,
+    );
+    service.initialize(pluginsBasePath, createStateStorage());
+    const pathA = path.join(rootA, '.ptah', 'plugins', 'ptah-skillssh-only-a');
+    const pathB = path.join(rootB, '.ptah', 'plugins', 'ptah-skillssh-only-b');
+
+    expect(service.discoverWorkspaceSkillsShPluginPaths()).toEqual([pathA]);
+    expect(service.resolveCurrentPluginPaths()).toEqual([pathA]);
+    const ids = service.getAvailablePlugins().map((plugin) => plugin.id);
+    expect(ids).toContain('ptah-skillssh-only-a');
+    expect(ids).not.toContain('ptah-skillssh-only-b');
+    expect(Object.keys(service.getPluginSourceDescriptors())).not.toContain(
+      pathB,
+    );
+
+    // A reconcile pass for B sees B's root and not A's.
+    expect(service.discoverWorkspaceSkillsShPluginPaths(rootB)).toEqual([
+      pathB,
+    ]);
+    expect(service.resolveCurrentPluginPaths(rootB)).toEqual([pathB]);
+
+    // Neither workspace root reaches the user-global (mirror) discovery.
+    expect(service.discoverSkillsShPluginPaths()).toEqual([]);
+    expect(service.discoverHarnessPluginPaths()).toEqual([]);
+  });
+
+  it('reports no workspace skills.sh roots when no folder is open', () => {
+    const h = track(makeHarness({ harnessDirs: ['ptah-skillssh-acme-kit'] }));
+
+    expect(h.service.discoverWorkspaceSkillsShPluginPaths()).toEqual([]);
+  });
+
+  it('only reads {ws}/.ptah: discovery writes no file, .gitignore included', () => {
+    const h = track(
+      makeHarness({
+        workspaceHarnessDirs: ['ptah-skillssh-local-kit'],
+        workspaceSkills: { 'ptah-skillssh-local-kit': [{ dir: 'local' }] },
+      }),
+    );
+    const workspaceRoot = h.workspaceRoot as string;
+    const before = listTree(workspaceRoot);
+
+    h.service.discoverWorkspaceSkillsShPluginPaths();
+    h.service.resolveCurrentPluginPaths();
+    h.service.getAvailablePlugins();
+    h.service.getPluginSourceDescriptors();
+    h.service.getDisabledSkillIds();
+
+    expect(listTree(workspaceRoot)).toEqual(before);
+    expect(fs.existsSync(path.join(workspaceRoot, '.gitignore'))).toBe(false);
+  });
+
+  it('keeps bundled plugins and their agents alongside both skills.sh scopes', () => {
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        enabledPluginIds: ['ptah-core'],
+        skills: { 'ptah-core': [{ dir: 'core-skill' }] },
+        harnessDirs: ['ptah-skillssh-global-kit'],
+        workspaceHarnessDirs: ['ptah-skillssh-local-kit'],
+      }),
+    );
+    const core = path.join(h.pluginsBasePath, 'ptah-core');
+    fs.mkdirSync(path.join(core, 'agents'), { recursive: true });
+    fs.writeFileSync(path.join(core, 'agents', 'architect.md'), 'a', 'utf-8');
+
+    expect(h.service.resolveCurrentPluginPaths()).toEqual([
+      core,
+      path.join(h.pluginsBasePath, 'ptah-skillssh-global-kit'),
+      wsPlugin(h, 'ptah-skillssh-local-kit'),
+    ]);
+    expect(h.service.resolvePluginPaths(['ptah-core'])).toEqual([core]);
+    expect(
+      h.service.getAvailablePlugins().find((p) => p.id === 'ptah-core'),
+    ).toMatchObject({
+      source: 'bundled',
+      skillCount: 1,
+      agentNames: ['architect'],
+    });
+    expect(h.service.getPluginSourceDescriptors()[core]).toMatchObject({
+      sourceRef: 'ptah:ptah-core',
+    });
   });
 });

@@ -63,6 +63,7 @@ export class AnalysisStepStore {
   >([]);
   private readonly selectionValue = signal<ReadonlySet<string>>(new Set());
   private readonly attachedValue = signal(false);
+  private workspaceRevision = 0;
   readonly saved = this.savedValue.asReadonly();
   readonly hidden = this.hiddenValue.asReadonly();
   readonly selected = this.selectedValue.asReadonly();
@@ -129,7 +130,9 @@ export class AnalysisStepStore {
   }
 
   async listAnalyses(): Promise<void> {
-    this.savedValue.set(await this.rpc.listAnalyses({ throwOnError: true }));
+    const revision = this.workspaceRevision;
+    const saved = await this.rpc.listAnalyses({ throwOnError: true });
+    if (revision === this.workspaceRevision) this.savedValue.set(saved);
   }
   attachStream(): void {
     this.attachedValue.set(true);
@@ -145,8 +148,10 @@ export class AnalysisStepStore {
   ): Promise<'loaded' | 'not-found' | 'failed'> {
     if (!this.savedValue().some((item) => item.filename === filename))
       return 'not-found';
+    const revision = this.workspaceRevision;
     try {
       const result = await this.rpc.loadAnalysis(filename);
+      if (revision !== this.workspaceRevision) return 'not-found';
       if (result.manifest.lifecycle !== 'completed') return 'not-found';
       this.selectedValue.set(filename);
       this.loadedValue.set(result);
@@ -155,6 +160,31 @@ export class AnalysisStepStore {
       // degradation-audit: reported — callers map failed to the saved-analysis retry message.
       return 'failed';
     }
+  }
+  async useAnalysis(slug: string): Promise<'loaded' | 'not-found' | 'failed'> {
+    if (!slug || slug.includes('/') || slug.includes('\\')) return 'not-found';
+    const revision = this.workspaceRevision;
+    try {
+      const result = await this.rpc.loadAnalysis(slug);
+      if (revision !== this.workspaceRevision) return 'not-found';
+      if (result.manifest.lifecycle !== 'completed') return 'not-found';
+      this.selectedValue.set(slug);
+      this.loadedValue.set(result);
+      return 'loaded';
+    } catch {
+      // degradation-audit: reported — the card presents a retryable load failure.
+      return 'failed';
+    }
+  }
+  resetForWorkspace(): void {
+    this.workspaceRevision++;
+    this.savedValue.set([]);
+    this.hiddenValue.set(new Set());
+    this.selectedValue.set(null);
+    this.loadedValue.set(null);
+    this.recommendationsValue.set([]);
+    this.selectionValue.set(new Set());
+    this.attachedValue.set(false);
   }
   clearSelection(): void {
     this.selectedValue.set(null);
@@ -184,6 +214,7 @@ export class AnalysisStepStore {
     binding: SetupGenerationTabBinding,
     source: 'analysis' | 'catalog',
   ): Promise<void> {
+    const revision = this.workspaceRevision;
     this.recommendationsValue.set([]);
     const result = source === 'analysis' ? this.loaded() : null;
     if (source === 'analysis' && !result)
@@ -192,6 +223,7 @@ export class AnalysisStepStore {
       source === 'analysis'
         ? await this.rpc.recommendAgents(result!)
         : await this.loadCatalog(binding);
+    if (revision !== this.workspaceRevision) return;
     this.recommendationsValue.set(recommendations);
     this.selectRecommended();
   }

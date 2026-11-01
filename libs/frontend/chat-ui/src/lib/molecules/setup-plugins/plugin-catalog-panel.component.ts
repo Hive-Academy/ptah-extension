@@ -301,8 +301,9 @@ function skillSelectionKey(
               <span
                 class="block text-xs text-base-content-muted mt-0.5 leading-relaxed"
               >
-                Which of your skills Ptah copies into this project's AI tools.
-                Every project keeps its own answer.
+                Which of your skills for all workspaces Ptah copies into this
+                project's AI tools. Skills installed for this workspace always
+                reach it. Every project keeps its own answer.
               </span>
             </div>
             <div
@@ -337,17 +338,28 @@ function skillSelectionKey(
             </div>
           </div>
 
-          @if (skillMode() === 'all') {
-            @if (skillModeDerived()) {
-              <span
-                class="block text-xs text-base-content-muted mt-2"
-                data-testid="skill-mode-derived"
-              >
+          @if (skillModeDerived()) {
+            <span
+              class="block text-xs text-base-content-muted mt-2"
+              data-testid="skill-mode-derived"
+            >
+              @if (skillMode() === 'all') {
                 This project was already receiving skills before it could be
-                asked, so Ptah kept them all flowing. Narrow it whenever you
-                like.
-              </span>
-            }
+                asked, so Ptah kept that answer. Change it whenever you like.
+              } @else {
+                Ptah kept the skills this project already had. Skills you
+                install for all workspaces reach it only when you pick them.
+              }
+            </span>
+          }
+          @if (skillMode() === 'all') {
+            <span
+              class="block text-xs text-base-content-muted mt-2"
+              data-testid="skill-mode-all-help"
+            >
+              Every skill installed for all workspaces, plus the ones installed
+              for this workspace.
+            </span>
           } @else {
             <div
               class="mt-2 max-h-40 overflow-y-auto pr-1"

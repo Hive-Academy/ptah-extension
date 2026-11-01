@@ -31,8 +31,14 @@ export class OnboardingResumeStore {
   private refreshSequence = 0;
   readonly items = this._items.asReadonly();
 
+  clear(): void {
+    this.refreshSequence++;
+    this._items.set([]);
+  }
+
   async refresh(): Promise<void> {
     const sequence = ++this.refreshSequence;
+    this._items.set([]);
     const root =
       this.tabs.activeWorkspacePath || this.vscode.config().workspaceRoot;
     if (!root) {

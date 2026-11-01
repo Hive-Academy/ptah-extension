@@ -129,4 +129,14 @@ describe('OnboardingResumeStore', () => {
     expect(tabs.getWorkspaceTabs).toHaveBeenNthCalledWith(1, '/work');
     expect(tabs.getWorkspaceTabs).toHaveBeenNthCalledWith(2, '/new');
   });
+  it('clears old actions and rejects an in-flight result while the backend switches', async () => {
+    let finish!: (value: { analysis: { manifest: { lifecycle: 'paused' } }; generation: null }) => void;
+    rpc.getResumableRun.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const pending = store.refresh();
+    store.clear();
+    expect(store.items()).toEqual([]);
+    finish({ analysis: { manifest: { lifecycle: 'paused' } }, generation: null });
+    await pending;
+    expect(store.items()).toEqual([]);
+  });
 });

@@ -50,6 +50,7 @@ const LABELS: Readonly<Record<SubagentPromptCacheTtlSetting, string>> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
+      data-glass-surface="content"
       class="border-b border-base-content/10 pb-6 text-sm text-base-content"
       aria-label="Subagent prompt cache"
       data-testid="subagent-cache-ttl-setting"
@@ -126,6 +127,11 @@ const LABELS: Readonly<Record<SubagentPromptCacheTtlSetting, string>> = {
         </button>
       }
     </section>
+  `,
+  styles: `
+    :host-context([data-glass='on']) [data-glass-surface='content'] {
+      padding: 1.25rem;
+    }
   `,
 })
 export class SubagentCacheTtlSettingComponent {

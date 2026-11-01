@@ -78,6 +78,7 @@ import {
   type MockFileSystemProvider,
 } from '@ptah-extension/platform-core/testing';
 import { AnalysisStorageService } from '../analysis-storage.service';
+import { AnalysisClaudeMdLinker } from '../analysis-claude-md-linker';
 import { computeWorkspaceFingerprint } from '../analysis-fingerprint';
 import { buildPhase1Prompts } from './multi-phase-prompts';
 import {
@@ -248,6 +249,7 @@ describe('MultiPhaseAnalysisService', () => {
         resolveForPath: resolveLlm,
       } as never,
       fs,
+      new AnalysisClaudeMdLinker(storage, fs, logger as never),
     );
   });
 
@@ -641,6 +643,26 @@ describe('MultiPhaseAnalysisService', () => {
         'pending',
       );
       expect(firstWrite.lifecycle).toBe('running');
+    });
+
+    it('reuses a completed phase after its markdown is copied with CRLF', async () => {
+      const manifest = await seedPausedManifest();
+      if (manifest.version !== 4) throw new Error('Expected v4 fixture');
+      manifest.phases['project-profile'].verification.outputSha256 = createHash('sha256')
+        .update('OLD\nPROFILE')
+        .digest('hex');
+      await storage.writeManifest(SLUG_DIR, manifest);
+      await fs.writeFile(join(SLUG_DIR, FILES[0]), 'OLD\r\nPROFILE');
+      scenarios = FILES.slice(1).map((file) => agentWritesFile(file));
+
+      const result = await service.analyzeWorkspace(WORKSPACE, {
+        mcpServerRunning: true,
+        resume: true,
+      });
+
+      expect(result.isOk()).toBe(true);
+      expect(execute).toHaveBeenCalledTimes(3);
+      expect((result.value as MultiPhaseManifestV4).phases['project-profile'].attempt).toBe(1);
     });
 
     // A FAILED or PAUSED run leaves its lossy diagnostic text on disk and
