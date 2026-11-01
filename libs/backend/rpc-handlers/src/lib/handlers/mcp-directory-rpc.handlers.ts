@@ -417,6 +417,13 @@ export class McpDirectoryRpcHandlers {
             error: MCP_REGISTRY_ERROR_MESSAGES[error.code],
           };
         }
+        if (params.source !== 'smithery') {
+          return {
+            servers: [],
+            errorCode: 'MCP_REGISTRY_UNAVAILABLE',
+            error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_UNAVAILABLE,
+          };
+        }
         return { servers: [] };
       }
     });
@@ -454,6 +461,20 @@ export class McpDirectoryRpcHandlers {
           error: String(error),
           errorCode: isMcpRegistryShapeError(error) ? error.code : undefined,
         });
+        if (isMcpRegistryShapeError(error)) {
+          return {
+            name: params.name,
+            errorCode: error.code,
+            error: MCP_REGISTRY_ERROR_MESSAGES[error.code],
+          };
+        }
+        if (params.source !== 'smithery') {
+          return {
+            name: params.name,
+            errorCode: 'MCP_REGISTRY_UNAVAILABLE',
+            error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_UNAVAILABLE,
+          };
+        }
         return { name: params.name };
       }
     });
@@ -626,6 +647,13 @@ export class McpDirectoryRpcHandlers {
             servers: [],
             errorCode: error.code,
             error: MCP_REGISTRY_ERROR_MESSAGES[error.code],
+          };
+        }
+        if (params.source !== 'smithery') {
+          return {
+            servers: [],
+            errorCode: 'MCP_REGISTRY_UNAVAILABLE',
+            error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_UNAVAILABLE,
           };
         }
         return { servers: [] };

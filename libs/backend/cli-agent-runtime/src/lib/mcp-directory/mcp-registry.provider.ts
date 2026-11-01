@@ -274,24 +274,19 @@ export class McpRegistryProvider implements IMcpRegistrySource {
   async getServerDetails(name: string): Promise<McpRegistryEntry | null> {
     const url = `${REGISTRY_BASE_URL}/servers/${encodeURIComponent(name)}/versions/latest`;
 
-    try {
-      const response = await this.fetch(url);
-      if (response.status === 404) return null;
+    // A 404 means not found. Other failures reach the RPC boundary, which
+    // distinguishes an unavailable registry from an unknown shape.
+    const response = await this.fetch(url);
+    if (response.status === 404) return null;
 
-      const entry = unwrapRegistryEntry(
-        await this.readJson(response),
-        this.logger,
-      );
-      if (!entry) {
-        throw new McpRegistryShapeError();
-      }
-      return entry;
-      // degradation-audit: optional-capability - null covers not found and
-      // unreachable. Shape errors remain visible to the RPC boundary.
-    } catch (error: unknown) {
-      if (error instanceof McpRegistryShapeError) throw error;
-      return null;
+    const entry = unwrapRegistryEntry(
+      await this.readJson(response),
+      this.logger,
+    );
+    if (!entry) {
+      throw new McpRegistryShapeError();
     }
+    return entry;
   }
 
   /** Get popular/trending servers. Results are cached for 10 minutes. */

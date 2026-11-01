@@ -209,6 +209,29 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
     expect(sentry.captureException).toHaveBeenCalled();
   });
 
+  it('returns a safe availability error when search cannot reach the registry', async () => {
+    globalThis.fetch = jest
+      .fn()
+      .mockRejectedValue(new Error('raw provider network text'));
+    build();
+
+    const res = await call('mcpDirectory:search', { query: 'x' });
+
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({
+      servers: [],
+      errorCode: 'MCP_REGISTRY_UNAVAILABLE',
+      error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_UNAVAILABLE,
+    });
+    expect(JSON.stringify(res.data)).not.toContain('raw provider network text');
+    expect(logger.error).toHaveBeenCalledWith(
+      'RPC: mcpDirectory:search failed',
+      expect.objectContaining({
+        error: expect.stringContaining('raw provider network text'),
+      }),
+    );
+  });
+
   it('routes search to Smithery when source=smithery (key configured)', async () => {
     authSecrets.getProviderKey.mockResolvedValue('smithery-key');
     mockFetch((url) => {
@@ -268,7 +291,7 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
     expect(data.connections?.[0].configSchema).toBeDefined();
   });
 
-  it('logs the shape code and keeps the details fallback result', async () => {
+  it('returns the coded shape error from getDetails', async () => {
     mockFetch(() => ({
       server: { name: 'io.github.acme/invalid' },
       _meta: {},
@@ -280,11 +303,31 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
     });
 
     expect(res.success).toBe(true);
-    expect(res.data).toEqual({ name: 'io.github.acme/invalid' });
+    expect(res.data).toEqual({
+      name: 'io.github.acme/invalid',
+      errorCode: 'MCP_REGISTRY_SHAPE_UNKNOWN',
+      error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_SHAPE_UNKNOWN,
+    });
     expect(logger.error).toHaveBeenCalledWith(
       'RPC: mcpDirectory:getDetails failed',
       expect.objectContaining({ errorCode: 'MCP_REGISTRY_SHAPE_UNKNOWN' }),
     );
+  });
+
+  it('returns a safe availability error when getDetails cannot reach the registry', async () => {
+    globalThis.fetch = jest.fn().mockRejectedValue(new Error('network down'));
+    build();
+
+    const res = await call('mcpDirectory:getDetails', {
+      name: 'io.github.acme/unavailable',
+    });
+
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({
+      name: 'io.github.acme/unavailable',
+      errorCode: 'MCP_REGISTRY_UNAVAILABLE',
+      error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_UNAVAILABLE,
+    });
   });
 
   it('resolveSmithery returns an http config when key present', async () => {
@@ -510,6 +553,20 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
       error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_SHAPE_UNKNOWN,
     });
     expect(sentry.captureException).toHaveBeenCalled();
+  });
+
+  it('returns a safe availability error when popular cannot reach the registry', async () => {
+    globalThis.fetch = jest.fn().mockRejectedValue(new Error('network down'));
+    build();
+
+    const res = await call('mcpDirectory:getPopular', {});
+
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({
+      servers: [],
+      errorCode: 'MCP_REGISTRY_UNAVAILABLE',
+      error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_UNAVAILABLE,
+    });
   });
 });
 

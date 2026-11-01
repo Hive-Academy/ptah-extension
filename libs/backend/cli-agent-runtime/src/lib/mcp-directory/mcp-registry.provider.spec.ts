@@ -226,12 +226,12 @@ describe('McpRegistryProvider response shape handling', () => {
     ).resolves.toBeNull();
   });
 
-  it('returns null when the detail request has a network failure', async () => {
+  it('rethrows a detail request network failure for coded RPC handling', async () => {
     globalThis.fetch = jest.fn().mockRejectedValue(new Error('network down'));
 
     await expect(
       provider.getServerDetails('io.github.acme/broken'),
-    ).resolves.toBeNull();
+    ).rejects.toThrow('network down');
   });
 
   it('returns an empty list for a valid empty page', async () => {

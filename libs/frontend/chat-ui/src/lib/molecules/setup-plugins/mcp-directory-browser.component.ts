@@ -18,8 +18,6 @@ import {
   registryEntryToInstallConfig,
   type McpRegistryEntry,
   type McpInstallTarget,
-  type McpRequiredInput,
-  type McpServerConfig,
   type InstalledMcpServer,
 } from '@ptah-extension/shared';
 import {
@@ -141,7 +139,7 @@ interface RegistryCardView {
               <ptah-catalog-card-skeleton role="listitem" />
             }
           </ptah-catalog-grid>
-        } @else if (cards().length === 0) {
+        } @else if (cards().length === 0 && !error()) {
           <p class="py-4 text-center text-xs text-base-content-muted">
             {{
               searchQuery()
@@ -238,7 +236,7 @@ interface RegistryCardView {
 
                         @if (requiredInputs().length > 0) {
                           <div
-                            class="space-y-1.5"
+                            class="space-y-2"
                             data-testid="mcp-required-inputs"
                           >
                             <p
@@ -246,13 +244,16 @@ interface RegistryCardView {
                             >
                               Required inputs
                             </p>
-                            <ul class="space-y-1 text-xs">
-                              @for (
-                                requiredInput of requiredInputs();
-                                track requiredInput.location + ':' + requiredInput.name
-                              ) {
-                                <li>
-                                  <span class="font-mono">{{
+                            @for (
+                              requiredInput of requiredInputs();
+                              track requiredInput.key
+                            ) {
+                              <div class="space-y-1">
+                                <label
+                                  class="label py-0"
+                                  [for]="'mcp-required-input-' + $index"
+                                >
+                                  <span class="label-text font-mono text-xs">{{
                                     requiredInput.name
                                   }}</span>
                                   @if (requiredInput.isSecret) {
@@ -260,14 +261,39 @@ interface RegistryCardView {
                                       >secret</span
                                     >
                                   }
-                                  @if (requiredInput.description) {
-                                    <p class="text-base-content-muted">
-                                      {{ requiredInput.description }}
-                                    </p>
-                                  }
-                                </li>
-                              }
-                            </ul>
+                                </label>
+                                @if (requiredInput.choices; as choices) {
+                                  <select
+                                    class="select select-bordered select-sm w-full text-xs"
+                                    [id]="'mcp-required-input-' + $index"
+                                    [value]="inputValues()[requiredInput.key] ?? ''"
+                                    (change)="
+                                      onRequiredInputChange(requiredInput.key, $event)
+                                    "
+                                  >
+                                    <option value="">Select a value</option>
+                                    @for (choice of choices; track choice) {
+                                      <option [value]="choice">{{ choice }}</option>
+                                    }
+                                  </select>
+                                } @else {
+                                  <input
+                                    class="input input-bordered input-sm w-full font-mono text-xs"
+                                    [id]="'mcp-required-input-' + $index"
+                                    [type]="requiredInput.isSecret ? 'password' : 'text'"
+                                    [value]="inputValues()[requiredInput.key] ?? ''"
+                                    (input)="
+                                      onRequiredInputChange(requiredInput.key, $event)
+                                    "
+                                  />
+                                }
+                                @if (requiredInput.description) {
+                                  <p class="text-xs text-base-content-muted">
+                                    {{ requiredInput.description }}
+                                  </p>
+                                }
+                              </div>
+                            }
                           </div>
                         }
 
@@ -391,9 +417,31 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   readonly installingServerNames = signal<Set<string>>(new Set());
   readonly error = signal<string | null>(null);
   readonly expandedServerName = signal<string | null>(null);
-  readonly suggestedConfig = signal<McpServerConfig | null>(null);
-  readonly requiredInputs = signal<McpRequiredInput[]>([]);
-  readonly installable = signal(true);
+  private readonly officialEntry = signal<McpRegistryEntry | null>(null);
+  /** Supplied values keyed by `McpRequiredInput.key`; never logged. */
+  readonly inputValues = signal<Readonly<Record<string, string>>>({});
+  private readonly installConfig = computed(() => {
+    const entry = this.officialEntry();
+    return entry === null
+      ? null
+      : registryEntryToInstallConfig(entry, this.inputValues());
+  });
+  readonly suggestedConfig = computed(() => {
+    const result = this.installConfig();
+    return result !== null && result.ok ? result.config : null;
+  });
+  private readonly configPreview = computed(() => {
+    const result = this.installConfig();
+    return result !== null && result.ok ? result.preview : null;
+  });
+  readonly requiredInputs = computed(() => {
+    const result = this.installConfig();
+    return result !== null && result.ok ? result.requiredInputs : [];
+  });
+  readonly installable = computed(() => {
+    const result = this.installConfig();
+    return result !== null && result.ok && result.installable;
+  });
   readonly configError = signal<string | null>(null);
   readonly selectedTargets = signal<Set<McpInstallTarget>>(
     new Set(ALL_TARGETS),
@@ -473,44 +521,33 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
   async toggleInstallPanel(server: McpRegistryEntry): Promise<void> {
     const showFallback = (): void => {
-      this.suggestedConfig.set(null);
-      this.requiredInputs.set([]);
-      this.installable.set(false);
+      this.officialEntry.set(null);
       this.configError.set(
         'Could not auto-detect configuration for this server.',
       );
     };
     const applyOfficialConfig = (entry: McpRegistryEntry): void => {
-      const result = registryEntryToInstallConfig(entry);
-      if (result.ok) {
-        this.suggestedConfig.set(result.config);
-        this.requiredInputs.set(result.requiredInputs);
-        this.installable.set(result.installable);
-        this.configError.set(null);
-      } else {
-        this.suggestedConfig.set(null);
-        this.requiredInputs.set([]);
-        this.installable.set(false);
-        this.configError.set(
-          `${result.code}: ${MCP_REGISTRY_ERROR_MESSAGES[result.code]}`,
-        );
-      }
+      this.officialEntry.set(entry);
+      const result = this.installConfig();
+      this.configError.set(
+        result !== null && !result.ok
+          ? `${result.code}: ${MCP_REGISTRY_ERROR_MESSAGES[result.code]}`
+          : null,
+      );
     };
 
     if (this.expandedServerName() === server.name) {
       this.expandedServerName.set(null);
-      this.suggestedConfig.set(null);
-      this.requiredInputs.set([]);
-      this.installable.set(true);
+      this.officialEntry.set(null);
+      this.inputValues.set({});
       this.configError.set(null);
       return;
     }
 
     this.expandedServerName.set(server.name);
     this.selectedTargets.set(new Set(ALL_TARGETS));
-    this.suggestedConfig.set(null);
-    this.requiredInputs.set([]);
-    this.installable.set(true);
+    this.officialEntry.set(null);
+    this.inputValues.set({});
     this.configError.set(null);
     if (
       server.source !== 'smithery' &&
@@ -530,7 +567,17 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
       if (this.destroyed) return;
 
       if (result.isSuccess() && result.data.source !== 'smithery') {
-        applyOfficialConfig(result.data);
+        if (result.data.errorCode) {
+          this.officialEntry.set(null);
+          this.configError.set(
+            `${result.data.errorCode}: ${
+              result.data.error ??
+              MCP_REGISTRY_ERROR_MESSAGES[result.data.errorCode]
+            }`,
+          );
+        } else {
+          applyOfficialConfig(result.data);
+        }
       } else {
         showFallback();
       }
@@ -540,6 +587,12 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     } finally {
       if (!this.destroyed) this.isLoadingDetails.set(false);
     }
+  }
+
+  onRequiredInputChange(key: string, event: Event): void {
+    const target = event.target as HTMLInputElement | HTMLSelectElement;
+    const value = target.value;
+    this.inputValues.update((values) => ({ ...values, [key]: value }));
   }
 
   toggleTarget(target: McpInstallTarget): void {
@@ -555,7 +608,8 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   }
 
   async confirmInstall(server: McpRegistryEntry): Promise<void> {
-    const config = this.suggestedConfig();
+    const result = this.installConfig();
+    const config = result !== null && result.ok ? result.config : null;
     if (!config || this.selectedTargets().size === 0) return;
     if (this.installingServerNames().has(server.name)) return;
 
@@ -584,7 +638,8 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
           });
           await this.loadInstalled();
           this.expandedServerName.set(null);
-          this.suggestedConfig.set(null);
+          this.officialEntry.set(null);
+          this.inputValues.set({});
           // After the reload, so it is not overwritten; a reload error is
           // kept beside it. A failure message below leads, warning appended.
           if (warning) {
@@ -642,12 +697,12 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   }
 
   getConfigSummary(): string {
-    const config = this.suggestedConfig();
-    if (!config) return '';
-    if (config.type === 'stdio') {
-      return `${config.command} ${config.args?.join(' ') || ''}`.trim();
+    const preview = this.configPreview();
+    if (!preview) return '';
+    if (preview.type === 'stdio') {
+      return `${preview.command} ${preview.args?.join(' ') || ''}`.trim();
     }
-    return config.url;
+    return preview.url;
   }
 
   private deriveServerKey(name: string): string {

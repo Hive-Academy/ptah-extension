@@ -34,7 +34,10 @@ import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import type { CliMessageTransport } from '@ptah-extension/cli-engine';
-import { registryEntryToInstallConfig } from '@ptah-extension/shared';
+import {
+  MCP_REGISTRY_ERROR_MESSAGES,
+  registryEntryToInstallConfig,
+} from '@ptah-extension/shared';
 import type {
   InstalledMcpServer,
   McpDirectoryGetDetailsResult,
@@ -44,6 +47,7 @@ import type {
   McpDirectorySearchResult,
   McpDirectoryUninstallResult,
   McpInstallTarget,
+  McpRegistryErrorCode,
   McpServerConfig,
 } from '@ptah-extension/shared';
 
@@ -67,6 +71,8 @@ export interface McpOptions {
   target?: string;
   /** For `search`: optional pagination limit. */
   limit?: number;
+  /** For `install`: repeatable NAME=VALUE required-input assignments. */
+  input?: string[];
 }
 
 export interface McpStderrLike {
@@ -111,7 +117,7 @@ export async function execute(
       case 'list':
         return await runList(globals, formatter, engine);
       case 'popular':
-        return await runPopular(globals, formatter, engine);
+        return await runPopular(globals, formatter, stderr, engine);
       default:
         stderr.write(
           `ptah mcp: unknown sub-command '${String(opts.subcommand)}'\n`,
@@ -126,6 +132,22 @@ export async function execute(
     });
     return ExitCode.InternalFailure;
   }
+}
+
+function reportRegistryError(
+  stderr: McpStderrLike,
+  result: {
+    errorCode?: McpRegistryErrorCode;
+    error?: string;
+  } | null,
+): boolean {
+  if (!result?.errorCode) return false;
+  stderr.write(
+    `${result.errorCode}: ${
+      result.error ?? MCP_REGISTRY_ERROR_MESSAGES[result.errorCode]
+    }\n`,
+  );
+  return true;
 }
 
 async function runSearch(
@@ -150,6 +172,7 @@ async function runSearch(
       'mcpDirectory:search',
       params,
     );
+    if (reportRegistryError(stderr, result)) return ExitCode.GeneralError;
     await formatter.writeNotification('mcp.search', {
       query,
       servers: result?.servers ?? [],
@@ -176,6 +199,7 @@ async function runDetails(
       'mcpDirectory:getDetails',
       { name: opts.name },
     );
+    if (reportRegistryError(stderr, result)) return ExitCode.GeneralError;
     await formatter.writeNotification('mcp.details', toRecord(result));
     return ExitCode.Success;
   });
@@ -217,7 +241,28 @@ async function runInstall(
     if (!entry) {
       throw new Error(`mcpDirectory:getDetails returned no entry for "${name}"`);
     }
-    const installConfig = registryEntryToInstallConfig(entry);
+    if (reportRegistryError(stderr, entry)) return ExitCode.GeneralError;
+
+    const initialConfig = registryEntryToInstallConfig(entry);
+    if (!initialConfig.ok) {
+      throw new Error(`${initialConfig.code}: ${initialConfig.message}`);
+    }
+    const values: Record<string, string> = {};
+    for (const rawInput of opts.input ?? []) {
+      const separator = rawInput.indexOf('=');
+      if (separator <= 0) {
+        throw new Error('Each --input must use NAME=VALUE.');
+      }
+      const inputName = rawInput.slice(0, separator);
+      const inputValue = rawInput.slice(separator + 1);
+      for (const requiredInput of initialConfig.requiredInputs) {
+        if (requiredInput.name === inputName) {
+          values[requiredInput.key] = inputValue;
+        }
+      }
+    }
+
+    const installConfig = registryEntryToInstallConfig(entry, values);
     if (!installConfig.ok) {
       throw new Error(`${installConfig.code}: ${installConfig.message}`);
     }
@@ -225,8 +270,15 @@ async function runInstall(
       (input) => input.name,
     );
     if (!installConfig.installable) {
+      const missingInputs = installConfig.requiredInputs
+        .filter(
+          (input) =>
+            input.isRequired &&
+            (values[input.key] === undefined || values[input.key] === ''),
+        )
+        .map((input) => input.name);
       throw new Error(
-        `Cannot install "${name}" without required inputs: ${requiredInputs.join(', ')}`,
+        `Cannot install "${name}" without required inputs: ${missingInputs.join(', ')}`,
       );
     }
     const config = installConfig.config;
@@ -359,6 +411,7 @@ async function runList(
 async function runPopular(
   globals: GlobalOptions,
   formatter: Formatter,
+  stderr: McpStderrLike,
   engine: typeof withEngine,
 ): Promise<number> {
   return engine(globals, { mode: 'full' }, async (ctx) => {
@@ -367,6 +420,7 @@ async function runPopular(
       'mcpDirectory:getPopular',
       {},
     );
+    if (reportRegistryError(stderr, result)) return ExitCode.GeneralError;
     await formatter.writeNotification('mcp.popular', {
       servers: result?.servers ?? [],
     });

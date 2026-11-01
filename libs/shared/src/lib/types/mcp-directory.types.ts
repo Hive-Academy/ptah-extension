@@ -192,20 +192,26 @@ export interface McpRegistryRemote {
 /** Coded registry failures that have a user-safe explanation. */
 export type McpRegistryErrorCode =
   | 'MCP_REGISTRY_SHAPE_UNKNOWN'
+  | 'MCP_REGISTRY_UNAVAILABLE'
   | 'MCP_NO_INSTALL_SOURCE'
   | 'MCP_PACKAGE_TYPE_UNSUPPORTED'
-  | 'MCP_PACKAGE_TRANSPORT_UNSUPPORTED';
+  | 'MCP_PACKAGE_TRANSPORT_UNSUPPORTED'
+  | 'MCP_REMOTE_TRANSPORT_UNSUPPORTED';
 
 /** User-safe messages for registry failures; these contain no server data or secrets. */
 export const MCP_REGISTRY_ERROR_MESSAGES: Record<McpRegistryErrorCode, string> = {
   MCP_REGISTRY_SHAPE_UNKNOWN:
     'The registry returned a server format that Ptah does not recognize.',
+  MCP_REGISTRY_UNAVAILABLE:
+    'The MCP registry could not be reached. Try again later.',
   MCP_NO_INSTALL_SOURCE:
     'This server does not provide an installable package or remote endpoint.',
   MCP_PACKAGE_TYPE_UNSUPPORTED:
     'This server uses a package type that Ptah does not support.',
   MCP_PACKAGE_TRANSPORT_UNSUPPORTED:
     'This server uses a package transport that Ptah does not support.',
+  MCP_REMOTE_TRANSPORT_UNSUPPORTED:
+    'This server uses a remote transport that Ptah does not support.',
 };
 
 /** Icon metadata from the registry */
@@ -819,7 +825,7 @@ export interface McpDirectorySearchParams {
 export interface McpDirectorySearchResult {
   servers: McpRegistryEntry[];
   nextCursor?: string;
-  /** Coded registry failure, when the source returned an unrecognized shape. */
+  /** Coded registry failure, when the source could not provide a usable list. */
   errorCode?: McpRegistryErrorCode;
   /** User-safe explanation for {@link errorCode}. */
   error?: string;
@@ -834,7 +840,12 @@ export interface McpDirectoryGetDetailsParams {
 }
 
 /** Result for mcpDirectory:getDetails */
-export type McpDirectoryGetDetailsResult = McpRegistryEntry;
+export type McpDirectoryGetDetailsResult = McpRegistryEntry & {
+  /** Coded detail failure, when the registry could not provide a usable entry. */
+  errorCode?: McpRegistryErrorCode;
+  /** User-safe explanation for {@link errorCode}. */
+  error?: string;
+};
 
 /** Params for mcpDirectory:install */
 export interface McpDirectoryInstallParams {
@@ -899,7 +910,7 @@ export interface McpDirectoryGetPopularParams {
 /** Result for mcpDirectory:getPopular */
 export interface McpDirectoryGetPopularResult {
   servers: McpRegistryEntry[];
-  /** Coded registry failure, when the source returned an unrecognized shape. */
+  /** Coded registry failure, when the source could not provide a usable list. */
   errorCode?: McpRegistryErrorCode;
   /** User-safe explanation for {@link errorCode}. */
   error?: string;

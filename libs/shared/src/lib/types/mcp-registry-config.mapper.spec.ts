@@ -157,13 +157,14 @@ describe('registryEntryToInstallConfig', () => {
     });
   });
 
-  it('lists a required secret without writing an empty value to config.env', () => {
+  it('blocks a required secret without writing an empty value to config.env', () => {
     const result = expectSuccess(
       registryEntryToInstallConfig(readEntry('detail-env-vars.json')),
     );
 
-    expect(result.installable).toBe(true);
+    expect(result.installable).toBe(false);
     expect(result.requiredInputs).toContainEqual({
+      key: 'env:AI_2KW_API_KEY',
       name: 'AI_2KW_API_KEY',
       description: 'API key for the 2kw.ai platform',
       isSecret: true,
@@ -186,6 +187,7 @@ describe('registryEntryToInstallConfig', () => {
       url: 'https://{api_host}/mcp',
     });
     expect(result.requiredInputs).toContainEqual({
+      key: 'url:api_host',
       name: 'api_host',
       description: 'AutoRFP.ai API host for your data-residency region.',
       isSecret: false,
@@ -368,6 +370,7 @@ describe('registryEntryToInstallConfig', () => {
       ],
     });
     expect(result.requiredInputs).toContainEqual({
+      key: 'argument:--token',
       name: '--token',
       description: 'API token',
       isSecret: true,
@@ -414,5 +417,223 @@ describe('registryEntryToInstallConfig', () => {
       headers: { Authorization: 'Bearer registry-value' },
     });
     expect(result.requiredInputs).toEqual([]);
+  });
+
+  it('derived from detail-env-vars.json: installs a supplied secret and redacts only the preview', () => {
+    const entry = readEntry('detail-env-vars.json');
+    const result = expectSuccess(
+      registryEntryToInstallConfig(entry, {
+        'env:AI_2KW_API_KEY': 'supplied-secret',
+      }),
+    );
+
+    expect(result.installable).toBe(true);
+    expect(result.config.env?.['AI_2KW_API_KEY']).toBe('supplied-secret');
+    expect(result.preview.env?.['AI_2KW_API_KEY']).toBe('••••••');
+    expect(result.preview).not.toBe(result.config);
+    expect(result.preview.env).not.toBe(result.config.env);
+    expect(result.requiredInputs).toContainEqual(
+      expect.objectContaining({ key: 'env:AI_2KW_API_KEY' }),
+    );
+  });
+
+  it('derived from detail-remote-only.json: requires and redacts a required header', () => {
+    const entry = readEntry('detail-remote-only.json');
+    entry.remotes![0].headers = [
+      {
+        name: 'Authorization',
+        description: 'Access token',
+        isRequired: true,
+        isSecret: true,
+      },
+    ];
+
+    const missing = expectSuccess(registryEntryToInstallConfig(entry));
+    expect(missing.installable).toBe(false);
+    expect(missing.config).not.toHaveProperty('headers');
+    expect(missing.requiredInputs).toContainEqual(
+      expect.objectContaining({
+        key: 'header:Authorization',
+        name: 'Authorization',
+        isRequired: true,
+      }),
+    );
+
+    const supplied = expectSuccess(
+      registryEntryToInstallConfig(entry, {
+        'header:Authorization': 'Bearer supplied-secret',
+      }),
+    );
+    expect(supplied.installable).toBe(true);
+    expect(
+      supplied.config.type !== 'stdio' &&
+        supplied.config.headers?.Authorization,
+    ).toBe('Bearer supplied-secret');
+    expect(
+      supplied.preview.type !== 'stdio' &&
+        supplied.preview.headers?.Authorization,
+    ).toBe('••••••');
+  });
+
+  it('resolves argument placeholders from declared variable values', () => {
+    const entry = readEntry('detail-package-npm.json');
+    entry.packages![0].packageArguments = [
+      {
+        type: 'positional',
+        value: 'https://{host}/mcp',
+        variables: { host: { value: 'api.example.com' } },
+      },
+    ];
+
+    const result = expectSuccess(registryEntryToInstallConfig(entry));
+    expect(result.installable).toBe(true);
+    expect(result.config).toEqual({
+      type: 'stdio',
+      command: 'npx',
+      args: [
+        '-y',
+        'pretrip-mcp@1.0.1',
+        'https://api.example.com/mcp',
+      ],
+    });
+    expect(result.requiredInputs).toEqual([]);
+  });
+
+  it('flags an unresolved argument placeholder as a required input', () => {
+    const entry = readEntry('detail-package-npm.json');
+    entry.packages![0].packageArguments = [
+      {
+        type: 'positional',
+        value: 'https://{host}/mcp',
+        variables: {
+          host: { description: 'API host', isRequired: true },
+        },
+      },
+    ];
+
+    const result = expectSuccess(registryEntryToInstallConfig(entry));
+    expect(result.installable).toBe(false);
+    expect(result.config.type === 'stdio' && result.config.args).toContain(
+      'https://{host}/mcp',
+    );
+    expect(result.requiredInputs).toContainEqual(
+      expect.objectContaining({
+        key: 'argument:host',
+        name: 'host',
+        isRequired: true,
+      }),
+    );
+  });
+
+  it('resolves a secret header variable in config and redacts it in preview', () => {
+    const entry = readEntry('detail-remote-only.json');
+    entry.remotes![0].headers = [
+      {
+        name: 'Authorization',
+        value: 'Bearer {token}',
+        variables: {
+          token: { value: 'registry-secret', isSecret: true },
+        },
+      },
+    ];
+
+    const result = expectSuccess(registryEntryToInstallConfig(entry));
+    expect(result.installable).toBe(true);
+    expect(
+      result.config.type !== 'stdio' && result.config.headers?.Authorization,
+    ).toBe('Bearer registry-secret');
+    expect(
+      result.preview.type !== 'stdio' && result.preview.headers?.Authorization,
+    ).toBe('Bearer ••••••');
+  });
+
+  it('flags an unresolved header placeholder as a required input', () => {
+    const entry = readEntry('detail-remote-only.json');
+    entry.remotes![0].headers = [
+      {
+        name: 'Authorization',
+        value: 'Bearer {token}',
+        variables: {
+          token: { description: 'Access token', isRequired: true },
+        },
+      },
+    ];
+
+    const result = expectSuccess(registryEntryToInstallConfig(entry));
+    expect(result.installable).toBe(false);
+    expect(
+      result.config.type !== 'stdio' && result.config.headers?.Authorization,
+    ).toBe('Bearer {token}');
+    expect(result.requiredInputs).toContainEqual(
+      expect.objectContaining({ key: 'header:token', name: 'token' }),
+    );
+  });
+
+  it('leaves argument text unchanged when it declares no variables', () => {
+    const entry = readEntry('detail-package-npm.json');
+    entry.packages![0].packageArguments = [
+      { type: 'positional', value: 'https://{host}/mcp' },
+    ];
+
+    const result = expectSuccess(registryEntryToInstallConfig(entry));
+    expect(result.installable).toBe(true);
+    expect(result.config.type === 'stdio' && result.config.args).toContain(
+      'https://{host}/mcp',
+    );
+    expect(result.requiredInputs).toEqual([]);
+  });
+
+  it('redacts a supplied secret argument only in preview', () => {
+    const entry = readEntry('detail-package-npm.json');
+    entry.packages![0].packageArguments = [
+      {
+        type: 'named',
+        name: '--token',
+        isRequired: true,
+        isSecret: true,
+      },
+    ];
+
+    const result = expectSuccess(
+      registryEntryToInstallConfig(entry, {
+        'argument:--token': 'supplied-secret',
+      }),
+    );
+    expect(result.installable).toBe(true);
+    expect(result.config.type === 'stdio' && result.config.args).toContain(
+      'supplied-secret',
+    );
+    expect(result.preview.type === 'stdio' && result.preview.args).toContain(
+      '••••••',
+    );
+  });
+
+  it('redacts a supplied secret URL variable only in preview', () => {
+    const entry = readEntry('detail-remote-templated.json');
+    entry.remotes![0].variables!['api_host'].isSecret = true;
+
+    const result = expectSuccess(
+      registryEntryToInstallConfig(entry, {
+        'url:api_host': 'secret.example.com',
+      }),
+    );
+    expect(result.installable).toBe(true);
+    expect(result.config.type !== 'stdio' && result.config.url).toBe(
+      'https://secret.example.com/mcp',
+    );
+    expect(result.preview.type !== 'stdio' && result.preview.url).toBe(
+      'https://••••••/mcp',
+    );
+  });
+
+  it('returns a remote transport error for a remote-only unsupported entry', () => {
+    const entry = readEntry('detail-remote-only.json');
+    entry.remotes = [{ type: 'websocket', url: 'wss://example.com/mcp' }];
+
+    expect(registryEntryToInstallConfig(entry)).toEqual({
+      ok: false,
+      code: 'MCP_REMOTE_TRANSPORT_UNSUPPORTED',
+      message: MCP_REGISTRY_ERROR_MESSAGES.MCP_REMOTE_TRANSPORT_UNSUPPORTED,
+    });
   });
 });

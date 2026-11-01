@@ -190,6 +190,29 @@ describe('ptah mcp search', () => {
       },
     });
   });
+
+  it('prints a coded search error and exits non-zero', async () => {
+    const { formatterTrace, stderrTrace, engine, hooks } = buildHooks();
+    const message = MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_SHAPE_UNKNOWN;
+    engine.scripted.set('mcpDirectory:search', {
+      success: true,
+      data: {
+        servers: [],
+        errorCode: 'MCP_REGISTRY_SHAPE_UNKNOWN',
+        error: message,
+      },
+    });
+
+    const exit = await execute(
+      { subcommand: 'search', query: 'github' } satisfies McpOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(stderrTrace.buffer).toBe(`MCP_REGISTRY_SHAPE_UNKNOWN: ${message}\n`);
+    expect(formatterTrace.notifications).toEqual([]);
+  });
 });
 
 describe('ptah mcp details', () => {
@@ -217,6 +240,29 @@ describe('ptah mcp details', () => {
     );
     expect(exit).toBe(ExitCode.Success);
     expect(formatterTrace.notifications[0]?.method).toBe('mcp.details');
+  });
+
+  it('prints a coded details error and exits non-zero', async () => {
+    const { formatterTrace, stderrTrace, engine, hooks } = buildHooks();
+    const message = MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_SHAPE_UNKNOWN;
+    engine.scripted.set('mcpDirectory:getDetails', {
+      success: true,
+      data: {
+        name: 'io.github.x/y',
+        errorCode: 'MCP_REGISTRY_SHAPE_UNKNOWN',
+        error: message,
+      },
+    });
+
+    const exit = await execute(
+      { subcommand: 'details', name: 'io.github.x/y' } satisfies McpOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(stderrTrace.buffer).toBe(`MCP_REGISTRY_SHAPE_UNKNOWN: ${message}\n`);
+    expect(formatterTrace.notifications).toEqual([]);
   });
 });
 
@@ -343,7 +389,7 @@ describe('ptah mcp install', () => {
     });
   });
 
-  it('emits required secret input names only and omits their values', async () => {
+  it('rejects a missing required secret and never calls install', async () => {
     const { formatterTrace, engine, hooks } = buildHooks();
     engine.scripted.set('mcpDirectory:listInstalled', {
       success: true,
@@ -392,14 +438,86 @@ describe('ptah mcp install', () => {
       hooks,
     );
 
+    expect(exit).toBe(ExitCode.InternalFailure);
+    const installCall = engine.rpcCalls.find(
+      (c) => c.method === 'mcpDirectory:install',
+    );
+    expect(installCall).toBeUndefined();
+    expect(formatterTrace.notifications.at(-1)).toEqual({
+      method: 'task.error',
+      params: {
+        ptah_code: 'internal_failure',
+        message:
+          'Cannot install "io.github.x/y" without required inputs: AI_2KW_API_KEY',
+      },
+    });
+  });
+
+  it('makes a required env server installable with --input', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('mcpDirectory:listInstalled', {
+      success: true,
+      data: { servers: [] },
+    });
+    engine.scripted.set('mcpDirectory:getDetails', {
+      success: true,
+      data: {
+        name: 'io.github.x/y',
+        description: 'fixture',
+        version: '1.0.0',
+        packages: [
+          {
+            registryType: 'npm',
+            identifier: '@scope/foo',
+            version: '1.0.0',
+            transport: { type: 'stdio' },
+            environmentVariables: [
+              {
+                name: 'AI_2KW_API_KEY',
+                description: 'API key',
+                isRequired: true,
+                isSecret: true,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    engine.scripted.set('mcpDirectory:install', {
+      success: true,
+      data: {
+        results: [
+          { target: 'claude', success: true, configPath: '/tmp/.mcp.json' },
+        ],
+      },
+    });
+
+    const exit = await execute(
+      {
+        subcommand: 'install',
+        name: 'io.github.x/y',
+        target: 'claude',
+        input: ['AI_2KW_API_KEY=super-secret'],
+      } satisfies McpOptions,
+      baseGlobals,
+      hooks,
+    );
+
     expect(exit).toBe(ExitCode.Success);
     const installCall = engine.rpcCalls.find(
       (c) => c.method === 'mcpDirectory:install',
     );
-    expect(installCall?.params).not.toHaveProperty('config.env');
-    expect(formatterTrace.notifications.at(-1)?.params).toMatchObject({
-      requiredInputs: ['AI_2KW_API_KEY'],
+    expect(installCall?.params).toMatchObject({
+      config: {
+        type: 'stdio',
+        command: 'npx',
+        args: ['-y', '@scope/foo@1.0.0'],
+        env: { AI_2KW_API_KEY: 'super-secret' },
+      },
     });
+    expect(JSON.stringify(formatterTrace.notifications)).not.toContain(
+      'super-secret',
+    );
   });
 
   it('rejects a non-installable config with required input names only', async () => {
@@ -659,6 +777,29 @@ describe('ptah mcp popular', () => {
     expect(exit).toBe(ExitCode.Success);
     expect(engine.rpcCalls[0]?.method).toBe('mcpDirectory:getPopular');
     expect(formatterTrace.notifications[0]?.method).toBe('mcp.popular');
+  });
+
+  it('prints a coded popular error and exits non-zero', async () => {
+    const { formatterTrace, stderrTrace, engine, hooks } = buildHooks();
+    const message = MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_UNAVAILABLE;
+    engine.scripted.set('mcpDirectory:getPopular', {
+      success: true,
+      data: {
+        servers: [],
+        errorCode: 'MCP_REGISTRY_UNAVAILABLE',
+        error: message,
+      },
+    });
+
+    const exit = await execute(
+      { subcommand: 'popular' } satisfies McpOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(stderrTrace.buffer).toBe(`MCP_REGISTRY_UNAVAILABLE: ${message}\n`);
+    expect(formatterTrace.notifications).toEqual([]);
   });
 });
 
