@@ -101,7 +101,7 @@ describe('glass local scrim floors', () => {
     const readingPlane = block(/:root\[data-glass='on'\] :is\(\.surface-1, \.surface-2\):not\(\[data-glass-surface\], \[role='menu'\], \.dropdown-content, \.modal-box, \.navbar\)/);
     expect(readingPlane).toContain('background-color: var(--glass-scrim-text);');
     expect(readingPlane).toContain('border-color: var(--glass-frame, var(--glass-line));');
-    expect(readingPlane).toContain('box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint));');
+    expect(readingPlane).toContain('box-shadow: var(--glass-content-shadow, inset 0 1px 0 var(--glass-glint), var(--glass-shadow));');
 
     const stickyFloor = block(/:root\[data-glass='on'\] :is\(\.surface-1, \.surface-2\)\.sticky:not\(\[data-glass-surface\]\)/);
     expect(stickyFloor).toContain('background-color: var(--glass-fill-overlay);');
