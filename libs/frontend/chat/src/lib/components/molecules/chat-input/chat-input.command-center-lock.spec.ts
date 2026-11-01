@@ -250,6 +250,12 @@ describe('ChatInputComponent Command Center lock', () => {
     tabs.set([{ id: 'tab-1', status: 'streaming' }]);
     heldTabId.set('tab-1');
     fixture.detectChanges();
+    // An idle streaming composer folds and its Stop moves to the compact bar
+    // (stubbed out here), so keep the card open with a pending draft.
+    const input = textarea();
+    input.value = 'Keep this draft';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    fixture.detectChanges();
     const stop = button('chat-stop-btn');
     expect(stop.disabled).toBe(false);
     stop.click();

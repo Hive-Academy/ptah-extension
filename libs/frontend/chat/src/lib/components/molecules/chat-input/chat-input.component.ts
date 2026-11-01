@@ -542,8 +542,11 @@ function folderName(root: string): string {
 
             <!-- Stop Button (streaming only), same 28 px circle as Send.
                  Gated on the same busy predicate the dispatcher queues on, so
-                 a queued send always has a Stop to drain it. -->
-            @if (isActiveTabStreaming()) {
+                 a queued send always has a Stop to drain it. Exactly one Stop
+                 exists at a time: while folded it lives on the compact bar,
+                 because this card is then inert and clipped to zero height,
+                 so a Stop left here keeps a layout box nothing can click. -->
+            @if (isActiveTabStreaming() && !isCompact()) {
               <button
                 class="inline-flex items-center justify-center h-7 w-7 flex-shrink-0 rounded-full bg-error/15 text-error hover:bg-error/25 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
                 (click)="handleStop()"
@@ -622,7 +625,7 @@ function folderName(root: string): string {
             [statusLabel]="compactStatusLabel()"
             [modelLabel]="compactModelLabel()"
             [controlsId]="composerFullId"
-            [showStop]="isActiveTabStreaming()"
+            [showStop]="isActiveTabStreaming() && isCompact()"
             [collapsed]="!isCompact()"
             (expandRequested)="expandComposer()"
             (stopRequested)="stopFromCompact()"

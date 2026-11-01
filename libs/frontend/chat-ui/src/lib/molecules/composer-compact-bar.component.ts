@@ -70,7 +70,7 @@ import {
             class="inline-flex items-center justify-center h-7 w-7 flex-shrink-0 rounded-full bg-error/15 text-error hover:bg-error/25 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
             title="Stop generating"
             aria-label="Stop generating"
-            data-testid="composer-compact-stop"
+            data-testid="chat-stop-btn"
             (click)="stopRequested.emit()"
           >
             <lucide-angular
@@ -134,7 +134,11 @@ export class ComposerCompactBarComponent {
   readonly modelLabel = input<string>('');
   /** Id of the full composer region this bar expands. */
   readonly controlsId = input.required<string>();
-  /** Show the Stop button (the tab is generating). */
+  /**
+   * Show the Stop button (the tab is generating and the bar is the visible
+   * state). It carries the composer's `chat-stop-btn` id: the owner renders
+   * exactly one Stop, here while folded and on the full card otherwise.
+   */
   readonly showStop = input<boolean>(true);
   /** The bar is folded away; its row fades out. */
   readonly collapsed = input<boolean>(false);

@@ -257,7 +257,7 @@ describe('ChatInputComponent streaming fold', () => {
     expect(expand.getAttribute('aria-expanded')).toBe('false');
     expect(expand.getAttribute('aria-controls')).toBe(fullRegion().id);
     expect(fullRegion().id).not.toBe('');
-    expect(button('composer-compact-stop')).toBeTruthy();
+    expect(button('chat-stop-btn')).toBeTruthy();
     expect(announcer()).toContain('minimized');
   });
 
@@ -270,6 +270,70 @@ describe('ChatInputComponent streaming fold', () => {
     expect(fullRegion().hasAttribute('inert')).toBe(false);
     expect(document.activeElement).toBe(textarea());
     expect(announcer()).toBe('Composer expanded.');
+  });
+
+  // Regression (electron-e2e task-374): a Stop left on the folded card keeps
+  // a layout box inside the inert, zero-height clip, so a click lands on the
+  // composer root instead. Exactly one Stop exists, outside any inert layer.
+  function stops(): HTMLButtonElement[] {
+    return Array.from(
+      root().querySelectorAll<HTMLButtonElement>(
+        '[data-testid="chat-stop-btn"]',
+      ),
+    );
+  }
+
+  function compactBar(): HTMLElement {
+    const found = root().querySelector<HTMLElement>(
+      '[data-testid="composer-compact-bar"]',
+    );
+    if (!found) throw new Error('Missing compact bar');
+    return found;
+  }
+
+  it('renders exactly one clickable Stop, outside the inert fold, in each state', async () => {
+    await startStreaming();
+    expect(stage().hasAttribute('data-compact')).toBe(true);
+    expect(stops()).toHaveLength(1);
+    expect(stops()[0].closest('[inert]')).toBeNull();
+    expect(fullRegion().contains(stops()[0])).toBe(false);
+    expect(compactBar().contains(stops()[0])).toBe(true);
+
+    button('composer-compact-expand').click();
+    await settle();
+    expect(stage().hasAttribute('data-compact')).toBe(false);
+    expect(stops()).toHaveLength(1);
+    expect(stops()[0].closest('[inert]')).toBeNull();
+    expect(fullRegion().contains(stops()[0])).toBe(true);
+  });
+
+  it('runs the abort path from the folded bar Stop', async () => {
+    const handleStop = jest.spyOn(fixture.componentInstance, 'handleStop');
+    await startStreaming();
+    expect(stage().hasAttribute('data-compact')).toBe(true);
+
+    stops()[0].click();
+    expect(handleStop).toHaveBeenCalledTimes(1);
+    expect(chatStoreStub.abortWithConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the card open with a draft and runs the abort path from its Stop', async () => {
+    const handleStop = jest.spyOn(fixture.componentInstance, 'handleStop');
+    const input = textarea();
+    input.value = 'draft while streaming';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await startStreaming();
+
+    expect(stage().hasAttribute('data-compact')).toBe(false);
+    expect(stops()).toHaveLength(1);
+    const stop = stops()[0];
+    expect(stop.closest('[inert]')).toBeNull();
+    expect(fullRegion().contains(stop)).toBe(true);
+    expect(compactBar().contains(stop)).toBe(false);
+
+    stop.click();
+    expect(handleStop).toHaveBeenCalledTimes(1);
+    expect(chatStoreStub.abortWithConfirmation).toHaveBeenCalledTimes(1);
   });
 
   it('expands when the user types a printable key in the chat view', async () => {
@@ -433,7 +497,7 @@ describe('ChatInputComponent streaming fold', () => {
 
   it('stops generation from the bar', async () => {
     await startStreaming();
-    button('composer-compact-stop').click();
+    button('chat-stop-btn').click();
     expect(chatStoreStub.abortWithConfirmation).toHaveBeenCalledTimes(1);
   });
 });
