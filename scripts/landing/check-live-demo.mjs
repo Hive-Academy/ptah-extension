@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 import { parseCliFlags, verifyDemoArtifacts } from './live-demo-cli.mjs';
@@ -11,6 +12,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_ROOT = resolve(HERE, '../..');
 const DEFAULT_ROOT = 'dist/ptah-landing-page/browser';
 const DEFAULT_TIMEOUT_MS = 120_000;
+/**
+ * Size budget for one replay: the gzipped bytes of every same-origin file the
+ * demo page fetched. Gzip of the files on disk stands in for the compressed
+ * transfer of the static host, so the number is stable between runs.
+ */
+// Measured at about 1.7 MB per scenario with the old PNG logo and backdrop;
+// re-measure and lower this after the webp swap.
+const DEFAULT_MAX_TRANSFER_KB = 1900;
 
 export function parseArgs(argv = process.argv.slice(2)) {
   const opts = parseCliFlags(argv, {
@@ -19,6 +28,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
       scenarios: [],
       json: null,
       timeoutMs: DEFAULT_TIMEOUT_MS,
+      maxTransferKb: DEFAULT_MAX_TRANSFER_KB,
     },
     flags: {
       '--root': (o, nextVal) => {
@@ -32,6 +42,9 @@ export function parseArgs(argv = process.argv.slice(2)) {
       },
       '--timeout': (o, nextVal) => {
         o.timeoutMs = Number(nextVal());
+      },
+      '--max-transfer-kb': (o, nextVal) => {
+        o.maxTransferKb = Number(nextVal());
       },
     },
   });
@@ -89,8 +102,30 @@ async function waitForScenarioCompletion(page, timeoutMs) {
   return { timedOut: true, snapshot: finalSnapshot };
 }
 
-async function runScenarioCheck(browser, serverUrl, scenarioId, timeoutMs) {
+/** Gzipped size in KB of the files under `rootDir` that the page fetched. */
+export function gzippedTransferKb(rootDir, pathnames) {
+  // Dedupe on the resolved file: `/demo` and `/demo/`, or `/` and `/index.html`, are one file.
+  const files = new Set();
+  for (const pathname of pathnames) {
+    let rel;
+    try {
+      rel = decodeURIComponent(pathname).replace(/^\/+/, '');
+    } catch {
+      continue;
+    }
+    let file = resolve(rootDir, rel);
+    if (relative(rootDir, file).startsWith('..')) continue;
+    if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');
+    if (existsSync(file) && statSync(file).isFile()) files.add(file);
+  }
+  let bytes = 0;
+  for (const file of files) bytes += gzipSync(readFileSync(file)).length;
+  return Math.round(bytes / 1024);
+}
+
+async function runScenarioCheck(browser, serverUrl, scenarioId, timeoutMs, rootDir, maxTransferKb) {
   const serverOrigin = new URL(serverUrl).origin;
+  const fetchedPaths = new Set();
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     colorScheme: 'dark',
@@ -155,6 +190,14 @@ async function runScenarioCheck(browser, serverUrl, scenarioId, timeoutMs) {
   page.on('response', (res) => {
     if (res.status() >= 400) {
       httpErrors.push(`${res.status()} ${res.url()}`);
+      return;
+    }
+    try {
+      const parsed = new URL(res.url());
+      // Redirects carry no body; their target is collected as its own response.
+      if (res.status() < 300 && parsed.origin === serverOrigin) fetchedPaths.add(parsed.pathname);
+    } catch {
+      // Ignore non-standard schemes
     }
   });
 
@@ -220,6 +263,7 @@ async function runScenarioCheck(browser, serverUrl, scenarioId, timeoutMs) {
     complete: null,
   };
   const complete = Boolean(pageData?.state?.complete) && !timedOut && !navError;
+  const transferKb = gzippedTransferKb(rootDir, fetchedPaths);
 
   const failureReasons = [];
   if (navError) failureReasons.push(`navError: ${navError}`);
@@ -239,11 +283,14 @@ async function runScenarioCheck(browser, serverUrl, scenarioId, timeoutMs) {
     failureReasons.push(`cspViolations: ${cspViolations.length}`);
   if (httpErrors.length > 0)
     failureReasons.push(`httpErrors: ${httpErrors.length}`);
+  if (transferKb > maxTransferKb)
+    failureReasons.push(`transfer ${transferKb}KB gzip > budget ${maxTransferKb}KB`);
 
   return {
     scenario: scenarioId,
     passed: failureReasons.length === 0,
     timings,
+    transferKb,
     state: pageData?.state ?? null,
     misses,
     consoleErrors,
@@ -263,6 +310,7 @@ function printCompactTable(results) {
     'firstPaint(ms)',
     'readyAt(ms)',
     'complete(ms)',
+    'gzKB',
     'Misses',
     'Errors',
     'Warns',
@@ -275,6 +323,7 @@ function printCompactTable(results) {
     String(r.timings.firstPaint ?? '-'),
     String(r.timings.readyAt ?? '-'),
     String(r.timings.complete ?? '-'),
+    String(r.transferKb),
     String(r.misses.length),
     String(r.consoleErrors.length + r.pageErrors.length + r.httpErrors.length),
     String(r.consoleWarnings.length),
@@ -330,6 +379,10 @@ function printCompactTable(results) {
 export async function checkLiveDemo(rawOptions = {}) {
   const rootDir = resolve(WORKSPACE_ROOT, rawOptions.root ?? DEFAULT_ROOT);
   const timeoutMs = Number(rawOptions.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const maxTransferKb = Number(rawOptions.maxTransferKb ?? DEFAULT_MAX_TRANSFER_KB);
+  if (!(maxTransferKb > 0)) {
+    throw new Error(`--max-transfer-kb must be a positive number, got ${rawOptions.maxTransferKb}`);
+  }
   const artifactInfo = await verifyDemoArtifacts(rootDir);
   const scenarios = await resolveScenarios(
     rootDir,
@@ -348,6 +401,8 @@ export async function checkLiveDemo(rawOptions = {}) {
         serverHandle.url,
         scenarioId,
         timeoutMs,
+        rootDir,
+        maxTransferKb,
       );
       results.push(res);
     }
