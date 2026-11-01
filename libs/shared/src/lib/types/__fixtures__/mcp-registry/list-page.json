@@ -1,0 +1,144 @@
+{
+  "servers": [
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "ac.inference.sh/mcp",
+        "description": "run any ai model. compose agents, stack knowledge, connect tools. one api, pay per run.",
+        "title": "inference.sh",
+        "version": "2.0.1",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://api.inference.sh/mcp"
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "statusChangedAt": "2026-07-27T10:44:51.359634Z",
+          "publishedAt": "2026-07-27T10:44:51.359634Z",
+          "updatedAt": "2026-07-27T10:44:51.359634Z",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "ac.snag/snag",
+        "description": "Gives your coding agent the captured console, network, replay and screenshot evidence for a bug.",
+        "version": "1.0.0",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://mcp.snag.ac/mcp"
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "statusChangedAt": "2026-09-09T10:35:53.194664Z",
+          "publishedAt": "2026-09-09T10:35:53.194664Z",
+          "updatedAt": "2026-09-09T10:35:53.194664Z",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "ac.tandem/docs-mcp",
+        "description": "Remote MCP server for Tandem docs, install guides, SDKs, workflows, and agent setup help.",
+        "repository": {
+          "url": "https://github.com/frumu-ai/tandem",
+          "source": "github"
+        },
+        "version": "0.3.2",
+        "websiteUrl": "https://tandem.ac/docs-mcp",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://tandem.ac/mcp"
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "statusChangedAt": "2026-04-22T21:06:34.500049Z",
+          "publishedAt": "2026-04-22T21:06:34.500049Z",
+          "updatedAt": "2026-04-22T21:06:34.500049Z",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "academy.apexai/apex-ai-academy",
+        "description": "Co-Learn with your Agent: fact-checked AI lessons with Human and Agent views.",
+        "title": "Apex AI Academy",
+        "repository": {
+          "url": "https://github.com/ApexAI-Academy/sample-agents",
+          "source": "github"
+        },
+        "version": "1.0.2",
+        "websiteUrl": "https://apexai.academy/developers/",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://apexai.academy/mcp",
+            "headers": [
+              {
+                "description": "Optional: Bearer <personal apex_ key> for Premium tools. Public tools need no key.",
+                "isSecret": true,
+                "name": "Authorization"
+              }
+            ]
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "statusChangedAt": "2026-10-17T03:25:05.205722Z",
+          "publishedAt": "2026-10-17T03:25:05.205722Z",
+          "updatedAt": "2026-10-17T03:25:05.205722Z",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "academy.ase/periodic-system",
+        "description": "Practices for building software with coding agents, each with a test you check on your repo.",
+        "title": "Agentic Engineering Periodic System",
+        "version": "2026.4.1",
+        "websiteUrl": "https://ase.academy/agentic-engineering/periodic-system/",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://ase.academy/mcp"
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "statusChangedAt": "2026-10-22T20:23:57.545065Z",
+          "publishedAt": "2026-10-22T20:23:57.545065Z",
+          "updatedAt": "2026-10-22T20:23:57.545065Z",
+          "isLatest": true
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "nextCursor": "academy.ase/periodic-system:2026.4.1",
+    "count": 5
+  }
+}

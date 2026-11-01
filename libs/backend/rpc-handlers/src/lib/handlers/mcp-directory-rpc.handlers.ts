@@ -64,6 +64,7 @@ import {
   classifyMcpScope,
   MCP_DIRECTORY_CALL_FAILURE_COPY,
   MCP_INSTALL_RESULT_COPY,
+  MCP_REGISTRY_ERROR_MESSAGES,
   type McpDirectoryCallFailureCode,
 } from '@ptah-extension/shared';
 import {
@@ -177,6 +178,17 @@ import {
 
 /** How long the resolved Smithery namespace is trusted without a re-fetch. */
 const NAMESPACE_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function isMcpRegistryShapeError(
+  error: unknown,
+): error is { code: 'MCP_REGISTRY_SHAPE_UNKNOWN' } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'MCP_REGISTRY_SHAPE_UNKNOWN'
+  );
+}
 
 @injectable()
 export class McpDirectoryRpcHandlers {
@@ -431,6 +443,20 @@ export class McpDirectoryRpcHandlers {
         this.logger.error('RPC: mcpDirectory:search failed', {
           error: String(error),
         });
+        if (isMcpRegistryShapeError(error)) {
+          return {
+            servers: [],
+            errorCode: error.code,
+            error: MCP_REGISTRY_ERROR_MESSAGES[error.code],
+          };
+        }
+        if (params.source !== 'smithery') {
+          return {
+            servers: [],
+            errorCode: 'MCP_REGISTRY_UNAVAILABLE',
+            error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_UNAVAILABLE,
+          };
+        }
         return { servers: [] };
       }
     });
@@ -466,7 +492,22 @@ export class McpDirectoryRpcHandlers {
         );
         this.logger.error('RPC: mcpDirectory:getDetails failed', {
           error: String(error),
+          errorCode: isMcpRegistryShapeError(error) ? error.code : undefined,
         });
+        if (isMcpRegistryShapeError(error)) {
+          return {
+            name: params.name,
+            errorCode: error.code,
+            error: MCP_REGISTRY_ERROR_MESSAGES[error.code],
+          };
+        }
+        if (params.source !== 'smithery') {
+          return {
+            name: params.name,
+            errorCode: 'MCP_REGISTRY_UNAVAILABLE',
+            error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_UNAVAILABLE,
+          };
+        }
         return { name: params.name };
       }
     });
@@ -770,6 +811,20 @@ export class McpDirectoryRpcHandlers {
           'RPC: mcpDirectory:getPopular failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        if (isMcpRegistryShapeError(error)) {
+          return {
+            servers: [],
+            errorCode: error.code,
+            error: MCP_REGISTRY_ERROR_MESSAGES[error.code],
+          };
+        }
+        if (params.source !== 'smithery') {
+          return {
+            servers: [],
+            errorCode: 'MCP_REGISTRY_UNAVAILABLE',
+            error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_UNAVAILABLE,
+          };
+        }
         return { servers: [] };
       }
     });
