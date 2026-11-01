@@ -210,6 +210,8 @@ function makeInstaller(
     target: string;
     success: boolean;
     configPath: string;
+    deferred?: boolean;
+    code?: string;
     error?: string;
   }> = [
     { target: 'claude', success: true, configPath: 'D:/ws/.mcp.json' },
