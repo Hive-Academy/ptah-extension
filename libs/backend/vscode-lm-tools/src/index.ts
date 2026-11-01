@@ -16,6 +16,7 @@ export {
 export { mcpAttachmentObserver } from './lib/code-execution/mcp-http/mcp-attachment-observer';
 export { TreeSitterCodeOutliner } from './lib/code-execution/mcp-core/code-outliner.adapter';
 export { McpCallerWorkspaceResolver } from './lib/code-execution/mcp-caller-workspace-resolver';
+export { buildRouteCandidateSource } from './lib/code-execution/namespace-builders/route-namespace.builder';
 // The per-call MCP caller context (session, workspace, tool profile). Hosts
 // and composition tests use it to run `ptah.*` calls as a given caller.
 export { runWithMcpRequestContext } from './lib/code-execution/mcp-core/mcp-request-context';
@@ -74,11 +75,6 @@ export {
   type ISessionSubmitHandler,
   type SessionSubmitCancellation,
 } from './lib/code-execution/mcp-stdio';
-export {
-  PTAH_SYSTEM_PROMPT,
-  PTAH_SYSTEM_PROMPT_TOKENS,
-  buildPlatformSystemPrompt,
-} from './lib/code-execution/ptah-system-prompt.constant';
 export { PermissionPromptService } from './lib/permission/permission-prompt.service';
 export {
   TavilySearchProvider,

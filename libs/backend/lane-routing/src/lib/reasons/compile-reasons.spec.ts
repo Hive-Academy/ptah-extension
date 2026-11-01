@@ -7,7 +7,6 @@ import {
   UnavailableEntrySchema,
 } from '../contracts/route-decide-result.schema';
 import type { MatrixCell } from '../matrix/matrix.types';
-import { MINIMUM_SAMPLE_COUNT } from '../routing-constants';
 import {
   MISSING_INPUT_REASON,
   MISSING_INPUTS,
@@ -329,12 +328,8 @@ describe('requirement 13.2 chosen facts', () => {
   });
 
   it('states local provenance with the sample count and omits asOf and sourceRef', () => {
-    const reason = compileChosenReason(
-      chosen({ cell: localCell(MINIMUM_SAMPLE_COUNT) }),
-    );
-    expect(reason).toContain(
-      `provenance local, sample count ${MINIMUM_SAMPLE_COUNT}`,
-    );
+    const reason = compileChosenReason(chosen({ cell: localCell(1) }));
+    expect(reason).toContain('provenance local, sample count 1');
     expect(reason).toContain('score 65');
     expect(reason).not.toContain('asOf');
     expect(reason).not.toContain('2026-10-01');
@@ -939,10 +934,8 @@ describe('requirement 13.4', () => {
 
   it('refuses a local sample count below the minimum', () => {
     expect(() =>
-      compileChosenReason(
-        chosen({ cell: localCell(MINIMUM_SAMPLE_COUNT - 1) }),
-      ),
-    ).toThrow(`at least ${MINIMUM_SAMPLE_COUNT}`);
+      compileChosenReason(chosen({ cell: localCell(0) })),
+    ).toThrow('at least 1');
   });
 
   it('refuses a value that would break a clause', () => {

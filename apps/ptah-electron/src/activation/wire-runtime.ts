@@ -24,7 +24,11 @@ import {
   EnhancedPromptsService,
 } from '@ptah-extension/agent-generation';
 import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-generation';
-import { registerRpcSurface } from '@ptah-extension/rpc-handlers';
+import {
+  CHAT_TOKENS,
+  registerRpcSurface,
+  type HostRoutingCoordinator,
+} from '@ptah-extension/rpc-handlers';
 import { createElectronRpcHostProfile } from '../rpc-host-profile';
 import { createApplicationMenu } from '../menu/application-menu';
 import { propagateHarness } from './plugin-activation';
@@ -641,6 +645,27 @@ function captureShutdownHandles(
         : String(chatSessionsError),
     );
     coordinator.refs.chatSessions = null;
+  }
+
+  // Host routing coordinator, captured for the same reason: `will-quit`
+  // releases its subscriptions through this ref and never builds it at quit.
+  // Resolving it subscribes to events and makes no model call.
+  try {
+    coordinator.refs.hostRouting = container.isRegistered(
+      CHAT_TOKENS.HOST_ROUTING_COORDINATOR,
+    )
+      ? container.resolve<HostRoutingCoordinator>(
+          CHAT_TOKENS.HOST_ROUTING_COORDINATOR,
+        )
+      : null;
+  } catch (hostRoutingError: unknown) {
+    // degradation-audit: reported - logged at warn; a null ref means
+    // `will-quit` has no routing subscriptions to release.
+    console.warn(
+      '[Ptah Electron] Host routing coordinator eager resolve failed (non-fatal):',
+      hostRoutingError instanceof Error ? hostRoutingError.name : 'unknown',
+    );
+    coordinator.refs.hostRouting = null;
   }
 
   // The watch host is a child process: `will-quit` must kill it through the

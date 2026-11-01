@@ -1,4 +1,4 @@
-import type { LaneOutcomeRecord } from '@ptah-extension/shared';
+import type { LaneOutcomeRecord, OutcomeTaskKind } from '@ptah-extension/shared';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { z } from 'zod';
 import { LaneOutcomeRowSchema } from '../lane-outcome.schema';
@@ -163,6 +163,22 @@ export class KeyValueLaneOutcomeStore extends InMemoryLaneOutcomeStore {
     patch: Partial<LaneOutcomeRecord>,
   ): Promise<boolean> {
     return this.write(() => super.update(runId, patch));
+  }
+  override setClassifiedTaskKind(
+    runId: string,
+    kind: OutcomeTaskKind,
+  ): Promise<boolean> {
+    return this.write(() => super.setClassifiedTaskKind(runId, kind));
+  }
+  override fillMissingSubagentJoin(
+    runId: string,
+    join: {
+      readonly subagentSessionId: string | null;
+      readonly parentSessionId: string | null;
+      readonly workspaceRoot: string | null;
+    },
+  ): Promise<boolean> {
+    return this.write(() => super.fillMissingSubagentJoin(runId, join));
   }
   override insertStopWithHeldReports(
     row: LaneOutcomeRecord,

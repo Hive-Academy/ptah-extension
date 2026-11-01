@@ -6,7 +6,7 @@ import {
   input,
   output,
 } from '@angular/core';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { injectWallClock } from '@ptah-extension/core';
 import type {
   ExecutionNode,
   FlatStreamEventUnion,
@@ -74,7 +74,6 @@ export class LaneTranscriptComponent {
     ((id: string) => PermissionRequest | null) | undefined
   >();
   readonly permissionResponded = output<PermissionResponse>();
-  private readonly monitor = inject(AgentMonitorStore);
   private readonly turnContexts = new TranscriptTurnContexts();
   /** Kept outside the component so a tab switch keeps the user's choice. */
   private readonly logChoices = inject(LaneLogChoicesStore);
@@ -93,10 +92,10 @@ export class LaneTranscriptComponent {
       this.contexts(),
     ),
   );
-  protected readonly now = computed(() => {
-    this.monitor.tick();
-    return Date.now();
-  });
+  protected readonly now = injectWallClock(
+    'second',
+    () => this.liveTurns().size > 0,
+  );
   /** The main transcript's rule (`turnLogOpenOf`); a lane is always `full`. */
   protected logOpenFor(turnId: string): boolean | null {
     return turnLogOpenOf(

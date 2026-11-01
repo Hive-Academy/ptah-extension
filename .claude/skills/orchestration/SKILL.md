@@ -27,12 +27,14 @@ correction in agent-lanes §6; any code you change is independently reviewed bef
 2. **Pick depth**: Full (unclear scope), Partial (known requirements), Minimal (one developer or
    reviewer). Two types equally plausible, or none fits → pick the broader flow, log it in
    `decisions.md` and announce it; the user can redirect.
-   If `ptah_route_decide` is listed, call it once here with
-   `{stage:'pre-flight', request:<user request>}`. Use its non-null `taskType.value` and
-   `depth.value`; a null answer falls back to the rules above. Record the result in
-   `decisions.md` (stage, each answer's source/confidence/fallbackCause/modelProposal,
-   overallConfidence, reasons and usage). An explicit user choice in the current turn wins;
-   record the override.
+   The host may already have run pre-flight routing. When a `Routing:` system reminder
+   is present, use its taskType and depth suggestions unless the user says otherwise;
+   do not call stage `pre-flight` again. Otherwise, if `ptah_route_decide` is listed,
+   call it once with `{stage:'pre-flight', request}`. Use non-null `taskType.value` and
+   `depth.value`; for null values, use the rules above. An explicit user choice wins.
+   Record the choice and any user override in `decisions.md`, along with each answer's
+   `source`, `confidence`, `fallbackCause` and `modelProposal`, plus `overallConfidence`,
+   `reasons` and `usage`. If the tool is not listed, use the rules above.
 
 3. **Announce** type, depth and the planned agent sequence. Then proceed.
 

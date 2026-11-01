@@ -17,11 +17,8 @@ import {
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { LucideAngularModule, Play, Square, X } from 'lucide-angular';
-import { ClaudeRpcService } from '@ptah-extension/core';
-import {
-  AgentMonitorStore,
-  type MonitoredAgent,
-} from '@ptah-extension/chat-streaming';
+import { ClaudeRpcService, injectWallClock } from '@ptah-extension/core';
+import { type MonitoredAgent } from '@ptah-extension/chat-streaming';
 import { CliAgentOutputComponent } from './cli-agent-output.component';
 import {
   AgentCardHeaderComponent,
@@ -31,7 +28,7 @@ import {
 import { CliLaneUsageSummaryComponent } from './cli-lane-usage-summary.component';
 import { ExecutionHeaderComponent } from '../execution-header/execution-header.component';
 import { cliActivity } from '../../../services/session-agents/session-agent-roster';
-import { cliLaneStats } from '../../../utils/lane-stats.adapters';
+import { cliLaneStats, resolveCliLaneUsage } from '../../../utils/lane-stats.adapters';
 import {
   createAgentOutputParser,
   createStderrParser,
@@ -242,6 +239,7 @@ import {
           <ptah-cli-agent-output
             class="block flex-1 min-h-0 overflow-hidden"
             [agentId]="agent().agentId"
+            [usage]="laneUsage()"
             [segments]="agent().segments"
             [stdoutSegments]="parsedOutput()"
             [streamEvents]="agent().streamEvents"
@@ -264,7 +262,7 @@ export class AgentCardComponent {
   readonly toggleExpanded = output<void>();
   readonly closeLane = output<string>();
 
-  private readonly store = inject(AgentMonitorStore);
+  private readonly now = injectWallClock('second', () => this.agent().status === 'running');
   private readonly rpcService = inject(ClaudeRpcService);
   protected readonly SquareIcon = Square;
   protected readonly PlayIcon = Play;
@@ -277,34 +275,31 @@ export class AgentCardComponent {
   readonly isResuming = signal(false);
 
   /**
-   * Elapsed time display derived from the store's shared tick signal.
-   * No per-card setInterval — the store drives a single 1s timer.
+   * Elapsed time display derived from the shared wall clock.
    * Freezes at completedAt when the agent finishes (no more ticking).
    */
   readonly elapsedDisplay = computed(() => {
     const a = this.agent();
-    if (a.status === 'running') this.store.tick();
     const duration = agentRunDurationMs(
       {
         running: a.status === 'running',
         startedAt: a.startedAt,
         endedAt: a.completedAt,
       },
-      Date.now(),
+      this.now(),
     );
     return duration === null ? '' : (formatAgentDuration(duration) ?? '');
   });
 
   protected readonly laneLabel = computed(() => {
     const a = this.agent();
-    if (a.status === 'running') this.store.tick();
     return agentRunLabel(
       {
         running: a.status === 'running',
         startedAt: a.startedAt,
         endedAt: a.completedAt,
       },
-      Date.now(),
+      this.now(),
     );
   });
   protected readonly laneStatus = computed(() => {
@@ -333,6 +328,7 @@ export class AgentCardComponent {
    * only the end status and a guard stop reason.
    */
   protected readonly laneStats = computed(() => cliLaneStats(this.agent()));
+  protected readonly laneUsage = computed(() => resolveCliLaneUsage(this.agent()));
   /** Same account text as the card header's badge (label only, never an ID). */
   protected readonly laneAccount = computed(() =>
     laneAccountText(this.agent().accountProfileId, this.injector),

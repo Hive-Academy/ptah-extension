@@ -5,6 +5,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, PlayCircle, X } from 'lucide-angular';
+import { injectWallClock } from '@ptah-extension/core';
 import type { SubagentRecord } from '@ptah-extension/shared';
 
 /**
@@ -119,6 +120,7 @@ import type { SubagentRecord } from '@ptah-extension/shared';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ResumeNotificationBannerComponent {
+  private readonly now = injectWallClock('coarse');
   /**
    * Array of resumable subagent records from ChatStore
    */
@@ -178,8 +180,7 @@ export class ResumeNotificationBannerComponent {
       return '';
     }
 
-    const now = Date.now();
-    const elapsedMs = now - timestamp;
+    const elapsedMs = this.now() - timestamp;
 
     if (elapsedMs < 0) {
       return '';

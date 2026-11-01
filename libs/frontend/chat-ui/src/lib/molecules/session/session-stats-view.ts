@@ -1,4 +1,4 @@
-import type { SessionBudgetState, SessionStatsEntry } from '@ptah-extension/shared';
+import { trustedContextWindow, type SessionBudgetState, type SessionStatsEntry } from '@ptah-extension/shared';
 import type { LiveModelStats } from './session-stats-summary.component';
 import type { StatsLimitViewModel } from './plan-limits/stats-limit-view-model.types';
 import type { SessionLimitSummary } from './plan-limits/session-limit-summary';
@@ -40,16 +40,11 @@ function withEstimateLine(text: string | null): string {
 }
 
 export function sessionContextCue(live: LiveModelStats | null): SessionContextCue {
-  const capacity = live?.contextCapacity;
+  const trustedWindow = live ? trustedContextWindow(live.contextCapacity, live.model) : null;
   const known = !!live && live.contextKnown !== false &&
     Number.isFinite(live.contextUsed) && live.contextUsed >= 0 &&
-    Number.isFinite(live.contextPercent) && !!capacity &&
-    capacity.model === live.model &&
-    (capacity.source === 'sdk-native' ||
-      (capacity.source === 'provider-catalog' &&
-        typeof capacity.providerId === 'string' && capacity.providerId.length > 0)) &&
-    typeof capacity.tokens === 'number' && Number.isFinite(capacity.tokens) &&
-    capacity.tokens > 0 && live.contextWindow === capacity.tokens;
+    Number.isFinite(live.contextPercent) && trustedWindow !== null &&
+    live.contextWindow === trustedWindow;
   return {
     hasLive: !!live,
     known,

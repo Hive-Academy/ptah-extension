@@ -232,6 +232,17 @@ describe('ElectronLayoutService', () => {
   // ── First launch (null stored state) ──────────────────────────────────────
 
   describe('restoreLayout — first launch (no stored state)', () => {
+    it('records the initial workspace resolution start during construction', () => {
+      setup(null);
+      const beforeConstruction = Date.now();
+      const service = createService();
+
+      expect(service.workspaceResolveStartedAt).toBeGreaterThanOrEqual(
+        beforeConstruction,
+      );
+      expect(service.workspaceResolveStartedAt).toBeLessThanOrEqual(Date.now());
+    });
+
     it('calls workspace:getInfo even when LAYOUT_STATE_KEY state is null', fakeAsync(() => {
       setup(null); // null = no stored state (first launch)
       createService();

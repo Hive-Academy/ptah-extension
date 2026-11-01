@@ -39,7 +39,7 @@ import {
 import { parseLaneKey } from '../../molecules/compact-session/compact-lane-rows';
 import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import { SingleChatSubagentViewComponent } from './single-chat-subagent-view.component';
-import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
+import { injectWallClock, SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
   ExecutionChatMessage,
@@ -104,7 +104,6 @@ import {
   type TurnAgents,
   type TurnContexts,
 } from './transcript-turn-contexts';
-import { TranscriptLiveClock } from './transcript-live-clock';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { groupLaneEvents, laneMetricsForRow, laneRowsBeforeCompletion, newestLaneRowKeys, sameLaneMonitorSnapshot, type LaneMonitorSnapshot } from './transcript-lane-events';
 import type { LaneSlot } from '../../molecules/lane-event/lane-event-row.types';
@@ -835,11 +834,11 @@ export class ChatTranscriptComponent {
 
   private readonly hasLiveTurn = computed(() => this.liveTurnIds().size > 0);
 
-  /** ONE clock for the transcript; ticks only while a turn is live and shown. */
-  private readonly liveClock = new TranscriptLiveClock(
+  /** Share the root clock while a live turn is shown. */
+  protected readonly liveNow = injectWallClock(
+    'second',
     () => this.hasLiveTurn() && this.workActive(),
   );
-  protected readonly liveNow = this.liveClock.now;
 
   /**
    * The session's needs-you aggregate for the live turn's line (§3.7, B2),

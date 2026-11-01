@@ -91,6 +91,34 @@ describe('SessionInspectorComponent presentation', () => {
     return fixture;
   }
 
+  it('passes uncached input tokens to the Orchestrator and preserves missing data', () => {
+    TestBed.overrideComponent(SessionInspectorComponent, {
+      set: { template: '<span data-testid="input">{{ sessionTokens()?.input ?? "—" }}</span>' },
+    });
+    const snapshot: NonNullable<SessionStatsInputs['snapshot']> = {
+      sessionId: 'one',
+      model: 'test-model',
+      totalCost: 0,
+      knownCost: 0,
+      tokenCount: 650,
+      tokens: { input: 100, output: 50, cacheRead: 200, cacheCreation: 300 },
+      messageCount: 0,
+      agentSessionCount: 0,
+      status: 'ok',
+      pricingCoverage: 'full',
+      scope: 'session',
+      revision: 1,
+    };
+    const fixture = create({ ...emptyStats, snapshot });
+    const input = () => (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="input"]',
+    )?.textContent?.trim();
+    expect(input()).toBe('100');
+    fixture.componentRef.setInput('stats', emptyStats);
+    fixture.detectChanges();
+    expect(input()).toBe('—');
+  });
+
   it('renders only expand when no session stats are available', () => {
     model.set({ ...emptyModel, needsYouCount: 2 });
     const fixture = create(null);

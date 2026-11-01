@@ -273,6 +273,7 @@ export {
   type SubagentResumeAdviceInput,
 } from './lib/helpers';
 export { SdkModuleLoader, SubagentHookHandler } from './lib/helpers';
+export { NextTurnReminderQueue } from './lib/helpers/next-turn-reminder.queue';
 export {
   SdkAdapterEvents,
   type SdkAdapterInitializedEvent,

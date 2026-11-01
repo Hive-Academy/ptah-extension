@@ -11,6 +11,7 @@ const base: LaneOutcomeRecord = {
   model: 'lane-default',
   role: 'review',
   taskKind: null,
+  taskKindSource: null,
   taskId: null,
   verdict: 'delivered',
   failureClass: null,

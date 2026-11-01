@@ -392,7 +392,7 @@ const EMPTY_LANES: CompactLaneSummary = {
         @if (cliCount(); as count) {
           <span class="badge badge-xs badge-outline">{{ count }} CLI</span>
         }
-        @if (roundedContextPercent() > 0) {
+        @if (roundedContextPercent() !== null) {
           <span class="badge badge-xs badge-outline" aria-label="Context used">{{ roundedContextPercent() }}% ctx</span>
         }
         <span class="ml-auto shrink-0">{{ gitCount() }}</span>
@@ -453,9 +453,10 @@ export class CompactRailCardComponent implements DoCheck {
     const t = this.todos();
     return t.kind === 'known' ? `${t.done}/${t.total}` : '—';
   });
-  readonly roundedContextPercent = computed(() =>
-    Math.round(this.contextPercent() ?? 0),
-  );
+  readonly roundedContextPercent = computed(() => {
+    const percent = this.contextPercent();
+    return percent === null ? null : Math.round(percent);
+  });
   readonly gitCount = computed(() => {
     const g = this.gitStats();
     return g.kind === 'known' ? `+${g.additions} −${g.deletions}` : '—';

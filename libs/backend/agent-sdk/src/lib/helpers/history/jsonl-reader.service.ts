@@ -937,6 +937,7 @@ export class JsonlReaderService {
       isSynthetic: line.isSynthetic,
       // Read by replay to tell a peer turn from a typed prompt.
       ...(line.isSidechain === true && { isSidechain: true }),
+      ...(line.isCompactSummary === true && { isCompactSummary: true }),
       ...(typeof line.turnOrigin === 'string' && {
         turnOrigin: line.turnOrigin,
       }),

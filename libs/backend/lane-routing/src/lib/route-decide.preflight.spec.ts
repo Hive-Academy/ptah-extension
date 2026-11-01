@@ -23,6 +23,8 @@ import type { DecisionPayload } from './decision-model/decision-payload';
 import type { SystemOneCallResult } from './decision-model/system-one.client';
 import type { SystemOneClientOptions } from './decision-model/system-one.client';
 import { PreflightResultSchema } from './contracts/route-decide-result.schema';
+import { HostRoutingSetting } from './scope/host-routing-setting';
+import { PreflightReuseCache } from './scope/preflight-reuse-cache';
 
 const SELECTION_KEY = 'ptah.agentOrchestration.decisionModel';
 const OLLAMA = { kind: 'ollama', model: 'nimble' } as const;
@@ -65,6 +67,7 @@ function harness(options: {
   readonly structured?: StructuredDecisionCompleter;
   readonly seams?: RouteDecideSeams;
   readonly reply?: (payload: DecisionPayload) => SystemOneCallResult;
+  readonly reuse?: PreflightReuseCache;
 }) {
   const calls: DecisionPayload[] = [];
   const seen: SystemOneClientOptions[] = [];
@@ -101,6 +104,7 @@ function harness(options: {
       },
     },
     logger: testLogger(),
+    ...(options.reuse !== undefined ? { reuse: options.reuse } : {}),
     ...(options.structured !== undefined
       ? { structured: options.structured }
       : {}),
@@ -120,7 +124,93 @@ const preflight = {
   request: 'describe the change',
 };
 
+function reuseCache(enabled = true): PreflightReuseCache {
+  return new PreflightReuseCache(
+    new HostRoutingSetting(
+      createMockWorkspaceProvider({
+        config: { 'ptah.agentOrchestration.hostRouting': enabled },
+      }),
+      configFor(OLLAMA),
+    ),
+  );
+}
+
 describe('route decide preflight', () => {
+  it('returns a validated copy of a confirmed cached result without dispatching', async () => {
+    const reuse = reuseCache();
+    reuse.confirmRevision('tab-1', 4);
+    const first = harness({ selection: OLLAMA, reuse });
+    const result = await first.service.decide(preflight, source(), {
+      sessionKey: 'tab-1',
+    });
+    if (result.stage !== 'pre-flight') throw new Error('expected preflight');
+    expect(first.calls).toHaveLength(1);
+    reuse.put('tab-1', {
+      revision: 4,
+      modelFingerprint: JSON.stringify(OLLAMA),
+      result,
+    });
+
+    const next = harness({ selection: OLLAMA, reuse });
+    const reused = await next.service.decide(preflight, source(), {
+      sessionKey: 'tab-1',
+    });
+    expect(next.calls).toHaveLength(0);
+    expect(reused).toMatchObject({
+      ...result,
+      reasons: [...result.reasons, 'reused host pre-flight result'],
+      usage: {
+        requests: 0,
+        inputTokens: null,
+        outputTokens: null,
+        costUsd: null,
+      },
+    });
+    expect(reused.reasons).toEqual([
+      ...result.reasons,
+      'reused host pre-flight result',
+    ]);
+    expect(result.reasons).not.toContain('reused host pre-flight result');
+    expect(PreflightResultSchema.safeParse(reused).success).toBe(true);
+  });
+
+  it.each([
+    'different fingerprint',
+    'missing session key',
+    'pending continuity',
+    'unknown continuity',
+    'disabled setting',
+    'invalidated entry',
+  ] as const)('dispatches on a cache miss: %s', async (reason) => {
+    const reuse = reuseCache(reason !== 'disabled setting');
+    reuse.confirmRevision('tab-1', 4);
+    const seeded = harness({ selection: OLLAMA, reuse });
+    const cached = await seeded.service.decide(preflight, source());
+    if (cached.stage !== 'pre-flight') throw new Error('expected preflight');
+    reuse.put('tab-1', {
+      revision: 4,
+      modelFingerprint: JSON.stringify(
+        reason === 'different fingerprint'
+          ? { kind: 'ollama', model: 'other' }
+          : OLLAMA,
+      ),
+      result: cached,
+    });
+    if (reason === 'pending continuity') reuse.beginTurn('tab-1');
+    if (reason === 'unknown continuity') reuse.markUnknown('tab-1');
+    if (reason === 'invalidated entry') reuse.invalidate('tab-1');
+
+    const next = harness({ selection: OLLAMA, reuse });
+    const result = await next.service.decide(
+      preflight,
+      source(),
+      reason === 'missing session key' ? undefined : { sessionKey: 'tab-1' },
+    );
+    expect(next.calls).toHaveLength(1);
+    expect(result.usage.requests).toBe(1);
+    expect(result.reasons).not.toContain('reused host pre-flight result');
+  });
+
   it('returns skill-table nulls and calls nothing when the model is unset', async () => {
     const rows = source();
     const { service, calls } = harness({});

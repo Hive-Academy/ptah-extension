@@ -7,7 +7,7 @@
  * root, and **nothing in that key moves when a source file does** — so an agent
  * that read diagnostics, applied a fix and asked again was answered from before
  * its own edit. That loop is not an edge case: the core prompt
- * (`ptah-system-prompt.constant.ts`) tells every agent to check diagnostics
+ * (`agent-sdk` `ptah-core-prompt.ts`) tells every agent to check diagnostics
  * AFTER it changes files, so it is the documented normal path.
  *
  * The provider has carried `invalidate(root?)` since TASK_2026_325 finding 2,
