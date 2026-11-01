@@ -11,7 +11,7 @@ import {
   type OnboardingCaptureOptions,
 } from './onboarding-ready-capture';
 import {
-  ONBOARDING_THEMES,
+  ONBOARDING_CAPTURE_THEMES,
   type OnboardingTheme,
 } from './onboarding-ready.fixtures';
 import {
@@ -64,7 +64,7 @@ async function boot(
   await bootOnboardingProposal(page, url, { theme, route, scene });
 }
 
-for (const theme of ONBOARDING_THEMES) {
+for (const theme of ONBOARDING_CAPTURE_THEMES) {
   test.describe(`onboarding-proposal-visual (${theme})`, () => {
     for (const size of SIZES) {
       test(`${size.prefix}new-project-intake`, async ({

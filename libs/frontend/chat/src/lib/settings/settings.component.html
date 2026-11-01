@@ -222,8 +222,13 @@
     <!-- Tab 3: Advanced (membership, agent behaviour, output style, MCP, VS Code LM) -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'pro-features') {
+      @defer (on immediate) {
+        <ptah-advanced-settings (modelChanged)="onModelChanged()" />
+      } @placeholder {
+        <div class="min-h-24" aria-busy="true"></div>
+      }
       <section
-        class="settings-plate mb-3 rounded-xl border border-base-300 bg-base-200 p-4"
+        class="settings-plate mt-3 rounded-xl border border-base-300 bg-base-200 p-4"
         aria-label="Setup"
       >
         <h2 class="mb-2 text-base font-semibold">Setup</h2>
@@ -248,11 +253,6 @@
           }
         </div>
       </section>
-      @defer (on immediate) {
-        <ptah-advanced-settings (modelChanged)="onModelChanged()" />
-      } @placeholder {
-        <div class="min-h-24" aria-busy="true"></div>
-      }
     }
 
     <!-- ============================================ -->

@@ -176,6 +176,7 @@ export class OnboardingFlagService {
       );
       return true;
     } catch (error: unknown) {
+      // degradation-audit: reported — the storage failure is logged without exposing it to the UI.
       this.logger.warn(LOG_CONTEXT, 'Could not persist the onboarding record', {
         field,
         error: error instanceof Error ? error.message : String(error),

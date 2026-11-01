@@ -857,6 +857,14 @@ describe('SettingsComponent deferred tabs', () => {
     expect(element.querySelector('[aria-busy="true"]')).toBeNull();
     const advanced = element.querySelector('ptah-advanced-settings');
     expect(advanced).not.toBeNull();
+    expect(
+      Array.from(
+        element.querySelectorAll(
+          'ptah-advanced-settings, section[aria-label="Setup"]',
+        ),
+        (node) => node.tagName,
+      ),
+    ).toEqual(['PTAH-ADVANCED-SETTINGS', 'SECTION']);
 
     // The (modelChanged) binding survives the deferral (#84).
     fixture.debugElement

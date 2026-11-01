@@ -101,7 +101,9 @@ test.describe('New project onboarding', () => {
     await expect(intake.locator('#project-stack-other-error')).toHaveCount(0);
   });
 
-  test('reload restores the proposal route and its tab', async ({ ui }) => {
+  // Proposal URLs are not persisted (no identity validator); after a reload
+  // Home offers to resume the draft instead (TASK_2026_ONBOARDING B4b).
+  test('reload offers to resume the proposal from Home', async ({ ui }) => {
     await ui.mockRpc({
       'harness:start-new-project': {
         success: true,
@@ -119,11 +121,15 @@ test.describe('New project onboarding', () => {
     await ui.page.locator('#project-what').fill('A telehealth portal');
     await ui.page.getByRole('button', { name: 'Continue' }).click();
     await expect(ui.page.getByTestId('proposal-workspace')).toBeVisible();
-    const route = new URL(ui.page.url());
-    expect(route.pathname).toBe('/onboarding/new-project/workspace');
-    expect(route.searchParams.get('tab')).toBeTruthy();
     await ui.prepare();
-    await expect(ui.page).toHaveURL(route.toString());
+    await ui.goto('onboarding');
+    await ui.page
+      .getByTestId('onboarding-resume-banners')
+      .getByText('Continue new project')
+      .locator('..')
+      .locator('..')
+      .getByRole('button', { name: 'Resume' })
+      .click();
     await expect(ui.page.getByTestId('proposal-workspace')).toBeVisible();
   });
 
@@ -146,8 +152,7 @@ test.describe('New project onboarding', () => {
     await ui.page.getByTestId('onboarding-path-link-new-project').click();
     await ui.page.locator('#project-what').fill('A clinic portal');
     await ui.page.getByRole('button', { name: 'Continue' }).click();
-    const tab = new URL(ui.page.url()).searchParams.get('tab');
-    expect(tab).toBeTruthy();
+    await expect(ui.page.getByTestId('proposal-workspace')).toBeVisible();
     await ui.goto('chat');
     await ui.goto('onboarding');
     await ui.page
@@ -157,9 +162,6 @@ test.describe('New project onboarding', () => {
       .locator('..')
       .getByRole('button', { name: 'Resume' })
       .click();
-    await expect(ui.page).toHaveURL(
-      new RegExp(`\\/onboarding\\/new-project\\/workspace\\?tab=${tab}`),
-    );
     await expect(ui.page.getByTestId('proposal-workspace')).toBeVisible();
     expect(await ui.getObservedCalls('chat:start')).toHaveLength(1);
   });

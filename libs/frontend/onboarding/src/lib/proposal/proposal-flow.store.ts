@@ -236,6 +236,7 @@ export class ProposalFlowStore {
       }
       result = await this.controller.leave(otherMode, choice);
     } catch {
+      // degradation-audit: reported — actionError shows a retryable session-stop failure.
       this.actionError.set('Could not stop the current session. Try again.');
       return null;
     } finally {

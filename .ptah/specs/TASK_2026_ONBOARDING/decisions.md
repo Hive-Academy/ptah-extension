@@ -12,7 +12,7 @@
 - **400px clipping root cause** (in-process frontend-developer, verified by coordinator):
   `libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts:445` holds the
   content area at `min-w-[400px]` between two 32px rail tabs; Electron `minWidth: 800`
-  (`apps/ptah-electron/src/windows/main-window.ts:124`). A 400px *window* cannot occur in
+  (`apps/ptah-electron/src/windows/main-window.ts:124`). A 400px _window_ cannot occur in
   Electron, so the old capture clipped a state the product cannot reach.
 - **Decision:** keep production unchanged; the narrow capture uses a 464px viewport so the
   onboarding content area is the design's 400px (design-spec §12.8). Options: change the
@@ -39,6 +39,7 @@
   selectors were typechecked and linted but not run. No live Electron runtime validation.
 
 ## B2 (shared presentational components)
+
 - Implementers: Codex (part A: stepper, run chip/panel, step meter, recovery screen, owner conflict
   banner, resume banner), Grok (part B: item status card/grid, details log). Review family:
   in-process Claude `code-logic-reviewer`. Initial review REVISE 7.5/10 (findings 1–9); revise
@@ -54,6 +55,7 @@
   concepts, reviewer accepted).
 
 ## B3a
+
 - **Match % range (coordinator, source over spec):** design-spec A2 says `round(score*100)`,
   hidden outside 0..1, but the backend sends `relevanceScore` as 0–100
   (`libs/shared/src/lib/types/wizard/recommendations.ts:37` example 92;
@@ -78,6 +80,7 @@
   Regression test added. Reviewed by Grok (a different family from the coordinator).
 
 ## B3b
+
 - **Phase 1 (state layer):** implementer Codex; reviewer in-process Claude code-logic-reviewer
   (different family). Initial REVISE 6/10 → revise 1 REVISE 8/10 (new: transient lookup failure
   latched as mismatch) → revise 2 APPROVED 9/10.
@@ -90,6 +93,7 @@
   error with Retry.
 
 ## B3b Phase 2
+
 - Logic review REVISE 6.5 → round 1 fixes → APPROVE 8/10. Carries (a)(c) met; (b) met after
   round 1 (lookup-error panel, in-flight Start guard, late `started()` rebind effect).
 - Coordinator fixed TS18047 null guard in A3 `startNow` (one line) found by own verify.
@@ -101,6 +105,7 @@
 - Visual review REVISE 7/10 (5 serious) → separate visual-fix batch.
 
 ## B3b visual fixes
+
 - Codex lane fixed serious 1–5, minors 6, 7, 9, 10 and the axe `aria-allowed-role` violation.
   Visual re-check APPROVE 8/10 (88 generate + 72 analyze captures, all axe `violations: []`,
   no analyze stepper regression). Logic review APPROVE 7.5/10.
@@ -111,6 +116,7 @@
   link renders without `gen`), M3 (no-op `destroyed` guards in A4).
 
 ## B4a
+
 - Codex lane implemented; logic review REVISE 5/10 (B1 saved draft counted as active, S1 stale
   record, S2 no start guard, S3 thrown send read as accepted) → round 1 → APPROVE 8/10.
   Verify 8/9 (only the webview lint cycle, fixed separately in PR #866), electron 2/2.
@@ -122,6 +128,7 @@
   B4b UX).
 
 ## B4b
+
 - Codex lane implemented; logic review REVISE 5/10 (1 blocking: raw vs canonical workspace
   root; majors: apply attributed at response time, restore wiped overrides, Save draft left
   the session out of conflict detection, unreported cancelled stop) → round 1 (Codex) →
@@ -144,6 +151,7 @@
   spacing (~2 px vs ~20 px). Minor 7 is the known deferred heading focus box (item 11).
 
 ## B5a
+
 - Codex lane implemented (39 files); it stopped at 37 min while its verify waited in the lock
   queue. Coordinator stopped its orphan verify and changed the electron-shell.apps-tab.spec.ts
   label expectation "Setup hub" → "Setup" (the B5a menu label).
@@ -167,6 +175,7 @@
   ptah-electron-e2e lint only); Electron and VS Code host specs 7/7 and 33/33.
 
 ## B5b
+
 - Codex lane deleted 51 ledger files, narrowed the focus-router union, updated barrels, routes,
   specs and e2e migrations, and authored onboarding.spec.ts (not run). Verify 17/18 and 7/8
   (accepted webview lint cycle and pre-existing e2e git-watcher lint only).
@@ -213,3 +222,23 @@
   axe scrollable-region-focusable gone. Deferred: #1 anubis error-token contrast 3.87:1
   (pre-existing on main, reused outcome-summary), #3 state-colour treatments, #5 Guidance stepper
   length, #6 narrow orphan tile. Same-family follow-up, evidence: axe JSON re-check.
+
+
+## CI fix (PR #877 on 09630595a)
+
+- Codex lanes b0570354 (ci-fix-r1-report.md), 039020c7 (r2) and 34a2d796 (r3). Claude logic review
+  (code-logic-review.ci-fix-r1.md): REVISE 7/10, then APPROVE after revise rounds 1 and 2 (cap 2).
+- Degradation audit: 13 catches annotated with the documented `degradation-audit:` form after each
+  claim was checked against the UI/log path. The tracker URL-parse catch now logs. Baseline unchanged.
+- state.spec.ts: seed `ptah.onboarding.v1` `{ shownAt }`, reload and confirm it persisted, because
+  first-run onboarding is not persisted and `ptahRoute` is never written on a fresh profile.
+- webview-e2e timeout: under `CI` the 4 onboarding capture specs run `ptah-glass` + `ptah-glass-light`
+  (one dark, one light); local runs keep all 4 themes. The workflow timeout is unchanged.
+- settings-advanced-search-voice.e2e.spec.ts:187 failures were branch-caused: the new Setup panel
+  pushed Advanced cards below the 768px fold. The Setup panel now renders below Advanced settings;
+  the settings component spec asserts the order.
+- Electron e2e specs assert rendered pages, not `page.url()` (always `file://…/index.html`). The
+  onboarding spec reloads after skip and asserts Ready stays gone and the Chat canvas
+  (`ptah-orchestra-canvas`) shows; Home is reopened from the menu because it is not persisted.
+- Live Electron e2e (locked): state + onboarding + new-project 13/14, then onboarding 1/1 after the
+  selector fix. Cold-start restore remains unverified live (live-e2e-report.md, Round 2).

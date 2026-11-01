@@ -15,7 +15,10 @@
  * literals.
  */
 import { expect, type Page } from '@playwright/test';
-import { installPostMessageBridge, type PostMessageBridge } from '../../postmessage-bridge';
+import {
+  installPostMessageBridge,
+  type PostMessageBridge,
+} from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
 import { rpcError } from '../marketplace/marketplace.fixtures';
 import {
@@ -33,6 +36,12 @@ export const ONBOARDING_THEMES = [
   'anubis-light',
 ] as const;
 export type OnboardingTheme = (typeof ONBOARDING_THEMES)[number];
+
+/** CI keeps dark and light glass coverage at both sizes; local runs include all themes. */
+export const ONBOARDING_CAPTURE_THEMES: readonly OnboardingTheme[] = process
+  .env['CI']
+  ? [ONBOARDING_THEMES[0], ONBOARDING_THEMES[1]]
+  : ONBOARDING_THEMES;
 
 /** The two glass themes (reduced-transparency captures and the contrast sweep). */
 export const GLASS_THEMES = ['ptah-glass', 'ptah-glass-light'] as const;
@@ -63,7 +72,8 @@ export const NEVER_ANSWERED: unique symbol = Symbol('never-answered');
 
 /** Fixed data, so every capture is the same on every run. */
 export const CHECKED_AT = '2026-10-29T09:00:00.000Z';
-export const CLAUDE_PATH = 'C:\\Users\\ptah-e2e\\AppData\\Roaming\\npm\\claude.cmd';
+export const CLAUDE_PATH =
+  'C:\\Users\\ptah-e2e\\AppData\\Roaming\\npm\\claude.cmd';
 export const CLAUDE_VERSION = '2.1.3 (Claude Code)';
 
 const DETECT_CLIS = 'agent:detectClis';
@@ -95,7 +105,10 @@ function ambientReply(
 }
 
 /** The readiness RPC overrides per fixture id (addendum component 12 table). */
-export const READINESS_FIXTURES: Record<ReadinessFixtureId, Record<string, unknown>> = {
+export const READINESS_FIXTURES: Record<
+  ReadinessFixtureId,
+  Record<string, unknown>
+> = {
   checking: {
     [DETECT_CLIS]: NEVER_ANSWERED,
     [AMBIENT_STATUS]: NEVER_ANSWERED,
@@ -203,13 +216,23 @@ export async function bootOnboardingReady(
   await installCspStub(page);
   const bridge = await installPostMessageBridge(page);
   await installHost(page, 'electron', 'chat');
-  await installRpcAutoResponder(page, onboardingReadyFixtures(options.readiness));
+  await installRpcAutoResponder(
+    page,
+    onboardingReadyFixtures(options.readiness),
+  );
   await page.addInitScript(
-    (seed: { theme: string; flag: string | null; scene: string | null; accent: string | null }) => {
+    (seed: {
+      theme: string;
+      flag: string | null;
+      scene: string | null;
+      accent: string | null;
+    }) => {
       localStorage.setItem('ptah-theme-v2', seed.theme);
-      if (seed.flag !== null) localStorage.setItem('ptah.onboarding.v1', seed.flag);
+      if (seed.flag !== null)
+        localStorage.setItem('ptah.onboarding.v1', seed.flag);
       if (seed.scene !== null) localStorage.setItem('ptah-scene', seed.scene);
-      if (seed.accent !== null) localStorage.setItem('ptah-accent', seed.accent);
+      if (seed.accent !== null)
+        localStorage.setItem('ptah-accent', seed.accent);
     },
     {
       theme: options.theme,
@@ -222,10 +245,15 @@ export async function bootOnboardingReady(
   await page.goto(fixtureUrl, { timeout: 30_000 });
   await expect(page.locator('ptah-electron-shell').first()).toBeVisible();
   if (options.flag) {
-    await bridge.inject({ type: 'switchView', payload: { view: 'onboarding' } });
+    await bridge.inject({
+      type: 'switchView',
+      payload: { view: 'onboarding' },
+    });
     await expect(page.locator('[data-testid="onboarding-home"]')).toBeVisible();
   } else {
-    await expect(page.locator('[data-testid="ready-claude-step"]')).toBeVisible();
+    await expect(
+      page.locator('[data-testid="ready-claude-step"]'),
+    ).toBeVisible();
   }
   return bridge;
 }

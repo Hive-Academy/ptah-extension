@@ -10,6 +10,7 @@ import {
   Router,
   type Event as RouterEvent,
 } from '@angular/router';
+import { LoggingService } from '@ptah-extension/core';
 import type { Subscription } from 'rxjs';
 import { OnboardingFlagService } from './onboarding-flag.service';
 
@@ -46,6 +47,7 @@ interface PendingRedirect {
 export class OnboardingFirstRunTracker {
   private readonly router = inject(Router);
   private readonly flag = inject(OnboardingFlagService);
+  private readonly logger = inject(LoggingService);
   private readonly destroyRef = inject(DestroyRef);
 
   private subscription: Subscription | null = null;
@@ -62,7 +64,11 @@ export class OnboardingFirstRunTracker {
 
   /** Called by the chat guard with the navigation it is redirecting. */
   recordRedirect(navigationId: number): void {
-    this.pending = { originId: navigationId, replacementId: null, awaiting: false };
+    this.pending = {
+      originId: navigationId,
+      replacementId: null,
+      awaiting: false,
+    };
   }
 
   private onRouterEvent(event: RouterEvent): void {
@@ -82,7 +88,10 @@ export class OnboardingFirstRunTracker {
       return;
     }
 
-    if (event instanceof NavigationError || event instanceof NavigationSkipped) {
+    if (
+      event instanceof NavigationError ||
+      event instanceof NavigationSkipped
+    ) {
       if (this.isTracked(pending, event.id)) this.pending = null;
       return;
     }
@@ -117,7 +126,13 @@ export class OnboardingFirstRunTracker {
       const segments =
         tree.root.children[PRIMARY_OUTLET]?.segments ?? tree.root.segments;
       return segments[0]?.path;
-    } catch {
+    } catch (error: unknown) {
+      // degradation-audit: reported — a failed URL parse leaves first-run unmarked and is logged.
+      this.logger.warn(
+        'OnboardingFirstRunTracker',
+        'Could not parse onboarding navigation URL',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
       return undefined;
     }
   }

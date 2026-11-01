@@ -28,7 +28,10 @@ import {
   captureOnboarding,
   type OnboardingCaptureOptions,
 } from './onboarding-ready-capture';
-import { ONBOARDING_THEMES, type OnboardingTheme } from './onboarding-ready.fixtures';
+import {
+  ONBOARDING_CAPTURE_THEMES,
+  type OnboardingTheme,
+} from './onboarding-ready.fixtures';
 import type { PostMessageBridge } from '../../postmessage-bridge';
 
 test.use({ useAppBuild: true });
@@ -43,7 +46,10 @@ const BUSY_EXEMPT = `${ANALYZE}, [data-testid="details-log"]`;
 
 type Size = typeof WIDE | typeof NARROW;
 
-async function shoot(page: Page, options: OnboardingCaptureOptions): Promise<void> {
+async function shoot(
+  page: Page,
+  options: OnboardingCaptureOptions,
+): Promise<void> {
   const result = await captureOnboarding(page, {
     ...options,
     outputDir: ONBOARDING_ANALYZE_CAPTURE_DIR,
@@ -81,26 +87,37 @@ async function openAgentsCatalog(page: Page): Promise<void> {
 
 async function expectSavedList(page: Page): Promise<void> {
   await expect(page.locator(ANALYZE)).toContainText('Saved analyses');
-  await expect(page.locator(ANALYZE)).toContainText(ANALYZE_SAVED_METADATA.projectType);
+  await expect(page.locator(ANALYZE)).toContainText(
+    ANALYZE_SAVED_METADATA.projectType,
+  );
   await expect(page.getByRole('button', { name: 'Use' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Hide from list' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Hide from list' }),
+  ).toBeVisible();
 }
 
-async function expectRunningPhaseTwo(page: Page, bridge: PostMessageBridge): Promise<void> {
+async function expectRunningPhaseTwo(
+  page: Page,
+  bridge: PostMessageBridge,
+): Promise<void> {
   await page.getByRole('button', { name: 'Start analysis' }).click();
   await expect(page.locator(ANALYZE)).toContainText('Analyzing workspace');
   await injectScanProgress(bridge);
   await injectRunningStream(bridge);
   await expect(page.locator(PHASE_HEADER)).toHaveText('Phase 2 of 4');
-  await expect(page.locator('ol[aria-label="Analysis phases"] li[data-status="running"]')).toContainText(
-    'Architecture assessment',
-  );
-  await expect(page.locator('[data-testid="details-log-counts"]')).toContainText('4 events');
+  await expect(
+    page.locator('ol[aria-label="Analysis phases"] li[data-status="running"]'),
+  ).toContainText('Architecture assessment');
+  await expect(
+    page.locator('[data-testid="details-log-counts"]'),
+  ).toContainText('4 events');
 }
 
 async function expectInterrupted(page: Page): Promise<void> {
   await expect(page.locator(ANALYZE)).toContainText('Interrupted analysis');
-  await expect(page.getByRole('button', { name: 'Continue previous run' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Continue previous run' }),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Start fresh' })).toBeVisible();
 }
 
@@ -112,7 +129,9 @@ async function expectFailed(page: Page): Promise<void> {
 async function expectCompleted(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Use' }).click();
   await expect(page.locator(ANALYZE)).toContainText('Analysis complete');
-  await expect(page.getByRole('button', { name: 'Manual adjust' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Manual adjust' }),
+  ).toBeVisible();
 }
 
 async function expectCatalogBanner(page: Page): Promise<void> {
@@ -128,19 +147,25 @@ async function expectLoadedRecommendations(page: Page): Promise<void> {
     .locator('[data-testid="agent-recommendation-match"]')
     .filter({ hasText: '92% match' });
   await expect(match92).toHaveCount(1);
-  await expect(page.locator('[data-testid="agent-recommendation-count"]')).toHaveCount(1);
-  await expect(page.locator('[data-testid="agent-recommendation-count"]')).toContainText('1 selected');
+  await expect(
+    page.locator('[data-testid="agent-recommendation-count"]'),
+  ).toHaveCount(1);
+  await expect(
+    page.locator('[data-testid="agent-recommendation-count"]'),
+  ).toContainText('1 selected');
 }
 
 async function expectOwnerConflict(page: Page): Promise<void> {
   await expectLoadedRecommendations(page);
-  await expect(page.locator('[data-testid="choose-agents-preview-trigger"]')).toBeEnabled();
+  await expect(
+    page.locator('[data-testid="choose-agents-preview-trigger"]'),
+  ).toBeEnabled();
   await page.locator('[data-testid="choose-agents-preview-trigger"]').click();
   await expect(page.locator('[data-testid="preview-confirm"]')).toBeVisible();
   await page.locator('[data-testid="preview-confirm"]').click();
-  await expect(page.locator('[data-testid="choose-agents-owner-banner"]')).toContainText(
-    'Another run is active.',
-  );
+  await expect(
+    page.locator('[data-testid="choose-agents-owner-banner"]'),
+  ).toContainText('Another run is active.');
 }
 
 const SAVED_LIST_RPC = {
@@ -153,7 +178,10 @@ const COMPLETED_RPC = {
 } as const;
 
 const INTERRUPTED_RPC = {
-  'wizard:get-resumable-run': { analysis: INTERRUPTED_ANALYSIS, generation: null },
+  'wizard:get-resumable-run': {
+    analysis: INTERRUPTED_ANALYSIS,
+    generation: null,
+  },
 } as const;
 
 const RUNNING_RPC = {
@@ -164,33 +192,51 @@ const FAILED_RPC = {
   'wizard:deep-analyze': () => rpcError('Deep analysis failed'),
 } as const;
 
-const SIZES: readonly { readonly name: string; readonly viewport: Size; readonly prefix: string }[] =
-  [
-    { name: 'wide', viewport: WIDE, prefix: '' },
-    { name: 'narrow', viewport: NARROW, prefix: 'narrow-' },
-  ];
+const SIZES: readonly {
+  readonly name: string;
+  readonly viewport: Size;
+  readonly prefix: string;
+}[] = [
+  { name: 'wide', viewport: WIDE, prefix: '' },
+  { name: 'narrow', viewport: NARROW, prefix: 'narrow-' },
+];
 
-for (const theme of ONBOARDING_THEMES) {
+for (const theme of ONBOARDING_CAPTURE_THEMES) {
   test.describe(`onboarding-analyze-visual (${theme})`, () => {
     for (const size of SIZES) {
-      test(`${size.prefix}analyze-saved-list`, async ({ page, fixtureServer }) => {
-        await boot(page, fixtureServer.url, theme, { viewport: size.viewport, rpc: SAVED_LIST_RPC });
+      test(`${size.prefix}analyze-saved-list`, async ({
+        page,
+        fixtureServer,
+      }) => {
+        await boot(page, fixtureServer.url, theme, {
+          viewport: size.viewport,
+          rpc: SAVED_LIST_RPC,
+        });
         await openAnalyze(page);
         await expectSavedList(page);
         await shoot(page, { view: `${size.prefix}analyze-saved-list`, theme });
       });
 
-      test(`${size.prefix}analyze-running-phase-2`, async ({ page, fixtureServer }) => {
+      test(`${size.prefix}analyze-running-phase-2`, async ({
+        page,
+        fixtureServer,
+      }) => {
         const bridge = await boot(page, fixtureServer.url, theme, {
           viewport: size.viewport,
           rpc: RUNNING_RPC,
         });
         await openAnalyze(page);
         await expectRunningPhaseTwo(page, bridge);
-        await shoot(page, { view: `${size.prefix}analyze-running-phase-2`, theme });
+        await shoot(page, {
+          view: `${size.prefix}analyze-running-phase-2`,
+          theme,
+        });
       });
 
-      test(`${size.prefix}analyze-interrupted`, async ({ page, fixtureServer }) => {
+      test(`${size.prefix}analyze-interrupted`, async ({
+        page,
+        fixtureServer,
+      }) => {
         await boot(page, fixtureServer.url, theme, {
           viewport: size.viewport,
           rpc: INTERRUPTED_RPC,
@@ -201,24 +247,39 @@ for (const theme of ONBOARDING_THEMES) {
       });
 
       test(`${size.prefix}analyze-failed`, async ({ page, fixtureServer }) => {
-        await boot(page, fixtureServer.url, theme, { viewport: size.viewport, rpc: FAILED_RPC });
+        await boot(page, fixtureServer.url, theme, {
+          viewport: size.viewport,
+          rpc: FAILED_RPC,
+        });
         await openAnalyze(page);
         await expectFailed(page);
         await shoot(page, { view: `${size.prefix}analyze-failed`, theme });
       });
 
-      test(`${size.prefix}analyze-completed`, async ({ page, fixtureServer }) => {
-        await boot(page, fixtureServer.url, theme, { viewport: size.viewport, rpc: COMPLETED_RPC });
+      test(`${size.prefix}analyze-completed`, async ({
+        page,
+        fixtureServer,
+      }) => {
+        await boot(page, fixtureServer.url, theme, {
+          viewport: size.viewport,
+          rpc: COMPLETED_RPC,
+        });
         await openAnalyze(page);
         await expectCompleted(page);
         await shoot(page, { view: `${size.prefix}analyze-completed`, theme });
       });
 
-      test(`${size.prefix}agents-catalog-banner`, async ({ page, fixtureServer }) => {
+      test(`${size.prefix}agents-catalog-banner`, async ({
+        page,
+        fixtureServer,
+      }) => {
         await boot(page, fixtureServer.url, theme, { viewport: size.viewport });
         await openAgentsCatalog(page);
         await expectCatalogBanner(page);
-        await shoot(page, { view: `${size.prefix}agents-catalog-banner`, theme });
+        await shoot(page, {
+          view: `${size.prefix}agents-catalog-banner`,
+          theme,
+        });
       });
 
       test(`${size.prefix}agents-92-match`, async ({ page, fixtureServer }) => {
@@ -228,20 +289,32 @@ for (const theme of ONBOARDING_THEMES) {
         await shoot(page, { view: `${size.prefix}agents-92-match`, theme });
       });
 
-      test(`${size.prefix}agents-selection-count`, async ({ page, fixtureServer }) => {
+      test(`${size.prefix}agents-selection-count`, async ({
+        page,
+        fixtureServer,
+      }) => {
         await boot(page, fixtureServer.url, theme, { viewport: size.viewport });
         await openAgentsCatalog(page);
-        await expect(page.locator('[data-testid="agent-recommendation-count"]')).toContainText(
-          '1 selected',
-        );
-        await shoot(page, { view: `${size.prefix}agents-selection-count`, theme });
+        await expect(
+          page.locator('[data-testid="agent-recommendation-count"]'),
+        ).toContainText('1 selected');
+        await shoot(page, {
+          view: `${size.prefix}agents-selection-count`,
+          theme,
+        });
       });
 
-      test(`${size.prefix}agents-owner-conflict`, async ({ page, fixtureServer }) => {
+      test(`${size.prefix}agents-owner-conflict`, async ({
+        page,
+        fixtureServer,
+      }) => {
         await boot(page, fixtureServer.url, theme, { viewport: size.viewport });
         await openAgentsCatalog(page);
         await expectOwnerConflict(page);
-        await shoot(page, { view: `${size.prefix}agents-owner-conflict`, theme });
+        await shoot(page, {
+          view: `${size.prefix}agents-owner-conflict`,
+          theme,
+        });
       });
     }
   });
