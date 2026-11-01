@@ -27,7 +27,7 @@ import {
   type MarketplaceSkillSource,
 } from '@ptah-extension/core';
 import { provenanceLabel } from '@ptah-extension/shared';
-import { NativeDrawerComponent } from '@ptah-extension/ui';
+import { NativeDrawerComponent, MotionRouteStageDirective, detailParamKey } from '@ptah-extension/ui';
 import { MarketplaceInventoryStore } from '../../data/marketplace-inventory.store';
 import {
   decodeSkillRef,
@@ -35,6 +35,7 @@ import {
 } from '../../data/skill-ref';
 import { MarketplaceLayout } from '../../layout/marketplace-layout';
 import { marketplaceRouteLink } from '../../shell/marketplace-route-url';
+import { MARKETPLACE_LEAVE_CLONE } from '../../shell/marketplace-motion-key';
 import { DockedInspectorComponent } from '../../ui/docked-inspector.component';
 import {
   SKILL_KIND_ICONS,
@@ -108,6 +109,7 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
     RouterOutlet,
     LucideAngularModule,
     NativeDrawerComponent,
+    MotionRouteStageDirective,
     DockedInspectorComponent,
     SkillsSectionHeaderComponent,
     PluginConfigHomeNoticeComponent,
@@ -115,7 +117,9 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    class: 'flex h-full min-h-0 min-w-0',
+    class: 'flex h-full min-h-0 min-w-0 ptah-motion-panel',
+    'animate.enter': 'ptah-motion-enter',
+    'animate.leave': 'ptah-motion-leave',
     'data-testid': 'installed-skills-page',
     '(keydown)': 'onHostKeydown($event)',
   },
@@ -390,14 +394,19 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
     @if (openRef() !== null) {
       @if (docked()) {
         <ptah-docked-inspector
-          class="w-[400px] shrink-0"
+          class="ptah-motion-panel w-[400px] shrink-0"
+          animate.leave="ptah-motion-leave"
           [heading]="detailHeading()"
           (closed)="close()"
         >
-          <router-outlet />
+          <div ptahMotionRouteStage [motionRouteKey]="detailMotionKey" [motionLeaveClone]="motionLeaveClone">
+            <router-outlet />
+          </div>
         </ptah-docked-inspector>
       } @else {
         <ptah-native-drawer
+          class="ptah-motion-panel"
+          animate.leave="ptah-motion-leave"
           [isOpen]="true"
           widthClass="w-full max-w-md"
           [ariaLabel]="detailHeading()"
@@ -410,7 +419,9 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
           >
             {{ detailHeading() }}
           </h2>
-          <router-outlet />
+          <div ptahMotionRouteStage [motionRouteKey]="detailMotionKey" [motionLeaveClone]="motionLeaveClone">
+            <router-outlet />
+          </div>
         </ptah-native-drawer>
       }
     }
@@ -421,6 +432,8 @@ export class InstalledSkillsPageComponent {
   private readonly layout = inject(MarketplaceLayout);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  protected readonly detailMotionKey = detailParamKey(this.route, SKILL_REF_PARAM);
+  protected readonly motionLeaveClone = inject(MARKETPLACE_LEAVE_CLONE);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly vscode = inject(VSCodeService);
 

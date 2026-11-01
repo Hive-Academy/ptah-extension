@@ -415,6 +415,13 @@ describe('ServerDetailComponent', () => {
       root().querySelectorAll<HTMLElement>('[role="tab"]'),
     ).map((tab) => tab.textContent?.replace(/\s+/g, ' ').trim());
     expect(tabs).toEqual(['Overview', 'Targets2', 'Config']);
+    expect(root().querySelector('ptah-native-tab-group .ptah-motion-panel')).not.toBeNull();
+      expect(root().querySelector('ptah-native-tab-group .ptah-motion-stage > .ptah-motion-panel')).not.toBeNull();
+      expect(root().querySelector('ptah-native-tab-group .ptah-motion-panel.ptah-motion-enter')).toBeNull();
+    await selectTab('Targets');
+      expect(root().querySelector('ptah-native-tab-group .ptah-motion-stage > .ptah-motion-panel')).not.toBeNull();
+    await selectTab('Config');
+    expect(root().querySelector('ptah-native-tab-group .ptah-motion-panel')).not.toBeNull();
   });
 
   // Batch 25b: a flex `dd` without min-w-0 cannot shrink below its longest

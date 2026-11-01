@@ -68,6 +68,13 @@ export const DEFAULT_ACCENT: AccentName = 'gold';
 export type SceneName = 'aurora' | 'ember' | 'tide' | 'horizon' | 'pyramid' | 'temple';
 export const SCENES: readonly SceneName[] = ['pyramid', 'aurora', 'ember', 'tide', 'horizon', 'temple'];
 export const DEFAULT_SCENE: SceneName = 'pyramid';
+export type MotionStyleName = 'fade' | 'rise' | 'slide-left' | 'slide-right' | 'scale' | 'directional';
+export const MOTION_STYLES: readonly MotionStyleName[] = ['fade', 'rise', 'slide-left', 'slide-right', 'scale', 'directional'];
+export const DEFAULT_MOTION_STYLE: MotionStyleName = 'rise';
+const MOTION_STYLE_KEY = 'ptah-motion-style';
+function isValidMotionStyle(value: unknown): value is MotionStyleName {
+  return typeof value === 'string' && MOTION_STYLES.some((style) => style === value);
+}
 const SCENE_STATE_KEY = 'ptah-scene';
 const SCENE_HINT_KEY = 'ptah-scene';
 function isValidScene(value: unknown): value is SceneName {
@@ -219,6 +226,8 @@ export class ThemeService {
   readonly accent = this._accent.asReadonly();
   private readonly _scene = signal<SceneName>(DEFAULT_SCENE);
   readonly scene = this._scene.asReadonly();
+  private readonly _motionStyle = signal<MotionStyleName>(DEFAULT_MOTION_STYLE);
+  readonly motionStyle = this._motionStyle.asReadonly();
 
   /**
    * Public readonly signal for current theme
@@ -251,6 +260,7 @@ export class ThemeService {
     this.initializeTheme();
     this.initializeAccent();
     this.initializeScene();
+    this.initializeMotionStyle();
 
     effect(() => {
       const theme = this._currentTheme();
@@ -279,6 +289,9 @@ export class ThemeService {
       } else {
         root.removeAttribute('data-scene');
       }
+      const motionStyle = this._motionStyle();
+      if (motionStyle === DEFAULT_MOTION_STYLE) root.removeAttribute('data-motion-style');
+      else root.setAttribute('data-motion-style', motionStyle);
     });
   }
 
@@ -368,6 +381,20 @@ export class ThemeService {
     this._scene.set(scene);
     this.vscode.setState(SCENE_STATE_KEY, scene);
     try { localStorage.setItem(SCENE_HINT_KEY, scene); } catch { /* optional mirror */ }
+  }
+
+  /** Read the renderer preference without rewriting workspace state at boot. */
+  private initializeMotionStyle(): void {
+    const state = this.vscode.getState<string>(MOTION_STYLE_KEY);
+    const hint = isValidMotionStyle(state) ? undefined : this.readThemeHint(MOTION_STYLE_KEY);
+    this._motionStyle.set(isValidMotionStyle(state) ? state : isValidMotionStyle(hint) ? hint : DEFAULT_MOTION_STYLE);
+  }
+
+  setMotionStyle(style: MotionStyleName): void {
+    if (!isValidMotionStyle(style)) return;
+    this._motionStyle.set(style);
+    this.vscode.setState(MOTION_STYLE_KEY, style);
+    try { localStorage.setItem(MOTION_STYLE_KEY, style); } catch { /* optional mirror */ }
   }
 
   private initializeAccent(): void {

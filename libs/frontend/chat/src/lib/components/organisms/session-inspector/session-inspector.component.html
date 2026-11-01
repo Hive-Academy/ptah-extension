@@ -160,14 +160,25 @@
     <ng-content select="[inspectorSection]" />
 
     @if (s) {
-      <ptah-inspector-session-stats
-        data-inspector-section="session"
-        tabindex="-1"
-        class="st-r block border-t border-surface-border"
-        [style.--i]="1"
-        [stats]="s"
-        [turns]="m.orchestrator.turns"
-      />
+      <div class="inspector-stats-switch">
+        @if (leavingStats(); as oldStats) {
+          <ptah-inspector-session-stats
+            class="inspector-stats-leave block border-t border-surface-border"
+            aria-hidden="true"
+            inert
+            [stats]="oldStats"
+            [turns]="null"
+          />
+        }
+        <ptah-inspector-session-stats
+          data-inspector-section="session"
+          tabindex="-1"
+          class="block border-t border-surface-border"
+          [class.inspector-stats-enter]="statsSwitching()"
+          [stats]="s"
+          [turns]="m.orchestrator.turns"
+        />
+      </div>
     }
 
     <ptah-inspector-agents-section

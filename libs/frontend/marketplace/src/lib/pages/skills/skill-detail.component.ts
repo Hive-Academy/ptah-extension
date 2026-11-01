@@ -189,7 +189,12 @@ export function skillNameGroups(
   standalone: true,
   imports: [RouterLink, LucideAngularModule, TargetMarksComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block', 'data-testid': 'skill-detail' },
+  host: {
+    class: 'block ptah-motion-panel',
+    'data-testid': 'skill-detail',
+    'animate.enter': 'ptah-motion-enter',
+    'animate.leave': 'ptah-motion-leave',
+  },
   template: `
     @switch (view()) {
       @case ('loading') {

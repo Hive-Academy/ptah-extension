@@ -11,6 +11,8 @@ import {
 } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { filter, firstValueFrom } from 'rxjs';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   AppStateManager,
@@ -226,6 +228,23 @@ describe('ThothShellComponent', () => {
     expect(errorHandler.errors).toEqual([]);
   });
 
+  it('wires enter and leave classes on every case, with an initial-enter guard', () => {
+    // jsdom has no getAnimations(): Angular does not run animate.* here. Check
+    // the owning template contract alongside the DOM and direction tests.
+    const source = readFileSync(join(__dirname, 'thoth-shell.component.ts'), 'utf8');
+    const cases = [
+      ...source.matchAll(/@case \('(memory|skills|cron|gateway)'\) \{\s*<div([^>]*)>/g),
+    ];
+    expect(cases.map((match) => match[1])).toEqual([
+      'memory', 'skills', 'cron', 'gateway',
+    ]);
+    for (const match of cases) {
+      expect(match[2]).toContain('class="ptah-motion-panel px-3 py-6 sm:px-4 lg:py-8"');
+      expect(match[2]).toContain("[animate.enter]=\"hasSwitchedTabs() ? 'ptah-motion-enter' : ''\"");
+      expect(match[2]).toContain('animate.leave="ptah-motion-leave"');
+    }
+  });
+
   it('renders four tabs by default with Memory active', () => {
     const fixture = TestBed.createComponent(ThothShellComponent);
     fixture.detectChanges();
@@ -343,6 +362,113 @@ describe('ThothShellComponent', () => {
       expect(location.urlChanges.slice(changesBefore)).toEqual([
         'replace: /thoth/skills',
       ]);
+    });
+
+    it('stages every tab body and follows rail order in both directions', async () => {
+      await harness.navigateByUrl('/thoth/memory', ThothShellComponent);
+
+      const stage = (): HTMLElement => {
+        const element = harness.routeNativeElement?.querySelector<HTMLElement>(
+          '[ptahMotionStage]',
+        );
+        if (!element) throw new Error('Thoth motion stage was not rendered');
+        return element;
+      };
+      const expectPanel = (tab: ThothActiveTabId): void => {
+        const panels = stage().querySelectorAll<HTMLElement>(
+          ':scope > .ptah-motion-panel',
+        );
+        expect(panels).toHaveLength(1);
+        const panel = panels[0];
+        expect(panel.classList.contains('px-3')).toBe(true);
+        expect(panel.classList.contains('py-6')).toBe(true);
+        expect(panel?.querySelector(`ptah-${{
+          memory: 'memory-curator',
+          skills: 'skill-synthesis',
+          cron: 'cron-scheduler',
+          gateway: 'messaging-gateway',
+        }[tab]}-tab`)).not.toBeNull();
+      };
+
+      expect(stage().classList.contains('ptah-motion-stage')).toBe(true);
+      expect(stage().classList.contains('px-3')).toBe(false);
+      expect(stage().getAttribute('data-motion-dir')).toBe('forward');
+      expect(outletShell().hasSwitchedTabs()).toBe(false);
+      expectPanel('memory');
+
+      for (const [tab, direction] of [
+        ['cron', 'forward'],
+        ['skills', 'back'],
+        ['gateway', 'forward'],
+      ] as const) {
+        const settled = nextNavigationEnd();
+        tabButton(tab).click();
+        await settled;
+        harness.detectChanges();
+        expect(stage().getAttribute('data-motion-dir')).toBe(direction);
+        expect(outletShell().hasSwitchedTabs()).toBe(true);
+        expectPanel(tab);
+      }
+    });
+
+    it('writes direction before the old panel is removed in either direction', async () => {
+      await harness.navigateByUrl('/thoth/cron', ThothShellComponent);
+      const stage = harness.routeNativeElement?.querySelector<HTMLElement>(
+        '[ptahMotionStage]',
+      );
+      if (!stage) throw new Error('Thoth motion stage was not rendered');
+
+      for (const [tab, direction] of [
+        ['skills', 'back'],
+        ['gateway', 'forward'],
+      ] as const) {
+        const oldPanel = stage.querySelector(':scope > .ptah-motion-panel');
+        if (!oldPanel) throw new Error('old Thoth panel was not rendered');
+        const observer = new MutationObserver(() => undefined);
+        const settled = nextNavigationEnd();
+        tabButton(tab).click();
+        await settled;
+        observer.observe(stage, {
+          attributes: true,
+          attributeFilter: ['data-motion-dir'],
+          childList: true,
+        });
+        harness.detectChanges();
+        const records = observer.takeRecords();
+        observer.disconnect();
+
+        const directionWrite = records.findIndex(
+          (record) => record.type === 'attributes',
+        );
+        const oldRemoval = records.findIndex(
+          (record) =>
+            record.type === 'childList' &&
+            Array.from(record.removedNodes).includes(oldPanel),
+        );
+        expect(directionWrite).toBeGreaterThanOrEqual(0);
+        expect(oldRemoval).toBeGreaterThan(directionWrite);
+        expect(stage.getAttribute('data-motion-dir')).toBe(direction);
+        expect(stage.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+      }
+    });
+
+    it('ends a rapid memory-to-gateway-to-skills switch on one backward panel', async () => {
+      await harness.navigateByUrl('/thoth/memory', ThothShellComponent);
+      const stage = harness.routeNativeElement?.querySelector<HTMLElement>(
+        '[ptahMotionStage]',
+      );
+      if (!stage) throw new Error('Thoth motion stage was not rendered');
+
+      for (const tab of ['gateway', 'skills'] as const) {
+        const settled = nextNavigationEnd();
+        tabButton(tab).click();
+        await settled;
+        harness.detectChanges();
+      }
+      expect(stage.getAttribute('data-motion-dir')).toBe('back');
+      const panels = stage.querySelectorAll(':scope > .ptah-motion-panel');
+      expect(panels).toHaveLength(1);
+      expect(panels[0].querySelector('ptah-skill-synthesis-tab')).not.toBeNull();
     });
 
     it('writes no memory for a navigation that never settles', async () => {

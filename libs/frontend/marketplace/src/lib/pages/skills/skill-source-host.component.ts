@@ -92,7 +92,9 @@ export const SKILL_SOURCE_BANDS: Readonly<
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    class: 'block min-w-0 p-4',
+    class: 'block min-w-0 p-4 ptah-motion-panel',
+    'animate.enter': 'ptah-motion-enter',
+    'animate.leave': 'ptah-motion-leave',
     'data-testid': 'skill-source-host',
     '[attr.data-source]': 'source()',
   },

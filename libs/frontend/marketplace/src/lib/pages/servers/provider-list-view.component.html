@@ -129,22 +129,29 @@
   @if (detailOpen()) {
     @if (docked()) {
       <ptah-docked-inspector
-        class="sticky top-0 h-[calc(100vh-8rem)] w-[400px] shrink-0"
+        class="ptah-motion-panel sticky top-0 h-[calc(100vh-8rem)] w-[400px] shrink-0"
+        animate.leave="ptah-motion-leave"
         heading="Server details"
         data-testid="provider-detail-docked"
         (closed)="closeDetail()"
       >
-        <router-outlet />
+        <div ptahMotionRouteStage [motionRouteKey]="detailMotionKey" [motionLeaveClone]="motionLeaveClone">
+          <router-outlet />
+        </div>
       </ptah-docked-inspector>
     } @else {
       <ptah-native-drawer
+        class="ptah-motion-panel"
+        animate.leave="ptah-motion-leave"
         [isOpen]="true"
         widthClass="w-full max-w-md"
         [ariaLabel]="drawerLabel()"
         data-testid="provider-detail-drawer"
         (closed)="closeDetail()"
       >
-        <router-outlet />
+        <div ptahMotionRouteStage [motionRouteKey]="detailMotionKey" [motionLeaveClone]="motionLeaveClone">
+          <router-outlet />
+        </div>
       </ptah-native-drawer>
     }
   }

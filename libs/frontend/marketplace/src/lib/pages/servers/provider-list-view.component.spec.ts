@@ -130,6 +130,7 @@ describe('ProviderListViewComponent', () => {
 
       expect(page.url()).toBe(`/marketplace/servers/${REF.firecrawl}`);
       expect(detailIn('native-drawer-panel')).toBe(REF.firecrawl);
+      expect(page.q('[data-testid="native-drawer-body"] > .ptah-motion-stage > router-outlet')).not.toBeNull();
       expect(page.byTestId('docked-inspector')).toBeNull();
     });
 
@@ -147,6 +148,7 @@ describe('ProviderListViewComponent', () => {
       await flip('wide');
       expect(page.byTestId('native-drawer-panel')).toBeNull();
       expect(detailIn('docked-inspector')).toBe(REF.firecrawl);
+      expect(page.q('[data-testid="docked-inspector-body"] > .ptah-motion-stage > router-outlet')).not.toBeNull();
 
       await flip('regular');
       expect(detailIn('native-drawer-panel')).toBe(REF.firecrawl);

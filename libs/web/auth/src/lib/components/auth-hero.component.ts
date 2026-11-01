@@ -10,7 +10,7 @@ import {
 /**
  * AuthHeroComponent — right-side hero panel for the auth page.
  *
- * Restores the Egyptian temple-bg.png backdrop (parallax + gradient veils + gold
+ * Restores the Egyptian temple-bg.webp backdrop (parallax + gradient veils + gold
  * particles) behind the Operator Console floating cards. The `/login` and
  * `/signup` routes render client-side (`RenderMode.Client`), so the GSAP viewport
  * animations run normally with no prerender/hydration risk.
@@ -29,7 +29,7 @@ import {
         viewportAnimation
         [viewportConfig]="cardAnimationConfig"
         class="absolute inset-0 bg-cover bg-center bg-no-repeat scale-110"
-        [style.backgroundImage]="'url(/assets/backgrounds/temple-bg.png)'"
+        [style.backgroundImage]="'url(/assets/backgrounds/temple-bg.webp)'"
       ></div>
 
       <!-- Left fade into the form column -->

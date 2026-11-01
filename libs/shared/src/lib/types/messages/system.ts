@@ -12,6 +12,9 @@ import type { StrictChatSession } from './session';
 export interface ViewChangedPayload {
   readonly view: string;
   readonly timestamp?: number;
+  /** The host may ask the chat surface to open this session. */
+  readonly sessionId?: string;
+  readonly sessionName?: string;
 }
 
 export interface ViewRouteChangedPayload {
@@ -24,8 +27,7 @@ export interface ViewGenericPayload {
 }
 
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
-export interface CommandsGetTemplatesPayload {
-}
+export interface CommandsGetTemplatesPayload {}
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 
 export interface CommandsExecuteCommandPayload {
@@ -62,19 +64,15 @@ export interface StateSavePayload {
 }
 
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
-export interface StateLoadPayload {
-}
+export interface StateLoadPayload {}
 
-export interface StateClearPayload {
-}
+export interface StateClearPayload {}
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
-export interface ProvidersGetAvailablePayload {
-}
+export interface ProvidersGetAvailablePayload {}
 
-export interface ProvidersGetCurrentPayload {
-}
+export interface ProvidersGetCurrentPayload {}
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 
 export interface ProvidersSwitchPayload {
@@ -87,8 +85,7 @@ export interface ProvidersGetHealthPayload {
 }
 
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
-export interface ProvidersGetAllHealthPayload {
-}
+export interface ProvidersGetAllHealthPayload {}
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 
 export interface ProvidersSetDefaultPayload {
@@ -125,11 +122,7 @@ export interface ProvidersHealthChangedPayload {
   readonly providerId: string; // ProviderId
   readonly health: {
     readonly status:
-      | 'available'
-      | 'unavailable'
-      | 'error'
-      | 'initializing'
-      | 'disabled';
+      'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
     readonly lastCheck: number;
     readonly errorMessage?: string;
     readonly responseTime?: number;
@@ -154,11 +147,7 @@ export interface ProvidersAvailableUpdatedPayload {
     readonly id: string; // ProviderId
     readonly name: string;
     readonly status:
-      | 'available'
-      | 'unavailable'
-      | 'error'
-      | 'initializing'
-      | 'disabled';
+      'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
   }[];
 }
 
@@ -188,11 +177,7 @@ export interface InitialDataProviderInfo {
   readonly id: string;
   readonly name: string;
   readonly status:
-    | 'available'
-    | 'unavailable'
-    | 'error'
-    | 'initializing'
-    | 'disabled';
+    'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
   readonly capabilities: Readonly<{
     streaming: boolean;
     fileAttachments: boolean;
@@ -210,11 +195,7 @@ export interface InitialDataProviderInfo {
  */
 export interface InitialDataProviderHealth {
   readonly status:
-    | 'available'
-    | 'unavailable'
-    | 'error'
-    | 'initializing'
-    | 'disabled';
+    'available' | 'unavailable' | 'error' | 'initializing' | 'disabled';
   readonly lastCheck: number;
   readonly errorMessage?: string;
   readonly responseTime?: number;
@@ -277,14 +258,11 @@ export interface InitialDataPayload {
  * System Message Payloads - For webview lifecycle messages
  */
 /* eslint-disable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
-export interface SystemReadyPayload {
-}
+export interface SystemReadyPayload {}
 
-export interface SystemWebviewReadyPayload {
-}
+export interface SystemWebviewReadyPayload {}
 
-export interface SystemRequestInitialDataPayload {
-}
+export interface SystemRequestInitialDataPayload {}
 /* eslint-enable @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type */
 
 /**

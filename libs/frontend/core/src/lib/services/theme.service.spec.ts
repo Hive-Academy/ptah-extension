@@ -16,7 +16,7 @@
 import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from './vscode.service';
-import { DAISYUI_THEMES, ThemeService, type ThemeName, type SceneName } from './theme.service';
+import { DAISYUI_THEMES, DEFAULT_MOTION_STYLE, MOTION_STYLES, ThemeService, type ThemeName, type SceneName, type MotionStyleName } from './theme.service';
 
 interface MockVSCodeService {
   getState: jest.Mock<unknown, [string]>;
@@ -83,6 +83,7 @@ describe('ThemeService', () => {
     document.documentElement.removeAttribute('data-glass-mode');
     document.documentElement.removeAttribute('data-accent');
     document.documentElement.removeAttribute('data-scene');
+    document.documentElement.removeAttribute('data-motion-style');
     document.getElementById('ptah-theme-extra')?.remove();
     document.getElementById('test-app-styles')?.remove();
     deferredSheetLink()?.remove();
@@ -90,6 +91,7 @@ describe('ThemeService', () => {
     localStorage.removeItem('ptah-theme-v2');
     localStorage.removeItem('ptah-accent');
     localStorage.removeItem('ptah-scene');
+    localStorage.removeItem('ptah-motion-style');
     jest.restoreAllMocks();
   });
 
@@ -165,6 +167,53 @@ describe('ThemeService', () => {
       expect(() => service.setScene('horizon')).not.toThrow();
       expect(service.scene()).toBe('horizon');
       expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'horizon');
+    });
+  });
+
+  describe('motion style', () => {
+    it.each([
+      [undefined, undefined, 'rise'],
+      ['slide-left', 'scale', 'slide-left'],
+      ['rise', 'scale', 'rise'],
+      [undefined, 'directional', 'directional'],
+      ['retired', 'slide-right', 'slide-right'],
+      ['retired', 'none', 'rise'],
+    ])('reads state %s then hint %s without writing at boot', (state, hint, expected) => {
+      const mock = createMockVscode();
+      mock.getState.mockImplementation((key) => key === 'ptah-motion-style' ? state : undefined);
+      if (hint) localStorage.setItem('ptah-motion-style', hint);
+      const mirrorWrite = jest.spyOn(Storage.prototype, 'setItem');
+      const service = configure(mock);
+      TestBed.inject(ApplicationRef).tick();
+      expect(service.motionStyle()).toBe(expected);
+      expect(document.documentElement.getAttribute('data-motion-style')).toBe(expected === DEFAULT_MOTION_STYLE ? null : expected);
+      expect(mock.setState).not.toHaveBeenCalled();
+      expect(mirrorWrite).not.toHaveBeenCalledWith('ptah-motion-style', expect.anything());
+    });
+
+    it('accepts each preset, persists it, and removes the default attribute', () => {
+      const mock = createMockVscode();
+      const service = configure(mock);
+      const app = TestBed.inject(ApplicationRef);
+      for (const style of MOTION_STYLES) {
+        service.setMotionStyle(style);
+        app.tick();
+        expect(service.motionStyle()).toBe(style);
+        expect(mock.setState).toHaveBeenCalledWith('ptah-motion-style', style);
+        expect(localStorage.getItem('ptah-motion-style')).toBe(style);
+        expect(document.documentElement.getAttribute('data-motion-style')).toBe(style === DEFAULT_MOTION_STYLE ? null : style);
+      }
+    });
+
+    it('ignores unknown choices and persists state when the mirror is blocked', () => {
+      const mock = createMockVscode();
+      const service = configure(mock);
+      service.setMotionStyle('none' as MotionStyleName);
+      expect(service.motionStyle()).toBe(DEFAULT_MOTION_STYLE);
+      expect(mock.setState).not.toHaveBeenCalled();
+      jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+      expect(() => service.setMotionStyle('fade')).not.toThrow();
+      expect(mock.setState).toHaveBeenCalledWith('ptah-motion-style', 'fade');
     });
   });
 
