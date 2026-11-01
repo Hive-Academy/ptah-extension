@@ -1,6 +1,6 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { isActiveWorkspaceTabSet, TabManagerService } from '@ptah-extension/chat-state';
-import { ClaudeRpcService, PluginCatalogService, VSCodeService, WorkspaceScopeService } from '@ptah-extension/core';
+import { ClaudeRpcService, ElectronLayoutService, PluginCatalogService, VSCodeService, WorkspaceScopeService } from '@ptah-extension/core';
 import type { SetupGenerationWorkflow, SetupStatusGetResponse } from '@ptah-extension/shared';
 import { z } from 'zod';
 import { GenerationWorkflowLauncherService } from '../../services/generation-workflow-launcher.service';
@@ -57,6 +57,7 @@ export class SetupStatusStore {
   private readonly scope = inject(WorkspaceScopeService);
   private readonly tabs = inject(TabManagerService);
   private readonly vscode = inject(VSCodeService);
+  private readonly electronLayout = inject(ElectronLayoutService);
   private readonly generationLauncher = inject(GenerationWorkflowLauncherService);
 
   private readonly snapshot = signal<{ key: string; value: SetupStatusGetResponse } | null>(null);
@@ -207,9 +208,15 @@ export class SetupStatusStore {
   async openFolder(): Promise<void> {
     this.folderError.set(null);
     try {
+      if (this.vscode.config().isElectron) {
+        const outcome = await this.electronLayout.addFolder();
+        if (outcome === 'failed') this.folderError.set('Could not open a folder. Please try again.');
+        return;
+      }
       const result = await this.rpc.call('command:execute', { command: 'workbench.action.files.openFolder' }, { timeout: 10000 });
       if (!result.isSuccess()) this.folderError.set('Could not open a folder. Please try again.');
     } catch {
+      // degradation-audit: reported — the folder error is shown in Home.
       this.folderError.set('Could not open a folder. Please try again.');
     }
   }

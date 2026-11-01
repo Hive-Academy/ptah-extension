@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
@@ -28,6 +29,9 @@ import { ClaudeReadinessStore } from '../ready/claude-readiness.store';
 import { ReadyStripComponent } from '../ready/ready-strip.component';
 import { readyStripSettingsWord } from '../ready/ready-strip-state';
 import { onboardingStepLink } from '../shell/onboarding-step-link';
+import { WorkspaceHeaderComponent } from '../shell/workspace-header.component';
+import { OnboardingWorkspaceStore } from '../shell/onboarding-workspace.store';
+import { AnalysisFoundCardComponent } from './analysis-found-card.component';
 import { OnboardingPathTileComponent } from './path-tile.component';
 import {
   OnboardingResumeStore,
@@ -61,6 +65,8 @@ interface StatusChip {
     ReadyStripComponent,
     ClaudeReadinessBannerComponent,
     ResumeBannerComponent,
+    WorkspaceHeaderComponent,
+    AnalysisFoundCardComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block', 'data-testid': 'onboarding-home' },
@@ -98,6 +104,8 @@ interface StatusChip {
         Pick the situation you are in. Each path walks you through the steps and
         shows what is happening; you never need to read an agent transcript.
       </p>
+      <ptah-workspace-header class="mt-5 block" [canSwitch]="true" />
+      <ptah-analysis-found-card />
 
       @if (readyAvailable) {
         <ptah-claude-readiness-banner
@@ -194,6 +202,7 @@ interface StatusChip {
               Project guidance
             </li>
           </ol>
+          <button type="button" class="relative z-10 mt-2 w-fit text-sm link" (click)="analyzeAnotherProject()">Analyze another project</button>
 
           @if (statusUnavailable()) {
             <div
@@ -316,6 +325,7 @@ export class OnboardingHomeComponent {
   private readonly readinessStore = inject(ClaudeReadinessStore);
   protected readonly resume = inject(OnboardingResumeStore);
   private readonly router = inject(Router);
+  private readonly workspace = inject(OnboardingWorkspaceStore);
 
   /** The Get ready strip, banner and footer link exist only in Electron. */
   protected readonly readyAvailable = this.readinessStore.available;
@@ -408,7 +418,14 @@ export class OnboardingHomeComponent {
     // Re-read Claude Code on every visit so the banner is never stale; it
     // clears without a flag write once the read returns ready.
     if (this.readyAvailable) void this.readinessStore.refresh(false);
-    void this.resume.refresh();
+    effect(() => {
+      const path = this.workspace.activePath();
+      if (!path || !this.workspace.readyForActivePath()) {
+        this.resume.clear();
+        return;
+      }
+      void this.resume.refresh();
+    });
   }
 
   protected resumeItem(item: OnboardingResumeItem): void {
@@ -423,6 +440,15 @@ export class OnboardingHomeComponent {
 
   protected openFolder(): void {
     void this.status.openFolder();
+  }
+
+  protected async analyzeAnotherProject(): Promise<void> {
+    const before = this.workspace.activePath();
+    if (this.workspace.isElectron) await this.workspace.openFolder();
+    else await this.status.openFolder();
+    if (this.workspace.activePath() !== before) {
+      void this.router.navigate(['/onboarding', 'analyze']);
+    }
   }
 
   protected skip(): void {

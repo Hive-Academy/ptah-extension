@@ -270,6 +270,7 @@ import { PhaseListComponent } from './phase-list.component';
 })
 export class AnalyzeWorkspacePage implements OnInit, OnDestroy {
   readonly analysis = input<string | undefined>();
+  readonly rerun = input<string | undefined>();
   protected readonly store = inject(AnalysisStepStore);
   protected readonly runner = inject(WizardAnalysisRunner);
   private readonly rpc = inject(WizardRpcService);
@@ -320,6 +321,16 @@ export class AnalyzeWorkspacePage implements OnInit, OnDestroy {
     });
   }
   async ngOnInit(): Promise<void> {
+    if (this.rerun() === '1') {
+      await this.startFresh();
+      if (this.destroyed) return;
+      await this.router.navigate([], {
+        queryParams: { rerun: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+      return;
+    }
     this.pendingAnalysis = this.analysis() ?? null;
     await this.loadSaved();
     if (this.destroyed) return;

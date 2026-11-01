@@ -11,6 +11,7 @@ import { OnboardingFlagService } from '../first-run/onboarding-flag.service';
 import { OnboardingAnnouncerService } from './onboarding-announcer.service';
 import { OnboardingFocusService } from './onboarding-focus.service';
 import { OnboardingRunPillService } from './onboarding-run-pill.service';
+import { WorkspaceHeaderComponent } from './workspace-header.component';
 
 /**
  * The frame every onboarding page renders in: a 1120px column, the top bar
@@ -24,7 +25,7 @@ import { OnboardingRunPillService } from './onboarding-run-pill.service';
 @Component({
   selector: 'ptah-onboarding-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink],
+  imports: [RouterOutlet, RouterLink, WorkspaceHeaderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'block h-full min-h-0 w-full overflow-y-auto overflow-x-hidden',
@@ -70,6 +71,9 @@ import { OnboardingRunPillService } from './onboarding-run-pill.service';
           >
         }
       </div>
+      @if (!onHome() && !onEntryPage()) {
+        <ptah-workspace-header class="mb-5 block" />
+      }
 
       <router-outlet (activate)="onPageActivated()" />
 
@@ -96,6 +100,7 @@ export class OnboardingShellComponent {
 
   /** Whether the outlet shows Home (the bare `/onboarding` route). */
   protected readonly onHome = signal(true);
+  protected readonly onEntryPage = signal(false);
   /** The second crumb, from the active child route's `data.crumb`. */
   protected readonly crumb = signal<string | null>(null);
 
@@ -103,6 +108,8 @@ export class OnboardingShellComponent {
   protected onPageActivated(): void {
     const child = this.route.firstChild;
     this.onHome.set(child?.routeConfig?.path === '');
+    const path = child?.routeConfig?.path;
+    this.onEntryPage.set((path === 'new-project' || path === 'team-builder') && child?.firstChild?.routeConfig?.path === '');
     const crumb: unknown = child?.snapshot.data['crumb'];
     this.crumb.set(typeof crumb === 'string' ? crumb : null);
     this.focus.focusHeading(this.host.nativeElement);
