@@ -1,5 +1,4 @@
 export * from './lib/console/alwayson-loop-diagram.component';
-export * from './lib/console/device-frame.component';
 export * from './lib/console/memory-recall-diagram.component';
 export * from './lib/console/orchestra-fanout-diagram.component';
 export * from './lib/console/terminal-mock.component';
@@ -15,4 +14,3 @@ export * from './lib/sections/hero/hero.component';
 export * from './lib/sections/pillars/pillars-spine.component';
 export * from './lib/sections/problem/problem-section.component';
 export * from './lib/sections/provider-strip/provider-strip.component';
-export * from './lib/sections/video-showcase/video-showcase.component';
