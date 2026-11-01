@@ -12,9 +12,9 @@ import { OnboardingWorkspaceStore } from './onboarding-workspace.store';
         @if (canSwitch()) {
           <div class="mt-2 flex flex-wrap items-center gap-2">
             <label for="onboarding-workspace-select" class="sr-only">Switch open folder</label>
-            <select id="onboarding-workspace-select" class="select select-bordered select-sm" [value]="store.activeIndex()" [disabled]="!store.canSwitch()" (change)="switchTo($event)">
+            <select id="onboarding-workspace-select" class="select select-bordered select-sm" [disabled]="!store.canSwitch()" (change)="switchTo($event)">
               @for (folder of store.folders(); track folder.path; let index = $index) {
-                <option [value]="index">{{ folder.name }}</option>
+                <option [value]="index" [selected]="index === store.activeIndex()">{{ folder.name }}</option>
               }
             </select>
             <button type="button" class="btn btn-outline btn-sm" [disabled]="!store.canSwitch()" (click)="store.openFolder()">Open folder…</button>

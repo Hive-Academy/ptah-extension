@@ -322,13 +322,15 @@ export class AnalyzeWorkspacePage implements OnInit, OnDestroy {
   }
   async ngOnInit(): Promise<void> {
     if (this.rerun() === '1') {
-      await this.startFresh();
-      if (this.destroyed) return;
+      // Clear the one-time intent first, so a reload or Back during the run
+      // cannot start another fresh analysis.
       await this.router.navigate([], {
         queryParams: { rerun: null },
         queryParamsHandling: 'merge',
         replaceUrl: true,
       });
+      if (this.destroyed) return;
+      await this.startFresh();
       return;
     }
     this.pendingAnalysis = this.analysis() ?? null;

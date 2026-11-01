@@ -39,7 +39,7 @@ export function analysisAge(analyzedAt: string | null, now = Date.now()): {
           </p>
         }
         @if (result.sharing === 'ignored-by-gitignore') {
-          <p class="mt-2 text-sm">Your .gitignore ignores .ptah, so this analysis won't be shared through git. Add <code>!.ptah/analysis/</code> to share it.</p>
+          <p class="mt-2 text-sm">Your .gitignore ignores .ptah, so this analysis won't be shared through git. To share it, ignore the contents instead of the folder: change <code>.ptah/</code> to <code>.ptah/*</code>, then add <code>!.ptah/analysis/</code>.</p>
         }
         @if (error()) { <p class="mt-2 text-sm text-error" role="alert">{{ error() }}</p> }
         <div class="mt-3 flex flex-wrap gap-2">

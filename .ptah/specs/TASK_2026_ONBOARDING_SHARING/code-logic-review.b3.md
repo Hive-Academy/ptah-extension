@@ -112,3 +112,18 @@ New blocking defects: none.
 Non-blocking: `workspaceSwitchPending` now also reflects background syncs, so onboarding controls disable briefly during an external sync; intended.
 
 Score: 8/10. Verdict: APPROVE.
+
+## CodeRabbit follow-up review
+
+Review family: reviewer Claude in-process subagent, author Claude coordinator. Same family (reason: speed requested, Codex near weekly limit). Label: weaker evidence. Static read of `git diff -- libs/frontend/onboarding`; tests not re-run.
+
+| # | Fix | Status | Evidence |
+|---|-----|--------|----------|
+| 1 | Clear `rerun` before `startFresh()` | OK | `analyze-workspace.page.ts:322-335`. `router.navigate([], { queryParams: { rerun: null }, queryParamsHandling: 'merge', replaceUrl: true })` changes only the query string on the same route, so the router reuses the component: it is not recreated and `ngOnInit` does not run again (the `rerun` input just becomes undefined). The `destroyed` check after the await is correct. Reload or Back now lands on a URL without `rerun`, so no second fresh run. Residual: if the navigation is cancelled, `startFresh` still runs (it is called regardless of the navigate result) |
+| 2 | .gitignore advice | OK | `analysis-found-card.component.ts:42`. Git cannot re-include a file whose parent directory is excluded, so `.ptah/` plus `!.ptah/analysis/` fails. `.ptah/*` ignores direct children only, and `!.ptah/analysis/` then re-includes that directory with its contents. Correct. The text assumes the rule is written `.ptah/`; a bare `.ptah` rule needs the same change (non-blocking) |
+| 3 | `untracked` around `resume.refresh()` | OK | `onboarding-home.component.ts:~420-430`. `activePath()` and `readyForActivePath()` are read in the effect body before the `untracked` call, so the effect still re-runs when either changes; the signals `refresh()` reads synchronously are no longer dependencies |
+| 4 | `[selected]` on options | OK | `workspace-header.component.ts:15-19`. Each option binds `selected` to `index === store.activeIndex()`, so remount renders the right option, and a switch or an optimistic revert re-evaluates both affected options. Non-blocking: if `switchTo` ignores a change (store not `canSwitch`), `activeIndex` is unchanged, no binding re-evaluates and the DOM select shows the user's pick; the same held with `[value]` |
+
+New blocking defects: none.
+
+Score: 9/10. Verdict: APPROVE.

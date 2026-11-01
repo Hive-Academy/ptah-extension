@@ -4,6 +4,7 @@ import {
   computed,
   effect,
   inject,
+  untracked,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Router } from '@angular/router';
@@ -424,7 +425,8 @@ export class OnboardingHomeComponent {
         this.resume.clear();
         return;
       }
-      void this.resume.refresh();
+      // Track only the path and readiness, not the signals refresh() reads.
+      untracked(() => void this.resume.refresh());
     });
   }
 
