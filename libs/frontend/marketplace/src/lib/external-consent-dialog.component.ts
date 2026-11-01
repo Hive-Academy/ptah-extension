@@ -341,7 +341,7 @@ function localItemCopy(item: ExternalLocalItem): LocalItemCopy {
                 </div>
               }
               <ptah-install-scope-field
-                class="block pt-1"
+                class="block pb-0.5 pt-1"
                 data-testid="external-consent-mcp-scope"
                 legend="Install servers for"
                 itemKind="server"

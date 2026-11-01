@@ -22,6 +22,10 @@ import {
   type InstalledServerGroup,
 } from '@ptah-extension/chat-ui';
 import type { SessionMcpStatus } from '@ptah-extension/chat-state';
+import {
+  MCP_DIRECTORY_CALL_FAILURE_COPY,
+  PTAH_MCP_SERVER_NAME,
+} from '@ptah-extension/shared';
 import type {
   CapabilityScope,
   CloneSummary,
@@ -210,12 +214,25 @@ function describeRemoval(ref: InventoryRemovalRef): {
  * Where an installed server group loads: `workspace` when any of its rows was
  * declared for (or recorded as an intent of) this workspace, `global` when its
  * rows are all user-scope, `null` when the payload names no scope (rows from
- * before the field existed get no badge). Covers external-plugin servers too:
+ * before the field existed get no badge). Ptah's own unmanaged `ptah` server
+ * is `global`: Ptah serves it in every workspace. Covers external-plugin servers too:
  * they are ordinary intent rows of the installed slice.
  */
 export function serverGroupScope(
   group: InstalledServerGroup,
 ): CapabilityScope | null {
+  // Ptah's own server is registered by Ptah in every workspace (on by
+  // default), so its project-file row is not a workspace-only install even
+  // though `.mcp.json` sits in the repository. A key the user recorded as a
+  // Ptah intent keeps its recorded scope.
+  if (
+    group.serverKey === PTAH_MCP_SERVER_NAME &&
+    !group.servers.some((server) => server.managedByPtah)
+  ) {
+    return group.servers.some((server) => server.scope !== undefined)
+      ? 'global'
+      : null;
+  }
   let scope: CapabilityScope | null = null;
   for (const server of group.servers) {
     if (server.scope === 'workspace') return 'workspace';
@@ -668,6 +685,13 @@ export class MarketplaceInventoryStore {
     const result = await this.rpc.call('mcpDirectory:listInstalled', {});
     if (!result.isSuccess()) {
       return { ok: false, error: result.error ?? LOAD_FALLBACK.installed };
+    }
+    // A coded failure is not "no servers installed": show its fixed copy.
+    if (result.data.code !== undefined) {
+      return {
+        ok: false,
+        error: MCP_DIRECTORY_CALL_FAILURE_COPY[result.data.code],
+      };
     }
     return { ok: true, data: result.data.servers };
   }

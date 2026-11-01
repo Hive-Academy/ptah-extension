@@ -645,6 +645,72 @@ describe('ExternalConsentDialogComponent', () => {
       expect(out).toEqual([{ localItemDecisions: {}, mcpScope: 'global' }]);
     });
 
+    describe('keyboard trap with the scope radios (visual review V2)', () => {
+      const tab = (shiftKey = false): KeyboardEvent => {
+        const event = new KeyboardEvent('keydown', {
+          key: 'Tab',
+          shiftKey,
+          bubbles: true,
+          cancelable: true,
+        });
+        dialog()?.dispatchEvent(event);
+        return event;
+      };
+      const button = (text: string): HTMLButtonElement | null =>
+        Array.from(
+          dialog()?.querySelectorAll<HTMLButtonElement>('button') ?? [],
+        ).find((el) => el.textContent?.trim() === text) ?? null;
+      const closeX = (): HTMLButtonElement | null =>
+        dialog()?.querySelector<HTMLButtonElement>(
+          'button[aria-label="Cancel install"]',
+        ) ?? null;
+
+      it('Tab from the checked radio goes to Cancel, then Install, then wraps to the first stop', () => {
+        renderWith(makePlan({ mcpServers: servers }), 'my-app');
+        radio('This workspace')?.focus();
+        expect(tab().defaultPrevented).toBe(true);
+        expect(document.activeElement).toBe(button('Cancel'));
+        tab();
+        expect(document.activeElement).toBe(confirmButton());
+        tab();
+        expect(document.activeElement).toBe(closeX());
+      });
+
+      it('with All workspaces checked, the group is one stop at the checked radio', () => {
+        renderWith(makePlan({ mcpServers: servers }), 'my-app');
+        radio('All workspaces')?.click();
+        fixture.detectChanges();
+        closeX()?.focus();
+        tab();
+        expect(document.activeElement).toBe(radio('All workspaces'));
+        tab();
+        expect(document.activeElement).toBe(button('Cancel'));
+        tab(true);
+        expect(document.activeElement).toBe(radio('All workspaces'));
+      });
+
+      it('a focused unchecked radio counts as its group stop', () => {
+        renderWith(makePlan({ mcpServers: servers }), 'my-app');
+        radio('All workspaces')?.focus();
+        tab();
+        expect(document.activeElement).toBe(button('Cancel'));
+      });
+
+      it('Shift+Tab from the first stop wraps to Install', () => {
+        renderWith(makePlan({ mcpServers: servers }), 'my-app');
+        closeX()?.focus();
+        tab(true);
+        expect(document.activeElement).toBe(confirmButton());
+      });
+
+      it('with no folder the disabled This workspace radio is not a stop', () => {
+        renderWith(makePlan({ mcpServers: servers }), null);
+        closeX()?.focus();
+        tab();
+        expect(document.activeElement).toBe(radio('All workspaces'));
+      });
+    });
+
     it('disables the scope radios while the install runs', () => {
       renderWith(makePlan({ mcpServers: servers }), 'my-app');
       fixture.componentRef.setInput('busy', true);

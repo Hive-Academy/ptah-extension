@@ -12,7 +12,10 @@
  */
 
 import type { ClaudeRpcService } from '@ptah-extension/core';
-import type { InstalledMcpServer } from '@ptah-extension/shared';
+import {
+  MCP_DIRECTORY_CALL_FAILURE_COPY,
+  type InstalledMcpServer,
+} from '@ptah-extension/shared';
 import {
   groupInstalledServers,
   mcpTargetLabel,
@@ -377,6 +380,23 @@ describe('removeInstalledGroup', () => {
       serverKey: 'github',
       targets: ['vscode'],
     });
+  });
+
+  it('shows the coded copy when the whole uninstall call failed', async () => {
+    const { rpc } = fakeRpc({
+      'mcpDirectory:uninstall': ok({
+        results: [],
+        code: 'intent-unreadable',
+        error: MCP_DIRECTORY_CALL_FAILURE_COPY['intent-unreadable'],
+      }),
+    });
+
+    expect(
+      await removeInstalledGroup(
+        rpc,
+        group({ removal: 'ptah-managed', targets: ['vscode'] }),
+      ),
+    ).toBe(MCP_DIRECTORY_CALL_FAILURE_COPY['intent-unreadable']);
   });
 
   it('forces the uninstall for a direct group', async () => {

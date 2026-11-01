@@ -58,6 +58,7 @@ import {
 } from '@ptah-extension/chat-state';
 import type { InstalledServerGroup } from '@ptah-extension/chat-ui';
 import {
+  MCP_DIRECTORY_CALL_FAILURE_COPY,
   MESSAGE_TYPES,
   type CloneSummary,
   type ExternalPluginListing,
@@ -481,6 +482,24 @@ describe('MarketplaceInventoryStore', () => {
         data: [],
       });
       expect(store.installed().state).toBe('ready');
+    });
+
+    it('fails the installed slice with the coded copy instead of showing zero servers', async () => {
+      responders.set('mcpDirectory:listInstalled', () =>
+        ok({
+          servers: [],
+          code: 'intent-unreadable',
+          error: MCP_DIRECTORY_CALL_FAILURE_COPY['intent-unreadable'],
+        }),
+      );
+
+      await store.ensure('installed');
+      await settle();
+
+      expect(store.installed().state).toBe('error');
+      expect(store.installed().error).toBe(
+        MCP_DIRECTORY_CALL_FAILURE_COPY['intent-unreadable'],
+      );
     });
 
     it('fails the plugins slice when the catalogue publishes an error', async () => {
@@ -1619,6 +1638,22 @@ describe('MarketplaceInventoryStore', () => {
       expect(serverGroupScope(groupFor('mixed'))).toBe('workspace');
     });
 
+    it("reports Ptah's own unmanaged server as global, with no Make global (visual review V3)", async () => {
+      await loadServers([
+        { ...directServer('ptah'), target: 'claude', scope: 'workspace' },
+        { ...directServer('ptah'), target: 'codex', scope: 'global' },
+      ]);
+
+      expect(serverGroupScope(groupFor('ptah'))).toBe('global');
+      expect(canMakeServerGlobal(groupFor('ptah'))).toBe(false);
+    });
+
+    it('keeps the recorded scope of a Ptah intent named ptah', async () => {
+      await loadServers([workspaceServer('ptah')]);
+
+      expect(serverGroupScope(groupFor('ptah'))).toBe('workspace');
+    });
+
     it('offers Make global only for a Ptah-managed workspace harness install', async () => {
       await loadServers([
         workspaceServer('acme'),
@@ -1652,9 +1687,7 @@ describe('MarketplaceInventoryStore', () => {
       );
       const listsBefore = callsOf('mcpDirectory:listInstalled').length;
 
-      const outcome = await store.makeServerGlobal(groupFor('acme'), [
-        'codex',
-      ]);
+      const outcome = await store.makeServerGlobal(groupFor('acme'), ['codex']);
       await settle();
 
       expect(paramsOf('mcpDirectory:makeGlobal')).toEqual({
@@ -1743,7 +1776,10 @@ describe('MarketplaceInventoryStore', () => {
 
       const second = await store.makeServerGlobal(group, []);
       const removal = await store.removeServer(group);
-      expect(second).toMatchObject({ status: 'refused', reason: 'in-progress' });
+      expect(second).toMatchObject({
+        status: 'refused',
+        reason: 'in-progress',
+      });
       expect(removal).toMatchObject({
         status: 'refused',
         reason: 'in-progress',

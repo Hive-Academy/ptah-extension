@@ -420,8 +420,10 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
                       }
                       @if (conversionNotice(); as notice) {
                         @if (notice.ref === row.ref) {
+                          <!-- pl-11 = the 2rem icon + the 0.75rem gap, so the
+                               line starts under the row name. -->
                           <p
-                            class="basis-full text-xs"
+                            class="basis-full pl-11 text-xs"
                             [class.text-error]="notice.role === 'alert'"
                             [class.text-base-content-muted]="
                               notice.role === 'status'

@@ -89,7 +89,9 @@ import {
   SESSION_VISIBLE,
   SESSION_FORCED_CARD,
   SESSION_START_GUARD,
+  SESSION_FOCUSED,
 } from '../../tokens/session-context.token';
+import { SESSION_EMBED_CHROME } from '../../tokens/session-embed-chrome.token';
 import {
   ClaudeRpcService,
   AppStateManager,
@@ -350,13 +352,26 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   /**
-   * The install-scope migration notice belongs to the main chat view only:
-   * canvas tiles (SESSION_CONTEXT) and read-only hosts never mount it, so one
-   * notice shows however many session views exist.
+   * The install-scope migration notice shows in one chat view at a time: the
+   * main panel (no SESSION_CONTEXT, VS Code) or, where every view is a
+   * session embed (Electron canvas), the focused full-chrome pane. Bare
+   * hosts (harness builder, setup wizard, Command Center) and read-only
+   * views never mount it, and an unfocused split pane or hidden workspace
+   * does not either, so one card shows however many session views exist.
    */
-  protected readonly showInstallMigrationNotice =
-    !this._sessionContext &&
-    !(inject(SESSION_READ_ONLY, { optional: true }) ?? false);
+  private readonly _sessionFocused = inject(SESSION_FOCUSED, {
+    optional: true,
+  });
+  private readonly _embedChrome = inject(SESSION_EMBED_CHROME, {
+    optional: true,
+  });
+  private readonly _installNoticeReadOnly =
+    inject(SESSION_READ_ONLY, { optional: true }) ?? false;
+  protected readonly showInstallMigrationNotice = computed(() => {
+    if (this._installNoticeReadOnly) return false;
+    if (!this._sessionContext) return true;
+    return this._embedChrome !== 'bare' && (this._sessionFocused?.() ?? true);
+  });
 
   /**
    * After "Got it" the notice is gone, so focus moves to the chat input

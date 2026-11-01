@@ -28,13 +28,18 @@ import { join } from 'node:path';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
-import type {
-  InstalledMcpServer,
-  McpInstallTarget,
-  McpRegistryEntry,
-  WorkspaceInfo,
+import {
+  MCP_DIRECTORY_CALL_FAILURE_COPY,
+  MCP_INSTALL_RESULT_COPY,
+  type InstalledMcpServer,
+  type McpInstallTarget,
+  type McpRegistryEntry,
+  type WorkspaceInfo,
 } from '@ptah-extension/shared';
-import { McpDirectoryBrowserComponent } from './mcp-directory-browser.component';
+import {
+  MCP_INSTALL_DEFERRED_NOTICE,
+  McpDirectoryBrowserComponent,
+} from './mcp-directory-browser.component';
 
 /**
  * Minimal stand-in for the core `RpcResult` shape: `isSuccess()`, `.data`,
@@ -50,12 +55,17 @@ function ok<T>(data: T) {
   };
 }
 
-/** A refused call: not a thrown error, just a result that is not a success. */
-function fail(error: string) {
+/**
+ * A refused call: not a thrown error, just a result that is not a success.
+ * `errorCode` marks a deliberate `RpcUserError` (fixed host copy); without it
+ * the text is a host exception's.
+ */
+function fail(error: string, errorCode?: string) {
   return {
     success: false,
     data: undefined,
     error,
+    errorCode,
     isSuccess: (): boolean => false,
   };
 }
@@ -273,6 +283,23 @@ describe('mcp directory browser — registry discovery', () => {
     );
   });
 
+  it('shows the coded copy when the installed list could not be read', async () => {
+    setResponder('mcpDirectory:getPopular', () => ok({ servers: [entry()] }));
+    setResponder('mcpDirectory:listInstalled', () =>
+      ok({
+        servers: [],
+        code: 'intent-unreadable',
+        error: MCP_DIRECTORY_CALL_FAILURE_COPY['intent-unreadable'],
+      }),
+    );
+    const fixture = TestBed.createComponent(McpDirectoryBrowserComponent);
+    await settle(fixture);
+
+    expect(errorText(fixture)).toBe(
+      MCP_DIRECTORY_CALL_FAILURE_COPY['intent-unreadable'],
+    );
+  });
+
   it('gives a vendor mark only to an allowlisted namespace, a monogram otherwise', async () => {
     const fixture = await mount([
       entry({ name: 'io.github.getsentry/sentry' }),
@@ -354,16 +381,67 @@ describe('mcp directory browser — registry discovery', () => {
     ).not.toBeNull();
   });
 
-  it('reports the reason when the backend refuses an install', async () => {
+  it('reports the reason when the backend deliberately refuses an install', async () => {
     const fixture = await mount([entry()]);
     setResponder('mcpDirectory:install', () =>
-      fail('workspace policy blocks new servers'),
+      fail('workspace policy blocks new servers', 'INVALID_PARAMS'),
     );
 
     await clickInstall(fixture);
     await clickConfirm(fixture);
 
     expect(errorText(fixture)).toContain('workspace policy blocks new servers');
+  });
+
+  describe('host error text never reaches the alert (Phase D review L6)', () => {
+    const SECRET = 'SECRET-SENTINEL-sk-live-9876';
+
+    it('renders fixed per-code copy, not a result error string', async () => {
+      const fixture = await mount([entry()]);
+      setResponder('mcpDirectory:install', () =>
+        ok({
+          results: [
+            {
+              target: 'claude',
+              success: false,
+              configPath: '',
+              code: 'reconcile-failed',
+              error: `EACCES /home/dev/.mcp.json ${SECRET}`,
+            },
+            {
+              target: 'cursor',
+              success: false,
+              configPath: '',
+              error: `raw ${SECRET}`,
+            },
+          ],
+        }),
+      );
+
+      await clickInstall(fixture);
+      await clickConfirm(fixture);
+
+      const text = errorText(fixture);
+      expect(text).not.toContain(SECRET);
+      expect(text).toContain(MCP_INSTALL_RESULT_COPY['reconcile-failed']);
+      expect(text).toContain(MCP_INSTALL_RESULT_COPY['install-failed']);
+      expect(host(fixture).textContent).not.toContain(SECRET);
+    });
+
+    it('renders fixed copy for an RPC error that is not a deliberate refusal', async () => {
+      const fixture = await mount([entry()]);
+      setResponder('mcpDirectory:install', () =>
+        fail(`TypeError at /opt/app/main.js token=${SECRET}`),
+      );
+
+      await clickInstall(fixture);
+      await clickConfirm(fixture);
+
+      expect(errorText(fixture)).toBe(
+        'Could not install "io.github.acme/weather".',
+      );
+      expect(host(fixture).textContent).not.toContain(SECRET);
+    });
   });
 
   describe('install scope', () => {
@@ -424,7 +502,9 @@ describe('mcp directory browser — registry discovery', () => {
     const installOk = (): void =>
       setResponder('mcpDirectory:install', () =>
         ok({
-          results: [{ target: 'claude', success: true, configPath: '.mcp.json' }],
+          results: [
+            { target: 'claude', success: true, configPath: '.mcp.json' },
+          ],
         }),
       );
 
@@ -536,6 +616,33 @@ describe('mcp directory browser — registry discovery', () => {
         targets: ALL_SEVEN,
         scope: 'global',
       });
+    });
+
+    it('with no folder open, a deferred global install shows the saved notice, not a failure', async () => {
+      workspaceInfo.set(null);
+      const fixture = await mount([entry()]);
+      setResponder('mcpDirectory:install', () =>
+        ok({
+          scope: 'global',
+          results: ['claude', 'codex'].map((target) => ({
+            target,
+            success: false,
+            configPath: '',
+            deferred: true,
+            code: 'deferred-no-workspace',
+            error: MCP_INSTALL_RESULT_COPY['deferred-no-workspace'],
+          })),
+        }),
+      );
+      await clickInstall(fixture);
+      await choose(fixture, 'All workspaces');
+      await clickConfirm(fixture);
+
+      const notice = host(fixture).querySelector('[data-testid="mcp-notice"]');
+      expect(notice?.textContent?.trim()).toBe(MCP_INSTALL_DEFERRED_NOTICE);
+      expect(notice?.closest('[role="status"]')).not.toBeNull();
+      expect(errorText(fixture)).toBe('');
+      expect(host(fixture).querySelector('ptah-storefront-panel')).toBeNull();
     });
 
     it('drops a remembered workspace choice when the folder closes mid-panel', async () => {

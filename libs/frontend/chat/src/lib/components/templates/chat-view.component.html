@@ -26,7 +26,7 @@
 
       <!-- One-time install-scope migration notice (design-spec §3): top of the
            main chat view, above the transcript, until the user dismisses it. -->
-      @if (showInstallMigrationNotice) {
+      @if (showInstallMigrationNotice()) {
         <div
           class="mx-auto px-2 flex-shrink-0"
           style="width: calc(100% - 1.5rem); max-width: var(--chat-content-max-width, 758px)"

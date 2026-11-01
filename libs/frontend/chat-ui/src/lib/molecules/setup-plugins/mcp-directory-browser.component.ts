@@ -13,12 +13,15 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, Search } from 'lucide-angular';
 import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
-import type {
-  McpRegistryEntry,
-  McpHomeInstallTarget,
-  McpInstallTarget,
-  McpServerConfig,
-  InstalledMcpServer,
+import {
+  MCP_DIRECTORY_CALL_FAILURE_COPY,
+  MCP_INSTALL_RESULT_COPY,
+  type McpRegistryEntry,
+  type McpHomeInstallTarget,
+  type McpInstallResult,
+  type McpInstallTarget,
+  type McpServerConfig,
+  type InstalledMcpServer,
 } from '@ptah-extension/shared';
 import {
   CatalogCardComponent,
@@ -62,7 +65,9 @@ const HOME_TARGETS: readonly McpHomeInstallTarget[] = [
   'antigravity',
 ];
 
-function isHomeTarget(target: McpInstallTarget): target is McpHomeInstallTarget {
+function isHomeTarget(
+  target: McpInstallTarget,
+): target is McpHomeInstallTarget {
   return (HOME_TARGETS as readonly McpInstallTarget[]).includes(target);
 }
 
@@ -70,6 +75,18 @@ function isHomeTarget(target: McpInstallTarget): target is McpHomeInstallTarget 
 const WORKSPACE_TARGETS: readonly McpInstallTarget[] = ALL_TARGETS.filter(
   (target) => !isHomeTarget(target),
 );
+
+/**
+ * Shown when a global install was saved with no folder open: nothing is
+ * written until a folder is opened and reconciled (Phase D review L5).
+ */
+export const MCP_INSTALL_DEFERRED_NOTICE =
+  'Saved for all workspaces. Config files are written when you open a folder.';
+
+/** The per-target failure copy for a result's code, never its host text. */
+function failureCopy(result: McpInstallResult): string {
+  return MCP_INSTALL_RESULT_COPY[result.code ?? 'install-failed'];
+}
 
 const INSTALLED_BADGE: CatalogCardBadge = {
   label: 'Installed',
@@ -122,6 +139,19 @@ interface RegistryCardView {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="space-y-3">
+      @if (notice()) {
+        <div class="alert alert-info alert-sm py-1 px-2" role="status">
+          <span class="text-xs" data-testid="mcp-notice">{{ notice() }}</span>
+          <button
+            class="btn btn-ghost btn-xs"
+            (click)="notice.set(null)"
+            type="button"
+          >
+            Dismiss
+          </button>
+        </div>
+      }
+
       @if (error()) {
         <div class="alert alert-error alert-sm py-1 px-2" role="alert">
           <span class="text-xs" data-testid="mcp-error">{{ error() }}</span>
@@ -419,7 +449,13 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   readonly isLoadingPopular = signal(false);
   readonly isLoadingDetails = signal(false);
   readonly installingServerNames = signal<Set<string>>(new Set());
+  /**
+   * Fixed copy only: every message comes from this file or the shared
+   * per-code copy, never from a host exception (paths, config values).
+   */
   readonly error = signal<string | null>(null);
+  /** A fixed informational line, e.g. a global install saved for later. */
+  readonly notice = signal<string | null>(null);
   readonly expandedServerName = signal<string | null>(null);
   readonly suggestedConfig = signal<McpServerConfig | null>(null);
 
@@ -607,6 +643,7 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
     this.addToSet(this.installingServerNames, server.name);
     this.error.set(null);
+    this.notice.set(null);
 
     try {
       const result = await this.rpcService.call('mcpDirectory:install', {
@@ -621,8 +658,18 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
       if (result.isSuccess()) {
         const successes = result.data.results.filter((r) => r.success);
-        const failures = result.data.results.filter((r) => !r.success);
+        const deferred = result.data.results.filter((r) => r.deferred === true);
+        const failures = result.data.results.filter(
+          (r) => !r.success && r.deferred !== true,
+        );
         const warning = result.data.capabilityWarning;
+
+        if (deferred.length > 0) {
+          // Saved, not failed: the panel closes and says when it applies.
+          this.expandedServerName.set(null);
+          this.suggestedConfig.set(null);
+          this.notice.set(MCP_INSTALL_DEFERRED_NOTICE);
+        }
 
         if (successes.length > 0) {
           this.serverInstalled.emit({
@@ -645,15 +692,20 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
           this.error.set(
             `Failed for: ${failures
               .map(
-                (r) =>
-                  `${this.getTargetLabel(r.target)} (${r.error ?? 'unknown error'})`,
+                (r) => `${this.getTargetLabel(r.target)} (${failureCopy(r)})`,
               )
               .join(', ')}${warning ? ` ${warning}` : ''}`,
           );
         }
       } else {
         // A refused install used to leave the panel open and say nothing.
-        this.error.set(result.error ?? `Could not install "${server.name}".`);
+        // Only a deliberate refusal (`errorCode`) carries fixed host copy;
+        // any other RPC error text is the host's exception and stays there.
+        this.error.set(
+          result.errorCode !== undefined && result.error
+            ? result.error
+            : `Could not install "${server.name}".`,
+        );
       }
     } catch {
       if (this.destroyed) return;
@@ -809,11 +861,15 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
       if (this.destroyed) return;
 
-      if (result.isSuccess()) {
+      if (result.isSuccess() && result.data.code !== undefined) {
+        this.error.set(MCP_DIRECTORY_CALL_FAILURE_COPY[result.data.code]);
+      } else if (result.isSuccess()) {
         this.installedServers.set(result.data.servers);
       } else {
         this.error.set(
-          result.error ?? 'Could not load the installed MCP servers.',
+          result.errorCode !== undefined && result.error
+            ? result.error
+            : 'Could not load the installed MCP servers.',
         );
       }
     } catch {
