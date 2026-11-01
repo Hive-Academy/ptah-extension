@@ -152,6 +152,26 @@ function makeNpmEntry(name: string, pkg: string): unknown {
   };
 }
 
+function makeRemoteTokenEntry(): unknown {
+  return {
+    name: 'io.github.x/y',
+    description: 'fixture',
+    version: '1.0.0',
+    remotes: [
+      {
+        type: 'streamable-http',
+        url: 'https://{TOKEN}.example.test/mcp',
+        variables: {
+          TOKEN: { description: 'URL token', isRequired: true },
+        },
+        headers: [
+          { name: 'TOKEN', description: 'Header token', isRequired: true },
+        ],
+      },
+    ],
+  };
+}
+
 describe('ptah mcp search', () => {
   it('exits 2 (UsageError) when query is missing', async () => {
     const { stderrTrace, engine, hooks } = buildHooks();
@@ -517,6 +537,133 @@ describe('ptah mcp install', () => {
     });
     expect(JSON.stringify(formatterTrace.notifications)).not.toContain(
       'super-secret',
+    );
+  });
+
+  it('accepts qualified keys for same-named required inputs', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('mcpDirectory:listInstalled', {
+      success: true,
+      data: { servers: [] },
+    });
+    engine.scripted.set('mcpDirectory:getDetails', {
+      success: true,
+      data: makeRemoteTokenEntry(),
+    });
+    engine.scripted.set('mcpDirectory:install', {
+      success: true,
+      data: {
+        results: [
+          { target: 'claude', success: true, configPath: '/tmp/.mcp.json' },
+        ],
+      },
+    });
+
+    const exit = await execute(
+      {
+        subcommand: 'install',
+        name: 'io.github.x/y',
+        target: 'claude',
+        input: ['header:TOKEN=header-value', 'url:TOKEN=url-value'],
+      } satisfies McpOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    const installCall = engine.rpcCalls.find(
+      (c) => c.method === 'mcpDirectory:install',
+    );
+    expect(installCall?.params).toMatchObject({
+      config: {
+        type: 'http',
+        url: 'https://url-value.example.test/mcp',
+        headers: { TOKEN: 'header-value' },
+      },
+    });
+    expect(JSON.stringify(formatterTrace.notifications)).not.toContain(
+      'header-value',
+    );
+    expect(JSON.stringify(formatterTrace.notifications)).not.toContain(
+      'url-value',
+    );
+  });
+
+  it('rejects an ambiguous bare input name and lists qualified keys', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('mcpDirectory:listInstalled', {
+      success: true,
+      data: { servers: [] },
+    });
+    engine.scripted.set('mcpDirectory:getDetails', {
+      success: true,
+      data: makeRemoteTokenEntry(),
+    });
+
+    const exit = await execute(
+      {
+        subcommand: 'install',
+        name: 'io.github.x/y',
+        target: 'claude',
+        input: ['TOKEN=do-not-print'],
+      } satisfies McpOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.InternalFailure);
+    expect(
+      engine.rpcCalls.find((c) => c.method === 'mcpDirectory:install'),
+    ).toBeUndefined();
+    expect(formatterTrace.notifications.at(-1)).toEqual({
+      method: 'task.error',
+      params: {
+        ptah_code: 'internal_failure',
+        message:
+          'Ambiguous --input name "TOKEN". Use a qualified key: url:TOKEN, header:TOKEN.',
+      },
+    });
+    expect(JSON.stringify(formatterTrace.notifications)).not.toContain(
+      'do-not-print',
+    );
+  });
+
+  it('rejects an unknown input name without printing its value', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('mcpDirectory:listInstalled', {
+      success: true,
+      data: { servers: [] },
+    });
+    engine.scripted.set('mcpDirectory:getDetails', {
+      success: true,
+      data: makeRemoteTokenEntry(),
+    });
+
+    const exit = await execute(
+      {
+        subcommand: 'install',
+        name: 'io.github.x/y',
+        target: 'claude',
+        input: ['MISSING=do-not-print'],
+      } satisfies McpOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.InternalFailure);
+    expect(
+      engine.rpcCalls.find((c) => c.method === 'mcpDirectory:install'),
+    ).toBeUndefined();
+    expect(formatterTrace.notifications.at(-1)).toEqual({
+      method: 'task.error',
+      params: {
+        ptah_code: 'internal_failure',
+        message:
+          'Unknown --input "MISSING". Use a required input name or qualified key.',
+      },
+    });
+    expect(JSON.stringify(formatterTrace.notifications)).not.toContain(
+      'do-not-print',
     );
   });
 

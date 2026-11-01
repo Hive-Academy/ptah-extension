@@ -255,11 +255,27 @@ async function runInstall(
       }
       const inputName = rawInput.slice(0, separator);
       const inputValue = rawInput.slice(separator + 1);
-      for (const requiredInput of initialConfig.requiredInputs) {
-        if (requiredInput.name === inputName) {
-          values[requiredInput.key] = inputValue;
-        }
+      const exactMatch = initialConfig.requiredInputs.find(
+        (requiredInput) => requiredInput.key === inputName,
+      );
+      const matches = exactMatch
+        ? [exactMatch]
+        : initialConfig.requiredInputs.filter(
+            (requiredInput) => requiredInput.name === inputName,
+          );
+      if (matches.length === 0) {
+        throw new Error(
+          `Unknown --input "${inputName}". Use a required input name or qualified key.`,
+        );
       }
+      if (matches.length > 1) {
+        throw new Error(
+          `Ambiguous --input name "${inputName}". Use a qualified key: ${matches
+            .map((requiredInput) => requiredInput.key)
+            .join(', ')}.`,
+        );
+      }
+      values[matches[0].key] = inputValue;
     }
 
     const installConfig = registryEntryToInstallConfig(entry, values);

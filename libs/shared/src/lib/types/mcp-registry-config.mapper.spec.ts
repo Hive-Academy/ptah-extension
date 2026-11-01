@@ -518,7 +518,7 @@ describe('registryEntryToInstallConfig', () => {
     );
     expect(result.requiredInputs).toContainEqual(
       expect.objectContaining({
-        key: 'argument:host',
+        key: 'packageArgument:0:host',
         name: 'host',
         isRequired: true,
       }),
@@ -565,7 +565,7 @@ describe('registryEntryToInstallConfig', () => {
       result.config.type !== 'stdio' && result.config.headers?.Authorization,
     ).toBe('Bearer {token}');
     expect(result.requiredInputs).toContainEqual(
-      expect.objectContaining({ key: 'header:token', name: 'token' }),
+      expect.objectContaining({ key: 'header:Authorization:token', name: 'token' }),
     );
   });
 
@@ -624,6 +624,69 @@ describe('registryEntryToInstallConfig', () => {
     expect(result.preview.type !== 'stdio' && result.preview.url).toBe(
       'https://••••••/mcp',
     );
+  });
+
+  it('derived from detail-remote-only.json: treats an undeclared URL placeholder as secret and masks it in preview', () => {
+    const entry = readEntry('detail-remote-only.json');
+    entry.remotes = [
+      { type: 'streamable-http', url: 'https://example.test/{token}' },
+    ];
+
+    const blocked = expectSuccess(registryEntryToInstallConfig(entry));
+    expect(blocked.installable).toBe(false);
+    expect(blocked.requiredInputs).toContainEqual(
+      expect.objectContaining({ key: 'url:token', isSecret: true }),
+    );
+
+    const result = expectSuccess(
+      registryEntryToInstallConfig(entry, { 'url:token': 'abc123' }),
+    );
+    expect(result.installable).toBe(true);
+    expect(result.config.type !== 'stdio' && result.config.url).toBe(
+      'https://example.test/abc123',
+    );
+    expect(result.preview.type !== 'stdio' && result.preview.url).toBe(
+      'https://example.test/••••••',
+    );
+  });
+
+  it('derived from detail-package-npm.json: keys same-named argument variables per argument', () => {
+    const entry = readEntry('detail-package-npm.json');
+    entry.packages![0].packageArguments = [
+      {
+        type: 'named',
+        name: '--client-id',
+        value: '{value}',
+        variables: { value: { isRequired: true } },
+      },
+      {
+        type: 'named',
+        name: '--client-secret',
+        value: '{value}',
+        variables: { value: { isRequired: true, isSecret: true } },
+      },
+    ];
+
+    const blocked = expectSuccess(registryEntryToInstallConfig(entry));
+    expect(blocked.installable).toBe(false);
+    expect(blocked.requiredInputs.map((input) => input.key)).toEqual(
+      expect.arrayContaining(['packageArgument:0:value', 'packageArgument:1:value']),
+    );
+
+    const result = expectSuccess(
+      registryEntryToInstallConfig(entry, {
+        'packageArgument:0:value': 'id-1',
+        'packageArgument:1:value': 'secret-2',
+      }),
+    );
+    expect(result.installable).toBe(true);
+    const args = result.config.type === 'stdio' ? result.config.args : [];
+    expect(args).toContain('id-1');
+    expect(args).toContain('secret-2');
+    expect(args.indexOf('id-1')).toBeLessThan(args.indexOf('secret-2'));
+    const previewArgs = result.preview.type === 'stdio' ? result.preview.args : [];
+    expect(previewArgs).not.toContain('secret-2');
+    expect(previewArgs).not.toContain('id-1');
   });
 
   it('returns a remote transport error for a remote-only unsupported entry', () => {

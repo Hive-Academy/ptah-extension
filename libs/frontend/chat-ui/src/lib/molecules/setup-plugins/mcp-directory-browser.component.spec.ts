@@ -332,6 +332,32 @@ describe('mcp directory browser — registry discovery', () => {
     expect(host(fixture).querySelector('ptah-storefront-panel')).toBeNull();
   });
 
+  it('blocks direct confirmInstall when required inputs are unresolved', async () => {
+    const withRequiredInput = entry({
+      packages: [
+        {
+          registryType: 'npm',
+          identifier: '@acme/weather-mcp',
+          transport: { type: 'stdio' },
+          environmentVariables: [{ name: 'TOKEN', isRequired: true }],
+        },
+      ],
+    });
+    const fixture = await mount([withRequiredInput]);
+
+    await clickInstall(fixture);
+    expect(
+      host(fixture).querySelector<HTMLButtonElement>(
+        'ptah-storefront-panel [panel-footer] button',
+      )?.disabled,
+    ).toBe(true);
+
+    await fixture.componentInstance.confirmInstall(withRequiredInput);
+    await settle(fixture);
+
+    expect(installCalls()).toHaveLength(0);
+  });
+
   it('collects a required secret, redacts preview, and installs the real value', async () => {
     const withSecret = entry({
       packages: [
@@ -446,7 +472,8 @@ describe('mcp directory browser — registry discovery', () => {
       panel?.querySelector<HTMLButtonElement>('[panel-footer] button')
         ?.disabled,
     ).toBe(false);
-    expect(panel?.textContent).toContain('https://mcp.acme.test/mcp');
+    expect(panel?.textContent).toContain('https://••••••/mcp');
+    expect(panel?.textContent).not.toContain('mcp.acme.test');
   });
 
   it('shows the coded mapper message when an entry has no install source', async () => {

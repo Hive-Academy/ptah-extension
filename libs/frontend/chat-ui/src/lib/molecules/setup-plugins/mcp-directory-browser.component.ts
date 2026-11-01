@@ -609,7 +609,8 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
   async confirmInstall(server: McpRegistryEntry): Promise<void> {
     const result = this.installConfig();
-    const config = result !== null && result.ok ? result.config : null;
+    const config =
+      result !== null && result.ok && result.installable ? result.config : null;
     if (!config || this.selectedTargets().size === 0) return;
     if (this.installingServerNames().has(server.name)) return;
 

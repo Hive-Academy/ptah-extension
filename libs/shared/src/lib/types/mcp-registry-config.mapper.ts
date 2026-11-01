@@ -15,7 +15,7 @@ import {
 
 /** An input that the user must supply before or when the server is installed. */
 export interface McpRequiredInput {
-  /** Stable input identifier: `${location}:${name}`. */
+  /** Stable input identifier. Nested inputs include their parent identity. */
   key: string;
   /** Environment variable, header, URL variable, or argument name. */
   name: string;
@@ -108,12 +108,14 @@ function toRequiredInput(
   name: string,
   location: InputLocation,
   forceRequired = false,
+  key = `${location}:${name}`,
+  forceSecret = false,
 ): McpRequiredInput {
   return {
-    key: `${location}:${name}`,
+    key,
     name,
     description: input.description,
-    isSecret: input.isSecret ?? false,
+    isSecret: forceSecret || (input.isSecret ?? false),
     isRequired: forceRequired || (input.isRequired ?? false),
     location,
     choices: input.choices === undefined ? undefined : [...input.choices],
@@ -131,7 +133,7 @@ function addRequiredInput(
 
 /**
  * Resolve placeholders from declared variables. Nested argument and header
- * variables use the parent location in their key: `${location}:${varName}`.
+ * variables use a qualified parent prefix in their keys.
  */
 function resolvePlaceholders(
   text: string,
@@ -139,6 +141,7 @@ function resolvePlaceholders(
   location: InputLocation,
   state: MappingState,
   leaveWithoutVariables: boolean,
+  keyPrefix = location,
 ): ResolvedValue {
   if (
     leaveWithoutVariables &&
@@ -160,25 +163,34 @@ function resolvePlaceholders(
     lastIndex = match.index + placeholder.length;
 
     const variable = variables?.[name];
-    const key = `${location}:${name}`;
-    if (variable === undefined || declaredInputValue(variable) === undefined) {
+    const declaredValue =
+      variable === undefined ? undefined : declaredInputValue(variable);
+    const key = `${keyPrefix}:${name}`;
+    if (declaredValue === undefined) {
       addRequiredInput(
         state,
-        toRequiredInput(variable ?? {}, name, location, true),
+        toRequiredInput(
+          variable ?? {},
+          name,
+          location,
+          true,
+          key,
+          variable === undefined,
+        ),
       );
     }
 
-    const resolved =
-      variable === undefined
-        ? nonEmpty(state.values[key])
-        : inputValue(variable, state.values, key);
+    const resolved = declaredValue ?? nonEmpty(state.values[key]);
     if (resolved === undefined) {
       state.installable = false;
       value += placeholder;
       preview += placeholder;
     } else {
       value += resolved;
-      preview += variable?.isSecret === true ? SECRET_PREVIEW : resolved;
+      preview +=
+        variable?.isSecret === true || declaredValue === undefined
+          ? SECRET_PREVIEW
+          : resolved;
     }
   }
 
@@ -192,6 +204,7 @@ function resolveRegistryInput(
   name: string,
   location: InputLocation,
   state: MappingState,
+  nestedKeyPrefix = location,
 ): ResolvedValue | undefined {
   const key = `${location}:${name}`;
   if (
@@ -213,6 +226,7 @@ function resolveRegistryInput(
     location,
     state,
     true,
+    nestedKeyPrefix,
   );
   return {
     value: resolved.value,
@@ -229,7 +243,15 @@ function collectKeyValues(
   const preview: Record<string, string> = {};
 
   for (const input of inputs ?? []) {
-    const resolved = resolveRegistryInput(input, input.name, location, state);
+    const nestedKeyPrefix =
+      location === 'header' ? `header:${input.name}` : location;
+    const resolved = resolveRegistryInput(
+      input,
+      input.name,
+      location,
+      state,
+      nestedKeyPrefix,
+    );
     if (resolved !== undefined) {
       values[input.name] = resolved.value;
       preview[input.name] = resolved.preview;
@@ -242,17 +264,19 @@ function collectKeyValues(
 function mapArguments(
   args: McpRegistryPackageArgument[] | undefined,
   state: MappingState,
+  keyPrefix: 'runtimeArgument' | 'packageArgument',
 ): { values: string[]; preview: string[] } {
   const values: string[] = [];
   const preview: string[] = [];
 
-  for (const argument of args ?? []) {
+  for (const [index, argument] of (args ?? []).entries()) {
     const name = argument.name ?? argument.valueHint ?? 'argument';
     const resolved = resolveRegistryInput(
       argument,
       name,
       'argument',
       state,
+      `${keyPrefix}:${index}`,
     );
 
     if (argument.type === 'named') {
@@ -284,8 +308,16 @@ function mapPackage(
     ALLOWED_RUNTIME_HINTS[registryType].has(registryPackage.runtimeHint)
       ? registryPackage.runtimeHint
       : DEFAULT_COMMANDS[registryType];
-  const runtimeArguments = mapArguments(registryPackage.runtimeArguments, state);
-  const packageArguments = mapArguments(registryPackage.packageArguments, state);
+  const runtimeArguments = mapArguments(
+    registryPackage.runtimeArguments,
+    state,
+    'runtimeArgument',
+  );
+  const packageArguments = mapArguments(
+    registryPackage.packageArguments,
+    state,
+    'packageArgument',
+  );
   const environment = collectKeyValues(
     registryPackage.environmentVariables,
     'env',
