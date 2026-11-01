@@ -229,7 +229,7 @@ describe('glass scene tint', () => {
 describe('Ptah backdrop scenes', () => {
   const scenes = ['aurora', 'ember', 'tide', 'horizon'];
   const modes = [
-    { theme: 'ptah-glass', floors: [0.58, 0.50, 0.45, 0.42] },
+    { theme: 'ptah-glass', floors: [0.70, 0.50, 0.45, 0.42] },
     { theme: 'ptah-glass-light', floors: [0.38, 0.35, 0.35, 0.32] },
   ];
 
@@ -270,15 +270,17 @@ describe('Ptah backdrop scenes', () => {
 
   it.each(['ptah-glass', 'ptah-glass-light'])('limits $theme pane and overlay blur', (theme) => {
     const body = block(new RegExp(`:root\\[data-theme='${theme}'\\]\\[data-glass='on'\\]`));
-    expect(body).toContain('--glass-blur: 2px;');
+    expect(body).toContain('--glass-blur: 0px;');
     expect(body).toContain('--glass-blur-overlay: 6px;');
-    expect(body).toContain('--glass-saturation: 1.08;');
+    // Dark saturation comes from the (0,4,0) dark-mode block; only light sets it here.
+    if (theme === 'ptah-glass-light') expect(body).toContain('--glass-saturation: 1.08;');
+    else expect(body).not.toContain('--glass-saturation:');
   });
 
   it('backs dark chrome and light reading text locally as scene tint falls', () => {
     const dark = block(/:root\[data-theme='ptah-glass'\]\[data-glass='on'\]/);
     const light = block(/:root\[data-theme='ptah-glass-light'\]\[data-glass='on'\]/);
-    expect(b1Alpha(dark, '--glass-under')).toBeGreaterThanOrEqual(0.3);
+    expect(dark).not.toContain('--glass-under:');
     expect(b1Alpha(light, '--glass-fill')).toBeGreaterThanOrEqual(0.6);
     expect(b1Alpha(light, '--glass-scrim-text')).toBeGreaterThanOrEqual(0.6);
     expect(light).toContain('--bcm: 40% 0.0614 293.53;');
