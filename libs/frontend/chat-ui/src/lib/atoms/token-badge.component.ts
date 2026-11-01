@@ -4,7 +4,11 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import type { MessageTokenUsage } from '@ptah-extension/shared';
+import {
+  isValidTokenCount,
+  messageTokenTotal,
+  type MessageTokenUsage,
+} from '@ptah-extension/shared';
 
 /**
  * TokenBadgeComponent - Displays token count with formatting and detailed tooltip
@@ -57,7 +61,7 @@ export class TokenBadgeComponent {
       return legacyCount;
     }
     if (tokens) {
-      return tokens.input + tokens.output;
+      return messageTokenTotal(tokens);
     }
 
     return 0;
@@ -67,6 +71,10 @@ export class TokenBadgeComponent {
   readonly tooltipText = computed(() => {
     const tokens = this.tokens();
     const legacyCount = this.count();
+    const total = this.totalCount();
+    if (!isValidTokenCount(total)) {
+      return 'Token usage unavailable';
+    }
     if (typeof tokens === 'number' || legacyCount !== undefined) {
       const count = typeof tokens === 'number' ? tokens : (legacyCount ?? 0);
       return `${count.toLocaleString()} tokens`;
@@ -85,7 +93,7 @@ export class TokenBadgeComponent {
         lines.push(`Cache Creation: ${tokens.cacheCreation.toLocaleString()}`);
       }
 
-      lines.push(`Total: ${this.totalCount().toLocaleString()}`);
+      lines.push(`Total: ${total.toLocaleString()}`);
       return lines.join('\n');
     }
 
@@ -93,7 +101,8 @@ export class TokenBadgeComponent {
   });
 
   protected formatTokens(): string {
-    return `${formatTokenCount(this.totalCount())} tokens`;
+    const total = this.totalCount();
+    return isValidTokenCount(total) ? `${formatTokenCount(total)} tokens` : '—';
   }
 }
 

@@ -7,7 +7,11 @@ import {
 } from '@angular/core';
 import { VSCodeService, rpcCall } from '@ptah-extension/core';
 import type { MessageHandler } from '@ptah-extension/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  GIT_ROOT_UNAVAILABLE_MESSAGE,
+  MESSAGE_TYPES,
+  normalizeWorkspaceRoot,
+} from '@ptah-extension/shared';
 import type {
   GitInfoResult,
   GitBranchInfo,
@@ -196,14 +200,17 @@ export function isRpcTimeout(error: string | undefined): boolean {
 
 /**
  * Reason for a `git:info` read that produced no usable result: `timeout`
- * when the RPC itself timed out, `error` for any other transport failure or
- * a malformed payload.
+ * when the RPC itself timed out, `root-unavailable` when the backend refused
+ * the scoped root (`GIT_ROOT_UNAVAILABLE`: a removed or pruned worktree),
+ * `error` for any other transport failure or a malformed payload.
  */
 function readFailureReason(
   success: boolean,
   error: string | undefined,
 ): GitStatusUnavailableReason {
-  return !success && isRpcTimeout(error) ? 'timeout' : 'error';
+  if (success) return 'error';
+  if (isRpcTimeout(error)) return 'timeout';
+  return error === GIT_ROOT_UNAVAILABLE_MESSAGE ? 'root-unavailable' : 'error';
 }
 
 @Injectable({ providedIn: 'root' })
@@ -211,7 +218,24 @@ export class GitStatusService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
 
+  /**
+   * Per-root cache, keyed by {@link normalizeWorkspaceRoot} so two spellings of
+   * one directory (a startup root vs the watcher's echo, a session worktree as
+   * recorded vs as listed by git) land on ONE entry (TASK_2026_855).
+   *
+   * Map insertion order is the recency order: every write re-inserts its key
+   * at the end, so the first key is the least recently updated. Bounded at
+   * {@link MAX_CACHED_ROOTS}; see {@link writeCache}.
+   */
   private readonly _workspaceGitState = new Map<string, GitWorkspaceState>();
+
+  /**
+   * Upper bound on cached roots. The dock now visits session worktrees as well
+   * as workspace folders, and secondary watchers push for roots in the
+   * background, so the cache must not grow with every session ever viewed.
+   * The active root is never evicted.
+   */
+  static readonly MAX_CACHED_ROOTS = 12;
 
   /**
    * How long a restored cache entry is considered fresh on workspace switch.
@@ -219,10 +243,13 @@ export class GitStatusService implements MessageHandler {
    * switching does not re-hit `git:info` every time.
    *
    * Trade-off (do NOT restore the old 30s value without re-reading this): the
-   * Electron git watcher only watches ONE workspace at a time
-   * (`git-watcher.service.ts` re-arms a single target on switch), so NO
-   * `git:status-update` push is generated for a workspace while it is in the
-   * background. A background change (e.g. a background agent session
+   * Electron primary git watcher only watches ONE root at a time
+   * (`git-watcher.service.ts` re-arms a single target on switch). Since
+   * TASK_2026_855 the roots of open sessions also get secondary watchers
+   * through `git:watchRoots` leases, but only up to a small cap, and VS Code
+   * has none — so this window still holds for any root without a live
+   * watcher: no `git:status-update` push is generated for it while it is in
+   * the background. A background change (e.g. a background agent session
    * committing in workspace A while the user views B) therefore leaves A's
    * cache stale until the next fetch. 5s bounds that staleness while still
    * collapsing the rapid-thrash fetches this optimization targets; missing or
@@ -314,7 +341,11 @@ export class GitStatusService implements MessageHandler {
   /** Count of unstaged files. */
   readonly unstagedCount = computed(() => this.unstagedFiles().length);
 
-  /** The currently active workspace path (for path normalization in components). */
+  /**
+   * The root the dock is scoped to: a workspace folder, or (Electron, since
+   * TASK_2026_855) the active or pinned session's worktree. Every dock read
+   * and write sends this root.
+   */
   readonly activeWorkspacePath = this._activeWorkspacePath.asReadonly();
 
   constructor() {
@@ -327,10 +358,12 @@ export class GitStatusService implements MessageHandler {
    * Triggers an immediate git:info fetch for the new workspace.
    */
   switchWorkspace(workspacePath: string): void {
-    if (this._activeWorkspacePath() === workspacePath) return;
+    if (this.isActive(workspacePath)) return;
     this.saveCurrentState();
     this._activeWorkspacePath.set(workspacePath);
-    const cached = this._workspaceGitState.get(workspacePath);
+    const cached = this._workspaceGitState.get(
+      normalizeWorkspaceRoot(workspacePath),
+    );
     this.setSignals(cached ?? EMPTY_SNAPSHOT);
 
     // Skip the eager fetch when the restored cache entry is still fresh —
@@ -360,8 +393,8 @@ export class GitStatusService implements MessageHandler {
    * Called when a workspace folder is removed from the layout.
    */
   removeWorkspaceState(workspacePath: string): void {
-    this._workspaceGitState.delete(workspacePath);
-    if (this._activeWorkspacePath() === workspacePath) {
+    this._workspaceGitState.delete(normalizeWorkspaceRoot(workspacePath));
+    if (this.isActive(workspacePath)) {
       this._activeWorkspacePath.set(null);
       this.setSignals(EMPTY_SNAPSHOT);
     }
@@ -452,17 +485,49 @@ export class GitStatusService implements MessageHandler {
     const target = workspaceRoot ?? active;
     if (!target) return;
 
-    if (target === active) {
+    if (this.isActive(target)) {
       this.setSignals(nextSnapshot(data, this.currentSnapshot()));
       // Fresh data just arrived for the active workspace — stamp fetchedAt.
       this.saveCurrentState(Date.now());
     } else {
       const now = Date.now();
-      this._workspaceGitState.set(target, {
-        ...nextSnapshot(data, this._workspaceGitState.get(target)),
+      const key = normalizeWorkspaceRoot(target);
+      this.writeCache(key, {
+        ...nextSnapshot(data, this._workspaceGitState.get(key)),
         lastUpdated: now,
         fetchedAt: now,
       });
+    }
+  }
+
+  /** Whether `root` names the active root (case/separator-folded). */
+  private isActive(root: string): boolean {
+    const active = this._activeWorkspacePath();
+    return (
+      active !== null &&
+      normalizeWorkspaceRoot(active) === normalizeWorkspaceRoot(root)
+    );
+  }
+
+  /**
+   * Write one cache entry as the most recently updated, then evict the least
+   * recently updated entries beyond {@link MAX_CACHED_ROOTS} — never the
+   * active root's.
+   */
+  private writeCache(key: string, state: GitWorkspaceState): void {
+    this._workspaceGitState.delete(key);
+    this._workspaceGitState.set(key, state);
+    if (this._workspaceGitState.size <= GitStatusService.MAX_CACHED_ROOTS) {
+      return;
+    }
+    const active = this._activeWorkspacePath();
+    const activeKey = active === null ? null : normalizeWorkspaceRoot(active);
+    for (const candidate of this._workspaceGitState.keys()) {
+      if (this._workspaceGitState.size <= GitStatusService.MAX_CACHED_ROOTS) {
+        return;
+      }
+      if (candidate === activeKey) continue;
+      this._workspaceGitState.delete(candidate);
     }
   }
 
@@ -562,7 +627,10 @@ export class GitStatusService implements MessageHandler {
       staleReason: reason,
     };
     this.setSignals(stale);
-    this._workspaceGitState.set(active, { ...stale, lastUpdated: Date.now() });
+    this.writeCache(normalizeWorkspaceRoot(active), {
+      ...stale,
+      lastUpdated: Date.now(),
+    });
   }
 
   /**
@@ -577,8 +645,9 @@ export class GitStatusService implements MessageHandler {
     const activePath = this._activeWorkspacePath();
     if (!activePath) return;
 
-    const existing = this._workspaceGitState.get(activePath);
-    this._workspaceGitState.set(activePath, {
+    const key = normalizeWorkspaceRoot(activePath);
+    const existing = this._workspaceGitState.get(key);
+    this.writeCache(key, {
       ...this.currentSnapshot(),
       lastUpdated: Date.now(),
       fetchedAt: fetchedAt ?? existing?.fetchedAt,

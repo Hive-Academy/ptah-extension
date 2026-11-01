@@ -58,11 +58,11 @@ const RETRY_QUERY = `SELECT session_id, workspace_root, session_path, attempt_co
  LIMIT ?`;
 
 describe('migration 0053_memory_boot_scan_failure_generation — registry and static SQL', () => {
-  it('is registered once as version 53, plain static SQL, and is the highest version', () => {
+  it('is registered once as version 53, plain static SQL, and keeps the latest version current', () => {
     expect(MIGRATIONS.filter((m) => m.version === 53)).toEqual([
       { version: 53, name: '0053_memory_boot_scan_failure_generation', sql },
     ]);
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(62);
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(64);
     expect(sql).not.toContain('${');
     expect(sql).not.toMatch(/\b(DELETE|UPDATE|INSERT|DROP TABLE)\b/i);
   });

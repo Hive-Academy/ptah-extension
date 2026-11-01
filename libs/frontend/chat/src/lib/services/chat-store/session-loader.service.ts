@@ -28,6 +28,8 @@ import {
   type ChatResumeResult,
   type FlatStreamEventUnion,
   type SessionListParams,
+  normalizeModelKey,
+  trustedContextWindow,
 } from '@ptah-extension/shared';
 import {
   SessionManager,
@@ -38,6 +40,8 @@ import {
   TabManagerService,
   isValidSessionStatsSnapshot,
   commandCenterPersonaFor,
+  contextFillStats,
+  type LiveModelStatsPayload,
 } from '@ptah-extension/chat-state';
 import {
   SessionHistoryReplayer,
@@ -265,6 +269,13 @@ export class SessionLoaderService {
    * Used to clear stale subagents when the active tab changes to a different session.
    */
   private _resumableSubagentsSessionId: string | null = null;
+
+  /**
+   * toolCallIds the user dismissed. The backend retires them for good, so a
+   * `chat:resume` reply that was in flight during the dismiss must not bring
+   * them back.
+   */
+  private readonly _dismissedSubagentIds = new Set<string>();
 
   /**
    * Registry of load identities currently being loaded via switchSession() or
@@ -1127,7 +1138,9 @@ export class SessionLoaderService {
 
         this.historyPaging.recordTail(resolvedTabId, resumeResult.data);
         this.sessionManager.setStatus('loaded');
-        this._resumableSubagents.set(resumableSubagents ?? []);
+        this._resumableSubagents.set(
+          this.withoutDismissed(resumableSubagents ?? []),
+        );
         this._resumableSubagentsSessionId = sessionId;
       } else {
         this.tabManager.applyResumeFailure(resolvedTabId);
@@ -1248,11 +1261,10 @@ export class SessionLoaderService {
     // Capture before applying persisted stats: applyLoadedSessionStats creates a
     // unknown live-model placeholder, which would otherwise erase the fresh
     // post-compaction seed before this targeted-reload guard can preserve it.
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    const prior = tab?.claudeSessionId === sessionId ? tab.liveModelStats ?? null : null;
     const compactionContextSeed =
-      options?.preserveCompactionContextSeed === true
-        ? (this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab
-            .liveModelStats ?? null)
-        : null;
+      options?.preserveCompactionContextSeed === true ? prior : null;
 
     this.tabManager.applyLoadedSessionStats(
       tabId,
@@ -1272,17 +1284,23 @@ export class SessionLoaderService {
 
     const snapshot = stats.contextSnapshot;
     if (!snapshot) {
+      const carried =
+        this.sameModel(prior, stats.model) &&
+        trustedContextWindow(prior?.contextCapacity, prior?.model ?? '') !== null
+          ? contextFillStats(prior, prior?.contextUsed)
+          : null;
       this.tabManager.setLiveModelStats(
         tabId,
-        stats.model
-          ? {
-              model: stats.model,
-              contextKnown: false,
-              contextUsed: 0,
-              contextWindow: 0,
-              contextPercent: 0,
-            }
-          : null,
+        carried ??
+          (stats.model
+            ? {
+                model: stats.model,
+                contextKnown: false,
+                contextUsed: 0,
+                contextWindow: 0,
+                contextPercent: 0,
+              }
+            : null),
       );
       return;
     }
@@ -1300,7 +1318,29 @@ export class SessionLoaderService {
       ],
       { hasCompacted: false },
     );
-    if (derived) this.tabManager.setLiveModelStats(tabId, derived.live);
+    if (derived) {
+      const carried =
+        trustedContextWindow(
+          derived.live.contextCapacity,
+          derived.live.model,
+        ) === null &&
+        this.sameModel(prior, snapshot.model) &&
+        trustedContextWindow(prior?.contextCapacity, prior?.model ?? '') !== null
+          ? contextFillStats(prior, snapshot.contextTokens)
+          : null;
+      this.tabManager.setLiveModelStats(tabId, carried ?? derived.live);
+    }
+  }
+
+  private sameModel(
+    prior: LiveModelStatsPayload | null,
+    model: string | null | undefined,
+  ): boolean {
+    return (
+      !!model &&
+      !!prior &&
+      normalizeModelKey(prior.model) === normalizeModelKey(model)
+    );
   }
 
   /**
@@ -1643,7 +1683,7 @@ export class SessionLoaderService {
    * interrupted, so the resume banner appears without reloading the session.
    */
   setResumableSubagents(agents: SubagentRecord[], sessionId: string): void {
-    this._resumableSubagents.set(agents);
+    this._resumableSubagents.set(this.withoutDismissed(agents));
     this._resumableSubagentsSessionId = sessionId;
   }
 
@@ -1657,6 +1697,62 @@ export class SessionLoaderService {
     this._resumableSubagents.update((agents) =>
       agents.filter((a) => a.toolCallId !== toolCallId),
     );
+  }
+
+  /**
+   * Dismiss interrupted subagents for good (the banner's X).
+   *
+   * Removes them from the signal at once, then tells the backend per owning
+   * session (`parentSessionId`) so the next `chat:resume` stops returning
+   * them; a record with no owning session cannot be addressed and is only
+   * hidden locally. A failed RPC is logged and not rolled back: the user
+   * asked to hide these agents, and re-adding them would bring back the
+   * banner they just closed.
+   */
+  async dismissResumableSubagents(agents: SubagentRecord[]): Promise<void> {
+    if (agents.length === 0) return;
+
+    for (const agent of agents) {
+      this._dismissedSubagentIds.add(agent.toolCallId);
+    }
+    this._resumableSubagents.update((current) => this.withoutDismissed(current));
+
+    const bySession = new Map<string, string[]>();
+    for (const agent of agents) {
+      if (!agent.parentSessionId) continue;
+      const ids = bySession.get(agent.parentSessionId) ?? [];
+      ids.push(agent.toolCallId);
+      bySession.set(agent.parentSessionId, ids);
+    }
+
+    await Promise.all(
+      [...bySession].map(async ([sessionId, toolCallIds]) => {
+        try {
+          // The id comes from the backend's own record, not from user input.
+          const result = await this.claudeRpcService.call(
+            'chat:dismiss-resumable-subagents',
+            { sessionId: sessionId as SessionId, toolCallIds },
+          );
+          // A transport failure resolves as `success: false`; a handler
+          // failure arrives as a successful call whose payload says so.
+          if (!result.success || result.data?.success === false) {
+            console.warn(
+              '[SessionLoaderService] chat:dismiss-resumable-subagents failed; dismissed agents may return on reload',
+              { sessionId, error: result.error ?? result.data?.error },
+            );
+          }
+        } catch (error) {
+          console.warn(
+            '[SessionLoaderService] Failed to dismiss resumable subagents:',
+            error,
+          );
+        }
+      }),
+    );
+  }
+
+  private withoutDismissed(agents: SubagentRecord[]): SubagentRecord[] {
+    return agents.filter((a) => !this._dismissedSubagentIds.has(a.toolCallId));
   }
 
   /**
@@ -1715,8 +1811,10 @@ export class SessionLoaderService {
         this.tabManager.setLiveModelStats(tabId, null);
       }
 
-      const resumableSubagents = result.data?.resumableSubagents;
-      if (resumableSubagents && resumableSubagents.length > 0) {
+      const resumableSubagents = this.withoutDismissed(
+        result.data?.resumableSubagents ?? [],
+      );
+      if (resumableSubagents.length > 0) {
         this._resumableSubagents.set(resumableSubagents);
         this._resumableSubagentsSessionId = sessionId;
         console.log(

@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_702_594d
-status: in_progress
+status: done
 type: FEATURE
 title: "Elevate the Chat start screen: one new-session action, Lightfall hero, setup checklist"
 depends_on: []
 created: "2026-10-19T00:56:15.136Z"
-updated: "2026-10-19T00:56:15.136Z"
+updated: "2026-10-30T01:09:07.477Z"
 description: "Redesign the empty Chat board: one primary New session action, a Lightfall (ngxui) WebGL hero, one setup checklist card in the surface-3 style, and recent sessions."
 estimate: L
 labels:

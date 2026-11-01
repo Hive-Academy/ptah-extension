@@ -4,7 +4,8 @@
  *
  *   - removeSessionFromList: drops a session by id and decrements the counter
  *   - updateSessionName: renames the entry in-place
- *   - clearResumableSubagents / removeResumableSubagent
+ *   - clearResumableSubagents / removeResumableSubagent /
+ *     dismissResumableSubagents
  *   - switchWorkspace: cache-miss clears signals + kicks off a backend load,
  *     cache-hit restores prior counts instantly without an RPC call
  *   - removeWorkspaceCache: drops the cache entry
@@ -24,12 +25,13 @@ import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { TestBed } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { sessionContextCue } from '@ptah-extension/chat-ui';
 import { SessionLoaderService } from './session-loader.service';
 import { SessionHistoryReplayer } from './session-history-replayer.service';
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
 import { StreamViewportController } from '../stream-viewport-controller.service';
 import { HistoryPagingService } from './history-paging.service';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import { TabManagerService, type LiveModelStatsPayload } from '@ptah-extension/chat-state';
 import {
   BatchedUpdateService,
   BackgroundAgentStore,
@@ -103,6 +105,26 @@ function makeSummary(
   } as ChatSessionSummary;
 }
 
+function priorContextReading(
+  model: string,
+  source: 'sdk-native' | 'provider-catalog' = 'sdk-native',
+): LiveModelStatsPayload {
+  const trusted = source === 'sdk-native';
+  return {
+    model,
+    contextKnown: true,
+    contextCapacity: {
+      tokens: 200_000,
+      source,
+      providerId: null,
+      model,
+    },
+    contextUsed: 30_000,
+    contextWindow: trusted ? 200_000 : 0,
+    contextPercent: trusted ? 15 : 0,
+  };
+}
+
 describe('SessionLoaderService', () => {
   let service: SessionLoaderService;
   let rpcCall: jest.Mock;
@@ -122,6 +144,9 @@ describe('SessionLoaderService', () => {
   let activeTabIdSignal: ReturnType<typeof signal<string | null>>;
   let applyLoadedSessionStats: jest.Mock;
   let setLiveModelStats: jest.Mock;
+  let priorLiveModelStats: LiveModelStatsPayload | null;
+  let priorTabSessionId: string | null | undefined;
+  let priorTabLookupCount: number;
   let consoleError: jest.SpyInstance;
   let consoleWarn: jest.SpyInstance;
   let consoleLog: jest.SpyInstance;
@@ -141,6 +166,9 @@ describe('SessionLoaderService', () => {
     >([]);
     applyLoadedSessionStats = jest.fn();
     setLiveModelStats = jest.fn();
+    priorLiveModelStats = null;
+    priorTabSessionId = undefined;
+    priorTabLookupCount = 0;
     historyPagingMock.tailRequest.mockClear();
     historyPagingMock.recordTail.mockClear();
 
@@ -152,10 +180,12 @@ describe('SessionLoaderService', () => {
       activeTabId: computed(() => activeTabIdSignal()),
       tabs: computed(() => tabBindingsSignal()),
       findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
-        const sessionId = activeTabSessionIdSignal();
+        const sessionId = priorTabSessionId !== undefined && priorTabLookupCount++ > 0
+          ? priorTabSessionId
+          : activeTabSessionIdSignal();
         return sessionId
           ? {
-              tab: { id: tabId, claudeSessionId: sessionId },
+               tab: { id: tabId, claudeSessionId: sessionId, liveModelStats: priorLiveModelStats },
               workspacePath: 'D:/repo',
             }
           : null;
@@ -851,6 +881,119 @@ describe('SessionLoaderService', () => {
       });
     });
 
+    it.each([
+      { priorModel: 'claude-opus-5', expectedWindow: 200_000, expectedPercent: 65 },
+      { priorModel: 'claude-sonnet-4', expectedWindow: 0, expectedPercent: 0 },
+      { priorModel: null, expectedWindow: 0, expectedPercent: 0 },
+      { priorModel: 'Anthropic/claude-opus-5-20260101[1m]', expectedWindow: 200_000, expectedPercent: 65 },
+    ])('carries trusted snapshot context for prior model $priorModel', async ({ priorModel, expectedWindow, expectedPercent }) => {
+      const restoredTabId = TabId.from('316f183b-6a94-4c3c-99eb-3023d58cbadc');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      priorLiveModelStats = priorModel ? priorContextReading(priorModel) : null;
+      const stats = {
+        sessionId: SESSION,
+        totalCost: 1,
+        tokens: { input: 130_000, output: 2, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 1,
+        model: 'claude-opus-5',
+        contextSnapshot: { model: 'claude-opus-5', contextTokens: 130_000, contextWindow: 0 },
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(setLiveModelStats).toHaveBeenLastCalledWith(
+        restoredTabId,
+        expect.objectContaining({
+          contextUsed: 130_000,
+          contextWindow: expectedWindow,
+          contextPercent: expectedPercent,
+        }),
+      );
+    });
+
+    it.each([
+      { priorModel: 'claude-opus-5', source: 'sdk-native' as const, expectedWindow: 200_000, expectedPercent: 15 },
+      { priorModel: 'claude-sonnet-4', source: 'sdk-native' as const, expectedWindow: 0, expectedPercent: 0 },
+      { priorModel: 'claude-opus-5', source: 'provider-catalog' as const, expectedWindow: 0, expectedPercent: 0 },
+      { priorModel: null, source: 'sdk-native' as const, expectedWindow: 0, expectedPercent: 0 },
+      { priorModel: 'Anthropic/claude-opus-5-20260101[1m]', source: 'sdk-native' as const, expectedWindow: 200_000, expectedPercent: 15 },
+    ])('carries context across a compact boundary for prior model $priorModel and source $source', async ({ priorModel, source, expectedWindow, expectedPercent }) => {
+      const restoredTabId = TabId.from('acf18347-7818-4203-a09c-247f159a66fb');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      priorLiveModelStats = priorModel ? priorContextReading(priorModel, source) : null;
+      const stats = {
+        sessionId: SESSION,
+        totalCost: 1,
+        tokens: { input: 30_000, output: 2, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 1,
+        model: 'claude-opus-5',
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(setLiveModelStats).toHaveBeenLastCalledWith(
+        restoredTabId,
+        expect.objectContaining({
+          contextKnown: expectedWindow > 0,
+          contextWindow: expectedWindow,
+          contextPercent: expectedPercent,
+          contextUsed: expectedWindow > 0 ? 30_000 : 0,
+        }),
+      );
+    });
+
+    it('does not carry a trusted prior from a different tab session', async () => {
+      const restoredTabId = TabId.from('acf18347-7818-4203-a09c-247f159a66fb');
+      activeTabSessionIdSignal.set(SESSION);
+      activeTabIdSignal.set(restoredTabId);
+      priorLiveModelStats = priorContextReading('claude-opus-5');
+      priorTabSessionId = 'another-session';
+      const stats = {
+        sessionId: SESSION,
+        totalCost: 1,
+        tokens: { input: 30_000, output: 2, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 1,
+        model: 'claude-opus-5',
+      };
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { stats } }
+          : { success: true, data: {} },
+      );
+
+      activeTabStatusSignal.set('loaded');
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(setLiveModelStats).toHaveBeenLastCalledWith(restoredTabId, {
+        model: 'claude-opus-5',
+        contextKnown: false,
+        contextUsed: 0,
+        contextWindow: 0,
+        contextPercent: 0,
+      });
+      expect(sessionContextCue(setLiveModelStats.mock.lastCall?.[1] ?? null).label).toBe('—');
+    });
+
     it('leaves resume capacity unknown without provider evidence', async () => {
       const restoredTabId = TabId.from('3c9e2f4a-7d1b-4e6a-8b2c-5a9f0e1d7c22');
       activeTabSessionIdSignal.set(SESSION);
@@ -1182,6 +1325,104 @@ describe('SessionLoaderService', () => {
       expect(
         service.resumableSubagents().map((a) => a.toolCallId),
       ).not.toContain('tc-1');
+    });
+
+    describe('dismissResumableSubagents', () => {
+      const record = (
+        toolCallId: string,
+        parentSessionId?: string,
+      ): SubagentRecord => ({ toolCallId, parentSessionId }) as SubagentRecord;
+      const dismissCalls = (): unknown[][] =>
+        rpcCall.mock.calls.filter(
+          ([method]) => method === 'chat:dismiss-resumable-subagents',
+        );
+
+      it('hides the agents at once and tells the backend per owning session', async () => {
+        service.setResumableSubagents(
+          [
+            record('tc-1', 'sess-a'),
+            record('tc-2', 'sess-a'),
+            record('tc-3', 'sess-b'),
+            record('tc-keep', 'sess-a'),
+          ],
+          'sess-a',
+        );
+        rpcCall.mockResolvedValue({ success: true, data: { success: true } });
+
+        const done = service.dismissResumableSubagents([
+          record('tc-1', 'sess-a'),
+          record('tc-2', 'sess-a'),
+          record('tc-3', 'sess-b'),
+        ]);
+        // Optimistic: gone before the RPC settles.
+        expect(service.resumableSubagents().map((a) => a.toolCallId)).toEqual([
+          'tc-keep',
+        ]);
+        await done;
+
+        expect(dismissCalls()).toHaveLength(2);
+        expect(rpcCall).toHaveBeenCalledWith(
+          'chat:dismiss-resumable-subagents',
+          { sessionId: 'sess-a', toolCallIds: ['tc-1', 'tc-2'] },
+        );
+        expect(rpcCall).toHaveBeenCalledWith(
+          'chat:dismiss-resumable-subagents',
+          { sessionId: 'sess-b', toolCallIds: ['tc-3'] },
+        );
+      });
+
+      it('hides an agent with no owning session without calling the backend', async () => {
+        service.setResumableSubagents([record('tc-orphan')], 'sess-a');
+
+        await service.dismissResumableSubagents([record('tc-orphan')]);
+
+        expect(service.resumableSubagents()).toEqual([]);
+        expect(dismissCalls()).toHaveLength(0);
+      });
+
+      it.each([
+        ['a transport failure', { success: false, error: 'timeout' }],
+        ['a handler failure', { success: true, data: { success: false, error: 'no registry' } }],
+      ])('logs %s and keeps the agents hidden', async (_label, reply) => {
+        service.setResumableSubagents([record('tc-1', 'sess-a')], 'sess-a');
+        rpcCall.mockResolvedValue(reply);
+
+        await service.dismissResumableSubagents([record('tc-1', 'sess-a')]);
+
+        expect(service.resumableSubagents()).toEqual([]);
+        expect(consoleWarn).toHaveBeenCalledWith(
+          expect.stringContaining('chat:dismiss-resumable-subagents failed'),
+          expect.objectContaining({ sessionId: 'sess-a' }),
+        );
+      });
+
+      it('logs a thrown RPC error and keeps the agents hidden', async () => {
+        service.setResumableSubagents([record('tc-1', 'sess-a')], 'sess-a');
+        rpcCall.mockRejectedValue(new Error('boom'));
+
+        await service.dismissResumableSubagents([record('tc-1', 'sess-a')]);
+
+        expect(service.resumableSubagents()).toEqual([]);
+        expect(consoleWarn).toHaveBeenCalledWith(
+          '[SessionLoaderService] Failed to dismiss resumable subagents:',
+          expect.any(Error),
+        );
+      });
+
+      it('drops dismissed agents from a stale list that arrives later', async () => {
+        rpcCall.mockResolvedValue({ success: true, data: { success: true } });
+        await service.dismissResumableSubagents([record('tc-1', 'sess-a')]);
+
+        // A chat:resume reply that was in flight during the dismiss.
+        service.setResumableSubagents(
+          [record('tc-1', 'sess-a'), record('tc-2', 'sess-a')],
+          'sess-a',
+        );
+
+        expect(service.resumableSubagents().map((a) => a.toolCallId)).toEqual([
+          'tc-2',
+        ]);
+      });
     });
   });
 

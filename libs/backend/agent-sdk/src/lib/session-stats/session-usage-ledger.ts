@@ -31,6 +31,8 @@ export interface UsageRecord {
   readonly cacheCreation: number;
   /** True for `type: 'assistant'` records — the unit of `messageCount`. */
   readonly assistant: boolean;
+  /** True for a real user prompt, excluding tool results and summaries. */
+  readonly prompt: boolean;
   /** True when at least one usage counter was present. */
   readonly hasUsage: boolean;
 }
@@ -80,11 +82,17 @@ const ProjectedLineSchema = z.object({
   sessionId: OptionalString,
   timestamp: OptionalString,
   model: OptionalString,
+  isMeta: absentWhenMalformed(z.boolean()),
+  isSidechain: absentWhenMalformed(z.boolean()),
+  isCompactSummary: absentWhenMalformed(z.boolean()),
   message: absentWhenMalformed(
     z.object({
       role: OptionalString,
       id: OptionalString,
       model: OptionalString,
+      content: absentWhenMalformed(
+        z.union([z.string(), z.array(z.object({ type: z.string() }))]),
+      ),
       usage: absentWhenMalformed(
         z.object({
           input_tokens: UsageCounter,
@@ -105,7 +113,7 @@ const ProjectedLineSchema = z.object({
  */
 const RELEVANT_MARKERS = ['"usage"', '"assistant"', 'compact_boundary', '"init"'];
 
-/** Per-record retained size estimate (object header + 6 numbers + 2 flags). */
+/** Per-record retained size estimate (object header + 6 numbers + 3 flags). */
 const RECORD_BYTES = 96;
 
 interface MutableRecord {
@@ -117,6 +125,7 @@ interface MutableRecord {
   cacheRead: number | undefined;
   cacheCreation: number | undefined;
   assistant: boolean;
+  prompt: boolean;
 }
 
 /**
@@ -145,7 +154,11 @@ export class SessionUsageLedgerBuilder {
 
   /** Visit one non-blank JSONL line. Never throws. */
   visit(line: string): void {
-    if (this.sawFirstRecord && !RELEVANT_MARKERS.some((m) => line.includes(m))) {
+    if (
+      this.sawFirstRecord &&
+      !RELEVANT_MARKERS.some((m) => line.includes(m)) &&
+      !(line.includes('"user"') && !line.includes('"tool_result"'))
+    ) {
       return;
     }
     let raw: unknown;
@@ -196,12 +209,23 @@ export class SessionUsageLedgerBuilder {
         usage.cache_read_input_tokens !== undefined ||
         usage.cache_creation_input_tokens !== undefined);
     const assistant = type === 'assistant';
-    if (!assistant && !hasUsage) return;
+    const content = projected.message?.content;
+    const prompt =
+      (projected.type === 'user' || projected.message?.role === 'user') &&
+      projected.isMeta !== true &&
+      projected.isSidechain !== true &&
+      projected.isCompactSummary !== true &&
+      (typeof content === 'string'
+        ? content.length > 0
+        : Array.isArray(content) &&
+          content.some((block) => block.type === 'text' || block.type === 'image') &&
+          !content.some((block) => block.type === 'tool_result'));
+    if (!assistant && !hasUsage && !prompt) return;
 
     const timestampMs = parseTimestamp(projected.timestamp);
     const model = assistant ? projected.message?.model || null : null;
     const messageId = projected.message?.id;
-    const existing = messageId ? this.byMessageId.get(messageId) : undefined;
+    const existing = !prompt && messageId ? this.byMessageId.get(messageId) : undefined;
 
     if (existing) {
       existing.timestampMs ??= timestampMs;
@@ -224,15 +248,16 @@ export class SessionUsageLedgerBuilder {
       messageId: messageId ?? null,
       timestampMs,
       model,
-      input: usage?.input_tokens,
-      output: usage?.output_tokens,
-      cacheRead: usage?.cache_read_input_tokens,
-      cacheCreation: usage?.cache_creation_input_tokens,
+      input: prompt ? undefined : usage?.input_tokens,
+      output: prompt ? undefined : usage?.output_tokens,
+      cacheRead: prompt ? undefined : usage?.cache_read_input_tokens,
+      cacheCreation: prompt ? undefined : usage?.cache_creation_input_tokens,
       assistant,
+      prompt,
     };
     this.records.push(record);
     if (model !== null) this.modelBytes += model.length * 2;
-    if (messageId) this.byMessageId.set(messageId, record);
+    if (!prompt && messageId) this.byMessageId.set(messageId, record);
   }
 
   /** Freeze the projection. The builder must not be used afterwards. */
@@ -252,6 +277,7 @@ export class SessionUsageLedgerBuilder {
         cacheRead: r.cacheRead ?? 0,
         cacheCreation: r.cacheCreation ?? 0,
         assistant: r.assistant,
+        prompt: r.prompt,
         hasUsage,
       };
     });

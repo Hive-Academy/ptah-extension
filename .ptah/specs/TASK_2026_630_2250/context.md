@@ -44,3 +44,10 @@ Each criterion below has some evidence, but part of it has no spec. Add the miss
 
 Follow `CLAUDE.md` memory-safe verification: changed projects only, `--parallel=1`, Jest `--maxWorkers=2`, one
 heavy check at a time, no build/serve/dev/e2e/package unless the user asks.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Items 3 (path-link wrap), 4 (dock wiring split), 6-9 (optional estimate, CLI lane context, chip counts, Edit/Write meta), the four partially pinned acceptance-criteria specs and the dashboard-avatar spec title fix.
+- Evidence on main: context.md marks items 1, 2, 5 done (PR #704 and Gate 3 recheck). Still open on main: libs/frontend/chat-ui/src/lib/atoms/file-path-link.component.ts:37/:41 still `truncate` (item 3); chat-view.component.ts is 1927 lines with 62 dock references and no chat-view-dock helper (item 4).

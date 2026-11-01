@@ -194,6 +194,25 @@ describe('AgentMonitorStore', () => {
       });
     });
 
+    it('lets a background failure replace the provisional hook completion', () => {
+      start();
+      store.onSubagentEnded('tool', 'gave up', 15);
+      expect(store.getSubagent('tool')?.status).toBe('completed');
+      store.onBackgroundAgentCompleted({
+        ...base,
+        eventType: 'background_agent_completed',
+        toolCallId: 'tool',
+        agentId: 'agent',
+        timestamp: 20,
+        status: 'failed',
+      });
+      expect(store.getSubagent('tool')).toMatchObject({
+        status: 'failed',
+        completedAt: 20,
+        settledFromHook: false,
+      });
+    });
+
     it('preserves stopped and failed against late status and progress', () => {
       start();
       store.onBackgroundAgentStopped({
@@ -1236,6 +1255,67 @@ describe('AgentMonitorStore', () => {
         store.onSubagentEnded('toolu_unknown', 'x', 1);
         expect(store.subagents().get('toolu_unknown')).toBeUndefined();
       });
+
+      it('lets a later error tool_result fail a foreground agent the hook completed', () => {
+        // SubagentStop fires for failed agents too, usually before the Task
+        // tool_result; the tool_result knows the agent failed.
+        store.onAgentStart(startEvent());
+        store.onSubagentEnded(PARENT, 'gave up', 5_000);
+        expect(store.getSubagent(PARENT)?.status).toBe('completed');
+        store.onTaskToolResult(PARENT, true, 6_000);
+        expect(store.getSubagent(PARENT)).toMatchObject({
+          status: 'failed',
+          completedAt: 6_000,
+          settledFromHook: false,
+        });
+      });
+
+      it('keeps a tool_result outcome when the hook arrives after it', () => {
+        store.onAgentStart(startEvent());
+        store.onTaskToolResult(PARENT, true, 6_000);
+        store.onSubagentEnded(PARENT, 'late', 7_000);
+        expect(store.getSubagent(PARENT)?.status).toBe('failed');
+      });
+
+      it('completes a background record (the backgrounded Task case)', () => {
+        store.onAgentStart(startEvent());
+        // No AgentStatusEvent status names `background`; the record status
+        // exists for backgrounded Tasks, so the test sets it directly.
+        store.onAgentStatus(
+          statusEvent({
+            status: 'background' as unknown as AgentStatusEvent['status'],
+          }),
+        );
+        expect(store.getSubagent(PARENT)?.status).toBe('background');
+        store.onSubagentEnded(PARENT, 'Finished in background', 7_000);
+        expect(store.getSubagent(PARENT)).toMatchObject({
+          status: 'completed',
+          completedAt: 7_000,
+          latestSummary: 'Finished in background',
+        });
+      });
+    });
+
+    describe('findKeyByAgentId', () => {
+      it('resolves the Task tool_use key from the SDK agent id', () => {
+        store.onAgentStart(startEvent());
+        expect(store.findKeyByAgentId('short-1')).toBe(PARENT);
+      });
+
+      it('prefers a live record over a finished one with the same agent id', () => {
+        store.onAgentStart(startEvent({ toolCallId: 'toolu_old' }));
+        store.onSubagentEnded('toolu_old', 'done', 2);
+        store.onAgentStart(startEvent({ id: 'agent-start-2' }));
+        expect(store.findKeyByAgentId('short-1')).toBe(PARENT);
+      });
+
+      it('falls back to a finished record and returns null when unknown', () => {
+        store.onAgentStart(startEvent());
+        store.onSubagentEnded(PARENT, 'done', 2);
+        expect(store.findKeyByAgentId('short-1')).toBe(PARENT);
+        expect(store.findKeyByAgentId('nope')).toBeNull();
+        expect(store.findKeyByAgentId('')).toBeNull();
+      });
     });
   });
 
@@ -1988,9 +2068,9 @@ describe('AgentMonitorStore', () => {
       spawnLane('lane-stop', {});
       exitLane('lane-stop', {
         status: 'stopped',
-        stopReason: 'tool-call-budget',
+        stopReason: 'repeat-call',
       });
-      expect(card('lane-stop')?.stopReason).toBe('tool-call-budget');
+      expect(card('lane-stop')?.stopReason).toBe('repeat-call');
 
       spawnLane('lane-stop', {});
       expect(card('lane-stop')?.stopReason).toBeUndefined();

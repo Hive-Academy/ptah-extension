@@ -119,3 +119,7 @@ Two other curator paths return a success-shaped `'ran'` and consume input:
 
 Both are the same data-loss class as this task; neither is required to close
 it.
+
+## Retired sources (2026-10-30)
+
+This task cites `TASK_2026_376`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.

@@ -49,6 +49,8 @@ import {
   type PluginInfo,
   type PluginConfigState,
   type PluginConfigHomeStatus,
+  type PluginSessionNotice,
+  type PluginSessionOverride,
   type PluginHealthIssue,
   type PluginHealthStatus,
   type PluginSkillEntry,
@@ -215,6 +217,50 @@ function layerGlobalItems(
     disabledPluginIds,
     disabledSkillIds,
     ...(workspace.enabledSkillIds !== undefined || addedEnabledSkill
+      ? { enabledSkillIds }
+      : {}),
+  };
+}
+
+/** Add only IDs that no nearer layer has chosen. Agent disables belong to the child. */
+function layerAncestorConfigs(
+  local: PluginConfigState,
+  ancestors: readonly PluginConfigState[],
+): PluginConfigState {
+  const enabledPluginIds = [...local.enabledPluginIds];
+  const disabledPluginIds = [...(local.disabledPluginIds ?? [])];
+  const enabledSkillIds = [...(local.enabledSkillIds ?? [])];
+  const disabledSkillIds = [...local.disabledSkillIds];
+  const chosen = pluginConfigLayer(local);
+  const plugins = new Set(chosen.plugins.keys());
+  const skills = new Set(chosen.skills.keys());
+  let addedEnabledSkill = false;
+
+  for (const ancestor of ancestors) {
+    const layer = pluginConfigLayer(ancestor);
+    for (const [id, value] of layer.plugins) {
+      if (plugins.has(id)) continue;
+      (value === 'on' ? enabledPluginIds : disabledPluginIds).push(id);
+      plugins.add(id);
+    }
+    for (const [id, value] of layer.skills) {
+      if (skills.has(id)) continue;
+      if (value === 'on') {
+        enabledSkillIds.push(id);
+        addedEnabledSkill = true;
+      } else {
+        disabledSkillIds.push(id);
+      }
+      skills.add(id);
+    }
+  }
+
+  return {
+    ...local,
+    enabledPluginIds,
+    disabledPluginIds,
+    disabledSkillIds,
+    ...(local.enabledSkillIds !== undefined || addedEnabledSkill
       ? { enabledSkillIds }
       : {}),
   };
@@ -934,13 +980,19 @@ export class PluginLoaderService {
    * With no root asked for and no active folder, the injected storage answers
    * as before.
    */
-  private storageFor(workspaceRoot?: string): IStateStorage | null {
+  private storageFor(
+    workspaceRoot?: string,
+    readOnly = false,
+  ): IStateStorage | null {
     const storage = this.workspaceState;
     if (storage === null) return null;
     if (this.configHome !== null) {
       const target = workspaceRoot ?? this.workspace?.getWorkspaceRoot();
       if (target === undefined) return storage;
-      return this.configHome.viewFor(this.configHome.harnessRootFor(target));
+      return this.configHome.viewFor(
+        this.configHome.harnessRootFor(target),
+        readOnly,
+      );
     }
     if (workspaceRoot === undefined) return storage;
     if (!isWorkspaceScopedStateStorage(storage)) return storage;
@@ -979,6 +1031,75 @@ export class PluginLoaderService {
     const target = workspaceRoot ?? this.workspace?.getWorkspaceRoot();
     if (target === undefined) return null;
     return this.configHome.status(this.configHome.harnessRootFor(target));
+  }
+
+  /** Choices recorded at the session's root or an ancestor nearer than the project. */
+  getSessionPluginNotice(
+    sessionFolder: string,
+    ancestorRoots: readonly string[],
+    projectRoot: string,
+  ): PluginSessionNotice | null {
+    const home = this.configHome;
+    if (home === null) return null;
+
+    const sessionRoot = home.harnessRootFor(sessionFolder);
+    const projectKey = canonicalRootKey(home.harnessRootFor(projectRoot));
+    const keyOf = (root: string): string =>
+      canonicalRootKey(home.harnessRootFor(root));
+    if (canonicalRootKey(sessionRoot) === projectKey) return null;
+
+    const seenRoots = new Set<string>();
+    const seenPlugins = new Set<string>();
+    const seenSkills = new Set<string>();
+    const overrides: PluginSessionOverride[] = [];
+    let inheritsProjectSettings = false;
+    let incomplete = false;
+
+    for (const layer of [sessionFolder, ...ancestorRoots]) {
+      const key = keyOf(layer);
+      if (seenRoots.has(key)) continue;
+      seenRoots.add(key);
+      if (key === projectKey) {
+        inheritsProjectSettings = true;
+        break;
+      }
+
+      const read = this.readWorkspaceLayer(layer, true, true);
+      if (read.status === 'error') {
+        incomplete = true;
+        this.logger.warn(
+          '[PluginLoaderService] Session plugin layer unreadable',
+          { root: home.harnessRootFor(layer), reason: read.reason },
+        );
+        continue;
+      }
+
+      const root = home.harnessRootFor(layer);
+      const config = pluginConfigLayer(read.config);
+      for (const [id, value] of config.plugins) {
+        if (seenPlugins.has(id)) continue;
+        seenPlugins.add(id);
+        overrides.push({ kind: 'plugin', id, value, root });
+      }
+      for (const [id, value] of config.skills) {
+        if (seenSkills.has(id)) continue;
+        seenSkills.add(id);
+        overrides.push({ kind: 'skill', id, value, root });
+      }
+    }
+
+    return {
+      sessionRoot,
+      inheritsProjectSettings,
+      overrides: inheritsProjectSettings
+        ? overrides.sort((a, b) =>
+            a.kind === b.kind
+              ? a.id.localeCompare(b.id)
+              : a.kind.localeCompare(b.kind),
+          )
+        : [],
+      incomplete,
+    };
   }
 
   /**
@@ -1054,10 +1175,25 @@ export class PluginLoaderService {
    * value that is not an object, or an id list that is present but not a list
    * of strings is an error here (TASK_2026_560, N3). Absent storage and absent
    * values keep their legacy meaning (nothing recorded).
+   * `readOnly` prevents the configuration home from importing a legacy layer;
+   * plain workspace storage still uses its usual get method.
    */
-  private readWorkspaceLayer(workspaceRoot?: string): WorkspaceLayerRead {
-    const storage = this.storageFor(workspaceRoot);
+  private readWorkspaceLayer(
+    workspaceRoot?: string,
+    requireStorage = false,
+    readOnly = false,
+  ): WorkspaceLayerRead {
+    const storage = this.storageFor(workspaceRoot, readOnly);
     if (storage === null) {
+      if (requireStorage) {
+        return {
+          status: 'error',
+          reason: {
+            path: `${workspaceRoot} (${PLUGIN_CONFIG_KEY})`,
+            error: 'missing workspace storage',
+          },
+        };
+      }
       return { status: 'ok', config: emptyPluginConfig() };
     }
 
@@ -1113,20 +1249,59 @@ export class PluginLoaderService {
    */
   async getEffectivePluginConfig(
     workspaceRoot?: string,
-    options: { stateRoot?: string } = {},
+    options: { stateRoot?: string; ancestorRoots?: readonly string[] } = {},
   ): Promise<EffectivePluginConfig> {
     const globalRead = this.globalLayer
       ? await this.globalLayer.readGlobalLayer()
       : { status: 'ok' as const, items: [], fingerprintEntries: [] };
-    const workspace = this.readWorkspaceLayer(
-      options.stateRoot ?? workspaceRoot,
-    );
+    const localRoot = options.stateRoot ?? workspaceRoot;
+    const contextRoot = localRoot ?? this.workspace?.getWorkspaceRoot();
+    const roots = options.ancestorRoots;
+    const reasons: CapabilityPolicyReason[] = [];
+    const ancestors: Array<{ root: string; pluginConfig: PluginConfigState }> =
+      [];
+    const seen = new Set<string>();
+    if (roots !== undefined) {
+      if (contextRoot === undefined) {
+        reasons.push({
+          path: 'active workspace',
+          error: 'missing policy root',
+        });
+      } else {
+        seen.add(canonicalRootKey(contextRoot));
+        for (const root of [contextRoot, ...roots]) {
+          try {
+            if (!fs.statSync(root).isDirectory()) {
+              reasons.push({ path: root, error: 'not a directory' });
+            }
+          } catch (error: unknown) {
+            reasons.push({ path: root, error: errnoOf(error) || 'unreadable' });
+          }
+        }
+      }
+    }
+    const workspace = this.readWorkspaceLayer(localRoot);
+    if (roots !== undefined) {
+      for (const root of roots) {
+        const key = canonicalRootKey(root);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const read = this.readWorkspaceLayer(root, true);
+        if (read.status === 'error') reasons.push(read.reason);
+        else ancestors.push({ root: key, pluginConfig: read.config });
+      }
+    }
 
-    if (globalRead.status === 'error' || workspace.status === 'error') {
-      const reasons: CapabilityPolicyReason[] = [
-        ...(globalRead.status === 'error' ? globalRead.reasons : []),
-        ...(workspace.status === 'error' ? [workspace.reason] : []),
-      ];
+    if (globalRead.status === 'error') reasons.push(...globalRead.reasons);
+    if (workspace.status === 'error') reasons.push(workspace.reason);
+    const localConfig =
+      workspace.status === 'ok' ? workspace.config : undefined;
+    const globalSnapshot = globalRead.status === 'ok' ? globalRead : undefined;
+    if (
+      reasons.length > 0 ||
+      localConfig === undefined ||
+      globalSnapshot === undefined
+    ) {
       this.logger.warn(
         '[PluginLoaderService] Capability policy unreadable; skills and plugins are treated as unknown',
         { workspaceRoot, reasons },
@@ -1134,12 +1309,26 @@ export class PluginLoaderService {
       throw new CapabilityPolicyUnknownError(reasons);
     }
 
-    const config = layerGlobalItems(workspace.config, globalRead.items);
+    const config = layerGlobalItems(
+      layerAncestorConfigs(
+        localConfig,
+        ancestors.map(({ pluginConfig }) => pluginConfig),
+      ),
+      globalSnapshot.items,
+    );
     return {
       config,
       fingerprint: harnessPolicyFingerprint({
-        entries: globalRead.fingerprintEntries,
-        pluginConfig: workspace.config,
+        entries: globalSnapshot.fingerprintEntries,
+        pluginConfig: localConfig,
+        ...(roots === undefined
+          ? {}
+          : {
+              context: {
+                localRoot: canonicalRootKey(contextRoot as string),
+                ancestors,
+              },
+            }),
       }),
       overlayPluginPaths: this.overlayPathsFor(config, workspaceRoot),
     };

@@ -1,9 +1,5 @@
 import { z } from 'zod';
-import {
-  MINIMUM_SAMPLE_COUNT,
-  SCORE_MAX,
-  SCORE_MIN,
-} from '../routing-constants';
+import { SCORE_MAX, SCORE_MIN } from '../routing-constants';
 import {
   CAPABILITY_MATRIX_VERSION,
   MATRIX_CELL_SOURCES,
@@ -38,7 +34,7 @@ export const ValueMatrixCellSchema = z
     asOf: AsOf,
     stale: z.boolean(),
     note: NonBlank(500).optional(),
-    sampleCount: z.number().int().min(MINIMUM_SAMPLE_COUNT).optional(),
+    sampleCount: z.number().int().min(1).optional(),
   })
   .strict()
   .superRefine((cell, ctx) => {

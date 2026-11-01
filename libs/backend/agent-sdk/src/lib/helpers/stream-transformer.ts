@@ -16,6 +16,7 @@ import {
   SessionId,
   FlatStreamEventUnion,
   calculateMessageCost,
+  contextFillTokens,
   resolveContextCapacity,
   type ContextCapacity,
   type ContextCapacityRoute,
@@ -908,9 +909,7 @@ export class StreamTransformer {
                       costUSD: reported ? usage.costUSD : costUSD,
                       cacheReadInputTokens: cacheRead,
                       lastTurnContextTokens: trackedContext
-                        ? trackedContext.input +
-                          trackedContext.cacheRead +
-                          trackedContext.cacheCreation
+                        ? contextFillTokens(trackedContext)
                         : undefined,
                     });
                   }

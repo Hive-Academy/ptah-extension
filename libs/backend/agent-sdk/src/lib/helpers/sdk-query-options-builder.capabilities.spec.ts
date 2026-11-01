@@ -18,6 +18,9 @@
  */
 
 import 'reflect-metadata';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   AISessionConfig,
   AuthEnv,
@@ -37,6 +40,33 @@ import type {
 } from './session-mcp-status-callback-registry';
 import type { Options } from '../types/sdk-types/claude-sdk.types';
 import { PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
+import {
+  CLAUDE_BUILTIN_SETTING_KEYS,
+  CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
+  CLAUDE_BUILTIN_TOOL_IDS,
+} from './claude-builtin-catalog';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+
+/**
+ * Every Claude built-in opted in (TASK_2026_853), so these specs see only the
+ * capability-policy keys. The built-in defaults have their own specs in
+ * `sdk-query-options-builder.spec.ts`.
+ */
+const ALL_BUILTINS_ENABLED: Pick<IWorkspaceProvider, 'getConfiguration'> = {
+  getConfiguration: <T>(
+    _section: string,
+    key: string,
+    defaultValue?: T,
+  ): T | undefined => {
+    if (key === CLAUDE_BUILTIN_SETTING_KEYS.tools) {
+      return [...CLAUDE_BUILTIN_TOOL_IDS] as T;
+    }
+    if (key === CLAUDE_BUILTIN_SETTING_KEYS.skills) {
+      return [...CLAUDE_BUILTIN_TERMINAL_SKILL_IDS] as T;
+    }
+    return defaultValue;
+  },
+};
 
 const PROJECT = 'D:/tmp/ws';
 const PROXY_AUTH: AuthEnv = {
@@ -130,6 +160,7 @@ async function build(input: BuildInput = {}): Promise<Built> {
     undefined,
     mcpStatus,
     mcpBackoff,
+    ALL_BUILTINS_ENABLED,
   );
 
   const cfg = await builder.build({
@@ -175,6 +206,25 @@ function capabilityKeys(built: Built): Record<string, unknown> {
     mcpServers: Object.keys(built.options.mcpServers ?? {}),
   };
 }
+
+// The synced-skill reader (TASK_2026_853 Phase B) and the same-name skill
+// guard read the Claude config dir; point it at an empty temp dir so the
+// developer's own `~/.claude` (account-synced skills) never leaks in.
+let isolatedConfigRoot: string;
+let previousClaudeConfigDir: string | undefined;
+beforeEach(() => {
+  isolatedConfigRoot = mkdtempSync(join(tmpdir(), 'ptah-no-claude-config-'));
+  previousClaudeConfigDir = process.env['CLAUDE_CONFIG_DIR'];
+  process.env['CLAUDE_CONFIG_DIR'] = isolatedConfigRoot;
+});
+afterEach(() => {
+  if (previousClaudeConfigDir === undefined) {
+    delete process.env['CLAUDE_CONFIG_DIR'];
+  } else {
+    process.env['CLAUDE_CONFIG_DIR'] = previousClaudeConfigDir;
+  }
+  rmSync(isolatedConfigRoot, { recursive: true, force: true });
+});
 
 describe('SdkQueryOptionsBuilder — capability policy (TASK_2026_560, C5)', () => {
   describe('verified policy → flag tier', () => {
@@ -467,6 +517,24 @@ describe('capability helpers', () => {
     const set = await resolveSessionCapabilityPolicy(null, PROJECT, { warn });
     expect(set).toMatchObject({ status: 'unverified', ptahEnabled: true });
     expect(warn).toHaveBeenCalled();
+  });
+
+  it('forwards only supplied plugin ancestor context to the resolver', async () => {
+    const resolve = jest.fn().mockResolvedValue(policy());
+    const resolver = { resolve } as never;
+    const logger = { warn: jest.fn() };
+    const roots = ['/repo/parent', '/repo/grandparent'] as const;
+
+    await resolveSessionCapabilityPolicy(resolver, PROJECT, logger);
+    await resolveSessionCapabilityPolicy(resolver, PROJECT, logger, []);
+    await resolveSessionCapabilityPolicy(resolver, PROJECT, logger, roots);
+
+    expect(resolve.mock.calls).toEqual([
+      [PROJECT],
+      [PROJECT, { pluginConfigAncestorRoots: [] }],
+      [PROJECT, { pluginConfigAncestorRoots: roots }],
+    ]);
+    expect(resolve.mock.calls[2][1].pluginConfigAncestorRoots).toBe(roots);
   });
 
   it('resolveSessionCapabilityPolicy fails closed when the resolver throws', async () => {

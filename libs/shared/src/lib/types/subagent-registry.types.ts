@@ -145,6 +145,15 @@ export interface SubagentRecord {
    * route subagent:stop calls via Query.stopTask(taskId).
    */
   taskId?: string;
+
+  /**
+   * Set when the user dismissed this interrupted subagent's resume banner
+   * (chat:dismiss-resumable-subagents). A dismissed record is never returned to
+   * the webview again, but it is still described to the model once, on the
+   * next chat:continue, and then retired. Persisted with the durable resume
+   * snapshot so a restart does not show it again.
+   */
+  dismissed?: boolean;
 }
 
 /**

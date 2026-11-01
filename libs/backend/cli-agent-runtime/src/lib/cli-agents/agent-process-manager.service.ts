@@ -109,6 +109,7 @@ import {
   type LaneOwnerResolver,
 } from './limits/lane-owner.resolver';
 import { matchesAuthFailure } from './limits/lane-auth-classifier';
+import { matchesApiRateLimit } from './limits/lane-rate-limit-classifier';
 import { laneRouteFingerprint } from './limits/lane-limit-lookup.service';
 
 const DEFAULT_AGENT_READ_TAIL_LINES = 200;
@@ -317,7 +318,7 @@ export class AgentProcessManager {
     { readonly previousParent: string; signalHeld: boolean }
   >();
   /**
-   * One tool-call budget guard per running lane (TASK_2026_597, component 16),
+   * One repeat-call guard per running lane (TASK_2026_597, component 16),
    * keyed by agent id. Added in {@link trackSdkHandle}, dropped by
    * {@link releaseLaneGuard} on whichever path ends the lane.
    */
@@ -377,7 +378,9 @@ export class AgentProcessManager {
     private readonly hostAttention?: HostAttentionCoordinator,
     @inject(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { isOptional: true })
     private readonly attachmentProbe?: import('./mcp-attachment-probe.port').IMcpAttachmentProbe,
-    @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE, { isOptional: true })
+    @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE, {
+      isOptional: true,
+    })
     private readonly instructionFiles?: LaneInstructionFileStore,
     /**
      * Stored per-workspace Claude lane selection (TASK_2026_719 B14). Absent
@@ -662,7 +665,9 @@ export class AgentProcessManager {
       return {
         task,
         resumeSessionId,
-        ...(gate.accountReference ? { accountReference: gate.accountReference } : {}),
+        ...(gate.accountReference
+          ? { accountReference: gate.accountReference }
+          : {}),
         resumeDecision: {
           decision: 'resumed',
           reason: gate.reason,
@@ -690,7 +695,9 @@ export class AgentProcessManager {
         finalText,
         changedFiles: carryOver.changedFiles,
       }),
-      ...(gate.accountReference ? { accountReference: gate.accountReference } : {}),
+      ...(gate.accountReference
+        ? { accountReference: gate.accountReference }
+        : {}),
       resumeDecision: {
         decision: 'fresh',
         reason: gate.reason,
@@ -866,44 +873,51 @@ export class AgentProcessManager {
     let sdkHandle: SdkHandle;
     try {
       sdkHandle = await runSdk({
-      ...options.accountReference,
-      // Claude adapter field (`ClaudeCliCommandOptions`); set for Claude only.
-      ...(options.accountAdmission
-        ? { accountAdmission: options.accountAdmission }
-        : {}),
-      onAccountBinding: async (reference, sdkSessionId) => {
-        const snapshot = snapshotLaneAccountReference(reference);
-        if (!snapshot || !options.accountBindings) throw new LaneAccountResumeError('unavailable-storage');
-        if (admittedReference && JSON.stringify(admittedReference) !== JSON.stringify(snapshot)) {
-          throw new LaneAccountResumeError('invalid-bound');
-        }
-        await options.accountBindings.persistReference(snapshot, sdkSessionId);
-        admittedReference = snapshot;
-        admittedSdkSessionId = sdkSessionId;
-      },
-      task,
-      workingDirectory,
-      files: request.files,
-      taskFolder: request.taskFolder,
-      deliverables: request.deliverables,
-      model: resolvedModel,
-      modelSource: laneModel.source,
-      binaryPath,
-      mcpPort,
-      attachmentProbe: this.attachmentProbe,
-      resumeSessionId: request.resumeSessionId,
-      projectGuidance: request.projectGuidance,
-      reasoningEffort: laneEffort.effort,
-      autoApprove: this.spawnEnvironment.resolveAutoApprove(cli),
-      // Minted above, BEFORE the CLI is asked to build its MCP config, so the
-      // `/agent/{id}` segment of the URL names this exact record
-      // (TASK_2026_402). The rival-CLI path needs no extra plumbing for this —
-      // the id already exists by the time `runSdk` is called.
-      agentId,
-      role: roleDefinition,
-      laneBudgets,
-      instructionFileStore: this.instructionFiles,
-    });
+        ...options.accountReference,
+        // Claude adapter field (`ClaudeCliCommandOptions`); set for Claude only.
+        ...(options.accountAdmission
+          ? { accountAdmission: options.accountAdmission }
+          : {}),
+        onAccountBinding: async (reference, sdkSessionId) => {
+          const snapshot = snapshotLaneAccountReference(reference);
+          if (!snapshot || !options.accountBindings)
+            throw new LaneAccountResumeError('unavailable-storage');
+          if (
+            admittedReference &&
+            JSON.stringify(admittedReference) !== JSON.stringify(snapshot)
+          ) {
+            throw new LaneAccountResumeError('invalid-bound');
+          }
+          await options.accountBindings.persistReference(
+            snapshot,
+            sdkSessionId,
+          );
+          admittedReference = snapshot;
+          admittedSdkSessionId = sdkSessionId;
+        },
+        task,
+        workingDirectory,
+        files: request.files,
+        taskFolder: request.taskFolder,
+        deliverables: request.deliverables,
+        model: resolvedModel,
+        modelSource: laneModel.source,
+        binaryPath,
+        mcpPort,
+        attachmentProbe: this.attachmentProbe,
+        resumeSessionId: request.resumeSessionId,
+        projectGuidance: request.projectGuidance,
+        reasoningEffort: laneEffort.effort,
+        autoApprove: this.spawnEnvironment.resolveAutoApprove(cli),
+        // Minted above, BEFORE the CLI is asked to build its MCP config, so the
+        // `/agent/{id}` segment of the URL names this exact record
+        // (TASK_2026_402). The rival-CLI path needs no extra plumbing for this —
+        // the id already exists by the time `runSdk` is called.
+        agentId,
+        role: roleDefinition,
+        laneBudgets,
+        instructionFileStore: this.instructionFiles,
+      });
     } catch (error: unknown) {
       // The spawn failure is the error the caller needs; the cleanup behind
       // it must never replace it (4332578869).
@@ -921,8 +935,11 @@ export class AgentProcessManager {
     // Pi reports its shared channel here too (4332578858).
     const effectiveChannel = sdkHandle.getRoleDelivery?.() ?? roleChannel;
     const boundInfo = { ...info, ...admittedReference };
-    const effectiveInfo = roleStamp ? { ...boundInfo, roleChannel: effectiveChannel } : boundInfo;
-    const initialCliSessionId = sdkHandle.getSessionId?.() ?? admittedSdkSessionId;
+    const effectiveInfo = roleStamp
+      ? { ...boundInfo, roleChannel: effectiveChannel }
+      : boundInfo;
+    const initialCliSessionId =
+      sdkHandle.getSessionId?.() ?? admittedSdkSessionId;
     const infoWithSession = initialCliSessionId
       ? { ...effectiveInfo, cliSessionId: initialCliSessionId }
       : effectiveInfo;
@@ -1024,9 +1041,10 @@ export class AgentProcessManager {
         ...meta.roleStamp,
       };
       const effectiveChannel = sdkHandle.getRoleDelivery?.();
-      const effectiveInfo = effectiveChannel && meta.roleStamp
-        ? { ...info, roleChannel: effectiveChannel }
-        : info;
+      const effectiveInfo =
+        effectiveChannel && meta.roleStamp
+          ? { ...info, roleChannel: effectiveChannel }
+          : info;
       const initialCliSessionId = sdkHandle.getSessionId?.();
       const infoWithSession = initialCliSessionId
         ? { ...effectiveInfo, cliSessionId: initialCliSessionId }
@@ -1076,9 +1094,17 @@ export class AgentProcessManager {
     mcp?: { readonly mcpPort?: number; readonly expectsMcp?: boolean },
   ): SpawnAgentResult {
     const agentId = info.agentId;
-    const handleReference = snapshotLaneAccountReference(laneAccountFields(sdkHandle));
-    const requestedReference = snapshotLaneAccountReference(laneAccountFields(info));
-    if (handleReference && requestedReference && JSON.stringify(handleReference) !== JSON.stringify(requestedReference)) {
+    const handleReference = snapshotLaneAccountReference(
+      laneAccountFields(sdkHandle),
+    );
+    const requestedReference = snapshotLaneAccountReference(
+      laneAccountFields(info),
+    );
+    if (
+      handleReference &&
+      requestedReference &&
+      JSON.stringify(handleReference) !== JSON.stringify(requestedReference)
+    ) {
       throw new LaneAccountResumeError('invalid-bound');
     }
     const reference = handleReference ?? requestedReference;
@@ -1128,6 +1154,7 @@ export class AgentProcessManager {
       streamCapLogged: false,
       pendingMessages: [],
       reportsDelivered: 0,
+      turnSegmentStart: 0,
     };
 
     this.agents.set(agentId, tracked);
@@ -1216,7 +1243,7 @@ export class AgentProcessManager {
     }
     if (sdkHandle.onSegment) {
       // Only a handle that streams segments can show its tool calls, so only
-      // such a lane gets a budget guard.
+      // such a lane gets a guard.
       this.laneGuards.set(
         agentId,
         new LaneBudgetGuard(this.spawnEnvironment.resolveLaneGuardThresholds()),
@@ -1331,7 +1358,7 @@ export class AgentProcessManager {
   }
 
   /**
-   * Feed one segment to the lane's budget guard and carry out what it asks
+   * Feed one segment to the lane's guard and carry out what it asks
    * for. A lane that is no longer running is left alone: its ending already
    * happened on another path.
    */
@@ -1341,47 +1368,12 @@ export class AgentProcessManager {
     if (this.agents.get(agentId)?.info.status !== 'running') return;
 
     const action = guard.observe(segment);
-    if (action.kind === 'steer') {
-      this.steerLane(agentId, action.message, guard.toolCallCount);
-    } else if (action.kind === 'stop') {
-      void this.stopLaneForBudget(
+    if (action.kind === 'stop') {
+      void this.stopLaneForGuard(
         agentId,
         action.stopReason,
+        action.repeats,
         guard.toolCallCount,
-      );
-    }
-  }
-
-  /**
-   * Deliver the guard's one steer message as a mid-turn steer, and only that.
-   * It never goes through {@link sendToAgent}: a queued turn would run after
-   * the lane finished (overwriting its report), and interrupt-resume would
-   * discard the running turn's work. A handle without `steer` is logged once
-   * (the guard asks once per turn) and the stop threshold still ends the lane.
-   */
-  private steerLane(agentId: string, message: string, toolCalls: number): void {
-    const handle = this.agents.get(agentId)?.sdkHandle;
-    if (!handle?.steer) {
-      this.logger.warn(
-        '[AgentProcessManager] Lane budget steer not delivered (no mid-turn steer); the stop threshold still applies',
-        { agentId, toolCalls },
-      );
-      return;
-    }
-    try {
-      handle.steer(message);
-      this.logger.info('[AgentProcessManager] Lane budget steer sent', {
-        agentId,
-        toolCalls,
-      });
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[AgentProcessManager] Lane budget steer failed; the stop threshold still applies',
-        {
-          agentId,
-          toolCalls,
-          error: error instanceof Error ? error.message : String(error),
-        },
       );
     }
   }
@@ -1390,28 +1382,33 @@ export class AgentProcessManager {
    * Stop a lane the guard gave up on, through the ordinary {@link stop} path,
    * with `stopReason` stamped on the record.
    */
-  private async stopLaneForBudget(
+  private async stopLaneForGuard(
     agentId: string,
     stopReason: LaneStopReason,
+    repeats: number,
     toolCalls: number,
   ): Promise<void> {
     const tracked = this.agents.get(agentId);
     if (!tracked || tracked.info.status !== 'running') return;
 
-    this.logger.warn('[AgentProcessManager] Lane budget exceeded; stopping', {
+    this.logger.warn('[AgentProcessManager] Lane guard tripped; stopping', {
       agentId,
       stopReason,
+      repeats,
       toolCalls,
     });
+    tracked.repeatedCalls = repeats;
     // Stamped before `stop`, which spreads `tracked.info` into the terminal
     // record, the completion signal and `agent:exited`.
     tracked.info = { ...tracked.info, stopReason };
-    // A queued caller message must not start a new turn once the lane is stopped.
-    this.messageRouter.discardPending(agentId, tracked);
+    // A queued caller message must not start a new turn once the lane is
+    // stopped. The count goes on the completion signal, so the caller knows.
+    const dropped = this.messageRouter.discardPending(agentId, tracked);
+    if (dropped > 0) tracked.queuedMessagesDropped = dropped;
     try {
       await this.stop(agentId);
     } catch (error: unknown) {
-      this.logger.error('[AgentProcessManager] Lane budget stop failed', {
+      this.logger.error('[AgentProcessManager] Lane guard stop failed', {
         agentId,
         stopReason,
         error: error instanceof Error ? error.message : String(error),
@@ -1419,8 +1416,15 @@ export class AgentProcessManager {
     }
   }
 
-  /** Drop a lane's budget guard. Idempotent; every lane-ending path calls it. */
+  /**
+   * Drop a lane's guard, keeping its call count for the completion signal.
+   * Idempotent; every lane-ending path calls it.
+   */
   private releaseLaneGuard(agentId: string): void {
+    const guard = this.laneGuards.get(agentId);
+    if (!guard) return;
+    const tracked = this.agents.get(agentId);
+    if (tracked) tracked.guardToolCalls = guard.toolCallCount;
     this.laneGuards.delete(agentId);
   }
 
@@ -2151,7 +2155,7 @@ export class AgentProcessManager {
    * idle rule cannot apply either: the subprocess is released after
    * `SDK_IDLE_RELEASE_MS` (5 min), below the gate's 10 min idle limit, so a
    * lane idle long enough to be cold is no longer continuable and comes back
-   * through `spawn` with a resume id, where the gate runs. Only the 60k rule
+   * through `spawn` with a resume id, where the gate runs. Only the context-size rule
    * could apply here, and swapping a live lane for a fresh handoff mid
    * conversation would cost the caller its context for a token saving.
    */
@@ -2161,17 +2165,23 @@ export class AgentProcessManager {
       throw new AgentContinueError('not_found', `Agent not found: ${agentId}`);
     }
     const accountReference = laneAccountFields(tracked.info);
-    const accountScoped = String(tracked.info.cli) === 'claude' ||
-      accountReference.accountBinding !== undefined || accountReference.accountBindingId !== undefined;
+    const accountScoped =
+      String(tracked.info.cli) === 'claude' ||
+      accountReference.accountBinding !== undefined ||
+      accountReference.accountBindingId !== undefined;
     if (accountScoped) {
       await resolveLaneAccountResume({
         cli: tracked.info.cli,
         cliSessionId: tracked.info.cliSessionId ?? '',
         accountReference,
-        accountBindings: this.cliDetection.getAdapter(tracked.info.cli)?.accountBindings,
+        accountBindings: this.cliDetection.getAdapter(tracked.info.cli)
+          ?.accountBindings,
       });
       if (this.agents.get(agentId) !== tracked) {
-        throw new AgentContinueError('released', 'Lane was replaced during account validation.');
+        throw new AgentContinueError(
+          'released',
+          'Lane was replaced during account validation.',
+        );
       }
     }
 
@@ -2227,6 +2237,12 @@ export class AgentProcessManager {
     this.clearIdleRelease(tracked);
 
     tracked.hasExited = false;
+    // This turn's rate-limit match reads only the segments it produces.
+    tracked.turnSegmentStart = tracked.accumulatedSegments.length;
+    tracked.rateLimitMatched = undefined;
+    // A stop or timeout of this turn never re-reads auth wording, so an
+    // earlier turn's match must not label it `auth`.
+    tracked.authMatched = undefined;
     if (tracked.cleanupHandle) {
       clearTimeout(tracked.cleanupHandle);
       tracked.cleanupHandle = undefined;
@@ -2240,11 +2256,14 @@ export class AgentProcessManager {
       status: 'running',
       completedAt: undefined,
       exitCode: undefined,
+      stopReason: undefined,
     };
-    // Every turn started here carries a caller's message (the guard's steer is
-    // mid-turn only and never starts a turn), so the new task gets a fresh
-    // budget and its own steer.
+    // Every turn started here carries a caller's message, so the new task
+    // gets a fresh call count and repeat history.
     this.laneGuards.get(agentId)?.reset();
+    tracked.guardToolCalls = undefined;
+    tracked.repeatedCalls = undefined;
+    tracked.queuedMessagesDropped = undefined;
     this.armInactivityWatchdog(agentId, tracked);
 
     this.events.emit('agent:spawned', tracked.info);
@@ -2260,7 +2279,9 @@ export class AgentProcessManager {
       if (!this.isCurrentTurn(tracked, turn)) throw error;
       if (accountScoped) {
         this.handleExit(agentId, 1, null);
-        throw new LaneAccountResumeError(laneAccountErrorCode(error) ?? 'unavailable-storage');
+        throw new LaneAccountResumeError(
+          laneAccountErrorCode(error) ?? 'unavailable-storage',
+        );
       }
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -2663,10 +2684,13 @@ export class AgentProcessManager {
     try {
       await this.instructionFiles?.remove(agentId);
     } catch (error: unknown) {
-      this.logger.warn('[AgentProcessManager] Lane instruction cleanup failed', {
-        agentId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      this.logger.warn(
+        '[AgentProcessManager] Lane instruction cleanup failed',
+        {
+          agentId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
     }
   }
 
@@ -2747,7 +2771,13 @@ export class AgentProcessManager {
     tracked.hasExited = true;
     if (tracked.sdkHandle?.supportsContinuation?.() !== true) {
       void this.instructionFiles?.remove(agentId).catch((error: unknown) => {
-        this.logger.warn('[AgentProcessManager] Lane instruction cleanup failed', { agentId, error: error instanceof Error ? error.message : String(error) });
+        this.logger.warn(
+          '[AgentProcessManager] Lane instruction cleanup failed',
+          {
+            agentId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
       });
     }
 
@@ -2786,6 +2816,9 @@ export class AgentProcessManager {
       } else {
         tracked.authMatched = false;
       }
+      // Also before the discard below. A rate limit is not quota: it never
+      // sets `failureKind` and never reaches `recordLaneLimits`.
+      tracked.rateLimitMatched = this.matchLaneRateLimit(tracked, code);
       this.recordLaneLimits(tracked, limit, observedAt);
     } else if (!tracked.info.completedAt) {
       tracked.info = {
@@ -2865,6 +2898,46 @@ export class AgentProcessManager {
       );
     }
     return limit;
+  }
+
+  /**
+   * Whether this turn's bounded output names an API rate limit (HTTP 429).
+   * An exit 0 reads only the current turn's error segments, never stdout: a
+   * lane's final summary may legitimately discuss 429s. A failed exit reads
+   * the current turn's error segments plus the stdout tail. Segments dropped
+   * by the accumulation cap are not seen, so the match fails open.
+   */
+  private matchLaneRateLimit(
+    tracked: TrackedAgent,
+    code: number | null,
+  ): boolean {
+    const errors = this.turnErrorTexts(tracked);
+    const texts =
+      code === 0
+        ? errors
+        : [...errors, tracked.stdoutBuffer.slice(-LIMIT_CLASSIFIER_TAIL_CHARS)];
+    const matched = matchesApiRateLimit(texts);
+    if (matched) {
+      this.logger.debug(
+        '[AgentProcessManager] Lane turn matched an API rate-limit wording',
+        {
+          agentId: tracked.info.agentId,
+          cli: tracked.info.cli,
+          exitCode: code,
+        },
+      );
+    }
+    return matched;
+  }
+
+  /** The current turn's newest error segments, bounded like the failure texts. */
+  private turnErrorTexts(tracked: TrackedAgent): readonly string[] {
+    return tracked.accumulatedSegments
+      .slice(tracked.turnSegmentStart ?? 0)
+      .filter((segment) => segment.type === 'error')
+      .slice(-LIMIT_CLASSIFIER_ERROR_SEGMENTS)
+      .reverse()
+      .map((segment) => segment.content.slice(-LIMIT_CLASSIFIER_SEGMENT_CHARS));
   }
 
   private laneFailureTexts(tracked: TrackedAgent): readonly string[] {
@@ -3005,9 +3078,22 @@ export class AgentProcessManager {
     }
     const info = { ...tracked.info };
     const reportsDelivered = tracked.reportsDelivered;
+    // A continuation-capable lane keeps its guard past a turn's exit, so read
+    // the live count first and fall back to the one saved on release.
+    const toolCalls =
+      this.laneGuards.get(info.agentId)?.toolCallCount ??
+      tracked.guardToolCalls;
     void this.laneCompletion.signal(info, {
       reportsDelivered,
       authMatched: tracked.authMatched ?? false,
+      ...(tracked.rateLimitMatched ? { rateLimited: true } : {}),
+      ...(toolCalls !== undefined ? { toolCalls } : {}),
+      ...(tracked.queuedMessagesDropped
+        ? { queuedMessagesDropped: tracked.queuedMessagesDropped }
+        : {}),
+      ...(tracked.repeatedCalls
+        ? { repeatedCalls: tracked.repeatedCalls }
+        : {}),
     });
   }
 
@@ -3129,7 +3215,10 @@ export class AgentProcessManager {
   }
 
   private isCurrentTurn(tracked: TrackedAgent, turn: symbol): boolean {
-    return this.agents.get(tracked.info.agentId) === tracked && this.turns.get(tracked) === turn;
+    return (
+      this.agents.get(tracked.info.agentId) === tracked &&
+      this.turns.get(tracked) === turn
+    );
   }
 
   private getRunningCount(): number {

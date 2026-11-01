@@ -87,7 +87,7 @@ export function insertTabAfter(
  * - TabManagerService owns _tabs/_activeTabId signals (UI reactivity)
  * - This service owns the workspace map and handles workspace switching logic
  * - switchWorkspace() accepts current tab state, returns target workspace tabs
- * - updateBackgroundTab() mutates tabs in background workspaces without signals
+ * - updateBackgroundTab() mutates background tabs and bumps a revision signal
  */
 @Injectable({ providedIn: 'root' })
 export class TabWorkspacePartitionService {
@@ -106,6 +106,7 @@ export class TabWorkspacePartitionService {
    * (e.g., app just started, no workspace opened yet).
    */
   private readonly _activeWorkspacePath = signal<string | null>(null);
+  private readonly _backgroundRevision = signal(0);
 
   /**
    * Append-only signal carrying the most recent workspace removal, stamped with
@@ -120,6 +121,7 @@ export class TabWorkspacePartitionService {
   private _removedSeq = 0;
 
   readonly activeWorkspacePath$ = this._activeWorkspacePath.asReadonly();
+  readonly backgroundRevision$ = this._backgroundRevision.asReadonly();
   readonly removedWorkspace$ = this._removedWorkspace.asReadonly();
 
   /**
@@ -205,6 +207,7 @@ export class TabWorkspacePartitionService {
       });
     }
     this._activeWorkspacePath.set(workspacePath);
+    this._backgroundRevision.update((revision) => revision + 1);
     const targetTabSet = this._workspaceTabSets.get(workspacePath);
 
     if (targetTabSet) {
@@ -399,6 +402,7 @@ export class TabWorkspacePartitionService {
         const newTabs = [...tabSet.tabs];
         newTabs[bgTabIndex] = updatedTab;
         tabSet.tabs = newTabs;
+        this._backgroundRevision.update((revision) => revision + 1);
         this._debouncedBackgroundSave(wsPath, tabSet);
         return true;
       }
@@ -412,8 +416,8 @@ export class TabWorkspacePartitionService {
    *
    * The background counterpart of appending to `TabManagerService._tabs`: an
    * agent-started child tab whose parent lives in a workspace that is not
-   * active is added there, right after `afterTabId`, without touching any
-   * signal or the background partition's active tab. Persisted through the
+   * active is added there, right after `afterTabId`, without touching the
+   * background partition's active tab. Persisted through the
    * same debounced background save as `updateBackgroundTab`.
    *
    * Refuses (returns false) when `workspacePath` is the active workspace — the
@@ -432,6 +436,7 @@ export class TabWorkspacePartitionService {
     if (tabSet.tabs.some((t) => t.id === tab.id)) return false;
 
     tabSet.tabs = insertTabAfter(tabSet.tabs, tab, afterTabId);
+    this._backgroundRevision.update((revision) => revision + 1);
     if (tab.claudeSessionId) {
       this._sessionToWorkspace.set(tab.claudeSessionId, workspacePath);
     }
@@ -457,7 +462,9 @@ export class TabWorkspacePartitionService {
       }
     }
 
-    this._workspaceTabSets.delete(workspacePath);
+    if (this._workspaceTabSets.delete(workspacePath)) {
+      this._backgroundRevision.update((revision) => revision + 1);
+    }
     const pendingTimer = this._backgroundSaveTimers.get(workspacePath);
     if (pendingTimer) {
       clearTimeout(pendingTimer);

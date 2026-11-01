@@ -57,6 +57,8 @@ the orchestrator may call `ptah_route_decide` as described at orchestration Gate
 `taskKind` and `routingSource` from its chosen row on `ptah_agent_spawn`; omit them when
 no routed row exists. If `ptah_route_decide` is not listed, skip it silently. `ptah_agent_spawn`
 rejects any key not listed here — pass only the documented parameters.
+When a `Routing:` system reminder is present, reuse its taskType, depth and executor
+suggestions; do not repeat host pre-flight routing. Gate 0.1 still applies.
 
 ## 3. Task contract
 
@@ -67,7 +69,8 @@ A lane shares none of your context and cannot ask the user anything. Every `task
 3. **Scope**: files it may touch; "do not modify anything else".
 4. **Deliverable**: `**Deliverable**: <absolute path>` — write the output there with a file tool.
    Pass the same path in the `deliverables` parameter; the lane is then told to write it AND the
-   completion signal checks it. When the workflow reads the answer with `ptah_agent_read` instead
+   completion signal checks it. Tell the lane to write the file early as a skeleton (headings or a
+   stub) and fill it in as it goes, so any stop leaves usable output. When the workflow reads the answer with `ptah_agent_read` instead
    (a panel answer), give the exact answer structure in place of a path.
 5. **Reply**: `WROTE: <absolute path>` plus a one-line headline, nothing else — when there is a
    deliverable file.
@@ -122,12 +125,17 @@ ID when available, and one line per declared deliverable.
 
 Act on its `verdict`, never on the exit code alone:
 
-| `verdict`        | Meaning                                                                            | Do this                                                                                                                     |
-| ---------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `delivered`      | Terminal status `completed` and every declared deliverable exists and is non-empty | Read the files and verify the content (§6)                                                                                  |
-| `no-deliverable` | Exited cleanly WITHOUT writing every declared deliverable                          | Treat the task as not done. Read the output, then resume per §5 naming the missing paths. Never report the lane as complete |
-| `failed`         | Terminal status `failed`, `timeout` or `stopped`                                   | Recover per §5                                                                                                              |
-| `unverified`     | Completed, but nothing was declared, so nothing was checked                        | Read the output and verify it. Declare `deliverables` next time                                                             |
+| `verdict`        | Meaning                                                                               | Do this                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `delivered`      | Completed (or stopped by Ptah) and every declared deliverable exists and is non-empty | Read the files and verify the content (§6)                                                                                  |
+| `no-deliverable` | Ended WITHOUT writing every declared deliverable                                      | Treat the task as not done. Read the output, then resume per §5 naming the missing paths. Never report the lane as complete |
+| `failed`         | Terminal status `failed` or `timeout`, or a `stopped` lane you stopped                | Recover per §5                                                                                                              |
+| `unverified`     | Completed (or stopped by Ptah), but nothing was declared, so nothing was checked      | Read the output and verify it. Declare `deliverables` next time                                                             |
+
+A lane Ptah stopped carries `stopReason` (today only `repeat-call`: it repeated one identical tool
+call `laneRepeatCallStopAt` times, default 20) and the envelope says so, with the lane's tool-call
+count and any queued messages the stop dropped. It is judged by its deliverables like a completed
+lane, so a skeleton-first deliverable (§3) still counts.
 
 **The pushed `<agent-lane-completed>` signal is the wake.** After it arrives, read status and
 output with `ptah_agent_status({ agentId })` and `ptah_agent_read({ agentId })`, then verify the
@@ -246,7 +254,7 @@ Child-side sources of truth:
 - `TWO_WAY_MESSAGING_GUIDANCE` (same file), only when that spawn has an MCP port and an agent id. Branch on the returned `mode`. Do not treat a messaging mode as available.
 - `renderLaneCompletionContract` (`libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-reporting-contract.ts`), on every lane.
 
-This section and the parent-side tool table in `ptah-system-prompt.constant.ts` must agree with those three. `ptah_agent_list` is still what says whether a mode exists on this run.
+This section and the parent-side guidance in `ptah-core-prompt.ts` must agree with those three. `ptah_agent_list` is still what says whether a mode exists on this run.
 
 ## 8. Cost
 
@@ -259,7 +267,12 @@ whole thread, so a lane's bill grows with its call count times its accumulated c
 over 7 days of Codex lanes: 68 requests per session at an average 115k-token context, 29% of
 them polling, and 1.23 billion input tokens in total.
 
-- Default ceiling: **40 tool calls per lane**. State it in `task`; a lane near it reports and stops.
+- There is **no tool-call ceiling**. The vendor CLIs manage their own context, and a call count
+  says little about cost (most of the input is cheap cache reads). Ptah stops a lane only when it
+  repeats one identical call in a loop (`laneRepeatCallStopAt`, default 20). Do not state a call
+  budget in `task`.
+- Bound cost by scope instead: split work by files and deliverables, not by call count. One lane
+  per batch-sized scope; a larger phase is several sequential lanes, each with its own file list.
 - Give the lane its file list up front (`files` plus absolute paths in `task`) so it edits instead
   of exploring. Exploration is the calls you pay for twice — once to search, once as context.
 - A lane whose context balloons from a log or a whole-file read pays that context on every call

@@ -1,0 +1,511 @@
+{
+  "records": [
+    {
+      "case": "baseline",
+      "kind": "main",
+      "source": "baseline/config/projects/-home-amun-ptah-extension--claude-worktrees-session-prefix-diet--ptah-specs-TASK-2026-853-897f-evidence-a0-runtime-baseline-workspace/353210b2-2e0c-44a7-ad17-44fc82785916.jsonl",
+      "shapeHash": "911662fa846eec5a0a69e7d08b82afbbeb65db84a2b4dcdfe989f38def878e2c",
+      "toolSchemas": [
+        {
+          "name": "Agent",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "AskUserQuestion",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Bash",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Edit",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "ListAgents",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Read",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "ReportFindings",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "ScheduleWakeup",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Skill",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "ToolSearch",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Workflow",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "DeferredToolPlaceholder",
+          "inputSchemaKeys": [
+            "type",
+            "properties"
+          ],
+          "defer_loading": true
+        },
+        {
+          "name": "Write",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        }
+      ],
+      "protectedOrDeniedNamesInSystem": [],
+      "systemChars": 62,
+      "namesInMessages": [],
+      "shapeKeys": [
+        "system",
+        "tools"
+      ]
+    },
+    {
+      "case": "denied",
+      "kind": "main",
+      "source": "denied/config/projects/-home-amun-ptah-extension--claude-worktrees-session-prefix-diet--ptah-specs-TASK-2026-853-897f-evidence-a0-runtime-denied-workspace/54b6a090-39d6-40d6-b6b4-aacf94b4a318.jsonl",
+      "shapeHash": "efb081228a941b2123c1a95a8b2e6b640174f4727bf6fb487e04a9e79cc6f1a0",
+      "toolSchemas": [
+        {
+          "name": "Agent",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "AskUserQuestion",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Bash",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Edit",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "ListAgents",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Read",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "ScheduleWakeup",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Skill",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "ToolSearch",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "DeferredToolPlaceholder",
+          "inputSchemaKeys": [
+            "type",
+            "properties"
+          ],
+          "defer_loading": true
+        },
+        {
+          "name": "Write",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        }
+      ],
+      "protectedOrDeniedNamesInSystem": [],
+      "systemChars": 62,
+      "namesInMessages": [],
+      "shapeKeys": [
+        "system",
+        "tools"
+      ]
+    },
+    {
+      "case": "denied",
+      "kind": "built-in-general-purpose",
+      "source": "denied/config/projects/-home-amun-ptah-extension--claude-worktrees-session-prefix-diet--ptah-specs-TASK-2026-853-897f-evidence-a0-runtime-denied-workspace/54b6a090-39d6-40d6-b6b4-aacf94b4a318/subagents/agent-a88bd58621234567a.jsonl",
+      "shapeHash": "e0bd731b2650e754b3aa9e87f5269e1a76339889046415676d8792eab468bd71",
+      "toolSchemas": [
+        {
+          "name": "Agent",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Bash",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Edit",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Read",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Skill",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "ToolSearch",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "DeferredToolPlaceholder",
+          "inputSchemaKeys": [
+            "type",
+            "properties"
+          ],
+          "defer_loading": true
+        },
+        {
+          "name": "Write",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        }
+      ],
+      "protectedOrDeniedNamesInSystem": [],
+      "systemChars": 2732,
+      "namesInMessages": [],
+      "shapeKeys": [
+        "system",
+        "tools"
+      ]
+    },
+    {
+      "case": "denied",
+      "kind": "generated",
+      "source": "denied/config/projects/-home-amun-ptah-extension--claude-worktrees-session-prefix-diet--ptah-specs-TASK-2026-853-897f-evidence-a0-runtime-denied-workspace/54b6a090-39d6-40d6-b6b4-aacf94b4a318/subagents/agent-a8fe29b37160429ab.jsonl",
+      "shapeHash": "80e90cf8e1cf0349edfd0d3caa25f6513a13bd3b44e5b9d4ce0be7bf65bb4a38",
+      "toolSchemas": [
+        {
+          "name": "Agent",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Bash",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Edit",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Read",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "Skill",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "ToolSearch",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        },
+        {
+          "name": "DeferredToolPlaceholder",
+          "inputSchemaKeys": [
+            "type",
+            "properties"
+          ],
+          "defer_loading": true
+        },
+        {
+          "name": "Write",
+          "inputSchemaKeys": [
+            "$schema",
+            "type",
+            "properties",
+            "required",
+            "additionalProperties"
+          ],
+          "defer_loading": false
+        }
+      ],
+      "protectedOrDeniedNamesInSystem": [],
+      "systemChars": 1343,
+      "namesInMessages": [],
+      "shapeKeys": [
+        "system",
+        "tools"
+      ]
+    }
+  ],
+  "uniqueAssistantMessageIdsByTranscript": {
+    "baseline/config/projects/-home-amun-ptah-extension--claude-worktrees-session-prefix-diet--ptah-specs-TASK-2026-853-897f-evidence-a0-runtime-baseline-workspace/353210b2-2e0c-44a7-ad17-44fc82785916.jsonl": 1,
+    "denied/config/projects/-home-amun-ptah-extension--claude-worktrees-session-prefix-diet--ptah-specs-TASK-2026-853-897f-evidence-a0-runtime-denied-workspace/54b6a090-39d6-40d6-b6b4-aacf94b4a318.jsonl": 4,
+    "denied/config/projects/-home-amun-ptah-extension--claude-worktrees-session-prefix-diet--ptah-specs-TASK-2026-853-897f-evidence-a0-runtime-denied-workspace/54b6a090-39d6-40d6-b6b4-aacf94b4a318/subagents/agent-a88bd58621234567a.jsonl": 1,
+    "denied/config/projects/-home-amun-ptah-extension--claude-worktrees-session-prefix-diet--ptah-specs-TASK-2026-853-897f-evidence-a0-runtime-denied-workspace/54b6a090-39d6-40d6-b6b4-aacf94b4a318/subagents/agent-a8fe29b37160429ab.jsonl": 1
+  },
+  "observedCompletedModelCalls": 7,
+  "cleanup": {
+    "removedRawRuntimeDirectories": [
+      "baseline",
+      "denied"
+    ],
+    "removedIncompleteInventories": [
+      "baseline-shape-inventory.json",
+      "denied-shape-inventory.json"
+    ],
+    "kept": [
+      "spike.mjs",
+      "sanitized-shapes.json",
+      "sanitized-stream.json"
+    ],
+    "homeConfigWrites": "prevented by bubblewrap read-only root",
+    "calls": 7
+  }
+}

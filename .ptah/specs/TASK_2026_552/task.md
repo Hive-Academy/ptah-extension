@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_552
-status: backlog
+status: done
 type: BUGFIX
 title: 'Provider setup: one tier conflict must not cancel the other tier saves'
 depends_on: []
 created: "2026-09-24T08:26:07.000Z"
-updated: "2026-09-24T08:26:07.000Z"
+updated: "2026-10-30T01:09:07.477Z"
 description: "In the provider setup wizard, a conflict on one edited main-agent tier marks every later tier write in the same save as not saved, because each tier write depends on the one before it."
 executor: frontend-developer
 estimate: S

@@ -2,12 +2,10 @@ import {
   Component,
   input,
   output,
-  signal,
-  effect,
-  untracked,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { LucideAngularModule, PlayCircle, X } from 'lucide-angular';
+import { injectWallClock } from '@ptah-extension/core';
 import type { SubagentRecord } from '@ptah-extension/shared';
 
 /**
@@ -16,6 +14,11 @@ import type { SubagentRecord } from '@ptah-extension/shared';
  * Displays each interrupted subagent individually with its own resume button.
  * Shows agent type badge, truncated agentId, time since interruption, and a
  * per-agent "Resume" action.
+ *
+ * Dismiss (X) holds no local state: it asks the parent to dismiss the listed
+ * agents, which removes them from the store (and the backend registry), so the
+ * banner hides because its input becomes empty. A component-local flag came
+ * back on every session switch, when the list was reloaded from the backend.
  *
  * Complexity Level: 1 (Simple component with signal-based state)
  * Patterns Applied:
@@ -30,7 +33,7 @@ import type { SubagentRecord } from '@ptah-extension/shared';
   selector: 'ptah-resume-notification-banner',
   imports: [LucideAngularModule],
   template: `
-    @if (resumableSubagents().length > 0 && !dismissed()) {
+    @if (resumableSubagents().length > 0) {
       <div
         class="relative bg-base-300/30 rounded border border-warning/40"
         role="alert"
@@ -117,32 +120,11 @@ import type { SubagentRecord } from '@ptah-extension/shared';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ResumeNotificationBannerComponent {
+  private readonly now = injectWallClock('coarse');
   /**
    * Array of resumable subagent records from ChatStore
    */
   readonly resumableSubagents = input.required<SubagentRecord[]>();
-
-  /**
-   * Track the previous count of subagents to detect new arrivals
-   */
-  private previousCount = 0;
-
-  constructor() {
-    /**
-     * Auto-reset dismissed state when new subagents arrive.
-     * Uses effect to watch resumableSubagents input and reset dismissed state
-     * when the count increases (indicating new interrupted agents).
-     * This removes the coupling where parent must manually call resetDismissed().
-     */
-    effect(() => {
-      const subagents = this.resumableSubagents();
-      const currentCount = subagents.length;
-      if (currentCount > this.previousCount && currentCount > 0) {
-        untracked(() => this.dismissed.set(false));
-      }
-      this.previousCount = currentCount;
-    });
-  }
 
   /**
    * Emits when user clicks a specific agent's "Resume" button.
@@ -157,16 +139,16 @@ export class ResumeNotificationBannerComponent {
   readonly resumeAllRequested = output<SubagentRecord[]>();
 
   /**
+   * Emits every listed agent when the user clicks Dismiss (X).
+   * The parent handler should dismiss them for good via ChatStore.
+   */
+  readonly dismissRequested = output<SubagentRecord[]>();
+
+  /**
    * Icons
    */
   protected readonly PlayCircleIcon = PlayCircle;
   protected readonly XIcon = X;
-
-  /**
-   * Internal state for dismissing the banner
-   * Resets when resumableSubagents changes to a new non-empty array
-   */
-  readonly dismissed = signal(false);
 
   /**
    * Handle individual agent "Resume" button click
@@ -186,7 +168,7 @@ export class ResumeNotificationBannerComponent {
    * Handle dismiss button click
    */
   protected onDismiss(): void {
-    this.dismissed.set(true);
+    this.dismissRequested.emit([...this.resumableSubagents()]);
   }
 
   /**
@@ -198,8 +180,7 @@ export class ResumeNotificationBannerComponent {
       return '';
     }
 
-    const now = Date.now();
-    const elapsedMs = now - timestamp;
+    const elapsedMs = this.now() - timestamp;
 
     if (elapsedMs < 0) {
       return '';

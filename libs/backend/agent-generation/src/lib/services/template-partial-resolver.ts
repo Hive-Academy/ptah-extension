@@ -71,7 +71,6 @@ export const SHARED_BLOCK_IDS = [
   'TOOLING_PRECEDENCE',
   'CLI_DELEGATION',
   'REVIEWER_STANCE',
-  'ENGINEERING_HYGIENE',
 ] as const;
 
 /** Literal union of every registered shared block id. */

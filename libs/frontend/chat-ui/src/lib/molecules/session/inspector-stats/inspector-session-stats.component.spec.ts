@@ -1,22 +1,33 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ModelStateService } from '@ptah-extension/core';
+import { ModelStateService, WallClockService } from '@ptah-extension/core';
 import type { SessionStatsInputs } from '../session-stats-view';
-import { CacheCountdownClockService } from './cache-countdown-clock.service';
 import { InspectorSessionStatsComponent } from './inspector-session-stats.component';
 
 describe(InspectorSessionStatsComponent.name, () => {
-  const clockNow = signal(0);
-  const release = jest.fn();
-  const clock = { now: clockNow, acquire: jest.fn(() => release) };
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
 
   it('mounts only a present cache, releases it on removal, and updates on session switch', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
     TestBed.configureTestingModule({
       imports: [InspectorSessionStatsComponent],
       providers: [
         { provide: ModelStateService, useValue: { availableModels: signal([]) } },
-        { provide: CacheCountdownClockService, useValue: clock },
       ],
+    });
+    const clock = TestBed.inject(WallClockService);
+    const acquireClock = clock.acquire.bind(clock);
+    const release = jest.fn();
+    const acquire = jest.spyOn(clock, 'acquire').mockImplementation((cadence) => {
+      const releaseClock = acquireClock(cadence);
+      return () => {
+        releaseClock();
+        release();
+      };
     });
     const fixture = TestBed.createComponent(InspectorSessionStatsComponent);
     const stats: SessionStatsInputs = {
@@ -29,6 +40,7 @@ describe(InspectorSessionStatsComponent.name, () => {
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     expect(root.querySelector('[data-testid="inspector-cache-tile"]')).toBeNull();
+    expect(acquire).not.toHaveBeenCalled();
     const grid = root.querySelector('[data-testid="inspector-stats-grid"]');
     expect(grid?.classList.contains('grid-cols-3')).toBe(true);
     expect(grid?.querySelectorAll('[data-glass-surface="tile"]').length).toBe(0);
@@ -48,6 +60,8 @@ describe(InspectorSessionStatsComponent.name, () => {
     const tile = root.querySelector('[data-testid="inspector-cache-tile"]');
     expect(root.querySelector('ptah-inspector-cache-tile')?.classList.contains('col-span-2')).toBe(false);
     expect(tile?.textContent).toContain('1:00:00');
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(acquire).toHaveBeenCalledWith('second');
     fixture.componentRef.setInput('stats', { ...stats, sessionId: 'two', cache: { ttl: '5m', lastRequestAt: 0, expiresAt: 300_000 } });
     fixture.detectChanges();
     expect(root.textContent).toContain('05:00');
@@ -96,6 +110,27 @@ describe(InspectorSessionStatsComponent.name, () => {
     expect(value.classList.contains('font-semibold')).toBe(true);
   });
 
+  it('keeps the context bar on the cell bottom edge when the session has compactions', () => {
+    TestBed.configureTestingModule({
+      imports: [InspectorSessionStatsComponent],
+      providers: [{ provide: ModelStateService, useValue: { availableModels: signal([]) } }],
+    });
+    const fixture = TestBed.createComponent(InspectorSessionStatsComponent);
+    const stats: SessionStatsInputs = {
+      sessionId: 'session-1', snapshot: null, cache: null, liveModelStats: null,
+      compactionCount: 2, limits: null, budget: null,
+      context: { hasLive: true, known: true, percent: 40, label: '40%', usedTokens: 80_000 },
+      limitSummary: { state: 'none', text: null, extra: 0, source: null, fullText: null },
+    };
+    fixture.componentRef.setInput('stats', stats);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const bar = root.querySelector('[data-testid="inspector-stats-grid"] [role="progressbar"]');
+    expect(bar?.previousElementSibling?.textContent).toContain('2 compactions');
+    expect(bar?.nextElementSibling).toBeNull();
+  });
+
   it('opens the Context details from its dotted label, under the totals row', () => {
     TestBed.configureTestingModule({
       imports: [InspectorSessionStatsComponent],
@@ -130,7 +165,7 @@ describe(InspectorSessionStatsComponent.name, () => {
     expect(root.querySelector('[role="region"]')).toBeNull();
   });
 
-  it('formats known totals and keeps the plan-limit line under the row', () => {
+  it('formats known totals, keeps cells one height and leaves the limit notice out', () => {
     TestBed.configureTestingModule({
       imports: [InspectorSessionStatsComponent],
       providers: [{ provide: ModelStateService, useValue: { availableModels: signal([]) } }],
@@ -153,6 +188,18 @@ describe(InspectorSessionStatsComponent.name, () => {
     expect(grid.textContent).toContain('$1.20');
     expect(grid.textContent).not.toContain('2284653');
     expect(grid.textContent).not.toContain('5-hour');
-    expect(root.textContent).toContain('5-hour 94%');
+    const cells = [
+      ...root.querySelectorAll<HTMLElement>(
+        '[data-testid="inspector-stats-grid"] > div, [data-testid="inspector-stats-grid-2"] > div',
+      ),
+    ];
+    expect(cells).toHaveLength(6);
+    for (const cell of cells) {
+      expect(cell.classList.contains('min-h-[3.75rem]')).toBe(true);
+      expect(cell.classList.contains('flex-col')).toBe(true);
+    }
+    // The Plan limits section shows the limit notice; the stats do not repeat it.
+    expect(root.textContent).not.toContain('5-hour 94%');
+    expect(root.querySelector('button')?.textContent ?? '').not.toContain('Plan limits');
   });
 });

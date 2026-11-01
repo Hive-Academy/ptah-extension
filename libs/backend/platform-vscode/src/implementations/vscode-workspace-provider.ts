@@ -72,6 +72,10 @@ export class VscodeWorkspaceProvider implements IWorkspaceProvider {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   }
 
+  getRoutingConfigurationGeneration(): number {
+    return this.fileSettings.getRoutingConfigurationGeneration();
+  }
+
   getConfiguration<T>(
     section: string,
     key: string,

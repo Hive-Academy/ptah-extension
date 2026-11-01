@@ -818,6 +818,7 @@ describe('TaskCardComponent — linked sessions (TASK_2026_580)', () => {
       source: 'board-start',
       livePhase: 'generating',
       prLinks: [],
+      todos: null,
       ...overrides,
     };
   }
@@ -926,6 +927,50 @@ describe('TaskCardComponent — linked sessions (TASK_2026_580)', () => {
     );
     expect(note?.getAttribute('aria-label')).toBe(
       '3 linked sessions: Board start, running; Review, idle; Untitled session, not open',
+    );
+  });
+
+  it('shows no todo line when no session reported todos', () => {
+    links.set(new Map([['TASK_2026_200', [linked()]]]));
+    const host: HTMLElement = render().nativeElement;
+    expect(q(host, 'task-card-session-todos')).toBeNull();
+  });
+
+  it('shows the first reported todo progress and names the progress of every session (TASK_2026_854)', () => {
+    links.set(
+      new Map([
+        [
+          'TASK_2026_200',
+          [
+            linked({
+              todos: { done: 0, total: 0, inProgress: null, updatedAt: 1 },
+            }),
+            linked({
+              sessionId: 'sess-2',
+              name: 'Review',
+              role: 'related',
+              todos: {
+                done: 2,
+                total: 5,
+                inProgress: 'Writing tests',
+                updatedAt: 2,
+              },
+            }),
+          ],
+        ],
+      ]),
+    );
+    const host: HTMLElement = render().nativeElement;
+
+    expect(q(host, 'task-card-session-todos')?.textContent?.trim()).toBe(
+      'Todos 2/5 · Writing tests',
+    );
+    expect(
+      host
+        .querySelector('[data-testid="task-card-sessions"] [role="note"]')
+        ?.getAttribute('aria-label'),
+    ).toBe(
+      '2 linked sessions: Board start, running; Review, running, 2 of 5 todos done',
     );
   });
 

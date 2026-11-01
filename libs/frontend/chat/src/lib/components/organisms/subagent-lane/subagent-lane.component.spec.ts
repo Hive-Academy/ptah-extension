@@ -13,6 +13,7 @@ import {
   ModelStateService,
   SURFACE_ACTIVE,
   VSCodeService,
+  WallClockService,
 } from '@ptah-extension/core';
 import { createMockRpcService } from '@ptah-extension/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
@@ -33,7 +34,7 @@ describe('SubagentLaneComponent', () => {
   const contexts = signal<ReadonlyMap<string, TrayAgentContext>>(new Map());
   const rpcError =
     signal<ReturnType<AgentMonitorStore['subagentRpcError']>>(null);
-  const tick = signal(0);
+  const clockNow = signal(5_000);
   const steer = jest.fn<Promise<boolean>, [TrayAgentContext, string]>();
   const stop = jest.fn<Promise<void>, [string, string]>();
   const sendToBackground = jest.fn<Promise<boolean>, [string, string]>();
@@ -49,6 +50,9 @@ describe('SubagentLaneComponent', () => {
     .mockResolvedValue(undefined);
   const sendFeedback = jest.fn().mockResolvedValue({ sent: true });
   const ensureHistory = jest
+    .fn<Promise<void>, [string]>()
+    .mockResolvedValue(undefined);
+  const refreshLiveHistory = jest
     .fn<Promise<void>, [string]>()
     .mockResolvedValue(undefined);
   function setEntry(changes: Partial<SubagentExecutionEntry> = {}): void {
@@ -122,6 +126,7 @@ describe('SubagentLaneComponent', () => {
   beforeEach(() => {
     contexts.set(new Map());
     rpcError.set(null);
+    clockNow.set(5_000);
     steer.mockReset();
     stop.mockClear();
     sendToBackground.mockClear();
@@ -130,6 +135,7 @@ describe('SubagentLaneComponent', () => {
     release.mockClear();
     syncRecord.mockClear();
     ensureHistory.mockClear();
+    refreshLiveHistory.mockClear();
     loadSubagentCacheInfo.mockClear();
     sendFeedback.mockClear();
     setEntry();
@@ -146,12 +152,15 @@ describe('SubagentLaneComponent', () => {
           },
         },
         { provide: VSCodeService, useValue: { isElectron: false } },
+        {
+          provide: WallClockService,
+          useValue: { now: () => clockNow, acquire: () => () => undefined },
+        },
         { provide: SURFACE_ACTIVE, useValue: signal(true) },
         provideMarkdown(),
         {
           provide: AgentMonitorStore,
           useValue: {
-            tick,
             subagentRpcError: rpcError,
             stopAgent: stop,
             backgroundAgent: sendToBackground,
@@ -169,6 +178,7 @@ describe('SubagentLaneComponent', () => {
             release,
             syncRecord,
             ensureHistory,
+            refreshLiveHistory,
           },
         },
         {
@@ -193,6 +203,19 @@ describe('SubagentLaneComponent', () => {
         { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
       ],
     });
+  });
+
+  it('updates a running duration from the shared wall clock after a remount', () => {
+    const first = setup();
+    expect(first.componentInstance['label']()).toContain('4s');
+    first.destroy();
+
+    clockNow.set(9_000);
+    const remounted = setup();
+    expect(remounted.componentInstance['label']()).toContain('8s');
+    clockNow.set(10_000);
+    remounted.detectChanges();
+    expect(remounted.componentInstance['label']()).toContain('9s');
   });
 
   it('uses the shared header, an always-visible stats bar, and details facts', () => {
@@ -496,6 +519,39 @@ describe('SubagentLaneComponent', () => {
       ) as HTMLButtonElement
     ).click();
     expect(ensureHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it('backfills a live background agent from its transcript while shown', () => {
+    jest.useFakeTimers();
+    try {
+      const fixture = setup({ ...base, status: 'background' });
+      // A live entry never takes the one-shot load: before this fix the lane
+      // requested nothing and stayed on "Starting agent" for the whole run.
+      expect(ensureHistory).not.toHaveBeenCalled();
+      expect(refreshLiveHistory).toHaveBeenCalledTimes(1);
+      expect(refreshLiveHistory).toHaveBeenCalledWith('tool-1');
+      jest.advanceTimersByTime(5000);
+      expect(refreshLiveHistory).toHaveBeenCalledTimes(2);
+      fixture.destroy();
+      jest.advanceTimersByTime(20000);
+      expect(refreshLiveHistory).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stops refreshing when the agent finishes', () => {
+    jest.useFakeTimers();
+    try {
+      const fixture = setup();
+      expect(refreshLiveHistory).toHaveBeenCalledTimes(1);
+      fixture.componentRef.setInput('record', { ...base, status: 'completed' });
+      fixture.detectChanges();
+      jest.advanceTimersByTime(20000);
+      expect(refreshLiveHistory).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('offers full output when the live tree was spilled', () => {

@@ -62,6 +62,12 @@ export interface SessionIdResolvedPayload {
    * idempotent re-bind and on every resume resolution.
    */
   readonly previousSessionId?: string;
+  /**
+   * `true` only on the new-chat path, where the SDK just minted
+   * `realSessionId` for a fresh query: nothing can have been persisted under
+   * it before. Absent on every resume resolution.
+   */
+  readonly isNewSession?: true;
   readonly timestamp: number;
 }
 

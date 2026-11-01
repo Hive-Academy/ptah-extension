@@ -29,6 +29,10 @@ import type { OpenInRequest } from '../open-in/open-in-button.component';
 import { EditorLauncherService } from '../services/editor-launcher.service';
 import { FileContentChangesService } from '../services/file-content-changes.service';
 import { GitBranchesService } from '../services/git-branches.service';
+import {
+  GitDockScopeStore,
+  type GitDockScope,
+} from '../services/git-dock-scope.store';
 import { GitStashService } from '../services/git-stash.service';
 import { GitStatusService } from '../services/git-status.service';
 import { ReviewNavigationService } from '../services/review-navigation.service';
@@ -210,9 +214,27 @@ describe('ReviewShellComponent', () => {
   let navigation: ReviewNavigationService;
   let worktreeStatus: ReturnType<typeof makeWorktreeStatus>;
   let layout: { addFolderByPath: jest.Mock; editorPanelVisible: ReturnType<typeof signal<boolean>> };
+  let scopeStore: {
+    followsSessions: ReturnType<typeof signal<boolean>>;
+    scope: ReturnType<typeof signal<GitDockScope>>;
+    pin: jest.Mock;
+    unpin: jest.Mock;
+  };
 
   beforeEach(() => {
     worktreeStatus = makeWorktreeStatus();
+    scopeStore = {
+      followsSessions: signal(true),
+      scope: signal<GitDockScope>({
+        mode: 'follow-session',
+        root: '/wt/session-a',
+        source: 'organization-worktree',
+        session: { tabId: 't1', name: 'Session A', closed: false },
+        isWorktree: true,
+      }),
+      pin: jest.fn(),
+      unpin: jest.fn(),
+    };
     layout = { addFolderByPath: jest.fn(async () => undefined), editorPanelVisible: signal(true) };
     FakeResizeObserver.instances = [];
     (globalThis as { ResizeObserver?: unknown }).ResizeObserver =
@@ -240,6 +262,7 @@ describe('ReviewShellComponent', () => {
         { provide: GitStashService, useValue: {} },
         { provide: ReviewWorktreeStatusService, useValue: worktreeStatus },
         { provide: ElectronLayoutService, useValue: layout },
+        { provide: GitDockScopeStore, useValue: scopeStore },
       ],
     });
     navigation = TestBed.inject(ReviewNavigationService);
@@ -458,9 +481,7 @@ describe('ReviewShellComponent', () => {
 
     const fixture = await render();
 
-    expect(text(fixture)).toContain(
-      'The active workspace is not a Git repository.',
-    );
+    expect(text(fixture)).toContain('This scope is not a Git repository.');
     expect(
       query(fixture, '[data-testid="review-shell-status-unavailable"]'),
     ).toBeNull();
@@ -1092,5 +1113,38 @@ describe('ReviewShellComponent', () => {
 
     expect(canvas(fixture)?.stacked()).toBe(false);
     expect(() => fixture.destroy()).not.toThrow();
+  });
+  describe('scope header (TASK_2026_855)', () => {
+    const header = (fixture: ComponentFixture<unknown>): HTMLElement | null =>
+      query(fixture, '[data-testid="git-dock-scope-header"]');
+
+    it('renders the store scope above the dock header', async () => {
+      const fixture = await render();
+
+      expect(header(fixture)?.textContent).toContain('Session A');
+      expect(header(fixture)?.textContent).toContain('session-a');
+    });
+
+    it('pins and unpins through the store', async () => {
+      const fixture = await render();
+      const toggle = (): HTMLButtonElement =>
+        query(fixture, '[data-testid="git-dock-scope-pin"]') as HTMLButtonElement;
+
+      toggle().click();
+      expect(scopeStore.pin).toHaveBeenCalledTimes(1);
+
+      scopeStore.scope.update((scope) => ({ ...scope, mode: 'pinned' }));
+      fixture.detectChanges();
+      toggle().click();
+      expect(scopeStore.unpin).toHaveBeenCalledTimes(1);
+    });
+
+    it('is absent where the dock does not follow sessions', async () => {
+      scopeStore.followsSessions.set(false);
+
+      const fixture = await render();
+
+      expect(header(fixture)).toBeNull();
+    });
   });
 });

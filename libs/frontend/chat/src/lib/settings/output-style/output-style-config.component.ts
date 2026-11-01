@@ -56,8 +56,7 @@ const OUTPUT_STYLE_PARITY_FAILED =
   host: { class: 'block' },
   template: `
     <section
-      class="card bg-base-200 border border-base-300 p-3"
-      data-glass-surface="content"
+      class="border-b border-base-content/10 pb-7"
       aria-labelledby="output-style-heading"
       data-testid="output-style-card"
     >

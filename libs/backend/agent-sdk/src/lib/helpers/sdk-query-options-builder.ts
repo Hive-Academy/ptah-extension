@@ -116,6 +116,17 @@ import {
 } from './sdk-model-service';
 import { experimentalBetaEnv } from './build-safe-env';
 import {
+  isSyncedClaudeSkillId,
+  readClaudeBuiltinOptInSettings,
+  resolveClaudeBuiltinPolicy,
+  type ClaudeBuiltinPolicy,
+} from './claude-builtin-catalog';
+import { guardClaudeBuiltinSkillDenials } from './claude-skill-name-discovery';
+import {
+  readSyncedClaudeSkills,
+  resolveClaudeConfigDir,
+} from './synced-claude-skills.reader';
+import {
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   CODEX_PROXY_TOKEN_PLACEHOLDER,
   KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
@@ -306,12 +317,15 @@ export interface SystemPromptAssemblyResult {
  * built-in behavioral guidance, MCP server handling, tool routing, and environment
  * context that the agent needs to function correctly.
  *
- * PTAH_CORE_SYSTEM_PROMPT is always appended to the preset, providing
- * Ptah-specific MCP mandates, formatting rules, AskUserQuestion enforcement,
- * orchestration workflows, CLI agent hierarchy, and git/PR safety. Enhanced prompts
- * (project-specific guidance from the setup wizard) are also appended when available.
- * Some behavioral sections overlap with the preset — this is intentional as it
- * reinforces the instructions without contradicting them.
+ * PTAH_CORE_SYSTEM_PROMPT is always appended to the preset. It carries only what
+ * the preset lacks: the Ptah environment context, the single MCP substitution
+ * table, the agent hierarchy and CLI delegation rules, AskUserQuestion and
+ * permission-denial guidance, orchestration, a git/PR rule that defers to the
+ * workspace's own instructions, and webview formatting. Generic coding behaviour
+ * stays in the preset and is not restated. The only deliberate repeat is the MCP
+ * handshake, which summarizes the substitution table derived from the same
+ * constant. Enhanced prompts (project-specific guidance from the setup wizard)
+ * are also appended when available.
  *
  * Shared function used by SdkQueryOptionsBuilder and PtahCliAdapter.
  *
@@ -556,6 +570,30 @@ export function capabilityFlagsFor(
 }
 
 /**
+ * Add the Claude built-in skill denials (TASK_2026_853) to a session's flag
+ * lists, on the verified path only.
+ *
+ * Unverified: the session already runs with `skills: []` (see
+ * {@link capabilityIsolationOptions}), which hides every skill, so the lists
+ * stay exactly as {@link capabilityFlagsFor} returned them. Built-in TOOL
+ * denials are not here: they ride `Options.disallowedTools` on both paths.
+ */
+export function withClaudeBuiltinSkillDenials(
+  flags: SessionCapabilityFlags,
+  policy: Pick<EffectiveCapabilitySet, 'status'>,
+  builtinPolicy: Pick<ClaudeBuiltinPolicy, 'deniedSkillNames'>,
+): SessionCapabilityFlags {
+  if (policy.status !== 'verified') return flags;
+  return {
+    ...flags,
+    deniedSkillNames: uniqueNames([
+      ...flags.deniedSkillNames,
+      ...builtinPolicy.deniedSkillNames,
+    ]),
+  };
+}
+
+/**
  * The options that isolate a session whose policy could not be verified:
  * only the MCP servers passed in `mcpServers` load, and no skill is listed.
  * Empty for a verified policy, which is enforced through the flag tier.
@@ -627,6 +665,7 @@ export async function resolveSessionCapabilityPolicy(
   resolver: ICapabilityResolver | null | undefined,
   cwd: string,
   logger: Pick<Logger, 'warn'>,
+  pluginConfigAncestorRoots?: readonly string[],
 ): Promise<EffectiveCapabilitySet> {
   if (!resolver) {
     logger.warn(
@@ -639,7 +678,9 @@ export async function resolveSessionCapabilityPolicy(
     );
   }
   try {
-    return await resolver.resolve(cwd);
+    return await (pluginConfigAncestorRoots === undefined
+      ? resolver.resolve(cwd)
+      : resolver.resolve(cwd, { pluginConfigAncestorRoots }));
   } catch (error: unknown) {
     logger.warn(
       '[CapabilityPolicy] The capability resolver failed; the session runs with Ptah tools only and no skills',
@@ -1282,6 +1323,15 @@ export class SdkQueryOptionsBuilder {
       type: 'preset' as const,
       preset: 'claude_code' as const,
     };
+    // Claude built-ins Ptah does not use stay off unless the user opted in
+    // (TASK_2026_853). Read on every build so a settings change applies to
+    // the next session; a read failure counts as no opt-ins.
+    const builtinOptIns = readClaudeBuiltinOptInSettings(
+      this.workspace,
+      this.logger,
+    );
+    const builtinPolicy = resolveClaudeBuiltinPolicy(builtinOptIns);
+    const disallowedTools = [...builtinPolicy.disallowedTools];
     // The host env var wins inside the SDK (it inherits `process.env` below);
     // `sdkValue` still follows the setting so clearing the env restores it.
     const subagentTtl = resolveSubagentPromptCacheTtl({
@@ -1291,7 +1341,10 @@ export class SdkQueryOptionsBuilder {
         'auto',
       ),
       envValue: process.env['CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL'],
-      canSpawnSubagents: canSpawnSubagents({ tools: sessionTools }),
+      canSpawnSubagents: canSpawnSubagents({
+        tools: sessionTools,
+        disallowedTools,
+      }),
     });
     this.logger.info(
       `[SdkQueryOptionsBuilder] subagentPromptCacheTtl effective=${subagentTtl.effective} source=${subagentTtl.source} sdkOption=${subagentTtl.sdkValue ?? 'unset'}`,
@@ -1335,8 +1388,68 @@ export class SdkQueryOptionsBuilder {
       );
     }
 
+    // `includesUserSettingSource` (shared) is the ONE definition of this
+    // predicate. `output-styles` calls the same function to decide whether
+    // a user-tier style file will be visible to the binary — the two must
+    // agree, and now they cannot disagree.
+    // Host-loop entry point for path A (translation proxy): a localhost
+    // base URL drops the user tier, so only project/local `.claude/`
+    // skills and commands load. See .ptah/specs/TASK_2026_408/ownership.md.
+    // A named run replaces the ambient sources with its certified launch
+    // sources.
+    const settingSources: Array<'user' | 'project' | 'local'> = named
+      ? [...named.launch.settingSources]
+      : includesUserSettingSource(effectiveAuthEnv.ANTHROPIC_BASE_URL)
+        ? ['user', 'project', 'local']
+        : ['project', 'local'];
+
     const policy = this.sessionCapabilityPolicy(capabilityPolicy, cwd);
-    const capabilityFlags = capabilityFlagsFor(policy, backingOffServers);
+    // The config dir the Claude child reads (D-B2): a named run's certified
+    // launch env alone (it never inherits the host env), otherwise the auth
+    // env then the host env the child inherits, else `~/.claude`.
+    const claudeConfigDir = resolveClaudeConfigDir(
+      named ? [named.launch.env] : [effectiveAuthEnv, process.env],
+    );
+    // Only the verified path emits skill denials, so only it pays for the
+    // synced read and the same-name discovery. claude.ai account-synced
+    // skills are denied by their qualified `anthropic-skills:<name>` key,
+    // which never hides a same-name workspace skill (A0 spike case b); the
+    // read degrades to none on any failure. A bare built-in skill denial
+    // would also hide a same-name workspace, user or plugin skill, so those
+    // denials are dropped first (R1). Only the tiers this session loads are
+    // scanned (R2): a proxied session drops `user`, so a user-only same-name
+    // skill keeps the denial. A synced key on a proxied route, where the
+    // user tier is not loaded, is ignored by the CLI (A0 assumption 3).
+    const sessionBuiltinPolicy =
+      policy.status === 'verified'
+        ? await guardClaudeBuiltinSkillDenials(
+            resolveClaudeBuiltinPolicy({
+              ...builtinOptIns,
+              syncedSkillIds: (
+                await readSyncedClaudeSkills(claudeConfigDir, this.logger)
+              ).map((skill) => skill.id),
+            }),
+            { cwds: [cwd], claudeConfigDir, settingSources },
+            this.logger,
+          )
+        : builtinPolicy;
+    const capabilityFlags = withClaudeBuiltinSkillDenials(
+      capabilityFlagsFor(policy, backingOffServers),
+      policy,
+      sessionBuiltinPolicy,
+    );
+    // Account skill names stay out of the info log; only their count.
+    const deniedSkills =
+      policy.status === 'verified' ? sessionBuiltinPolicy.deniedSkillNames : [];
+    this.logger.info('[SdkQueryOptionsBuilder] Claude built-in policy', {
+      disallowedTools,
+      deniedBuiltinSkills: deniedSkills.filter(
+        (name) => !isSyncedClaudeSkillId(name),
+      ),
+      deniedSyncedSkillCount: deniedSkills.filter(isSyncedClaudeSkillId)
+        .length,
+      capabilityPolicy: policy.status,
+    });
     const configuredMcpServers = filterMcpServersByPolicy(
       this.mergeMcpOverride(
         // Same `routingId` the permission callback above is keyed on, and the
@@ -1403,6 +1516,9 @@ export class SdkQueryOptionsBuilder {
           subagentTtl.sdkValue,
         ),
         tools: sessionTools,
+        // Applies on the verified and the unverified path alike, and on every
+        // route: it is an SDK option, not a setting source.
+        disallowedTools,
         mcpServers: configuredMcpServers,
         ...capabilityIsolationOptions(policy),
         permissionMode,
@@ -1421,21 +1537,9 @@ export class SdkQueryOptionsBuilder {
         // subagent handling), but plumbed so a caller can disable it — see the
         // QueryOptionsInput.forwardSubagentText killswitch note.
         forwardSubagentText: forwardSubagentText ?? true,
-        // `includesUserSettingSource` (shared) is the ONE definition of this
-        // predicate. `output-styles` calls the same function to decide whether
-        // a user-tier style file will be visible to the binary — the two must
-        // agree, and now they cannot disagree.
-        // Host-loop entry point for path A (translation proxy): a localhost
-        // base URL drops the user tier, so only project/local `.claude/`
-        // skills and commands load. See .ptah/specs/TASK_2026_408/ownership.md.
-        settingSources: includesUserSettingSource(
-          effectiveAuthEnv.ANTHROPIC_BASE_URL,
-        )
-          ? ['user', 'project', 'local']
-          : ['project', 'local'],
-        // A named run replaces the ambient sources with its certified launch
-        // sources. This spread must stay after the ambient key so it wins.
-        ...(named ? { settingSources: [...named.launch.settingSources] } : {}),
+        // Computed once above so the built-in skill guard scans exactly the
+        // tiers this child loads.
+        settingSources,
         // A named run gets the certified env only, plus run-policy keys.
         env: named
           ? certifiedNamedEnv(

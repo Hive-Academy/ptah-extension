@@ -505,15 +505,16 @@ describe('GoVetConsentConfigComponent', () => {
     expect(toggle(fixture).disabled).toBe(true);
   });
 
-  it('renders the approved card, table-xs rows, a daisyUI toggle switch and a plain text state (V26/V27)', async () => {
+  it('renders the unboxed section, table-xs rows, a daisyUI toggle switch and a plain text state (V26/V27)', async () => {
     const rpc = createMockRpcService();
     routeRpc(rpc, { [GET]: [() => rpcSuccess(getResult({ state: 'on' }))] });
     const { fixture } = mount(rpc);
     await settle(fixture);
 
     const card = q(fixture, 'go-vet-consent-card');
-    expect(card?.classList).toContain('card');
-    expect(card?.classList).toContain('border-base-300');
+    expect(card?.classList).toContain('border-base-content/10');
+    expect(card?.classList).not.toContain('card');
+    expect(card?.classList).not.toContain('bg-base-200');
     expect(q(fixture, 'go-vet-consent-table')?.classList).toContain('table-xs');
     expect(q(fixture, 'go-vet-consent-root')?.tagName).toBe('TD');
 

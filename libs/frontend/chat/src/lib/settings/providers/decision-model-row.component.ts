@@ -61,6 +61,7 @@ import {
   type DecisionSuggestions,
 } from './decision-model-suggestions';
 import { DecisionModelBaseUrlFieldComponent } from './decision-model-row.base-url-field.component';
+import { DecisionModelTimeoutFieldComponent } from './decision-model-row.timeout-field.component';
 import {
   decisionEditorMaxHeight,
   wrapEditorTab,
@@ -101,6 +102,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
     ProviderMarkComponent,
     DecisionModelKeyFieldComponent,
     DecisionModelBaseUrlFieldComponent,
+    DecisionModelTimeoutFieldComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // Angular owns (and removes) this listener with the component.
@@ -111,9 +113,8 @@ type WriteResult = { ok: true } | { ok: false; message: string };
   template: `
     <article
       data-testid="consumer-row-decision"
-      [class.surface-2]="!editing()"
-      [class.surface-3]="editing()"
-      class="flex h-full min-w-0 flex-col gap-2 rounded-lg p-3"
+      [class.border-primary]="editing()"
+      class="flex h-full min-w-0 flex-col gap-2 rounded-lg border border-base-content/10 p-3 hover:bg-base-content/5"
     >
       <div class="flex min-w-0 items-start justify-between gap-2">
         <h3
@@ -347,6 +348,11 @@ type WriteResult = { ok: true } | { ok: false; message: string };
                       (remove)="removeKey()"
                     />
                   }
+                  @if (usesSystemOne()) {
+                    <ptah-decision-model-timeout-field
+                      [disabled]="disabled()"
+                    />
+                  }
                 </div>
                 @if (draft().kind !== 'unset') {
                   <button
@@ -493,6 +499,11 @@ export class DecisionModelRowComponent implements OnInit {
   private readonly pendingInput = computed(() =>
     decisionModelInput(this.draft()),
   );
+  /** The draft's kind calls a System One endpoint, so the request timeout setting applies to it. */
+  protected readonly usesSystemOne = computed(() => {
+    const kind = this.draft().kind;
+    return kind !== 'unset' && kind !== 'structured';
+  });
   /** The draft's kind when its key is entered in this row. */
   protected readonly keyedKind = computed((): DecisionKeyedKind | null => {
     const kind = this.draft().kind;

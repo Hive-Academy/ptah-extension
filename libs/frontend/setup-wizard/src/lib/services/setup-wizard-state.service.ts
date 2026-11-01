@@ -186,6 +186,9 @@ export class SetupWizardStateService implements MessageHandler {
     this.generationProgressSignal.asReadonly();
   public readonly scanProgress = this.scanProgressSignal.asReadonly();
   public readonly analysisStream = this.analysisStreamSignal.asReadonly();
+  public readonly analysisStartedAt = computed(
+    () => this.analysisStreamSignal()[0]?.timestamp ?? null,
+  );
   public readonly phaseStreamingStates =
     this.phaseStreamingStatesSignal.asReadonly();
   /** O(1) lookup by phaseKey. Derived from {@link phaseStreamingStates}. */

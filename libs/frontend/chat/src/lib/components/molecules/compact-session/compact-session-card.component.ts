@@ -16,19 +16,23 @@ import {
   CompactRailCardComponent,
   summarizeTodos,
   sameGitState,
+  todoStateFromProgress,
   summarizeFinalized,
   summarizeLive,
+  sessionContextCue,
   type CompactCallout,
   type CompactPermissionCallout,
   type CompactPermissionDecision,
   type CompactLaneSummary,
+  type CompactLinkedTask,
   type CompactRailDensity,
   type CompactRailState,
   type CompactSessionSummary,
   type CompactSummaryContext,
   type CompactSummaryMetrics,
+  type CompactTodoState,
 } from '@ptah-extension/chat-ui';
-import { VSCodeService } from '@ptah-extension/core';
+import { injectWallClock, VSCodeService } from '@ptah-extension/core';
 import {
   ConversationRegistry,
   TabManagerService,
@@ -40,11 +44,16 @@ import {
   PermissionHandlerService,
 } from '@ptah-extension/chat-streaming';
 import type { StreamingState, TabState } from '@ptah-extension/chat-types';
-import type {
-  AskUserQuestionRequest,
-  PermissionRequest,
+import {
+  contextFillPercent,
+  trustedContextWindow,
+  type AskUserQuestionRequest,
+  type PermissionRequest,
 } from '@ptah-extension/shared';
 import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
+import { SessionGitDockOpener } from '../../../services/session-git-scope/session-git-dock-opener.service';
+import { SessionWorktreeLookup } from '../../../services/session-git-scope/session-worktree-lookup.service';
+import { SessionOrganizationCache } from '../../../services/session-organization/session-organization-cache.store';
 import {
   SessionGitStatsStore,
   sessionWorkingRoot,
@@ -131,6 +140,7 @@ function sameLaneSummary(
         [elapsed]="railElapsed()"
         [contextPercent]="contextPercent()"
         [todos]="todos()"
+        [linkedTask]="linkedTask()"
         [gitStats]="gitStats()"
         [state]="railStateValue()"
         [density]="density()"
@@ -186,8 +196,10 @@ function sameLaneSummary(
             [elapsed]="elapsed()"
             [contextPercent]="contextPercent()"
             [todos]="todos()"
+            [linkedTask]="linkedTask()"
             [gitStats]="gitStats()"
             (openFullView)="openFullView()"
+            (openGit)="openGitScope()"
             (decide)="respond($event.callout, $event.decision, $event.reason)"
             (answer)="openFullView()"
             (openRequest)="openRequest($event)"
@@ -208,6 +220,9 @@ export class CompactSessionCardComponent {
   private readonly agentStore = inject(AgentMonitorStore);
   private readonly responder = inject(AgentPermissionResponder);
   private readonly gitStore = inject(SessionGitStatsStore);
+  private readonly worktrees = inject(SessionWorktreeLookup);
+  private readonly gitDockOpener = inject(SessionGitDockOpener);
+  private readonly organizationCache = inject(SessionOrganizationCache);
   private readonly vscode = inject(VSCodeService);
   private readonly cardActions = inject(SESSION_CARD_ACTIONS, {
     optional: true,
@@ -245,10 +260,17 @@ export class CompactSessionCardComponent {
     () => this.tab().claudeSessionId ?? this.tab().id,
   );
   readonly branch = computed(() => this.tab().agentOrigin?.branch ?? null);
-  readonly now = signal(Date.now());
+  readonly now = injectWallClock(
+    'second',
+    () => this.streaming() || this.laneSummary().counts.running > 0,
+  );
+  private readonly mountedAt = Date.now();
   readonly elapsed = computed(() => {
     const startedAt = this.tab().agentOrigin?.startedAt;
-    return startedAt === undefined ? null : Math.max(0, this.now() - startedAt);
+    // The shared clock can be idle between mounts; retain the mount-time floor.
+    return startedAt === undefined
+      ? null
+      : Math.max(0, Math.max(this.now(), this.mountedAt) - startedAt);
   });
   readonly railElapsed = computed(() => {
     const elapsed = this.elapsed();
@@ -258,11 +280,14 @@ export class CompactSessionCardComponent {
       ? `${seconds}s`
       : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   });
-  readonly contextPercent = computed(() =>
-    this.tab().liveModelStats?.contextKnown
-      ? (this.tab().liveModelStats?.contextPercent ?? null)
-      : null,
-  );
+  readonly contextPercent = computed(() => {
+    const stats = this.tab().liveModelStats;
+    if (!stats || !sessionContextCue(stats).known) return null;
+    const window = trustedContextWindow(stats.contextCapacity, stats.model);
+    return stats.contextWindow === window
+      ? contextFillPercent(stats.contextUsed, window)
+      : null;
+  });
   private readonly sessionAgents = computed(() =>
     this.cardActions || this.sessionContext
       ? this.agentStore.agentsOwnedBySession(this.sessionIdentity())
@@ -359,13 +384,46 @@ export class CompactSessionCardComponent {
 
   /** Last sampled stream state; `null` once the stream has ended. */
   private readonly sampledStreaming = signal<StreamingState | null>(null);
-  readonly todos = computed(
-    () =>
-      summarizeTodos(
-        this.messages(),
-        this.sampledStreaming(),
-        this.tab().lastCompactionAt ?? 0,
-      ),
+  /** Host organization of the SDK session; null while unknown or a fresh tab. */
+  private readonly organization = computed(() => {
+    const sessionId = this.tab().claudeSessionId;
+    return sessionId
+      ? this.organizationCache.organizationFor(sessionId)()
+      : null;
+  });
+  /** The primary linked task, or null. */
+  readonly linkedTask = computed<CompactLinkedTask | null>(
+    () => {
+      const primary = this.organization()?.tasks.find(
+        (task) => task.role === 'primary',
+      );
+      return primary
+        ? { taskId: primary.taskId, missing: primary.missing }
+        : null;
+    },
+    {
+      equal: (a, b) =>
+        a === b ||
+        (a !== null &&
+          b !== null &&
+          a.taskId === b.taskId &&
+          a.missing === b.missing),
+    },
+  );
+  /** Todos from the loaded stream; the host snapshot fills in when unknown. */
+  private readonly liveTodos = computed(() =>
+    summarizeTodos(
+      this.messages(),
+      this.sampledStreaming(),
+      this.tab().lastCompactionAt ?? 0,
+    ),
+  );
+  readonly todos = computed<CompactTodoState>(
+    () => {
+      const live = this.liveTodos();
+      if (live.kind === 'known') return live;
+      return todoStateFromProgress(this.organization()?.todos) ?? live;
+    },
     {
       equal: (a, b) =>
         a.kind === b.kind &&
@@ -379,7 +437,6 @@ export class CompactSessionCardComponent {
   private sampledTabId: string | null = null;
   private lastSampleAt = 0;
   private pendingSample: ReturnType<typeof setTimeout> | null = null;
-  private elapsedTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly routingRevision = computed(() =>
     this.permissionHandler.routingTargetRevision(),
@@ -393,6 +450,9 @@ export class CompactSessionCardComponent {
       this.tab(),
       this.tabLookup()?.workspacePath ?? null,
       this.vscode.config().workspaceRoot,
+      // The same organization read the git dock scope uses, so this card's
+      // counts and the dock's root agree (TASK_2026_855).
+      this.worktrees.worktreeFor(this.tab().claudeSessionId).worktreePath,
     ),
   );
   readonly gitStats = computed(() => this.gitStore.stateFor(this.gitRoot()), {
@@ -511,19 +571,8 @@ export class CompactSessionCardComponent {
     });
     effect(() => this.sampleStream(this.tab()));
     effect(() => this.railState.emit(this.railStateValue()));
-    effect(() => {
-      if (this.streaming() || this.laneSummary().counts.running > 0) {
-        if (this.elapsedTimer === null) {
-          this.now.set(Date.now());
-          this.elapsedTimer = setInterval(() => this.now.set(Date.now()), 1000);
-        }
-      } else {
-        this.clearElapsedTimer();
-      }
-    });
     inject(DestroyRef).onDestroy(() => {
       this.cancelPendingSample();
-      this.clearElapsedTimer();
     });
   }
 
@@ -609,6 +658,11 @@ export class CompactSessionCardComponent {
     }
   }
 
+  /** The git cell: show this session's changes in the git dock. */
+  openGitScope(): void {
+    void this.gitDockOpener.open(this.tabId());
+  }
+
   openFullView(shownId?: string): void {
     if (shownId !== undefined && this.callout()?.requestId !== shownId) {
       this.staleAction.emit();
@@ -619,12 +673,6 @@ export class CompactSessionCardComponent {
     } else {
       this.expandToFull.emit();
     }
-  }
-
-  private clearElapsedTimer(): void {
-    if (this.elapsedTimer === null) return;
-    clearInterval(this.elapsedTimer);
-    this.elapsedTimer = null;
   }
 
   /**

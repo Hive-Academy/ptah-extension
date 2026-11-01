@@ -83,6 +83,21 @@ export const SubagentBackgroundSchema = z.object({
 
 export type SubagentBackgroundInput = z.infer<typeof SubagentBackgroundSchema>;
 
+/**
+ * `chat:dismiss-resumable-subagents` params. A command on a named session, so
+ * the session id is required; an empty id list is a valid no-op.
+ */
+export const DismissResumableSubagentsSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+  toolCallIds: z
+    .array(z.string().min(1, 'toolCallId must not be empty'))
+    .max(256, 'too many toolCallIds'),
+});
+
+export type DismissResumableSubagentsInput = z.infer<
+  typeof DismissResumableSubagentsSchema
+>;
+
 const agentFileId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 
 export const SubagentHistoryPageSchema = z.object({

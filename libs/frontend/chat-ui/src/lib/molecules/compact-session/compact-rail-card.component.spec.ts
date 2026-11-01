@@ -96,7 +96,7 @@ describe(CompactRailCardComponent.name, () => {
       b.textContent?.trim().startsWith(name),
     ) as HTMLButtonElement | undefined;
 
-  it('shows only known positive summary badges and preserves the diff', () => {
+  it('shows known summary badges including zero context and preserves the diff', () => {
     const f = render();
     const value = summary();
     f.componentRef.setInput('summary', { ...value, metrics: { ...value.metrics, agentCount: 2 } });
@@ -113,17 +113,19 @@ describe(CompactRailCardComponent.name, () => {
     f.componentRef.setInput('contextPercent', null);
     f.detectChanges();
     expect(badges()).toEqual([]);
+    expect(f.componentInstance.roundedContextPercent()).toBeNull();
     f.componentRef.setInput('contextPercent', 0);
     f.componentRef.setInput('lanes', lanes(4));
     f.detectChanges();
     // Three rows plus "+1 more": the badge still counts every CLI lane.
-    expect(badges()).toEqual(['4 CLI']);
+    expect(badges()).toEqual(['4 CLI', '0% ctx']);
+    expect(f.componentInstance.roundedContextPercent()).toBe(0);
     f.componentRef.setInput('lanes', {
       ...lanes(6),
       kinds: { cli: 2, subagent: 4, background: 0 },
     });
     f.detectChanges();
-    expect(badges()).toEqual(['2 CLI']);
+    expect(badges()).toEqual(['2 CLI', '0% ctx']);
   });
 
   it('uses the shared height for both densities', () => {
@@ -447,6 +449,47 @@ describe(CompactRailCardComponent.name, () => {
         .querySelector('.rc-body > div:last-child')
         ?.getAttribute('title'),
     ).toContain('Todos unknown');
+  });
+
+  it('shows no linked task by default', () => {
+    const f = render();
+    expect(
+      f.nativeElement.querySelector('[data-testid="rail-linked-task"]'),
+    ).toBeNull();
+  });
+
+  it('shows the linked task id in the footer and names it for the select button', () => {
+    const f = render();
+    f.componentRef.setInput('linkedTask', {
+      taskId: 'TASK_2026_854_52e8',
+      missing: false,
+    });
+    f.detectChanges();
+    const task = f.nativeElement.querySelector(
+      '[data-testid="rail-linked-task"]',
+    ) as HTMLElement;
+    expect(task.textContent?.trim()).toBe('TASK_2026_854_52e8');
+    expect(task.getAttribute('title')).toBe('Linked task TASK_2026_854_52e8');
+    expect(task.classList).not.toContain('line-through');
+    expect(f.componentInstance.selectName()).toContain(
+      ', task TASK_2026_854_52e8',
+    );
+  });
+
+  it('strikes through a linked task whose folder is missing', () => {
+    const f = render();
+    f.componentRef.setInput('linkedTask', {
+      taskId: 'TASK_2026_001',
+      missing: true,
+    });
+    f.detectChanges();
+    const task = f.nativeElement.querySelector(
+      '[data-testid="rail-linked-task"]',
+    ) as HTMLElement;
+    expect(task.classList).toContain('line-through');
+    expect(task.getAttribute('title')).toBe(
+      'Linked task TASK_2026_001 (folder missing)',
+    );
   });
 
   it.each([0, 1, 4])('dense mode handles %i lanes', (total) => {

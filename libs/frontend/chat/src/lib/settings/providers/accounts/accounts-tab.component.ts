@@ -64,7 +64,7 @@ const ROW_DOT: Readonly<Record<ProviderAccountState, string>> = {
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const SPINNER =
-  'inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-base-content-muted border-t-base-content motion-reduce:animate-none';
+  'inline-block h-3 w-3 shrink-0 loading loading-spinner text-base-content-muted motion-reduce:animate-none';
 /** The detail's heading (component 7 contract): the B-2 fallback target of detail actions and of a newly added account. */
 const DETAIL_HEADING = '[data-testid="account-detail-heading"]';
 

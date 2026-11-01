@@ -9,9 +9,6 @@ updated: "2026-10-12T18:53:17.413Z"
 description: "Remaining scope of TASK_2026_614 after Stages D-G merged (#650, #655): Stage A (S3 rest), Stage B (S1b, S2), Stage C (QA session with live proof) and Stage H (F + G review follow-ups)."
 executor: backend-developer
 estimate: XL
-relates_to:
-  - TASK_2026_614_327a
-  - TASK_2026_597_ab22
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

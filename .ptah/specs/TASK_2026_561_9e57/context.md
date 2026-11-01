@@ -223,3 +223,23 @@ Full list with sources: TASK_2026_559_8ca9 `batches.md` "## Follow-up task" and 
 1. A1 default: tokaudit 200000 vs 406 "gate on E2" (recommend: gate on E2).
 2. Keep Track A and Track B in one task, or split Track B into its own task at planning time.
 3. B4 prompt bullet and B6 per-host instructions: both touch surfaces TASK_2026_559 froze.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Track B items not checked one by one: B1 reducer known issues (KI-2b/2c/2d), B3 enrich_file, B4 dependency graph, B5 symbol index, B6 MCP transport, B7 release checks, B8 workspace_analyze and B9. Re-scope this task to the open Track B items, because the open Track A items now live in TASK_2026_634_daec.
+- Evidence on main: Track A is mostly delivered by TASK_2026_597: PR #634 (A1 auto-compact window machinery, Codex lane config with tool-output and reasoning budgets) and PR #647 (A3 tool-output capper on tool-output-reducers, A5 subagent budget, A6 rotation, A8 CompactionCoordinator at main:libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-coordinator.ts). B2 is delivered: main:libs/backend/workspace-intelligence/src/ast/languages/tsx.language.ts uses tree-sitter-tsx.wasm, and .mts/.cts are in the language registry. TASK_2026_634_daec now owns the E2 experiment (A0), the Codex TOML writer (A9/A.4) and the compaction RPC.
+
+## Retired sources (2026-10-30)
+
+This task cites `TASK_2026_406`. That folder was retired from `.ptah/specs`. Read it in git history: `git show ff531866f:.ptah/specs/<folder>/<file>`.
+
+## Triage 2026-10-30 (premise audit)
+
+Verdict: PARTIAL (lane kimi-code, verified by Claude).
+
+- Track A delivered: #634, #647 (CompactionCoordinator at `main:libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-coordinator.ts`), idle compaction #755. B2 delivered (tree-sitter-tsx in workspace-intelligence).
+- Open Track A items (E2 experiment, Codex TOML writer, compaction RPC) are owned by TASK_2026_634_daec.
+
+Remaining scope: Track B items B1 (reducer KI-2b/2c/2d), B3 enrich_file, B4 dependency graph, B5 symbol index, B6 MCP transport, B7 release checks, B8 workspace_analyze, B9.

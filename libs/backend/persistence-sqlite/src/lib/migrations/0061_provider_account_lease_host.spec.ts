@@ -52,7 +52,7 @@ describe('migration 0061_provider_account_lease_host', () => {
       name: '0061_provider_account_lease_host',
       sql,
     });
-    expect(Math.max(...MIGRATIONS.map((entry) => entry.version))).toBe(62);
+    expect(Math.max(...MIGRATIONS.map((entry) => entry.version))).toBe(64);
   });
 
   it('keeps legacy leases with no owning host and records owners on new rows', () => {

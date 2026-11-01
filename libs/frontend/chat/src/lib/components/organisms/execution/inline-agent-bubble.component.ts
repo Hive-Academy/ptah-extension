@@ -53,6 +53,8 @@ import type {
 } from '@ptah-extension/shared';
 import { NgClass, NgTemplateOutlet } from '@angular/common';
 import { ScrollDirtyService } from '../../../services/scroll-dirty.service';
+import { injectWallClock } from '@ptah-extension/core';
+import { subagentToolCount } from '../../../utils/subagent-tool-count';
 
 /**
  * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay
@@ -188,7 +190,10 @@ import { ScrollDirtyService } from '../../../services/scroll-dirty.service';
             <span class="text-[10px] font-medium">Interrupted</span>
           </span>
         } @else if (hasChildren()) {
-          <span class="badge badge-xs badge-ghost text-[9px] flex-shrink-0">
+          <span
+            class="badge badge-xs badge-ghost text-[9px] flex-shrink-0"
+            title="Current known count"
+          >
             {{ childStats() }}
           </span>
         }
@@ -907,10 +912,6 @@ export class InlineAgentBubbleComponent {
     return agentType.charAt(0).toUpperCase();
   });
   readonly childStats = computed(() => {
-    if (this.storeTree().length === 0 && this.subagentRecord()?.toolUses) {
-      const count = this.subagentRecord()!.toolUses!;
-      return `${count} ${count === 1 ? 'tool' : 'tools'}`;
-    }
     const children = this.displayChildren();
     const count = (
       nodes: readonly ExecutionNode[],
@@ -921,7 +922,7 @@ export class InlineAgentBubbleComponent {
           total + (child.type === type ? 1 : 0) + count(child.children, type),
         0,
       );
-    const toolCount = count(children, 'tool');
+    const toolCount = subagentToolCount(this.subagentRecord(), children);
     const textCount = count(children, 'text');
 
     if (toolCount > 0 && textCount > 0) {
@@ -952,6 +953,11 @@ export class InlineAgentBubbleComponent {
    */
   readonly agentTokenUsage = computed(() => this.node().tokenUsage ?? null);
 
+  private readonly now = injectWallClock('second', () => {
+    const status = this.subagentRecord()?.status;
+    return status === 'running' || status === 'pending';
+  });
+
   /**
    * Computed: aggregated duration for the agent in milliseconds
    * Returns null if no duration data is available.
@@ -966,8 +972,8 @@ export class InlineAgentBubbleComponent {
         endedAt: record?.completedAt,
         reportedMs: record?.durationMs ?? this.node().duration,
       },
-      Date.now(),
-    ); // Known limitation: computed duration refreshes only when a signal changes.
+      this.now(),
+    );
     return duration !== null && formatAgentDuration(duration) !== null
       ? duration
       : null;

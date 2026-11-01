@@ -16,8 +16,6 @@ labels:
   - cli-agent-runtime
   - tasks-ui
   - log-audit-2026-08-28
-relates_to:
-  - TASK_2026_357
 ---
 
 <!-- Ptah carrier: machine-owned metadata. Ptah rewrites the frontmatter above. Do NOT write prose here — prose belongs in ./context.md. -->

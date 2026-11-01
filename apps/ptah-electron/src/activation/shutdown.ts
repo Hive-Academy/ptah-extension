@@ -241,6 +241,7 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
   // killed. `killRunningChecks` never rejects; the kill is started here and
   // awaited by the caller.
   const checksKilled = killRunningChecks();
+  nonFatal('Git root watchers stop', () => refs.gitRootWatchers?.dispose());
   nonFatal('Git watcher stop', () => refs.gitWatcher?.stop());
   nonFatal('Symbol watcher close', () => refs.symbolWatcher?.close());
   nonFatal('Status bridge dispose', () =>
@@ -251,6 +252,9 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
   nonFatal('Memory trigger stop', () => refs.memoryTrigger?.stop());
   nonFatal('Memory curator stop', () => refs.memoryCurator?.stop());
   nonFatal('Gateway chat bridge stop', () => refs.chatBridge?.stop());
+  // Releases routing subscriptions while their producers (the SDK adapter and
+  // the session-id registry) are still alive. Synchronous, touches no SQLite.
+  nonFatal('Host routing dispose', () => refs.hostRouting?.dispose());
   return checksKilled;
 }
 

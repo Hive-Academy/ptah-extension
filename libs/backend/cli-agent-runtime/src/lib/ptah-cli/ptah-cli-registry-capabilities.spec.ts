@@ -13,6 +13,9 @@
  */
 
 import 'reflect-metadata';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger, IAuthSecretsService } from '@ptah-extension/vscode-core';
@@ -27,10 +30,40 @@ import type {
   SdkPermissionHandler,
   SubagentHookHandler,
 } from '@ptah-extension/agent-sdk';
-import { getAnthropicProvider, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  CLAUDE_BUILTIN_SETTING_KEYS,
+  CLAUDE_BUILTIN_TERMINAL_SKILL_IDS,
+  CLAUDE_BUILTIN_TOOL_IDS,
+  getAnthropicProvider,
+  SDK_TOKENS,
+} from '@ptah-extension/agent-sdk';
 import type { DependencyContainer } from 'tsyringe';
 import type { ProviderModelsService } from '@ptah-extension/auth-providers';
-import type { IMcpServerStatus } from '@ptah-extension/platform-core';
+import type {
+  IMcpServerStatus,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+
+/**
+ * Every Claude built-in opted in (TASK_2026_853), so these specs see only the
+ * capability-policy keys. The lane built-in defaults have their own spec,
+ * `ptah-cli-spawn-options.builtins.spec.ts`.
+ */
+const ALL_BUILTINS_ENABLED: Pick<IWorkspaceProvider, 'getConfiguration'> = {
+  getConfiguration: <T>(
+    _section: string,
+    key: string,
+    defaultValue?: T,
+  ): T | undefined => {
+    if (key === CLAUDE_BUILTIN_SETTING_KEYS.tools) {
+      return [...CLAUDE_BUILTIN_TOOL_IDS] as T;
+    }
+    if (key === CLAUDE_BUILTIN_SETTING_KEYS.skills) {
+      return [...CLAUDE_BUILTIN_TERMINAL_SKILL_IDS] as T;
+    }
+    return defaultValue;
+  },
+};
 import type {
   EffectiveCapabilitySet,
   ICapabilityResolver,
@@ -61,6 +94,14 @@ function providerWithBaseUrl(baseUrl: string) {
 
 // The real barrel pulls workspace-intelligence's ESM-only AST modules; the
 // spawn options need only the token.
+// `<home>/.claude` is resolved with `os.homedir()`, which a `HOME` override
+// in a Jest sandbox does not reach; the specs point it at a fixture here.
+let mockHomeDir: string | undefined;
+jest.mock('node:os', () => {
+  const actual: { homedir(): string } = jest.requireActual('node:os');
+  return { ...actual, homedir: () => mockHomeDir ?? actual.homedir() };
+});
+
 jest.mock('@ptah-extension/agent-generation', () => ({
   AGENT_GENERATION_TOKENS: {
     ENHANCED_PROMPTS_SERVICE: Symbol.for('EnhancedPromptsService'),
@@ -177,6 +218,7 @@ function buildHarness(input: HarnessInput): Harness {
     } as unknown as EnhancedPromptsService,
     { getPort: () => MCP_PORT } as unknown as IMcpServerStatus,
     undefined,
+    ALL_BUILTINS_ENABLED as IWorkspaceProvider,
   );
   const assembleSpawnOptions = jest.spyOn(spawnOptions, 'assembleSpawnOptions');
 
@@ -264,6 +306,22 @@ async function spawn(harness: Harness): Promise<void> {
   });
   expect(result).toHaveProperty('handle');
 }
+
+// The synced-skill reader (TASK_2026_853 Phase B) and the same-name skill
+// guard read the config dir the ambient lane child gets: the auth env's
+// `CLAUDE_CONFIG_DIR`, else `<home>/.claude` (the host `CLAUDE_CONFIG_DIR`
+// does not reach that child, decision #42). Point the home dir at an empty
+// temp dir so the developer's own `~/.claude` (account-synced skills) never
+// leaks in.
+let isolatedConfigRoot: string;
+beforeEach(() => {
+  isolatedConfigRoot = mkdtempSync(join(tmpdir(), 'ptah-no-claude-config-'));
+  mockHomeDir = isolatedConfigRoot;
+});
+afterEach(() => {
+  mockHomeDir = undefined;
+  rmSync(isolatedConfigRoot, { recursive: true, force: true });
+});
 
 describe('PtahCliRegistry.spawnAgent — capability policy', () => {
   beforeEach(() => {

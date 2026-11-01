@@ -225,12 +225,12 @@ export interface AgentProcessInfo {
 }
 
 /**
- * Why the host's lane budget guard stopped a lane (TASK_2026_597, R9.4):
- * `tool-call-budget` — the lane reached its tool-call stop threshold;
+ * Why the host's lane guard stopped a lane (TASK_2026_597, R9.4):
  * `repeat-call` — it repeated one identical tool call up to the repeat
- * threshold.
+ * threshold (`agentOrchestration.laneRepeatCallStopAt`). Lanes have no
+ * tool-call budget; a repeat loop is the only host stop.
  */
-export type LaneStopReason = 'tool-call-budget' | 'repeat-call';
+export type LaneStopReason = 'repeat-call';
 
 /**
  * What the resume gate did with a `resumeSessionId` spawn (TASK_2026_597):
@@ -591,14 +591,18 @@ export interface LaneDeliverableCheck {
 /**
  * What the orchestrator should conclude about the lane.
  *
- * - `delivered` — terminal status `completed` AND every declared deliverable
- *   exists.
- * - `no-deliverable` — terminal status `completed` but at least one declared
- *   deliverable is missing or empty. The lane exited cleanly without doing the
- *   work it was given.
- * - `unverified` — terminal status `completed` and nothing was declared, so
- *   there is nothing to check. Read the output before you trust it.
- * - `failed` — any other terminal status (`failed`, `timeout`, `stopped`).
+ * A lane the host stopped (`stopReason` set) is judged like a completed one:
+ * by its deliverables.
+ *
+ * - `delivered` — terminal status `completed` (or a host stop) AND every
+ *   declared deliverable exists.
+ * - `no-deliverable` — terminal status `completed` (or a host stop) but at
+ *   least one declared deliverable is missing or empty. The lane ended without
+ *   doing the work it was given.
+ * - `unverified` — terminal status `completed` (or a host stop) and nothing
+ *   was declared, so there is nothing to check. Read the output before you
+ *   trust it.
+ * - `failed` — any other ending: a crash, a timeout or a caller stop.
  */
 export type LaneCompletionVerdict =
   'delivered' | 'no-deliverable' | 'unverified' | 'failed';
@@ -631,6 +635,14 @@ export interface LaneCompletionSignal {
   readonly reportsDelivered: number;
   /** CLI-native session id, when the adapter reported one. Enables a resume. */
   readonly cliSessionId?: string;
+  /** Why the host stopped the lane. Absent when it ended on its own or the caller stopped it. */
+  readonly stopReason?: LaneStopReason;
+  /** Tool calls the lane made in its last task, when the host counted them. */
+  readonly toolCalls?: number;
+  /** Caller messages a host stop discarded from the lane's queue. Absent when none were. */
+  readonly queuedMessagesDropped?: number;
+  /** For a `repeat-call` stop: how many times the repeated call ran. */
+  readonly repeatedCalls?: number;
 }
 
 /** Why a completion signal was not delivered. */

@@ -12,7 +12,9 @@ function makeResolver(values: Record<string, unknown>): {
   read: jest.Mock;
 } {
   const read = jest.fn((key: string) => values[key]);
-  const scope = { read } as unknown as WorkspaceScopeResolver;
+  // A key is stored when `read` returns a value for it.
+  const isStored = (key: string): boolean => read(key) !== undefined;
+  const scope = { read, isStored } as unknown as WorkspaceScopeResolver;
   return { resolver: new ActiveProviderResolver(scope), read };
 }
 
@@ -97,23 +99,51 @@ describe('ActiveProviderResolver', () => {
       },
     );
 
-    it('keeps apiKey when a key exists, without reading the login', async () => {
+    it('keeps apiKey when a key exists and the login is not connected', async () => {
+      const { resolver } = makeResolver({});
+      const p = probe({ hasKey: true, connected: false });
+
+      const auth = await resolver.resolveActiveAuthWithDefault(p.probe);
+
+      expect(auth.authMethod).toBe('apiKey');
+      expect(resolver.resolveActiveAuth().authMethod).toBe('apiKey');
+    });
+
+    it('treats the registered claudeCli default as unset, so a key without a login gives apiKey', async () => {
+      // The file store returns its registered default, but nothing is stored.
+      const read = jest.fn((key: string) =>
+        key === 'authMethod' ? 'claudeCli' : undefined,
+      );
+      const scope = {
+        read,
+        isStored: () => false,
+      } as unknown as WorkspaceScopeResolver;
+      const resolver = new ActiveProviderResolver(scope);
+      const p = probe({ hasKey: true, connected: false });
+
+      const auth = await resolver.resolveActiveAuthWithDefault(p.probe);
+
+      expect(auth.authMethod).toBe('apiKey');
+      expect(resolver.resolveActiveAuth().authMethod).toBe('apiKey');
+    });
+
+    it('prefers a connected login over a stored key', async () => {
       const { resolver } = makeResolver({});
       const p = probe({ hasKey: true, connected: true });
 
       const auth = await resolver.resolveActiveAuthWithDefault(p.probe);
 
-      expect(auth.authMethod).toBe('apiKey');
-      expect(p.isClaudeCliConnected).not.toHaveBeenCalled();
+      expect(auth.authMethod).toBe('claudeCli');
     });
 
-    it('keeps apiKey when no key exists and the login is not connected', async () => {
+    it('defaults to claudeCli when no key exists, without reading the login', async () => {
       const { resolver } = makeResolver({});
       const p = probe({ hasKey: false, connected: false });
 
       const auth = await resolver.resolveActiveAuthWithDefault(p.probe);
 
-      expect(auth.authMethod).toBe('apiKey');
+      expect(auth.authMethod).toBe('claudeCli');
+      expect(p.isClaudeCliConnected).not.toHaveBeenCalled();
     });
 
     it('honours an explicit apiKey without reading any credential', async () => {
@@ -131,7 +161,12 @@ describe('ActiveProviderResolver', () => {
       const readForPath = jest.fn((key: string) =>
         key === 'authMethod' ? 'claude-cli' : undefined,
       );
-      const scope = { readForPath } as unknown as WorkspaceScopeResolver;
+      const isStoredForPath = (key: string): boolean =>
+        readForPath(key) !== undefined;
+      const scope = {
+        readForPath,
+        isStoredForPath,
+      } as unknown as WorkspaceScopeResolver;
       const resolver = new ActiveProviderResolver(scope);
       const p = probe({ hasKey: true, connected: false });
 
@@ -176,11 +211,11 @@ describe('ActiveProviderResolver', () => {
     });
   });
 
-  it('normalizes an unset authMethod to apiKey', () => {
+  it('normalizes an unset authMethod to claudeCli', () => {
     const { resolver } = makeResolver({});
 
     expect(resolver.resolveActiveAuth()).toEqual({
-      authMethod: 'apiKey',
+      authMethod: 'claudeCli',
       providerId: 'anthropic',
     });
   });

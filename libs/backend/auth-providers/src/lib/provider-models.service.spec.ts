@@ -56,6 +56,7 @@ function makeActiveProviderResolver(
 ): ActiveProviderResolver {
   const scope = {
     read: <T>(key: string): T | undefined => values[key] as T | undefined,
+    isStored: (key: string): boolean => values[key] !== undefined,
   } as unknown as WorkspaceScopeResolver;
   return new ActiveProviderResolver(scope);
 }
@@ -1623,10 +1624,13 @@ describe('ProviderModelsService.reapplyTiersForWarmedCatalog', () => {
     const logger = createMockLogger();
     const config = createMockConfigManager({ values: {} });
     const authEnv: AuthEnv = {};
+    // An unreadable store fails every lookup, including the stored-value check.
+    const unreadable = (): never => {
+      throw new Error('settings store unreadable');
+    };
     const throwingScope = {
-      read: () => {
-        throw new Error('settings store unreadable');
-      },
+      read: unreadable,
+      isStored: unreadable,
     } as unknown as WorkspaceScopeResolver;
 
     const service = new ProviderModelsService(

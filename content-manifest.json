@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:79b30e855e871a1b3c6875bc83e2800d52968a341b180dbab9fcb637eff584e9",
-  "generatedAt": "2026-10-29T03:02:32.634Z",
+  "contentHash": "sha256:08be03329bd48a6b58bd400766b2703ac6e494e3f0213be85a15f368d03cf3a7",
+  "generatedAt": "2026-10-30T19:16:24.053Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -235,7 +235,6 @@
     "files": [
       "_shared/clarification-protocol.md",
       "_shared/cli-delegation.md",
-      "_shared/engineering-hygiene.md",
       "_shared/replacement-policy.md",
       "_shared/reviewer-stance.md",
       "_shared/tooling-precedence.md",

@@ -124,51 +124,42 @@ describe('AgentSpawnEnvironment', () => {
   });
 
   describe('resolveLaneGuardThresholds()', () => {
-    const defaults = { steerAt: 40, stopAt: 60, repeatAt: 20 };
-
-    it('defaults to 40/60/20 when nothing is set', () => {
+    it('defaults to a repeat stop at 20 when nothing is set, with no call budget', () => {
       expect(
         makeEnvironment().environment.resolveLaneGuardThresholds(),
-      ).toEqual(defaults);
+      ).toEqual({ repeatAt: 20 });
     });
 
-    it('uses valid file values', () => {
+    it('uses a valid file value', () => {
       const { environment } = makeEnvironment({
-        config: {
-          laneToolCallSteerAt: 10,
-          laneToolCallStopAt: 30,
-          laneRepeatCallStopAt: 5,
-        },
+        config: { laneRepeatCallStopAt: 5 },
       });
       expect(environment.resolveLaneGuardThresholds()).toEqual({
-        steerAt: 10,
-        stopAt: 30,
         repeatAt: 5,
       });
     });
 
-    it.each([
-      ['non-integer', { laneToolCallSteerAt: 1.5 }],
-      ['string', { laneToolCallStopAt: '60' }],
-      ['below 1', { laneToolCallSteerAt: 0 }],
-      ['stop <= steer', { laneToolCallSteerAt: 50, laneToolCallStopAt: 50 }],
-    ])('falls back to the steer/stop defaults for %s', (_label, config) => {
-      expect(
-        makeEnvironment({ config }).environment.resolveLaneGuardThresholds(),
-      ).toEqual(defaults);
+    it('ignores the removed steer/stop keys', () => {
+      const { environment, logger } = makeEnvironment({
+        config: { laneToolCallSteerAt: 1, laneToolCallStopAt: 2 },
+      });
+      expect(environment.resolveLaneGuardThresholds()).toEqual({
+        repeatAt: 20,
+      });
+      expect(logger.warn).not.toHaveBeenCalled();
     });
 
-    it('logs the provided values (numbers as-is, others as typeof) next to the defaults', () => {
+    it('logs the provided value (numbers as-is, others as typeof) next to the default', () => {
       const { environment, logger } = makeEnvironment({
-        config: { laneToolCallSteerAt: 50, laneToolCallStopAt: '60' },
+        config: { laneRepeatCallStopAt: '60' },
       });
       environment.resolveLaneGuardThresholds();
       expect(logger.warn).toHaveBeenCalledTimes(1);
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Invalid lane tool-call guard value'),
+        expect.stringContaining('Invalid lane repeat-call guard value'),
         expect.objectContaining({
-          provided: { steer: 50, stop: 'string' },
-          defaults: { steerAt: 40, stopAt: 60 },
+          provided: { repeat: 'string' },
+          defaults: { repeatAt: 20 },
         }),
       );
     });

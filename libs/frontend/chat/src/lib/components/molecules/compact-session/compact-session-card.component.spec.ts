@@ -1,7 +1,8 @@
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { TestBed } from '@angular/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
+import { WallClockService } from '@ptah-extension/core';
 import {
   ConversationRegistry,
   TabManagerService,
@@ -22,6 +23,7 @@ import {
 import type {
   AskUserQuestionRequest,
   PermissionRequest,
+  SessionOrganizationSummary,
 } from '@ptah-extension/shared';
 import {
   CARD_SUMMARY_SAMPLE_MS,
@@ -29,6 +31,9 @@ import {
 } from './compact-session-card.component';
 import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
 import { SessionGitStatsStore } from '../../../services/session-git-stats/session-git-stats.store';
+import { SessionGitDockOpener } from '../../../services/session-git-scope/session-git-dock-opener.service';
+import { SessionWorktreeLookup } from '../../../services/session-git-scope/session-worktree-lookup.service';
+import { SessionOrganizationCache } from '../../../services/session-organization/session-organization-cache.store';
 import {
   RAIL_TRANSCRIPT_RETENTION,
   SESSION_CARD_ACTIONS,
@@ -95,6 +100,7 @@ function question(
 }
 
 describe(CompactSessionCardComponent.name, () => {
+  const clockNow = signal(Date.now());
   const permissions = signal<readonly PermissionRequest[]>([]);
   const questions = signal<readonly AskUserQuestionRequest[]>([]);
   const agents = signal<MonitoredAgent[]>([]);
@@ -104,6 +110,24 @@ describe(CompactSessionCardComponent.name, () => {
   const releaseGit = jest.fn();
   const trackGit = jest.fn(() => releaseGit);
   const gitState = signal<chatUi.CompactGitState>({ kind: 'none' });
+  const organizationWorktrees = signal<ReadonlyMap<string, string>>(new Map());
+  const worktreeLookup = {
+    worktreeFor: (sessionId: string | null) => ({
+      known: true,
+      worktreePath:
+        sessionId === null
+          ? null
+          : (organizationWorktrees().get(sessionId) ?? null),
+    }),
+  };
+  const gitDockOpener = { open: jest.fn(async () => undefined) };
+  const organizations = signal<ReadonlyMap<string, SessionOrganizationSummary>>(
+    new Map(),
+  );
+  const organizationFor = jest.fn((sessionId: string) =>
+    computed(() => organizations().get(sessionId) ?? null),
+  );
+  const organizationCache = { organizationFor };
   const routingRevision = signal(0);
   const permissionTargets = new Map<string, readonly string[]>();
   const questionTargets = new Map<string, readonly string[]>();
@@ -150,6 +174,7 @@ describe(CompactSessionCardComponent.name, () => {
   };
 
   beforeEach(() => {
+    clockNow.set(Date.now());
     permissions.set([]);
     questions.set([]);
     agents.set([]);
@@ -159,6 +184,8 @@ describe(CompactSessionCardComponent.name, () => {
     trackGit.mockClear();
     releaseGit.mockClear();
     gitState.set({ kind: 'none' });
+    organizations.set(new Map());
+    organizationFor.mockClear();
     routingRevision.set(0);
     permissionTargets.clear();
     questionTargets.clear();
@@ -176,6 +203,10 @@ describe(CompactSessionCardComponent.name, () => {
       imports: [CompactSessionCardComponent],
       providers: [
         provideMarkdown(),
+        {
+          provide: WallClockService,
+          useValue: { now: () => clockNow, acquire: () => () => undefined },
+        },
         { provide: RAIL_TRANSCRIPT_RETENTION, useValue: false },
         { provide: PermissionHandlerService, useValue: permissionHandler },
         { provide: TabManagerService, useValue: tabManager },
@@ -186,10 +217,13 @@ describe(CompactSessionCardComponent.name, () => {
           provide: SessionGitStatsStore,
           useValue: { track: trackGit, stateFor: () => gitState() },
         },
+        { provide: SessionOrganizationCache, useValue: organizationCache },
         {
           provide: AgentPermissionResponder,
           useValue: { respondSession, respondLane },
         },
+        { provide: SessionWorktreeLookup, useValue: worktreeLookup },
+        { provide: SessionGitDockOpener, useValue: gitDockOpener },
       ],
     });
   });
@@ -254,6 +288,218 @@ describe(CompactSessionCardComponent.name, () => {
     });
     fixture.destroy();
     expect(releaseGit).toHaveBeenCalledTimes(1);
+  });
+
+  it("tracks the session's organization worktree when it has one (TASK_2026_855)", () => {
+    const value = tab();
+    if (value.claudeSessionId === null) throw new Error('fixture tab has no session');
+    organizationWorktrees.set(
+      new Map([[value.claudeSessionId, 'C:\\work\\wt\\feature']]),
+    );
+    const fixture = render(value);
+
+    expect(trackGit).toHaveBeenCalledWith('C:\\work\\wt\\feature', 'tab-1');
+    fixture.destroy();
+    organizationWorktrees.set(new Map());
+  });
+
+  it('opens the git dock scoped to this session from the git cell (TASK_2026_855)', () => {
+    const fixture = render();
+    const activity = fixture.debugElement.query(
+      By.directive(chatUi.CompactSessionActivityComponent),
+    ).componentInstance as chatUi.CompactSessionActivityComponent;
+
+    activity.openGit.emit();
+
+    expect(gitDockOpener.open).toHaveBeenCalledWith('tab-1');
+  });
+
+  function organization(
+    overrides: Partial<SessionOrganizationSummary> = {},
+  ): SessionOrganizationSummary {
+    return {
+      priority: 'normal',
+      status: 'active',
+      pinned: false,
+      worktreePath: null,
+      branch: null,
+      parentSessionId: null,
+      forkOfSessionId: null,
+      startedBy: 'user',
+      tasks: [],
+      prLinks: [],
+      childCount: 0,
+      updatedAt: null,
+      todos: null,
+      ...overrides,
+    };
+  }
+
+  describe('organization (TASK_2026_854)', () => {
+    function activityOf(fixture: ReturnType<typeof render>) {
+      return fixture.debugElement.query(
+        By.directive(chatUi.CompactSessionActivityComponent),
+      ).componentInstance as chatUi.CompactSessionActivityComponent;
+    }
+
+    it('reads the organization of the SDK session id only', () => {
+      render(tab({ claudeSessionId: null }));
+      expect(organizationFor).not.toHaveBeenCalled();
+
+      render();
+      expect(organizationFor).toHaveBeenCalledWith('session-1');
+    });
+
+    it('passes the primary linked task to the activity and follows changes', () => {
+      organizations.set(
+        new Map([
+          [
+            'session-1',
+            organization({
+              tasks: [
+                {
+                  taskId: 'TASK_2026_100',
+                  role: 'related',
+                  source: 'user',
+                  createdAt: 1,
+                  missing: false,
+                },
+                {
+                  taskId: 'TASK_2026_854_52e8',
+                  role: 'primary',
+                  source: 'orchestrate',
+                  createdAt: 2,
+                  missing: false,
+                },
+              ],
+            }),
+          ],
+        ]),
+      );
+      const fixture = render();
+      expect(activityOf(fixture).linkedTask()).toEqual({
+        taskId: 'TASK_2026_854_52e8',
+        missing: false,
+      });
+
+      organizations.set(new Map([['session-1', organization()]]));
+      fixture.detectChanges();
+      expect(activityOf(fixture).linkedTask()).toBeNull();
+    });
+
+    it('passes the linked task to the rail card', () => {
+      organizations.set(
+        new Map([
+          [
+            'session-1',
+            organization({
+              tasks: [
+                {
+                  taskId: 'TASK_2026_001',
+                  role: 'primary',
+                  source: 'user',
+                  createdAt: 1,
+                  missing: true,
+                },
+              ],
+            }),
+          ],
+        ]),
+      );
+      const fixture = TestBed.createComponent(CompactSessionCardComponent);
+      fixture.componentRef.setInput('tab', tab());
+      fixture.componentRef.setInput('variant', 'rail');
+      fixture.detectChanges();
+      const rail = fixture.debugElement.query(
+        By.directive(chatUi.CompactRailCardComponent),
+      ).componentInstance as chatUi.CompactRailCardComponent;
+      expect(rail.linkedTask()).toEqual({
+        taskId: 'TASK_2026_001',
+        missing: true,
+      });
+    });
+
+    it('uses the host todo snapshot when the stream reports no todos', () => {
+      organizations.set(
+        new Map([
+          [
+            'session-1',
+            organization({
+              todos: {
+                done: 2,
+                total: 4,
+                inProgress: 'Writing the cache',
+                updatedAt: 5,
+              },
+            }),
+          ],
+        ]),
+      );
+      const fixture = render();
+      expect(activityOf(fixture).todos()).toEqual({
+        kind: 'known',
+        done: 2,
+        total: 4,
+        active: 'Writing the cache',
+      });
+    });
+
+    it('prefers the live todo state over the host snapshot', () => {
+      organizations.set(
+        new Map([
+          [
+            'session-1',
+            organization({
+              todos: { done: 0, total: 9, inProgress: null, updatedAt: 5 },
+            }),
+          ],
+        ]),
+      );
+      const fixture = render(
+        tab({
+          messages: [
+            {
+              id: 'reply-1',
+              role: 'assistant',
+              timestamp: 1,
+              streamingState: {
+                id: 'root',
+                type: 'message',
+                status: 'complete',
+                content: '',
+                isCollapsed: false,
+                children: [
+                  {
+                    id: 'todo-1',
+                    type: 'tool',
+                    status: 'complete',
+                    toolName: 'TodoWrite',
+                    toolInput: {
+                      todos: [
+                        {
+                          content: 'Only',
+                          activeForm: 'Doing only',
+                          status: 'completed',
+                        },
+                      ],
+                    },
+                    content: '',
+                    isCollapsed: false,
+                    children: [],
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+      expect(activityOf(fixture).todos()).toEqual({
+        kind: 'known',
+        done: 1,
+        total: 1,
+        active: null,
+      });
+    });
   });
 
   function lane(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
@@ -574,10 +820,13 @@ describe(CompactSessionCardComponent.name, () => {
           provide: SessionGitStatsStore,
           useValue: { track: trackGit, stateFor: () => gitState() },
         },
+        { provide: SessionOrganizationCache, useValue: organizationCache },
         {
           provide: AgentPermissionResponder,
           useValue: { respondSession, respondLane },
         },
+        { provide: SessionWorktreeLookup, useValue: worktreeLookup },
+        { provide: SessionGitDockOpener, useValue: gitDockOpener },
         {
           provide: SESSION_CARD_ACTIONS,
           useValue: { openLane, openSession: jest.fn() },
@@ -651,26 +900,43 @@ describe(CompactSessionCardComponent.name, () => {
     expect(openSession).not.toHaveBeenCalled();
   });
 
-  it('runs one elapsed interval only while a lane runs and clears it on destroy', () => {
-    jest.useFakeTimers();
+  it('shares one wall-clock interval across running cards and releases it when idle', () => {
+    jest.useFakeTimers({
+      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    });
+    TestBed.overrideProvider(WallClockService, {
+      useFactory: () => new WallClockService(),
+      deps: [],
+    });
+    const clock = TestBed.inject(WallClockService);
     const interval = jest.spyOn(globalThis, 'setInterval');
     const clear = jest.spyOn(globalThis, 'clearInterval');
+    const realAcquire = clock.acquire.bind(clock);
+    const clockIntervals: Array<ReturnType<typeof setInterval>> = [];
+    const acquire = jest.spyOn(clock, 'acquire').mockImplementation((cadence) => {
+      const prior = interval.mock.results.length;
+      const release = realAcquire(cadence);
+      clockIntervals.push(...interval.mock.results.slice(prior).map((result) => result.value));
+      return release;
+    });
     try {
-      const fixture = render();
-      expect(interval).not.toHaveBeenCalled();
+      const first = render();
+      expect(acquire).not.toHaveBeenCalled();
       agents.set([lane()]);
-      fixture.detectChanges();
-      expect(interval).toHaveBeenCalledTimes(1);
-      const handle = interval.mock.results[0].value;
+      first.detectChanges();
+      expect(acquire).toHaveBeenCalledWith('second');
+      expect(clockIntervals).toHaveLength(1);
+      const second = render();
+      expect(acquire).toHaveBeenCalledTimes(2);
+      expect(clockIntervals).toHaveLength(1);
+      first.destroy();
+      expect(clear).not.toHaveBeenCalledWith(clockIntervals[0]);
       agents.set([]);
-      fixture.detectChanges();
-      expect(clear).toHaveBeenCalledWith(handle);
-      agents.set([lane()]);
-      fixture.detectChanges();
-      const nextHandle = interval.mock.results[1].value;
-      fixture.destroy();
-      expect(clear).toHaveBeenCalledWith(nextHandle);
+      second.detectChanges();
+      expect(clear).toHaveBeenCalledWith(clockIntervals[0]);
+      second.destroy();
     } finally {
+      acquire.mockRestore();
       interval.mockRestore();
       clear.mockRestore();
       jest.clearAllTimers();
@@ -678,25 +944,70 @@ describe(CompactSessionCardComponent.name, () => {
     }
   });
 
-  it('keeps the elapsed interval while streaming without a lane, then clears it', () => {
-    jest.useFakeTimers();
+  it('acquires the shared wall clock while streaming and releases it on completion', () => {
+    jest.useFakeTimers({
+      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    });
+    TestBed.overrideProvider(WallClockService, {
+      useFactory: () => new WallClockService(),
+      deps: [],
+    });
+    const clock = TestBed.inject(WallClockService);
     const interval = jest.spyOn(globalThis, 'setInterval');
     const clear = jest.spyOn(globalThis, 'clearInterval');
+    const realAcquire = clock.acquire.bind(clock);
+    let clockInterval: ReturnType<typeof setInterval> | null = null;
+    const acquire = jest.spyOn(clock, 'acquire').mockImplementation((cadence) => {
+      const prior = interval.mock.results.length;
+      const release = realAcquire(cadence);
+      const created = interval.mock.results.slice(prior);
+      expect(created).toHaveLength(1);
+      clockInterval = created[0].value;
+      return release;
+    });
     try {
       const fixture = render(
         tab({ streamingState: createEmptyStreamingState() }),
       );
-      expect(interval).toHaveBeenCalledTimes(1);
-      const handle = interval.mock.results[0].value;
+      expect(acquire).toHaveBeenCalledWith('second');
       fixture.componentRef.setInput('tab', tab());
       fixture.detectChanges();
-      expect(clear).toHaveBeenCalledWith(handle);
+      expect(clear).toHaveBeenCalledWith(clockInterval);
       fixture.destroy();
     } finally {
+      acquire.mockRestore();
       interval.mockRestore();
       clear.mockRestore();
       jest.clearAllTimers();
       jest.useRealTimers();
+    }
+  });
+
+  it('recomputes elapsed from the absolute start after remounting', () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(5_000);
+    try {
+      clockNow.set(5_000);
+      const value = tab({
+        agentOrigin: {
+          parentTabId: 'parent',
+          parentSessionId: null,
+          label: 'Child',
+          branch: 'feat/child',
+          worktreePath: 'C:\\work\\child',
+          startedAt: 1_000,
+        },
+      });
+      const first = render(value);
+      expect(first.componentInstance.elapsed()).toBe(4_000);
+      first.destroy();
+
+      now.mockReturnValue(9_000);
+      clockNow.set(9_000);
+      const remounted = render(value);
+      expect(remounted.componentInstance.elapsed()).toBe(8_000);
+      expect(remounted.componentInstance.railElapsed()).toBe('8s');
+    } finally {
+      now.mockRestore();
     }
   });
 
@@ -717,6 +1028,12 @@ describe(CompactSessionCardComponent.name, () => {
           contextUsed: 25,
           contextWindow: 100,
           contextPercent: 25,
+          contextCapacity: {
+            tokens: 100,
+            source: 'sdk-native',
+            providerId: null,
+            model: 'model',
+          },
         },
       }),
     );
@@ -729,6 +1046,70 @@ describe(CompactSessionCardComponent.name, () => {
       fixture.nativeElement.querySelector('[aria-label="Context usage"]')
         ?.textContent,
     ).toContain('25%');
+  });
+
+  it('shows F2 as 65% from a trusted 200,000-token context window', () => {
+    const fixture = render(tab({
+      liveModelStats: {
+        contextKnown: true,
+        model: 'model',
+        contextUsed: 130_000,
+        contextWindow: 200_000,
+        contextPercent: 0,
+        contextCapacity: {
+          tokens: 200_000,
+          source: 'sdk-native',
+          providerId: null,
+          model: 'model',
+        },
+      },
+    }));
+    expect(fixture.componentInstance.contextPercent()).toBe(65);
+    expect(
+      fixture.nativeElement.querySelector('[aria-label="Context usage"]')?.textContent,
+    ).toContain('65%');
+  });
+
+  it('hides context percentage when the live window differs from the trusted window', () => {
+    const fixture = render(tab({
+      liveModelStats: {
+        contextKnown: true,
+        model: 'model',
+        contextUsed: 130_000,
+        contextWindow: 100_000,
+        contextPercent: 65,
+        contextCapacity: {
+          tokens: 200_000,
+          source: 'sdk-native',
+          providerId: null,
+          model: 'model',
+        },
+      },
+    }));
+    expect(fixture.componentInstance.contextPercent()).toBeNull();
+  });
+
+  it('hides F6 after resume when the context window is unknown', () => {
+    const fixture = render(tab({
+      liveModelStats: {
+        contextKnown: true,
+        model: 'model',
+        contextUsed: 130_000,
+        contextWindow: 0,
+        contextPercent: 0,
+        contextCapacity: {
+          tokens: null,
+          source: 'unknown',
+          providerId: null,
+          model: 'model',
+        },
+      },
+    }));
+    expect(fixture.componentInstance.contextPercent()).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('[aria-label="Context usage"]')?.textContent,
+    ).toContain('Context —');
+    expect(fixture.nativeElement.textContent).not.toContain('Context 0%');
   });
 
   it('uses router metadata before a mismatched session id', () => {

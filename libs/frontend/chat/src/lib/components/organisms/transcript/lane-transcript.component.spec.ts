@@ -44,12 +44,12 @@ import {
   ClaudeRpcService,
   FILE_LINK_OPENER,
   VSCodeService,
+  WallClockService,
 } from '@ptah-extension/core';
 import {
   createMockRpcService,
   provideSurfaceActiveTesting,
 } from '@ptah-extension/core/testing';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ArtifactStore } from '../../../services/artifact.store';
 import { createExecutionNode, type ExecutionNode } from '@ptah-extension/shared';
@@ -102,8 +102,8 @@ describe('LaneTranscriptComponent', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [LaneTranscriptComponent],
-      // No DisplayDockState / DisplaySheetState: only a session chat view
-      // provides them, and a canvas lane renders outside that view. Before the
+      // No DisplayDockState: only a session chat view
+      // provides it, and a canvas lane renders outside that view. Before the
       // fix ToolCallItemComponent required both, so every tool row in a lane
       // failed to create (NG0201) and left an empty node.
       providers: [
@@ -135,9 +135,61 @@ describe('LaneTranscriptComponent', () => {
         { provide: TabManagerService, useValue: { activeTabId: signal(null) } },
         { provide: ClaudeRpcService, useValue: createMockRpcService() },
         { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
-        { provide: AgentMonitorStore, useValue: { tick: signal(0) } },
       ],
     });
+  });
+
+  it('keeps the live elapsed label ticking through the shared clock', () => {
+    const now = signal(100_000);
+    const release = jest.fn();
+    const acquire = jest.fn(() => release);
+    TestBed.overrideProvider(WallClockService, {
+      useValue: { now: () => now.asReadonly(), acquire },
+    });
+    const fixture = TestBed.createComponent(LaneTranscriptComponent);
+    fixture.componentRef.setInput('laneId', 'cli-clock');
+    fixture.componentRef.setInput('events', [
+      {
+        id: 'prompt-start',
+        eventType: 'message_start',
+        messageId: 'prompt',
+        role: 'user',
+        timestamp: 98_000,
+      },
+      {
+        id: 'prompt-text',
+        eventType: 'text_delta',
+        messageId: 'prompt',
+        delta: 'Read the file',
+        timestamp: 98_000,
+      },
+    ]);
+    fixture.componentRef.setInput('nodes', [
+      createExecutionNode({
+        id: 'live-tool',
+        type: 'tool',
+        status: 'streaming',
+        content: null,
+        toolName: 'Read',
+        toolInput: { file_path: 'C:\\ws\\src\\a.ts' },
+        startTime: 98_001,
+      }),
+    ]);
+    fixture.componentRef.setInput('isStreaming', true);
+    fixture.detectChanges();
+    const label = () => (fixture.nativeElement as HTMLElement)
+      .querySelector('[data-test="turn-disclosure-row"]')?.textContent;
+
+    expect(acquire).toHaveBeenCalledWith('second');
+    expect(label()).toContain('Working · 2s');
+    now.set(101_000);
+    fixture.detectChanges();
+    expect(label()).toContain('Working · 3s');
+
+    fixture.componentRef.setInput('isStreaming', false);
+    fixture.detectChanges();
+    expect(release).toHaveBeenCalledTimes(1);
+    fixture.destroy();
   });
 
   it.each([true, false])(
@@ -266,11 +318,12 @@ describe('LaneTranscriptComponent', () => {
     fixture.componentRef.setInput('isStreaming', true);
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('[data-testid="artifact-card-title"]')?.textContent)
-      .toContain('Report');
+    // The tool row keeps a compact read-only line; Open lives on the reply
+    // card of a session transcript (TASK_2026_853_3401, plan C).
     expect(
-      root.querySelector('[data-testid="artifact-card-status"]')?.textContent,
-    ).toContain('Preview not available here');
+      root.querySelector('[data-testid="tool-artifact-line"]')?.textContent?.trim(),
+    ).toBe('Artifact · Report');
+    expect(root.querySelector('ptah-artifact-card')).toBeNull();
     expect(root.querySelector('[data-testid="artifact-card-open"]')).toBeNull();
     expect(
       root.querySelector('[data-testid="artifact-card-fullscreen"]'),

@@ -52,6 +52,7 @@ export {
   GatewayRpcHandlers,
   VoiceRpcHandlers,
   UpdateRpcHandlers,
+  GitWatchRpcHandlers,
   PersistenceRpcHandlers,
   mintResetChallengeToken,
   IndexingRpcHandlers,
@@ -85,6 +86,7 @@ export {
   type LinkedFileResolution,
 } from './lib/handlers/workspace-file-path';
 export { ArtifactRpcHandlers } from './lib/handlers/artifact-rpc.handlers';
+export { DisplayWindowRpcHandlers } from './lib/handlers/display-window-rpc.handlers';
 export type {
   DbHealthResult,
   DbHealthParams,
@@ -120,6 +122,12 @@ export {
 } from './lib/chat/change-set/turn-change-set.store';
 export { HARNESS_TOKENS, registerHarnessServices } from './lib/harness';
 export { CHAT_TOKENS, registerChatServices } from './lib/chat';
+/** Host pre-flight routing (TASK_2026_857); registered by Electron only. */
+export {
+  HostRoutingCoordinator,
+  type AdmitUserTurnInput,
+} from './lib/chat/host-routing/host-routing.coordinator';
+export { registerHostRouting } from './lib/chat/host-routing/register-host-routing';
 export { isAuthorizedWorkspace } from './lib/utils/workspace-authorization';
 
 /**

@@ -1,7 +1,6 @@
 import { Injectable, effect, inject, untracked } from '@angular/core';
 import { AppStateManager, type ChatPromptRequest } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { BoardTaskLinkCaptureService } from './board-task-link-capture.service';
 
 /**
  * How long the canvas may take to drain the tile request. Past it the request
@@ -43,9 +42,9 @@ const WORKSPACE_CHANGED_ERROR =
  *     edit the prompt before sending it,
  *  4. settles `request.resolve` and clears the bridge signal.
  *
- * When the request carries a `taskId`, the new tab is registered with
- * {@link BoardTaskLinkCaptureService} once the bridge keeps it (before the
- * prefill).
+ * The webview does not link the session to the task: the prefilled prompt
+ * starts with `/orchestrate <taskId>`, and the host links the session once the
+ * user sends it (TASK_2026_854, rule R3).
  *
  * Worktree isolation remains agent-managed (F-D1): the prefilled orchestrate
  * prompt carries the directive so the agent can isolate its implementation
@@ -55,7 +54,6 @@ const WORKSPACE_CHANGED_ERROR =
 export class TaskPromptBridgeService {
   private readonly appState = inject(AppStateManager);
   private readonly tabManager = inject(TabManagerService);
-  private readonly boardTaskLinkCapture = inject(BoardTaskLinkCaptureService);
 
   /** Re-entrancy guard: one launch at a time (clearing the signal re-fires). */
   private processing = false;
@@ -115,12 +113,6 @@ export class TaskPromptBridgeService {
         await this.tabManager.closeTab(tabId);
         outcome = { success: false, error: CANVAS_NOT_OPENED_ERROR };
         return;
-      }
-      // A board start links the session to its task once the first send
-      // resolves the real session id (TASK_2026_580). Registered only once the
-      // tab is kept, so a refused launch leaves no pending pair behind.
-      if (request.taskId) {
-        this.boardTaskLinkCapture.expect(tabId, request.taskId);
       }
       // The prefill is scoped to this tab's tile (its SESSION_CONTEXT).
       this.appState.requestComposerPrefill(request.prompt, tabId);

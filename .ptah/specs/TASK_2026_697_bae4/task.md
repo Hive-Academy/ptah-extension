@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_697_bae4
-status: backlog
+status: done
 type: FEATURE
 title: "Voice page polish: merged grok + Glm enhancements"
 depends_on: []
 created: "2026-10-18T17:51:37.557Z"
-updated: "2026-10-18T17:51:37.557Z"
+updated: "2026-10-30T01:09:07.477Z"
 description: "Implement one polish design that merges the grok and Glm proposals: canvas visual tweaks, main-chat stats, overlay/work list/start view polish."
 estimate: L
 labels:

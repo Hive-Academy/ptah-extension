@@ -1,5 +1,5 @@
 ---
-status: backlog
+status: done
 type: bugfix
 title: 'AgentProcessManager warns that codex cannot resume, which is false'
 description: >-
@@ -7,6 +7,7 @@ description: >-
   support session resume" for every non-copilot resume. Codex does support
   resume through `codex.resumeThread`. After TASK_2026_396 the warning fires on
   every codex resume, so a working path now emits a false alarm on every use.
+updated: "2026-10-30T01:09:07.477Z"
 ---
 
 # TASK_2026_398 — a false "does not support session resume" warning

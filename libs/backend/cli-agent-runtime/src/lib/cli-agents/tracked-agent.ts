@@ -68,6 +68,27 @@ export interface TrackedAgent {
   /** Authentication wording from the failed turn's bounded output. */
   authMatched?: boolean;
   /**
+   * API rate-limit (HTTP 429) wording in this turn's bounded output, set in
+   * `handleExit` before the output is discarded. In memory only; it is not
+   * quota and never sets `failureKind`.
+   */
+  rateLimitMatched?: boolean;
+  /**
+   * Index into `accumulatedSegments` where the current turn's segments begin:
+   * 0 at spawn, the segment count when a continuation starts. Keeps an
+   * earlier turn's 429 out of a later turn's rate-limit match.
+   */
+  turnSegmentStart?: number;
+  /**
+   * Tool calls the lane guard counted, saved when the guard is released so the
+   * completion signal can still report them.
+   */
+  guardToolCalls?: number;
+  /** Caller messages a host stop discarded from the queue. */
+  queuedMessagesDropped?: number;
+  /** Times the repeated call ran when the guard stopped the lane. */
+  repeatedCalls?: number;
+  /**
    * Set only by {@link AgentProcessManager.restoreAgents}: this record was
    * rebuilt from persisted session state, not from a run this host supervised.
    * Its output is readable; nothing about it is live.

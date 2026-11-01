@@ -12,6 +12,7 @@ import {
   FILE_LINK_OPENER,
   LoggingService,
   VSCodeService,
+  WallClockService,
 } from '@ptah-extension/core';
 import {
   createMockRpcService,
@@ -29,7 +30,6 @@ import { MessageBubbleComponent } from '../../organisms/message-bubble.component
 import { ExecutionNodeComponent } from '../../organisms/execution/execution-node.component';
 import { ArtifactStore } from '../../../services/artifact.store';
 import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
-import { DisplaySheetState } from '../../organisms/display-sheet/display-sheet.state';
 import { TabManagerService } from '@ptah-extension/chat-state';
 
 function agent(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
@@ -74,7 +74,6 @@ describe('unified CLI agent output', () => {
           } satisfies Pick<LoggingService, 'debug' | 'info' | 'warn' | 'error'>,
         },
         DisplayDockState,
-        DisplaySheetState,
         { provide: TabManagerService, useValue: { activeTabId: signal(null) } },
         {
           provide: AgentMonitorStore,
@@ -229,7 +228,7 @@ describe('unified CLI agent output', () => {
         content: 'Usage: 100 input, 50 output tokens',
         usage: { inputTokens: 100, outputTokens: 50 },
       },
-      expected: ['↑ 100', '↓ 50'],
+      expected: ['↑ ≥ 100', '↓ ≥ 50'],
     },
     {
       cli: 'copilot',
@@ -245,7 +244,7 @@ describe('unified CLI agent output', () => {
           durationMs: 3500,
         },
       },
-      expected: ['claude-sonnet-4.5', '↑ 1.0k', '↓ 500', '$0.0025', '3s'],
+      expected: ['↑ ≥ 1.0k', '↓ ≥ 500', '≥ $0.0025'],
     },
     {
       cli: 'antigravity',
@@ -254,7 +253,7 @@ describe('unified CLI agent output', () => {
         content: 'Usage: 168 output tokens',
         usage: { outputTokens: 168 },
       },
-      expected: ['↓ 168'],
+      expected: ['↓ ≥ 168'],
     },
   ])(
     'renders the $cli adapter usage contract in the stats bar only',
@@ -290,7 +289,7 @@ describe('unified CLI agent output', () => {
       'ptah-execution-node',
     );
     expect(node.textContent).toContain('Answer with usage metadata');
-    expect(fixture.nativeElement.textContent).toContain('↓ 25');
+    expect(fixture.nativeElement.textContent).toContain('↓ ≥ 25');
   });
 
   it('preserves error and informational stderr blocks beside the rich tree', () => {
@@ -440,11 +439,52 @@ describe('unified CLI agent output', () => {
     );
     const text = fixture.nativeElement.querySelector(
       'ptah-cli-agent-output',
-    ).textContent;
-    expect(text).toContain('Reported total: 11.9k tokens');
-    expect(text).toContain('$0.0000');
+    ).textContent.replace(/\s+/g, ' ');
+    expect(text).toContain('Reported total: ≥ 11.9k tokens');
+    expect(text).toContain('≥ $0.0000');
     expect(text).not.toContain('0ms');
     expect(text).not.toContain('↑');
     expect(text).not.toContain('↓');
+  });
+
+  it('shows the same partial token and cost cues in the header and lane summary', () => {
+    const fixture = renderCard(agent({
+      segments: [{
+        type: 'info',
+        content: 'Usage',
+        usage: { inputTokens: 1_200, outputTokens: 300, costUsd: 0.25 },
+      }],
+    }));
+    const output = fixture.nativeElement.querySelector('ptah-cli-agent-output') as HTMLElement;
+    const summary = fixture.nativeElement.querySelector('[aria-label="Lane usage"]') as HTMLElement;
+    const headerText = output.textContent?.replace(/\s+/g, ' ') ?? '';
+    const summaryText = summary.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(output.querySelector('[title="From retained output, may be partial"]')).not.toBeNull();
+    expect(headerText).toContain('≥ 1.5k tokens');
+    expect(headerText).toContain('≥ $0.2500');
+    expect(headerText).not.toContain('Reported total:');
+    expect(summaryText).toContain('≥ 1.2k');
+    expect(summaryText).toContain('≥ 300');
+    expect(summaryText).toContain('≥ ~$0.25 est.');
+  });
+
+  it('acquires the shared second clock only while the card is running', () => {
+    const clock = TestBed.inject(WallClockService);
+    const acquire = jest.spyOn(clock, 'acquire');
+    const interval = jest.spyOn(globalThis, 'setInterval');
+    const clear = jest.spyOn(globalThis, 'clearInterval');
+    const fixture = renderCard(agent({ segments: [{ type: 'text', content: 'Working' }] }));
+    TestBed.tick();
+    expect(acquire).toHaveBeenCalledWith('second');
+    const timer = interval.mock.results.find((result) => result.type === 'return')?.value;
+    expect(timer).toBeDefined();
+    fixture.componentRef.setInput('agent', agent({ status: 'completed', completedAt: 2_000 }));
+    fixture.detectChanges();
+    TestBed.tick();
+    expect(clear).toHaveBeenCalledWith(timer);
+    fixture.destroy();
+    acquire.mockRestore();
+    interval.mockRestore();
+    clear.mockRestore();
   });
 });

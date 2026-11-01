@@ -77,6 +77,9 @@ export {
   sameGitState,
   todoTitle,
   gitTitle,
+  linkedTaskTitle,
+  todoStateFromProgress,
+  type CompactLinkedTask,
   type CompactTodoState,
   type CompactGitState,
 } from './lib/molecules/compact-session/compact-session-metrics';
@@ -111,7 +114,6 @@ export { CompactionMarkerComponent } from './lib/molecules/notifications/compact
 export { CompactionNotificationComponent } from './lib/molecules/notifications/compaction-notification.component';
 export { DenyMessagePopoverComponent } from './lib/molecules/permissions/deny-message-popover.component';
 export { PermissionRequestCardComponent } from './lib/molecules/permissions/permission-request-card.component';
-export { SessionCostSummaryComponent } from './lib/molecules/session/session-cost-summary.component';
 export {
   SessionStatsSummaryComponent,
   type LiveModelStats,
@@ -131,7 +133,10 @@ export {
 } from './lib/molecules/setup-plugins/installed-mcp-groups';
 export { removeInstalledGroup } from './lib/molecules/setup-plugins/installed-mcp-removal';
 export { MARKETPLACE_RPC_TIMEOUTS } from './lib/molecules/setup-plugins/marketplace-rpc-timeouts';
-export { PluginCatalogPanelComponent } from './lib/molecules/setup-plugins/plugin-catalog-panel.component';
+export {
+  PLUGIN_SAVE_APPLIES_NOTICE,
+  PluginCatalogPanelComponent,
+} from './lib/molecules/setup-plugins/plugin-catalog-panel.component';
 export {
   LAUNCHER_IDS,
   PROMPT_CATALOGUE,

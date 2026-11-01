@@ -158,3 +158,10 @@ nothing — no error, no timeout, no log line. The only way to see it is to samp
 the process CPU by hand and find it flat.
 
 Every agent this repository runs in a worktree is exposed to it.
+
+## Triage 2026-10-30
+
+Backlog audit after the October refactors: partly delivered, still open.
+
+- Still open: Name and release the ptah-cli Jest open handle so --runInBand exits, and either fix the three withEngine DI failures or record why each non-fatal swallow is harmless.
+- Evidence on main: Defect 1 is fixed: main:scripts/copy-wasm.js:210-212 uses require.resolve with paths so worktrees walk up to node_modules. Defect 3 remains: main:libs/backend/cli-engine/src/lib/bootstrap/with-engine.ts:304 and :391 still log file-settings migration and Thoth activation as non-fatal and continue, and the auto-approve resolve failure is logged the same way. apps/ptah-cli/jest.config.cjs has no forceExit; only jest.pty.config.cjs does.

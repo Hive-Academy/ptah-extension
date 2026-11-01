@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_595_1c01
-status: backlog
+status: done
 type: REFACTORING
 title: Load the dashboard and surface tools only in Apps page sessions
 depends_on: []
 created: "2026-10-02T21:13:23.804Z"
-updated: "2026-10-02T21:13:23.804Z"
+updated: "2026-10-30T01:09:07.477Z"
 description: "Add an MCP tool profile to the Ptah MCP URL; the default coding profile drops ptah_dashboard_propose_spec, ptah_surface_update, ptah_surface_get_state and their execute_code docs; the Apps session uses the apps profile; measure tools/list tokens before and after"
 executor: backend-developer
 estimate: S
