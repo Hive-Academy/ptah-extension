@@ -278,7 +278,7 @@ const CATEGORIES: readonly ThemeCategory[] = ['light', 'dark', 'glass'];
           </fieldset>
           <fieldset class="mt-3 border-t border-base-content/20 px-2 pt-3">
             <legend class="text-xs font-semibold">Backdrop</legend>
-            <div class="grid grid-cols-4 gap-3 pt-2">
+            <div class="grid grid-cols-3 gap-3 pt-2">
               @for (option of scenes; track option.name) {
                 <label class="cursor-pointer" [title]="option.label">
                   <input class="sr-only peer" type="radio" [attr.name]="sceneGroup"
@@ -336,6 +336,8 @@ export class ThemeToggleComponent implements OnDestroy {
     { name: 'ember', label: 'Ember' },
     { name: 'tide', label: 'Tide' },
     { name: 'horizon', label: 'Horizon' },
+    { name: 'pyramid', label: 'Pyramid' },
+    { name: 'temple', label: 'Temple' },
   ];
   readonly lightThemes = LIGHT_THEMES;
   readonly darkThemes = DARK_THEMES;

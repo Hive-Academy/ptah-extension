@@ -171,14 +171,11 @@ describe('glass scene tint', () => {
     expect(numberValue(block(/:root\[data-theme='cupcake'\]\[data-glass='on'\]\[data-glass-mode='light'\]/), '--glass-tint-alpha')).toBe(0.38);
   });
 
-  it('pins the measured glass caption ink of dark and dracula, in dark glass only', () => {
+  it('pins the measured glass caption ink of dracula, in dark glass only', () => {
     const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
-    const measured: Record<string, string> = { dark: '69.9176% 0.013402 250.8703', dracula: '71.9009% 0.013235 170.6564' };
-    for (const [theme, bcm] of Object.entries(measured)) {
-      const rules = [...plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector, body]) => selector.includes(`[data-theme='${theme}']`) && body.includes(bcm));
-      expect(rules).toHaveLength(1);
-      expect(rules[0][1].trim()).toBe(`:root[data-theme='${theme}'][data-glass='on'][data-glass-mode='dark']`);
-    }
+    const rules = [...plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector, body]) => selector.includes("[data-theme='dracula']") && body.includes('71.9009% 0.013235 170.6564'));
+    expect(rules).toHaveLength(1);
+    expect(rules[0][1].trim()).toBe(":root[data-theme='dracula'][data-glass='on'][data-glass-mode='dark']");
   });
 
   it('paints the transcript column scrim only once a message exists, and clears the plates inside it', () => {
@@ -259,12 +256,24 @@ describe('Ptah backdrop scenes', () => {
     }
   });
 
-  it('scopes six overrides to the pair at specificity (0,4,0), after the dark tokens, without overriding opaque tint', () => {
+  it.each([
+    { theme: 'ptah-glass', floors: [0.82, 0.78] },
+    { theme: 'ptah-glass-light', floors: [0.84, 0.82] },
+  ])('uses local image assets beneath the $theme tint for pyramid and temple', ({ theme, floors }) => {
+    const body = block(new RegExp(`:root\\[data-theme='${theme}'\\]\\[data-glass='on'\\]`));
+    for (const [index, scene] of ['pyramid', 'temple'].entries()) {
+      const file = scene === 'pyramid' ? 'pyramid_energy_apex.webp' : 'temple-bg.webp';
+      expect(body).toContain(`--glass-scene-${scene}: url("images/${file}");`);
+      expect(numberValue(body, `--glass-tint-alpha-${scene}`)).toBeGreaterThanOrEqual(floors[index]);
+    }
+  });
+
+  it('scopes ten overrides to the pair at specificity (0,4,0), after the dark tokens, without overriding opaque tint', () => {
     const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
     const rules = [...plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector]) => selector.includes('[data-scene='));
-    expect(rules).toHaveLength(6);
+    expect(rules).toHaveLength(10);
     for (const [, selector, body] of rules) {
-      expect(selector.trim()).toMatch(/^:root\[data-theme='ptah-glass(?:-light)?'\]\[data-glass='on'\]\[data-scene='(?:ember|tide|horizon)'\]$/);
+      expect(selector.trim()).toMatch(/^:root\[data-theme='ptah-glass(?:-light)?'\]\[data-glass='on'\]\[data-scene='(?:ember|tide|horizon|pyramid|temple)'\]$/);
       expect([...body.matchAll(/(--[\w-]+):/g)].map((match) => match[1])).toEqual(['--glass-scene', '--glass-tint-alpha']);
       expect(css.indexOf(selector.trim())).toBeGreaterThan(css.indexOf(":root[data-theme][data-glass='on'][data-glass-mode='dark']"));
       const scene = /data-scene='([^']+)'/.exec(selector)?.[1];

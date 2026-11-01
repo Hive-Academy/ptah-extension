@@ -21,7 +21,6 @@ export type ThemeName =
   | 'anubis'
   | 'anubis-light'
   | 'light'
-  | 'dark'
   | 'cupcake'
   | 'bumblebee'
   | 'emerald'
@@ -66,8 +65,8 @@ export interface ThemeInfo {
 export type AccentName = 'gold' | 'rose' | 'moonstone';
 export const ACCENTS: readonly AccentName[] = ['gold', 'rose', 'moonstone'];
 export const DEFAULT_ACCENT: AccentName = 'gold';
-export type SceneName = 'aurora' | 'ember' | 'tide' | 'horizon';
-export const SCENES: readonly SceneName[] = ['aurora', 'ember', 'tide', 'horizon'];
+export type SceneName = 'aurora' | 'ember' | 'tide' | 'horizon' | 'pyramid' | 'temple';
+export const SCENES: readonly SceneName[] = ['aurora', 'ember', 'tide', 'horizon', 'pyramid', 'temple'];
 export const DEFAULT_SCENE: SceneName = 'aurora';
 const SCENE_STATE_KEY = 'ptah-scene';
 const SCENE_HINT_KEY = 'ptah-scene';
@@ -103,7 +102,6 @@ export const DAISYUI_THEMES: readonly ThemeInfo[] = [
   { name: 'anubis', label: 'Anubis', isDark: true },
   { name: 'anubis-light', label: 'Anubis Light', isDark: false },
   { name: 'light', label: 'Light', isDark: false },
-  { name: 'dark', label: 'Dark', isDark: true, glass: true },
   { name: 'cupcake', label: 'Cupcake', isDark: false, glass: true },
   { name: 'bumblebee', label: 'Bumblebee', isDark: false },
   { name: 'emerald', label: 'Emerald', isDark: false },
@@ -319,13 +317,14 @@ export class ThemeService {
     const persisted =
       this.vscode.getState<string>(THEME_STATE_KEY) ?? this.readThemeHint();
     if (persisted !== undefined) {
-      if (this.isValidTheme(persisted)) {
-        this._currentTheme.set(persisted);
+      const theme = persisted === 'dark' ? 'dracula' : persisted;
+      if (this.isValidTheme(theme)) {
+        this._currentTheme.set(theme);
         // Re-arm the pre-paint hint (localStorage only). Where the mirror was
         // lost but state survived, a VS Code user on one of the 32 deferred
         // themes gets one frame of the default; this stops it recurring.
-        this.writeThemeHint(persisted);
-        if (!EAGER_THEMES.has(persisted)) {
+        this.writeThemeHint(theme);
+        if (!EAGER_THEMES.has(theme)) {
           // Sheet is normally already in the document (inserted
           // render-blocking by index.html). This covers a lost mirror.
           void this.loadDeferredThemeSheet();
@@ -342,9 +341,9 @@ export class ThemeService {
         // Deliberately no write of either key. The migration is a pure
         // function of the legacy value, so re-deriving it on every launch
         // until the user picks a theme is idempotent, and the first `setTheme`
-        // ends it. Both results are in styles.css, so no deferred sheet and
-        // no hint is needed.
+        // ends it. A retired `dark` choice maps to deferred `dracula`.
         this._currentTheme.set(migrated);
+        if (!EAGER_THEMES.has(migrated)) void this.loadDeferredThemeSheet();
         return;
       }
     }
@@ -414,6 +413,7 @@ export class ThemeService {
     const legacy =
       this.vscode.getState<string>(LEGACY_THEME_STATE_KEY) ??
       this.readThemeHint(LEGACY_THEME_HINT_KEY);
+    if (legacy === 'dark') return 'dracula';
     if (!this.isValidTheme(legacy)) {
       return undefined;
     }

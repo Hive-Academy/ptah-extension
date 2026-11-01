@@ -197,6 +197,16 @@ const CASES: ReadonlyArray<{
     expected: 'cupcake',
   },
   {
+    name: 'a retired v2 dark choice migrates to dracula',
+    persisted: { state: { 'theme-v2': 'dark' }, hints: {} },
+    expected: 'dracula',
+  },
+  {
+    name: 'a retired legacy dark choice migrates to dracula',
+    persisted: { state: { theme: 'dark' }, hints: {} },
+    expected: 'dracula',
+  },
+  {
     name: 'second Electron workspace: legacy state plus an origin-wide v2 mirror',
     persisted: {
       state: { theme: 'anubis' },
@@ -247,6 +257,8 @@ describe('pre-paint theme script and ThemeService agree', () => {
       ['state choice', { 'ptah-scene': 'ember' }, {}, 'ember'],
       ['mirror only', {}, { 'ptah-scene': 'tide' }, 'tide'],
       ['invalid state uses mirror', { 'ptah-scene': 'retired' }, { 'ptah-scene': 'horizon' }, 'horizon'],
+      ['pyramid state choice', { 'ptah-scene': 'pyramid' }, {}, 'pyramid'],
+      ['temple mirror choice', {}, { 'ptah-scene': 'temple' }, 'temple'],
       ['joined ids are invalid', { 'ptah-scene': 'ember tide' }, { 'ptah-scene': 'horizon' }, 'horizon'],
       ['invalid values', { 'ptah-scene': 'retired' }, { 'ptah-scene': 'invalid' }, null],
       ['stored default', { 'ptah-scene': 'aurora' }, {}, null],

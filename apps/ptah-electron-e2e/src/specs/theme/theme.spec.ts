@@ -173,14 +173,14 @@ async function pickTheme(page: Page, theme: string): Promise<void> {
 }
 
 test.describe('Theme picker (H3 mechanics, TASK_2026_187 Unit 9)', () => {
-  test('all 36 themes are listed and selectable', async ({ ui }) => {
+  test('all 35 themes are listed and selectable', async ({ ui }) => {
     const page = ui.page;
     const panel = await openPicker(page);
 
-    // 36 = every entry in DAISYUI_THEMES
-    // (libs/frontend/core/src/lib/services/theme.service.ts): the 34 stock
+    // 35 = every entry in DAISYUI_THEMES
+    // (libs/frontend/core/src/lib/services/theme.service.ts): 33 stock
     // themes plus the ptah-glass pair. Update together with that metadata.
-    // Each theme sits in exactly one tab, so the tabs together must list 36
+    // Each theme sits in exactly one tab, so the tabs together must list 35
     // distinct, visible, enabled tiles.
     await expect(panel.getByRole('tab')).toHaveCount(PICKER_TABS.length);
     const listed: string[] = [];
@@ -198,7 +198,7 @@ test.describe('Theme picker (H3 mechanics, TASK_2026_187 Unit 9)', () => {
         // Selectable means a click applies that exact theme. A pick stays in
         // the same tab, so `tiles` keeps its order. dispatchEvent for the
         // stacking-context reason documented in pickTheme. The first deferred
-        // pick waits on the theme-extra.css load, hence the 5s budget. 36
+        // pick waits on the theme-extra.css load, hence the 5s budget. 35
         // picks fit well inside the 120s config timeout.
         await tile.dispatchEvent('click');
         await expect(page.locator('html')).toHaveAttribute('data-theme', name, {
@@ -207,8 +207,8 @@ test.describe('Theme picker (H3 mechanics, TASK_2026_187 Unit 9)', () => {
         await expect(tile).toHaveAttribute('aria-pressed', 'true');
       }
     }
-    expect(listed).toHaveLength(36);
-    expect(new Set(listed).size).toBe(36);
+    expect(listed).toHaveLength(35);
+    expect(new Set(listed).size).toBe(35);
     expect(listed).not.toContain('');
 
     // Spot-check both ends of the split: the two that stayed eager, and one
