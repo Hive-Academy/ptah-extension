@@ -270,7 +270,10 @@ export class ExternalPluginMcpService {
     for (const server of declared) {
       try {
         const forgotten: CapabilityScope[] = [];
-        const results: McpInstallResult[] = [];
+        // The last pass's result per target wins: while the workspace record
+        // still declares the key, the global pass sees the entry kept and
+        // reports it as a refusal that the workspace pass then clears.
+        const latest = new Map<McpInstallTarget, McpInstallResult>();
         // At most two passes (global, then this workspace's own); the guard on
         // `forgotten` stops a store that keeps reporting the same scope.
         for (
@@ -278,16 +281,16 @@ export class ExternalPluginMcpService {
           scope !== undefined && !forgotten.includes(scope);
           scope = this.installer.intentScopeOf(server.name, root)
         ) {
-          results.push(
-            ...(await this.installer.uninstall(
-              server.name,
-              undefined,
-              hasWorkspace ? workspaceRoot : undefined,
-              { scope },
-            )),
+          const passResults = await this.installer.uninstall(
+            server.name,
+            undefined,
+            hasWorkspace ? workspaceRoot : undefined,
+            { scope },
           );
+          for (const result of passResults) latest.set(result.target, result);
           forgotten.push(scope);
         }
+        const results = [...latest.values()];
         if (forgotten.length === 0) {
           outcome.warnings.push(
             `MCP server "${server.name}" is not installed for this workspace or for all workspaces, so it was left as is. If it was installed for another workspace, remove it from that workspace's MCP servers.`,

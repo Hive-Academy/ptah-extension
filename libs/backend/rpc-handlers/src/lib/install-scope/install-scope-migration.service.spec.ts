@@ -802,6 +802,39 @@ describe('InstallScopeMigrationService — roots the user took back (decision #8
     });
   });
 
+  it('discovery with no legacy root replaces a malformed registry, so an MCP-only run completes (decision #86)', async () => {
+    retiredMcp = [{ serverKey: 'github', retiredAt: '2026-02-02T00:00:00Z' }];
+    await fs.writeFile(registryPath(), '{"version":1,"roo', 'utf8');
+
+    const result = await makeService().run();
+
+    expect(result.status).toBe('completed');
+    expect(JSON.parse(await fs.readFile(registryPath(), 'utf8'))).toEqual({
+      version: 1,
+      roots: {},
+    });
+    expect((await readLedger()).completedAt).toEqual(expect.any(String));
+  });
+
+  it('a registry malformed after discovery does not hold a run with no skills.sh item (decision #86)', async () => {
+    await seedLedger({
+      'mcp:github': {
+        kind: 'mcp',
+        retired: true,
+        retiredAt: '2026-02-02T00:00:00Z',
+        removedPaths: {},
+        keptPaths: {},
+        failedPaths: {},
+      },
+    });
+    await fs.writeFile(registryPath(), '{"version":1,"roo', 'utf8');
+
+    const result = await makeService().run();
+
+    expect(result.status).toBe('completed');
+    expect((await readLedger()).completedAt).toEqual(expect.any(String));
+  });
+
   it('releasing a root moves its failed clone rows to kept without touching the clone, so the run completes', async () => {
     const root = await writeV2Root('ptah-skillssh-taken-back', undefined, {
       scope: 'workspace',

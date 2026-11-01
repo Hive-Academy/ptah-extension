@@ -564,6 +564,37 @@ describe('ExternalPluginMcpService.uninstall', () => {
     expect(outcome.serverKeys).toEqual(['binlog']);
   });
 
+  it('reports only the final state per target when both records are forgotten', async () => {
+    const installer = createFakeInstaller();
+    installer.recorded.set('binlog', ['global', 'workspace']);
+    const forget = installer.uninstall.bind(installer);
+    installer.uninstall = async (serverKey, targets, workspaceRoot, options) => {
+      await forget(serverKey, targets, workspaceRoot, options);
+      // The global pass still sees the workspace record's entry and reports a
+      // refusal; the workspace pass removes it.
+      return options.scope === 'global'
+        ? [
+            {
+              target: 'claude',
+              configPath: 'claude.json',
+              success: false,
+              error: 'is user-owned',
+            },
+          ]
+        : [{ target: 'claude', configPath: 'claude.json', success: true }];
+    };
+    const { service } = makeService(installer);
+
+    const outcome = await service.uninstall(
+      PLUGIN_ID,
+      [declaredServer()],
+      WORKSPACE_ROOT,
+    );
+
+    expect(outcome.serverKeys).toEqual(['binlog']);
+    expect(outcome.warnings).toEqual([]);
+  });
+
   it('forgets a global intent even with no workspace open, because that record is user-wide', async () => {
     const installer = createFakeInstaller();
     installer.recorded.set('binlog', ['global']);

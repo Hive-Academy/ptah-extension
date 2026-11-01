@@ -495,7 +495,9 @@ describe('buildHarnessNamespace — installMcpServer', () => {
         target: 'claude',
         success: false,
         configPath: '',
-        error: 'No workspace folder open',
+        deferred: true,
+        code: 'deferred-no-workspace',
+        error: 'Saved for all workspaces.',
       },
     ]);
     const { deps } = makeDeps({ mcpInstaller, ...NO_FOLDER_OPEN });
@@ -516,8 +518,9 @@ describe('buildHarnessNamespace — installMcpServer', () => {
       undefined,
       'global',
     );
+    // Deferred, not failed: one note, no per-target failure warning.
     expect(out.warnings).toEqual([
-      'Failed to install "owner/srv" to claude: No workspace folder open',
+      '"owner/srv" was saved for all workspaces. Its config files are written when you open a folder.',
     ]);
   });
 

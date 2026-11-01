@@ -1119,9 +1119,12 @@ export function buildHarnessNamespace(
 
       const installedPaths: string[] = [];
       const warnings: string[] = [];
+      let deferred = false;
       for (const result of results) {
         if (result.success) {
           installedPaths.push(result.configPath);
+        } else if (result.deferred === true) {
+          deferred = true;
         } else {
           warnings.push(
             `Failed to install "${trimmedName}" to ${result.target}: ${result.error ?? 'unknown error'}`,
@@ -1131,8 +1134,15 @@ export function buildHarnessNamespace(
 
       logger.info(
         `[Harness] installMcpServer "${trimmedName}" as "${resolvedKey}" (${resolvedScope} scope) -> ${resolvedTargets.join(', ')} ` +
-          `(${installedPaths.length} written, ${warnings.length} failed)`,
+          `(${installedPaths.length} written, ${warnings.length} failed${deferred ? ', deferred until a folder opens' : ''})`,
       );
+      // A deferred install (user scope, no folder open) saved the intent; it
+      // is not a failure, so it gets one note instead of a warning per target.
+      if (deferred) {
+        warnings.push(
+          `"${trimmedName}" was saved for all workspaces. Its config files are written when you open a folder.`,
+        );
+      }
 
       return {
         serverName: trimmedName,

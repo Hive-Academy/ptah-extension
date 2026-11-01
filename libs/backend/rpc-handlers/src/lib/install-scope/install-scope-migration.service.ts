@@ -644,8 +644,8 @@ export class InstallScopeMigrationService {
    * malformed or unreadable file, and for a missing file while the ledger
    * holds skills.sh items (discovery wrote it and nothing in Ptah deletes it).
    * Only a valid registry without a root's mark means the user took that
-   * root back (decision #85). With no skills.sh item a missing file is
-   * simply an empty registry.
+   * root back (decision #85). With no skills.sh item a missing or malformed
+   * file is simply an empty registry (decision #86).
    */
   private async readLiveRetiredRegistry(
     ledger: InstallScopeLedger,
@@ -673,6 +673,11 @@ export class InstallScopeMigrationService {
     }
     const registry = parseRegistry(raw);
     if (registry === null) {
+      // With no skills.sh item the registry decides nothing, so a malformed
+      // file must not hold an MCP-only run.
+      if (sortedItems(ledger, 'skills-sh').length === 0) {
+        return { version: 1, roots: {} };
+      }
       this.logger.warn(
         '[install-scope] Retired registry is malformed; skills.sh cleanup waits for the next start',
         { path: registryPath },
@@ -694,10 +699,12 @@ export class InstallScopeMigrationService {
       SKILLS_SH_RETIRED_FILE,
     );
     let existing: SkillsShRetiredRegistry | null = null;
+    let malformed = false;
     try {
       const raw = await fs.readFile(registryPath, 'utf8');
       existing = parseRegistry(raw);
-      if (existing === null) {
+      malformed = existing === null;
+      if (malformed) {
         this.logger.warn(
           '[install-scope] Retired registry was malformed; rewriting it',
           { path: registryPath },
@@ -711,7 +718,9 @@ export class InstallScopeMigrationService {
       ...(existing?.roots ?? {}),
     };
     const retiredAt = new Date().toISOString();
-    let changed = existing === null && rootIds.length > 0;
+    // A malformed file is replaced even with no root to retire: left on disk,
+    // it makes the live registry read hold every later run.
+    let changed = existing === null && (malformed || rootIds.length > 0);
     for (const rootId of rootIds) {
       if (own(roots, rootId)) continue;
       roots[rootId] = { retiredAt };
