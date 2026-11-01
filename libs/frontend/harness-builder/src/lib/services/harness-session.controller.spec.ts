@@ -103,6 +103,52 @@ describe('HarnessSessionController', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it('reports unsent attachments instead of silently reusing an accepted first send', async () => {
+    const session = controller.session('new-project');
+    const request = { mode: 'new-project' as const, workspaceRoot: root, intake };
+    await session.start(request);
+    expect(await session.start({ ...request, attachments: { files: ['/ws/later.md'] } }))
+      .toEqual({ kind: 'failed', error: 'This session already started. Attachments were not sent; add them to a reply.' });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes first-send attachments without storing them in the session record', async () => {
+    const attachments = { files: ['/workspace/a/brief.md'], images: [{ data: 'aGVsbG8=', mediaType: 'image/png' as const }] };
+    const session = controller.session('new-project');
+    await session.start({ mode: 'new-project', workspaceRoot: root, intake, attachments });
+    expect(send).toHaveBeenCalledWith(expect.any(String), { tabId: 'tab-1', ...attachments });
+    expect(records.readSession(root, 'tab-1')).not.toHaveProperty('attachments');
+  });
+
+  it('retries a failed first send with the current attachments', async () => {
+    send.mockResolvedValueOnce({ success: false }).mockResolvedValueOnce({ success: true });
+    const session = controller.session('new-project');
+    const request = { mode: 'new-project' as const, workspaceRoot: root, intake, attachments: { files: ['/ws/retry.md'] } };
+    expect((await session.start(request)).kind).toBe('failed');
+    expect(await session.start(request)).toEqual({ kind: 'started', tabId: 'tab-1' });
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith(expect.any(String), { tabId: 'tab-1', files: ['/ws/retry.md'] });
+  });
+
+  it('does not double-send when two starts retry the same unaccepted first message', async () => {
+    send.mockResolvedValueOnce({ success: false });
+    const session = controller.session('new-project');
+    const request = { mode: 'new-project' as const, workspaceRoot: root, intake };
+    expect((await session.start(request)).kind).toBe('failed');
+    const [first, second] = await Promise.all([session.start(request), session.start(request)]);
+    expect(first).toEqual({ kind: 'started', tabId: 'tab-1' });
+    expect(second).toEqual({ kind: 'reused', tabId: 'tab-1' });
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes attachments with later sends', async () => {
+    const session = controller.session('configure-harness');
+    await session.start({ mode: 'configure-harness', workspaceRoot: root, intent: 'Build a team' });
+    const attachments = { files: ['/workspace/a/context.txt'], images: [{ data: 'aGVsbG8=', mediaType: 'image/png' as const }] };
+    expect(await session.send('Consider this', attachments)).toBe(true);
+    expect(send).toHaveBeenLastCalledWith('Consider this', { tabId: 'tab-1', ...attachments });
+  });
+
   it('persists the resolved SDK session ID for proposal restore', async () => {
     const session = controller.session('new-project');
     await session.start({ mode: 'new-project', workspaceRoot: root, intake });

@@ -33,6 +33,7 @@ import { ChatInputComponent } from './chat-input.component';
 import { ChatStore } from '../../../services/chat.store';
 import { ComposerDraftStore } from '../../../services/composer-draft.store';
 import { ComposerCompactStore } from '../../../services/composer-compact.store';
+import { ComposerAttachmentsService } from '../../../services/composer-attachments.service';
 import { COMPOSER_TRIGGER_CACHE_ENABLED } from '../../../services/composer-trigger-scheduler';
 import { FilePickerService } from '../../../services/file-picker.service';
 import { VoiceInputService } from '../../../services/voice-input.service';
@@ -204,7 +205,7 @@ describe('ChatInputComponent streaming fold', () => {
             ComposerTypeToExpandDirective,
             UnifiedSuggestionsDropdownComponent,
           ],
-          providers: [],
+          providers: [ComposerAttachmentsService],
           schemas: [CUSTOM_ELEMENTS_SCHEMA],
         },
       })
