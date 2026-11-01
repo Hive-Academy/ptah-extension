@@ -1,3 +1,4 @@
+import { withDemoPricing } from './demo-pricing';
 import type { ReplayMessage, ReplayMiss, ReplayScenarioData } from './types';
 
 function subset(expected: unknown, actual: unknown): boolean {
@@ -35,7 +36,8 @@ export function createRpcResponder(
       else if (error) response = { type: 'rpc:response', correlationId, success: false, error: error.error,
         ...(error.errorCode ? { errorCode: error.errorCode } : {}) };
       else if (Object.prototype.hasOwnProperty.call(scenario.rpc, method)) {
-        response = { type: 'rpc:response', correlationId, success: true, data: scenario.rpc[method] };
+        const data = method === 'config:pricing-get' ? withDemoPricing(scenario.rpc[method]) : scenario.rpc[method];
+        response = { type: 'rpc:response', correlationId, success: true, data };
       } else {
         report('unanswered-rpc', method);
         response = { type: 'rpc:response', correlationId, success: false, error: `No PtahCode replay answer for ${method}`, errorCode: 'REPLAY_MISS' };

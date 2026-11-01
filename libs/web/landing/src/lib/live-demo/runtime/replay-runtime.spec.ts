@@ -216,6 +216,18 @@ describe('PtahCode replay runtime', () => {
     expect(received.map((item) => item['data'])).toEqual(['array-match', 'fallback']);
   });
 
+  it('adds the public demo prices to the config:pricing-get answer', async () => {
+    const received: ReplayMessage[] = [];
+    const answer = createRpcResponder(async () => ({ ...sample(), rpc: { 'config:pricing-get': { pricing: {}, hydrated: true } } }),
+      (value) => received.push(value), jest.fn(), jest.fn());
+    answer({ type: 'rpc:call', payload: { method: 'config:pricing-get', params: {}, correlationId: 'one' } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const data = received[0]['data'] as { hydrated: boolean; pricing: Record<string, { inputCostPerToken: number }> };
+    expect(data.hydrated).toBe(true);
+    expect(data.pricing['claude-opus-5-5'].inputCostPerToken).toBe(4e-6);
+    expect(data.pricing['claude-sonnet-5-5'].inputCostPerToken).toBe(2e-6);
+  });
+
   it('waits for ptah-root children and 300 ms quiet, with an 8 s cap', () => {
     jest.useFakeTimers();
     const ready = jest.fn();

@@ -10,7 +10,7 @@ import { start as startStaticServer } from './live-demo-static-server.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_ROOT = resolve(HERE, '../..');
 const DEFAULT_ROOT = 'dist/ptah-landing-page/browser';
-const DEFAULT_TIMEOUT_MS = 60_000;
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 export function parseArgs(argv = process.argv.slice(2)) {
   const opts = parseCliFlags(argv, {

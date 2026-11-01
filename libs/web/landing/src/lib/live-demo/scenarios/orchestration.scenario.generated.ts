@@ -254,13 +254,6 @@ export const scenario = {
       "authorEmail": "demo@example.invalid",
       "time": 1793476800000
     },
-    "chat:start": {
-      "success": true,
-      "sessionId": "11111111-1111-4111-8111-111111111111"
-    },
-    "chat:running-agents": {
-      "agents": []
-    },
     "session:stats-batch": {
       "sessionStats": [
         {
@@ -276,11 +269,10 @@ export const scenario = {
           },
           "tokenCount": 9600,
           "messageCount": 3,
-          "agentSessionCount": 1,
+          "agentSessionCount": 2,
           "cliAgents": [
-            "ptah-cli",
             "codex",
-            "antigravity"
+            "copilot"
           ],
           "modelUsageList": [
             {
@@ -297,97 +289,2400 @@ export const scenario = {
           "coverage": "complete",
           "pricingCoverage": "full",
           "scope": "session",
-          "revision": 5
+          "revision": 1
         }
       ]
+    },
+    "chat:running-agents": {
+      "agents": []
+    },
+    "chat:subagent-query": {
+      "subagents": []
+    },
+    "chat:pending-questions": {
+      "success": true,
+      "questions": []
+    },
+    "voice:getProviderConfig": {
+      "ok": true,
+      "config": {
+        "ttsProvider": "local",
+        "sttProvider": "local",
+        "local": {
+          "whisperModel": "tiny.en",
+          "modelSource": "curated",
+          "sttDownloaded": true,
+          "ttsDownloaded": true,
+          "ttsVoice": "Demo voice"
+        },
+        "elevenlabs": {
+          "apiKeyConfigured": false,
+          "ttsModelId": "",
+          "outputFormat": "",
+          "sttModelId": ""
+        }
+      }
+    },
+    "chat:start": {
+      "success": true,
+      "sessionId": "11111111-1111-4111-8111-111111111111"
     }
   },
   "timeline": [
     {
-      "at": 200,
+      "at": 400,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-1",
+            "id": "demo-1",
             "eventType": "turn_state",
-            "timestamp": 1793476800200,
+            "timestamp": 1793476800400,
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "turn-state-11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-1",
             "phase": "generating",
             "revision": 2,
             "backgroundTasks": [],
             "sessionCrons": [],
-            "terminalReason": null
+            "terminalReason": null,
+            "lastAssistantMessage": null
           }
         }
       }
     },
     {
-      "at": 500,
+      "at": 490,
+      "message": {
+        "type": "agent-monitor:spawned",
+        "payload": {
+          "agentId": "22222222-2222-4222-8222-222222222222",
+          "cli": "codex",
+          "task": "Objective: independent code-logic and style review of Phase B (Batches 9-12) of TASK_DEMO_1 in worktree /workspace/acme-app/worktrees/feature-b (branch feat/schedule-load2).…",
+          "workingDirectory": "/workspace/acme-app",
+          "status": "running",
+          "startedAt": "2026-10-31T20:00:00.490Z",
+          "parentSessionId": "11111111-1111-4111-8111-111111111111",
+          "displayName": "Codex CLI",
+          "model": "gpt-6-sol"
+        }
+      }
+    },
+    {
+      "at": 690,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-2",
             "eventType": "message_start",
-            "timestamp": 1793476800500,
+            "id": "demo-2",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "role": "assistant"
+            "messageId": "msg-2",
+            "role": "assistant",
+            "timestamp": 1793476800690,
+            "source": "stream"
           }
         }
       }
     },
     {
-      "at": 750,
+      "at": 720,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-3",
             "eventType": "text_delta",
-            "timestamp": 1793476800750,
+            "id": "demo-3",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
+            "messageId": "msg-2",
             "blockIndex": 0,
-            "delta": "I will review the session notice, "
+            "delta": "Yes, there is independent work. First I ",
+            "timestamp": 1793476800720,
+            "source": "stream"
           }
         }
       }
     },
     {
-      "at": 800,
+      "at": 765,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-4",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 0,
+            "delta": "check which batches can run in parallel ",
+            "timestamp": 1793476800765,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 810,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-5",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 0,
+            "delta": "without file conflicts.",
+            "timestamp": 1793476800810,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 900,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-6",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_1",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "grep -n \"^## Batch\\|Depends on\\|^- Files:\" .ptah/specs/ticket-merge/batches.md | sed -n '/workspace/acme-app/layout-sync 13/,$p' | sed 's#/workspace/acme-app/worktrees/feature-b/##g' | cut -c1-400",
+              "description": "List Phase C and D batches, dependencies and files"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476800900,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 990,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-7",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_1",
+            "output": "273:## Batch 13: C-1 core replacement and dead exports — PENDING\n275:- Recommended executor: CLI lane backend-developer | Execution mode: sequential | Tasks: 1 | Depends on: B accepted/delivered; independent C inventory check | Phase: C | Phase review: code-logic after 16.…",
+            "isError": false,
+            "timestamp": 1793476800990,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 1162,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "22222222-2222-4222-8222-222222222222",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476801162,
+          "segments": [
+            {
+              "type": "text",
+              "content": "I’ll trace the Phase B diff through its settings writes and session readers, then write the review report. I’ll use the existing verification evidence and won’t run tests or builds.",
+              "messageId": "sort_filter"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 1594,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "22222222-2222-4222-8222-222222222222",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476801594,
+          "segments": [
+            {
+              "type": "tool-call",
+              "toolName": "Bash",
+              "toolArgs": "/workspace/acme-app/bin/bash -lc \"sed -n '150,270p' .ptah/specs/ticket-merge/batches.md; sed -n '416,480p' .ptah/specs/ticket-merge/implementation-plan.md; sed -n '1,100p' .ptah/specs/ticket-merge/reports/theme-resolve.md; cat…",
+              "toolInput": {
+                "command": "sed -n '150,270p' .ptah/specs/ticket-merge/batches.md; sed -n '416,480p' .ptah/specs/ticket-merge/implementation-plan.md; sed -n '1,100p' .ptah/specs/ticket-merge/reports/theme-resolve.md; cat .ptah/specs/ticket-merge/reports/metric-load.json .ptah/specs/ticket-merge/reports/widget-watch.json .ptah/specs/ticket-merge/reports/filter-ship.json",
+                "description": "sed"
+              },
+              "content": "",
+              "toolCallId": "load_shelf"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 1684,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-8",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_2",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "grep -n -i \"inventory gate\\|C inventory\" .ptah/specs/ticket-merge/batches.md .ptah/specs/ticket-merge/implementation-plan.md | cut -c1-300 | head; sed -n 309,320p .ptah/specs/ticket-merge/batches.md | sed 's#/workspace/acme-app/worktrees/feature-b/##g'; sed -n 297,308p .ptah/specs/ticket-merge/batches.md | sed 's#/workspace/acme-app/worktrees/feature-b/##g' | cut -c1-600",
+              "description": "Read C inventory gate and Batches 15-16"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476801684,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 1774,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-9",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_2",
+            "output": ".ptah/specs/ticket-merge/batches.md:46:- All batches are sequential internally and dispatched in listed order by default. This is intentionally conservative around integration and phase delivery. Coordinator may overlap only the explicitly disjoint windows: metric-draft/layout-route/layout-fetch2 after 2–4; 13–14 with 15�…",
+            "isError": false,
+            "timestamp": 1793476801774,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 1864,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-10",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_3",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "sed -n 44,50p .ptah/specs/ticket-merge/batches.md",
+              "description": "Read allowed overlap windows"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476801864,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 1954,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-11",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_3",
+            "output": "- Batch by bounded file ownership, at most six production/test files and at most two owning projects per implementation batch. Evidence-only Batch 1 has no production writes. The approved plan supplies execution ordering; no new product/batching decision is requested.\n- All batches are sequential internally and dispatched in listed order by default.…",
+            "isError": false,
+            "timestamp": 1793476801954,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 2276,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "22222222-2222-4222-8222-222222222222",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476802276,
+          "segments": [
+            {
+              "type": "tool-result",
+              "content": "{\"renderInvoice\":\"ok\",\"mergeBanner\":0,\"routeSchedule\":false,\"coverage\":{\"clean\":true,\"analyzed\":1},\"file\":\"/workspace/acme-app/worktrees/feature-b/libs/backend/cart-resolve/src/lib/helpers/layout-store2.ts\",\"language\":\"typescript\",\"functions\":[[\"name\",\"paramet…",
+              "toolCallId": "queue_catalog"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 2366,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-12",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_4",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "ls -la | grep -i node_modules; ls -la ../feature-b 2>/workspace/acme-app/dev/null | grep node_modules; git worktree list | grep feature-b; git diff --name-only HEAD -- libs/backend/cart-resolve/src/index.ts libs/backend/cart-resolve/src/lib/shelf-tag libs/backend/badge-plan",
+              "description": "Check node_modules links and file overlap"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476802366,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 2456,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-13",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_4",
+            "output": "drwxrwxr-x  3 demo-user demo-user    4096 Oct 30 04:26 node_modules\ndrwxrwxr-x  2 demo-user demo-user    4096 Oct 30 15:56 node_modules\n/workspace/acme-app/worktrees/feature-b       ca15d6ae4 [feat/schedule-load2]\n/workspace/acme-app/worktrees/feature-b ca15d6ae4 (detached HEAD)\nlibs/backend/cart-resolve/src/index.ts",
+            "isError": false,
+            "timestamp": 1793476802456,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 2546,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-14",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_5",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "ls -la node_modules node_modules/* | head; ls -la ../feature-b/node_modules | head",
+              "description": "Show node_modules link layout"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476802546,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 2636,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-15",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_5",
+            "output": "lrwxrwxrwx 1 demo-user demo-user   53 Oct 30 04:26 node_modules/quota-tag -> /workspace/acme-app/node_modules/quota-tag\nlrwxrwxrwx 1 demo-user demo-user   46 Oct 30 02:08 node_modules/layout-ship -> /workspace/acme-app/node_modules/layout-ship\nlrwxrwxrwx 1 demo-user demo-user   47 Oct 30 04:17 node_modules/metric-watch -> /workspace/acme-app/node_modules/metric-watch…",
+            "isError": false,
+            "timestamp": 1793476802636,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 2729,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-16",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 2,
+            "delta": "Node resolves the main `node_modules` from the ",
+            "timestamp": 1793476802729,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 2774,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-17",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 2,
+            "delta": "parent folder, so a new worktree works ",
+            "timestamp": 1793476802774,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 2819,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-18",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 2,
+            "delta": "without links. I create the Phase C ",
+            "timestamp": 1793476802819,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 2864,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-19",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 2,
+            "delta": "worktree on a branch from the Phase ",
+            "timestamp": 1793476802864,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 2909,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-20",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 2,
+            "delta": "A head.",
+            "timestamp": 1793476802909,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 2999,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-21",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_6",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app && git worktree add -b feat/receipt-sort worktrees/feature-c feat/schedule-load2 2>&1 | tail -2 && mkdir -p worktrees/feature-c/.ptah/specs && cp -r worktrees/feature-b/.ptah/specs/ticket-merge worktrees/feature-c/.ptah/specs/ && ls worktrees/feature-c/.ptah/specs/",
+              "description": "Create Phase C worktree and copy task specs"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476802999,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 3147,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "22222222-2222-4222-8222-222222222222",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476803147,
+          "segments": [
+            {
+              "type": "command",
+              "content": "     1\t/**\n     2\t * example.invalid account-synced skills on this machine (TASK_DEMO_119, Phase B).\n     3\t *\n     4\t * Claude Code copies the skills of each signed-in example.invalid account into",
+              "toolName": "/workspace/acme-app/bin/bash -lc \"nl -ba libs/backend/cart-resolve/src/lib/helpers/layout-store2.ts | sed -n '1,350p'; nl -ba libs/backend/cart-resolve/src/lib/helpers/ticket-parse.ts | sed -n '1,210p'\"",
+              "exitCode": 0,
+              "toolCallId": "store_shelf"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 3267,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-22",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_6",
+            "output": "Updating files: 100% (17826/17826), done.\nHEAD is now at ca15d6ae4 fix(cart-resolve,receipt-store,budget-price): fix phase A CI checks\ncanvas-render-followups\ncanvas-tile-leaks\nchat-layout-declutter\nfeature-i-limits",
+            "isError": false,
+            "timestamp": 1793476803267,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 3487,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-23",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_7",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-c && grep -n \"V-SDK\\|V-GEN\" .ptah/specs/ticket-merge/batches.md | head -4 | cut -c1-500; grep -n \"C inventory\\|R1–R36\\|R1-R36\" .ptah/specs/ticket-merge/implementation-plan.md | head -5 | cut -c1-200",
+              "description": "Read verify command definitions and inventory refs"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476803487,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 3577,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-24",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_7",
+            "output": "69:- V-SDK: `npm run verify -- -p @acme-app/cart-resolve,order-draft,acme-app-vscode,ptah-cli,filter-fetch2,@acme-app/report-build,acme-app-webview`\n74:- V-GEN: `npm run verify -- -p @acme-app/badge-plan,order-draft,acme-app-vscode,ptah-cli,filter-fetch2,@acme-app/report-build,acme-app-webview`\n120:Runtime evidence only; no changed-project check because no production/test file changes.…",
+            "isError": false,
+            "timestamp": 1793476803577,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 3667,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "22222222-2222-4222-8222-222222222222",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476803667,
+          "segments": [
+            {
+              "type": "command",
+              "content": "  1155\t        await this.renderLedger(\n  1156\t          'watchQuota',\n  1157\t          params.watchQuota,\n  1158\t        );",
+              "toolName": "/workspace/acme-app/bin/bash -lc \"nl -ba libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.ts | sed -n '1155,1205p'; nl -ba libs/backend/cart-resolve/src/lib/helpers/order-route.ts | sed -n '1385,1460p'; nl -ba…",
+              "exitCode": 0,
+              "toolCallId": "format_badge"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 3757,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-25",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 3,
+            "delta": "I start three Phase C streams in ",
+            "timestamp": 1793476803757,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 3802,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-26",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 3,
+            "delta": "the new worktree and one Phase B ",
+            "timestamp": 1793476803802,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 3847,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-27",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 3,
+            "delta": "screenshot stream. First I record the decision.",
+            "timestamp": 1793476803847,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 3937,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-28",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_8",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-b && tail -3 .ptah/specs/ticket-merge/decisions.md | cut -c1-200",
+              "description": "Show last decisions rows"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476803937,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 4027,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-29",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_8",
+            "output": "| 45 | Phase B Batch 12 | `agent:storeRegion` and the skill-id checks read synced skills from the config dir a new main session uses without a named launch: `guardCart([VOUCHER_PLAN\n| 46 | Phase B Batch 12 | Skill-id check widened (decision #37): `agent:scanReceipt` and `agent:shipVoucher` accept a skill id when it is a terminal catalog id or a qualified id the synced reader f…",
+            "isError": false,
+            "timestamp": 1793476804027,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 4188,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-30",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_9",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "printf '%s\\n' '| 48 | Delivery speed-up (user asked to parallelize) | Phase C starts before Phase B is delivered, in worktree `worktrees/feature-c` on branch `feat/receipt-sort` (from Phase A head `ca15d6ae4`). Batches 13 and 15–16 run in parallel (allowed overlap window, batches.md:46).…",
+              "description": "Append decision 48 to both worktrees"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476804188,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 4278,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-31",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_9",
+            "output": "(Bash completed with no output)",
+            "isError": false,
+            "timestamp": 1793476804278,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 4447,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "22222222-2222-4222-8222-222222222222",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476804447,
+          "segments": [
+            {
+              "type": "tool-call",
+              "toolName": "mcp__ptah__ptah_search_files",
+              "toolInput": {
+                "pattern": "**/workspace/acme-app/order-watch.md",
+                "limit": 25
+              },
+              "content": "",
+              "toolCallId": "fetch_widget"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 4865,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-32",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_10",
+            "toolName": "mcp__ptah__ptah_agent_spawn",
+            "toolInput": {
+              "ptahCliId": "pc-33333333-3333-4333-8333-333333333333",
+              "modelTier": "opus",
+              "role": "backend-developer",
+              "taskKind": "implement",
+              "workingDirectory": "/workspace/acme-app/worktrees/feature-c",
+              "taskFolder": ".ptah/specs/ticket-merge",
+              "deliverables": [
+                "reports/schedule-load3.md",
+                "reports/order-render.json"
+              ],
+              "timeout": 1200000,
+              "task": "Objective: Phase C of TASK_DEMO_1 (remove duplicate prompt text from PtahCode's fixed session prefix). Do two steps in worktree /workspace/acme-app/worktrees/feature-c (branch feat/receipt-sort). Work only in this worktree.\n\nStep 1 — C inventory gate.…"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476804865,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 4955,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "22222222-2222-4222-8222-222222222222",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476804955,
+          "segments": [
+            {
+              "type": "command",
+              "content": "37:- Still open, or user-reserved (scope intent, removing a capability, irreversible or outward-facing actions, theme-draft/ticket-store/widget-store, money, breaking public changes) → send it to your spawner with options, evidence and a recommendation…",
+              "toolName": "/workspace/acme-app/bin/bash -lc \"rg -n 'Five logic questions|## Output|severity|question' .order-ship/cart-apply/catalog-format.md; sed -n '90,210p' .order-ship/cart-apply/catalog-format.md; sed -n '1,80p'…",
+              "exitCode": 2,
+              "toolCallId": "route_catalog"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 5256,
+      "message": {
+        "type": "agent-monitor:spawned",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "cli": "ptah-cli",
+          "task": "Objective: Phase C of TASK_DEMO_1 (remove duplicate prompt text from PtahCode's fixed session prefix). Do two steps in worktree /workspace/acme-app/worktrees/feature-c (branch feat/receipt-sort).…",
+          "workingDirectory": "/workspace/acme-app",
+          "status": "running",
+          "startedAt": "2026-10-31T20:00:05.256Z",
+          "parentSessionId": "11111111-1111-4111-8111-111111111111",
+          "displayName": "kimi code",
+          "model": "k3.1-pro",
+          "role": "backend-developer",
+          "ptahCliId": "demo-ptah-cli",
+          "ptahCliName": "kimi code"
+        }
+      }
+    },
+    {
+      "at": 5346,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-33",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_10",
+            "output": "## Agent Spawned\n**Agent ID:** 44444444-4444-4444-8444-444444444444  \n**CLI:** ptah-cli (kimi code)  \n**Model Tier:** opus  \n**Role:** backend-developer (preamble via system-prompt)  \n**Status:** running  ",
+            "isError": false,
+            "timestamp": 1793476805346,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 5436,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-34",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 4,
+            "delta": "Now I start three subagents in parallel: ",
+            "timestamp": 1793476805436,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 5481,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-35",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 4,
+            "delta": "Batch 15, Batch 16 and the Phase ",
+            "timestamp": 1793476805481,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 5526,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-36",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 4,
+            "delta": "B Electron capture.",
+            "timestamp": 1793476805526,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 5616,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "22222222-2222-4222-8222-222222222222",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476805616,
+          "segments": [
+            {
+              "type": "text",
+              "content": "WROTE: /workspace/acme-app/worktrees/feature-b/.ptah/specs/ticket-merge/coupon-fetch.md\n\n**REVISE, 5/10:** the review found cross-account opt-in loss and an ambient-lane config-directory mismatch.",
+              "messageId": "apply_cart"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 5855,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-37",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_11",
+            "toolName": "Agent",
+            "toolInput": {
+              "description": "Phase C Batch 15 hygiene",
+              "subagent_type": "backend-developer",
+              "prompt": "Implement Batch 15 \"C-2 hygiene partial deletion and generated manifest\" of TASK_DEMO_1 in worktree /workspace/acme-app/worktrees/feature-c (branch feat/receipt-sort). Work only in this worktree.…",
+              "run_in_background": true
+            },
+            "isTaskTool": true,
+            "timestamp": 1793476805855,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 5885,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "agent_start",
+            "id": "demo-38",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_11",
+            "agentType": "backend-developer",
+            "agentDescription": "Phase C Batch 15 hygiene",
+            "agentPrompt": "Implement Batch 15 \"C-2 hygiene partial deletion and generated manifest\" of TASK_DEMO_1 in worktree /workspace/acme-app/worktrees/feature-c (branch feat/receipt-sort). Work only in this worktree.…",
+            "timestamp": 1793476805885,
+            "parentToolUseId": "toolu_demo_11",
+            "agentId": "cbac8153fecae3d6c",
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 5975,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-39",
+            "eventType": "background_agent_started",
+            "timestamp": 1793476805975,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_11",
+            "agentType": "backend-developer",
+            "agentDescription": "Phase C Batch 15 hygiene",
+            "agentId": "cbac8153fecae3d6c",
+            "outputFilePath": "/workspace/acme-app/.tmp/cart-parse/catalog-fetch/layout-load2/catalog-ship/voucher-watch"
+          }
+        }
+      }
+    },
+    {
+      "at": 6005,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-40",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_11",
+            "output": "Async agent launched successfully. (This tool result is internal metadata — never quote or paste any part of it, including the parseBanner below, into a user-facing reply.)\nparseBanner: cbac8153fecae3d6c (internal ID - do not mention to user. Use RegionTheme with to: 'cbac8153fecae3d6c', summary: '<5-10 word recap>' to continue this agent.)\nThe agent is working in the background.…",
+            "isError": false,
+            "timestamp": 1793476806005,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 6113,
+      "message": {
+        "type": "agent-monitor:exited",
+        "payload": {
+          "agentId": "22222222-2222-4222-8222-222222222222",
+          "cli": "codex",
+          "task": "Objective: independent code-logic and style review of Phase B (Batches 9-12) of TASK_DEMO_1 in worktree /workspace/acme-app/worktrees/feature-b (branch feat/schedule-load2).…",
+          "workingDirectory": "/workspace/acme-app",
+          "status": "completed",
+          "startedAt": "2026-10-31T20:00:00.490Z",
+          "parentSessionId": "11111111-1111-4111-8111-111111111111",
+          "displayName": "Codex CLI",
+          "model": "gpt-6-sol",
+          "completedAt": "2026-10-31T20:00:06.113Z",
+          "exitCode": 0
+        }
+      }
+    },
+    {
+      "at": 6203,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-41",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_12",
+            "toolName": "Agent",
+            "toolInput": {
+              "description": "Phase C Batch 16 tests",
+              "subagent_type": "senior-tester",
+              "prompt": "Implement Batch 16 \"C-3 least-privilege effective-set regression\" of TASK_DEMO_1 in worktree /workspace/acme-app/worktrees/feature-c (branch feat/receipt-sort). Work only in this worktree.…",
+              "run_in_background": true
+            },
+            "isTaskTool": true,
+            "timestamp": 1793476806203,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 6233,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "agent_start",
+            "id": "demo-42",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_12",
+            "agentType": "senior-tester",
+            "agentDescription": "Phase C Batch 16 tests",
+            "agentPrompt": "Implement Batch 16 \"C-3 least-privilege effective-set regression\" of TASK_DEMO_1 in worktree /workspace/acme-app/worktrees/feature-c (branch feat/receipt-sort). Work only in this worktree.…",
+            "timestamp": 1793476806233,
+            "parentToolUseId": "toolu_demo_12",
+            "agentId": "a42f138c6bc9aeec8",
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 6323,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-43",
+            "eventType": "background_agent_started",
+            "timestamp": 1793476806323,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_12",
+            "agentType": "senior-tester",
+            "agentDescription": "Phase C Batch 16 tests",
+            "agentId": "a42f138c6bc9aeec8",
+            "outputFilePath": "/workspace/acme-app/.tmp/cart-parse/catalog-fetch/layout-load2/catalog-ship/schedule-render"
+          }
+        }
+      }
+    },
+    {
+      "at": 6353,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-44",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_12",
+            "output": "Async agent launched successfully. (This tool result is internal metadata — never quote or paste any part of it, including the parseBanner below, into a user-facing reply.)\nparseBanner: a42f138c6bc9aeec8 (internal ID - do not mention to user. Use RegionTheme with to: 'a42f138c6bc9aeec8', summary: '<5-10 word recap>' to continue this agent.)\nThe agent is working in the background.…",
+            "isError": false,
+            "timestamp": 1793476806353,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 6754,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-45",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_13",
+            "toolName": "Agent",
+            "toolInput": {
+              "description": "Phase B Electron capture",
+              "subagent_type": "visual-reviewer",
+              "prompt": "Capture Phase B visual evidence and token measurement for TASK_DEMO_1 in worktree /workspace/acme-app/worktrees/feature-b (branch feat/schedule-load2, Phase B is uncommitted there). Work only in that worktree. Do not edit source code.…",
+              "run_in_background": true
+            },
+            "isTaskTool": true,
+            "timestamp": 1793476806754,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 6784,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "agent_start",
+            "id": "demo-46",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_13",
+            "agentType": "visual-reviewer",
+            "agentDescription": "Phase B Electron capture",
+            "agentPrompt": "Capture Phase B visual evidence and token measurement for TASK_DEMO_1 in worktree /workspace/acme-app/worktrees/feature-b (branch feat/schedule-load2, Phase B is uncommitted there). Work only in that worktree. Do not edit source code.…",
+            "timestamp": 1793476806784,
+            "parentToolUseId": "toolu_demo_13",
+            "agentId": "a36b7ac951e5aaa0b",
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 6874,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-47",
+            "eventType": "background_agent_started",
+            "timestamp": 1793476806874,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_13",
+            "agentType": "visual-reviewer",
+            "agentDescription": "Phase B Electron capture",
+            "agentId": "a36b7ac951e5aaa0b",
+            "outputFilePath": "/workspace/acme-app/.tmp/cart-parse/catalog-fetch/layout-load2/catalog-ship/receipt-plan2"
+          }
+        }
+      }
+    },
+    {
+      "at": 6904,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-48",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "toolCallId": "toolu_demo_13",
+            "output": "Async agent launched successfully. (This tool result is internal metadata — never quote or paste any part of it, including the parseBanner below, into a user-facing reply.)\nparseBanner: a36b7ac951e5aaa0b (internal ID - do not mention to user. Use RegionTheme with to: 'a36b7ac951e5aaa0b', summary: '<5-10 word recap>' to continue this agent.)\nThe agent is working in the background.…",
+            "isError": false,
+            "timestamp": 1793476806904,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 7221,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-49",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "Yes. Six work streams now run in ",
+            "timestamp": 1793476807221,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7266,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-50",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "parallel:\n\n| Stream | Executor | Worktree ",
+            "timestamp": 1793476807266,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7311,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-51",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "| Work |\n|---|---|---|---|\n| Phase B ",
+            "timestamp": 1793476807311,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7356,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-52",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "verification | `npm run verify` (background) | ",
+            "timestamp": 1793476807356,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7401,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-53",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "`feature-b` | All Phase B projects and ",
+            "timestamp": 1793476807401,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7446,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-54",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "dependent hosts |\n| Phase B cross-review ",
+            "timestamp": 1793476807446,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7491,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-55",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "| codex CLI lane | `feature-b` | ",
+            "timestamp": 1793476807491,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7536,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-56",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "Logic and style review of Batches 9–12, ",
+            "timestamp": 1793476807536,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7581,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-57",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "plus open decision #42 |\n| Phase ",
+            "timestamp": 1793476807581,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7626,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-58",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "B visual and token evidence | visual-reviewer ",
+            "timestamp": 1793476807626,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7671,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-59",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "subagent | `feature-b` | Rebuild under the ",
+            "timestamp": 1793476807671,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7716,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-60",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "lock, isolated Electron, dark and light screenshots ",
+            "timestamp": 1793476807716,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7761,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-61",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "of group 3, token measurement |\n| ",
+            "timestamp": 1793476807761,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7806,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-62",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "Phase C inventory gate and Batch 13 ",
+            "timestamp": 1793476807806,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7851,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-63",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "| kimi CLI lane | `feature-c` (new) ",
+            "timestamp": 1793476807851,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7896,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-64",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "| Checks R1–R36 retained homes, then replaces ",
+            "timestamp": 1793476807896,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7941,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-65",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "the core prompt |\n| Phase C ",
+            "timestamp": 1793476807941,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 7986,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-66",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "Batch 15 | backend-developer subagent | `feature-c` ",
+            "timestamp": 1793476807986,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8031,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-67",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "| Deletes the hygiene partial, updates the ",
+            "timestamp": 1793476808031,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8076,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-68",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "guard and the generated manifest |\n| ",
+            "timestamp": 1793476808076,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8121,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-69",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "Phase C Batch 16 | senior-tester subagent ",
+            "timestamp": 1793476808121,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8166,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-70",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "| `feature-c` | Pins the least-privilege tool ",
+            "timestamp": 1793476808166,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8211,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-71",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "sets |\n\n### Decisions made (decision #48 ",
+            "timestamp": 1793476808211,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8256,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-72",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "in `decisions.md`)\n\n- Phase C starts now ",
+            "timestamp": 1793476808256,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8301,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-73",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "in its own worktree on branch `feat/receipt-sort`, ",
+            "timestamp": 1793476808301,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8346,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-74",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "from the Phase A head. It does ",
+            "timestamp": 1793476808346,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8391,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-75",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "not wait for Phase B to ship.\n",
+            "timestamp": 1793476808391,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8436,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-76",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "- Batches 13, 15 and 16 do ",
+            "timestamp": 1793476808436,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8481,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-77",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "not share files. `batches.md:46` allows this overlap.\n",
+            "timestamp": 1793476808481,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8526,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-78",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "- Batch 14 waits. It edits `order-route.ts`, ",
+            "timestamp": 1793476808526,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8571,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-79",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "and the Phase B diff also changes ",
+            "timestamp": 1793476808571,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8616,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-80",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "that file. I will merge Phase B ",
+            "timestamp": 1793476808616,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8661,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-81",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "into the C branch before Batch 14 ",
+            "timestamp": 1793476808661,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8706,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-82",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "starts. The Phase C PR will stack ",
+            "timestamp": 1793476808706,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8751,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-83",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "on the Phase B PR.\n\n### Limits ",
+            "timestamp": 1793476808751,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8796,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-84",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "on the speed-up\n\n- The machine-wide verify ",
+            "timestamp": 1793476808796,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8841,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-85",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "lock lets only 2 heavy checks run ",
+            "timestamp": 1793476808841,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8886,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-86",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "at the same time. The other checks ",
+            "timestamp": 1793476808886,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8931,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-87",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "wait in the queue. Each check still ",
+            "timestamp": 1793476808931,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 8976,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-88",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "runs alone, which keeps memory safe.\n- ",
+            "timestamp": 1793476808976,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9021,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-89",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "Of the CLI lanes, only codex shows ",
+            "timestamp": 1793476809021,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9066,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-90",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "confirmed room on its limit. Grok and ",
+            "timestamp": 1793476809066,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9111,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-91",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "Ollama are near their weekly limits. Kimi ",
+            "timestamp": 1793476809111,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9156,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-92",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "does not report a limit. For this ",
+            "timestamp": 1793476809156,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9201,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-93",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "reason, codex does the reviews and kimi ",
+            "timestamp": 1793476809201,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9246,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-94",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "does the implementation.\n- I did not ",
+            "timestamp": 1793476809246,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9291,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-95",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "start Phase D. It depends on Phase ",
+            "timestamp": 1793476809291,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9336,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-96",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "C, and Batch 17 edits `shelf-plan.types.ts`, which ",
+            "timestamp": 1793476809336,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9381,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-97",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "Phase B also changes. Phase D can ",
+            "timestamp": 1793476809381,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9426,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-98",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "start when Phase B is committed.\n\nLedgerCoupon ",
+            "timestamp": 1793476809426,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9471,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-99",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "on pull request #711 is still rate-limited. ",
+            "timestamp": 1793476809471,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9516,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-100",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "It has posted no review. CI on ",
+            "timestamp": 1793476809516,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9561,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-101",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "head `ca15d6ae4` has no failed checks.\n\nI ",
+            "timestamp": 1793476809561,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9606,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-102",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "will act on each completion signal when ",
+            "timestamp": 1793476809606,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9651,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-103",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "blockIndex": 5,
+            "delta": "it arrives.",
+            "timestamp": 1793476809651,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9681,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-104",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-2",
+            "timestamp": 1793476809681,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 56,
+              "output": 37875
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 9711,
       "message": {
         "type": "session:stats-live",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "sessionStats": {
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "model": "claude-sonnet-4-5",
-            "totalCost": 0.017,
-            "knownCost": 0.017,
+            "model": "claude-opus-5-5",
+            "totalCost": 0,
+            "knownCost": 0,
             "tokens": {
-              "input": 1200,
-              "output": 300,
-              "cacheRead": 400,
-              "cacheCreation": 60
+              "input": 56,
+              "output": 37875,
+              "cacheRead": 0,
+              "cacheCreation": 0
             },
-            "tokenCount": 1960,
+            "tokenCount": 37931,
             "messageCount": 1,
-            "agentSessionCount": 0,
-            "cliAgents": [],
+            "agentSessionCount": 3,
+            "cliAgents": [
+              "codex",
+              "ptah-cli"
+            ],
             "modelUsageList": [
               {
-                "model": "claude-sonnet-4-5",
-                "inputTokens": 1200,
-                "outputTokens": 300,
-                "cacheRead": 400,
-                "cacheCreation": 60,
-                "costUSD": 0.017,
+                "model": "claude-opus-5-5",
+                "inputTokens": 56,
+                "outputTokens": 37875,
+                "cacheRead": 0,
+                "cacheCreation": 0,
+                "costUSD": 0,
                 "contextWindow": 200000
               }
             ],
@@ -399,772 +2694,893 @@ export const scenario = {
             "provisional": true
           },
           "context": {
-            "model": "claude-sonnet-4-5",
-            "contextTokens": 1500
+            "model": "claude-opus-5-5",
+            "contextTokens": 37931
           }
         }
       }
     },
     {
-      "at": 930,
+      "at": 9801,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-4",
-            "eventType": "text_delta",
-            "timestamp": 1793476800930,
+            "eventType": "message_start",
+            "id": "demo-105",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "blockIndex": 0,
-            "delta": "delegate focused fixes, and check the "
-          }
-        }
-      }
-    },
-    {
-      "at": 1110,
-      "message": {
-        "type": "chat:chunk",
-        "payload": {
-          "sessionId": "11111111-1111-4111-8111-111111111111",
-          "event": {
-            "id": "real-5",
-            "eventType": "text_delta",
-            "timestamp": 1793476801110,
-            "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "blockIndex": 0,
-            "delta": "results."
-          }
-        }
-      }
-    },
-    {
-      "at": 3200,
-      "message": {
-        "type": "chat:chunk",
-        "payload": {
-          "sessionId": "11111111-1111-4111-8111-111111111111",
-          "event": {
-            "id": "real-6",
-            "eventType": "tool_start",
-            "timestamp": 1793476803200,
-            "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-call-real-0",
-            "toolName": "mcp__ptah__ptah_agent_spawn",
-            "toolInput": {
-              "cli": "ptah-cli",
-              "task": "Fix the stale session notice and add a regression test."
-            },
-            "isTaskTool": false
-          }
-        }
-      }
-    },
-    {
-      "at": 3500,
-      "message": {
-        "type": "agent-monitor:spawned",
-        "payload": {
-          "agentId": "22222222-2222-4222-8222-222222222222",
-          "cli": "ptah-cli",
-          "displayName": "Kimi Code",
-          "task": "Fix the stale session notice and add a regression test.",
-          "workingDirectory": "/workspace/acme-app",
-          "status": "running",
-          "startedAt": "2026-10-31T20:00:03.500Z",
-          "parentSessionId": "11111111-1111-4111-8111-111111111111"
-        }
-      }
-    },
-    {
-      "at": 4500,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "22222222-2222-4222-8222-222222222222",
-          "stdoutDelta": "Kimi Code started the focused fix (model: demo-model).\n",
-          "stderrDelta": "",
-          "timestamp": 1793476804500,
-          "segments": [
-            {
-              "type": "info",
-              "content": "Kimi Code started the focused fix (model: demo-model)."
+            "messageId": "msg-3",
+            "role": "user",
+            "timestamp": 1793476809801,
+            "source": "complete",
+            "inboundPeer": {
+              "label": "codex · Codex CLI"
             }
-          ]
-        }
-      }
-    },
-    {
-      "at": 6700,
-      "message": {
-        "type": "chat:chunk",
-        "payload": {
-          "sessionId": "11111111-1111-4111-8111-111111111111",
-          "event": {
-            "id": "real-8",
-            "eventType": "tool_start",
-            "timestamp": 1793476806700,
-            "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-call-real-1",
-            "toolName": "mcp__ptah__ptah_agent_spawn",
-            "toolInput": {
-              "cli": "codex",
-              "task": "Harden the session folder resolver against symlinks."
-            },
-            "isTaskTool": false
           }
         }
       }
     },
     {
-      "at": 7000,
-      "message": {
-        "type": "agent-monitor:spawned",
-        "payload": {
-          "agentId": "44444444-4444-4444-8444-444444444444",
-          "cli": "codex",
-          "displayName": "Codex",
-          "task": "Harden the session folder resolver against symlinks.",
-          "workingDirectory": "/workspace/acme-app",
-          "status": "running",
-          "startedAt": "2026-10-31T20:00:07.000Z",
-          "parentSessionId": "11111111-1111-4111-8111-111111111111"
-        }
-      }
-    },
-    {
-      "at": 8000,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "44444444-4444-4444-8444-444444444444",
-          "stdoutDelta": "I will inspect the session folder code and add a regression test for symlinks.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476808000,
-          "segments": [
-            {
-              "type": "text",
-              "content": "I will inspect the session folder code and add a regression test for symlinks."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 9000,
+      "at": 9831,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-16",
-            "eventType": "tool_start",
-            "timestamp": 1793476809000,
+            "eventType": "text_delta",
+            "id": "demo-106",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-subagent-call-1",
-            "toolName": "Task",
+            "messageId": "msg-3",
+            "blockIndex": 0,
+            "delta": "<agent-report agent-id=\"22222222-2222-4222-8222-222222222222\" agent=\"Codex CLI\" cli=\"codex\">\nPhase B review: REVISE, 5/10; two concrete logic defects\n\nWrote /workspace/acme-app/worktrees/feature-b/.ptah/specs/ticket-merge/coupon-fetch.md Review finds blocking cross-account opt-in loss in agent:shipVoucher and serious ambient-lane config-dir mismatch (Decision #42). No tests/catalog-parse/cart-scan/invoice-merge run due machine lock. No skill-loading tool was available for angular-frontend-patterns.\n</agent-report>",
+            "timestamp": 1793476809831,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 9861,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-107",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-3",
+            "timestamp": 1793476809861,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 9951,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-108",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "role": "assistant",
+            "timestamp": 1793476809951,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 9981,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-109",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_14",
+            "toolName": "Read",
             "toolInput": {
-              "description": "Electron after-only visual review",
-              "subagent_type": "visual-reviewer",
+              "file_path": "/workspace/acme-app/worktrees/feature-b/.ptah/specs/ticket-merge/coupon-fetch.md"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476809981,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 10071,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-110",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_14",
+            "output": "1\t# Phase B Code Logic and Style Review — TASK_DEMO_1\n2\t\n3\tScore: **5/10**  \n4\tVerdict: **REVISE**  \n5\tReview family: reviewer: codex; implementer: claude\n6\t",
+            "isError": false,
+            "timestamp": 1793476810071,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 10195,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-111",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 0,
+            "delta": "I check both findings against the code ",
+            "timestamp": 1793476810195,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 10240,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-112",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 0,
+            "delta": "before I send them for a fix.",
+            "timestamp": 1793476810240,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 10330,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-113",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_15",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "sed -n 40,90p libs/backend/cart-resolve/src/lib/helpers/badge-sort.ts | grep -n \"CLAUDE\\|HOME\\|allow\" ; sed -n 260,300p libs/backend/banner-plan/src/lib/ptah-cli/helpers/filter-plan.service.ts; sed -n 28,45p libs/backend/banner-plan/src/lib/order-ship/profile-draft.ts",
+              "description": "Check lane env and config dir code"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476810330,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 10420,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-114",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_15",
+            "output": "4:  return { THEME_TAG: '1' };\n12:    HOME: process.env['HOME'],\n21:    HOMEDRIVE: process.env['HOMEDRIVE'],\n22:    HOMEPATH: process.env['HOMEPATH'],\n36:    XDG_CONFIG_HOME: process.env['XDG_CONFIG_HOME'],\n37:    XDG_DATA_HOME: process.env['XDG_DATA_HOME'],",
+            "isError": false,
+            "timestamp": 1793476810420,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 10552,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-115",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_16",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "grep -n \"env\\b\\|env:\\|tagBadge2\\|buildCatalog2\\|process.env\" libs/backend/banner-plan/src/lib/ptah-cli/helpers/filter-plan.service.ts | head -20; grep -rn \"storeCatalog\" libs/backend --include=*.ts | grep -v spec | grep -v \"synced-claude-skills.reader\"",
+              "description": "Find lane child env source and reader callers"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476810552,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 10642,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-116",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_16",
+            "output": "210:   *   what that child reads. Absent is the auth env's, then the host's\n270:    // launch's certified dir, else the auth env's, else the host env's (the\n277:      process.env,\nlibs/backend/cart-resolve/src/lib/helpers/order-route.ts:126:  storeCatalog,\nlibs/backend/cart-resolve/src/lib/helpers/order-route.ts:1423:                await storeCatalog(queueWidget, this.logger)…",
+            "isError": false,
+            "timestamp": 1793476810642,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 11397,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-117",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_17",
+            "toolName": "Agent",
+            "toolInput": {
+              "description": "Fix Phase B review defects",
+              "subagent_type": "backend-developer",
+              "prompt": "Fix two confirmed review defects in Phase B of TASK_DEMO_1, worktree /workspace/acme-app/worktrees/feature-b (branch feat/schedule-load2; Phase B is uncommitted there). Work only in this worktree.…",
               "run_in_background": true
             },
             "isTaskTool": true,
-            "agentType": "visual-reviewer",
-            "agentDescription": "Electron after-only visual review"
+            "timestamp": 1793476811397,
+            "source": "complete"
           }
         }
       }
     },
     {
-      "at": 9400,
+      "at": 11427,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-17",
             "eventType": "agent_start",
-            "timestamp": 1793476809400,
+            "id": "demo-118",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-subagent-call-1",
-            "agentType": "visual-reviewer",
-            "agentId": "a379c9a5178f6519a",
-            "agentDescription": "Electron after-only visual review",
-            "taskId": "99999999-9999-4999-8999-999999999999"
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_17",
+            "agentType": "backend-developer",
+            "agentDescription": "Fix Phase B review defects",
+            "agentPrompt": "Fix two confirmed review defects in Phase B of TASK_DEMO_1, worktree /workspace/acme-app/worktrees/feature-b (branch feat/schedule-load2; Phase B is uncommitted there). Work only in this worktree.…",
+            "timestamp": 1793476811427,
+            "parentToolUseId": "toolu_demo_17",
+            "agentId": "dcdace3e3261bab60",
+            "source": "complete"
           }
         }
       }
     },
     {
-      "at": 10000,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "22222222-2222-4222-8222-222222222222",
-          "stdoutDelta": "Reviewed the current session notice.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476805500,
-          "segments": [
-            {
-              "type": "text",
-              "content": "Reviewed the current session notice."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 10200,
+      "at": 11517,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-10",
+            "id": "demo-119",
+            "eventType": "background_agent_started",
+            "timestamp": 1793476811517,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_17",
+            "agentType": "backend-developer",
+            "agentDescription": "Fix Phase B review defects",
+            "agentId": "dcdace3e3261bab60",
+            "outputFilePath": "/workspace/acme-app/.tmp/cart-parse/catalog-fetch/layout-load2/catalog-ship/theme-build"
+          }
+        }
+      }
+    },
+    {
+      "at": 11547,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-120",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_17",
+            "output": "Async agent launched successfully. (This tool result is internal metadata — never quote or paste any part of it, including the parseBanner below, into a user-facing reply.)\nparseBanner: dcdace3e3261bab60 (internal ID - do not mention to user. Use RegionTheme with to: 'dcdace3e3261bab60', summary: '<5-10 word recap>' to continue this agent.)\nThe agent is working in the background.…",
+            "isError": false,
+            "timestamp": 1793476811547,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 11661,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-121",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 2,
+            "delta": "The running Phase B verification now checks ",
+            "timestamp": 1793476811661,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 11706,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-122",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 2,
+            "delta": "code that will change. The fix subagent ",
+            "timestamp": 1793476811706,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 11751,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-123",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 2,
+            "delta": "runs the same verification after its edits. ",
+            "timestamp": 1793476811751,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 11796,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-124",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 2,
+            "delta": "I stop the old run to free ",
+            "timestamp": 1793476811796,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 11841,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-125",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 2,
+            "delta": "a lock slot for the Phase C ",
+            "timestamp": 1793476811841,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 11886,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-126",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 2,
+            "delta": "checks.",
+            "timestamp": 1793476811886,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 11976,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
             "eventType": "tool_start",
-            "timestamp": 1793476810200,
+            "id": "demo-127",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-call-real-2",
-            "toolName": "mcp__ptah__ptah_agent_spawn",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_18",
+            "toolName": "ToolSearch",
             "toolInput": {
-              "cli": "antigravity",
-              "task": "Confirm each finding is fixed and no new defect was added."
+              "query": "select:TaskStop",
+              "max_results": 1
             },
-            "isTaskTool": false
+            "isTaskTool": false,
+            "timestamp": 1793476811976,
+            "source": "complete"
           }
         }
       }
     },
     {
-      "at": 10500,
-      "message": {
-        "type": "agent-monitor:spawned",
-        "payload": {
-          "agentId": "55555555-5555-4555-8555-555555555555",
-          "cli": "antigravity",
-          "displayName": "Antigravity",
-          "task": "Confirm each finding is fixed and no new defect was added.",
-          "workingDirectory": "/workspace/acme-app",
-          "status": "running",
-          "startedAt": "2026-10-31T20:00:10.500Z",
-          "parentSessionId": "11111111-1111-4111-8111-111111111111"
-        }
-      }
-    },
-    {
-      "at": 11500,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "55555555-5555-4555-8555-555555555555",
-          "stdoutDelta": "Read 6 files.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476811500,
-          "segments": [
-            {
-              "type": "info",
-              "content": "Read 6 files."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 13700,
+      "at": 12066,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-12",
+            "eventType": "tool_result",
+            "id": "demo-128",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_18",
+            "output": "",
+            "isError": false,
+            "timestamp": 1793476812066,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 12156,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
             "eventType": "tool_start",
-            "timestamp": 1793476813700,
+            "id": "demo-129",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-call-real-3",
-            "toolName": "mcp__ptah__ptah_agent_spawn",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_19",
+            "toolName": "TaskStop",
             "toolInput": {
-              "cli": "codex",
-              "task": "Fix the read-only notice path and add focused specs."
+              "task_id": "bjyecl6ou"
             },
-            "isTaskTool": false
+            "isTaskTool": false,
+            "timestamp": 1793476812156,
+            "source": "complete"
           }
         }
       }
     },
     {
-      "at": 13833,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "44444444-4444-4444-8444-444444444444",
-          "stdoutDelta": "Workspace setup complete.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476809000,
-          "segments": [
-            {
-              "type": "tool-result",
-              "content": "Workspace setup complete."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 14000,
-      "message": {
-        "type": "agent-monitor:spawned",
-        "payload": {
-          "agentId": "66666666-6666-4666-8666-666666666666",
-          "cli": "codex",
-          "displayName": "Codex",
-          "task": "Fix the read-only notice path and add focused specs.",
-          "workingDirectory": "/workspace/acme-app",
-          "status": "running",
-          "startedAt": "2026-10-31T20:00:14.000Z",
-          "parentSessionId": "11111111-1111-4111-8111-111111111111"
-        }
-      }
-    },
-    {
-      "at": 15000,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "66666666-6666-4666-8666-666666666666",
-          "stdoutDelta": "I will add the read-only notice path and focused specs.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476815000,
-          "segments": [
-            {
-              "type": "text",
-              "content": "I will add the read-only notice path and focused specs."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 15500,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "22222222-2222-4222-8222-222222222222",
-          "stdoutDelta": "Updated the session notice.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476806500,
-          "segments": [
-            {
-              "type": "text",
-              "content": "Updated the session notice."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 17200,
+      "at": 12246,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-14",
+            "eventType": "tool_result",
+            "id": "demo-130",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_19",
+            "output": "{\"message\":\"Successfully stopped task: bjyecl6ou (npm run verify -- -p @acme-app/cart-resolve,@acme-app/banner-plan,@acme-app/badge-guard,@acme-app/ledger-price,@acme-app/shared,order-draft,acme-app-vscode,ptah-cli,filter-fetch2,@acme-app/report-build,acme-app-webview > /workspace/acme-app/.tmp/region-check.log 2>&1; echo EXIT=$?)\",\"task_id\":\"bjyecl6ou\",\"ship_budget\":\"price_metric\",\"command\":\"npm run verify -- -p…",
+            "isError": false,
+            "timestamp": 1793476812246,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 12336,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
             "eventType": "tool_start",
-            "timestamp": 1793476817200,
+            "id": "demo-131",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-call-real-4",
-            "toolName": "mcp__ptah__ptah_agent_spawn",
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_20",
+            "toolName": "Bash",
             "toolInput": {
-              "cli": "antigravity",
-              "task": "Read-only review of the final change set."
+              "command": "grep -E \"Successfully ran|failed|✖|✔\" /workspace/acme-app/.tmp/region-check.log | tail -15; node scripts/cart-scan.mjs --status 2>&1 | tail -12",
+              "description": "Filter partial verify log and show lock status"
             },
-            "isTaskTool": false
+            "isTaskTool": false,
+            "timestamp": 1793476812336,
+            "source": "complete"
           }
         }
       }
     },
     {
-      "at": 17500,
-      "message": {
-        "type": "agent-monitor:spawned",
-        "payload": {
-          "agentId": "77777777-7777-4777-8777-777777777777",
-          "cli": "antigravity",
-          "displayName": "Antigravity",
-          "task": "Read-only review of the final change set.",
-          "workingDirectory": "/workspace/acme-app",
-          "status": "running",
-          "startedAt": "2026-10-31T20:00:17.500Z",
-          "parentSessionId": "11111111-1111-4111-8111-111111111111"
-        }
-      }
-    },
-    {
-      "at": 17667,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "55555555-5555-4555-8555-555555555555",
-          "stdoutDelta": "Read 4 files.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476812500,
-          "segments": [
-            {
-              "type": "tool-result",
-              "content": "Read 4 files."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 18500,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "77777777-7777-4777-8777-777777777777",
-          "stdoutDelta": "Reviewing the final change set.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476818500,
-          "segments": [
-            {
-              "type": "info",
-              "content": "Reviewing the final change set."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 19667,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "44444444-4444-4444-8444-444444444444",
-          "stdoutDelta": "Checked the session folder code.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476810000,
-          "segments": [
-            {
-              "type": "tool-result",
-              "content": "Checked the session folder code."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 21500,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "66666666-6666-4666-8666-666666666666",
-          "stdoutDelta": "Workspace setup complete.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476816000,
-          "segments": [
-            {
-              "type": "tool-result",
-              "content": "Workspace setup complete."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 21700,
+      "at": 12426,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-7",
             "eventType": "tool_result",
-            "timestamp": 1793476821700,
+            "id": "demo-132",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-call-real-0",
-            "output": "Focused work complete; checks passed.",
-            "isError": false
+            "messageId": "msg-4",
+            "toolCallId": "toolu_demo_20",
+            "output": "lock dir: /workspace/acme-app/.tmp/budget-scan\nslots: 2, free memory: 8.8 GB (a second run needs 8.0 GB)\nslot 0: pid 903994 [verify lint,test,typecheck (@acme-app/cart-check,@acme-app/ledger-store,acme-app-webview)] in /workspace/acme-app/worktrees/feature-g since 2026-10-30T15:16:40.279Z…",
+            "isError": false,
+            "timestamp": 1793476812426,
+            "source": "complete"
           }
         }
       }
     },
     {
-      "at": 22000,
-      "message": {
-        "type": "agent-monitor:exited",
-        "payload": {
-          "agentId": "22222222-2222-4222-8222-222222222222",
-          "cli": "ptah-cli",
-          "displayName": "Kimi Code",
-          "task": "Fix the stale session notice and add a regression test.",
-          "workingDirectory": "/workspace/acme-app",
-          "status": "completed",
-          "startedAt": "2026-10-31T20:00:03.500Z",
-          "completedAt": "2026-10-31T20:00:22.000Z",
-          "parentSessionId": "11111111-1111-4111-8111-111111111111"
-        }
-      }
-    },
-    {
-      "at": 23833,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "55555555-5555-4555-8555-555555555555",
-          "stdoutDelta": "Wrote 2 files.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476813500,
-          "segments": [
-            {
-              "type": "tool-result",
-              "content": "Wrote 2 files."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 25333,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "77777777-7777-4777-8777-777777777777",
-          "stdoutDelta": "Ran focused tests: 18 passed.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476819500,
-          "segments": [
-            {
-              "type": "tool-result",
-              "content": "Ran focused tests: 18 passed."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 26200,
+      "at": 12539,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-9",
-            "eventType": "tool_result",
-            "timestamp": 1793476826200,
+            "eventType": "text_delta",
+            "id": "demo-133",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-call-real-1",
-            "output": "Focused work complete; checks passed.",
-            "isError": false
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "The old verification had not started yet. ",
+            "timestamp": 1793476812539,
+            "source": "stream"
           }
         }
       }
     },
     {
-      "at": 26500,
-      "message": {
-        "type": "agent-monitor:exited",
-        "payload": {
-          "agentId": "44444444-4444-4444-8444-444444444444",
-          "cli": "codex",
-          "displayName": "Codex",
-          "task": "Harden the session folder resolver against symlinks.",
-          "workingDirectory": "/workspace/acme-app",
-          "status": "completed",
-          "startedAt": "2026-10-31T20:00:07.000Z",
-          "completedAt": "2026-10-31T20:00:26.500Z",
-          "parentSessionId": "11111111-1111-4111-8111-111111111111"
-        }
-      }
-    },
-    {
-      "at": 28000,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "66666666-6666-4666-8666-666666666666",
-          "stdoutDelta": "Confirmed the source parses cleanly.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476817000,
-          "segments": [
-            {
-              "type": "tool-result",
-              "content": "Confirmed the source parses cleanly."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 28000,
+      "at": 12584,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-18",
-            "eventType": "tool_result",
-            "timestamp": 1793476828000,
+            "eventType": "text_delta",
+            "id": "demo-134",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-subagent-call-1",
-            "output": "Focused work complete; checks passed.",
-            "isError": false
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "It waited in the queue, so no ",
+            "timestamp": 1793476812584,
+            "source": "stream"
           }
         }
       }
     },
     {
-      "at": 28500,
-      "message": {
-        "type": "session:subagentEnded",
-        "payload": {
-          "sessionId": "11111111-1111-4111-8111-111111111111",
-          "cwd": "/workspace/acme-app",
-          "agentId": "a379c9a5178f6519a",
-          "agentType": "visual-reviewer",
-          "toolCallId": "demo-subagent-call-1",
-          "lastAssistantMessage": "Visual review completed.",
-          "backgroundTasks": [],
-          "timestamp": 1793476828500
-        }
-      }
-    },
-    {
-      "at": 30700,
+      "at": 12629,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-11",
-            "eventType": "tool_result",
-            "timestamp": 1793476830700,
+            "eventType": "text_delta",
+            "id": "demo-135",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-call-real-2",
-            "output": "Focused work complete; checks passed.",
-            "isError": false
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "check time was lost.\n\nLock status now:\n",
+            "timestamp": 1793476812629,
+            "source": "stream"
           }
         }
       }
     },
     {
-      "at": 31000,
-      "message": {
-        "type": "agent-monitor:exited",
-        "payload": {
-          "agentId": "55555555-5555-4555-8555-555555555555",
-          "cli": "antigravity",
-          "displayName": "Antigravity",
-          "task": "Confirm each finding is fixed and no new defect was added.",
-          "workingDirectory": "/workspace/acme-app",
-          "status": "completed",
-          "startedAt": "2026-10-31T20:00:10.500Z",
-          "completedAt": "2026-10-31T20:00:31.000Z",
-          "parentSessionId": "11111111-1111-4111-8111-111111111111"
-        }
-      }
-    },
-    {
-      "at": 32167,
-      "message": {
-        "type": "agent-monitor:output",
-        "payload": {
-          "agentId": "77777777-7777-4777-8777-777777777777",
-          "stdoutDelta": "Read the final diff.\n",
-          "stderrDelta": "",
-          "timestamp": 1793476820500,
-          "segments": [
-            {
-              "type": "tool-result",
-              "content": "Read the final diff."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "at": 35200,
+      "at": 12674,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-13",
-            "eventType": "tool_result",
-            "timestamp": 1793476835200,
+            "eventType": "text_delta",
+            "id": "demo-136",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-call-real-3",
-            "output": "Focused work complete; checks passed.",
-            "isError": false
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "- Slot 0: a verification from another ",
+            "timestamp": 1793476812674,
+            "source": "stream"
           }
         }
       }
     },
     {
-      "at": 35500,
+      "at": 12719,
       "message": {
-        "type": "agent-monitor:exited",
+        "type": "chat:chunk",
         "payload": {
-          "agentId": "66666666-6666-4666-8666-666666666666",
-          "cli": "codex",
-          "displayName": "Codex",
-          "task": "Fix the read-only notice path and add focused specs.",
-          "workingDirectory": "/workspace/acme-app",
-          "status": "completed",
-          "startedAt": "2026-10-31T20:00:14.000Z",
-          "completedAt": "2026-10-31T20:00:35.500Z",
-          "parentSessionId": "11111111-1111-4111-8111-111111111111"
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-137",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "worktree (`feature-g`, not this task).\n- Slot ",
+            "timestamp": 1793476812719,
+            "source": "stream"
+          }
         }
       }
     },
     {
-      "at": 38000,
+      "at": 12764,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-138",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "1: the Batch 16 verification in the ",
+            "timestamp": 1793476812764,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 12809,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-139",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "Phase C worktree.\n- Queue: the Phase ",
+            "timestamp": 1793476812809,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 12854,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-140",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "B Electron rebuild, then the Batch 15 ",
+            "timestamp": 1793476812854,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 12899,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-141",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "manifest script.\n\nThe lock now limits the ",
+            "timestamp": 1793476812899,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 12944,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-142",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "speed of this task, not the number ",
+            "timestamp": 1793476812944,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 12989,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-143",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "of agents. More parallel agents would only ",
+            "timestamp": 1793476812989,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 13034,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-144",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "make the queue longer. I wait for ",
+            "timestamp": 1793476813034,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 13079,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-145",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "blockIndex": 3,
+            "delta": "the completion signals.",
+            "timestamp": 1793476813079,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 13109,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-146",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-4",
+            "timestamp": 1793476813109,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 32,
+              "output": 11214
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 13139,
       "message": {
         "type": "session:stats-live",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "sessionStats": {
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "model": "claude-sonnet-4-5",
-            "totalCost": 0.084,
-            "knownCost": 0.084,
+            "model": "claude-opus-5-5",
+            "totalCost": 0,
+            "knownCost": 0,
             "tokens": {
-              "input": 5400,
-              "output": 1750,
-              "cacheRead": 2100,
-              "cacheCreation": 350
+              "input": 88,
+              "output": 49089,
+              "cacheRead": 0,
+              "cacheCreation": 0
             },
-            "tokenCount": 9600,
-            "messageCount": 3,
-            "agentSessionCount": 1,
+            "tokenCount": 49177,
+            "messageCount": 2,
+            "agentSessionCount": 4,
             "cliAgents": [
-              "ptah-cli",
               "codex",
-              "antigravity"
+              "ptah-cli"
             ],
             "modelUsageList": [
               {
-                "model": "claude-sonnet-4-5",
-                "inputTokens": 5400,
-                "outputTokens": 1750,
-                "cacheRead": 2100,
-                "cacheCreation": 350,
-                "costUSD": 0.084,
+                "model": "claude-opus-5-5",
+                "inputTokens": 88,
+                "outputTokens": 49089,
+                "cacheRead": 0,
+                "cacheCreation": 0,
+                "costUSD": 0,
                 "contextWindow": 200000
               }
             ],
@@ -1176,209 +3592,2184 @@ export const scenario = {
             "provisional": true
           },
           "context": {
-            "model": "claude-sonnet-4-5",
-            "contextTokens": 6800
+            "model": "claude-opus-5-5",
+            "contextTokens": 49177
           }
         }
       }
     },
     {
-      "at": 39500,
+      "at": 13229,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-19",
+            "eventType": "message_start",
+            "id": "demo-147",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-5",
+            "role": "user",
+            "timestamp": 1793476813229,
+            "source": "complete",
+            "inboundPeer": {
+              "label": "codex · Codex CLI"
+            }
+          }
+        }
+      }
+    },
+    {
+      "at": 13259,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-148",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-5",
+            "blockIndex": 0,
+            "delta": "<agent-lane-completed agent-id=\"22222222-2222-4222-8222-222222222222\" agent=\"Codex CLI\" cli=\"codex\" status=\"completed\" verdict=\"delivered\">\nLane Codex CLI finished: completed (exit code 0) after 3m 17s.\nTask: Objective: independent code-logic and style review of Phase B (Batches 9-12) of TASK_DEMO_1 in worktree /workspace/acme-app…\nRole: code-logic-reviewer\nTask folder: .ptah/specs/ticket-merge\nDeliverables:\n- /workspace/acme-app/worktrees/feature-b/.ptah/specs/ticket-merge/coupon-fetch.md — 6368 bytes\nReports sent by this lane before it ended: 1.\nCLI Session ID: 55555555-5555-4555-8555-555555555555 — pass it as resume_session_id to continue this lane instead of respawning it.\nNext: read the deliverable files and verify the work yourself. A lane writing its file is not proof the content is right.\n</agent-lane-completed>",
+            "timestamp": 1793476813259,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 13289,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
             "eventType": "message_complete",
-            "timestamp": 1793476839500,
+            "id": "demo-149",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant"
+            "messageId": "msg-5",
+            "timestamp": 1793476813289,
+            "source": "complete"
           }
         }
       }
     },
     {
-      "at": 39700,
+      "at": 13379,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-15",
-            "eventType": "tool_result",
-            "timestamp": 1793476839700,
+            "eventType": "message_start",
+            "id": "demo-150",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-assistant",
-            "toolCallId": "demo-call-real-4",
-            "output": "Focused work complete; checks passed.",
-            "isError": false
+            "messageId": "msg-6",
+            "role": "assistant",
+            "timestamp": 1793476813379,
+            "source": "stream"
           }
         }
       }
     },
     {
-      "at": 40000,
+      "at": 13409,
       "message": {
-        "type": "agent-monitor:exited",
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-151",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 0,
+            "delta": "The codex review lane finished. I already ",
+            "timestamp": 1793476813409,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 13454,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-152",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 0,
+            "delta": "read its deliverable and sent both defects ",
+            "timestamp": 1793476813454,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 13499,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-153",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 0,
+            "delta": "for a fix. I keep its CLI ",
+            "timestamp": 1793476813499,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 13544,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-154",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 0,
+            "delta": "Session ID (`55555555-5555-4555-8555-555555555555`) so it can re-review ",
+            "timestamp": 1793476813544,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 13589,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-155",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 0,
+            "delta": "the fix in the same session.\n\nI ",
+            "timestamp": 1793476813589,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 13634,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-156",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 0,
+            "delta": "wait for the other streams.",
+            "timestamp": 1793476813634,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 15803,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476815803,
+          "segments": [
+            {
+              "type": "info",
+              "content": "Session started: 66666666-6666-4666-8666-666666666666 (model: k3.1-pro[1m])"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 18403,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-157",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-7",
+            "parentToolUseId": "toolu_demo_11",
+            "role": "assistant",
+            "timestamp": 1793476818403,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 18493,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-158",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-7",
+            "parentToolUseId": "toolu_demo_11",
+            "toolCallId": "toolu_demo_21",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-c && git status --short | head -30 && sed -n 285,315p .ptah/specs/ticket-merge/batches.md && sed -n 505,535p .ptah/specs/ticket-merge/implementation-plan.md",
+              "description": "Show worktree status and batch/plan sections"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476818493,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 18523,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-159",
+            "eventType": "agent_progress",
+            "timestamp": 1793476818523,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-8",
+            "parentToolUseId": "toolu_demo_11",
+            "taskId": "cbac8153fecae3d6c",
+            "description": "Phase C Batch 15 hygiene",
+            "lastToolName": "Bash",
+            "toolUses": 1,
+            "totalTokens": 0,
+            "durationMs": 12638,
+            "agentId": "cbac8153fecae3d6c"
+          }
+        }
+      }
+    },
+    {
+      "at": 18904,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-160",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-9",
+            "parentToolUseId": "toolu_demo_12",
+            "role": "assistant",
+            "timestamp": 1793476818904,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 18994,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-161",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-9",
+            "parentToolUseId": "toolu_demo_12",
+            "toolCallId": "toolu_demo_22",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-c && sed -n 305,320p .ptah/specs/ticket-merge/batches.md; sed -n 528,558p .ptah/specs/ticket-merge/implementation-plan.md; grep -n \"#20\\|20\\.\" .ptah/specs/ticket-merge/decisions.md | head; cat .ptah/specs/ticket-merge/reports/filter-ship.json | head -40; wc -l libs/backend/badge-plan/src/lib/services/ticket-sync.spec.ts"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476818994,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 19024,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-162",
+            "eventType": "agent_progress",
+            "timestamp": 1793476819024,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-10",
+            "parentToolUseId": "toolu_demo_12",
+            "taskId": "a42f138c6bc9aeec8",
+            "description": "Phase C Batch 16 tests",
+            "lastToolName": "Bash",
+            "toolUses": 1,
+            "totalTokens": 0,
+            "durationMs": 12791,
+            "agentId": "a42f138c6bc9aeec8"
+          }
+        }
+      }
+    },
+    {
+      "at": 19557,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-163",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-11",
+            "parentToolUseId": "toolu_demo_13",
+            "role": "assistant",
+            "timestamp": 1793476819557,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 19647,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-164",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-11",
+            "parentToolUseId": "toolu_demo_13",
+            "toolCallId": "toolu_demo_23",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-b; S=.ptah/specs/ticket-merge; cat $widget-track/reports/report-apply.md | head -80; echo ----; cat $widget-track/evidence/region-queue/order-load2.mjs; ls $S/evidence $widget-track/evidence/region-queue $S/prototype; node scripts/cart-scan.mjs --status"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476819647,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 19677,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-165",
+            "eventType": "agent_progress",
+            "timestamp": 1793476819677,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-12",
+            "parentToolUseId": "toolu_demo_13",
+            "taskId": "a36b7ac951e5aaa0b",
+            "description": "Phase B Electron capture",
+            "lastToolName": "Bash",
+            "toolUses": 1,
+            "totalTokens": 0,
+            "durationMs": 12893,
+            "agentId": "a36b7ac951e5aaa0b"
+          }
+        }
+      }
+    },
+    {
+      "at": 20420,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476820420,
+          "streamEvents": [
+            {
+              "id": "demo-166",
+              "eventType": "message_start",
+              "timestamp": 1793476820420,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-13",
+              "role": "assistant"
+            },
+            {
+              "id": "demo-167",
+              "eventType": "message_complete",
+              "timestamp": 1793476820420,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-13",
+              "tokenUsage": {
+                "input": 21359,
+                "output": 0
+              },
+              "cost": null,
+              "model": "k3.1-pro"
+            },
+            {
+              "id": "demo-168",
+              "eventType": "tool_start",
+              "timestamp": 1793476820420,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-13",
+              "toolCallId": "tool_nMz6dg9HsxgEuOnsHcG8tJfF",
+              "toolName": "Skill",
+              "isTaskTool": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 21127,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-169",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-14",
+            "parentToolUseId": "toolu_demo_17",
+            "role": "assistant",
+            "timestamp": 1793476821127,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 21217,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-170",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-14",
+            "parentToolUseId": "toolu_demo_17",
+            "toolCallId": "toolu_demo_24",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "grep -n \"\" .ptah/specs/ticket-merge/coupon-fetch.md | sed -n '1,200p' | cut -c1-400",
+              "description": "Read the phase B logic review"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476821217,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 21247,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-171",
+            "eventType": "agent_progress",
+            "timestamp": 1793476821247,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-15",
+            "parentToolUseId": "toolu_demo_17",
+            "taskId": "dcdace3e3261bab60",
+            "description": "Fix Phase B review defects",
+            "lastToolName": "Bash",
+            "toolUses": 1,
+            "totalTokens": 0,
+            "durationMs": 9820,
+            "agentId": "dcdace3e3261bab60"
+          }
+        }
+      }
+    },
+    {
+      "at": 23032,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-172",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-7",
+            "parentToolUseId": "toolu_demo_11",
+            "toolCallId": "toolu_demo_21",
+            "output": " M .ptah/specs/ticket-merge/HANDOFF.md\n M .ptah/specs/ticket-merge/decisions.md\n?? .ptah/specs/ticket-merge/reports/widget-watch.json\n?? .ptah/specs/ticket-merge/reports/filter-ship.json",
+            "isError": false,
+            "timestamp": 1793476823032,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 23122,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-173",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-7",
+            "parentToolUseId": "toolu_demo_11",
+            "timestamp": 1793476823122,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 217
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 23581,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-174",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-9",
+            "parentToolUseId": "toolu_demo_12",
+            "toolCallId": "toolu_demo_22",
+            "output": "- Files: `/workspace/acme-app/worktrees/feature-b/libs/backend/badge-plan/shelf-scan/cart-apply/widget-draft/order-sort.md` (delete); `/workspace/acme-app/worktrees/feature-b/libs/backend/badge-plan/src/lib/services/ticket-guard.ts`;…",
+            "isError": false,
+            "timestamp": 1793476823581,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 23671,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-175",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-9",
+            "parentToolUseId": "toolu_demo_12",
+            "timestamp": 1793476823671,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 269
+            },
+            "model": "claude-sonnet-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 24267,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-176",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-11",
+            "parentToolUseId": "toolu_demo_13",
+            "toolCallId": "toolu_demo_23",
+            "output": "# A0 Electron BEFORE capture - PRODUCED\nBoth screenshots were captured from the real Electron app. No mocks, no e2e fixtures, no install confirmed.\n## Result\n| File | Result |",
+            "isError": false,
+            "timestamp": 1793476824267,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 24357,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-177",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-11",
+            "parentToolUseId": "toolu_demo_13",
+            "timestamp": 1793476824357,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 218
+            },
+            "model": "claude-sonnet-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 25778,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-178",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-14",
+            "parentToolUseId": "toolu_demo_17",
+            "toolCallId": "toolu_demo_24",
+            "output": "1:# Phase B Code Logic and Style Review — TASK_DEMO_1\n2:\n3:Score: **5/10**  \n4:Verdict: **REVISE**  ",
+            "isError": false,
+            "timestamp": 1793476825778,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 25868,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-179",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-14",
+            "parentToolUseId": "toolu_demo_17",
+            "timestamp": 1793476825868,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 179
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 26063,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476826063,
+          "streamEvents": [
+            {
+              "id": "demo-180",
+              "eventType": "message_start",
+              "timestamp": 1793476826063,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-16",
+              "role": "assistant"
+            },
+            {
+              "id": "demo-181",
+              "eventType": "message_complete",
+              "timestamp": 1793476826063,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-16",
+              "tokenUsage": {
+                "input": 2346,
+                "output": 0
+              },
+              "cost": null,
+              "model": "k3.1-pro"
+            },
+            {
+              "id": "demo-182",
+              "eventType": "tool_start",
+              "timestamp": 1793476826063,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-16",
+              "toolCallId": "tool_BvwuAPEj81zqDZoYwMUG9hMo",
+              "toolName": "mcp__ptah__ptah_search_files",
+              "isTaskTool": false
+            },
+            {
+              "id": "demo-183",
+              "eventType": "tool_start",
+              "timestamp": 1793476826063,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-16",
+              "toolCallId": "tool_HAgm2wHaYhKu46KfPOZUdEcv",
+              "toolName": "Read",
+              "isTaskTool": false
+            },
+            {
+              "id": "demo-184",
+              "eventType": "tool_start",
+              "timestamp": 1793476826063,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-16",
+              "toolCallId": "tool_3A4yqdjQrvVfyFUStmN3lNar",
+              "toolName": "Read",
+              "isTaskTool": false
+            },
+            {
+              "id": "demo-185",
+              "eventType": "tool_start",
+              "timestamp": 1793476826063,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-16",
+              "toolCallId": "tool_H8nLbo9L1yTPjKbItV1UeCjw",
+              "toolName": "Read",
+              "isTaskTool": false
+            },
+            {
+              "id": "demo-186",
+              "eventType": "tool_start",
+              "timestamp": 1793476826063,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-16",
+              "toolCallId": "tool_4YnQ1KBazrA1vWyGECglu6Ci",
+              "toolName": "Read",
+              "isTaskTool": false
+            },
+            {
+              "id": "demo-187",
+              "eventType": "tool_start",
+              "timestamp": 1793476826063,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-16",
+              "toolCallId": "tool_eoCSPN1bicDIXLSn8QhQpxAe",
+              "toolName": "Bash",
+              "isTaskTool": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 27541,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-188",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-17",
+            "parentToolUseId": "toolu_demo_11",
+            "role": "assistant",
+            "timestamp": 1793476827541,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 27631,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-189",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-17",
+            "parentToolUseId": "toolu_demo_11",
+            "toolCallId": "toolu_demo_25",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-c && L=libs/backend/badge-plan; cat $receipt-fetch/shelf-scan/cart-apply/widget-draft/order-sort.md; echo ----; sed -n 55,100p $receipt-fetch/src/lib/services/ticket-guard.ts; echo ----; grep -rn \"REGION_CHECK2\\|engineering-hygiene\" --include=* -r libs apps scripts order-check3.json package.json 2>/workspace/acme-app/dev/null | grep -v node_modules; grep -n '\"manifest'…",
+              "description": "Inspect partial, resolver and references"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476827631,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 27661,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-190",
+            "eventType": "agent_progress",
+            "timestamp": 1793476827661,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-8",
+            "parentToolUseId": "toolu_demo_11",
+            "taskId": "cbac8153fecae3d6c",
+            "description": "Phase C Batch 15 hygiene",
+            "lastToolName": "Bash",
+            "toolUses": 2,
+            "totalTokens": 219,
+            "durationMs": 21776,
+            "agentId": "cbac8153fecae3d6c"
+          }
+        }
+      }
+    },
+    {
+      "at": 28198,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-191",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-18",
+            "parentToolUseId": "toolu_demo_12",
+            "role": "assistant",
+            "timestamp": 1793476828198,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 28288,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-192",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-18",
+            "parentToolUseId": "toolu_demo_12",
+            "toolCallId": "toolu_demo_26",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-c && cat libs/backend/badge-plan/src/lib/services/ticket-sync.spec.ts; sed -n 30,125p libs/backend/badge-plan/src/lib/services/ticket-sync.ts; git status --short | head"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476828288,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 28318,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-193",
+            "eventType": "agent_progress",
+            "timestamp": 1793476828318,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-10",
+            "parentToolUseId": "toolu_demo_12",
+            "taskId": "a42f138c6bc9aeec8",
+            "description": "Phase C Batch 16 tests",
+            "lastToolName": "Bash",
+            "toolUses": 2,
+            "totalTokens": 271,
+            "durationMs": 22085,
+            "agentId": "a42f138c6bc9aeec8"
+          }
+        }
+      }
+    },
+    {
+      "at": 28977,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-194",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-19",
+            "parentToolUseId": "toolu_demo_13",
+            "role": "assistant",
+            "timestamp": 1793476828977,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 29067,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-195",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-19",
+            "parentToolUseId": "toolu_demo_13",
+            "toolCallId": "toolu_demo_27",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-b; S=.ptah/specs/ticket-merge; sed -n 1,200p $widget-track/evidence/region-queue/order-load2.mjs | tail -90; ls $S/evidence $widget-track/evidence/region-queue $S/prototype $S/reports; node scripts/cart-scan.mjs --status; grep -n '\"name\"\\|\"executor\"\\|main' apps/order-draft/project.json | head -30"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476829067,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 29097,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-196",
+            "eventType": "agent_progress",
+            "timestamp": 1793476829097,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-12",
+            "parentToolUseId": "toolu_demo_13",
+            "taskId": "a36b7ac951e5aaa0b",
+            "description": "Phase B Electron capture",
+            "lastToolName": "Bash",
+            "toolUses": 2,
+            "totalTokens": 220,
+            "durationMs": 22313,
+            "agentId": "a36b7ac951e5aaa0b"
+          }
+        }
+      }
+    },
+    {
+      "at": 30490,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-197",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-20",
+            "parentToolUseId": "toolu_demo_17",
+            "role": "assistant",
+            "timestamp": 1793476830490,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 30580,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-198",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-20",
+            "parentToolUseId": "toolu_demo_17",
+            "toolCallId": "toolu_demo_28",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "sed -n '11,13p;21p' .ptah/specs/ticket-merge/coupon-fetch.md; echo ----; sed -n '730,790p;1195,1260p' libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.ts; grep -n \"applyTicket\\|fetchInvoice\\|shipCatalog\\|sortTheme\\|SYNCED\" libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.ts",
+              "description": "Read defect text and handler code"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476830580,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 30610,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-199",
+            "eventType": "agent_progress",
+            "timestamp": 1793476830610,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-15",
+            "parentToolUseId": "toolu_demo_17",
+            "taskId": "dcdace3e3261bab60",
+            "description": "Fix Phase B review defects",
+            "lastToolName": "Bash",
+            "toolUses": 2,
+            "totalTokens": 181,
+            "durationMs": 19183,
+            "agentId": "dcdace3e3261bab60"
+          }
+        }
+      }
+    },
+    {
+      "at": 31705,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476831705,
+          "streamEvents": [
+            {
+              "id": "demo-200",
+              "eventType": "message_start",
+              "timestamp": 1793476831705,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-21",
+              "role": "assistant"
+            },
+            {
+              "id": "demo-201",
+              "eventType": "message_complete",
+              "timestamp": 1793476831705,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-21",
+              "tokenUsage": {
+                "input": 3022,
+                "output": 0
+              },
+              "cost": null,
+              "model": "k3.1-pro"
+            },
+            {
+              "id": "demo-202",
+              "eventType": "tool_start",
+              "timestamp": 1793476831705,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-21",
+              "toolCallId": "tool_soMTlWbYUJlq9PYxfbTkmZhd",
+              "toolName": "Bash",
+              "isTaskTool": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 32170,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-203",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-17",
+            "parentToolUseId": "toolu_demo_11",
+            "toolCallId": "toolu_demo_25",
+            "output": "- Engineering hygiene: the repository's instruction files and established patterns outrank every rule here.\n- Simplicity: no abstraction, option, layer or configuration for a single implementation or a speculative future need; similar code in different contexts stays separate until a third real use…",
+            "isError": false,
+            "timestamp": 1793476832170,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 32260,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-204",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-17",
+            "parentToolUseId": "toolu_demo_11",
+            "timestamp": 1793476832260,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 290
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 32875,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-205",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-18",
+            "parentToolUseId": "toolu_demo_12",
+            "toolCallId": "toolu_demo_26",
+            "output": "import { formatMetric } from 'fs';\nimport * as path from 'path';\nimport {\n  PROFILE_APPLY,",
+            "isError": false,
+            "timestamp": 1793476832875,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 32965,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-206",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-18",
+            "parentToolUseId": "toolu_demo_12",
+            "timestamp": 1793476832965,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 169
+            },
+            "model": "claude-sonnet-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 33687,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-207",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-19",
+            "parentToolUseId": "toolu_demo_13",
+            "toolCallId": "toolu_demo_27",
+            "output": "// TASK_DEMO_119 Phase A token measurement. Same login, same workspace, same settings;\n// only the Phase A denials differ between the two sides.\nimport { query } from '/workspace/acme-app/node_modules/@anthropic-ai/theme-load/invoice-apply2.mjs';\nimport fs from 'node:fs';",
+            "isError": false,
+            "timestamp": 1793476833687,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 33777,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-208",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-19",
+            "parentToolUseId": "toolu_demo_13",
+            "timestamp": 1793476833777,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 222
+            },
+            "model": "claude-sonnet-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 34457,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-209",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 1,
+            "delta": "The Batch 15 subagent did its edits ",
+            "timestamp": 1793476834457,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 34502,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-210",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 1,
+            "delta": "and now waits in the lock queue ",
+            "timestamp": 1793476834502,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 34547,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-211",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 1,
+            "delta": "for the manifest check. It will continue ",
+            "timestamp": 1793476834547,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 34592,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-212",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 1,
+            "delta": "by itself when it gets a slot. ",
+            "timestamp": 1793476834592,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 34637,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-213",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 1,
+            "delta": "No action is necessary from me.",
+            "timestamp": 1793476834637,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 35321,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-214",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-20",
+            "parentToolUseId": "toolu_demo_17",
+            "toolCallId": "toolu_demo_28",
+            "output": "1. **Blocking — whole-list settings writes erase another account's opt-ins.** `libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.ts:1227`: `agent:shipVoucher` normalizes the submitted array against only terminal ids and synced ids currently discoverable by `applyTicket()`.…",
+            "isError": false,
+            "timestamp": 1793476835321,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 35411,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-215",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-20",
+            "parentToolUseId": "toolu_demo_17",
+            "timestamp": 1793476835411,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 317
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 36858,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-216",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-22",
+            "parentToolUseId": "toolu_demo_11",
+            "role": "assistant",
+            "timestamp": 1793476836858,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 36948,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-217",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-22",
+            "parentToolUseId": "toolu_demo_11",
+            "toolCallId": "toolu_demo_29",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-c/libs/backend/badge-plan && sed -n 1140,1215p src/lib/services/voucher-apply.spec.ts; grep -n \"^const \\|^function \\|^import\\|PROFILE_RESOLVE =\\|CATALOG_APPLY\\b =\" src/lib/services/voucher-apply.spec.ts | head -40; grep -ln \"Engineering hygiene:\" templates/agents/*.md; grep -rn \"REGION_CHECK2\\|QUOTA_GUARD\" src --include=*.spec.ts | grep -v…",
+              "description": "Read guard section j and helpers"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476836948,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 36978,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-218",
+            "eventType": "agent_progress",
+            "timestamp": 1793476836978,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-8",
+            "parentToolUseId": "toolu_demo_11",
+            "taskId": "cbac8153fecae3d6c",
+            "description": "Phase C Batch 15 hygiene",
+            "lastToolName": "Bash",
+            "toolUses": 3,
+            "totalTokens": 511,
+            "durationMs": 31093,
+            "agentId": "cbac8153fecae3d6c"
+          }
+        }
+      }
+    },
+    {
+      "at": 37528,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476837528,
+          "streamEvents": [
+            {
+              "id": "demo-219",
+              "eventType": "message_start",
+              "timestamp": 1793476837528,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-23",
+              "role": "assistant"
+            },
+            {
+              "id": "demo-220",
+              "eventType": "message_complete",
+              "timestamp": 1793476837528,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-23",
+              "tokenUsage": {
+                "input": 381,
+                "output": 0
+              },
+              "cost": null,
+              "model": "k3.1-pro"
+            },
+            {
+              "id": "demo-221",
+              "eventType": "tool_start",
+              "timestamp": 1793476837528,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-23",
+              "toolCallId": "tool_tku1MMF0v4B1mg48qbiNm6kk",
+              "toolName": "Bash",
+              "isTaskTool": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 37672,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-222",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-24",
+            "parentToolUseId": "toolu_demo_12",
+            "role": "assistant",
+            "timestamp": 1793476837672,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 37762,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-223",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-24",
+            "parentToolUseId": "toolu_demo_12",
+            "toolCallId": "toolu_demo_30",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-c && python3 - <<'EOF'\np='libs/backend/badge-plan/src/lib/services/ticket-sync.spec.ts'\ns=open(p).read()\nadd='''\n// Phase C regression (decision #20): the six REVIEW_RENDER roles keep their\n// exact deny set. Literal on purpose, so a shortening attempt fails loudly.\nconst RECEIPT_FETCH = [\n  'code-logic-reviewer',\n  'code-style-reviewer',…",
+              "timeout": 600000
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476837762,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 37792,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-224",
+            "eventType": "agent_progress",
+            "timestamp": 1793476837792,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-10",
+            "parentToolUseId": "toolu_demo_12",
+            "taskId": "a42f138c6bc9aeec8",
+            "description": "Phase C Batch 16 tests",
+            "lastToolName": "Bash",
+            "toolUses": 3,
+            "totalTokens": 442,
+            "durationMs": 31559,
+            "agentId": "a42f138c6bc9aeec8"
+          }
+        }
+      }
+    },
+    {
+      "at": 38577,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-225",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-25",
+            "parentToolUseId": "toolu_demo_13",
+            "role": "assistant",
+            "timestamp": 1793476838577,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 38667,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-226",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-25",
+            "parentToolUseId": "toolu_demo_13",
+            "toolCallId": "toolu_demo_31",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-b; sed -n 270,335p apps/order-draft/project.json; sed -n 1,60p .ptah/specs/ticket-merge/reports/profile-ship.md; ls dist/apps/order-draft 2>&1 | head; cat libs/backend/cart-resolve/src/lib/helpers/layout-store2.ts | head -120"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476838667,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 38697,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-227",
+            "eventType": "agent_progress",
+            "timestamp": 1793476838697,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-12",
+            "parentToolUseId": "toolu_demo_13",
+            "taskId": "a36b7ac951e5aaa0b",
+            "description": "Phase B Electron capture",
+            "lastToolName": "Bash",
+            "toolUses": 3,
+            "totalTokens": 444,
+            "durationMs": 31913,
+            "agentId": "a36b7ac951e5aaa0b"
+          }
+        }
+      }
+    },
+    {
+      "at": 40032,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-228",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-26",
+            "parentToolUseId": "toolu_demo_17",
+            "role": "assistant",
+            "timestamp": 1793476840032,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 40122,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-229",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-26",
+            "parentToolUseId": "toolu_demo_17",
+            "toolCallId": "toolu_demo_32",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "sed -n '800,880p' libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.ts; grep -n \"Queue\\|queue\\|private async shipVoucher\\|agent:shipVoucher'\\|THEME_ROUTE\\|QUALIFIED\\|anthropic-skills\\|import \" libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.ts | head -60",
+              "description": "Read opt-in helpers and queue usage"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476840122,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 40152,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-230",
+            "eventType": "agent_progress",
+            "timestamp": 1793476840152,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-15",
+            "parentToolUseId": "toolu_demo_17",
+            "taskId": "dcdace3e3261bab60",
+            "description": "Fix Phase B review defects",
+            "lastToolName": "Bash",
+            "toolUses": 3,
+            "totalTokens": 500,
+            "durationMs": 28725,
+            "agentId": "dcdace3e3261bab60"
+          }
+        }
+      }
+    },
+    {
+      "at": 41487,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-231",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-22",
+            "parentToolUseId": "toolu_demo_11",
+            "toolCallId": "toolu_demo_29",
+            "output": "    expect(body).not.priceTicket(/\\bptah_[a-z_]+\\b/);\n    expect(body).not.checkBudget('{{');\n    for (const phrase of BUDGET_FORMAT) {\n      expect(body).checkBudget(phrase);",
+            "isError": false,
+            "timestamp": 1793476841487,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 41577,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-232",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-22",
+            "parentToolUseId": "toolu_demo_11",
+            "timestamp": 1793476841577,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 314
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 42049,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-233",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 2,
+            "delta": "The fix subagent finished its edits and ",
+            "timestamp": 1793476842049,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 42094,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-234",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 2,
+            "delta": "now waits for its verification slot. To ",
+            "timestamp": 1793476842094,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 42139,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-235",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 2,
+            "delta": "save time, I start the codex re-review ",
+            "timestamp": 1793476842139,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 42184,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-236",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 2,
+            "delta": "of the fix now (revise round 1), ",
+            "timestamp": 1793476842184,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 42229,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-237",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 2,
+            "delta": "in parallel with the verification. I resume ",
+            "timestamp": 1793476842229,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 42274,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-238",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 2,
+            "delta": "the same codex session.",
+            "timestamp": 1793476842274,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 42529,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-239",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "toolCallId": "toolu_demo_33",
+            "toolName": "mcp__ptah__ptah_agent_spawn",
+            "toolInput": {
+              "cli": "codex",
+              "resume_session_id": "55555555-5555-4555-8555-555555555555",
+              "role": "code-logic-reviewer",
+              "taskKind": "review",
+              "workingDirectory": "/workspace/acme-app/worktrees/feature-b",
+              "taskFolder": ".ptah/specs/ticket-merge",
+              "deliverables": [
+                "coupon-fetch.md"
+              ],
+              "timeout": 1200000,
+              "task": "Revise round 1 of 2. The implementer fixed your two Phase B defects in the same worktree (/workspace/acme-app/worktrees/feature-b). Re-review ONLY the fix:…"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476842529,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 42619,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-240",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-24",
+            "parentToolUseId": "toolu_demo_12",
+            "toolCallId": "toolu_demo_30",
+            "output": "Command did not complete within its 600s timeout and was moved to the background (ID: bqswlru02). Output is being written to: /workspace/acme-app/.tmp/cart-parse/catalog-fetch/layout-load2/catalog-ship/order-draft3 You will be notified when it completes.…",
+            "isError": false,
+            "timestamp": 1793476842619,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 42709,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-241",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-24",
+            "parentToolUseId": "toolu_demo_12",
+            "timestamp": 1793476842709,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 1729
+            },
+            "model": "claude-sonnet-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 43076,
+      "message": {
+        "type": "agent-monitor:spawned",
         "payload": {
           "agentId": "77777777-7777-4777-8777-777777777777",
-          "cli": "antigravity",
-          "displayName": "Antigravity",
-          "task": "Read-only review of the final change set.",
+          "cli": "codex",
+          "task": "Revise round 1 of 2. The implementer fixed your two Phase B defects in the same worktree (/workspace/acme-app/worktrees/feature-b). Re-review ONLY the fix:…",
           "workingDirectory": "/workspace/acme-app",
-          "status": "completed",
-          "startedAt": "2026-10-31T20:00:17.500Z",
-          "completedAt": "2026-10-31T20:00:40.000Z",
-          "parentSessionId": "11111111-1111-4111-8111-111111111111"
+          "status": "running",
+          "startedAt": "2026-10-31T20:00:43.076Z",
+          "parentSessionId": "11111111-1111-4111-8111-111111111111",
+          "displayName": "Codex CLI",
+          "model": "gpt-6-sol",
+          "role": "code-logic-reviewer"
         }
       }
     },
     {
-      "at": 40000,
+      "at": 43166,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-20",
-            "eventType": "message_start",
-            "timestamp": 1793476840000,
+            "eventType": "tool_result",
+            "id": "demo-242",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-summary",
-            "role": "assistant"
+            "messageId": "msg-6",
+            "toolCallId": "toolu_demo_33",
+            "output": "## Agent Spawned\n**Agent ID:** 77777777-7777-4777-8777-777777777777  \n**CLI:** codex  \n**Role:** code-logic-reviewer (preamble via developer-instructions)  \n**Status:** running  \n**Started:** 2026-10-30T15:31:17.567Z  ",
+            "isError": false,
+            "timestamp": 1793476843166,
+            "source": "complete"
           }
         }
       }
     },
     {
-      "at": 40500,
+      "at": 43268,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-21",
             "eventType": "text_delta",
-            "timestamp": 1793476840500,
+            "id": "demo-243",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-summary",
-            "blockIndex": 0,
-            "delta": "The focused fixes and independent review "
+            "messageId": "msg-6",
+            "blockIndex": 3,
+            "delta": "PtahCode started a fresh codex lane with ",
+            "timestamp": 1793476843268,
+            "source": "stream"
           }
         }
       }
     },
     {
-      "at": 40680,
+      "at": 43313,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-22",
             "eventType": "text_delta",
-            "timestamp": 1793476840680,
+            "id": "demo-244",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-summary",
-            "blockIndex": 0,
-            "delta": "are complete. The session notice now "
+            "messageId": "msg-6",
+            "blockIndex": 3,
+            "delta": "a handoff brief, not a resumed session, ",
+            "timestamp": 1793476843313,
+            "source": "stream"
           }
         }
       }
     },
     {
-      "at": 40860,
+      "at": 43358,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-23",
             "eventType": "text_delta",
-            "timestamp": 1793476840860,
+            "id": "demo-245",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-summary",
-            "blockIndex": 0,
-            "delta": "follows the active session."
+            "messageId": "msg-6",
+            "blockIndex": 3,
+            "delta": "because the old context was too large. ",
+            "timestamp": 1793476843358,
+            "source": "stream"
           }
         }
       }
     },
     {
-      "at": 46000,
+      "at": 43403,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-24",
+            "eventType": "text_delta",
+            "id": "demo-246",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 3,
+            "delta": "The task is still complete without the ",
+            "timestamp": 1793476843403,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 43448,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-247",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 3,
+            "delta": "old context: the review file it updates ",
+            "timestamp": 1793476843448,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 43493,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-248",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 3,
+            "delta": "contains both original defects.\n\nI wait for ",
+            "timestamp": 1793476843493,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 43538,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-249",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-6",
+            "blockIndex": 3,
+            "delta": "the signals.",
+            "timestamp": 1793476843538,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 43568,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
             "eventType": "message_complete",
-            "timestamp": 1793476846000,
+            "id": "demo-250",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "main-summary"
+            "messageId": "msg-6",
+            "timestamp": 1793476843568,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 14,
+              "output": 4071
+            },
+            "model": "claude-opus-5-5"
           }
         }
       }
     },
     {
-      "at": 46100,
+      "at": 43598,
       "message": {
-        "type": "session:stats",
+        "type": "session:stats-live",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
-          "turnCost": 0.084,
-          "tokens": {
-            "input": 5400,
-            "output": 1750,
-            "cacheRead": 2100,
-            "cacheCreation": 350
-          },
-          "duration": 30000,
-          "modelUsage": [
-            {
-              "model": "claude-sonnet-4-5",
-              "inputTokens": 5400,
-              "outputTokens": 1750,
-              "cacheReadInputTokens": 2100,
-              "contextWindow": 200000,
-              "contextCapacity": {
-                "model": "claude-sonnet-4-5",
-                "tokens": 200000,
-                "source": "sdk-native",
-                "providerId": null
-              },
-              "costUSD": 0.084,
-              "lastTurnContextTokens": 6800
-            }
-          ],
           "sessionStats": {
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "model": "claude-sonnet-4-5",
-            "totalCost": 0.084,
-            "knownCost": 0.084,
+            "model": "claude-opus-5-5",
+            "totalCost": 0,
+            "knownCost": 0,
             "tokens": {
-              "input": 5400,
-              "output": 1750,
-              "cacheRead": 2100,
-              "cacheCreation": 350
+              "input": 102,
+              "output": 53160,
+              "cacheRead": 0,
+              "cacheCreation": 0
             },
-            "tokenCount": 9600,
+            "tokenCount": 53262,
             "messageCount": 3,
-            "agentSessionCount": 1,
+            "agentSessionCount": 4,
             "cliAgents": [
-              "ptah-cli",
               "codex",
-              "antigravity"
+              "ptah-cli"
             ],
             "modelUsageList": [
               {
-                "model": "claude-sonnet-4-5",
-                "inputTokens": 5400,
-                "outputTokens": 1750,
-                "cacheRead": 2100,
-                "cacheCreation": 350,
-                "costUSD": 0.084,
+                "model": "claude-opus-5-5",
+                "inputTokens": 102,
+                "outputTokens": 53160,
+                "cacheRead": 0,
+                "cacheCreation": 0,
+                "costUSD": 0,
                 "contextWindow": 200000
               }
             ],
@@ -1386,51 +5777,3440 @@ export const scenario = {
             "coverage": "complete",
             "pricingCoverage": "full",
             "scope": "session",
-            "revision": 5
+            "revision": 3,
+            "provisional": true
+          },
+          "context": {
+            "model": "claude-opus-5-5",
+            "contextTokens": 53262
           }
         }
       }
     },
     {
-      "at": 46500,
+      "at": 43920,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476843920,
+          "streamEvents": [
+            {
+              "id": "demo-251",
+              "eventType": "message_start",
+              "timestamp": 1793476843920,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-27",
+              "role": "assistant"
+            },
+            {
+              "id": "demo-252",
+              "eventType": "message_complete",
+              "timestamp": 1793476843920,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-27",
+              "tokenUsage": {
+                "input": 1903,
+                "output": 0
+              },
+              "cost": null,
+              "model": "k3.1-pro"
+            },
+            {
+              "id": "demo-253",
+              "eventType": "tool_start",
+              "timestamp": 1793476843920,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-27",
+              "toolCallId": "tool_XPc1i4snXD4ebB2pK7fThTdv",
+              "toolName": "Bash",
+              "isTaskTool": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 44010,
       "message": {
         "type": "chat:chunk",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "event": {
-            "id": "real-25",
-            "eventType": "turn_state",
-            "timestamp": 1793476846500,
+            "eventType": "tool_result",
+            "id": "demo-254",
             "sessionId": "11111111-1111-4111-8111-111111111111",
-            "messageId": "turn-state-11111111-1111-4111-8111-111111111111",
-            "phase": "idle",
-            "revision": 3,
-            "backgroundTasks": [],
-            "sessionCrons": [],
-            "terminalReason": "completed",
-            "lastAssistantMessage": "The fixes and review are complete."
+            "messageId": "msg-25",
+            "parentToolUseId": "toolu_demo_13",
+            "toolCallId": "toolu_demo_31",
+            "output": "          }\n        },\n        \"external\": [\"@huggingface/quota-scan2\", \"kokoro-js\"]\n      }",
+            "isError": false,
+            "timestamp": 1793476844010,
+            "source": "complete"
           }
         }
       }
     },
     {
-      "at": 47000,
+      "at": 44100,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-255",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-25",
+            "parentToolUseId": "toolu_demo_13",
+            "timestamp": 1793476844100,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 288
+            },
+            "model": "claude-sonnet-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 44190,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "77777777-7777-4777-8777-777777777777",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476844190,
+          "segments": [
+            {
+              "type": "text",
+              "content": "I’ll inspect the two fix diffs, their tests, and the existing review. I’ll then update only the round 1 section, score, and verdict; I won’t run checks while verification holds the machine lock.",
+              "messageId": "sort_filter"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 44759,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "77777777-7777-4777-8777-777777777777",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476844759,
+          "segments": [
+            {
+              "type": "command",
+              "content": "# Decisions - TASK_DEMO_1\n| # | Stage | Decision | Source | Evidence |\n|---|---|---|---|---|\n| 1 | pre-flight | Type FEATURE, depth Full | user request + orchestration rule table (new settings, install scope, migration across 4 areas) | context.md |",
+              "toolName": "/workspace/acme-app/bin/bash -lc 'tail -n 130 .ptah/specs/ticket-merge/decisions.md'",
+              "exitCode": 0,
+              "toolCallId": "load_shelf"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 45329,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "77777777-7777-4777-8777-777777777777",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476845329,
+          "segments": [
+            {
+              "type": "tool-call",
+              "toolName": "Bash",
+              "toolArgs": "/workspace/acme-app/bin/bash -lc 'git diff -- libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.ts libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.spec.ts'",
+              "toolInput": {
+                "command": "git diff -- libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.ts libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.spec.ts",
+                "description": "git"
+              },
+              "content": "",
+              "toolCallId": "route_catalog2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 45419,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-256",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-26",
+            "parentToolUseId": "toolu_demo_17",
+            "toolCallId": "toolu_demo_32",
+            "output": "  /**\n   * The stored Claude built-in opt-ins: tools kept to the catalog, skills\n   * kept to the terminal catalog plus every qualified synced id\n   * (`anthropic-skills:<name>`), which the session build reads from the same",
+            "isError": false,
+            "timestamp": 1793476845419,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 45509,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-257",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-26",
+            "parentToolUseId": "toolu_demo_17",
+            "timestamp": 1793476845509,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 316
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 46000,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "77777777-7777-4777-8777-777777777777",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476846000,
+          "segments": [
+            {
+              "type": "tool-call",
+              "toolName": "mcp__ptah__ptah_ast_analyze",
+              "toolInput": {
+                "file": "/workspace/acme-app/worktrees/feature-b/libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.spec.ts"
+              },
+              "content": "",
+              "toolCallId": "guard_layout"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 46570,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "77777777-7777-4777-8777-777777777777",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476846570,
+          "segments": [
+            {
+              "type": "tool-call",
+              "toolName": "Bash",
+              "toolArgs": "/workspace/acme-app/bin/bash -lc 'git diff -U3 -- libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.spec.ts | tail -n 250'",
+              "toolInput": {
+                "command": "git diff -U3 -- libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.spec.ts | tail -n 250",
+                "description": "git"
+              },
+              "content": "",
+              "toolCallId": "route_invoice"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 46732,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-258",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-28",
+            "parentToolUseId": "toolu_demo_11",
+            "role": "assistant",
+            "timestamp": 1793476846732,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 46822,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-259",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-28",
+            "parentToolUseId": "toolu_demo_11",
+            "toolCallId": "toolu_demo_34",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-c && grep -rn \"QUOTA_GUARD\\|_shared/\\|scanCoupon\" libs/backend/badge-plan/src scripts/quota-queue.js | grep -v \"^.*://\" | head -30; cd libs/backend/badge-plan/shelf-scan/cart-apply; for f in backend-developer frontend-developer software-architect code-style-reviewer; do echo \"== $f\"; grep -n \"Engineering hygiene:\\|Runtime cost:\" $badge-ship.md; done",
+              "description": "Find other users and hygiene boundaries"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476846822,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 46852,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-260",
+            "eventType": "agent_progress",
+            "timestamp": 1793476846852,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-8",
+            "parentToolUseId": "toolu_demo_11",
+            "taskId": "cbac8153fecae3d6c",
+            "description": "Phase C Batch 15 hygiene",
+            "lastToolName": "Bash",
+            "toolUses": 4,
+            "totalTokens": 827,
+            "durationMs": 40967,
+            "agentId": "cbac8153fecae3d6c"
+          }
+        }
+      }
+    },
+    {
+      "at": 47260,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "77777777-7777-4777-8777-777777777777",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476847260,
+          "segments": [
+            {
+              "type": "tool-result",
+              "content": "{\"index\":{\"watchCoupon\":0,\"guardBadge\":null,\"guardBudget2\":false,\"parseCoupon2\":false},\"coverage\":{\"clean\":false,\"reasons\":[\"census?\",\"unchecked?\",\"failed?\"],\"sortInvoice\":[\"typescript\",\"javascript\",\"tsx\",\"python\",\"go\",\"csharp\",\"java\",\"kotlin\",\"rust\",\"php\",\"ru…",
+              "toolCallId": "track_review"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 47702,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-261",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-29",
+            "parentToolUseId": "toolu_demo_12",
+            "role": "assistant",
+            "timestamp": 1793476847702,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 47792,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-262",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-29",
+            "parentToolUseId": "toolu_demo_12",
+            "toolCallId": "toolu_demo_35",
+            "toolName": "Monitor",
+            "toolInput": {
+              "query": "select:Monitor"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476847792,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 47822,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-263",
+            "eventType": "agent_progress",
+            "timestamp": 1793476847822,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-10",
+            "parentToolUseId": "toolu_demo_12",
+            "taskId": "a42f138c6bc9aeec8",
+            "description": "Phase C Batch 16 tests",
+            "lastToolName": "Monitor",
+            "toolUses": 4,
+            "totalTokens": 2173,
+            "durationMs": 41589,
+            "agentId": "a42f138c6bc9aeec8"
+          }
+        }
+      }
+    },
+    {
+      "at": 47949,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "77777777-7777-4777-8777-777777777777",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476847949,
+          "segments": [
+            {
+              "type": "tool-call",
+              "toolName": "Bash",
+              "toolArgs": "/workspace/acme-app/bin/bash -lc \"nl -ba libs/backend/cart-resolve/src/lib/helpers/layout-store2.ts | sed -n '328,361p'\"",
+              "toolInput": {
+                "command": "nl -ba libs/backend/cart-resolve/src/lib/helpers/layout-store2.ts | sed -n '328,361p'",
+                "description": "nl"
+              },
+              "content": "",
+              "toolCallId": "load_invoice"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 48519,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "77777777-7777-4777-8777-777777777777",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476848519,
+          "segments": [
+            {
+              "type": "text",
+              "content": "WROTE: /workspace/acme-app/worktrees/feature-b/.ptah/specs/ticket-merge/coupon-fetch.md\n\n**APPROVED, 8/10:** both logic defects are fixed. One minor stale JSDoc comment remains.",
+              "messageId": "tag_report"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 48733,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-264",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-30",
+            "parentToolUseId": "toolu_demo_13",
+            "role": "assistant",
+            "timestamp": 1793476848733,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 48823,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-265",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-30",
+            "parentToolUseId": "toolu_demo_13",
+            "toolCallId": "toolu_demo_36",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-b; sed -n 120,330p libs/backend/cart-resolve/src/lib/helpers/layout-store2.ts; sed -n 335,350p apps/order-draft/project.json; ls /workspace/acme-app/.tmp/schedule-price /workspace/acme-app/.tmp/catalog-build 2>&1|head -30"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476848823,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 48853,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-266",
+            "eventType": "agent_progress",
+            "timestamp": 1793476848853,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-12",
+            "parentToolUseId": "toolu_demo_13",
+            "taskId": "a36b7ac951e5aaa0b",
+            "description": "Phase B Electron capture",
+            "lastToolName": "Bash",
+            "toolUses": 4,
+            "totalTokens": 734,
+            "durationMs": 42069,
+            "agentId": "a36b7ac951e5aaa0b"
+          }
+        }
+      }
+    },
+    {
+      "at": 49072,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-267",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-31",
+            "role": "user",
+            "timestamp": 1793476849072,
+            "source": "complete",
+            "inboundPeer": {
+              "label": "codex · Codex CLI"
+            }
+          }
+        }
+      }
+    },
+    {
+      "at": 49102,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-268",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-31",
+            "blockIndex": 0,
+            "delta": "<agent-report agent-id=\"77777777-7777-4777-8777-777777777777\" agent=\"Codex CLI\" cli=\"codex\">\nPhase B round 1 re-review: APPROVED, 8/10\n\nUpdated /workspace/acme-app/worktrees/feature-b/.ptah/specs/ticket-merge/coupon-fetch.md Both prior logic defects are FIXED; the host-only and cross-account regression tests would fail on the old code. One minor stale JSDoc comment remains at filter-plan.service.ts:209–212. No tests/schedule-queue/cart-scan/invoice-merge were run, as instructed under the machine lock. reports/quota-parse.json was absent.\n</agent-report>",
+            "timestamp": 1793476849102,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 49132,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-269",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-31",
+            "timestamp": 1793476849132,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 49230,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-270",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "role": "assistant",
+            "timestamp": 1793476849230,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 49260,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-271",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "toolCallId": "toolu_demo_37",
+            "toolName": "Read",
+            "toolInput": {
+              "file_path": "/workspace/acme-app/worktrees/feature-b/libs/backend/banner-plan/src/lib/ptah-cli/helpers/filter-plan.service.ts",
+              "offset": 203,
+              "limit": 14
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476849260,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 49350,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-272",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "toolCallId": "toolu_demo_37",
+            "output": "203\t   *   which spawned agent is calling `apply_schedule`. Absent yields the\n204\t   *   pre-existing workspace-only URL and an unattributed caller.\n205\t   * @param loadLedger - The capability policy `ProfileBudgetRegistry`\n206\t   *   resolved for `cwd` (TASK_DEMO_120). Absent is treated as unverified, so\n207\t   *   a caller that supplies none can only narrow the spawn, never widen it\n208\t   *   (R8).",
+            "isError": false,
+            "timestamp": 1793476849350,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 49440,
+      "message": {
+        "type": "agent-monitor:exited",
+        "payload": {
+          "agentId": "77777777-7777-4777-8777-777777777777",
+          "cli": "codex",
+          "task": "Revise round 1 of 2. The implementer fixed your two Phase B defects in the same worktree (/workspace/acme-app/worktrees/feature-b). Re-review ONLY the fix:…",
+          "workingDirectory": "/workspace/acme-app",
+          "status": "completed",
+          "startedAt": "2026-10-31T20:00:43.076Z",
+          "parentSessionId": "11111111-1111-4111-8111-111111111111",
+          "displayName": "Codex CLI",
+          "model": "gpt-6-sol",
+          "role": "code-logic-reviewer",
+          "completedAt": "2026-10-31T20:00:49.440Z",
+          "exitCode": 0
+        }
+      }
+    },
+    {
+      "at": 49530,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-273",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 0,
+            "delta": "The review is APPROVED (8/10). The one ",
+            "timestamp": 1793476849530,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 49575,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-274",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 0,
+            "delta": "minor finding is a stale JSDoc line. ",
+            "timestamp": 1793476849575,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 49620,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-275",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 0,
+            "delta": "I fix it now; it is a ",
+            "timestamp": 1793476849620,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 49665,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-276",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 0,
+            "delta": "comment-only edit.",
+            "timestamp": 1793476849665,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 49755,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-277",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "toolCallId": "toolu_demo_38",
+            "toolName": "Edit",
+            "toolInput": {
+              "replace_all": false,
+              "file_path": "/workspace/acme-app/worktrees/feature-b/libs/backend/banner-plan/src/lib/ptah-cli/helpers/filter-plan.service.ts",
+              "old_string": "   *   what that child reads. Absent is the auth env's, then the host's\n   *   `SHELF_APPLY` (or `/workspace/acme-app/.order-ship`) and `cwd`.",
+              "new_string": "   *   what that child reads. Absent is the `SHELF_APPLY` of the env\n   *   the child gets (or `/workspace/acme-app/.order-ship`) and `cwd`; the host env is not read."
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476849755,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 49845,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-278",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "toolCallId": "toolu_demo_38",
+            "output": "The file /workspace/acme-app/worktrees/feature-b/libs/backend/banner-plan/src/lib/ptah-cli/helpers/filter-plan.service.ts has been updated successfully.",
+            "isError": false,
+            "timestamp": 1793476849845,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 49972,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-279",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "toolCallId": "toolu_demo_39",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "git diff -- libs/backend/banner-plan/src/lib/ptah-cli/helpers/filter-plan.service.ts | grep -n \"^[+-]\" | sed -n 1,60p | grep -v \"^\\s*$\" | grep -i -E \"configdir|safeenv|process.env|guardLayout2\" ",
+              "description": "Confirm the fix uses the child env"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476849972,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 50062,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-280",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "toolCallId": "toolu_demo_39",
+            "output": "9:+  tagBadge2,\n17:+  guardCart,\n39:-    const storeCatalog2 = resolveReceipt(\n46:+    const storeCatalog2 = resolveReceipt(draftWidget);\n51:+    const queueWidget = guardCart([\n52:+      checkVoucher?.queueWidget",
+            "isError": false,
+            "timestamp": 1793476850062,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 50176,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476850176,
+          "streamEvents": [
+            {
+              "id": "demo-281",
+              "eventType": "message_start",
+              "timestamp": 1793476850176,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-33",
+              "role": "assistant"
+            },
+            {
+              "id": "demo-282",
+              "eventType": "message_complete",
+              "timestamp": 1793476850176,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-33",
+              "tokenUsage": {
+                "input": 708,
+                "output": 0
+              },
+              "cost": null,
+              "model": "k3.1-pro"
+            },
+            {
+              "id": "demo-283",
+              "eventType": "tool_start",
+              "timestamp": 1793476850176,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-33",
+              "toolCallId": "tool_2EVgdGMwCIa3vfbHigCjUFXD",
+              "toolName": "Bash",
+              "isTaskTool": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 50266,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-284",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 1,
+            "delta": "The comment now matches the code: an ",
+            "timestamp": 1793476850266,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 50311,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-285",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 1,
+            "delta": "ambient lane uses `tagBadge2(resolveFilter)`, and the host ",
+            "timestamp": 1793476850311,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 50356,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-286",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 1,
+            "delta": "`process.env` is not read.\n\nPhase B status:\n",
+            "timestamp": 1793476850356,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 50401,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-287",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 1,
+            "delta": "- Review: APPROVED by codex (8/10), both ",
+            "timestamp": 1793476850401,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 50446,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-288",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 1,
+            "delta": "defects fixed.\n- Waiting: the fix subagent's ",
+            "timestamp": 1793476850446,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 50491,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-289",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 1,
+            "delta": "full verification, and the Electron capture with ",
+            "timestamp": 1793476850491,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 50536,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-290",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 1,
+            "delta": "token measurement.\n\nWhen both pass, I commit ",
+            "timestamp": 1793476850536,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 50581,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-291",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 1,
+            "delta": "Phase B, merge `origin/main`, push and open ",
+            "timestamp": 1793476850581,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 50626,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-292",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "blockIndex": 1,
+            "delta": "the PR against `main`.",
+            "timestamp": 1793476850626,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 50656,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-293",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-32",
+            "timestamp": 1793476850656,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 14,
+              "output": 2240
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 50686,
+      "message": {
+        "type": "session:stats-live",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-opus-5-5",
+            "totalCost": 0,
+            "knownCost": 0,
+            "tokens": {
+              "input": 116,
+              "output": 55400,
+              "cacheRead": 0,
+              "cacheCreation": 0
+            },
+            "tokenCount": 55516,
+            "messageCount": 4,
+            "agentSessionCount": 4,
+            "cliAgents": [
+              "codex",
+              "ptah-cli"
+            ],
+            "modelUsageList": [
+              {
+                "model": "claude-opus-5-5",
+                "inputTokens": 116,
+                "outputTokens": 55400,
+                "cacheRead": 0,
+                "cacheCreation": 0,
+                "costUSD": 0,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 4,
+            "provisional": true
+          },
+          "context": {
+            "model": "claude-opus-5-5",
+            "contextTokens": 55516
+          }
+        }
+      }
+    },
+    {
+      "at": 50776,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-294",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-34",
+            "role": "user",
+            "timestamp": 1793476850776,
+            "source": "complete",
+            "inboundPeer": {
+              "label": "codex · Codex CLI"
+            }
+          }
+        }
+      }
+    },
+    {
+      "at": 50806,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-295",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-34",
+            "blockIndex": 0,
+            "delta": "<agent-lane-completed agent-id=\"77777777-7777-4777-8777-777777777777\" agent=\"Codex CLI\" cli=\"codex\" status=\"completed\" verdict=\"delivered\">\nLane Codex CLI finished: completed (exit code 0) after 2m 33s.\nTask: Revise round 1 of 2. The implementer fixed your two Phase B defects in the same worktree (/workspace/acme-app/.profile-parse…\nRole: code-logic-reviewer\nTask folder: .ptah/specs/ticket-merge\nDeliverables:\n- /workspace/acme-app/worktrees/feature-b/.ptah/specs/ticket-merge/coupon-fetch.md — 8725 bytes\nReports sent by this lane before it ended: 1.\nCLI Session ID: 88888888-8888-4888-8888-888888888888 — pass it as resume_session_id to continue this lane instead of respawning it.\nNext: read the deliverable files and verify the work yourself. A lane writing its file is not proof the content is right.\n</agent-lane-completed>",
+            "timestamp": 1793476850806,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 50836,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-296",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-34",
+            "timestamp": 1793476850836,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 50938,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-297",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-35",
+            "role": "assistant",
+            "timestamp": 1793476850938,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 50968,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-298",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-35",
+            "toolCallId": "toolu_demo_40",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-b/.ptah/specs/ticket-merge && sed -n 1,6p coupon-fetch.md; sed -n '/## Round 1 re-review/,$p' coupon-fetch.md",
+              "description": "Read round 1 re-review section"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476850968,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 51058,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-299",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-35",
+            "toolCallId": "toolu_demo_40",
+            "output": "# Phase B Code Logic and Style Review — TASK_DEMO_1\nScore: **8/10**  \nVerdict: **APPROVED**  \nReview family: reviewer: codex; implementer: claude\n## Round 1 re-review\n1. **FIXED — cross-account whole-list write.** `libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.ts:1227–1242` now merges stored qualified synced ids absent from current discovery into the submitted list.…",
+            "isError": false,
+            "timestamp": 1793476851058,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 51148,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-300",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-35",
+            "blockIndex": 0,
+            "delta": "I read the re-review and checked it ",
+            "timestamp": 1793476851148,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 51193,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-301",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-35",
+            "blockIndex": 0,
+            "delta": "against the code. Both defects are FIXED, ",
+            "timestamp": 1793476851193,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 51238,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-302",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-35",
+            "blockIndex": 0,
+            "delta": "and the new tests would fail on ",
+            "timestamp": 1793476851238,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 51283,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-303",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-35",
+            "blockIndex": 0,
+            "delta": "the old code. I already fixed the ",
+            "timestamp": 1793476851283,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 51328,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-304",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-35",
+            "blockIndex": 0,
+            "delta": "one minor stale comment. The Phase B ",
+            "timestamp": 1793476851328,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 51373,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-305",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-35",
+            "blockIndex": 0,
+            "delta": "review gate passed.\n\nThe remaining Phase B ",
+            "timestamp": 1793476851373,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 51418,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-306",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-35",
+            "blockIndex": 0,
+            "delta": "gates are the fix subagent's verification and ",
+            "timestamp": 1793476851418,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 51463,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-307",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-35",
+            "blockIndex": 0,
+            "delta": "the Electron capture.",
+            "timestamp": 1793476851463,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 51493,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-308",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-35",
+            "timestamp": 1793476851493,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 4,
+              "output": 278
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 51523,
+      "message": {
+        "type": "session:stats-live",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-opus-5-5",
+            "totalCost": 0,
+            "knownCost": 0,
+            "tokens": {
+              "input": 120,
+              "output": 55678,
+              "cacheRead": 0,
+              "cacheCreation": 0
+            },
+            "tokenCount": 55798,
+            "messageCount": 5,
+            "agentSessionCount": 4,
+            "cliAgents": [
+              "codex",
+              "ptah-cli"
+            ],
+            "modelUsageList": [
+              {
+                "model": "claude-opus-5-5",
+                "inputTokens": 120,
+                "outputTokens": 55678,
+                "cacheRead": 0,
+                "cacheCreation": 0,
+                "costUSD": 0,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 5,
+            "provisional": true
+          },
+          "context": {
+            "model": "claude-opus-5-5",
+            "contextTokens": 55798
+          }
+        }
+      }
+    },
+    {
+      "at": 51754,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-309",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-36",
+            "parentToolUseId": "toolu_demo_17",
+            "role": "assistant",
+            "timestamp": 1793476851754,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 51844,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-310",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-36",
+            "parentToolUseId": "toolu_demo_17",
+            "toolCallId": "toolu_demo_41",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "f=libs/backend/badge-guard/src/lib/filter-merge/widget-resolve.handlers.spec.ts; grep -n \"anthropic-skills\\|storeCatalog\\|shipCatalog\\|describe(\\|jest.mock\" $f | head -80",
+              "description": "Find relevant spec sections"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476851844,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 51874,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-311",
+            "eventType": "agent_progress",
+            "timestamp": 1793476851874,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-15",
+            "parentToolUseId": "toolu_demo_17",
+            "taskId": "dcdace3e3261bab60",
+            "description": "Fix Phase B review defects",
+            "lastToolName": "Bash",
+            "toolUses": 4,
+            "totalTokens": 818,
+            "durationMs": 40447,
+            "agentId": "dcdace3e3261bab60"
+          }
+        }
+      }
+    },
+    {
+      "at": 52984,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-312",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-28",
+            "parentToolUseId": "toolu_demo_11",
+            "toolCallId": "toolu_demo_34",
+            "output": "libs/backend/badge-plan/src/lib/services/ticket-guard.ts:25: *  - A well-formed id resolves from `_shared/<kebab-name>.md` when that file\nlibs/backend/badge-plan/src/lib/services/ticket-guard.ts:26: *    exists, whether or not it is in {@link QUOTA_GUARD}. A template…",
+            "isError": false,
+            "timestamp": 1793476852984,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 53074,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-313",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-28",
+            "parentToolUseId": "toolu_demo_11",
+            "timestamp": 1793476853074,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 356
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 54002,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-314",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-29",
+            "parentToolUseId": "toolu_demo_12",
+            "toolCallId": "toolu_demo_35",
+            "output": "<track_cart>MetricLayoutError: Monitor failed due to the following issue:\nThe required parameter `description` is missing\nThis tool's schema was not sent to the API — it was not in the discovered-tool set derived from message history.…",
+            "isError": true,
+            "timestamp": 1793476854002,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 54092,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-315",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-29",
+            "parentToolUseId": "toolu_demo_12",
+            "timestamp": 1793476854092,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 53
+            },
+            "model": "claude-sonnet-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 55066,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-316",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-30",
+            "parentToolUseId": "toolu_demo_13",
+            "toolCallId": "toolu_demo_36",
+            "output": "    }),\n  ),\n});\n/**",
+            "isError": false,
+            "timestamp": 1793476855066,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 55156,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-317",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-30",
+            "parentToolUseId": "toolu_demo_13",
+            "timestamp": 1793476855156,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 194
+            },
+            "model": "claude-sonnet-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 56405,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-318",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-36",
+            "parentToolUseId": "toolu_demo_17",
+            "toolCallId": "toolu_demo_41",
+            "output": "16:jest.mock('@acme-app/banner-plan', () => ({\n33:jest.mock('@acme-app/cart-resolve', () => ({\n53:jest.mock('@acme-app/layout-scan', () => ({\n331:describe('BannerVoucher — agent:shipFilter2 resume decision (G.6)', () => {",
+            "isError": false,
+            "timestamp": 1793476856405,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 56495,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-319",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-36",
+            "parentToolUseId": "toolu_demo_17",
+            "timestamp": 1793476856495,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 399
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 56935,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476856935,
+          "streamEvents": [
+            {
+              "id": "demo-320",
+              "eventType": "message_start",
+              "timestamp": 1793476856935,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-37",
+              "role": "assistant"
+            },
+            {
+              "id": "demo-321",
+              "eventType": "message_complete",
+              "timestamp": 1793476856935,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-37",
+              "tokenUsage": {
+                "input": 759,
+                "output": 0
+              },
+              "cost": null,
+              "model": "k3.1-pro"
+            },
+            {
+              "id": "demo-322",
+              "eventType": "tool_start",
+              "timestamp": 1793476856935,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-37",
+              "toolCallId": "tool_1LY9yO9hMdBfyyeuywNetEb6",
+              "toolName": "Bash",
+              "isTaskTool": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 57493,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-323",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-38",
+            "parentToolUseId": "toolu_demo_11",
+            "role": "assistant",
+            "timestamp": 1793476857493,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 57583,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-324",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-38",
+            "parentToolUseId": "toolu_demo_11",
+            "blockIndex": 0,
+            "delta": "Batch 15 is done in `/workspace/acme-app/worktrees/feature-c`. The scoped verify ran 68 tasks: 67 passed and 1 failed, `acme-app-webview:lint`, which also fails on main. Both manifest scripts exited 0.\n\n**Files changed:**\n- **Deleted** `libs/backend/badge-plan/shelf-scan/cart-apply/widget-draft/order-sort.md`. No template referenced it.\n- **Modified** `libs/backend/badge-plan/src/lib/services/ticket-guard.ts`: removed `'REGION_CHECK2'` from `QUOTA_GUARD`.\n- **Modified** `libs/backend/badge-plan/src/lib/services/voucher-apply.spec.ts`: rewrote section (j).…",
+            "timestamp": 1793476857583,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 57673,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-325",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-38",
+            "parentToolUseId": "toolu_demo_11",
+            "timestamp": 1793476857673,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 4,
+              "output": 1142
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 58679,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-326",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-39",
+            "parentToolUseId": "toolu_demo_12",
+            "role": "assistant",
+            "timestamp": 1793476858679,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 58769,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-327",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-39",
+            "parentToolUseId": "toolu_demo_12",
+            "blockIndex": 0,
+            "delta": "Batch 16 is written and `reports/ledger-fetch.json` is saved. I never saw `ticket-sync.spec.ts` pass in its own run, because the Nx output doesn't show it. Seven of the 68 tasks failed, and none of the seven is `badge-plan`.\n\n**What changed:** only `libs/backend/badge-plan/src/lib/services/ticket-sync.spec.ts`. I added a describe block, \"least-privilege effective set (Phase C, decision #20)\", and left the existing exact-row table alone. Production code is untouched.…",
+            "timestamp": 1793476858769,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 58859,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-328",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-39",
+            "parentToolUseId": "toolu_demo_12",
+            "timestamp": 1793476858859,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 1053
+            },
+            "model": "claude-sonnet-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 59896,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-329",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-40",
+            "parentToolUseId": "toolu_demo_13",
+            "role": "assistant",
+            "timestamp": 1793476859896,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 59986,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-330",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-40",
+            "parentToolUseId": "toolu_demo_13",
+            "blockIndex": 0,
+            "delta": "Phase B group 3 passes the visual check in the real Electron app, but the token measurement was not run because it needs your real example.invalid login. The report is at `.ptah/specs/ticket-merge/reports/profile-build.md`.\n\n- **Build:** both rebuilds (renderer and Electron main) ran under the lock and exited 0. The log is `/workspace/acme-app/.tmp/shelf-merge2.log`.\n- **Run:** I ran an isolated Electron on a temp HOME and profile with fake synced skills (pdf, docx, brand-guidelines). It is closed, and I did not touch the real `/workspace/acme-app/.order-ship`.…",
+            "timestamp": 1793476859986,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 60076,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-331",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-40",
+            "parentToolUseId": "toolu_demo_13",
+            "timestamp": 1793476860076,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 875
+            },
+            "model": "claude-sonnet-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 61296,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-332",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-41",
+            "parentToolUseId": "toolu_demo_17",
+            "role": "assistant",
+            "timestamp": 1793476861296,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 61386,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-333",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-41",
+            "parentToolUseId": "toolu_demo_17",
+            "blockIndex": 0,
+            "delta": "Both defects are fixed and the regression specs pass, but the verify run did not finish. It was stopped by the tool's time limit (exit 130), so `filter-fetch2:test` and 4 skipped tasks were never checked.\n\n**Defect 1** (`widget-resolve.handlers.ts:1227-1241`)\n- `agent:shipVoucher` now keeps every stored qualified synced id that the reader does not find now. That covers another account's ids, and all stored synced ids when the reader returns `[]` after a read error.\n- The submitted list decides every id the reader does find now, so removing a currently found id still works.…",
+            "timestamp": 1793476861386,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 61476,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-334",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-41",
+            "parentToolUseId": "toolu_demo_17",
+            "timestamp": 1793476861476,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 2,
+              "output": 1602
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 62817,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "stdoutDelta": "",
+          "stderrDelta": "",
+          "timestamp": 1793476862817,
+          "streamEvents": [
+            {
+              "id": "demo-335",
+              "eventType": "message_start",
+              "timestamp": 1793476862817,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-42",
+              "role": "assistant"
+            },
+            {
+              "id": "demo-336",
+              "eventType": "message_complete",
+              "timestamp": 1793476862817,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-42",
+              "tokenUsage": {
+                "input": 677,
+                "output": 0
+              },
+              "cost": null,
+              "model": "k3.1-pro"
+            },
+            {
+              "id": "demo-337",
+              "eventType": "text_delta",
+              "timestamp": 1793476862817,
+              "sessionId": "66666666-6666-4666-8666-666666666666",
+              "source": "complete",
+              "messageId": "msg-42",
+              "delta": "WROTE:\n- `/workspace/acme-app/worktrees/feature-c/.ptah/specs/ticket-merge/reports/schedule-load3.md`\n- `/workspace/acme-app/worktrees/feature-c/.ptah/specs/ticket-merge/reports/order-render.json`\n\nBatch 13 code is complete; verification remains blocked in the machine-wide lock queue.",
+              "blockIndex": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 65417,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-338",
+            "eventType": "agent_completed",
+            "timestamp": 1793476865417,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-8",
+            "parentToolUseId": "toolu_demo_11",
+            "taskId": "cbac8153fecae3d6c",
+            "status": "completed",
+            "summary": "Agent \"Phase C Batch 15 hygiene\" finished",
+            "outputFile": "",
+            "agentId": "cbac8153fecae3d6c"
+          }
+        }
+      }
+    },
+    {
+      "at": 65447,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-339",
+            "eventType": "background_agent_completed",
+            "timestamp": 1793476865447,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-8",
+            "toolCallId": "toolu_demo_11",
+            "agentId": "cbac8153fecae3d6c",
+            "agentType": "backend-developer",
+            "result": "Agent \"Phase C Batch 15 hygiene\" finished"
+          }
+        }
+      }
+    },
+    {
+      "at": 65477,
+      "message": {
+        "type": "session:subagentEnded",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "cwd": "/workspace/acme-app",
+          "agentId": "cbac8153fecae3d6c",
+          "agentType": "backend-developer",
+          "toolCallId": "toolu_demo_11",
+          "lastAssistantMessage": "Agent \"Phase C Batch 15 hygiene\" finished",
+          "backgroundTasks": [],
+          "timestamp": 1793476865477
+        }
+      }
+    },
+    {
+      "at": 66440,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-340",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-43",
+            "role": "user",
+            "timestamp": 1793476866440,
+            "source": "complete",
+            "inboundPeer": {
+              "label": "ptah-cli · kimi code"
+            }
+          }
+        }
+      }
+    },
+    {
+      "at": 66470,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-341",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-43",
+            "blockIndex": 0,
+            "delta": "<agent-report agent-id=\"44444444-4444-4444-8444-444444444444\" agent=\"kimi code\" cli=\"ptah-cli\">\nBatch 13 code and reports written; verification remains blocked in the lock queue.\n\nBatch 13 implementation and both deliverables are written. Wrote /workspace/acme-app/worktrees/feature-c/.ptah/specs/ticket-merge/reports/schedule-load3.md and /workspace/acme-app/worktrees/feature-c/.ptah/specs/ticket-merge/reports/order-render.json Changed only layout-draft.ts, layout-draft.spec.ts, and prompt-harness/index.ts. The inventory passed, no external MANDATE importers remain, the compiled prompt is 12,570 chars / 3,143 estimated tokens, and the +5% pin is 3,301. COULD NOT complete verification: the single required npm run verify command is still queued for a machine-wide lock slot (queue position 4 at last read), so every target is marked not run and batch status is blocked. The command remains running in background task bv1phw6l9; do not start a duplicate.…\n</agent-report>",
+            "timestamp": 1793476866470,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 66500,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-342",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-43",
+            "timestamp": 1793476866500,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 66591,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-343",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "role": "assistant",
+            "timestamp": 1793476866591,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 66621,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-344",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 0,
+            "delta": "Kimi finished Batch 13 code and the ",
+            "timestamp": 1793476866621,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 66666,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-345",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 0,
+            "delta": "inventory gate, but its verification still waits ",
+            "timestamp": 1793476866666,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 66711,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-346",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 0,
+            "delta": "in the lock queue. I spot-check its ",
+            "timestamp": 1793476866711,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 66756,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-347",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 0,
+            "delta": "work now.",
+            "timestamp": 1793476866756,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 66846,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-348",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "toolCallId": "toolu_demo_42",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "cd /workspace/acme-app/worktrees/feature-c && git status --short | grep -v \"^?? .ptah/specs/review-resolve[^5]\" | head -20; git diff --stat; grep -c \"| OK\" .ptah/specs/ticket-merge/reports/schedule-load3.md; grep -c \"MISSING\" .ptah/specs/ticket-merge/reports/schedule-load3.md; node /workspace/acme-app/worktrees/feature-b/scripts/cart-scan.mjs --status 2>&1 | tail -8",
+              "description": "Check Phase C diff, inventory and lock queue"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476866846,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 66936,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-349",
+            "eventType": "agent_completed",
+            "timestamp": 1793476866936,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-10",
+            "parentToolUseId": "toolu_demo_12",
+            "taskId": "a42f138c6bc9aeec8",
+            "status": "completed",
+            "summary": "Agent \"Phase C Batch 16 tests\" finished",
+            "outputFile": "",
+            "agentId": "a42f138c6bc9aeec8"
+          }
+        }
+      }
+    },
+    {
+      "at": 66966,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-350",
+            "eventType": "background_agent_completed",
+            "timestamp": 1793476866966,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-10",
+            "toolCallId": "toolu_demo_12",
+            "agentId": "a42f138c6bc9aeec8",
+            "agentType": "senior-tester",
+            "result": "Agent \"Phase C Batch 16 tests\" finished"
+          }
+        }
+      }
+    },
+    {
+      "at": 66996,
+      "message": {
+        "type": "session:subagentEnded",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "cwd": "/workspace/acme-app",
+          "agentId": "a42f138c6bc9aeec8",
+          "agentType": "senior-tester",
+          "toolCallId": "toolu_demo_12",
+          "lastAssistantMessage": "Agent \"Phase C Batch 16 tests\" finished",
+          "backgroundTasks": [],
+          "timestamp": 1793476866996
+        }
+      }
+    },
+    {
+      "at": 67086,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-351",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "toolCallId": "toolu_demo_42",
+            "output": " M .ptah/specs/ticket-merge/HANDOFF.md\n M .ptah/specs/ticket-merge/decisions.md\n M order-check3.json\n M libs/backend/badge-plan/src/lib/services/ticket-sync.spec.ts\n M libs/backend/badge-plan/src/lib/services/ticket-guard.ts\n M libs/backend/badge-plan/src/lib/services/voucher-apply.spec.ts",
+            "isError": false,
+            "timestamp": 1793476867086,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 67203,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-352",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "toolCallId": "toolu_demo_43",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "grep -n \"MISSING\" .ptah/specs/ticket-merge/reports/schedule-load3.md | cut -c1-250; ps -p 912567 -o pid,etime,cmd --no-headers | cut -c1-120",
+              "description": "Check MISSING row and kimi verify process"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476867203,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 67293,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-353",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "toolCallId": "toolu_demo_43",
+            "output": "12:| Rule | Current location (file:line) | Retained home (file:line) | Status (OK / MISSING) |\n 912567       13:14 node scripts/cart-scan.mjs -p @acme-app/cart-resolve,order-draft,acme-app-vscode,ptah-cli,pt",
+            "isError": false,
+            "timestamp": 1793476867293,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 67412,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-354",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "Spot-check of Batch 13:\n\n- The inventory ",
+            "timestamp": 1793476867412,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67457,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-355",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "has 36 rows, all OK. The only ",
+            "timestamp": 1793476867457,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67502,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-356",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "\"MISSING\" word is in the table header.\n",
+            "timestamp": 1793476867502,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67547,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-357",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "- Kimi changed only the three permitted ",
+            "timestamp": 1793476867547,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67592,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-358",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "prompt-harness files. The prompt is 3,143 estimated ",
+            "timestamp": 1793476867592,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67637,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-359",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "tokens, under the +5% pin of 3,301.\n",
+            "timestamp": 1793476867637,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67682,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-360",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "- Its verification (process `912567`) is still ",
+            "timestamp": 1793476867682,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67727,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-361",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "alive in the queue at position 4. ",
+            "timestamp": 1793476867727,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67772,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-362",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "I do not start a second copy. ",
+            "timestamp": 1793476867772,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67817,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-363",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "I will read its log when it ",
+            "timestamp": 1793476867817,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67862,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-364",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "completes.\n\nLock queue now: 2 running (Phase ",
+            "timestamp": 1793476867862,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67907,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-365",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "B fix verification, Batch 16 verification), then ",
+            "timestamp": 1793476867907,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67952,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-366",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "the Electron main rebuild, the Batch 15 ",
+            "timestamp": 1793476867952,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 67997,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-367",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "manifest, another task's check, and the Batch ",
+            "timestamp": 1793476867997,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 68042,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-368",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "blockIndex": 1,
+            "delta": "13 verification.",
+            "timestamp": 1793476868042,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 68072,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-369",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-44",
+            "timestamp": 1793476868072,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 12,
+              "output": 2006
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 68102,
+      "message": {
+        "type": "session:stats-live",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-opus-5-5",
+            "totalCost": 0,
+            "knownCost": 0,
+            "tokens": {
+              "input": 132,
+              "output": 57684,
+              "cacheRead": 0,
+              "cacheCreation": 0
+            },
+            "tokenCount": 57816,
+            "messageCount": 6,
+            "agentSessionCount": 4,
+            "cliAgents": [
+              "codex",
+              "ptah-cli"
+            ],
+            "modelUsageList": [
+              {
+                "model": "claude-opus-5-5",
+                "inputTokens": 132,
+                "outputTokens": 57684,
+                "cacheRead": 0,
+                "cacheCreation": 0,
+                "costUSD": 0,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 6,
+            "provisional": true
+          },
+          "context": {
+            "model": "claude-opus-5-5",
+            "contextTokens": 57816
+          }
+        }
+      }
+    },
+    {
+      "at": 68192,
+      "message": {
+        "type": "agent-monitor:exited",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "cli": "ptah-cli",
+          "task": "Objective: Phase C of TASK_DEMO_1 (remove duplicate prompt text from PtahCode's fixed session prefix). Do two steps in worktree /workspace/acme-app/worktrees/feature-c (branch feat/receipt-sort).…",
+          "workingDirectory": "/workspace/acme-app",
+          "status": "completed",
+          "startedAt": "2026-10-31T20:00:05.256Z",
+          "parentSessionId": "11111111-1111-4111-8111-111111111111",
+          "displayName": "kimi code",
+          "model": "k3.1-pro",
+          "role": "backend-developer",
+          "ptahCliId": "demo-ptah-cli",
+          "ptahCliName": "kimi code",
+          "completedAt": "2026-10-31T20:01:08.192Z",
+          "exitCode": 0
+        }
+      }
+    },
+    {
+      "at": 68282,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-370",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-45",
+            "role": "user",
+            "timestamp": 1793476868282,
+            "source": "complete",
+            "inboundPeer": {
+              "label": "ptah-cli · kimi code"
+            }
+          }
+        }
+      }
+    },
+    {
+      "at": 68312,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-371",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-45",
+            "blockIndex": 0,
+            "delta": "<agent-lane-completed agent-id=\"44444444-4444-4444-8444-444444444444\" agent=\"kimi code\" cli=\"ptah-cli\" status=\"completed\" verdict=\"delivered\">\nLane kimi code finished: completed (exit code 0) after 25m 36s.\nTask: Objective: Phase C of TASK_DEMO_1 (remove duplicate prompt text from PtahCode's fixed session prefix). Do two steps i…\nRole: backend-developer\nTask folder: .ptah/specs/ticket-merge\nDeliverables:\n- /workspace/acme-app/worktrees/feature-c/.ptah/specs/ticket-merge/reports/schedule-load3.md — 2831 bytes\n- /workspace/acme-app/worktrees/feature-c/.ptah/specs/ticket-merge/reports/order-render.json — 7453 bytes\nReports sent by this lane before it ended: 1.\nCLI Session ID: 66666666-6666-4666-8666-666666666666 — pass it as resume_session_id to continue this lane instead of respawning it.\nNext: read the deliverable files and verify the work yourself. A lane writing its file is not proof the content is right.\n</agent-lane-completed>",
+            "timestamp": 1793476868312,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 68342,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-372",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-45",
+            "timestamp": 1793476868342,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 68432,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_start",
+            "id": "demo-373",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "role": "assistant",
+            "timestamp": 1793476868432,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 68462,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-374",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "toolCallId": "toolu_demo_44",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "ps -p 912567 -o pid,etime --no-headers || echo \"verify process gone\"; ls -la /workspace/acme-app/.tmp/banner-fetch.log 2>/workspace/acme-app/dev/null",
+              "description": "Check if Batch 13 verify survived lane exit"
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476868462,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 68552,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-375",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "toolCallId": "toolu_demo_44",
+            "output": " 912567       13:22\n-rw-rw-r-- 1 demo-user demo-user 10587 Oct 30 17:41 /workspace/acme-app/.tmp/banner-fetch.log",
+            "isError": false,
+            "timestamp": 1793476868552,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 68653,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-376",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "blockIndex": 0,
+            "delta": "The Batch 13 verification process survived the ",
+            "timestamp": 1793476868653,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 68698,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-377",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "blockIndex": 0,
+            "delta": "lane exit. I start one background watcher ",
+            "timestamp": 1793476868698,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 68743,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-378",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "blockIndex": 0,
+            "delta": "that reports when that process ends.",
+            "timestamp": 1793476868743,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 68833,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_start",
+            "id": "demo-379",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "toolCallId": "toolu_demo_45",
+            "toolName": "Bash",
+            "toolInput": {
+              "command": "while kill -0 912567 2>/workspace/acme-app/dev/null; do sleep 30; done; grep -E \"Successfully ran|Ran target|failed|✖\" /workspace/acme-app/.tmp/banner-fetch.log | tail -15",
+              "description": "Wait for Batch 13 verify to end, then filter log",
+              "timeout": 7200000,
+              "run_in_background": true
+            },
+            "isTaskTool": false,
+            "timestamp": 1793476868833,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 68923,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "tool_result",
+            "id": "demo-380",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "toolCallId": "toolu_demo_45",
+            "output": "Command running in background with ID: b34lqi3jx. Output is being written to: /workspace/acme-app/.tmp/cart-parse/catalog-fetch/layout-load2/catalog-ship/review-track You will be notified when it completes. To check interim output, use Read on that file path.",
+            "isError": false,
+            "timestamp": 1793476868923,
+            "source": "complete"
+          }
+        }
+      }
+    },
+    {
+      "at": 69013,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-381",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "blockIndex": 1,
+            "delta": "The watcher is active. When the Batch ",
+            "timestamp": 1793476869013,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 69058,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-382",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "blockIndex": 1,
+            "delta": "13 verification ends, I get its filtered ",
+            "timestamp": 1793476869058,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 69103,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-383",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "blockIndex": 1,
+            "delta": "result. Then I check its log and ",
+            "timestamp": 1793476869103,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 69148,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "text_delta",
+            "id": "demo-384",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "blockIndex": 1,
+            "delta": "update `reports/order-render.json`.",
+            "timestamp": 1793476869148,
+            "source": "stream"
+          }
+        }
+      }
+    },
+    {
+      "at": 69687,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-385",
+            "eventType": "agent_completed",
+            "timestamp": 1793476869687,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-12",
+            "parentToolUseId": "toolu_demo_13",
+            "taskId": "a36b7ac951e5aaa0b",
+            "status": "completed",
+            "summary": "Agent \"Phase B Electron capture\" finished",
+            "outputFile": "",
+            "agentId": "a36b7ac951e5aaa0b"
+          }
+        }
+      }
+    },
+    {
+      "at": 69717,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-386",
+            "eventType": "background_agent_completed",
+            "timestamp": 1793476869717,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-12",
+            "toolCallId": "toolu_demo_13",
+            "agentId": "a36b7ac951e5aaa0b",
+            "agentType": "visual-reviewer",
+            "result": "Agent \"Phase B Electron capture\" finished"
+          }
+        }
+      }
+    },
+    {
+      "at": 69747,
+      "message": {
+        "type": "session:subagentEnded",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "cwd": "/workspace/acme-app",
+          "agentId": "a36b7ac951e5aaa0b",
+          "agentType": "visual-reviewer",
+          "toolCallId": "toolu_demo_13",
+          "lastAssistantMessage": "Agent \"Phase B Electron capture\" finished",
+          "backgroundTasks": [],
+          "timestamp": 1793476869747
+        }
+      }
+    },
+    {
+      "at": 70910,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-387",
+            "eventType": "agent_completed",
+            "timestamp": 1793476870910,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-15",
+            "parentToolUseId": "toolu_demo_17",
+            "taskId": "dcdace3e3261bab60",
+            "status": "completed",
+            "summary": "Agent \"Fix Phase B review defects\" finished",
+            "outputFile": "",
+            "agentId": "dcdace3e3261bab60"
+          }
+        }
+      }
+    },
+    {
+      "at": 70940,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-388",
+            "eventType": "background_agent_completed",
+            "timestamp": 1793476870940,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-15",
+            "toolCallId": "toolu_demo_17",
+            "agentId": "dcdace3e3261bab60",
+            "agentType": "backend-developer",
+            "result": "Agent \"Fix Phase B review defects\" finished"
+          }
+        }
+      }
+    },
+    {
+      "at": 70970,
+      "message": {
+        "type": "session:subagentEnded",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "cwd": "/workspace/acme-app",
+          "agentId": "dcdace3e3261bab60",
+          "agentType": "backend-developer",
+          "toolCallId": "toolu_demo_17",
+          "lastAssistantMessage": "Agent \"Fix Phase B review defects\" finished",
+          "backgroundTasks": [],
+          "timestamp": 1793476870970
+        }
+      }
+    },
+    {
+      "at": 73570,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "eventType": "message_complete",
+            "id": "demo-389",
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "messageId": "msg-46",
+            "timestamp": 1793476873570,
+            "source": "complete",
+            "tokenUsage": {
+              "input": 10,
+              "output": 1185
+            },
+            "model": "claude-opus-5-5"
+          }
+        }
+      }
+    },
+    {
+      "at": 73600,
+      "message": {
+        "type": "session:stats-live",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-opus-5-5",
+            "totalCost": 0,
+            "knownCost": 0,
+            "tokens": {
+              "input": 142,
+              "output": 58869,
+              "cacheRead": 0,
+              "cacheCreation": 0
+            },
+            "tokenCount": 59011,
+            "messageCount": 7,
+            "agentSessionCount": 4,
+            "cliAgents": [
+              "codex",
+              "ptah-cli"
+            ],
+            "modelUsageList": [
+              {
+                "model": "claude-opus-5-5",
+                "inputTokens": 142,
+                "outputTokens": 58869,
+                "cacheRead": 0,
+                "cacheCreation": 0,
+                "costUSD": 0,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 7,
+            "provisional": true
+          },
+          "context": {
+            "model": "claude-opus-5-5",
+            "contextTokens": 59011
+          }
+        }
+      }
+    },
+    {
+      "at": 73900,
+      "message": {
+        "type": "session:stats",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "turnCost": 0,
+          "tokens": {
+            "input": 142,
+            "output": 58869,
+            "cacheRead": 0,
+            "cacheCreation": 0
+          },
+          "duration": 73600,
+          "modelUsage": [
+            {
+              "model": "claude-opus-5-5",
+              "inputTokens": 142,
+              "outputTokens": 58869,
+              "cacheReadInputTokens": 0,
+              "contextWindow": 200000,
+              "contextCapacity": {
+                "model": "claude-opus-5-5",
+                "tokens": 200000,
+                "source": "sdk-native",
+                "providerId": null
+              },
+              "costUSD": 0,
+              "lastTurnContextTokens": 6800
+            }
+          ],
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-opus-5-5",
+            "totalCost": 0,
+            "knownCost": 0,
+            "tokens": {
+              "input": 142,
+              "output": 58869,
+              "cacheRead": 0,
+              "cacheCreation": 0
+            },
+            "tokenCount": 59011,
+            "messageCount": 7,
+            "agentSessionCount": 4,
+            "cliAgents": [
+              "codex",
+              "ptah-cli"
+            ],
+            "modelUsageList": [
+              {
+                "model": "claude-opus-5-5",
+                "inputTokens": 142,
+                "outputTokens": 58869,
+                "cacheRead": 0,
+                "cacheCreation": 0,
+                "costUSD": 0,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 8
+          }
+        }
+      }
+    },
+    {
+      "at": 74200,
+      "message": {
+        "type": "chat:chunk",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "event": {
+            "id": "demo-390",
+            "eventType": "turn_state",
+            "timestamp": 1793476874200,
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "source": "complete",
+            "messageId": "msg-1",
+            "phase": "idle",
+            "revision": 3,
+            "backgroundTasks": [],
+            "sessionCrons": [],
+            "terminalReason": "completed",
+            "lastAssistantMessage": "The watcher is active. When the Batch 13 verification ends, I get its filtered result. Then I check its log and update `reports/order-render.json`."
+          }
+        }
+      }
+    },
+    {
+      "at": 74500,
       "message": {
         "type": "session:turnEnded",
         "payload": {
           "sessionId": "11111111-1111-4111-8111-111111111111",
           "cwd": "/workspace/acme-app",
-          "lastAssistantMessage": "The fixes and review are complete.",
+          "lastAssistantMessage": "The watcher is active. When the Batch 13 verification ends, I get its filtered result. Then I check its log and update `reports/order-render.json`.",
           "backgroundTasks": [],
           "sessionCrons": [],
           "terminalReason": "completed",
-          "timestamp": 1793476847000
+          "timestamp": 1793476874500
+        }
+      }
+    },
+    {
+      "at": 74800,
+      "message": {
+        "type": "session:stats-live",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-opus-5-5",
+            "totalCost": 0,
+            "knownCost": 0,
+            "tokens": {
+              "input": 142,
+              "output": 58869,
+              "cacheRead": 0,
+              "cacheCreation": 0
+            },
+            "tokenCount": 59011,
+            "messageCount": 7,
+            "agentSessionCount": 4,
+            "cliAgents": [
+              "codex",
+              "ptah-cli"
+            ],
+            "modelUsageList": [
+              {
+                "model": "claude-opus-5-5",
+                "inputTokens": 142,
+                "outputTokens": 58869,
+                "cacheRead": 0,
+                "cacheCreation": 0,
+                "costUSD": 0,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 9,
+            "provisional": true
+          },
+          "context": {
+            "model": "claude-opus-5-5",
+            "contextTokens": 59011
+          }
         }
       }
     }
   ],
   "start": {
     "mode": "on-send",
-    "prompt": "Review the session notice, delegate focused fixes to CLI agents, and get an independent visual review."
+    "prompt": "Can we utilize our cli tools and subagents to speed this task up"
   }
 } satisfies ReplayScenario;
