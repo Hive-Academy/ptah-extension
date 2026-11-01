@@ -38,6 +38,7 @@ import {
   createElectronCodexExecutable, createElectronCodexScopeFactory,
   inspectElectronCodexBinary, resolveElectronCodexBundledRoot,
 } from './codex-runtime-composition';
+import { isElectronCodexConsumerAdmitted } from './codex-electron-admission';
 
 export interface ElectronCodexLaneInput {
   readonly isPackaged: boolean;
@@ -51,10 +52,7 @@ export interface ElectronCodexLaneInput {
 export function isElectronCodexLaneAdmitted(
   input: Pick<ElectronCodexLaneInput, 'isPackaged' | 'platform'>,
 ): boolean {
-  // The shared gate is closed today; keep this branch for P14 without another Electron change.
-  // The win32/x64 literal mirrors codex-parity-gate.ts:201-212.
-  return !input.isPackaged || new CodexParityGate().isEnabled('lane', input.platform) ||
-    (input.platform.platform === 'win32' && input.platform.arch === 'x64');
+  return isElectronCodexConsumerAdmitted(input, 'lane');
 }
 
 function canonical(path: string): string {

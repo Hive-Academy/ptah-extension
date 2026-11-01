@@ -49,6 +49,7 @@ import {
   CODEX_RUNTIME_TOKENS,
   CodexAccountUsageClient,
   CodexParityGate,
+  resolveGatedCodexRuntime,
   codexDevRouteCovers,
   readCodexDevRouteOverride,
   registerCodexRuntime,
@@ -70,17 +71,16 @@ import type {
   ElectronCodexSettingsRecord,
   ElectronCodexShutdownStore,
 } from './codex-binding.types';
+import { isElectronCodexConsumerAdmitted } from './codex-electron-admission';
 
-/** A capability hint only; opening a chat still uses resolveGatedCodexRuntime. */
+/** Electron routing hint; the scoped resolver enforces chat admission on open. */
 export function createElectronCodexRouting(input: ElectronCodexRoutingInput): ElectronCodexRouting {
   const devRoute = readCodexDevRouteOverride({
     isPackaged: input.isPackaged,
     env: input.env,
   });
   const capabilities = Object.freeze({
-    nativeCodex:
-      new CodexParityGate().isEnabled('chat', input.platform) ||
-      codexDevRouteCovers(devRoute, 'chat'),
+    nativeCodex: isElectronCodexConsumerAdmitted(input, 'chat', devRoute),
     nativeCodexGateway:
       new CodexParityGate().isEnabled('gateway', input.platform) ||
       codexDevRouteCovers(devRoute, 'gateway'),
@@ -316,6 +316,11 @@ function createElectronCodexBindingContext(
   lookup: ElectronCodexIdentityLookup,
   record: ElectronCodexSettingsRecord,
 ): BindingContext {
+  const routing = createElectronCodexRouting(input);
+  if (input.isPackaged && routing.capabilities.nativeCodex &&
+      !new CodexParityGate().isEnabled('chat', input.platform)) {
+    logger.info('Codex chat admitted for packaged Electron win32/x64 by signed proof (D29/D30)');
+  }
   return {
     container,
     input,
@@ -323,7 +328,7 @@ function createElectronCodexBindingContext(
     metadataStore,
     lookup,
     record,
-    routing: createElectronCodexRouting(input),
+    routing,
     store: createElectronCodexShutdownStore(createCodexThreadIdentityStore(lookup, metadataStore)),
     scopes: new Set<CodexChatScope>(),
     disposed: false,
@@ -575,6 +580,16 @@ function createElectronCodexAdapterPorts(
   });
   return {
     ...ports,
+    resolveRuntime: (scope, consumer) => {
+      if (consumer === 'chat' && input.isPackaged &&
+          !new CodexParityGate().isEnabled('chat', input.platform)) {
+        if (!isElectronCodexConsumerAdmitted(input, 'chat')) {
+          throw new Error('Codex chat production routing disabled by parity gate');
+        }
+        return scope.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
+      }
+      return resolveGatedCodexRuntime(scope, consumer, input.platform);
+    },
     profile: async (
       ...args: Parameters<CodexChatAdapterPorts['profile']>
     ) => {

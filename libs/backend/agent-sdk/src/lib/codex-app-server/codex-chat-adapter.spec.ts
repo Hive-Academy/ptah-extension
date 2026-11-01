@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { Logger } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
-import { container } from 'tsyringe';
+import { container, type DependencyContainer } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
   CodexContextStateError,
@@ -12,6 +12,7 @@ import {
   type CodexDevRouteOverride,
   type CodexExecutionProfile,
   type CodexRuntimeEvent,
+  type CodexRuntime,
 } from '@ptah-extension/codex-runtime';
 import { SessionId, type FlatStreamEventUnion } from '@ptah-extension/shared';
 import {
@@ -62,7 +63,10 @@ function mockLogger(): Logger {
   return Object.assign(Object.create(Logger.prototype), createMockLogger());
 }
 
-function setup(override: boolean | 'gateway' = true) {
+function setup(
+  override: boolean | 'gateway' = true,
+  resolveRuntime?: CodexChatAdapterPorts['resolveRuntime'],
+) {
   const logger = mockLogger();
   const context: jest.Mocked<CodexContext> = {
     listModels: jest.fn(async () => [
@@ -169,6 +173,7 @@ function setup(override: boolean | 'gateway' = true) {
       sink = value;
       return { container: scope, dispose };
     },
+    resolveRuntime,
     metadata: { save: jest.fn(async () => undefined), completedTurn: jest.fn(async () => undefined) },
     approvals,
     presentation: {
@@ -199,6 +204,32 @@ function setup(override: boolean | 'gateway' = true) {
 }
 
 describe('CodexChatAdapter', () => {
+  it('keeps the shared chat gate when the host omits runtime resolution', async () => {
+    const h = setup('gateway');
+    try {
+      await expect(h.adapter.startChatSession({ tabId })).rejects.toMatchObject({
+        code: 'runtime-failed',
+        cause: expect.objectContaining({ message: expect.stringContaining('parity gate') }),
+      });
+      expect(h.open).not.toHaveBeenCalled();
+    } finally {
+      h.adapter.dispose();
+    }
+  });
+
+  it('uses the host runtime port in place of the shared chat gate', async () => {
+    const resolveRuntime = jest.fn((scope: DependencyContainer, _consumer: 'chat' | 'gateway') =>
+      scope.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime));
+    const h = setup(false, resolveRuntime);
+    try {
+      await h.adapter.startChatSession({ tabId });
+      expect(resolveRuntime).toHaveBeenCalledWith(expect.anything(), 'chat');
+      expect(h.open).toHaveBeenCalledTimes(1);
+    } finally {
+      h.adapter.dispose();
+    }
+  });
+
   it('maps the typed resume profile error to the adapter code', async () => {
     const h = setup();
     const cause = new CodexResumeProfileChangedError();

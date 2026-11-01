@@ -50,6 +50,7 @@ import {
   type ElectronCodexScopeInput,
 } from './codex-runtime-composition';
 import { resolveElectronCodexLaneRuntime } from './codex-lane-composition';
+import { isElectronCodexConsumerAdmitted } from './codex-electron-admission';
 
 jest.mock('@ptah-extension/codex-runtime', () => ({
   ...jest.requireActual<typeof import('@ptah-extension/codex-runtime')>(
@@ -151,9 +152,11 @@ describe('Electron Codex runtime infrastructure', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('does not inspect the executable when creating a factory or rejecting native-off use', async () => {
-    const { input, parent } = setup();
+    const { input, parent } = setup(true);
     jest.mocked(resolveCodexNativeBinaryPath).mockClear();
-    const factory = createElectronCodexScopeFactory(input);
+    const factory = createElectronCodexScopeFactory({
+      ...input, platform: { platform: 'linux', arch: 'x64' },
+    });
     expect(resolveCodexNativeBinaryPath).not.toHaveBeenCalled();
     expect(() => factory({ request: async () => 'decline' })).toThrow(
       'Native Codex chat is disabled',
@@ -225,7 +228,7 @@ describe('Electron Codex runtime infrastructure', () => {
     await parent.dispose();
   });
 
-  it('keeps the default capability disabled', () => {
+  it('refuses unpackaged chat without a development route', () => {
     expect(
       createElectronCodexRouting({ platform, isPackaged: false, env: {} }),
     ).toEqual({
@@ -243,11 +246,11 @@ describe('Electron Codex runtime infrastructure', () => {
       }),
     ).toEqual({
       devRoute: null,
-      capabilities: { nativeCodex: false, nativeCodexGateway: false },
+      capabilities: { nativeCodex: true, nativeCodexGateway: false },
     });
   });
 
-  it('uses parity gate values for both consumers without the development switch', () => {
+  it('uses the shared chat and gateway gates without the development switch', () => {
     const gate = new CodexParityGate();
     expect(
       createElectronCodexRouting({ platform, isPackaged: false, env: {} }).capabilities,
@@ -255,6 +258,13 @@ describe('Electron Codex runtime infrastructure', () => {
       nativeCodex: gate.isEnabled('chat', platform),
       nativeCodexGateway: gate.isEnabled('gateway', platform),
     });
+  });
+
+  it('does not admit unpackaged chat from a gateway-only development route', () => {
+    expect(isElectronCodexConsumerAdmitted(
+      { isPackaged: false, platform }, 'chat',
+      { consumers: ['gateway'], source: 'PTAH_CODEX_RUNTIME_DEV' },
+    )).toBe(false);
   });
 
   it('enables development chat and gateway while leaving lane gated', async () => {
@@ -433,7 +443,8 @@ describe('Electron Codex runtime infrastructure', () => {
 function bindingFixture() {
   const parent = container.createChildContainer();
   const unsubscribe = jest.fn();
-  parent.register(TOKENS.LOGGER, { useValue: createMockLogger() });
+  const logger = createMockLogger();
+  parent.register(TOKENS.LOGGER, { useValue: logger });
   parent.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, {
     useValue: {
       getAll: jest.fn(async () => []),
@@ -486,11 +497,105 @@ function bindingFixture() {
   registerCodexChatServices(parent);
   wireAgentAdapterAliases(parent);
   return {
-    parent, unsubscribe, legacy, permissionHandler, scopeResolver, settingsStore,
+    parent, unsubscribe, legacy, permissionHandler, scopeResolver, settingsStore, logger,
   };
 }
 
 describe('Electron complete Codex binding', () => {
+  it('keeps unpackaged chat without a development route gated at the resolver', async () => {
+    const { parent, scopeResolver, settingsStore } = bindingFixture();
+    const binding = await bindElectronCodexChat(parent, {
+      isPackaged: false, env: {}, platform, bundledRoot, scopeResolver, settingsStore,
+    });
+    const scope = parent.createChildContainer();
+    scope.register(CODEX_RUNTIME_TOKENS.ParityGate, { useValue: new CodexParityGate() });
+    scope.register(CODEX_RUNTIME_TOKENS.DevRouteOverride, { useFactory: () => null });
+    try {
+      expect(binding.capabilities.nativeCodex).toBe(false);
+      const ports = parent.resolve<CodexChatAdapterPorts>(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS);
+      expect(() => ports.resolveRuntime?.(scope, 'chat')).toThrow(
+        'Codex production routing disabled by parity gate',
+      );
+    } finally {
+      await scope.dispose();
+      await binding.dispose();
+      await parent.dispose();
+    }
+  });
+
+  it('resolves unpackaged chat through the development route and emits its warning', async () => {
+    const { input, parent: scopeParent } = setup(false, { PTAH_CODEX_RUNTIME_DEV: '1' });
+    const { parent, scopeResolver, settingsStore } = bindingFixture();
+    const binding = await bindElectronCodexChat(parent, {
+      isPackaged: false, env: input.env, platform, bundledRoot, scopeResolver, settingsStore,
+    });
+    const scope = createElectronCodexScopeFactory(input)({ request: async () => 'decline' });
+    try {
+      expect(binding.capabilities.nativeCodex).toBe(true);
+      const ports = parent.resolve<CodexChatAdapterPorts>(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS);
+      expect(ports.resolveRuntime?.(scope.container, 'chat')).toBe(
+        scope.container.resolve(CODEX_RUNTIME_TOKENS.Runtime),
+      );
+      expect(input.ports.logger?.warn).toHaveBeenCalledWith(
+        'PTAH_CODEX_RUNTIME_DEV enables development-only Codex chat routing; production parity gate remains disabled',
+      );
+    } finally {
+      await scope.dispose();
+      await binding.dispose();
+      await scopeParent.dispose();
+      await parent.dispose();
+    }
+  });
+
+  it('admits packaged win32/x64 chat, resolves its scoped runtime, and logs once', async () => {
+    const { parent, scopeResolver, settingsStore, logger } = bindingFixture();
+    const binding = await bindElectronCodexChat(parent, {
+      isPackaged: true, env: {}, platform, bundledRoot, scopeResolver, settingsStore,
+    });
+    const scope = parent.createChildContainer();
+    const runtime = { open: jest.fn() };
+    scope.register(CODEX_RUNTIME_TOKENS.Runtime, { useValue: runtime });
+    try {
+      expect(binding.capabilities.nativeCodex).toBe(true);
+      expect(binding.capabilities.nativeCodexGateway).toBe(false);
+      const ports = parent.resolve<CodexChatAdapterPorts>(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS);
+      expect(ports.resolveRuntime?.(scope, 'chat')).toBe(runtime);
+      const admissionLogs = jest.mocked(logger.info).mock.calls.filter(
+        ([message]) => message ===
+          'Codex chat admitted for packaged Electron win32/x64 by signed proof (D29/D30)',
+      );
+      expect(admissionLogs).toHaveLength(1);
+    } finally {
+      await scope.dispose();
+      await binding.dispose();
+      await parent.dispose();
+    }
+  });
+
+  it.each([
+    { platform: 'linux', arch: 'x64' },
+    { platform: 'darwin', arch: 'arm64' },
+  ] as const)('denies packaged chat on $platform/$arch', async (deniedPlatform) => {
+    const { parent, scopeResolver, settingsStore, logger } = bindingFixture();
+    const binding = await bindElectronCodexChat(parent, {
+      isPackaged: true, env: {}, platform: deniedPlatform,
+      bundledRoot, scopeResolver, settingsStore,
+    });
+    const scope = parent.createChildContainer();
+    try {
+      expect(binding.capabilities.nativeCodex).toBe(false);
+      const ports = parent.resolve<CodexChatAdapterPorts>(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS);
+      expect(() => ports.resolveRuntime?.(scope, 'chat')).toThrow(
+        'Codex chat production routing disabled by parity gate',
+      );
+      expect(logger.info).not.toHaveBeenCalled();
+    } finally {
+      await scope.dispose();
+      await binding.dispose();
+      await parent.dispose();
+    }
+  });
+
   it('forwards Codex prompt lifecycle events to the permission handler', async () => {
     const { parent, permissionHandler, scopeResolver, settingsStore } = bindingFixture();
     jest.mocked(createCodexChatHostPorts).mockClear();
@@ -564,12 +669,12 @@ describe('Electron complete Codex binding', () => {
     }
   });
   it.each([
-    { isPackaged: false, env: {}, enabled: false },
-    { isPackaged: true, env: { PTAH_CODEX_RUNTIME_DEV: '1' }, enabled: false },
-    { isPackaged: false, env: { PTAH_CODEX_RUNTIME_DEV: '1' }, enabled: true },
+    { isPackaged: false, env: {}, chat: false, gateway: false },
+    { isPackaged: true, env: { PTAH_CODEX_RUNTIME_DEV: '1' }, chat: true, gateway: false },
+    { isPackaged: false, env: { PTAH_CODEX_RUNTIME_DEV: '1' }, chat: true, gateway: true },
   ])(
     'binds six stable ports without binary I/O: %j',
-    async ({ isPackaged, env, enabled }) => {
+    async ({ isPackaged, env, chat, gateway }) => {
       const { parent, unsubscribe, legacy, scopeResolver, settingsStore } = bindingFixture();
       jest.mocked(resolveCodexNativeBinaryPath).mockClear();
       const binding = await bindElectronCodexChat(parent, {
@@ -586,9 +691,9 @@ describe('Electron complete Codex binding', () => {
           expect(value).not.toBeNull();
           expect(parent.resolve(token)).toBe(value);
         }
-        expect(binding.capabilities.nativeCodex).toBe(enabled);
-        expect(binding.capabilities.nativeCodexGateway).toBe(enabled);
-        if (!enabled) expect(binding.devRoute).toBeNull();
+        expect(binding.capabilities.nativeCodex).toBe(chat);
+        expect(binding.capabilities.nativeCodexGateway).toBe(gateway);
+        if (isPackaged || Object.keys(env).length === 0) expect(binding.devRoute).toBeNull();
         await expect(
           parent.resolve<IAgentAdapter>(TOKENS.AGENT_ADAPTER).initialize(),
         ).resolves.toBe(true);

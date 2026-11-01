@@ -16,6 +16,7 @@ import {
   type CodexModelInfo,
   type CodexMcpSecrets,
   type CodexParityPlatform,
+  type CodexRuntime,
   type CodexThreadIdentity,
   type CodexTurnInput,
 } from '@ptah-extension/codex-runtime';
@@ -89,6 +90,11 @@ export interface CodexChatAdapterPorts {
     readonly secrets?: CodexMcpSecrets;
   }>;
   createScope(sink: ApprovalSink): CodexChatScope;
+  /** Host-owned resolution for a session scope; absent hosts keep shared gate policy. */
+  readonly resolveRuntime?: (
+    scope: DependencyContainer,
+    consumer: 'chat' | 'gateway',
+  ) => CodexRuntime;
   readonly metadata: CodexChatMetadataPort;
   /** Only the routing surface the adapter and hosts call; keeps the router fakeable. */
   readonly approvals: Pick<
@@ -352,11 +358,9 @@ export class CodexChatAdapter implements NativeChatAdapter {
     prepared: Awaited<ReturnType<CodexChatAdapterPorts['profile']>>,
     consumer: 'chat' | 'gateway',
   ): Promise<CodexContext> {
-    const runtime = resolveGatedCodexRuntime(
-      scope.container,
-      consumer,
-      this.ports.platform,
-    );
+    const runtime = this.ports.resolveRuntime
+      ? this.ports.resolveRuntime(scope.container, consumer)
+      : resolveGatedCodexRuntime(scope.container, consumer, this.ports.platform);
     return runtime.open(prepared.profile, prepared.resume, prepared.secrets);
   }
 
