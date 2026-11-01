@@ -13,11 +13,15 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, Search } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type {
-  McpRegistryEntry,
-  McpInstallTarget,
-  McpServerConfig,
-  InstalledMcpServer,
+import {
+  MCP_REGISTRY_ERROR_MESSAGES,
+  registryEntryToInstallConfig,
+  type McpRegistryEntry,
+  type McpInstallConfigResult,
+  type McpInstallTarget,
+  type McpRequiredInput,
+  type McpServerConfig,
+  type InstalledMcpServer,
 } from '@ptah-extension/shared';
 import {
   CatalogCardComponent,
@@ -233,6 +237,41 @@ interface RegistryCardView {
                           </p>
                         </div>
 
+                        @if (requiredInputs().length > 0) {
+                          <div
+                            class="space-y-1.5"
+                            data-testid="mcp-required-inputs"
+                          >
+                            <p
+                              class="text-[11px] font-medium uppercase tracking-wide text-base-content-muted"
+                            >
+                              Required inputs
+                            </p>
+                            <ul class="space-y-1 text-xs">
+                              @for (
+                                requiredInput of requiredInputs();
+                                track requiredInput.location + ':' + requiredInput.name
+                              ) {
+                                <li>
+                                  <span class="font-mono">{{
+                                    requiredInput.name
+                                  }}</span>
+                                  @if (requiredInput.isSecret) {
+                                    <span class="badge badge-sm badge-neutral ml-1"
+                                      >secret</span
+                                    >
+                                  }
+                                  @if (requiredInput.description) {
+                                    <p class="text-base-content-muted">
+                                      {{ requiredInput.description }}
+                                    </p>
+                                  }
+                                </li>
+                              }
+                            </ul>
+                          </div>
+                        }
+
                         <fieldset class="space-y-1.5">
                           <legend
                             class="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-base-content-muted"
@@ -262,7 +301,7 @@ interface RegistryCardView {
                       <p
                         class="py-2 text-center text-xs text-base-content-muted"
                       >
-                        Could not auto-detect configuration for this server.
+                        {{ configError() }}
                       </p>
                     }
 
@@ -271,6 +310,7 @@ interface RegistryCardView {
                         <button
                           class="btn btn-primary btn-sm"
                           [disabled]="
+                            !installable() ||
                             selectedTargets().size === 0 ||
                             installingServerNames().has(card.server.name)
                           "
@@ -353,6 +393,12 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   readonly error = signal<string | null>(null);
   readonly expandedServerName = signal<string | null>(null);
   readonly suggestedConfig = signal<McpServerConfig | null>(null);
+  readonly requiredInputs = signal<McpRequiredInput[]>([]);
+  readonly installable = signal(true);
+  readonly configError = signal<string | null>(null);
+  private readonly installConfigResult = signal<McpInstallConfigResult | null>(
+    null,
+  );
   readonly selectedTargets = signal<Set<McpInstallTarget>>(
     new Set(ALL_TARGETS),
   );
@@ -368,8 +414,8 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   protected readonly cards = computed<RegistryCardView[]>(() => {
     const installed = this.installedKeySet();
     return this.displayServers().map((server) => {
-      const transports = server.version_detail?.transports ?? [];
-      const version = server.version_detail?.version;
+      const version = server.version;
+      const remoteUrls = (server.remotes ?? []).map((remote) => remote.url);
       return {
         server,
         displayName: this.getDisplayName(server.name),
@@ -380,9 +426,7 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
         ],
         brandSlug: resolveListingBrandSlug({
           registryName: server.name,
-          remoteUrls: transports
-            .map((t) => t.url)
-            .filter((url): url is string => !!url),
+          remoteUrls,
         }),
         installed: installed.has(this.deriveServerKey(server.name)),
       };
@@ -432,17 +476,55 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   }
 
   async toggleInstallPanel(server: McpRegistryEntry): Promise<void> {
+    const showFallback = (): void => {
+      this.installConfigResult.set(null);
+      this.suggestedConfig.set(null);
+      this.requiredInputs.set([]);
+      this.installable.set(false);
+      this.configError.set(
+        'Could not auto-detect configuration for this server.',
+      );
+    };
+    const applyOfficialConfig = (entry: McpRegistryEntry): void => {
+      const result = registryEntryToInstallConfig(entry);
+      this.installConfigResult.set(result);
+      if (result.ok) {
+        this.suggestedConfig.set(result.config);
+        this.requiredInputs.set(result.requiredInputs);
+        this.installable.set(result.installable);
+        this.configError.set(null);
+      } else {
+        this.suggestedConfig.set(null);
+        this.requiredInputs.set([]);
+        this.installable.set(false);
+        this.configError.set(
+          `${result.code}: ${MCP_REGISTRY_ERROR_MESSAGES[result.code]}`,
+        );
+      }
+    };
+
     if (this.expandedServerName() === server.name) {
       this.expandedServerName.set(null);
+      this.installConfigResult.set(null);
       this.suggestedConfig.set(null);
+      this.requiredInputs.set([]);
+      this.installable.set(true);
+      this.configError.set(null);
       return;
     }
 
     this.expandedServerName.set(server.name);
     this.selectedTargets.set(new Set(ALL_TARGETS));
+    this.installConfigResult.set(null);
     this.suggestedConfig.set(null);
-    if (server.version_detail) {
-      this.suggestedConfig.set(this.generateConfig(server));
+    this.requiredInputs.set([]);
+    this.installable.set(true);
+    this.configError.set(null);
+    if (
+      server.source !== 'smithery' &&
+      (server.packages !== undefined || server.remotes !== undefined)
+    ) {
+      applyOfficialConfig(server);
       return;
     }
     this.isLoadingDetails.set(true);
@@ -455,14 +537,14 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
       if (this.destroyed) return;
 
-      if (result.isSuccess() && result.data.version_detail) {
-        this.suggestedConfig.set(this.generateConfig(result.data));
+      if (result.isSuccess() && result.data.source !== 'smithery') {
+        applyOfficialConfig(result.data);
       } else {
-        this.suggestedConfig.set(null);
+        showFallback();
       }
     } catch {
       if (this.destroyed) return;
-      this.suggestedConfig.set(null);
+      showFallback();
     } finally {
       if (!this.destroyed) this.isLoadingDetails.set(false);
     }
@@ -549,8 +631,17 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   }
 
   getTransportType(server: McpRegistryEntry): string | null {
-    const transport = server.version_detail?.transports?.[0];
-    return transport?.type || null;
+    if (server.source === 'smithery') return null;
+    const result = registryEntryToInstallConfig(server);
+    if (result.ok) {
+      if (result.source === 'package') return 'stdio';
+      return result.config.type === 'http' ? 'streamable-http' : 'sse';
+    }
+    return (
+      server.remotes?.[0]?.type ??
+      server.packages?.[0]?.transport.type ??
+      null
+    );
   }
 
   /** Template-facing alias for the shared label table. */
@@ -572,45 +663,6 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     return parts[parts.length - 1] || name;
   }
 
-  private generateConfig(entry: McpRegistryEntry): McpServerConfig | null {
-    const vd = entry.version_detail;
-    if (!vd) return null;
-
-    const stdioTransport = vd.transports.find((t) => t.type === 'stdio');
-    const httpTransport = vd.transports.find((t) => t.type === 'http');
-    const sseTransport = vd.transports.find((t) => t.type === 'sse');
-
-    if (stdioTransport) {
-      const npmPkg = vd.packages.find((p) => p.registry_name === 'npm');
-      const pypiPkg = vd.packages.find((p) => p.registry_name === 'pypi');
-      const dockerPkg = vd.packages.find((p) => p.registry_name === 'docker');
-
-      if (npmPkg) {
-        return { type: 'stdio', command: 'npx', args: ['-y', npmPkg.name] };
-      }
-      if (pypiPkg) {
-        return { type: 'stdio', command: 'uvx', args: [pypiPkg.name] };
-      }
-      if (dockerPkg) {
-        return {
-          type: 'stdio',
-          command: 'docker',
-          args: ['run', '-i', '--rm', dockerPkg.name],
-        };
-      }
-    }
-
-    if (httpTransport?.url) {
-      return { type: 'http', url: httpTransport.url };
-    }
-
-    if (sseTransport?.url) {
-      return { type: 'sse', url: sseTransport.url };
-    }
-
-    return null;
-  }
-
   private async performSearch(query: string): Promise<void> {
     this.error.set(null);
 
@@ -625,6 +677,12 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
       if (result.isSuccess()) {
         this.searchResults.set(result.data.servers);
+        if (result.data.errorCode) {
+          this.error.set(
+            result.data.error ??
+              MCP_REGISTRY_ERROR_MESSAGES[result.data.errorCode],
+          );
+        }
       } else {
         this.error.set('Search failed');
         this.searchResults.set([]);
@@ -653,6 +711,12 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
       if (result.isSuccess()) {
         this.popularServers.set(result.data.servers);
+        if (result.data.errorCode) {
+          this.error.set(
+            result.data.error ??
+              MCP_REGISTRY_ERROR_MESSAGES[result.data.errorCode],
+          );
+        }
       } else {
         this.error.set('Failed to load popular MCP servers');
         this.popularServers.set([]);
