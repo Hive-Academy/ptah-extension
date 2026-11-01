@@ -27,6 +27,13 @@ export interface InstalledServerGroup {
    * — the UI then shows the reason with no copy button, never an empty one.
    */
   removalFixCommand?: string;
+  /**
+   * Every row of the group, each with its own `scope` and `managedByPtah`
+   * untouched: the scope badge and "Make global" read them row by row, so a
+   * workspace install keeps its badge even when another row of the same key
+   * is global. External-plugin servers are ordinary Ptah intent rows of the
+   * harness config and group exactly like a directory install.
+   */
   servers: InstalledMcpServer[];
   /** Only the rows that actually have a target — Smithery/OAuth rows have none. */
   targets: McpInstallTarget[];

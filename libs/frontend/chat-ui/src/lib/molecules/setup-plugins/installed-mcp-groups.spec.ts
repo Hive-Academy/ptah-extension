@@ -219,6 +219,66 @@ describe('groupInstalledServers', () => {
     expect(connector).not.toHaveProperty('removalFixCommand');
     expect(unquotable).not.toHaveProperty('removalFixCommand');
   });
+
+  // TASK_2026_853 F-D1: the scope badge and "Make global" read the rows.
+  it('keeps every row scope and ownership as listed, never a group-wide guess', () => {
+    const [grouped] = groupInstalledServers([
+      server({ target: 'claude', scope: 'workspace', managedByPtah: true }),
+      server({
+        target: 'codex',
+        configPath: '/home/.codex/config.toml',
+        scope: 'global',
+        managedByPtah: false,
+      }),
+      server({ target: 'vscode', configPath: '/repo/.vscode/mcp.json' }),
+    ]);
+
+    expect(grouped.servers.map((s) => s.scope)).toEqual([
+      'workspace',
+      'global',
+      undefined,
+    ]);
+    expect(grouped.servers.map((s) => s.managedByPtah)).toEqual([
+      true,
+      false,
+      false,
+    ]);
+  });
+
+  it('groups an external-plugin server as an ordinary Ptah intent row', () => {
+    // An external plugin records an intent v2 per declared server and writes
+    // it to the workspace targets, so listInstalled returns harness-config
+    // rows that Ptah manages: one group, removable and convertible like a
+    // directory install.
+    const groups = groupInstalledServers([
+      server({
+        serverKey: 'acme-files',
+        target: 'claude',
+        configPath: '/repo/.mcp.json',
+        managedByPtah: true,
+        removal: 'ptah-managed',
+        scope: 'workspace',
+      }),
+      server({
+        serverKey: 'acme-files',
+        target: 'vscode',
+        configPath: '/repo/.vscode/mcp.json',
+        managedByPtah: true,
+        removal: 'ptah-managed',
+        scope: 'workspace',
+      }),
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      key: 'harness-config acme-files',
+      origin: 'harness-config',
+      showOriginLabel: false,
+      removal: 'ptah-managed',
+      targets: ['claude', 'vscode'],
+    });
+    expect(groups[0].servers.every((s) => s.scope === 'workspace')).toBe(true);
+  });
 });
 
 describe('mcpTargetLabel', () => {
