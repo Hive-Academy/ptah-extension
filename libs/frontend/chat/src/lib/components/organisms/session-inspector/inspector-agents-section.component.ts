@@ -257,14 +257,7 @@ export class InspectorAgentsSectionComponent {
   protected readonly pendingSteerId = signal<string | null>(null);
   protected readonly steerErrorKey = signal<string | null>(null);
 
-  private readonly rows = computed((): readonly InspectorAgentRow[] => {
-    const rows = this.agents().data?.rows ?? [];
-    const keys = new Set(rows.map((row) => row.agent.key));
-    const tasks = this.roster.roster(this.tabId())
-      .filter((agent) => agent.kind === 'task' && !keys.has(agent.key))
-      .map((agent) => ({ agent, requests: [] }));
-    return [...rows, ...tasks];
-  });
+  private readonly rows = computed(() => this.agents().data?.rows ?? []);
   private readonly orchestratorAgent = computed(
     () =>
       this.roster
@@ -334,7 +327,6 @@ export class InspectorAgentsSectionComponent {
   }
 
   private canOpen(row: AgentListRow): boolean {
-    if (row.agent.kind === 'task') return false;
     if (this.hasLaneSurface()) return true;
     return row.agent.kind !== 'orchestrator' && row.tray !== null;
   }
@@ -345,7 +337,6 @@ export class InspectorAgentsSectionComponent {
 
   /** Select the row and open its thread when it has one. */
   protected select(row: AgentListRow): void {
-    if (row.agent.kind === 'task') return;
     if (this.selectedKey() !== row.key) {
       this.localSelectedKey.set(row.key);
       this.agentSelected.emit(row.key);

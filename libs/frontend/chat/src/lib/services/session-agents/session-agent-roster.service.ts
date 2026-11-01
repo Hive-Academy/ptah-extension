@@ -3,7 +3,6 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   AgentMonitorStore,
   BackgroundAgentStore,
-  BackgroundTaskStore,
   PermissionHandlerService,
 } from '@ptah-extension/chat-streaming';
 import type {
@@ -33,7 +32,6 @@ const NO_REQUESTS: TabRequests = { permissions: [], questions: [] };
 export class SessionAgentRosterService {
   private readonly monitor = inject(AgentMonitorStore);
   private readonly background = inject(BackgroundAgentStore);
-  private readonly backgroundTasks = inject(BackgroundTaskStore);
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly tabManager = inject(TabManagerService);
 
@@ -84,9 +82,6 @@ export class SessionAgentRosterService {
       subagents: [...this.monitor.subagents().values()],
       cliAgents: this.monitor.agents(),
       backgroundAgents: this.background.agents(),
-      // turn_state.backgroundTasks drives turn phase only; no task list renders
-      // it. The SDK's process-level snapshot is authoritative for these rows.
-      backgroundTasks: this.backgroundTasks.tasksForSession(tab.claudeSessionId ?? null),
       permissions,
       questions,
     });

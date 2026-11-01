@@ -94,15 +94,16 @@ function makeLogger(): jest.Mocked<Logger> {
  * the "per-stream isolation" block at the bottom.
  */
 function makeMessageTransformer(): jest.Mocked<
-  Pick<SdkMessageTransformer, 'transform' | 'createIsolated' | 'settleInterruptedTurn' | 'retirePromptOnly'>
+  Pick<SdkMessageTransformer, 'transform' | 'createIsolated' | 'settleInterruptedTurn' | 'retirePromptOnly' | 'clearBackgroundTaskSession'>
 > {
   const mock = {
     transform: jest.fn().mockReturnValue([]),
     createIsolated: jest.fn(),
     settleInterruptedTurn: jest.fn(),
     retirePromptOnly: jest.fn(),
+    clearBackgroundTaskSession: jest.fn(),
   } as unknown as jest.Mocked<
-    Pick<SdkMessageTransformer, 'transform' | 'createIsolated' | 'settleInterruptedTurn' | 'retirePromptOnly'>
+    Pick<SdkMessageTransformer, 'transform' | 'createIsolated' | 'settleInterruptedTurn' | 'retirePromptOnly' | 'clearBackgroundTaskSession'>
   >;
   mock.createIsolated.mockReturnValue(mock as unknown as SdkMessageTransformer);
   return mock;
@@ -1579,6 +1580,7 @@ describe('StreamTransformer — task_* forwarding (workflow watch gate)', () => 
         tasks: [],
       }),
     ]);
+    expect(messageTransformer.clearBackgroundTaskSession).toHaveBeenCalledWith('sess-1');
   });
 
   function taskSystemMessage(subtype: string): SDKMessage {
@@ -2503,7 +2505,10 @@ describe('StreamTransformer — per-stream isolation (TASK_2026_370)', () => {
     const { transformer, messageTransformer } = makeHarness();
     const isolates: Array<jest.Mock> = [];
     messageTransformer.createIsolated.mockImplementation(() => {
-      const isolate = { transform: jest.fn().mockReturnValue([]) };
+      const isolate = {
+        transform: jest.fn().mockReturnValue([]),
+        clearBackgroundTaskSession: jest.fn(),
+      };
       isolates.push(isolate.transform);
       return isolate as unknown as SdkMessageTransformer;
     });

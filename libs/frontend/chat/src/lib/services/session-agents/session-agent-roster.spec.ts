@@ -12,19 +12,6 @@ function lane(segments: MonitoredAgent['segments']): MonitoredAgent {
 }
 
 describe('CLI roster activity', () => {
-  it('shows generic SDK work as a distinct task row', () => {
-    const rows = buildSessionAgentRoster({
-      sessionId: 'session-1', tabStatus: 'streaming', subagents: [],
-      cliAgents: [], backgroundAgents: [], permissions: [], questions: [],
-      backgroundTasks: [
-        { taskId: 'bash-1', taskType: 'local_bash', description: 'Compile', status: 'running' },
-        { taskId: 'agent-1', taskType: 'local_agent', description: 'Research', status: 'running' },
-        { taskId: 'agent-2', taskType: 'remote_agent', description: 'Delegate', status: 'running' },
-      ],
-    });
-    expect(rows.map((row) => row.kind)).toEqual(['orchestrator', 'task']);
-    expect(rows[1]).toMatchObject({ key: 'task:bash-1', name: 'local_bash: Compile', status: 'running' });
-  });
   it('carries subagent start and completion times into its row', () => {
     const subagent: SubagentRecord = {
       parentToolUseId: 'tool-one', parentSessionId: 'session-1', status: 'completed',

@@ -318,6 +318,7 @@ export interface BackgroundTaskSnapshotEntry {
   readonly taskId: string;
   readonly taskType: string;
   readonly description: string;
+  readonly command?: string;
   readonly status: 'running';
 }
 

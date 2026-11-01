@@ -41,7 +41,6 @@ const DOCK_KINDS: readonly AgentKind[] = [
   'subagent',
   'cli',
   'background',
-  'task',
 ];
 /** Unselected chip in an inline roster: avatar plus a truncated name. */
 const NAMED_CHIP_CLASS = 'h-7 max-w-[140px] gap-1.5 px-1 text-xs text-base-content-muted';
@@ -164,8 +163,7 @@ interface DockLayout {
           @if (!rail() && chip.selected) {
             <button
               type="button"
-              [attr.role]="chip.agent.kind === 'task' ? null : 'tab'"
-              [disabled]="chip.agent.kind === 'task'"
+              role="tab"
               [id]="chip.tabDomId"
               class="inline-flex h-7 max-w-[180px] shrink-0 items-center gap-1.5 rounded-full border border-secondary pl-0.5 pr-2 text-xs text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
               [attr.aria-selected]="chip.selected"
@@ -202,8 +200,7 @@ interface DockLayout {
           } @else {
             <button
               type="button"
-              [attr.role]="chip.agent.kind === 'task' ? null : 'tab'"
-              [disabled]="chip.agent.kind === 'task'"
+              role="tab"
               [id]="chip.tabDomId"
               [class]="'inline-flex shrink-0 items-center rounded-full hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))] ' + (rail() ? railChipClass : view.named ? namedChipClass : circleChipClass)"
               [attr.aria-selected]="chip.selected"
@@ -305,7 +302,7 @@ export class CanvasLaneTabsComponent {
   readonly selectedKey = computed(() => {
     const key = this.laneKey();
     const keys = this.agents().map((agent) => agent.key);
-    if (this.agents().some((agent) => agent.key === key && agent.kind !== 'task')) return key;
+    if (keys.includes(key)) return key;
     const alternateKey = key.startsWith('sub:')
       ? `bg:${key.slice(4)}`
       : key.startsWith('bg:')
@@ -392,7 +389,7 @@ export class CanvasLaneTabsComponent {
   /** Rail strip: the one chip in the tab order — the focused one, else the selected, else the first. */
   protected readonly railTabStop = computed(() => {
     if (!this.rail()) return null;
-    const keys = this.visibleKeys();
+    const keys = this.layout().groups.flatMap((group) => group.chips.map((chip) => chip.key));
     const focused = this.railFocusKey();
     if (focused && keys.includes(focused)) return focused;
     const selected = this.selectedKey();
@@ -449,7 +446,6 @@ export class CanvasLaneTabsComponent {
   }
 
   protected onTabClick(key: string): void {
-    if (!this.visibleKeys().includes(key)) return;
     this.pick(key);
   }
 
@@ -592,9 +588,7 @@ export class CanvasLaneTabsComponent {
   }
 
   private readonly visibleKeys = computed(() =>
-    this.layout().groups.flatMap((group) =>
-      group.chips.filter((chip) => chip.agent.kind !== 'task').map((chip) => chip.key),
-    ),
+    this.layout().groups.flatMap((group) => group.chips.map((chip) => chip.key)),
   );
 
   private isMenuTriggerFocused(): boolean {

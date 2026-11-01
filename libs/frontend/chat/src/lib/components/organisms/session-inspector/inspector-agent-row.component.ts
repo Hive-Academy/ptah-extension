@@ -35,7 +35,6 @@ export const AGENT_ROW_COLUMNS =
       }} items-center py-1.5 pl-3 pr-1 text-left hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-base-content"
       [attr.data-agent-key]="r.key"
       [attr.aria-label]="r.ariaLabel"
-      [disabled]="r.agent.kind === 'task'"
       (click)="selected.emit()"
     >
       <span class="flex min-w-0 items-center gap-2">

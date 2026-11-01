@@ -5,6 +5,7 @@ import {
   HarnessStreamId,
   WizardPhaseId,
   AuthEnv,
+  type BackgroundTasksSnapshotEvent,
 } from '@ptah-extension/shared';
 import {
   Logger,
@@ -18,8 +19,14 @@ import type { SessionLifecycleManager } from './helpers/session-lifecycle-manage
 import type { LiveUsageTracker } from './helpers/live-usage-tracker';
 import type { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
 import { toTurnStateEvent } from './helpers/session-turn-state.registry';
-import { firstQueuedClientMessageId, takeAwaitingEcho } from './helpers/session-lifecycle/echo-identity';
-import { isFailureTerminalReason, type HostAttentionCoordinator } from './permission/host-attention-coordinator';
+import {
+  firstQueuedClientMessageId,
+  takeAwaitingEcho,
+} from './helpers/session-lifecycle/echo-identity';
+import {
+  isFailureTerminalReason,
+  type HostAttentionCoordinator,
+} from './permission/host-attention-coordinator';
 import type { CompactionBoundaryGenerationRegistry } from './helpers/compaction-boundary-generation-registry';
 import { SubagentStopNotices } from './helpers/compaction/subagent-stop-notices';
 import {
@@ -56,11 +63,14 @@ import type {
   TransformerHelpers,
   WorkflowRunInfo,
 } from './message-transform';
+import { generateEventId } from './message-transform/message-transform-helpers';
 
 export { isResultMessage as isSDKResultMessage };
 
 /** The label shown when a peer sender reports no name of its own. */
 export const NEUTRAL_PEER_LABEL = 'peer session';
+const MAX_PENDING_BASH_COMMANDS = 64;
+const MAX_BACKGROUND_COMMAND_LENGTH = 2_000;
 
 /**
  * Read the provenance stamp off any SDK message. Present on user turns and
@@ -107,6 +117,23 @@ export class SdkMessageTransformer implements TransformerState {
     BackgroundAnnounceOrigin
   >();
   private readonly nonAgentTaskIds: Set<string> = new Set();
+  private readonly pendingBashCommands = new Map<
+    string,
+    { sessionId: string; command: string }
+  >();
+  private readonly backgroundTaskCommands = new Map<
+    string,
+    Map<string, string>
+  >();
+  private readonly bashTaskToolUseIdsBySession = new Map<
+    string,
+    Map<string, string>
+  >();
+  private readonly lastBackgroundSnapshotBySession = new Map<
+    string,
+    BackgroundTasksSnapshotEvent
+  >();
+  private readonly backgroundSnapshotRefreshSessions = new Set<string>();
   private readonly activeSkillToolUseIds: Set<string> = new Set();
   private readonly workflowRunByToolUseId: Map<string, WorkflowRunInfo> =
     new Map();
@@ -179,16 +206,26 @@ export class SdkMessageTransformer implements TransformerState {
     this.usageTracker.clearSessionTokenSnapshot(sessionId);
   }
 
-  settleInterruptedTurn(sessionId: SessionId, clientMessageId: string): FlatStreamEventUnion {
+  settleInterruptedTurn(
+    sessionId: SessionId,
+    clientMessageId: string,
+  ): FlatStreamEventUnion {
     return {
-      ...toTurnStateEvent(sessionId, this.turnState.settleTurn(sessionId, 'aborted_streaming')),
+      ...toTurnStateEvent(
+        sessionId,
+        this.turnState.settleTurn(sessionId, 'aborted_streaming'),
+      ),
       consumedClientMessageId: clientMessageId,
     };
   }
 
-  retirePromptOnly(sessionId: SessionId, clientMessageId: string): FlatStreamEventUnion {
+  retirePromptOnly(
+    sessionId: SessionId,
+    clientMessageId: string,
+  ): FlatStreamEventUnion {
     const state = this.turnState.get(sessionId);
-    if (!state) throw new Error(`Missing turn state for prompt retirement: ${sessionId}`);
+    if (!state)
+      throw new Error(`Missing turn state for prompt retirement: ${sessionId}`);
     return {
       ...toTurnStateEvent(sessionId, state),
       consumedClientMessageId: clientMessageId,
@@ -221,12 +258,13 @@ export class SdkMessageTransformer implements TransformerState {
 
     try {
       if (isAssistantMessage(sdkMessage)) {
-        return this.assistantTransformer.transform(
+        const events = this.assistantTransformer.transform(
           sdkMessage,
           this,
           this.helpers,
           sessionId,
         );
+        return [...events, ...this.takeBackgroundTaskRefreshes()];
       }
 
       // A turn injected by ANOTHER session, ahead of both user-message paths
@@ -237,9 +275,12 @@ export class SdkMessageTransformer implements TransformerState {
       // declared on other message types too, and only a user turn has a
       // sender to attribute.
       if (isReplayMessage(sdkMessage)) {
-        const rec = sessionId ? this.sessionLifecycle.find(sessionId) : undefined;
+        const rec = sessionId
+          ? this.sessionLifecycle.find(sessionId)
+          : undefined;
         const turn = takeAwaitingEcho(rec, sdkMessage);
-        const originKind = turn?.message.origin?.kind ?? readOrigin(sdkMessage)?.kind;
+        const originKind =
+          turn?.message.origin?.kind ?? readOrigin(sdkMessage)?.kind;
         this.logger.debug('[SdkMessageTransformer] Replay echo', {
           matched: turn ? 'uuid' : 'none',
           inFlight: Boolean(rec?.awaitingEcho || turn),
@@ -250,15 +291,37 @@ export class SdkMessageTransformer implements TransformerState {
             const peer = resolveInboundPeerLabel(turn.message.origin);
             const beforeClientMessageId = firstQueuedClientMessageId(rec);
             return this.userTransformer.transform(
-              sdkMessage, this, this.helpers, sessionId,
-              peer ? { ...peer, ...(beforeClientMessageId !== undefined ? { beforeClientMessageId } : {}) } : undefined,
+              sdkMessage,
+              this,
+              this.helpers,
+              sessionId,
+              peer
+                ? {
+                    ...peer,
+                    ...(beforeClientMessageId !== undefined
+                      ? { beforeClientMessageId }
+                      : {}),
+                  }
+                : undefined,
             );
           }
-          if (turn.message.origin && turn.message.origin.kind !== 'human') return [];
+          if (turn.message.origin && turn.message.origin.kind !== 'human')
+            return [];
           if (sdkMessage.isSynthetic === true) return [];
-          if (this.activeSkillToolUseIds.size > 0 && !userMessageHasToolResult(sdkMessage)) return [];
+          if (
+            this.activeSkillToolUseIds.size > 0 &&
+            !userMessageHasToolResult(sdkMessage)
+          )
+            return [];
           if (isSkillOrMetaContent(sdkMessage)) return [];
-          return this.userTransformer.transform(sdkMessage, this, this.helpers, sessionId, undefined, turn.clientMessageId);
+          return this.userTransformer.transform(
+            sdkMessage,
+            this,
+            this.helpers,
+            sessionId,
+            undefined,
+            turn.clientMessageId,
+          );
         }
       }
       const inboundPeer =
@@ -373,8 +436,12 @@ export class SdkMessageTransformer implements TransformerState {
           sessionId,
         );
         const turn = sessionId ? this.turnState.get(sessionId) : undefined;
-        if (sessionId && turn &&
-          (turn.phase === 'failed' || isFailureTerminalReason(turn.terminalReason))) {
+        if (
+          sessionId &&
+          turn &&
+          (turn.phase === 'failed' ||
+            isFailureTerminalReason(turn.terminalReason))
+        ) {
           void this.hostAttention?.presentSessionFailure(sessionId, Date.now());
         }
         return events;
@@ -390,16 +457,21 @@ export class SdkMessageTransformer implements TransformerState {
       }
 
       if (isTaskStarted(sdkMessage)) {
-        return this.systemTransformer.transformTaskStarted(
+        const events = this.systemTransformer.transformTaskStarted(
           sdkMessage,
           this,
           this.helpers,
           sessionId,
         );
+        return [...events, ...this.takeBackgroundTaskRefreshes()];
       }
 
       if (isBackgroundTasksChanged(sdkMessage)) {
-        return this.systemTransformer.transformBackgroundTasksChanged(sdkMessage, sessionId);
+        return this.systemTransformer.transformBackgroundTasksChanged(
+          sdkMessage,
+          this,
+          sessionId,
+        );
       }
 
       if (isTaskProgress(sdkMessage)) {
@@ -594,8 +666,147 @@ export class SdkMessageTransformer implements TransformerState {
     this.nonAgentTaskIds.delete(taskId);
   }
 
-  markNonAgentTask(taskId: string): void {
+  markNonAgentTask(
+    taskId: string,
+    toolUseId?: string,
+    sessionId?: string,
+  ): void {
     this.nonAgentTaskIds.add(taskId);
+    if (!toolUseId || !sessionId) return;
+    const links =
+      this.bashTaskToolUseIdsBySession.get(sessionId) ??
+      new Map<string, string>();
+    links.set(taskId, toolUseId);
+    this.bashTaskToolUseIdsBySession.set(sessionId, links);
+    const pending = this.pendingBashCommands.get(toolUseId);
+    if (pending?.sessionId === sessionId)
+      this.attachBackgroundTaskCommand(sessionId, taskId, pending.command);
+  }
+
+  recordBackgroundBashCommand(
+    sessionId: string,
+    toolUseId: string,
+    command: string,
+  ): void {
+    const boundedCommand =
+      command.length > MAX_BACKGROUND_COMMAND_LENGTH
+        ? `${command.slice(0, MAX_BACKGROUND_COMMAND_LENGTH - 1)}…`
+        : command;
+    this.pendingBashCommands.set(toolUseId, {
+      sessionId,
+      command: boundedCommand,
+    });
+    if (this.pendingBashCommands.size > MAX_PENDING_BASH_COMMANDS) {
+      const oldest = this.pendingBashCommands.keys().next().value;
+      if (oldest) this.pendingBashCommands.delete(oldest);
+    }
+    for (const [
+      taskId,
+      linkedToolUseId,
+    ] of this.bashTaskToolUseIdsBySession.get(sessionId) ?? []) {
+      if (linkedToolUseId === toolUseId)
+        this.attachBackgroundTaskCommand(sessionId, taskId, boundedCommand);
+    }
+  }
+
+  getBackgroundTaskCommand(
+    sessionId: string,
+    taskId: string,
+  ): string | undefined {
+    const direct = this.backgroundTaskCommands.get(sessionId)?.get(taskId);
+    if (direct !== undefined) return direct;
+    const toolUseId = this.bashTaskToolUseIdsBySession
+      .get(sessionId)
+      ?.get(taskId);
+    const pending = toolUseId
+      ? this.pendingBashCommands.get(toolUseId)
+      : undefined;
+    return pending?.sessionId === sessionId ? pending.command : undefined;
+  }
+
+  retainBackgroundTaskCommands(
+    sessionId: string,
+    taskIds: readonly string[],
+  ): void {
+    if (taskIds.length === 0) {
+      this.clearBackgroundTaskSession(sessionId);
+      return;
+    }
+    const activeIds = new Set(taskIds);
+    const sessionCommands = this.backgroundTaskCommands.get(sessionId);
+    if (sessionCommands) {
+      for (const taskId of sessionCommands.keys()) {
+        if (!activeIds.has(taskId)) sessionCommands.delete(taskId);
+      }
+      if (!sessionCommands.size) this.backgroundTaskCommands.delete(sessionId);
+    }
+    const links = this.bashTaskToolUseIdsBySession.get(sessionId);
+    if (links) {
+      for (const taskId of links.keys()) {
+        if (!activeIds.has(taskId)) links.delete(taskId);
+      }
+      if (!links.size) this.bashTaskToolUseIdsBySession.delete(sessionId);
+    }
+  }
+
+  cacheBackgroundTasksSnapshot(event: BackgroundTasksSnapshotEvent): void {
+    if (event.tasks.length === 0) {
+      this.clearBackgroundTaskSession(event.sessionId);
+      return;
+    }
+    this.lastBackgroundSnapshotBySession.set(event.sessionId, event);
+  }
+
+  clearBackgroundTaskSession(sessionId: string): void {
+    this.backgroundTaskCommands.delete(sessionId);
+    this.bashTaskToolUseIdsBySession.delete(sessionId);
+    this.lastBackgroundSnapshotBySession.delete(sessionId);
+    this.backgroundSnapshotRefreshSessions.delete(sessionId);
+    for (const [toolUseId, pending] of this.pendingBashCommands) {
+      if (pending.sessionId === sessionId)
+        this.pendingBashCommands.delete(toolUseId);
+    }
+  }
+
+  private attachBackgroundTaskCommand(
+    sessionId: string,
+    taskId: string,
+    command: string,
+  ): void {
+    const commands =
+      this.backgroundTaskCommands.get(sessionId) ?? new Map<string, string>();
+    if (commands.get(taskId) === command) return;
+    commands.set(taskId, command);
+    this.backgroundTaskCommands.set(sessionId, commands);
+    const snapshot = this.lastBackgroundSnapshotBySession.get(sessionId);
+    if (
+      snapshot?.tasks.some(
+        (task) => task.taskId === taskId && task.command !== command,
+      )
+    )
+      this.backgroundSnapshotRefreshSessions.add(sessionId);
+  }
+
+  private takeBackgroundTaskRefreshes(): BackgroundTasksSnapshotEvent[] {
+    const events: BackgroundTasksSnapshotEvent[] = [];
+    for (const sessionId of this.backgroundSnapshotRefreshSessions) {
+      const prior = this.lastBackgroundSnapshotBySession.get(sessionId);
+      if (!prior) continue;
+      const tasks = prior.tasks.map((task) => {
+        const command = this.getBackgroundTaskCommand(sessionId, task.taskId);
+        return command === undefined ? task : { ...task, command };
+      });
+      const refreshed = {
+        ...prior,
+        id: generateEventId(),
+        timestamp: Date.now(),
+        tasks,
+      };
+      this.lastBackgroundSnapshotBySession.set(sessionId, refreshed);
+      events.push(refreshed);
+    }
+    this.backgroundSnapshotRefreshSessions.clear();
+    return events;
   }
 
   markTaskStartedEmitted(toolUseId: string): void {

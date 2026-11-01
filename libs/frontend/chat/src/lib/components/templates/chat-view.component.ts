@@ -35,6 +35,7 @@ import {
   type DisplaySidebarConnection,
 } from './display-sidebar-wiring';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
+import { BackgroundTaskTilesContainerComponent } from '../molecules/background-task-tiles/background-task-tiles-container.component';
 import { ChatSessionLayoutComponent } from './chat-session-layout.component';
 import {
   QuestionCardComponent,
@@ -181,6 +182,7 @@ const VIEW_PANEL_KEY = '';
     AgentMonitorPanelComponent,
     DisplaySheetComponent,
     ChatInputComponent,
+    BackgroundTaskTilesContainerComponent,
     ChatSessionLayoutComponent,
     QuestionCardComponent,
     ResumeNotificationBannerComponent,
@@ -301,7 +303,8 @@ export class ChatViewComponent implements OnDestroy {
     this.staleOlderHistory.set(null);
     const outcome = await this.historyPaging.loadOlder(tabId);
     if (outcome === 'stale') {
-      const message = 'Earlier history changed. Reopen the session to load it again.';
+      const message =
+        'Earlier history changed. Reopen the session to load it again.';
       const tab = this._tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
       if (tab) {
         this.staleOlderHistory.set({
@@ -311,10 +314,7 @@ export class ChatViewComponent implements OnDestroy {
           message,
         });
       }
-      this.showActionError(
-        message,
-        tabId,
-      );
+      this.showActionError(message, tabId);
     } else if (outcome === 'failed') {
       this.showActionError(
         'Could not load earlier messages. Please try again.',
@@ -1329,7 +1329,6 @@ export class ChatViewComponent implements OnDestroy {
         this.panelState.releaseAgentsUserClose(key);
       });
     });
-
 
     effect(() => {
       const request = this._appState.composerPrefillRequest();

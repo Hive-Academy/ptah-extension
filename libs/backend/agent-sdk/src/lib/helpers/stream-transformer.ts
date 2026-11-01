@@ -1237,6 +1237,7 @@ export class StreamTransformer {
           // SDK task snapshots are process-scoped. Retire the last level on
           // completion, abort, error, or consumer close; turn_state alone
           // must not clear it while the SDK query remains alive.
+          messageTransformer.clearBackgroundTaskSession(effectiveSessionId);
           if (sawBackgroundTasksSnapshot) {
             const terminalSnapshot: BackgroundTasksSnapshotEvent = {
               id: `background-tasks-end-${randomUUID()}`,

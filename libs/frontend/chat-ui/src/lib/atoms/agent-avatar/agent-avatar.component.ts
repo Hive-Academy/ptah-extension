@@ -290,8 +290,6 @@ export class AgentAvatarComponent {
     switch (kind) {
       case 'orchestrator':
         return Workflow;
-      case 'task':
-        return LoaderCircle;
       case 'subagent':
       case 'background':
         return roleIconFor(this.agentType());
