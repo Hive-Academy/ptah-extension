@@ -1,7 +1,7 @@
-# Session handoff — TASK_2026_714_c8a2 (session 37)
+# Session handoff — TASK_2026_714_c8a2 (session 38)
 
-Written 2026-11-01. Replaces the session 36 handoff (`git show 16218ed0a:.ptah/specs/TASK_2026_714_c8a2/HANDOFF.md`;
-its Goal, Routing facts and Rules stay valid). Older: session 35 `85a7c64bd`, 34 `805991a08`, 24 `44e3b1102` (full
+Written 2026-11-01. Replaces the session 37 handoff (`git show 5c91fa977:.ptah/specs/TASK_2026_714_c8a2/HANDOFF.md`);
+session 36 `16218ed0a` (its Goal, Routing facts and Rules stay valid). Older: session 35 `85a7c64bd`, 34 `805991a08`, 24 `44e3b1102` (full
 goal, PR table), Electron live-test procedure `e10bb860a`.
 
 W = `D:\projects\ptah-extension\.claude-worktrees\codex-runtime-integration`
@@ -20,6 +20,30 @@ Routing: codex (model `gpt-6-sol`, never `gpt-6.1-terra`) implements. The `claud
 is reviewed by the in-process `code-logic-reviewer` subagent. Code the coordinator writes is reviewed by a codex
 lane. The coordinator runs verify, commit, push. Lane limits at end of session 37: codex weekly ~73% (resets
 2026-11-04 07:03 UTC); Glm and opencode at limit; grok unknown; Kimi unknown, do not use.
+
+## Done in session 38 (pushed; PR head 6c0bd87d7, CI all green)
+
+| Commit | Subject | Verify / CI |
+| --- | --- | --- |
+| 910906b31 | docs: sign the 10d.P proof (user, Electron scope) | docs |
+| 6c0bd87d7 | feat(cli-agent-runtime,electron): remove legacy Codex SDK lane (10e + 10e.G + 10f) | see commit body; CI green |
+
+- User signed p10-lane-parity-proof.md (Electron scope). D29: packaged Electron admits native lanes on win32/x64
+  via `isElectronCodexLaneAdmitted` (apps/ptah-electron/src/di/codex-lane-composition.ts); shared CodexParityGate
+  stays closed, so packaged CLI/TUI and production VS Code have NO Codex lane until their proof (user decision).
+- Reviews: code-logic-review-10e.md (8), -10e-G.md (8.5), -10e-G-r1.md (9), -10f.md (codex, 9).
+- Open minor follow-ups: 10e-G-r1 #1 (log not-called assertions), #2 (win32/x64 literal duplicates gate table);
+  10e #2 agent-sdk codex-native-binary-path.ts:145 SDK probe empty catch (P15); 10e #3 no reason field in detect.
+- Local lint: auth-providers @nx/dependency-checks reports persistence-sqlite unused (false positive, same on main;
+  CI checks green). auth-providers real-SDK integration spec EPERM temp cleanup on Windows (environment).
+
+## Next steps (session 38 -> 39, in order)
+
+1. P14 14a (codex lane): parity-gate ledger update (batches.md:3795-3804); gate stays `enabled: false`.
+2. GAP-3 (D24(4)): Codex chat gets user MCP servers from ~/.claude.json via claude-user-mcp.reader.ts.
+3. D9 history after reload (batches.md:2651) before P15.
+4. 14b live Electron parity run: needs explicit user authorization with a turn cap.
+5. P15 Removal A after the P14 proof.
 
 ## Done in session 37 (all pushed; PR head 065b4fb5e, clean, in sync with origin)
 
@@ -48,8 +72,7 @@ Live results (all Electron, settings.json restored, `cmp` 0 every run):
 
 ## Open problems and decisions
 
-- **Waiting on the user: sign T\p10-lane-parity-proof.md (Electron scope)**, or name a gap to fix first. The user was
-  asked at the end of session 37; no answer yet. No further paid/live run is authorized.
+- SIGNED in session 38 (see above).
 - Minor, non-blocking: spawn result gave the main agent no usable agentId (first message call isError, r5 app.log
   1670); resume gate said "host holds no record" for a row with `workspace_root NULL` (r5, copied DB); stale comment
   `apps/ptah-electron/src/di/container.ts:46` (start-after-phase-4 move no longer needed; smoke spec guards an order
@@ -72,7 +95,7 @@ Live results (all Electron, settings.json restored, `cmp` 0 every run):
 - Live run folders in %TEMP%: ptah-live-p10dL3-20261031-234219, ptah-live-p10dL4-20261101-012450,
   ptah-live-p10dL5-20261101-030143 (app.log, ptah.db, shots, settings backups).
 
-## Next steps (in order)
+## Next steps of session 37 (history; steps 1-2 done in session 38)
 
 1. Ask the user (if not already answered) to sign T\p10-lane-parity-proof.md for Electron, or to name a gap to fix.
    On "sign": update the Signature line (`Signed: <user> <date>, Electron scope`), commit, push.
