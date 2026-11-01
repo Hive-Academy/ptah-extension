@@ -1,4 +1,4 @@
-﻿/**
+/**
  * session-history-reader.service — unit specs.
  *
  * Covers `SessionHistoryReaderService`, the public facade over the
@@ -51,11 +51,15 @@ import { CompactionBoundaryGenerationRegistry } from './helpers/compaction-bound
 import { SessionStatsOwnerService } from './session-stats/session-stats-owner.service';
 import type { IModelResolver } from './auth-env.port';
 import type { IPricingProvider } from './pricing.port';
-import type { AuthEnv, ModelPricing } from '@ptah-extension/shared';
+import type { AuthEnv, ModelPricing, SessionRuntimeIdentity } from '@ptah-extension/shared';
 import {
   findModelPricing,
   registerModelContextWindows,
+  SessionId,
 } from '@ptah-extension/shared';
+import { createMockStateStorage } from '@ptah-extension/platform-core/testing';
+import { SessionMetadataStore } from './session-metadata-store';
+import { CodexSessionUsageOwner } from './codex-app-server/codex-session-usage-owner';
 import {
   createMockLogger,
   type MockLogger,
@@ -159,7 +163,7 @@ function makeStubs(): Stubs {
   };
 }
 
-function makeService(stubs: Stubs): SessionHistoryReaderService {
+function makeService(stubs: Stubs, metadataStore?: SessionMetadataStore): SessionHistoryReaderService {
   const factory = new HistoryEventFactory(); // real — no deps
   return new SessionHistoryReaderService(
     asLogger(stubs.logger),
@@ -172,6 +176,7 @@ function makeService(stubs: Stubs): SessionHistoryReaderService {
     stubs.usageTracker,
     stubs.compactionBoundaryRegistry,
     stubs.statsOwner,
+    metadataStore,
   );
 }
 
@@ -423,6 +428,74 @@ describe('SessionHistoryReaderService', () => {
   });
 
   describe('readSessionHistory', () => {
+    it('uses the persisted native checkpoint after reload while Claude remains unchanged', async () => {
+      const stubs = makeStubs();
+      const metadata = new SessionMetadataStore(createMockStateStorage(), asLogger(createMockLogger()));
+      const sessionId = SessionId.from('12345678-1234-4234-8234-123456789abc');
+      const workspaceId = process.platform === 'win32' ? 'C:\\Work\\Project' : '/work/project';
+      const execution: Extract<SessionRuntimeIdentity, { runtime: 'codex-app-server' }> = {
+        version: 1, sessionId, runtime: 'codex-app-server',
+        providerId: 'openai-codex', workspaceId,
+        codex: { normalizedHome: '/home/codex' },
+      };
+      await metadata.updateCodexExecution(sessionId, () => execution);
+      const owner = new CodexSessionUsageOwner(sessionId, 'native-root');
+      const counters = { uncachedInputTokens: 7, outputTokens: 2, cacheReadTokens: 1,
+        cacheCreationTokens: 0, reasoningOutputTokens: 0, totalTokens: 10 };
+      owner.accept({
+        threadId: 'native-root', turnId: 'turn-1', total: counters, last: counters,
+        timestamp: 1, terminalState: 'failed', resetOrStale: false, accepted: true,
+        epoch: 0, cacheSemanticsAmbiguous: false, lastExceedsTotal: false, diagnostics: [],
+      });
+      await metadata.updateCodexUsageCheckpoint(sessionId, owner.serialize());
+      await metadata.incrementCodexMessageCount(sessionId);
+      const reader = makeService(stubs, metadata);
+      const native = await reader.readSessionHistory(sessionId, workspaceId);
+      expect(native.stats).toEqual(owner.snapshot(2));
+      expect((await metadata.get(sessionId))?.totalTokens).toEqual({ input: 8, output: 2 });
+      const claude = await reader.readSessionHistory('claude-session', workspaceId);
+      expect(claude.stats).toBeNull();
+    });
+    it('continues history when metadata read fails', async () => {
+      const stubs = makeStubs();
+      const metadata = new SessionMetadataStore(createMockStateStorage(), asLogger(createMockLogger()));
+      jest.spyOn(metadata, 'get').mockRejectedValue(new Error('EIO'));
+      const reader = makeService(stubs, metadata);
+      const result = await reader.readSessionHistory('valid-session', '/workspace');
+      expect(result.stats).toBeNull();
+      expect(stubs.logger.warn).toHaveBeenCalledWith(
+        '[SessionHistoryReader] Native usage metadata read failed', expect.any(Object),
+      );
+    });
+    it('uses sidebar totals when a persisted checkpoint is rejected', async () => {
+      const stubs = makeStubs();
+      const metadata = new SessionMetadataStore(createMockStateStorage(), asLogger(createMockLogger()));
+      const sessionId = SessionId.from('12345678-1234-4234-8234-123456789abc');
+      const workspaceId = process.platform === 'win32' ? 'C:\\Work\\Project' : '/work/project';
+      await metadata.updateCodexExecution(sessionId, () => ({
+        version: 1, sessionId, runtime: 'codex-app-server',
+        providerId: 'openai-codex', workspaceId,
+        codex: { normalizedHome: '/home/codex' },
+      }));
+      const row = await metadata.get(sessionId);
+      if (!row) throw new Error('Missing Codex row');
+      const owner = new CodexSessionUsageOwner(sessionId, 'native-root');
+      const counters = { uncachedInputTokens: 7, outputTokens: 2, cacheReadTokens: 1,
+        cacheCreationTokens: 0, reasoningOutputTokens: 0, totalTokens: 10 };
+      owner.accept({ threadId: 'native-root', turnId: 'turn', total: counters, last: counters,
+        timestamp: 1, terminalState: 'failed', resetOrStale: false, accepted: true,
+        epoch: 0, cacheSemanticsAmbiguous: false, lastExceedsTotal: false, diagnostics: [] });
+      const corrupted = { ...owner.serialize(), total: { ...counters, uncachedInputTokens: 0 } };
+      jest.spyOn(metadata, 'get').mockResolvedValue({
+        ...row, codexUsageCheckpoint: corrupted, totalTokens: { input: 8, output: 2 },
+      });
+      const result = await makeService(stubs, metadata).readSessionHistory(sessionId, workspaceId);
+      expect(result.stats?.tokens).toMatchObject({ input: 8, output: 2 });
+      expect(result.stats?.coverage).toBe('partial');
+      expect(stubs.logger.warn).toHaveBeenCalledWith(
+        '[SessionHistoryReader] Native usage checkpoint rejected', expect.any(Object),
+      );
+    });
     it('returns collector metadata only on a successful opted-in read', async () => {
       const stubs = makeStubs();
       stubs.jsonlReader.findSessionsDirectory.mockResolvedValue('/sessions');
