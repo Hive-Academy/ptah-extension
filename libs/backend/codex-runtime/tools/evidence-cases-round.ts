@@ -170,7 +170,7 @@ export async function runRoundCase(c: Context): Promise<void> {
       'web_search="disabled"',
       'features.apps=false',
       'sandbox_workspace_write.network_access=false',
-      'sandbox_mode="read-only"',
+      `sandbox_mode=${JSON.stringify(selected.sandbox)}`,
       approvalPolicyOverride(selected.approvalPolicy),
     ];
     if (profile) {
@@ -415,7 +415,7 @@ export async function runRoundCase(c: Context): Promise<void> {
       selected.approvalPolicy,
     );
     if (
-      config['sandbox_mode'] !== 'read-only' ||
+      config['sandbox_mode'] !== selected.sandbox ||
       Object.entries(OUTPUT_BOUNDS).some(
         ([key, value]) => config[key] !== value,
       )
@@ -480,7 +480,14 @@ export async function runRoundCase(c: Context): Promise<void> {
         model: c.model,
         approvalPolicy: selected.approvalPolicy,
         approvalsReviewer: 'user',
-        sandboxPolicy: { type: 'readOnly', networkAccess: false },
+        sandboxPolicy:
+          selected.sandbox === 'read-only'
+            ? { type: 'readOnly', networkAccess: false }
+            : {
+                type: 'workspaceWrite',
+                writableRoots: [experiment.workspace],
+                networkAccess: false,
+              },
         input: [{ type: 'text', text: prompt, text_elements: [] }],
       },
       c.budget,

@@ -9,10 +9,15 @@
  * with no network. A throwing source drops only that source.
  */
 import 'reflect-metadata';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
   PlanUsageService,
+  cliStoreOwnerKey,
+  quotaOwnerRefFromKey,
+  type IKimiCodeAuthService,
   type ActiveAuth,
   type PlanCredentialResolution,
 } from '@ptah-extension/auth-providers';
@@ -52,6 +57,8 @@ const GROK = ref('grok', 'cli-store', 'eb');
 const OLLAMA_KEY = ref('ollama-cloud', 'credential', 'fa');
 const GLM_LANE = ref('ollama-cloud', 'credential', 'fb');
 const GLM_NO_KEY = ref('ollama-cloud', 'unknown', 'fc');
+const KIMI_OAUTH = ref('kimi-code', 'cli-store', 'a1');
+const KIMI_KEY = ref('kimi-code', 'credential', 'a2');
 
 const detected = (...clis: CliDetectionResult['cli'][]): CliDetectionResult[] =>
   clis.map((cli) => ({ cli, installed: true, messagingMode: 'queue' }));
@@ -64,6 +71,9 @@ const glmAgent = (id: string, enabled = true): PtahCliSummary =>
     enabled,
     hasApiKey: true,
   }) as unknown as PtahCliSummary;
+const kimiAgent = (id: string, enabled = true): PtahCliSummary => ({
+  ...glmAgent(id, enabled), providerId: 'kimi-code',
+});
 
 interface Harness {
   service: PlanLimitOwnerDiscoveryService;
@@ -82,6 +92,7 @@ function createHarness(active: ActiveAuth): Harness {
     ownerForProviderKey: jest.fn(async (id: string) =>
       id === 'anthropic' ? CLAUDE_KEY : OLLAMA_KEY,
     ),
+    ownerForKimiCode: jest.fn(async () => KIMI_OAUTH),
     ownerForPtahCli: jest.fn(async () => GLM_LANE),
     ownerForClaudeAccount: jest.fn(() => CLAUDE_UNKNOWN),
     ownerForCodexHome: jest.fn(() => CODEX_A),
@@ -520,6 +531,38 @@ describe('PlanLimitOwnerDiscoveryService', () => {
     });
   });
 
+  it('discovers selected Kimi OAuth and API-key owners', async () => {
+    const h = createHarness(THIRD_PARTY('kimi-code'));
+    const oauth = await h.service.discoverTargets({ selectedProviderId: 'kimi-code' });
+    expect(oauth[0]).toEqual({
+      kind: 'read', origin: 'selected-provider',
+      target: { providerId: 'kimi-code', ownerRef: KIMI_OAUTH },
+    });
+    h.owners.ownerForKimiCode.mockResolvedValue(KIMI_KEY);
+    const key = await h.service.discoverTargets({ selectedProviderId: 'kimi-code' });
+    expect(key[0]).toEqual({
+      kind: 'read', origin: 'selected-provider',
+      target: { providerId: 'kimi-code', ownerRef: KIMI_KEY },
+    });
+  });
+
+  it('discovers enabled Kimi lanes and deduplicates a shared login', async () => {
+    const h = createHarness(THIRD_PARTY('openrouter'));
+    h.agents.listAgents.mockResolvedValue([
+      kimiAgent('kimi-1'), kimiAgent('kimi-2'), kimiAgent('disabled', false),
+    ]);
+    h.owners.ownerForPtahCli.mockResolvedValue(KIMI_OAUTH);
+    const entries = await h.service.discoverTargets({});
+    expect(h.owners.ownerForPtahCli).toHaveBeenCalledTimes(2);
+    const kimi = entries.filter((entry) =>
+      entry.kind === 'read' && entry.target.providerId === 'kimi-code');
+    expect(kimi).toHaveLength(1);
+    expect(kimi[0]).toMatchObject({
+      kind: 'read', origin: 'lane',
+      target: { credentialRef: { kind: 'ptah-cli-key', ptahCliId: 'kimi-1' } },
+    });
+  });
+
   it('F70: changing the selected provider changes the first owner', async () => {
     const h = createHarness(CLAUDE_CLI);
     h.detection.detectAll.mockResolvedValue(detected('codex', 'opencode'));
@@ -903,17 +946,65 @@ describe('PlanLimitOwnerDiscoveryService', () => {
   });
 
   describe('Ollama Cloud keys through the real PlanUsageService, with no network', () => {
-    function usageService(resolution: PlanCredentialResolution) {
+    function usageService(
+      resolution: PlanCredentialResolution,
+      kimiAuth?: Pick<IKimiCodeAuthService, 'resolveRequestCredential' | 'forceRefresh'>,
+    ) {
       const credentials = { resolve: jest.fn(async () => resolution) };
+      const usageLedger = { snapshotFor: jest.fn(), recordWindowEvidence: jest.fn() };
       const service = new PlanUsageService(
         createMockLogger() as unknown as Logger,
-        { snapshotFor: jest.fn(), recordWindowEvidence: jest.fn() },
+        usageLedger,
         credentials,
         { readPlanUsage: jest.fn() } as never,
         { getUsage: jest.fn(), currentOwnerKey: jest.fn() } as never,
+        Date.now,
+        kimiAuth,
       );
-      return { service, credentials };
+      return { service, credentials, usageLedger };
     }
+
+    it('discovers a Kimi OAuth main session and reads its plan usage', async () => {
+      const h = createHarness(THIRD_PARTY('openrouter'));
+      const owner = quotaOwnerRefFromKey(
+        cliStoreOwnerKey('kimi-code', join(homedir(), '.kimi-code')),
+      );
+      h.routes.set('kimi-session', 'proxy');
+      h.owners.ownerForSession.mockResolvedValue(owner);
+      const fetcher = jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ usages: {
+          limit_5h: { used_ratio: 0.25 },
+          limit_7d: { used_ratio: 0.5 },
+        } }),
+      } as Response);
+      try {
+        const entries = await h.service.discoverTargets({ sessionIds: ['kimi-session'] });
+        const session = entries.find((entry) => entry.origin === 'session');
+        if (session?.kind !== 'read') throw new Error('Kimi session read missing');
+        expect(session.target.ownerRef).toEqual(owner);
+        const usage = usageService(
+          { kind: 'unavailable', status: 'unsupported-config' },
+          {
+            resolveRequestCredential: jest.fn(async () => ({ kind: 'oauth' as const, accessToken: 'oauth-token' })),
+            forceRefresh: jest.fn(async () => true),
+          },
+        );
+        const snapshot = await usage.service.getOwnerSnapshot(session.target);
+        expect(snapshot.status).toBe('available');
+        expect(usage.usageLedger.recordWindowEvidence).toHaveBeenCalledTimes(2);
+        expect(usage.usageLedger.recordWindowEvidence).toHaveBeenNthCalledWith(
+          1, owner, expect.objectContaining({ key: 'five_hour' }),
+        );
+        expect(usage.usageLedger.recordWindowEvidence).toHaveBeenNthCalledWith(
+          2, owner, expect.objectContaining({ key: 'weekly' }),
+        );
+        expect(fetcher).toHaveBeenCalledTimes(1);
+      } finally {
+        fetcher.mockRestore();
+      }
+    });
 
     it.each<[string, PlanCredentialResolution, string]>([
       [

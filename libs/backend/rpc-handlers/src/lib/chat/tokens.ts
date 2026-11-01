@@ -8,6 +8,7 @@
  * Registered via `registerChatServices(container)` — see `./di.ts`.
  */
 export const CHAT_TOKENS = {
+  RUNTIME_PROFILE: Symbol.for('ChatRuntimeProfileService'),
   SDK_CONTEXT: Symbol.for('ChatSdkContextService'),
   PTAH_CLI: Symbol.for('ChatPtahCliService'),
   SESSION: Symbol.for('ChatSessionService'),

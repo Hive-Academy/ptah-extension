@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "baseUrl": "..",
+    "strict": true,
+    "types": ["node"],
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "ignoreDeprecations": "6.0"
+  },
+  "include": ["codex-start-probe.ts"],
+  "exclude": ["../node_modules"]
+}

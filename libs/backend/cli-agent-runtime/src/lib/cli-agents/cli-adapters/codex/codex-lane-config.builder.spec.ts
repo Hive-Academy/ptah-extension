@@ -11,7 +11,6 @@
 
 import {
   buildCodexLaneConfig,
-  CODEX_PTAH_TOOL_TIMEOUT_SEC,
   CODEX_RESUME_RESENDS_ROLE,
   CODEX_VERIFIED_VERSIONS,
   type CodexLaneConfigInput,
@@ -39,8 +38,7 @@ function input(
 describe('constants', () => {
   it('ships the S1a values', () => {
     expect(CODEX_RESUME_RESENDS_ROLE).toBe(true);
-    expect(CODEX_VERIFIED_VERSIONS).toEqual(['0.155', '0.160']);
-    expect(CODEX_PTAH_TOOL_TIMEOUT_SEC).toBe(960);
+    expect(CODEX_VERIFIED_VERSIONS).toEqual(['0.155', '0.160', '0.165']);
   });
 });
 
@@ -256,7 +254,7 @@ describe('buildCodexLaneConfig', () => {
   });
 
   describe('version warnings', () => {
-    it.each(['0.155.1', '0.160.0', 'codex-cli 0.160.3'])(
+    it.each(['0.155.1', '0.160.0', 'codex-cli 0.160.3', 'codex-cli 0.165.0'])(
       'is silent for verified %p',
       (codexVersion) => {
         expect(buildCodexLaneConfig(input({ codexVersion })).warnings).toEqual(

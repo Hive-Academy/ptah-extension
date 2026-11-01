@@ -87,6 +87,7 @@ import {
   readManageGitignore,
   readPreflightTimeoutMs,
 } from '../activation/plugin-activation';
+import { registerVsCodeCodexLaneFactory } from './codex-lane-runtime-composition';
 export function attachVsCodeHostAttention(
   resolve: () => IHostAttentionIngress,
   attach: (observer: IHostAttentionIngress) => void,
@@ -102,6 +103,7 @@ export function attachVsCodeHostAttention(
 export function registerPhase2Libraries(
   container: DependencyContainer,
   logger: Logger,
+  isDevelopment: boolean,
 ): void {
   registerWorkspaceIntelligenceServices(container, logger);
   // task-specs registered in all three hosts (G1). The index store is selected
@@ -257,6 +259,9 @@ export function registerPhase2Libraries(
   // reconciler without `agent-sdk` importing `harness-sync`.
   container.register(HARNESS_PREFLIGHT_TOKEN, {
     useToken: HARNESS_SYNC_TOKENS.PREFLIGHT,
+  });
+  registerVsCodeCodexLaneFactory(container, logger, {
+    isDevelopment, env: process.env, platform: process,
   });
   registerCliAgentRuntimeServices(container, logger);
   container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { useValue: mcpAttachmentObserver });

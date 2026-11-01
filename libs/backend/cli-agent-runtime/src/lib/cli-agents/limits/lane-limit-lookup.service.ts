@@ -255,7 +255,7 @@ export class LaneLimitLookupService {
     if (row.cli !== 'ptah-cli') {
       return this.owners.resolveOwnerForLane(row.cli, row.model);
     }
-    if (row.providerId === 'ollama-cloud' && row.ptahCliId) {
+    if ((row.providerId === 'ollama-cloud' || row.providerId === 'kimi-code') && row.ptahCliId) {
       return this.owners.ownerForPtahCliKey(row.ptahCliId, row.providerId);
     }
     // An account-bound lane reads only the owner remembered under its own

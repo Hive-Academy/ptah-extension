@@ -84,6 +84,7 @@ type OwnerRule = 'claude-account' | 'stored-key';
 const OWNER_RULES: Readonly<Record<string, OwnerRule>> = {
   'claude-cli': 'claude-account',
   'ollama-cloud': 'stored-key',
+  'kimi-code': 'stored-key',
 };
 
 /**

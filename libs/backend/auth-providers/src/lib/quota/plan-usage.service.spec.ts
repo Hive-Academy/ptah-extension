@@ -141,6 +141,10 @@ function harness() {
     { readPlanUsage },
     { getAccountUsage },
     now,
+    {
+      resolveRequestCredential: async () => ({ kind: 'apiKey', apiKey: 'kimi-shared' }),
+      forceRefresh: async () => false,
+    },
   );
   return {
     service,
@@ -157,6 +161,28 @@ function harness() {
 }
 
 describe('PlanUsageService', () => {
+  it('registers Kimi and lets its reader resolve a direct lane key', async () => {
+    const mockFetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ usages: {
+        limit_5h: { used_ratio: 0.1 }, limit_7d: { used_ratio: 0.2 },
+      } }),
+    } as Response);
+    try {
+      const h = harness();
+      const snapshot = await h.service.getOwnerSnapshot({
+        providerId: 'kimi-code',
+        ownerRef: quotaOwnerRefFromKey(credentialOwnerKey('kimi-code', SECRET)),
+        credentialRef: { kind: 'ptah-cli-key', ptahCliId: 'kimi-1' },
+      });
+      expect(snapshot.status).toBe('available');
+      expect(snapshot.windows.map((window) => window.key)).toEqual(['five_hour', 'weekly']);
+      expect(h.resolve).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      mockFetch.mockRestore();
+    }
+  });
   describe('dispatch and merge', () => {
     it('reads Claude through the probe for the target session and records the windows in the ledger', async () => {
       const h = harness();

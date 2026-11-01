@@ -1,0 +1,20 @@
+# Review 8q-2b
+
+Verdict: APPROVE
+Score: 8/10
+Review family: grok (implementer: codex)
+
+## Findings
+
+1. **moderate** — `libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.spec.ts:24`. The new resume spec stays green if the saved-level binding regresses. `resumeSession` throws `resume-profile-changed` when a local variable changes (`:28-34`). Nothing calls `readSavedPermissionLevel`, builds a profile, or compares `profileFingerprint`. `chat-session.native.spec.ts:677` already maps that adapter code to `CODEX_RUNTIME_FAILED` and `CODEX_RESUME_PROFILE_CHANGED_MESSAGE`. The specs that fail if this batch's binding regresses are `codex-chat-host-ports.spec.ts:226` (saved level, explicit override, resume read) and `codex-runtime-composition.spec.ts:405` (`readForPath(name, workspace, true)` and `permissionLevel: 'auto-edit'`).
+
+Checked, no defect:
+
+- One helper. `resolveSavedCodexPermissionLevel` (`codex-saved-permission-level.ts:8`) is `autopilot.enabled === true` then `autopilot.permissionLevel` in `ask|plan|auto-edit|yolo`, else `invalidSettings()`. The settings record calls it at `codex-session-settings-record.ts:103` over `readForPath(name, workspacePath, true)` (`:91`). Electron binds the same helper and the same call at `codex-runtime-composition.ts:494`, and the profile uses that reader at `codex-chat-host-ports.ts:395` with `execution.workspacePath` from `ChatRuntimeProfileService.prepare` (`chat-runtime-profile.service.ts:124`). That path is `config.workspaceId ?? identity.workspaceId ?? config.projectPath`. Start stores it as both `codexExecution.workspaceId` and `codexThread.workspaceId` (`codex-thread-identity-store.ts:93` and `:108`). Cold settings read the thread workspace id (`session-runtime-identity-cache.ts:44`). Resume omits `permissionLevel` (`chat-session.service.ts:1881`) and prepare uses the stored execution workspace id. Same keys, same `appScopable: true`, same path string.
+- Explicit `config.permissionLevel` wins and skips the read (`codex-chat-host-ports.ts:395`). `chat:start` omits the field (`chat-session.service.ts:1081`). Child and handoff pass a concrete level. Gateway start and resume pass `resolvePermissionLevel()` from `gateway.permissionLevel` (`gateway-chat-bridge.ts:807` and `:862`), so the autopilot reader is not called and gateway behaviour stays on that setting. Profile `consumer` stays `'chat'` (`codex-chat-host-ports.ts:388`); this batch does not add a gateway profile builder. The only production `createCodexChatHostPorts` caller is the Electron composition.
+- Inactive resume and slash compact reopen go through `CodexChatAdapter.open` → `ports.profile` (`codex-chat-adapter.ts:227` and `:275`). A changed saved level changes `permissionLevel` inside `codexProfileFingerprint` (`codex-execution-profile.ts:315`). `CodexRuntime.open` throws `CodexResumeProfileChangedError` (`codex-runtime.ts:51`). The adapter wraps that as `resume-profile-changed` (`codex-chat-adapter.ts:789`). `codexFailure` maps it to `CODEX_RUNTIME_FAILED` and `CODEX_RESUME_PROFILE_CHANGED_MESSAGE` (`chat-session.service.ts:630`). An already-open thread does not rebuild the profile (`codex-chat-adapter.ts:231`).
+- Invalid saved settings throw `CodexSessionSettingsError('invalid-settings')` from the reader. `profile()` does not catch it. The adapter wraps it as `runtime-failed` with that error as `cause`. The RPC surface is the generic Codex runtime failure, with no saved level in the message. The host process is not crashed. Fail-closed when autopilot is on and the level is missing or unknown; any other `autopilot.enabled` value stays `ask`.
+- `() => 'ask'` in `chat-session.native.spec.ts:209` and `codex-chat-native-contract.spec.ts:409` keeps those fixtures on the old default. The native-contract spec replaces `profile` (`:416`), so that reader is unused. Those stubs do not replace the host or composition assertions above.
+- No `any`, no `console`, no UTF-8 BOM on the production edits or the new spec. The spec casts the prototype object with `as ChatSessionService` (`chat-session.service.spec.ts:37`).
+
+Tests, builds, lint, and Nx were not run. This lane is read-only.

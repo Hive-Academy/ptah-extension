@@ -27,6 +27,7 @@ import { signal, computed } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { sessionContextCue } from '@ptah-extension/chat-ui';
 import { SessionLoaderService } from './session-loader.service';
+import { mapChatSendFailureText } from '../message-sender.service';
 import { SessionHistoryReplayer } from './session-history-replayer.service';
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
 import { StreamViewportController } from '../stream-viewport-controller.service';
@@ -1626,6 +1627,27 @@ describe('SessionLoaderService', () => {
       ).rejects.toThrow(/session:load failed/i);
     });
 
+    it('settles a cancelled resume before the missing-events error', async () => {
+      const localService = makeRichService();
+      const tabs = TestBed.inject(TabManagerService);
+      tabs.markTabIdle = jest.fn();
+      const log = jest.spyOn(console, 'error').mockImplementation();
+      rpcCall.mockImplementation(async (method: string) => method === 'chat:resume'
+        ? { success: true, data: { success: false, cancelled: true } }
+        : { success: true, data: {} });
+      try {
+        await expect(localService.switchSession('sess-cancelled' as SessionId))
+          .resolves.toEqual({ staleSnapshot: false });
+        expect(tabs.applyResumeFailure).toHaveBeenCalledWith('tab-fresh');
+        expect(tabs.markTabIdle).toHaveBeenCalledWith('tab-fresh');
+        expect(TestBed.inject(SessionManager).setStatus).toHaveBeenLastCalledWith('loaded');
+        expect(historyPagingMock.recordTail).not.toHaveBeenCalled();
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
+    });
+
     it('throws when chat:resume has no events', async () => {
       const localService = makeRichService();
       rpcCall.mockImplementation((method: string) => {
@@ -2820,6 +2842,174 @@ describe('SessionLoaderService', () => {
         return { success: true, data: { events, stats: null } };
       });
     }
+
+    it('keeps delivered history when Codex activation fails', async () => {
+      const harness = makeChunkedService();
+      const tabs = TestBed.inject(TabManagerService);
+      tabs.setSessionProvider = jest.fn();
+      rpcCall.mockImplementation(async (method: string) => method === 'chat:resume'
+        ? { success: true, data: {
+          success: true,
+          events: historyEvents(1),
+          activated: false,
+          activationErrorCode: 'CODEX_RUNTIME_FAILED',
+        } }
+        : { success: true, data: {} });
+
+      await expect(harness.service.switchSession(SESSION, { activate: true }))
+        .resolves.toEqual({ staleSnapshot: false });
+      expect(harness.processStreamEvent).toHaveBeenCalledTimes(1);
+      expect(harness.applyResumeFailure).not.toHaveBeenCalled();
+      expect(tabs.markSessionActive).not.toHaveBeenCalled();
+      expect(harness.setStatus).toHaveBeenLastCalledWith('loaded');
+    });
+
+    function activationSurface(harness: ReturnType<typeof makeChunkedService>) {
+      const tabs = TestBed.inject(TabManagerService);
+      const historyMessage = {
+        id: 'hist-1',
+        role: 'user' as const,
+        rawContent: 'kept history',
+      };
+      const setMessages = jest.fn();
+      Object.defineProperty(tabs, 'setSessionProvider', { value: jest.fn() });
+      Object.defineProperty(tabs, 'setMessages', { value: setMessages });
+      Object.defineProperty(tabs, 'findTabByIdAcrossWorkspaces', {
+        value: jest.fn((tabId: string) => ({
+          tab: {
+            id: tabId,
+            claudeSessionId: SESSION,
+            messages: [historyMessage],
+          },
+          workspacePath: 'D:/repo',
+        })),
+      });
+      return { tabs, historyMessage, setMessages, service: harness.service };
+    }
+
+    function resumeActivation(
+      data: {
+        activated?: boolean;
+        activationError?: string;
+        activationErrorCode?: 'CODEX_RUNTIME_FAILED';
+      },
+    ): void {
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                success: true,
+                events: historyEvents(1),
+                ...data,
+              },
+            }
+          : { success: true, data: {} },
+      );
+    }
+
+    it('appends activationError once after the loaded history', async () => {
+      const harness = makeChunkedService();
+      const surface = activationSurface(harness);
+      const activationError =
+        'Codex cannot resume this chat because its execution profile has changed. Start a new chat to use the current permission policy.';
+      resumeActivation({ activated: false, activationError });
+
+      await expect(
+        surface.service.switchSession(SESSION, { activate: true }),
+      ).resolves.toEqual({ staleSnapshot: false });
+
+      expect(harness.processStreamEvent).toHaveBeenCalledTimes(1);
+      expect(harness.applyResumeFailure).not.toHaveBeenCalled();
+      expect(surface.setMessages).toHaveBeenCalledTimes(1);
+      expect(
+        harness.processStreamEvent.mock.invocationCallOrder[0],
+      ).toBeLessThan(surface.setMessages.mock.invocationCallOrder[0]);
+      const call = surface.setMessages.mock.calls[0];
+      expect(call?.[0]).toBe(TAB);
+      const messages = call?.[1] as Array<{ rawContent?: string }>;
+      expect(messages).toHaveLength(2);
+      expect(messages[0]).toBe(surface.historyMessage);
+      expect(messages[1]?.rawContent).toBe(
+        `Message delivery failed. ${activationError}`,
+      );
+    });
+
+    it('does not append an error when activation succeeded', async () => {
+      const harness = makeChunkedService();
+      const surface = activationSurface(harness);
+      resumeActivation({
+        activated: true,
+        activationError: 'must stay hidden',
+      });
+
+      await expect(
+        surface.service.switchSession(SESSION, { activate: true }),
+      ).resolves.toEqual({ staleSnapshot: false });
+
+      expect(harness.processStreamEvent).toHaveBeenCalledTimes(1);
+      expect(surface.setMessages).not.toHaveBeenCalled();
+      expect(surface.tabs.markSessionActive).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not append an error when activationError is absent', async () => {
+      const harness = makeChunkedService();
+      const surface = activationSurface(harness);
+      resumeActivation({ activated: false });
+
+      await expect(
+        surface.service.switchSession(SESSION, { activate: true }),
+      ).resolves.toEqual({ staleSnapshot: false });
+
+      expect(harness.processStreamEvent).toHaveBeenCalledTimes(1);
+      expect(surface.setMessages).not.toHaveBeenCalled();
+      expect(surface.tabs.markSessionActive).not.toHaveBeenCalled();
+    });
+
+    it('does not append an error when the resume did not ask to activate', async () => {
+      const harness = makeChunkedService();
+      const surface = activationSurface(harness);
+      resumeActivation({
+        activated: false,
+        activationError: 'must stay hidden',
+      });
+
+      await expect(surface.service.switchSession(SESSION)).resolves.toEqual({
+        staleSnapshot: false,
+      });
+
+      expect(harness.processStreamEvent).toHaveBeenCalledTimes(1);
+      expect(surface.setMessages).not.toHaveBeenCalled();
+    });
+
+    it('maps a coded activation failure with the start and continue text', async () => {
+      const harness = makeChunkedService();
+      const surface = activationSurface(harness);
+      const activationError = 'runtime exploded';
+      resumeActivation({
+        activated: false,
+        activationError,
+        activationErrorCode: 'CODEX_RUNTIME_FAILED',
+      });
+
+      await expect(
+        surface.service.switchSession(SESSION, { activate: true }),
+      ).resolves.toEqual({ staleSnapshot: false });
+
+      expect(harness.processStreamEvent).toHaveBeenCalledTimes(1);
+      expect(surface.setMessages).toHaveBeenCalledTimes(1);
+      const messages = surface.setMessages.mock.calls[0]?.[1] as Array<{
+        rawContent?: string;
+      }>;
+      expect(messages[0]).toBe(surface.historyMessage);
+      expect(messages[1]?.rawContent).toBe(
+        `Message delivery failed. ${mapChatSendFailureText(
+          'CODEX_RUNTIME_FAILED',
+          activationError,
+          activationError,
+        )}`,
+      );
+    });
 
     it('claims a resync before session:load and releases history, seed, then buffered live events', async () => {
       const harness = makeChunkedService();

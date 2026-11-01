@@ -8,8 +8,15 @@ import type { FlatStreamEventUnion } from './execution';
 
 /**
  * Supported AI Provider IDs
+ *
+ * `codex-app-server` labels the native Codex App Server chat adapter. It
+ * matches the `runtime` value of a native Codex execution profile.
  */
-export type ProviderId = 'claude-cli' | 'vscode-lm' | 'ptah-cli';
+export type ProviderId =
+  | 'claude-cli'
+  | 'vscode-lm'
+  | 'ptah-cli'
+  | 'codex-app-server';
 
 /**
  * Provider Status Types
@@ -457,7 +464,12 @@ export function isProviderError(error: unknown): error is ProviderError {
 }
 
 export function isValidProviderId(id: string): id is ProviderId {
-  return id === 'claude-cli' || id === 'vscode-lm' || id === 'ptah-cli';
+  return (
+    id === 'claude-cli' ||
+    id === 'vscode-lm' ||
+    id === 'ptah-cli' ||
+    id === 'codex-app-server'
+  );
 }
 
 /**
@@ -467,6 +479,7 @@ export const PROVIDER_IDS: readonly ProviderId[] = [
   'claude-cli',
   'vscode-lm',
   'ptah-cli',
+  'codex-app-server',
 ] as const;
 
 export const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilities = {

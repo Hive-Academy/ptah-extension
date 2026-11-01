@@ -17,6 +17,8 @@ import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
 import {
   AuthRequiredError,
+  CodexChatAdapter,
+  isCodexChatAdapterError,
   SDK_TOKENS,
   SlashCommandInterceptor,
   type ManualCompactAdmission,
@@ -32,6 +34,8 @@ import type {
   IAgentAdapter,
   SessionId,
   AISessionConfig,
+  AgentSessionResumeConfig,
+  SessionRuntimeControls,
   ChatContinueParams,
   ChatContinueResult,
   ProviderAccountSelection,
@@ -44,6 +48,11 @@ import {
 import { ProviderAccountSelectionSchema } from '@ptah-extension/shared/schemas';
 import type { ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
 
+import {
+  resolveClaudeExecution,
+  storedChatRuntimeIdentity,
+  type ChatRuntimeProfileService,
+} from './chat-runtime-profile.service';
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
 import type {
@@ -168,6 +177,12 @@ export class ChatSlashCommandRouterService {
     private readonly activeProvider?: ActiveProviderResolver,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { isOptional: true })
     private readonly metadata?: SessionMetadataStore,
+    @inject(CHAT_TOKENS.RUNTIME_PROFILE, { isOptional: true })
+    private readonly runtimeProfile?: ChatRuntimeProfileService,
+    @inject(SDK_TOKENS.SESSION_RUNTIME_ROUTER, { isOptional: true })
+    private readonly runtimeControls: SessionRuntimeControls | null = null,
+    @inject(SDK_TOKENS.CODEX_CHAT_ADAPTER, { isOptional: true })
+    private readonly nativeAdapter: CodexChatAdapter | null = null,
   ) {}
 
   /**
@@ -218,7 +233,16 @@ export class ChatSlashCommandRouterService {
       });
 
       if (interceptResult.commandName === 'clear') {
-        await this.sdkAdapter.interruptSession(sessionId);
+        const nativeAdapter = this.nativeAdapter;
+        if (nativeAdapter?.owns(sessionId)) {
+          try {
+            await this.sdkAdapter.interruptSession(sessionId);
+          } finally {
+            await nativeAdapter.closeSession(sessionId);
+          }
+        } else {
+          await this.sdkAdapter.interruptSession(sessionId);
+        }
 
         await this.webviewManager.broadcastMessage(
           MESSAGE_TYPES.CHAT_COMPLETE,
@@ -278,22 +302,42 @@ export class ChatSlashCommandRouterService {
       const enhancedPromptsContent =
         await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
       const command = interceptResult.rawCommand ?? prompt;
-      const model =
-        params.model ||
-        this.workspaceProviderProfileResolver.resolveStoredModel(
-          workspacePath ?? '',
-          this.modelSettings.selectedModel.get(),
-        );
       let reservationId: string | undefined;
       try {
-        // The relaunch is a new query: it gets the same per-workspace provider
-        // snapshot as chat:start / resume, never whatever the shared auth env
-        // was last configured for (AuthRequiredError on a mismatch).
-        const providerProfile =
-          await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-            workspacePath ?? '',
-            model,
-          );
+        const identity = this.runtimeProfile
+          ? storedChatRuntimeIdentity(
+              sessionId,
+              await this.metadata?.get(sessionId),
+              workspacePath ?? '',
+            )
+          : undefined;
+        // Read after the last await before prepare(), so the model and the
+        // provider profile see the same provider.
+        const modelIsStored = !params.model;
+        const requestedModel =
+          params.model || this.modelSettings.selectedModel.get() || 'default';
+        const config: AgentSessionResumeConfig = {
+          model: requestedModel,
+          projectPath: workspacePath,
+          mcpServerRunning,
+          enhancedPromptsContent,
+          tabId,
+          ...(params.mcpToolProfile
+            ? { mcpToolProfile: params.mcpToolProfile }
+            : {}),
+          ...(params.ptahUiFence !== undefined
+            ? { ptahUiFence: params.ptahUiFence }
+            : {}),
+          ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
+        };
+        const execution = this.runtimeProfile
+          ? await this.runtimeProfile.prepare(config, identity, modelIsStored)
+          : await resolveClaudeExecution(
+              this.workspaceProviderProfileResolver,
+              workspacePath ?? '',
+              requestedModel,
+              modelIsStored,
+            );
         if (
           interceptResult.commandName === 'compact' &&
           this.manualCompactAdmission
@@ -322,12 +366,34 @@ export class ChatSlashCommandRouterService {
             );
           }
         }
+        if (execution.runtime === 'codex-app-server') {
+          if (interceptResult.commandName === 'compact') {
+            if (!this.runtimeControls) {
+              throw new Error(
+                'Native session runtime controls are unavailable.',
+              );
+            }
+            if (!this.sdkAdapter.isSessionActive(sessionId)) {
+              // A failed Stop closes the context. Reopen the stored thread
+              // without starting an assistant turn before native compaction.
+              await this.sdkAdapter.resumeSession(sessionId, {
+                ...config,
+                prompt: '',
+              });
+            }
+            await this.runtimeControls.compact(sessionId);
+            return { success: true, sessionId, settled: true };
+          }
+        }
         const stream = await this.sdkAdapter.executeSlashCommand(
           sessionId,
           command,
           {
             sessionConfig: {
-              model,
+              model:
+                execution.runtime === 'codex-app-server'
+                  ? execution.seed.model
+                  : execution.model,
               projectPath: workspacePath,
               ...(params.pluginConfigAncestorRoots !== undefined
                 ? { pluginConfigAncestorRoots: params.pluginConfigAncestorRoots }
@@ -345,15 +411,39 @@ export class ChatSlashCommandRouterService {
             mcpServerRunning,
             enhancedPromptsContent,
             tabId,
-            providerProfile,
-            // Named only: the relaunch resumes on the session's stored binding.
-            ...(accountSelection ? { accountSelection } : {}),
+            ...(execution.runtime === 'claude-sdk'
+              ? {
+                  providerProfile: execution.providerProfile,
+                  // Named only: the relaunch resumes on the session's stored binding.
+                  ...(accountSelection ? { accountSelection } : {}),
+                }
+              : {}),
           },
         );
+        if (execution.runtime === 'codex-app-server') {
+          try {
+            await this.runtimeProfile?.publishRuntimeNotices(execution, {
+              tabId,
+              sessionId,
+            });
+          } catch {
+            this.logger.warn('[RPC] Model substitution notice failed; continuing session stream');
+          }
+        }
         this.streamBroadcaster.streamEventsToWebview(sessionId, stream, tabId);
 
         return { success: true, sessionId };
       } catch (slashError) {
+        if (isCodexChatAdapterError(slashError)) {
+          if (command === '/compact' && slashError.operation === 'compact' &&
+              slashError.code === 'runtime-failed') {
+            // The adapter already broadcast CHAT_ERROR. Let the client settle
+            // without rendering the same failure from the RPC response again.
+            return { success: false, sessionId, settled: true, errorCode: 'CODEX_RUNTIME_FAILED' };
+          }
+          // Busy/unavailable admission failures have not broadcast an error.
+          throw slashError;
+        }
         // A named relaunch's refusal keeps its typed code, not AUTH_REQUIRED.
         const refusal = mainSessionAccountFailure(slashError);
         if (refusal) {

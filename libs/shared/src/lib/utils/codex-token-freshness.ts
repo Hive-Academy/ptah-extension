@@ -8,7 +8,7 @@ import { z } from 'zod';
  *
  *  - `auth-providers`' `CodexAuthService` produces `codexTokenStale` for
  *    `auth:getAuthStatus` (and decides whether to attempt a silent refresh).
- *  - `cli-agent-runtime`'s `CodexCliAdapter.ensureTokensFresh` produces the
+ *  - `cli-agent-runtime`'s `CodexAppServerLaneAdapter.ensureTokensFresh` produces the
  *    `[CliDetection] codex credential check` verdict.
  *
  * They used to disagree by construction: the adapter answered "is a credential

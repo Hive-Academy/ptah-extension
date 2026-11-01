@@ -496,6 +496,26 @@ describe('CLI DI — lane outcomes', () => {
   });
 });
 
+describe('CLI/TUI native Codex lane composition', () => {
+  it('binds the gated factory before the shared CLI detection service', () => {
+    const setup = fs.readFileSync(path.resolve(
+      __dirname, '../../../../libs/backend/cli-engine/src/lib/container.ts',
+    ), 'utf8');
+    const factory = setup.indexOf('registerCliCodexLaneFactory(container, logger);');
+    const runtime = setup.indexOf('registerCliAgentRuntimeServices(container, logger);');
+    expect(factory).toBeGreaterThan(-1);
+    expect(factory).toBeLessThan(runtime);
+  });
+
+  it('starts TUI with the same CLI engine container', () => {
+    const main = fs.readFileSync(path.resolve(
+      __dirname, '../../../ptah-tui/src/main.tsx',
+    ), 'utf8');
+    expect(main).toContain("from '@ptah-extension/cli-engine'");
+    expect(main).toContain("host: 'tui'");
+  });
+});
+
 describe('CLI DI — decision model config (TL-59)', () => {
   it('registers lane routing once, before vscode-lm-tools and the RPC surface', () => {
     const setup = fs.readFileSync(
