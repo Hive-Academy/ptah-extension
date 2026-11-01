@@ -3631,10 +3631,21 @@ END OF ANUBIS DESIGN SYSTEM
   ptah-orchestra-canvas > .bg-base-100,
   ptah-app-shell > .bg-surface-0,
   ptah-marketplace-shell > .bg-surface-0,
-  ptah-thoth-shell > .bg-surface-0
+  ptah-thoth-shell > .bg-surface-0,
+  ptah-tasks-view > .bg-base-100,
+  ptah-workspace-sidebar > .bg-surface-1,
+  ptah-dashboard-grid > .bg-surface-0
 ) { background-color: transparent; }
 :root[data-glass='on'] .bg-base-200 { background-color: var(--glass-fill-tile); }
 :root[data-glass='on'] .bg-base-300 { background-color: var(--glass-hover); }
+
+/* .surface-1 / .surface-2 are in-page structural blocks (cards, sidebars, list planes). In glass they
+   become the reading plane. Floating surfaces use .surface-3 / role attributes and are excluded. */
+:root[data-glass='on'] :is(.surface-1, .surface-2):not([data-glass-surface], [role='menu'], .dropdown-content, .modal-box, .navbar) {
+  background-color: var(--glass-scrim-text);
+  border-color: var(--glass-frame, var(--glass-line));
+  box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint));
+}
 
 /* Composer lists sit over text, so their local scrim is denser than menus.
    Native wrappers keep positioning/top-layer ownership; the projected panel

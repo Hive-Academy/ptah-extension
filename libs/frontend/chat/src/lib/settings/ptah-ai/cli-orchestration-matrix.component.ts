@@ -199,6 +199,7 @@ const SAVE_SCOPE = 'global';
            (headers and permission badges wrap); overflow-x-auto is only a safety net. -->
       <div
         class="overflow-x-auto rounded-lg border border-base-content/10"
+        data-glass-surface="tile"
       >
         <!-- table-sm density; cell padding is set in the styles below (wide and narrow).
              tabindex -1: the cli-agents deep link focuses the table (Batch 34); it is not a Tab stop. -->

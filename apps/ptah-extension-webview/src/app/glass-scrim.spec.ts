@@ -87,6 +87,23 @@ const darkBlock = block(/:root\[data-theme\]\[data-glass='on'\]\[data-glass-mode
 const hatches = [...css.matchAll(/:root\[data-theme\]\[data-glass='on'\]:is\(\[data-glass-mode='dark'\], \[data-glass-mode='light'\]\)\s*\{([^}]+)\}/g)];
 
 describe('glass local scrim floors', () => {
+  it('clears routed roots and gives structural surfaces a glass reading plane', () => {
+    const roots = /:root\[data-glass='on'\] :is\(\s*\.electron-shell-root,[\s\S]*?\)\s*\{\s*background-color: transparent;\s*\}/.exec(css)?.[0] ?? '';
+    for (const selector of [
+      'ptah-tasks-view > .bg-base-100',
+      'ptah-workspace-sidebar > .bg-surface-1',
+      'ptah-dashboard-grid > .bg-surface-0',
+    ]) {
+      expect(roots).toContain(selector);
+    }
+    expect(roots).toContain('background-color: transparent;');
+
+    const readingPlane = block(/:root\[data-glass='on'\] :is\(\.surface-1, \.surface-2\):not\(\[data-glass-surface\], \[role='menu'\], \.dropdown-content, \.modal-box, \.navbar\)/);
+    expect(readingPlane).toContain('background-color: var(--glass-scrim-text);');
+    expect(readingPlane).toContain('border-color: var(--glass-frame, var(--glass-line));');
+    expect(readingPlane).toContain('box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint));');
+  });
+
   it('clears only Electron dock canvases and composer wrappers under glass', () => {
     const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
     const rules = [...plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector]) =>

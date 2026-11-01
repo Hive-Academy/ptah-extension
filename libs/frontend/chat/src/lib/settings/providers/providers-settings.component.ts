@@ -120,7 +120,7 @@ const CONTROL =
       <div class="space-y-8 py-3">
         <!-- One card: the Main agent block, a hairline, then Connections (the divider pattern of the CLI matrix card
              between the system lanes and the Ptah CLI instances). -->
-        <div class="space-y-8" data-testid="providers-main-connections-card">
+        <div class="space-y-8" data-testid="providers-main-connections-card" data-glass-surface="content">
           <!-- Main-agent region. Loading shows as the section's skeleton (aria-busy here keeps captures waiting). -->
           <div [attr.aria-busy]="mainReadsLoading()" data-testid="main-agent-region">
             <!-- The Main agent section holds the D16 badges and opens the Main Agent popover (provider, model, effort).
@@ -545,6 +545,11 @@ const CONTROL =
           </button>
         </div>
       }
+    }
+  `,
+  styles: `
+    :host-context([data-glass='on']) [data-testid='providers-main-connections-card'] {
+      padding: 1.25rem;
     }
   `,
 })
