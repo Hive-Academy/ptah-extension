@@ -40,7 +40,7 @@ contextBridge.exposeInMainWorld('ptahConfig', {
   workspaceName: startupConfig?.workspaceName || '',
   extensionUri: '',
   baseUri: '',
-  iconUri: './images/ptah-icon.png',
+  iconUri: './images/ptah-icon.webp',
   userIconUri: './images/user-icon.png',
   panelId: 'electron-main',
   platform: process.platform, // 'darwin', 'win32', 'linux' — reliable in preload context

@@ -1,0 +1,270 @@
+{
+  "desktopBeforeSend": {
+    "iframe": {
+      "src": "/demo/?scenario=orchestration",
+      "sandbox": "allow-scripts allow-same-origin",
+      "title": "PtahCode live demo replay"
+    },
+    "video": null,
+    "poster": null,
+    "progress": "0",
+    "buttons": [
+      "Orchestration",
+      "Tribunal Council",
+      "Command Center",
+      "Multi-agent orchestration",
+      "Play PtahCode replay",
+      "PtahCode replay speed 1x. Change speed",
+      "Restart PtahCode replay"
+    ],
+    "overflowX": false,
+    "replay": {
+      "scenario": "orchestration",
+      "ready": true,
+      "waitingForSend": true,
+      "booted": true,
+      "paused": false,
+      "readyAt": 2946.39999999851,
+      "playing": false,
+      "complete": false,
+      "elapsed": 0,
+      "duration": 47000,
+      "speed": 1
+    }
+  },
+  "desktopAfterSend": {
+    "iframe": {
+      "src": "/demo/?scenario=orchestration",
+      "sandbox": "allow-scripts allow-same-origin",
+      "title": "PtahCode live demo replay"
+    },
+    "video": null,
+    "poster": null,
+    "progress": "26",
+    "buttons": [
+      "Orchestration",
+      "Tribunal Council",
+      "Command Center",
+      "Multi-agent orchestration",
+      "Pause PtahCode replay",
+      "PtahCode replay speed 1x. Change speed",
+      "Restart PtahCode replay"
+    ],
+    "overflowX": false,
+    "replay": {
+      "scenario": "orchestration",
+      "ready": true,
+      "waitingForSend": false,
+      "booted": true,
+      "paused": false,
+      "readyAt": 2946.39999999851,
+      "playing": true,
+      "complete": false,
+      "elapsed": 12000.10000000149,
+      "duration": 47000,
+      "speed": 1
+    }
+  },
+  "desktopTribunal": {
+    "iframe": {
+      "src": "/demo/?scenario=tribunal-council",
+      "sandbox": "allow-scripts allow-same-origin",
+      "title": "PtahCode live demo replay"
+    },
+    "video": null,
+    "poster": null,
+    "progress": "19",
+    "buttons": [
+      "Orchestration",
+      "Tribunal Council",
+      "Command Center",
+      "Multi-agent orchestration",
+      "Pause PtahCode replay",
+      "PtahCode replay speed 1x. Change speed",
+      "Restart PtahCode replay"
+    ],
+    "overflowX": false,
+    "replay": {
+      "scenario": "tribunal-council",
+      "ready": true,
+      "waitingForSend": false,
+      "booted": true,
+      "paused": false,
+      "readyAt": 2802.7999999970198,
+      "playing": true,
+      "complete": false,
+      "elapsed": 6400,
+      "duration": 33150,
+      "speed": 1
+    }
+  },
+  "desktopScrolledAway": {
+    "iframe": {
+      "src": "/demo/?scenario=tribunal-council",
+      "sandbox": "allow-scripts allow-same-origin",
+      "title": "PtahCode live demo replay"
+    },
+    "video": null,
+    "poster": null,
+    "progress": "22",
+    "buttons": [
+      "Orchestration",
+      "Tribunal Council",
+      "Command Center",
+      "Multi-agent orchestration",
+      "Play PtahCode replay",
+      "PtahCode replay speed 1x. Change speed",
+      "Restart PtahCode replay"
+    ],
+    "overflowX": false,
+    "replay": {
+      "scenario": "tribunal-council",
+      "ready": true,
+      "waitingForSend": false,
+      "booted": true,
+      "paused": true,
+      "readyAt": 2802.7999999970198,
+      "playing": false,
+      "complete": false,
+      "elapsed": 7312.4000000059605,
+      "duration": 33150,
+      "speed": 1
+    }
+  },
+  "contrast": [
+    {
+      "sel": "span",
+      "fg": "252,211,77",
+      "bg": "8,9,12",
+      "ratio": 13.81
+    },
+    {
+      "sel": "h2",
+      "fg": "255,255,255",
+      "bg": "8,9,12",
+      "ratio": 19.91
+    },
+    {
+      "sel": "p",
+      "fg": "183,189,201",
+      "bg": "8,9,12",
+      "ratio": 10.56
+    },
+    {
+      "sel": "[role=tab][aria-selected=true]",
+      "fg": "8,9,12",
+      "bg": "255,187,77",
+      "ratio": 11.82
+    },
+    {
+      "sel": "[role=tab][aria-selected=false]",
+      "fg": "233,235,239",
+      "bg": "8,9,12",
+      "ratio": 16.68
+    },
+    {
+      "sel": "[role=tabpanel] p",
+      "fg": "255,255,255",
+      "bg": "14,16,21",
+      "ratio": 19.03
+    },
+    {
+      "sel": "a[href=\"/download\"]",
+      "fg": "252,211,77",
+      "bg": "14,16,21",
+      "ratio": 13.2
+    }
+  ],
+  "focusOrderDesktop": [
+    {
+      "inSection": true,
+      "el": "button[role=tab]",
+      "name": "Tribunal Council",
+      "outline": "solid 2px rgb(252, 211, 77)"
+    },
+    {
+      "inSection": true,
+      "el": "div[role=tabpanel]",
+      "name": "Tribunal CouncilSee PtahCode bring sever",
+      "outline": "solid 2px rgb(252, 211, 77)"
+    },
+    {
+      "inSection": true,
+      "el": "iframe",
+      "name": "PtahCode live demo replay",
+      "outline": "none 3px rgb(233, 235, 239)"
+    },
+    {
+      "inSection": true,
+      "el": "iframe",
+      "name": "PtahCode live demo replay",
+      "outline": "none 3px rgb(233, 235, 239)"
+    },
+    {
+      "inSection": true,
+      "el": "iframe",
+      "name": "PtahCode live demo replay",
+      "outline": "none 3px rgb(233, 235, 239)"
+    },
+    {
+      "inSection": true,
+      "el": "iframe",
+      "name": "PtahCode live demo replay",
+      "outline": "none 3px rgb(233, 235, 239)"
+    },
+    {
+      "inSection": true,
+      "el": "iframe",
+      "name": "PtahCode live demo replay",
+      "outline": "none 3px rgb(233, 235, 239)"
+    },
+    {
+      "inSection": true,
+      "el": "iframe",
+      "name": "PtahCode live demo replay",
+      "outline": "none 3px rgb(233, 235, 239)"
+    },
+    {
+      "inSection": true,
+      "el": "iframe",
+      "name": "PtahCode live demo replay",
+      "outline": "none 3px rgb(233, 235, 239)"
+    }
+  ],
+  "consoleErrorsDesktop": [],
+  "tablet": {
+    "iframe": null,
+    "video": null,
+    "poster": "/assets/live-demo/orchestration.jpg",
+    "progress": null,
+    "buttons": [
+      "Orchestration",
+      "Tribunal Council",
+      "Command Center",
+      "Multi-agent orchestration",
+      "Play live demo"
+    ],
+    "overflowX": false,
+    "replay": null
+  },
+  "mobile": {
+    "iframe": null,
+    "video": {
+      "src": "/assets/live-demo/orchestration.webm",
+      "muted": true,
+      "controls": true,
+      "preload": "none",
+      "poster": "/assets/live-demo/orchestration.jpg"
+    },
+    "poster": null,
+    "progress": null,
+    "buttons": [
+      "Orchestration",
+      "Tribunal Council",
+      "Command Center",
+      "Multi-agent orchestration"
+    ],
+    "overflowX": false,
+    "replay": null
+  }
+}
