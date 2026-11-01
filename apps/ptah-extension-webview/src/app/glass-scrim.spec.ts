@@ -263,7 +263,7 @@ describe('Ptah backdrop scenes', () => {
     const body = block(new RegExp(`:root\\[data-theme='${theme}'\\]\\[data-glass='on'\\]`));
     for (const [index, scene] of ['pyramid', 'temple'].entries()) {
       const file = scene === 'pyramid' ? 'pyramid_energy_apex.webp' : 'temple-bg.webp';
-      expect(body).toContain(`--glass-scene-${scene}: url("images/${file}");`);
+      expect(body).toContain(`--glass-scene-${scene}: url("./backgrounds/${file}");`);
       expect(numberValue(body, `--glass-tint-alpha-${scene}`)).toBeGreaterThanOrEqual(floors[index]);
     }
   });
