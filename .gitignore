@@ -137,6 +137,9 @@ ptah-settings-export.json
 # and review artifacts.
 !.ptah/specs/
 !.ptah/specs/**
+# ...and the shared workspace analysis; its own .gitignore keeps machine-local files out.
+!.ptah/analysis/
+!.ptah/analysis/**
 # Screenshots stay local: they are large binary evidence, not history.
 .ptah/specs/**/*.png
 .ptah/specs/**/*.jpg

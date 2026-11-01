@@ -38,6 +38,7 @@ import {
   AgentRecommendationService,
   AnalysisStorageService,
   AnalysisFreshnessService,
+  AnalysisClaudeMdLinker,
 } from '@ptah-extension/agent-generation';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import type {
@@ -896,7 +897,16 @@ export class SetupRpcHandlers {
       );
 
       const safeFilename = path.basename(params.filename);
-      return storageService.loadMultiPhase(workspaceRoot, safeFilename);
+      const loaded = await storageService.loadMultiPhase(workspaceRoot, safeFilename);
+      if (loaded.manifest.lifecycle === 'completed') {
+        const linker = this.resolveService<AnalysisClaudeMdLinker>(
+          AGENT_GENERATION_TOKENS.ANALYSIS_CLAUDE_MD_LINKER,
+          'AnalysisClaudeMdLinker',
+        );
+        const linked = await linker.link(workspaceRoot);
+        if (linked.error) this.logger.warn(`Analysis CLAUDE.md link: ${linked.error}`);
+      }
+      return loaded;
     });
   }
 
@@ -1081,7 +1091,7 @@ export class SetupRpcHandlers {
   ): string {
     const md = phaseContents['project-profile'] ?? '';
     const slug = manifest.slug;
-    const sourceLine = `Source: .ptah/analysis/${slug}/project-profile.md`;
+    const sourceLine = `Source: .ptah/analysis/${slug}/01-project-profile.md`;
 
     if (!md) {
       const out =

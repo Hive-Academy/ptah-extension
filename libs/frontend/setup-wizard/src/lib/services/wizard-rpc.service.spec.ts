@@ -63,6 +63,15 @@ describe('WizardRpcService', () => {
     error,
   });
 
+  it('gets the current workspace analysis status', async () => {
+    const status = { state: 'fresh', reason: 'ok', analysisDir: '.ptah/analysis/run', checkedAt: '2026-11-01', analyzedAt: '2026-10-31' };
+    rpcCall.mockResolvedValue(okResult(status));
+    await expect(service.getAnalysisStatus()).resolves.toEqual(status);
+    expect(rpcCall).toHaveBeenCalledWith('wizard:analysis-status', {}, { timeout: 10_000 });
+    rpcCall.mockResolvedValue(errResult('unavailable'));
+    await expect(service.getAnalysisStatus()).rejects.toThrow();
+  });
+
   it('lets onboarding distinguish saved-list RPC failure while legacy callers still receive an empty list', async () => {
     rpcCall.mockResolvedValue(errResult('private host detail'));
     await expect(service.listAnalyses()).resolves.toEqual([]);

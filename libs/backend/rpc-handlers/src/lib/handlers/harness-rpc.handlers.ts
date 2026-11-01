@@ -390,12 +390,25 @@ export class HarnessRpcHandlers {
         // workspace the build started in even after an Electron workspace switch.
         const workspaceRoot =
           pinnedFolder ?? this.workspaceProvider.getWorkspaceRoot() ?? null;
+        let workspaceEffectivelyEmpty = false;
+        try {
+          workspaceEffectivelyEmpty =
+            await this.workspaceContext.isWorkspaceEffectivelyEmpty(
+              workspaceRoot ?? undefined,
+            );
+        } catch (error: unknown) {
+          // degradation-audit: optional-capability — this hint must not block initialization.
+          this.logger.warn('Failed to check whether workspace is empty', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
         return {
           workspaceContext,
           availableAgents,
           availableSkills,
           existingPresets,
           workspaceRoot,
+          workspaceEffectivelyEmpty,
         };
       },
     );

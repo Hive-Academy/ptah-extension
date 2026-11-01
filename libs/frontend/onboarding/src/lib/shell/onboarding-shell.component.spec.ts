@@ -7,6 +7,8 @@ import { OnboardingFlagService } from '../first-run/onboarding-flag.service';
 import { OnboardingAnnouncerService } from './onboarding-announcer.service';
 import { OnboardingRunPillService } from './onboarding-run-pill.service';
 import { OnboardingShellComponent } from './onboarding-shell.component';
+import { OnboardingWorkspaceStore } from './onboarding-workspace.store';
+import { signal } from '@angular/core';
 
 @Component({
   selector: 'ptah-test-home-page',
@@ -70,6 +72,7 @@ describe('OnboardingShellComponent', () => {
         ]),
         { provide: OnboardingFlagService, useValue: { markDismissed } },
         { provide: AppStateManager, useValue: { setCurrentView } },
+        { provide: OnboardingWorkspaceStore, useValue: { isElectron: false, active: signal(null), activePath: signal('/workspace'), folders: signal([]), activeIndex: signal(-1) } },
       ],
     });
   });

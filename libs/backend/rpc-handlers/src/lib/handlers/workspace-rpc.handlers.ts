@@ -206,8 +206,13 @@ export class WorkspaceRpcHandlers {
   }
 
   private registerAddFolder(): void {
-    this.rpcHandler.registerMethod('workspace:addFolder', async () => {
+    this.rpcHandler.registerMethod('workspace:addFolder', async (
+      params: { mode?: 'open' | 'create' } | undefined,
+    ) => {
       try {
+        if (params?.mode !== undefined && params.mode !== 'open' && params.mode !== 'create') {
+          return { path: null, name: null, error: 'Invalid folder picker mode.' };
+        }
         if (!this.userInteraction.showOpenDialog) {
           return {
             path: null,
@@ -218,8 +223,14 @@ export class WorkspaceRpcHandlers {
         }
 
         const filePaths = await this.userInteraction.showOpenDialog({
-          properties: ['openDirectory'],
-          title: 'Add Workspace Folder',
+          properties: params?.mode === 'open'
+            ? ['openDirectory']
+            : ['openDirectory', 'createDirectory'],
+          title: params?.mode === 'create'
+            ? 'Create or choose an empty folder'
+            : params?.mode === 'open'
+              ? 'Open Folder'
+              : 'Add Workspace Folder',
         });
 
         if (filePaths.length === 0) {

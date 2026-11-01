@@ -33,6 +33,7 @@ import { ChatInputComponent } from './chat-input.component';
 import { ChatStore } from '../../../services/chat.store';
 import { ComposerDraftStore } from '../../../services/composer-draft.store';
 import { ComposerCompactStore } from '../../../services/composer-compact.store';
+import { ComposerAttachmentsService } from '../../../services/composer-attachments.service';
 import { ComposerTypeToExpandDirective } from './composer-type-to-expand.directive';
 import { COMPOSER_TRIGGER_CACHE_ENABLED } from '../../../services/composer-trigger-scheduler';
 import { FilePickerService } from '../../../services/file-picker.service';
@@ -195,7 +196,7 @@ describe('ChatInputComponent Command Center lock', () => {
         set: {
           // The root's type-to-expand directive binds an input on a plain div.
           imports: [ComposerTypeToExpandDirective],
-          providers: [],
+          providers: [ComposerAttachmentsService],
           schemas: [CUSTOM_ELEMENTS_SCHEMA],
         },
       })

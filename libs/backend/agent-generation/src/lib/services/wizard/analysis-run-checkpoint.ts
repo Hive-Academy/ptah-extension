@@ -68,7 +68,7 @@ export class AnalysisRunCheckpoint {
         error,
       );
       fingerprint = {
-        algorithm: 'sha256-v1',
+        algorithm: 'sha256-v2',
         digest: sha256Hex(randomUUID()),
         capturedAt: new Date().toISOString(),
       };
@@ -197,6 +197,10 @@ export class AnalysisRunCheckpoint {
       phase.file === config?.file
         ? await hashFileOrNull(this.fs, join(this.slugDir, phase.file))
         : null;
+    const normalizedOutputSha256 =
+      phase.file === config?.file
+        ? await hashFileOrNull(this.fs, join(this.slugDir, phase.file), true)
+        : null;
     if (
       phase.input?.workspaceSha256 === input.workspaceSha256 &&
       phase.input.promptSha256 === input.promptSha256 &&
@@ -204,7 +208,8 @@ export class AnalysisRunCheckpoint {
       phase.input.model === input.model &&
       phase.verification.status === 'verified' &&
       outputSha256 !== null &&
-      phase.verification.outputSha256 === outputSha256
+      (phase.verification.outputSha256 === outputSha256 ||
+        phase.verification.outputSha256 === normalizedOutputSha256)
     )
       return true;
 

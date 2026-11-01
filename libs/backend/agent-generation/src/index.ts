@@ -29,6 +29,7 @@ export {
 } from './lib/services/setup-status.service';
 export { AnalysisStorageService } from './lib/services/analysis-storage.service';
 export { AnalysisFreshnessService } from './lib/services/analysis-freshness.service';
+export { AnalysisClaudeMdLinker } from './lib/services/analysis-claude-md-linker';
 export type { ResumableRun } from './lib/services/analysis-storage.service';
 export type { OrchestratorGenerationOptions } from './lib/services/orchestrator.service';
 export type {

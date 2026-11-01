@@ -14,11 +14,13 @@ import {
   viewChild,
 } from '@angular/core';
 import { ProposalFlowStore } from './proposal-flow.store';
+import { AttachmentTrayComponent, ComposerAttachmentsService } from '@ptah-extension/chat';
 
 @Component({
   selector: 'ptah-answer-dock',
   standalone: true,
-  imports: [CdkTrapFocus],
+  imports: [CdkTrapFocus, AttachmentTrayComponent],
+  providers: [ComposerAttachmentsService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <aside
@@ -48,14 +50,20 @@ import { ProposalFlowStore } from './proposal-flow.store';
         ><textarea
           #desktopReply
           id="dock-reply"
+          aria-describedby="dock-attachment-hint"
           class="textarea textarea-bordered w-full"
           [value]="reply()"
           (input)="onReply($event)"
+          (paste)="attachments.onPaste($event)"
+          (dragover)="$event.preventDefault()"
+          (drop)="attachments.onDrop($event)"
         ></textarea
-        ><button
+        ><ptah-attachment-tray />
+        <p id="dock-attachment-hint" class="text-xs text-base-content-muted">Attachments are not saved if you leave this page</p>
+        <button
           type="button"
           class="btn btn-primary btn-sm disabled:!bg-base-200 disabled:!text-base-content-muted disabled:!opacity-100"
-          [disabled]="!reply().trim() || sending()"
+          [disabled]="!reply().trim() || sending() || attachments.pendingReads() > 0"
           (click)="send()"
         >
           Send reply
@@ -124,14 +132,20 @@ import { ProposalFlowStore } from './proposal-flow.store';
           ><textarea
             #sheetReply
             id="dock-sheet-reply"
+            aria-describedby="dock-sheet-attachment-hint"
             class="textarea textarea-bordered mt-4 w-full"
             [value]="reply()"
             (input)="onReply($event)"
+            (paste)="attachments.onPaste($event)"
+            (dragover)="$event.preventDefault()"
+            (drop)="attachments.onDrop($event)"
           ></textarea
-          ><button
+          ><ptah-attachment-tray />
+          <p id="dock-sheet-attachment-hint" class="text-xs text-base-content-muted">Attachments are not saved if you leave this page</p>
+          <button
             type="button"
             class="btn btn-primary mt-3 disabled:!bg-base-200 disabled:!text-base-content-muted disabled:!opacity-100"
-            [disabled]="!reply().trim() || sending()"
+            [disabled]="!reply().trim() || sending() || attachments.pendingReads() > 0"
             (click)="send()"
           >
             Send reply
@@ -145,6 +159,7 @@ import { ProposalFlowStore } from './proposal-flow.store';
   `,
 })
 export class AnswerDockComponent {
+  readonly attachments = inject(ComposerAttachmentsService);
   private readonly store = inject(ProposalFlowStore);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
@@ -226,12 +241,14 @@ export class AnswerDockComponent {
   }
   async send(): Promise<void> {
     const text = this.reply().trim();
-    if (!text || this.sending()) return;
+    if (!text || this.sending() || this.attachments.pendingReads() > 0) return;
     this.sending.set(true);
-    const sent = await this.store.session.send(text);
+    const snapshot = this.attachments.snapshotForSend();
+    const sent = await this.store.session.send(text, snapshot.options);
     if (this.destroyRef.destroyed) return;
     this.sending.set(false);
     if (sent) {
+      snapshot.removeSent();
       this.reply.set('');
       this.announcement.set('Reply sent');
       if (this.open()) this.closeSheet();
