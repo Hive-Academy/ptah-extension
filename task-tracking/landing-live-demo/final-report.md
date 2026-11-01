@@ -102,8 +102,11 @@ Head at open: `a44ba7119`. CI at `a44ba7119`: all test, typecheck, docs and e2e 
 markers to these sites and reports boot errors in `replay-bridge.entry.ts`. Local audit:
 exit 0, `apps/ptah-electron` 4 (baseline 4), no `libs/web/landing` sites.
 `npm run verify -- -p web-landing,ptah-electron`: 12/12 tasks pass.
-GitGuardian fails on fake canaries (user action, see "Known limits"). CI and review state for
-the new head: see the session report.
+GitGuardian fails on fake canaries (user action, see "Known limits"). 
+Head after the audit fix: `e5d267b7b`. CI at `e5d267b7b`: `checks` (degradation audit), `main`,
+test shards 1–4, typecheck, docs-build, webview-e2e, electron-e2e (all shards), CLI E2E and
+git-real-git ×3 pass. Skipped: CodeRabbit (draft), bench jobs, electron-e2e-perf. Only
+GitGuardian fails. Review state: draft, `REVIEW_REQUIRED`, 0 reviews, 0 inline comments.
 
 ## Known limits and follow-ups
 
