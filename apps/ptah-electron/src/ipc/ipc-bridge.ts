@@ -20,6 +20,8 @@
 
 import { ipcMain, type IpcMainEvent } from 'electron';
 import type { DependencyContainer } from 'tsyringe';
+import type { CodexChatHostPorts } from '@ptah-extension/rpc-handlers';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { RpcHandler } from '@ptah-extension/vscode-core';
 import {
   TOKENS,
@@ -543,15 +545,40 @@ export class IpcBridge {
           console.warn('[IpcBridge] SDK permission response missing payload');
           return;
         }
+        const { decision } = response;
+        if (
+          decision !== 'allow' &&
+          decision !== 'always_allow' &&
+          decision !== 'deny_with_message' &&
+          decision !== 'deny'
+        ) {
+          console.warn('[IpcBridge] SDK permission response has invalid decision');
+          return;
+        }
         try {
+          // Codex host ports first (null when native Codex is not bound).
+          const codexPorts = this.container.isRegistered(
+            SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+            true,
+          )
+            ? this.container.resolve<
+                Pick<CodexChatHostPorts, 'handlePermissionResponse'> | null
+              >(
+                SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+              )
+            : null;
+          if (
+            codexPorts?.handlePermissionResponse({ ...response, decision }) === true
+          ) {
+            return;
+          }
           if (this.container.isRegistered(SDK_PERMISSION_HANDLER)) {
             const handler = this.container.resolve<ISdkPermissionHandler>(
               SDK_PERMISSION_HANDLER,
             );
             handler.handleResponse(response.id, {
               id: response.id,
-              decision: response.decision as
-                'allow' | 'deny' | 'deny_with_message' | 'always_allow',
+              decision,
               reason: response.reason,
               modifiedInput: response.modifiedInput,
             });
@@ -563,7 +590,7 @@ export class IpcBridge {
         } catch (error) {
           console.error(
             '[IpcBridge] Failed to process SDK permission response',
-            error instanceof Error ? error.message : String(error),
+            error instanceof Error ? error : new Error(String(error)),
           );
         }
         break;

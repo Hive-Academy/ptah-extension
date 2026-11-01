@@ -128,6 +128,28 @@ describe('LaneOutcomeRecorder', () => {
     );
   });
 
+  it('stores the resolved parent session for a lane completion', async () => {
+    const { store, recorder, pipeline } = harness();
+    recorder.recordLaneCompletion(laneInput('lane:parent', {
+      parentSessionId: '11111111-1111-4111-8111-111111111111',
+    }));
+    await pipeline.flush();
+    expect(await store.get('lane:parent')).toMatchObject({
+      parentSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+  });
+
+  it('stores null when a lane completion has no resolved parent session', async () => {
+    const { store, recorder, pipeline } = harness();
+    recorder.recordLaneCompletion(laneInput('lane:unresolved-parent', {
+      parentSessionId: null,
+    }));
+    await pipeline.flush();
+    expect(await store.get('lane:unresolved-parent')).toMatchObject({
+      parentSessionId: null,
+    });
+  });
+
   it('retains a budget stop that precedes the subagent stop row', async () => {
     const { store, recorder, pipeline } = harness();
     recorder.markSubagentBudgetStop('agent-a');

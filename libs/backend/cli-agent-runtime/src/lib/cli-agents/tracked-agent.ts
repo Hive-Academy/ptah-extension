@@ -40,6 +40,8 @@ export interface TrackedAgent {
   subprocessReleased: boolean;
   /** Accumulated structured segments for persistence (capped at MAX_ACCUMULATED_SEGMENTS) */
   accumulatedSegments: CliOutputSegment[];
+  /** Usage reported for the current turn, retained even if output is capped. */
+  outcomeUsage?: CliOutputSegment['usage'];
   /** Accumulated rich stream events for persistence (Ptah CLI only, capped at MAX_ACCUMULATED_STREAM_EVENTS) */
   accumulatedStreamEvents: FlatStreamEventUnion[];
   /** True once the stream-events cap has been logged — suppresses per-event log spam for long-running agents. */

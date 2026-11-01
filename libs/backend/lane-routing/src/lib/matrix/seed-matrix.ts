@@ -23,7 +23,7 @@ import {
  * - Claude Opus 4.5 high, Claude Opus 4.6 (in-process): the subagent lane
  *   lists the tiers `opus` / `sonnet`, not these ids.
  * - GPT-5.2 high, GPT-5.2-Codex, GPT-5.1-Codex medium (Codex CLI): absent
- *   from the Codex fallback list (`codex-cli.adapter.ts` `FALLBACK_MODELS`).
+ *   from the Codex fallback list (`codex-app-server-lane-models.ts` `CODEX_LANE_FALLBACK_MODELS`).
  * - Claude Sonnet 4.5 high: its row cites Copilot CLI, whose shipped list
  *   (`copilot-sdk.adapter.ts`) has no Sonnet 4.5 id.
  * - Claude Haiku 4.5 high, GPT-5.1 medium, GPT-5 medium, GPT-5 mini medium,

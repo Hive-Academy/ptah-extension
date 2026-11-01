@@ -29,6 +29,35 @@ import type {
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import type { CodeOutliner } from '@ptah-extension/tool-output-reducers';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
+import {
+  type RuntimeHostCapabilities,
+  type IAgentAdapter,
+} from '@ptah-extension/shared';
+import {
+  RoutingAgentAdapter,
+  type RuntimeAdmissionPort,
+  type NativeChatAdapter,
+} from '../codex-app-server/routing-agent-adapter';
+import { createCodexChatMetadataPort } from '../wiring/codex-chat-metadata-port';
+import type { InitializedSessionRuntimeIdentityLookup } from '../wiring/session-runtime-identity-cache';
+import {
+  createLegacySessionControls,
+  type LegacySessionControlPorts,
+} from '../wiring/legacy-session-controls-composition';
+import {
+  guardRuntimeComposition,
+  defaultRuntimeHostCapabilitiesProvider,
+} from '../wiring/codex-runtime-composition';
+import { LegacySessionControls } from '../codex-app-server/legacy-session-controls';
+import {
+  SessionRuntimeRouter,
+  type NativeSessionControls,
+} from '../codex-app-server/session-runtime-router';
+import {
+  CodexChatAdapter,
+  type CodexChatAdapterPorts,
+} from '../codex-app-server/codex-chat-adapter';
+import { SessionApprovalRouter } from '../codex-app-server/session-approval-router';
 import { SdkTranscriptReaderAdapter } from '../sdk-transcript-reader.adapter';
 import { SessionMetadataStore } from '../session-metadata-store';
 import {
@@ -207,6 +236,7 @@ export function registerSdkServices(
   logger: Logger,
 ): void {
   logger.info('[AgentSDK] Registering SDK services...');
+  registerCodexChatServices(container);
   // Product hosts do not consume model-dispatch provenance. Benchmark record
   // mode replaces this default with its collector after the container boots.
   container.registerInstance(
@@ -959,8 +989,139 @@ export function registerSdkServices(
   });
 }
 
+/** SDK-owned services below are registered once by registerSdkServices.
+ * Hosts override only the guarded nullable port tokens before first resolution. */
+export function registerCodexChatServices(
+  container: DependencyContainer,
+): void {
+  if (!container.isRegistered(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES, true)) {
+    container.register(
+      SDK_TOKENS.RUNTIME_HOST_CAPABILITIES,
+      defaultRuntimeHostCapabilitiesProvider(),
+    );
+  }
+  if (!container.isRegistered(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, true)) {
+    container.register(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, {
+      useFactory: () => null,
+    });
+  }
+  for (const token of [
+    SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
+    SDK_TOKENS.LEGACY_SESSION_CONTROL_PORTS,
+    SDK_TOKENS.NATIVE_SESSION_CONTROLS,
+    SDK_TOKENS.RUNTIME_ADMISSION_PORT,
+  ]) {
+    if (!container.isRegistered(token, true))
+      container.register(token, { useFactory: () => null });
+  }
+  container.register(SDK_TOKENS.LEGACY_SESSION_CONTROLS, {
+    useFactory: instanceCachingFactory((c) => {
+      const ports = c.resolve<LegacySessionControlPorts | null>(
+        SDK_TOKENS.LEGACY_SESSION_CONTROL_PORTS,
+      );
+      return ports ? createLegacySessionControls(ports) : null;
+    }),
+  });
+  container.register(SDK_TOKENS.SESSION_RUNTIME_ROUTER, {
+    useFactory: instanceCachingFactory((c) => {
+      const identities =
+        c.resolve<InitializedSessionRuntimeIdentityLookup | null>(
+          SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
+        );
+      const legacy = c.resolve<LegacySessionControls | null>(
+        SDK_TOKENS.LEGACY_SESSION_CONTROLS,
+      );
+      const native = c.resolve<NativeSessionControls | null>(
+        SDK_TOKENS.NATIVE_SESSION_CONTROLS,
+      );
+      return identities && legacy && native
+        ? new SessionRuntimeRouter(identities, legacy, native)
+        : null;
+    }),
+  });
+  const assertComposition = guardRuntimeComposition(container);
+  container.register(SDK_TOKENS.ROUTING_AGENT_ADAPTER, {
+    useFactory: instanceCachingFactory((c) => {
+      const identities =
+        c.resolve<InitializedSessionRuntimeIdentityLookup | null>(
+          SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
+        );
+      const native = c.resolve<NativeChatAdapter | null>(
+        SDK_TOKENS.CODEX_CHAT_ADAPTER,
+      );
+      const admission = c.resolve<RuntimeAdmissionPort | null>(
+        SDK_TOKENS.RUNTIME_ADMISSION_PORT,
+      );
+      return identities && native && admission
+        ? new RoutingAgentAdapter(
+            identities,
+            c.resolve<IAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
+            native,
+            admission,
+            c.resolve<RuntimeHostCapabilities>(
+              SDK_TOKENS.RUNTIME_HOST_CAPABILITIES,
+            ),
+          )
+        : null;
+    }),
+  });
+  container.beforeResolution(
+    SDK_TOKENS.ROUTING_AGENT_ADAPTER,
+    assertComposition,
+  );
+  container.register(SDK_TOKENS.SESSION_APPROVAL_ROUTER, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new SessionApprovalRouter(
+          c.resolve<SdkPermissionHandler>(SDK_TOKENS.SDK_PERMISSION_HANDLER),
+          (payload) =>
+            c
+              .resolve<CodexChatAdapterPorts | null>(
+                SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+              )
+              ?.presentation.cancelPrompt(payload),
+        ),
+    ),
+  });
+  container.register(SDK_TOKENS.CODEX_CHAT_ADAPTER, {
+    useFactory: instanceCachingFactory((c) => {
+      const ports = c.resolve<CodexChatAdapterPorts | null>(
+        SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+      );
+      if (!ports) return null;
+      const identities =
+        c.resolve<InitializedSessionRuntimeIdentityLookup | null>(
+          SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
+        );
+      if (!identities) return null;
+      return new CodexChatAdapter(
+        {
+          ...ports,
+          logger: c.resolve<Logger>(TOKENS.LOGGER),
+          approvals: c.resolve<SessionApprovalRouter>(
+            SDK_TOKENS.SESSION_APPROVAL_ROUTER,
+          ),
+          metadata: createCodexChatMetadataPort(identities),
+        },
+        c.resolve<SessionTurnStateRegistry>(
+          SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
+        ),
+      );
+    }),
+  });
+}
+
 export function wireAgentAdapterAliases(container: DependencyContainer): void {
   container.register(TOKENS.AGENT_ADAPTER, {
-    useFactory: (c) => c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
+    useFactory: (c) => {
+      const routing = c.isRegistered(SDK_TOKENS.ROUTING_AGENT_ADAPTER, true)
+        ? c.resolve<RoutingAgentAdapter | null>(
+            SDK_TOKENS.ROUTING_AGENT_ADAPTER,
+          )
+        : null;
+      return (
+        routing ?? c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER)
+      );
+    },
   });
 }

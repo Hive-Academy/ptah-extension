@@ -1,4 +1,8 @@
 import {
+  disposeElectronCodexBindings,
+  hasElectronCodexBindings,
+} from '../di/codex-binding-registry';
+import {
   killRunningChecks,
   runningCheckPids,
 } from '@ptah-extension/vscode-lm-tools';
@@ -87,6 +91,9 @@ export const GATEWAY_STOP_BUDGET_MS = 2000;
  * buys the staging its microtasks — it is not waiting on a process to die.
  */
 export const AGENT_REAP_BUDGET_MS = 2000;
+
+/** Bound native session close before SQLite and the final metadata flush. */
+export const CODEX_DISPOSE_BUDGET_MS = 2000;
 
 /**
  * How long the chain may wait for the FINAL metadata flush.
@@ -319,6 +326,17 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
     await laneOutcomes.dispose();
   }
 
+  if (hasElectronCodexBindings()) {
+    // Binding disposal stages every inactive write before waiting on scopes.
+    // Late runtime closes reuse that write, even after this budget expires.
+    await withBudget(
+      'Codex bindings dispose',
+      disposeElectronCodexBindings,
+      CODEX_DISPOSE_BUDGET_MS,
+      'continuing shutdown.',
+    );
+  }
+
   nonFatal('SQLite close', () => refs.sqliteConnection?.close());
   nonFatal('Voice worker dispose', deps.disposeVoiceWorker);
   nonFatal('CLI registry dispose', () => refs.cliRegistry?.disposeAll());
@@ -442,7 +460,7 @@ async function withBudget(
   } catch (error: unknown) {
     console.warn(
       `[Ptah Electron] ${label} failed (non-fatal):`,
-      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? error : new Error('Shutdown step failed'),
     );
   } finally {
     if (timer !== null) clearTimeout(timer);
@@ -479,6 +497,7 @@ async function withBudget(
  */
 export function requiresDeferredDisposal(refs: BootRefs): boolean {
   return (
+    hasElectronCodexBindings() ||
     refs.laneOutcomesDisposer !== null ||
     refs.messagingGateway !== null ||
     refs.agentProcessManager !== null ||

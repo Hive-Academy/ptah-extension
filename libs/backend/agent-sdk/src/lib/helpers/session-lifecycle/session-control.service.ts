@@ -43,6 +43,15 @@ import {
   resolveAutoCompactControl,
 } from '../auto-compact-control';
 
+export class SessionUnavailableError extends SdkError {
+  readonly code = 'session-unavailable';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'SessionUnavailableError';
+  }
+}
+
 export type EndSessionOutcome = 'ended' | 'already-ended';
 
 /** Upper bound on one session's live auto-compact window change. */
@@ -510,11 +519,11 @@ export class SessionControl {
   ): Promise<void> {
     const session = this.registry.find(sessionId as string);
     if (!session) {
-      throw new SdkError(`Session not found: ${sessionId}`);
+      throw new SessionUnavailableError(`Session not found: ${sessionId}`);
     }
 
     if (!session.query) {
-      throw new SdkError(`Session query not initialized: ${sessionId}`);
+      throw new SessionUnavailableError(`Session query not initialized: ${sessionId}`);
     }
 
     this.logger.info(
@@ -553,11 +562,11 @@ export class SessionControl {
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
     const session = this.registry.find(sessionId as string);
     if (!session) {
-      throw new SdkError(`Session not found: ${sessionId}`);
+      throw new SessionUnavailableError(`Session not found: ${sessionId}`);
     }
 
     if (!session.query) {
-      throw new SdkError(`Session query not initialized: ${sessionId}`);
+      throw new SessionUnavailableError(`Session query not initialized: ${sessionId}`);
     }
     const resolvedModel = this.modelResolver.resolve(model);
     if (resolvedModel !== model) {
@@ -597,11 +606,11 @@ export class SessionControl {
   ): Promise<void> {
     const session = this.registry.find(sessionId as string);
     if (!session) {
-      throw new SdkError(`Session not found: ${sessionId}`);
+      throw new SessionUnavailableError(`Session not found: ${sessionId}`);
     }
 
     if (!session.query) {
-      throw new SdkError(`Session query not initialized: ${sessionId}`);
+      throw new SessionUnavailableError(`Session query not initialized: ${sessionId}`);
     }
 
     const flagEffort: FlagEffortLevel =

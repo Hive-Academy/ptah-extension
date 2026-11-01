@@ -53,6 +53,10 @@ import type {
 } from './permission/unattended-session-policy.registry';
 import { SDK_TOKENS } from './di/tokens';
 import type { HostAttentionCoordinator } from './permission/host-attention-coordinator';
+import {
+  buildSystemAbortPermissionMessage,
+  UNROUTABLE_PERMISSION_TIMEOUT_MS,
+} from './system-abort-permission-message';
 
 /** Tools of Ptah's own MCP server, allowed for unattended sessions (R1). */
 const PTAH_MCP_TOOL_PREFIX = 'mcp__ptah__';
@@ -80,14 +84,6 @@ interface PendingRequest {
   sessionId?: SessionId;
   tabId?: TabId;
 }
-
-/**
- * Deny window for UNROUTABLE permission requests only — those with no valid
- * UUID session/tab surface to render the prompt (the broadcast-fallback case,
- * e.g. gateway `gw-<id>` tabs). Routable webview requests keep an infinite wait
- * so a user can legitimately take minutes to answer. See F2 in TASK_2026_155.
- */
-const UNROUTABLE_PERMISSION_TIMEOUT_MS = 60_000;
 
 /**
  * Ceiling for a permission request routed to the agent monitor panel by CLI
@@ -228,6 +224,16 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     return () => {
       this.lifecycleListeners.delete(listener);
     };
+  }
+
+  /**
+   * Host approval bridges publish Codex prompt requests and settlements here.
+   * Resolved outcomes are allowed, denied, timed-out, or aborted. Callers
+   * settle each request once; this method forwards events without deduplication.
+   * A throwing listener is logged and does not block other listeners or the caller.
+   */
+  publishPromptLifecycle(event: PermissionPromptLifecycleEvent): void {
+    this.emitLifecycle(event);
   }
 
   private emitLifecycle(event: PermissionPromptLifecycleEvent): void {
@@ -1092,9 +1098,10 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       );
       return {
         behavior: 'deny' as const,
-        message: `SYSTEM ABORT — this was NOT a user decision. Ptah cancelled the pending permission request for tool "${toolName}" because the session was being torn down (for example an authentication or configuration change) or the prompt could not be routed to any UI surface before its deny window expired. No human ever saw this prompt, and nobody reviewed or refused the tool call. Do NOT treat this as a user denial and do NOT abandon the work you were asked to do. The operation may be retried once the session is available again. Internal reason: "${
-          response.reason || 'Session aborted'
-        }".`,
+        message: buildSystemAbortPermissionMessage(
+          toolName,
+          response.reason || 'Session aborted',
+        ),
         interrupt: false,
       };
     }

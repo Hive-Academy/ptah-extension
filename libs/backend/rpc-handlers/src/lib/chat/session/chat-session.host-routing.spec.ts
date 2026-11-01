@@ -200,6 +200,8 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
     undefined,
     undefined,
     undefined,
+    undefined,
+    undefined,
     hostRouting,
   );
 

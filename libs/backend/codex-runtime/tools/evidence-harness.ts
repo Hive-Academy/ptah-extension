@@ -997,6 +997,7 @@ function markerState(
 
 type ApprovalPolicy =
   | 'on-request'
+  | 'untrusted'
   | {
       granular: {
         sandbox_approval: boolean;
@@ -1013,26 +1014,13 @@ export function policy(level: EvidenceCase['level']): {
   approvalsReviewer?: 'user';
 } {
   const approvalPolicy: ApprovalPolicy =
-    level === 'ask' || level === undefined
-      ? {
-          granular: {
-            sandbox_approval: true,
-            rules: true,
-            mcp_elicitations: true,
-            request_permissions: true,
-            skill_approval: true,
-          },
-        }
+    level === 'ask' || level === 'auto-edit' || level === undefined
+      ? 'untrusted'
       : 'on-request';
   const selected = {
-    sandbox:
-      level === 'yolo' || level === 'auto-edit'
-        ? 'workspace-write'
-        : 'read-only',
+    sandbox: level === 'plan' ? 'read-only' : 'workspace-write',
     approvalPolicy,
-    ...(typeof approvalPolicy === 'string'
-      ? {}
-      : { approvalsReviewer: 'user' as const }),
+    approvalsReviewer: 'user' as const,
   };
   assertSafeSandbox(selected);
   return selected;
@@ -1826,7 +1814,7 @@ export async function runCase(
         if (
           editing &&
           item.id === 'ask-command-edit' &&
-          selected.sandbox === 'read-only' &&
+          selected.approvalPolicy === 'untrusted' &&
           isToleratedMarkerRead(observed['command'], original)
         ) {
           const id = z.string().parse(observed['id']);
@@ -2189,7 +2177,7 @@ export async function runCase(
         harnessFailed,
       )
     ) {
-      (result.notes ??= []).push('granular ask: no approval request observed');
+      (result.notes ??= []).push('untrusted ask: no approval request observed');
     }
     if (result.steer?.status === 'success')
       (result.notes ??= []).push(

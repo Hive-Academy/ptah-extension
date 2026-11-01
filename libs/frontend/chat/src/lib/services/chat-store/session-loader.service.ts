@@ -22,6 +22,8 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   ChatSessionSummary,
   CliSessionReference,
+  createExecutionChatMessage,
+  MessageId,
   TabId,
   SessionId,
   SubagentRecord,
@@ -52,6 +54,7 @@ import {
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
 import { StreamViewportController } from '../stream-viewport-controller.service';
 import { HistoryPagingService } from './history-paging.service';
+import { mapChatSendFailureText } from '../message-sender.service';
 import {
   createEmptyStreamingState,
   type TabState,
@@ -1041,6 +1044,13 @@ export class SessionLoaderService {
         return { staleSnapshot: false };
       }
 
+      if (resumeResult.data?.cancelled === true) {
+        this.tabManager.applyResumeFailure(resolvedTabId);
+        this.tabManager.markTabIdle(resolvedTabId);
+        this.sessionManager.setStatus('loaded');
+        return { staleSnapshot: false };
+      }
+
       if (
         opts?.reason === 'compaction' &&
         targetTabId &&
@@ -1142,6 +1152,12 @@ export class SessionLoaderService {
           this.withoutDismissed(resumableSubagents ?? []),
         );
         this._resumableSubagentsSessionId = sessionId;
+        this.showResumeActivationFailure(
+          resolvedTabId,
+          opts,
+          targetTabId,
+          resumeResult.data,
+        );
       } else {
         this.tabManager.applyResumeFailure(resolvedTabId);
         this.sessionManager.setStatus('loaded');
@@ -1341,6 +1357,40 @@ export class SessionLoaderService {
       !!prior &&
       normalizeModelKey(prior.model) === normalizeModelKey(model)
     );
+  }
+
+  /**
+   * Activating resume stays successful when the transcript loaded and the
+   * live query did not. Append that failure the same way a failed start or
+   * continue does, after the loaded messages are already on the tab.
+   */
+  private showResumeActivationFailure(
+    tabId: string,
+    opts: SwitchSessionOptions | undefined,
+    targetTabId: TabId | undefined,
+    data: ChatResumeResult | undefined,
+  ): void {
+    if (opts?.activate !== true || targetTabId !== undefined) return;
+    if (!data || data.activated !== false) return;
+    const activationError = data.activationError;
+    if (typeof activationError !== 'string' || activationError.length === 0) {
+      return;
+    }
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab) return;
+    const text = mapChatSendFailureText(
+      data.activationErrorCode,
+      activationError,
+      activationError,
+    );
+    this.tabManager.setMessages(tabId, [
+      ...tab.messages,
+      createExecutionChatMessage({
+        id: MessageId.create(),
+        role: 'assistant',
+        rawContent: `Message delivery failed. ${text}`,
+      }),
+    ]);
   }
 
   /**

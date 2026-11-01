@@ -86,7 +86,9 @@ describe('ModelStateService', () => {
       const harness = makeSignalStoreHarness<ModelStoreState>(service);
       await harness.flush();
 
-      expect(rpc.call).toHaveBeenCalledWith('config:models-list', {});
+      expect(rpc.call).toHaveBeenCalledWith('config:models-list', {
+        workspacePath: null,
+      });
       expect(harness.signal('currentModel')).toBe('sonnet');
       expect(harness.signal('isLoaded')).toBe(true);
       expect(harness.signal('availableModels')).toHaveLength(2);
@@ -559,9 +561,8 @@ describe('ModelStateService', () => {
   /**
    * TASK_2026_345, judge round 1 — two call sites colliding across a switch.
    *
-   * `config:models-list` carries no workspace parameter and the host resolves
-   * the active provider at RPC-PROCESSING time (see the note on
-   * `WorkspaceCoordinatorService.refreshWorkspaceProviderState`).
+   * `config:models-list` names the workspace the read started in. The host
+   * echoes that path, and a response for any other path is dropped.
    * `TabManagerService.createTab()` calls `refreshModels()` unconditionally and
    * the coordinator calls it right after a switch precisely to get the NEW
    * provider's models. With an unkeyed latch the post-switch caller awaited the
@@ -713,6 +714,159 @@ describe('ModelStateService', () => {
       host.release();
       await Promise.all([first, joined]);
       expect(service.availableModels()).toEqual(QA_MODELS);
+    });
+  });
+
+  describe('config:models-list scope on the response', () => {
+    const QA = 'D:/projects/qa3elhamor';
+
+    interface HeldCall {
+      path: string | null;
+      resolve: (value: unknown) => void;
+    }
+
+    function holdModelsList(): HeldCall[] {
+      const pending: HeldCall[] = [];
+      rpc.call.mockImplementation(
+        (method: string, params?: { workspacePath?: string | null }) => {
+          if (method !== 'config:models-list') {
+            return Promise.resolve(rpcSuccess({}) as never);
+          }
+          const path = params?.workspacePath ?? null;
+          return new Promise((resolve) => {
+            pending.push({
+              path,
+              resolve: (value) => resolve(value as never),
+            });
+          });
+        },
+      );
+      return pending;
+    }
+
+    it('drops a stale workspace response that arrives after the global one', async () => {
+      const pending = holdModelsList();
+      const service = createService();
+      const scope = TestBed.inject(WorkspaceScopeService);
+      const qaModels = [
+        makeModel({ id: 'gpt-6-sol', name: 'GPT 6 Sol', isSelected: true }),
+      ];
+      const globalModels = [
+        makeModel({
+          id: 'gpt-6-astra',
+          name: 'GPT 6 Astra',
+          isSelected: true,
+        }),
+      ];
+
+      scope.switchTo(QA);
+      const workspaceRead = service.refreshModels({ fresh: true });
+      scope.switchTo(null);
+      const globalRead = service.refreshModels({ fresh: true });
+
+      const globalCall = [...pending]
+        .reverse()
+        .find((entry) => entry.path === null);
+      const workspaceCall = pending.find((entry) => entry.path === QA);
+      if (!globalCall || !workspaceCall) {
+        throw new Error('expected a workspace request and a global request');
+      }
+
+      globalCall.resolve(
+        rpcSuccess({ models: globalModels, workspacePath: null }),
+      );
+      await globalRead;
+      expect(service.currentModel()).toBe('gpt-6-astra');
+
+      workspaceCall.resolve(
+        rpcSuccess({ models: qaModels, workspacePath: QA }),
+      );
+      await workspaceRead;
+
+      expect(service.currentModel()).toBe('gpt-6-astra');
+      expect(service.availableModels()).toEqual(globalModels);
+
+      const constructorCall = pending.find(
+        (entry) => entry !== globalCall && entry.path === null,
+      );
+      constructorCall?.resolve(
+        rpcSuccess({ models: qaModels, workspacePath: QA }),
+      );
+    });
+
+    it('drops an answer whose echoed workspace is not the one requested', async () => {
+      const pending = holdModelsList();
+      const service = createService();
+      const scope = TestBed.inject(WorkspaceScopeService);
+      scope.switchTo(QA);
+      const read = service.refreshModels({ fresh: true });
+      const requested = [...pending].reverse().find((entry) => entry.path === QA);
+      if (!requested) {
+        throw new Error('expected a workspace models-list request');
+      }
+
+      requested.resolve(
+        rpcSuccess({
+          models: [
+            makeModel({
+              id: 'gpt-6-astra',
+              name: 'GPT 6 Astra',
+              isSelected: true,
+            }),
+          ],
+          workspacePath: null,
+        }),
+      );
+      await read;
+
+      expect(service.availableModels()).toEqual([]);
+      expect(service.currentModel()).toBe('');
+    });
+
+    it('selects the saved model when the echoed workspace matches', async () => {
+      const pending = holdModelsList();
+      const service = createService();
+      const scope = TestBed.inject(WorkspaceScopeService);
+      scope.switchTo(QA);
+      const read = service.refreshModels({ fresh: true });
+      const requested = [...pending].reverse().find((entry) => entry.path === QA);
+      if (!requested) {
+        throw new Error('expected a workspace models-list request');
+      }
+      const saved = [
+        makeModel({ id: 'gpt-6-sol', name: 'GPT 6 Sol', isSelected: true }),
+      ];
+
+      requested.resolve(rpcSuccess({ models: saved, workspacePath: QA }));
+      await read;
+
+      expect(service.currentModel()).toBe('gpt-6-sol');
+      expect(service.availableModels()).toEqual(saved);
+    });
+
+    it('selects a Claude model the same way when the echoed workspace matches', async () => {
+      const pending = holdModelsList();
+      const service = createService();
+      const scope = TestBed.inject(WorkspaceScopeService);
+      scope.switchTo(QA);
+      const read = service.refreshModels({ fresh: true });
+      const requested = [...pending].reverse().find((entry) => entry.path === QA);
+      if (!requested) {
+        throw new Error('expected a workspace models-list request');
+      }
+      const saved = [
+        makeModel({
+          id: 'claude-opus-4-7',
+          name: 'Claude Opus 4.7',
+          isSelected: true,
+        }),
+      ];
+
+      requested.resolve(rpcSuccess({ models: saved, workspacePath: QA }));
+      await read;
+
+      expect(service.currentModel()).toBe('claude-opus-4-7');
+      expect(service.availableModels()).toEqual(saved);
     });
   });
 });

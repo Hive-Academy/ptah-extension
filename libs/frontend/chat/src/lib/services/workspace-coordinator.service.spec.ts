@@ -384,6 +384,8 @@ describe('WorkspaceCoordinatorService', () => {
       // ...models + effort run after auth resolves, on later microtasks.
       await flushMicrotasks();
       expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      // A fresh read: a pre-auth read for the same scope must not be joined.
+      expect(modelState.refreshModels).toHaveBeenCalledWith({ fresh: true });
       expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
     });
 

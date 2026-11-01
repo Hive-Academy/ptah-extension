@@ -1,0 +1,49 @@
+# Live Electron test p8l (head f48351d1c), Codex App Server runtime
+
+- Date: 2026-10-30, 13:54 to 14:11 Africa/Cairo. Worktree `D:\projects\ptah-extension\.claude-worktrees\codex-runtime-integration`, branch `feat/codex-runtime-integration`, head `f48351d1c`.
+- Model: `gpt-6-sol` in Settings, both composers and all six paid `turn_context` records. Neither forbidden model was used.
+- CDP port: 9335 (free by netstat before launch). Playwright connected with `chromium.connectOverCDP`.
+- Paid turns used: **6 of 10**, counted by rollout `turn_context`: T1, T2, T4, T5, T6, T7. T3 failed during context open; T8 was killed before a new `turn_context`. Actual provider billing for those two interrupted attempts is not independently known.
+- PIDs: no root `electron.exe` at preflight. This run's root PIDs were **3384** (run 1) and **40952** (run 2); each was stopped with `taskkill /T /F /PID`. The live-session Codex child killed for T8 was **41496**, verified as an `app-server` child of 40952. An earlier new-session open attempt killed child **32924** of 3384. Other Codex processes were not touched.
+- Evidence folder F: `C:\Users\abdal\AppData\Local\Temp\ptah-live-p8l-20261030-135415\`. It contains `app-run1.log`, `app-run2.log`, `build.log`, `wasm.log`, `build2.log`, `shots\`, `t1.json` through `t8.json` for attempted turns, mode results, kill logs, the settings backup/copy and copied p8k helpers. Helper edits were confined to F.
+- `settings.json`: copied to `settings.json.bak` before the build; the app's final copy is `settings.after.json` and differs from the backup. Restored the backup over `~/.ptah/settings.json` after stopping run 2. Git `cmp.exe settings.json.bak ~/.ptah/settings.json` exited **0**; SHA-256 hashes also match.
+- Build: `build-dev` exit 0, `copy-wasm.js` exit 0, `copy-renderer-dev` exit 0. All three ran under the `electron-live-test` verify lock. No other build, test, lint or typecheck was run.
+- UI setup: Settings > Main agent > Reassign > OpenAI Codex > GPT-6-Sol > This workspace > Save. The card showed `Provider: OpenAI Codex`, `Model: gpt-6-sol`, `Workspace override`. Approval mode was set to Manual before T1 and returned to Manual before shutdown (`shots/final-manual.png`, `final-manual.json`).
+- Legacy marker `[SessionLifecycle] Starting SDK query with options:`: **0** in each app log.
+
+## Rollouts (`~/.codex/sessions/2026/10/30/`)
+
+| Session | Rollout file | Turns and native context |
+| --- | --- | --- |
+| A, rivers | `rollout-2026-10-30T14-00-07-01a18cae-79b0-7cb3-ae90-4bbea0adb79d.jsonl` | T1 streaming, T2 in-place follow-up, T5 resumed after mode change/restart. All three `turn_context.model` values are `gpt-6-sol`; all have `approval_policy: untrusted`, `sandbox_policy: workspace-write`. |
+| B, Say OK | `rollout-2026-10-30T14-01-50-01a18cb0-0ba7-7a33-b860-45bae8555812.jsonl` | T4 recovered after failed open, T6 user Stop (`turn_aborted` at 12:05:16Z), T7 next turn in place. All three `turn_context.model` values are `gpt-6-sol`; all have `approval_policy: untrusted`, `sandbox_policy: workspace-write`. |
+
+T3 failed before a native rollout was created. T8 failed on the established B session after four streamed events and before the next `turn_context`; its visible notice is in the Ptah transcript, not the rollout.
+
+## Verdicts
+
+| Scenario | Expected | Observed | Verdict | Evidence |
+| --- | --- | --- | --- | --- |
+| R1, model scope | Composer and first `turn_context` use `gpt-6-sol`; second tab retains it | Settings card showed `gpt-6-sol`; first composer and new second-tab composer both showed `GPT 6 Sol`. T1 native `turn_context` was `gpt-6-sol`. | **PASS** | `shots/settings-saved.png`, `r1-composer.png`, `r1-second-tab.png`; A rollout first `turn_context`; `app-run1.log` 1513-1595. |
+| R2, follow-up in place | Second message streams normally; user bubble once | T2 `Say OK.` completed in the original tab with one `You / Say OK.` bubble, one `OK.` assistant reply, no delivery failure, and idle state. | **PASS** | `shots/t2-followup.png`, `t2.json`; `app-run1.log` 1606-1615; A rollout second `turn_context`. |
+| R3, killed live process | Exactly one runtime notice and failed state; idle without Stop/skeleton; next turn works or shows clear error | T8 killed B's established `codex.exe app-server` PID 41496 about 0.16 s after send, before reply text. Exactly one `Codex reported a runtime error.` bubble appeared. After 35 s, the tile still said `running`, skeleton and Stop remained. Clicking Stop did not clear them; Send stayed disabled, so the next turn could not be attempted in place. | **FAIL** | `shots/t8-live-kill.png`, `t8-after-stop.png`, `t8.json`, `kill-live.log`, `r3-final-state.txt`; `app-run2.log` 1135-1187, especially 1141-1159. |
+| R4, dead-tab mode change | No silent failure; new level saved visibly or in next `turn_context` | On the dead B tab, Manual to Auto-edit updated the chip, and both `config:autopilot-toggle` calls succeeded. No `Codex context is not ready` error appeared. The tab remained stuck, so a subsequent native turn could not verify effective policy. Manual was restored before shutdown. | **PARTIAL** | `shots/r4-live-dead-mode.png`, `r4-live.json`, `shots/final-manual.png`; `app-run2.log` 1198-1207. |
+| R5, D14a refusal text | Reproduce resume profile refusal; show specific text once | A was idle; Manual was changed to Auto-edit through the UI, then the app restarted and T5 resumed. T5 answered `HELLO.` normally. No D14a refusal occurred, so its specific UI text path was not exercised. | **PARTIAL (not reproduced)** | `shots/r5-first-autoedit.png`, `t5-resume-refusal.png`, `t5.json`; `app-run1.log` 1883-1907, `app-run2.log` 953-975; A rollout third `turn_context`. |
+| R6, S1 streaming and S4 Stop | More than one DOM update ending idle; user Stop ends idle with no chat error and next turn works in place | T1 text grew through five DOM updates, then went idle. T6 was stopped during output at number 50, went idle with Stop gone and no chat error card in the screenshot. T7 `Say NEXT.` completed in the same tab. A separate stale branch-fork attention alert existed during T6/T7 (gap 3). | **PASS for both baseline checks** | `t1.json`, `shots/t1-stream.png`, `t6.json`, `shots/t6-stop-before-stop.png`, `t6-stop.png`, `t7.json`, `shots/t7-after-stop.png`; `app-run2.log` 1063-1123, especially 1096-1103; B rollout `turn_aborted` then next `turn_context`. |
+
+The screenshots were visually checked against the scenario requirements for model and mode chips, one error bubble, idle state, Stop and skeleton. No separate design reference was supplied.
+
+The first kill attempt (T3) hit a newly opening B context, not an established live session: it returned idle with `Message delivery failed. Codex chat could not start.` and T4 recovered in place. It is documented in `t3.json`, `kill.log`, `shots/t3-kill.png` and `app-run1.log` 1669-1741; the qualifying R3 result is T8 above.
+
+## New gaps
+
+1. **Live process failure still leaves a running tab after the one visible notice.** The runtime error bubble is fixed relative to p8k, but the failed/idle transition is not. A Stop click also leaves the skeleton and disables Send. Suspect the ordered turn-state settlement and renderer status handling: `libs/backend/rpc-handlers/src/lib/chat/streaming/chat-stream-broadcaster.service.ts:372-390` skips `CHAT_ERROR` for `webviewReported` errors and only forces idle when its turn state is still generating; `libs/frontend/chat/src/lib/services/chat-store/chat-lifecycle.service.ts:198-250` treats `CHAT_ERROR` as presentation and queue handling. The log confirms `webviewReported: true` and four events (`app-run2.log` 1152-1185).
+2. **Approval chip can differ from native Codex policy.** After the early B open failure, the UI chip showed Auto-edit and `config:autopilot-toggle` succeeded (`app-run1.log` 1726-1735), but B's next native `turn_context` was still `approval_policy: untrusted` / `workspace-write`. A's resumed T5 also showed `untrusted` despite its Auto-edit chip. This persists from p8k gap 5. Suspect the policy update/resume path around `libs/backend/agent-sdk/src/lib/codex-app-server/codex-chat-session-controls.ts:186-205`; the exact cause is not established by this run. R4's post-kill chip update could not be checked against a next turn because the tab stayed busy.
+3. **A background branch fork still targets Codex as a Claude session.** After restart, `session:forkSession` attempted to resolve a Codex message ID through a missing Claude session file and emitted a persistent `Attention needed: Branch failed` alert while ordinary Codex turns kept working. This is related to p8k's prior-session history gap. Evidence: `app-run2.log` 1041-1052 and `t6.json`/`t7.json` `errorCards`; the alert was visually separate from the main chat transcript.
+
+## Blocked / not done
+
+- R5's exact refusal wording could not be judged because the requested idle-mode-change/restart/resume sequence succeeded without refusal. No special prompt wording was used.
+- R3's next turn could not be sent: the Stop button persisted and `chat-send-btn` was disabled after the killed process. The earlier T4 recovery was a new-context open failure, not the live-kill recovery path.
+- G4 read auto-accept and p8k gaps 8-10 were not deliberately exercised; no paid turns were spent on them. The branch-fork alert above arose naturally.
+- `rg.exe` returned Access denied in this environment; PowerShell `Select-String` and `Get-ChildItem` were used for log and rollout inspection. The CLI exposed no matching skill invocation/discovery mechanism for this live-run task, so no skill was loaded. No repository source, spec or config file was changed except this deliverable; settings were changed by the app and then restored byte-for-byte.

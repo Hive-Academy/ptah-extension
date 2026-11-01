@@ -75,8 +75,8 @@ describe('InternalQueryConcurrencyGate', () => {
     it('admits two lanes at once but only one call per lane', async () => {
       const gate = new InternalQueryConcurrencyGate();
 
-      await acquire(gate, { limit: 2, lane: 'a' });
-      await acquire(gate, { limit: 2, lane: 'b' });
+      const releaseA = await acquire(gate, { limit: 2, lane: 'a' });
+      const releaseB = await acquire(gate, { limit: 2, lane: 'b' });
       const queued = acquire(gate, { limit: 2, lane: 'a' });
 
       expect(gate.inFlight).toBe(2);
@@ -84,7 +84,9 @@ describe('InternalQueryConcurrencyGate', () => {
       expect(gate.inFlightForLane('b')).toBe(1);
       expect(gate.queued).toBe(1);
 
-      void queued;
+      releaseA();
+      (await queued)();
+      releaseB();
     });
 
     /**
@@ -157,16 +159,31 @@ describe('InternalQueryConcurrencyGate', () => {
     it('falls back to the defaults for a nonsensical limit', async () => {
       const gate = new InternalQueryConcurrencyGate();
 
-      await gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'a' });
-      await gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'b' });
-      await gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'c' });
+      const releaseA = await gate.acquire({
+        limit: 0,
+        perLaneLimit: -1,
+        lane: 'a',
+      });
+      const releaseB = await gate.acquire({
+        limit: 0,
+        perLaneLimit: -1,
+        lane: 'b',
+      });
+      const releaseC = await gate.acquire({
+        limit: 0,
+        perLaneLimit: -1,
+        lane: 'c',
+      });
       const queued = gate.acquire({ limit: 0, perLaneLimit: -1, lane: 'd' });
 
       expect(gate.inFlight).toBe(DEFAULT_MAX_CONCURRENT);
       expect(gate.inFlightForLane('a')).toBe(DEFAULT_MAX_CONCURRENT_PER_LANE);
       expect(gate.queued).toBe(1);
 
-      void queued;
+      releaseA();
+      (await queued)();
+      releaseB();
+      releaseC();
     });
   });
 
@@ -523,7 +540,10 @@ describe('InternalQueryConcurrencyGate — background-work governor', () => {
     });
 
     const admitted = jest.fn();
-    void acquire(gate, 'skill-synthesis').then(admitted);
+    const held = acquire(gate, 'skill-synthesis').then((release) => {
+      admitted();
+      return release;
+    });
     await jest.advanceTimersByTimeAsync(999);
     expect(admitted).not.toHaveBeenCalled();
 
@@ -531,6 +551,7 @@ describe('InternalQueryConcurrencyGate — background-work governor', () => {
     expect(admitted).toHaveBeenCalledTimes(1);
     expect(gate.inFlight).toBe(1);
     expect(onDeferralCeiling).toHaveBeenCalledWith('skill-synthesis', 1_000);
+    (await held)();
   });
 
   it('reports the ceiling once per lane per deferral episode', async () => {
@@ -544,10 +565,22 @@ describe('InternalQueryConcurrencyGate — background-work governor', () => {
 
     // Slot-blocked backlog: one holder, three waiters on one lane, one on another.
     const holder = await acquire(gate, 'default', { limit: 1 });
+    const controller = new AbortController();
+    const rejected: Promise<unknown>[] = [];
     for (let i = 0; i < 3; i++) {
-      void acquire(gate, 'memory-curator', { limit: 1 }).catch(() => undefined);
+      const queued = acquire(gate, 'memory-curator', {
+        limit: 1,
+        signal: controller.signal,
+      });
+      rejected.push(
+        expect(queued).rejects.toMatchObject({ name: 'AbortError' }),
+      );
     }
-    void acquire(gate, 'skill-synthesis', { limit: 1 }).catch(() => undefined);
+    const skills = acquire(gate, 'skill-synthesis', {
+      limit: 1,
+      signal: controller.signal,
+    });
+    rejected.push(expect(skills).rejects.toMatchObject({ name: 'AbortError' }));
     await jest.advanceTimersByTimeAsync(1_000);
 
     expect(onDeferralCeiling.mock.calls).toEqual([
@@ -558,9 +591,15 @@ describe('InternalQueryConcurrencyGate — background-work governor', () => {
     // A clear ends the episode; the next hold reports again.
     governor.set(true);
     governor.set(false);
-    void acquire(gate, 'memory-curator', { limit: 1 }).catch(() => undefined);
+    const next = acquire(gate, 'memory-curator', {
+      limit: 1,
+      signal: controller.signal,
+    });
+    rejected.push(expect(next).rejects.toMatchObject({ name: 'AbortError' }));
     await jest.advanceTimersByTimeAsync(1_000);
     expect(onDeferralCeiling).toHaveBeenCalledTimes(3);
+    controller.abort();
+    await Promise.all(rejected);
     holder();
   });
 

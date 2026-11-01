@@ -190,7 +190,7 @@ export class ChatAttentionSourceService {
       !!resolvedSessionId && router.canFocus(resolvedSessionId));
     const surfaceOwned = !!surfaceOwner && (surfaceMode || !owner);
     const open = !!resolvedSessionId && (surfaceOwned || (!!owner && !surfaceMode));
-    const actions = kind === 'question'
+    const actions: AttentionItem['actions'][number][] = kind === 'question'
       ? [{ id: 'answer', label: 'Answer', ...(!open && { disabledReason: 'Session unavailable' }) }]
       : [{ id: 'allow', label: 'Allow', ...(kind !== 'permission' && (!tabId || !canAllow) && { disabledReason: !tabId ? 'Session unavailable' : 'Unknown tool' }) },
           ...(kind === 'permission' ? [{ id: 'always_allow', label: 'Always allow' }] : []),

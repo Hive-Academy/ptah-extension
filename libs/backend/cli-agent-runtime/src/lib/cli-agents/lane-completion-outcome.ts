@@ -2,6 +2,7 @@ import { basename } from 'path';
 import { LANE_DEFAULT_MODEL, laneFamilyOf } from '@ptah-extension/shared';
 import type {
   AgentProcessInfo,
+  CliOutputSegment,
   LaneCompletionSignal,
 } from '@ptah-extension/shared';
 import type { LaneOutcomeRecorder } from '@ptah-extension/lane-outcomes';
@@ -22,6 +23,8 @@ export function enqueueLaneCompletionOutcome(
   signal: LaneCompletionSignal,
   authMatched: boolean,
   rateLimited: boolean,
+  resolvedParentSessionId: string | null,
+  usage?: CliOutputSegment['usage'],
 ): void {
   const startedAt = Date.parse(info.startedAt);
   const endedAt = Date.parse(signal.completedAt);
@@ -40,6 +43,7 @@ export function enqueueLaneCompletionOutcome(
       executorKind: info.cli === 'ptah-cli' ? 'ptah-cli' : 'cli',
       laneId: info.ptahCliId ?? info.cli,
       agentId: info.agentId,
+      parentSessionId: resolvedParentSessionId,
       family: laneFamilyOf({
         cli: info.cli,
         ptahCliId: info.ptahCliId,
@@ -61,9 +65,9 @@ export function enqueueLaneCompletionOutcome(
       startedAt: Number.isFinite(startedAt) ? startedAt : null,
       endedAt: Number.isFinite(endedAt) ? endedAt : Date.now(),
       durationMs: signal.durationMs,
-      inputTokens: null,
-      outputTokens: null,
-      costUsd: null,
+      inputTokens: usage?.inputTokens ?? null,
+      outputTokens: usage?.outputTokens ?? null,
+      costUsd: usage?.costUsd ?? null,
       routingSource: info.routingSource ?? 'not-routed',
       reviseRounds: 0,
       finalReview: null,

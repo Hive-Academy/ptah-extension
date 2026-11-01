@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
-import { CodexEventTranslator } from './codex-event-translator';
+import { CodexEventTranslator, MAX_TOOL_OUTPUT_CHARS } from './codex-event-translator';
 import {
   codexNotificationSchemas,
   validateCodexFrame,
@@ -110,6 +110,37 @@ describe('CodexEventTranslator', () => {
     translator = new CodexEventTranslator('context', 4);
   });
 
+  it('maps a completed async question to user input and ignores sleep', () => {
+    const item = {
+      type: 'agentMessage', id: 'question', text: 'Choose one',
+      delivery: 'async', questions: [{ title: 'Which?', options: ['A', 'B'] }],
+    };
+    expect(translator.translate(itemFrame(item))).toEqual([]);
+    expect(translator.translate({
+      method: 'item/agentMessage/delta',
+      params: { ...ids, itemId: 'question', delta: 'Choose' },
+    })).toEqual([]);
+    expect(translator.translate(itemFrame(item, true))).toMatchObject([{
+      type: 'userInputAsync', itemId: 'question', text: 'Choose one',
+      questions: [{ title: 'Which?', options: ['A', 'B'] }],
+    }]);
+    expect(translator.translate(itemFrame({ type: 'sleep', id: 'nap', durationMs: 1000 }))).toEqual([]);
+    expect(translator.translate(itemFrame({ type: 'sleep', id: 'nap', durationMs: 1000 }, true))).toEqual([]);
+    expect(translator.translate(itemFrame({ type: 'agentMessage', id: 'final', text: 'Done', phase: 'final_answer' }, true)))
+      .toMatchObject([{ type: 'textFinal', text: 'Done' }]);
+  });
+
+  it('marks an async completion for text presentation when started omitted delivery and deltas were visible', () => {
+    const started = { type: 'agentMessage', id: 'late-async', text: '' };
+    expect(translator.translate(itemFrame(started))).toEqual([]);
+    expect(translator.translate({ method: 'item/agentMessage/delta',
+      params: { ...ids, itemId: 'late-async', delta: 'Choose' },
+    })).toMatchObject([{ type: 'textDelta', delta: 'Choose' }]);
+    expect(translator.translate(itemFrame({ ...started, text: 'Choose one',
+      delivery: 'async', questions: [{ title: 'Which?' }],
+    }, true))).toMatchObject([{ type: 'userInputAsync', presentation: 'text' }]);
+  });
+
   it('preserves text order, final-only text, identity and monotonic sequence', () => {
     const events = [
       translator.translate({
@@ -185,7 +216,7 @@ describe('CodexEventTranslator', () => {
     ]);
   });
 
-  it('reports last usage, preserves reported zero, and never fabricates cost', () => {
+  it('derives the first baseline, preserves reported zero, and never fabricates cost', () => {
     const events = translator.translate({
       method: 'thread/tokenUsage/updated',
       params: {
@@ -207,6 +238,152 @@ describe('CodexEventTranslator', () => {
         },
       })[0],
     ).not.toHaveProperty('usage');
+  });
+
+  it.each([false, true])(
+    'counts every request with cached input (prior total: %s)',
+    (priorTotal) => {
+      const previous = {
+        inputTokens: 100,
+        cachedInputTokens: 40,
+        cacheWriteInputTokens: 6,
+        outputTokens: 20,
+        reasoningOutputTokens: 5,
+        totalTokens: 120,
+      };
+      const first = {
+        inputTokens: 110,
+        cachedInputTokens: 44,
+        cacheWriteInputTokens: 8,
+        outputTokens: 23,
+        reasoningOutputTokens: 6,
+        totalTokens: 133,
+      };
+      const last = {
+        inputTokens: 10,
+        cachedInputTokens: 4,
+        cacheWriteInputTokens: 2,
+        outputTokens: 3,
+        reasoningOutputTokens: 1,
+        totalTokens: 13,
+      };
+      if (priorTotal) {
+        translator.translate({
+          method: 'thread/tokenUsage/updated',
+          params: {
+            threadId: 'thread',
+            turnId: 'previous',
+            tokenUsage: { last: previous, total: previous },
+          },
+        });
+        translator.translate({
+          method: 'turn/completed',
+          params: {
+            threadId: 'thread',
+            turn: { id: 'previous', items: [], status: 'completed' },
+          },
+        });
+      }
+      translator.translate({
+        method: 'turn/started',
+        params: {
+          threadId: 'thread',
+          turn: { id: 'turn', items: [], status: 'inProgress' },
+        },
+      });
+      expect(
+        translator.translate({
+          method: 'thread/tokenUsage/updated',
+          params: {
+            ...ids,
+            tokenUsage: { last, total: first },
+          },
+        }),
+      ).toMatchObject([
+        {
+          type: 'usage',
+          usage: { totalTokens: 13, lastRequestTotalTokens: 13 },
+        },
+      ]);
+      const latest = {
+        inputTokens: 125,
+        cachedInputTokens: 50,
+        cacheWriteInputTokens: 9,
+        outputTokens: 28,
+        reasoningOutputTokens: 8,
+        totalTokens: 153,
+      };
+      const second = {
+        inputTokens: 15,
+        cachedInputTokens: 6,
+        cacheWriteInputTokens: 1,
+        outputTokens: 5,
+        reasoningOutputTokens: 2,
+        totalTokens: 20,
+      };
+      const update = {
+        method: 'thread/tokenUsage/updated',
+        params: { ...ids, tokenUsage: { last: second, total: latest } },
+      };
+      expect(translator.translate(update)).toMatchObject([
+        {
+          type: 'usage',
+          usage: { totalTokens: 33, lastRequestTotalTokens: 20 },
+        },
+      ]);
+      translator.translate(update); // Repeated snapshots must not double count.
+      expect(translator.translate(terminal())[0]).toMatchObject({
+        usage: {
+          inputTokens: 25,
+          cachedInputTokens: 10,
+          cacheWriteInputTokens: 3,
+          outputTokens: 8,
+          reasoningOutputTokens: 3,
+          totalTokens: 33,
+          lastRequestTotalTokens: 20,
+        },
+      });
+    },
+  );
+
+  it('defaults omitted cache writes to zero on the first turn', () => {
+    translator.translate({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        ...ids,
+        tokenUsage: { last: counts, total: counts },
+      },
+    });
+    expect(translator.translate(terminal())[0]).toMatchObject({
+      usage: { ...counts, cacheWriteInputTokens: 0 },
+    });
+  });
+
+  it('carries only a positive server-reported context window', () => {
+    const reported = {
+      ...counts,
+      inputTokens: 12,
+      outputTokens: 5,
+      totalTokens: 17,
+    };
+    const update = (modelContextWindow?: number | null) => ({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        ...ids,
+        tokenUsage: { last: counts, total: reported, modelContextWindow },
+      },
+    });
+    for (const absent of [null, undefined, 0])
+      expect(
+        translator.translate(update(absent))[0],
+      ).not.toHaveProperty('usage.modelContextWindow');
+    expect(translator.translate(update(272_000))).toMatchObject([
+      { type: 'usage', usage: { modelContextWindow: 272_000 } },
+    ]);
+    // The terminal reuses the turn's latest snapshot, window included.
+    expect(translator.translate(terminal())[0]).toMatchObject({
+      usage: { modelContextWindow: 272_000 },
+    });
   });
 
   it.each(['completed', 'failed', 'interrupted'])(
@@ -241,7 +418,7 @@ describe('CodexEventTranslator', () => {
     expect(translator.translate(itemFrame(mcp))).toEqual([]);
   });
 
-  it('sanitizes retry, terminal, command, and MCP errors without ending retries early', () => {
+  it('sanitizes retry and terminal errors without ending retries early', () => {
     const secret =
       'C:\\Users\\private\\.codex /home/private token=sk-private password=hunter2';
     const retry = translator.translate({
@@ -258,18 +435,6 @@ describe('CodexEventTranslator', () => {
     const events = [
       ...retry,
       ...translator.translate(
-        itemFrame(
-          { ...command, status: 'failed', aggregatedOutput: secret },
-          true,
-        ),
-      ),
-      ...translator.translate(
-        itemFrame(
-          { ...mcp, status: 'failed', error: { message: secret } },
-          true,
-        ),
-      ),
-      ...translator.translate(
         terminal('failed', {
           error: { message: secret, codexErrorInfo: secret },
         }),
@@ -279,6 +444,297 @@ describe('CodexEventTranslator', () => {
     expect(JSON.stringify(events)).not.toMatch(
       /private|hunter2|Users|\/home|sk-/,
     );
+  });
+
+  it('forwards real command and MCP failure detail instead of invented text', () => {
+    const events = [
+      ...translator.translate(
+        itemFrame(
+          {
+            ...command,
+            status: 'failed',
+            aggregatedOutput: 'access denied',
+            exitCode: 1,
+          },
+          true,
+        ),
+      ),
+      ...translator.translate(
+        itemFrame(
+          { ...mcp, status: 'failed', error: { message: 'upstream failed' } },
+          true,
+        ),
+      ),
+    ];
+    expect(events).toMatchObject([
+      {
+        type: 'toolCompleted',
+        toolId: 'command-1',
+        status: 'failed',
+        output: 'access denied',
+        exitCode: 1,
+      },
+      {
+        type: 'toolCompleted',
+        toolId: 'mcp-1',
+        status: 'failed',
+        output: null,
+        errorText: 'upstream failed',
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toMatch(/could not complete/);
+  });
+
+  it('passes a failed command with empty output as exit code only', () => {
+    const reported = translator.translate(
+      itemFrame(
+        { ...command, status: 'failed', aggregatedOutput: null, exitCode: 0 },
+        true,
+      ),
+    );
+    expect(reported).toMatchObject([
+      { type: 'toolCompleted', status: 'failed', output: null, exitCode: 0 },
+    ]);
+    const unreported = translator.translate(
+      itemFrame(
+        { ...command, status: 'failed', aggregatedOutput: '', exitCode: null },
+        true,
+      ),
+    );
+    expect(unreported).toMatchObject([
+      { type: 'toolCompleted', status: 'failed', output: '' },
+    ]);
+    expect(unreported[0]).not.toHaveProperty('exitCode');
+  });
+
+  it('bounds forwarded tool output and marks the cut', () => {
+    const long = `${'x'.repeat(MAX_TOOL_OUTPUT_CHARS)}y`;
+    const bounded = `${'x'.repeat(MAX_TOOL_OUTPUT_CHARS)}\n[output truncated]`;
+    const [commanded] = translator.translate(
+      itemFrame(
+        {
+          ...command,
+          status: 'completed',
+          aggregatedOutput: long,
+          exitCode: 0,
+        },
+        true,
+      ),
+    );
+    expect(commanded).toMatchObject({
+      type: 'toolCompleted',
+      status: 'completed',
+      exitCode: 0,
+      output: bounded,
+    });
+    const [mcpResult] = translator.translate(
+      itemFrame(
+        {
+          ...mcp,
+          status: 'completed',
+          result: { content: [{ type: 'text', text: long }] },
+        },
+        true,
+      ),
+    );
+    expect(mcpResult).toMatchObject({
+      output: { content: [{ type: 'text', text: bounded }] },
+    });
+  });
+
+  it('reports a declined command as cancelled with no invented text', () => {
+    const [event] = translator.translate(
+      itemFrame({ ...command, status: 'declined' }, true),
+    );
+    expect(event).toMatchObject({
+      type: 'toolCompleted',
+      toolId: 'command-1',
+      status: 'cancelled',
+      output: null,
+    });
+    expect(event).not.toHaveProperty('exitCode');
+    expect(JSON.stringify([event])).not.toMatch(/could not complete/);
+  });
+
+  it('maps interrupted to cancelled and keeps failed distinct', () => {
+    const collab = {
+      type: 'collabAgentToolCall',
+      id: 'a',
+      senderThreadId: 'sender',
+      receiverThreadIds: ['child'],
+      tool: 'wait',
+      agentsStates: {},
+    };
+    expect(
+      translator.translate(
+        itemFrame({ ...collab, status: 'interrupted' }, true),
+      ),
+    ).toMatchObject([{ type: 'toolCompleted', status: 'cancelled' }]);
+    expect(
+      translator.translate(itemFrame({ ...collab, status: 'failed' }, true)),
+    ).toMatchObject([{ type: 'toolCompleted', status: 'failed' }]);
+    expect(
+      translator.translate(
+        itemFrame({ ...command, status: 'failed', exitCode: 2 }, true),
+      ),
+    ).toMatchObject([{ type: 'toolCompleted', status: 'failed', exitCode: 2 }]);
+  });
+
+  it('passes MCP failure result content with the error text and drops _meta', () => {
+    const result = {
+      content: [{ type: 'text', text: 'partial' }],
+      structuredContent: { ok: false },
+    };
+    const [failed] = translator.translate(
+      itemFrame(
+        {
+          ...mcp,
+          status: 'failed',
+          error: { message: 'upstream failed' },
+          result,
+        },
+        true,
+      ),
+    );
+    expect(failed).toMatchObject({
+      type: 'toolCompleted',
+      status: 'failed',
+      output: result,
+      errorText: 'upstream failed',
+    });
+    const [dropped] = translator.translate(
+      itemFrame(
+        { ...mcp, status: 'completed', result: { ...result, _meta: { z: 1 } } },
+        true,
+      ),
+    );
+    expect(dropped).toMatchObject({ output: result });
+    expect(JSON.stringify(dropped)).not.toMatch(/"z"/);
+  });
+
+  it('passes a failed dynamic tool its own content items', () => {
+    const [event] = translator.translate(
+      itemFrame(
+        {
+          type: 'dynamicToolCall',
+          id: 'd',
+          tool: 'dyn',
+          arguments: {},
+          status: 'failed',
+          success: false,
+          contentItems: [{ type: 'inputText', text: 'partial work' }],
+        },
+        true,
+      ),
+    );
+    expect(event).toMatchObject({
+      type: 'toolCompleted',
+      status: 'failed',
+      output: [{ type: 'inputText', text: 'partial work' }],
+    });
+    expect(JSON.stringify([event])).not.toMatch(/could not complete/);
+  });
+
+  it('streams reasoning summary deltas and keeps the final text authoritative', () => {
+    const events = [
+      ...translator.translate({
+        method: 'item/reasoning/summaryTextDelta',
+        params: { ...ids, itemId: 'r', summaryIndex: 0, delta: 'thinking ' },
+      }),
+      ...translator.translate({
+        method: 'item/reasoning/summaryTextDelta',
+        params: { ...ids, itemId: 'r', summaryIndex: 0, delta: 'about A' },
+      }),
+      ...translator.translate(
+        itemFrame(
+          { type: 'reasoning', id: 'r', summary: ['final text'] },
+          true,
+        ),
+      ),
+    ];
+    expect(events.map((e) => e.type)).toEqual([
+      'reasoning',
+      'reasoning',
+      'reasoning',
+    ]);
+    expect(events.map((e) => e.sequence)).toEqual([1, 2, 3]);
+    expect(events[0]).toMatchObject({ phase: 'delta', text: 'thinking ' });
+    expect(events[1]).toMatchObject({ phase: 'delta', text: 'about A' });
+    expect(events[2]).toMatchObject({ phase: 'final', text: 'final text' });
+  });
+
+  it('streams raw reasoning text only until a summary delta arrives', () => {
+    expect(
+      translator.translate({
+        method: 'item/reasoning/textDelta',
+        params: {
+          ...ids,
+          itemId: 'raw',
+          contentIndex: 0,
+          delta: 'raw thought',
+        },
+      }),
+    ).toMatchObject([
+      { type: 'reasoning', phase: 'delta', text: 'raw thought' },
+    ]);
+    expect(
+      translator.translate({
+        method: 'item/reasoning/summaryTextDelta',
+        params: { ...ids, itemId: 'raw', summaryIndex: 0, delta: 'summary' },
+      }),
+    ).toMatchObject([{ type: 'reasoning', phase: 'delta', text: 'summary' }]);
+    expect(
+      translator.translate({
+        method: 'item/reasoning/textDelta',
+        params: { ...ids, itemId: 'raw', contentIndex: 1, delta: 'more raw' },
+      }),
+    ).toEqual([]);
+  });
+
+  it('emits no delta events for empty reasoning and still completes the item', () => {
+    expect(
+      translator.translate({
+        method: 'item/reasoning/summaryTextDelta',
+        params: { ...ids, itemId: 'r', summaryIndex: 0, delta: '' },
+      }),
+    ).toEqual([]);
+    // An empty summary delta does not claim the item; raw text still streams.
+    expect(
+      translator.translate({
+        method: 'item/reasoning/textDelta',
+        params: { ...ids, itemId: 'r', contentIndex: 0, delta: 'raw' },
+      }),
+    ).toMatchObject([{ type: 'reasoning', phase: 'delta', text: 'raw' }]);
+    expect(
+      translator.translate({
+        method: 'item/reasoning/textDelta',
+        params: { ...ids, itemId: 'r', contentIndex: 1, delta: '' },
+      }),
+    ).toEqual([]);
+    expect(
+      translator.translate(
+        itemFrame({ type: 'reasoning', id: 'r', summary: [] }, true),
+      ),
+    ).toMatchObject([{ type: 'reasoning', phase: 'final', text: '' }]);
+  });
+
+  it('rejects malformed reasoning deltas through the notification boundary', () => {
+    expect(
+      translator.translate({
+        method: 'item/reasoning/summaryTextDelta',
+        params: { ...ids, itemId: 'r', delta: 'missing summaryIndex' },
+      }),
+    ).toMatchObject([
+      { type: 'error', error: { code: 'unsupportedNotification' } },
+    ]);
+    expect(
+      translator.translate({
+        method: 'item/reasoning/textDelta',
+        params: { threadId: 'thread', turnId: 'turn' },
+      }),
+    ).toMatchObject([
+      { type: 'error', error: { code: 'unsupportedNotification' } },
+    ]);
   });
 
   it('surfaces unknown and unrepresentable items without echoing payloads or throwing', () => {
