@@ -14,6 +14,7 @@ import 'reflect-metadata';
 
 import { createHash } from 'crypto';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 
 let fakeHome = '';
@@ -45,6 +46,7 @@ import { McpIntentPersistError } from '@ptah-extension/harness-sync';
 
 import {
   InstallScopeMigrationService,
+  KEPT_ROOT_UNRETIRED,
   installScopeLedgerPath,
   type InstallScopeCloneReaper,
   type InstallScopeLedger,
@@ -135,9 +137,12 @@ async function writeFiles(
 
 /**
  * A root Ptah wrote: v2 metadata, owner marker, every file hashed. Defaults to
- * `scope: 'workspace'`: a v2 root marked `global` is an explicit global
- * install, which discovery never retires (decision #84), so only an unmarked
- * shape exercises the proven-delete path.
+ * `scope: 'workspace'`. NOTE: a workspace-scoped v2 record sitting in the
+ * GLOBAL plugins dir is SYNTHETIC: no real install writes it there (a real
+ * pre-migration global root is v1, and a real v2 global root is marked
+ * `global`, which discovery never retires, decision #84). It is the only shape
+ * that reaches the proven-delete path, so the specs that need the proof pass
+ * `scope` explicitly and say so in their names.
  */
 async function writeV2Root(
   rootId: string,
@@ -388,8 +393,37 @@ describe('InstallScopeMigrationService — retire', () => {
 });
 
 describe('InstallScopeMigrationService — global deletes with proof', () => {
-  it('deletes a v2 root with the owner marker and every hash proved', async () => {
-    const dir = await writeV2Root('ptah-skillssh-acme-tools');
+  it('a realistic pre-migration machine: the v1 legacy root is kept onDisk and the v2 global root is skipped', async () => {
+    const legacy = await writeV1Root('ptah-skillssh-legacy');
+    const globalDir = await writeV2Root('ptah-skillssh-new-global', undefined, {
+      scope: 'global',
+    });
+
+    const result = await makeService().run();
+
+    expect(result).toEqual({
+      status: 'completed',
+      counts: { retired: 1, removed: 0, kept: 0, onDisk: 1 },
+    });
+    expect(await exists(path.join(legacy, SKILLS_SH_METADATA_FILE))).toBe(true);
+    expect(await exists(path.join(globalDir, SKILLS_SH_METADATA_FILE))).toBe(
+      true,
+    );
+    const ledger = await readLedger();
+    expect(ledger.items['skills-sh:ptah-skillssh-legacy']).toMatchObject({
+      retired: true,
+      onDisk: legacy,
+      onDiskReason: 'legacy-v1',
+      removedPaths: {},
+      outcome: 'onDisk',
+    });
+    expect(ledger.items['skills-sh:ptah-skillssh-new-global']).toBeUndefined();
+  });
+
+  it('synthetic proof case: deletes a workspace-scoped v2 root in the global dir with the owner marker and every hash proved', async () => {
+    const dir = await writeV2Root('ptah-skillssh-acme-tools', undefined, {
+      scope: 'workspace',
+    });
 
     const result = await makeService().run();
 
@@ -478,12 +512,14 @@ describe('InstallScopeMigrationService — global deletes with proof', () => {
   ];
 
   it.each(refusals)(
-    'refuses a v2 root with $name: retired, kept onDisk ($reason)',
+    'synthetic proof case: refuses a workspace-scoped v2 root with $name: retired, kept onDisk ($reason)',
     async ({ reason, setup, ownerMarker }) => {
       const dir = await writeV2Root(
         'ptah-skillssh-acme-tools',
         undefined,
-        ownerMarker === undefined ? {} : { ownerMarker },
+        ownerMarker === undefined
+          ? { scope: 'workspace' }
+          : { ownerMarker, scope: 'workspace' },
       );
       await setup(dir);
 
@@ -586,8 +622,12 @@ describe('InstallScopeMigrationService — roots the user took back (decision #8
   });
 
   it('does not delete a proven root whose retired mark was cleared after discovery', async () => {
-    const dropped = await writeV2Root('ptah-skillssh-made-global');
-    const withRows = await writeV2Root('ptah-skillssh-reinstalled');
+    const dropped = await writeV2Root('ptah-skillssh-made-global', undefined, {
+      scope: 'workspace',
+    });
+    const withRows = await writeV2Root('ptah-skillssh-reinstalled', undefined, {
+      scope: 'workspace',
+    });
     const clonePath = path.join(fakeHome, '.ptah', 'user', 'skills', 'r');
     await seedLedger({
       'skills-sh:ptah-skillssh-made-global': {
@@ -635,7 +675,9 @@ describe('InstallScopeMigrationService — roots the user took back (decision #8
   });
 
   it('still deletes a proven root that remains retired', async () => {
-    const dir = await writeV2Root('ptah-skillssh-still-retired');
+    const dir = await writeV2Root('ptah-skillssh-still-retired', undefined, {
+      scope: 'workspace',
+    });
     await seedLedger({
       'skills-sh:ptah-skillssh-still-retired': {
         kind: 'skills-sh',
@@ -683,6 +725,244 @@ describe('InstallScopeMigrationService — roots the user took back (decision #8
         'ptah-skillssh-still-retired': { retiredAt: expect.any(String) },
       },
     });
+  });
+
+  it('a malformed live registry holds: no item dropped, nothing deleted or reaped, no completedAt; a valid registry later resumes (decision #85)', async () => {
+    const dir = await writeV2Root('ptah-skillssh-proven', undefined, {
+      scope: 'workspace',
+    });
+    const clonePath = path.join(fakeHome, '.ptah', 'user', 'skills', 'c');
+    await fs.mkdir(clonePath, { recursive: true });
+    await seedLedger({
+      'skills-sh:ptah-skillssh-proven': {
+        kind: 'skills-sh',
+        retired: true,
+        removedPaths: {},
+        keptPaths: {},
+        failedPaths: { [clonePath]: 'EBUSY' },
+      },
+    });
+    await fs.writeFile(registryPath(), '{"version":1,"roo', 'utf8');
+    const reaper = fakeReaper([{}]);
+    const service = makeService(reaper);
+
+    const first = await service.run();
+
+    expect(first.status).toBe('incomplete');
+    expect(await exists(path.join(dir, SKILLS_SH_METADATA_FILE))).toBe(true);
+    expect(reaper.reapRetired).not.toHaveBeenCalled();
+    let ledger = await readLedger();
+    expect(ledger.completedAt).toBeUndefined();
+    expect(ledger.items['skills-sh:ptah-skillssh-proven']).toMatchObject({
+      retired: true,
+      removedPaths: {},
+      keptPaths: {},
+      failedPaths: { [clonePath]: 'EBUSY' },
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[install-scope] Retired registry is malformed; skills.sh cleanup waits for the next start',
+      expect.any(Object),
+    );
+
+    await writeRegistry(['ptah-skillssh-proven']);
+    await fs.rm(clonePath, { recursive: true, force: true });
+
+    const second = await service.run();
+
+    expect(second.status).toBe('completed');
+    expect(await exists(dir)).toBe(false);
+    ledger = await readLedger();
+    expect(
+      Object.keys(ledger.items['skills-sh:ptah-skillssh-proven'].removedPaths),
+    ).toEqual(expect.arrayContaining([dir, clonePath]));
+  });
+
+  it('a registry missing after discovery holds like a malformed one: the item stays and the run is incomplete', async () => {
+    const dir = await writeV2Root('ptah-skillssh-proven', undefined, {
+      scope: 'workspace',
+    });
+    await seedLedger({
+      'skills-sh:ptah-skillssh-proven': {
+        kind: 'skills-sh',
+        retired: true,
+        removedPaths: {},
+        keptPaths: {},
+        failedPaths: {},
+      },
+    });
+
+    const result = await makeService(fakeReaper([{}])).run();
+
+    expect(result.status).toBe('incomplete');
+    expect(await exists(path.join(dir, SKILLS_SH_METADATA_FILE))).toBe(true);
+    const ledger = await readLedger();
+    expect(ledger.completedAt).toBeUndefined();
+    expect(ledger.items['skills-sh:ptah-skillssh-proven']).toMatchObject({
+      retired: true,
+    });
+  });
+
+  it('releasing a root moves its failed clone rows to kept without touching the clone, so the run completes', async () => {
+    const root = await writeV2Root('ptah-skillssh-taken-back', undefined, {
+      scope: 'workspace',
+    });
+    const clonePath = await seedClone('t', '# t', 'ptah-skillssh-taken-back');
+    await seedLedger({
+      'skills-sh:ptah-skillssh-taken-back': {
+        kind: 'skills-sh',
+        retired: true,
+        removedPaths: {},
+        keptPaths: {},
+        failedPaths: { [clonePath]: 'EBUSY' },
+      },
+    });
+    await writeRegistry([]);
+    const reaper = fakeReaper([{}]);
+
+    const result = await makeService(reaper).run();
+
+    expect(result.status).toBe('completed');
+    expect(await exists(path.join(clonePath, 'SKILL.md'))).toBe(true);
+    expect(await exists(path.join(root, SKILLS_SH_METADATA_FILE))).toBe(true);
+    expect(reaper.reapRetired.mock.calls[0][1]).toEqual({
+      version: 1,
+      roots: {},
+    });
+    expect(
+      (await readLedger()).items['skills-sh:ptah-skillssh-taken-back'],
+    ).toMatchObject({
+      retired: false,
+      removedPaths: {},
+      keptPaths: { [clonePath]: KEPT_ROOT_UNRETIRED },
+      failedPaths: {},
+      outcome: 'kept',
+    });
+    expect(result.counts).toEqual({
+      retired: 0,
+      removed: 0,
+      kept: 1,
+      onDisk: 0,
+    });
+  });
+
+  it('applies the live-state correction to decided items too: an onDisk root and a removed root taken back are no longer counted retired, their evidence stays', async () => {
+    const legacy = await writeV1Root('ptah-skillssh-legacy');
+    const removedRoot = rootDir('ptah-skillssh-removed');
+    await seedLedger(
+      {
+        'skills-sh:ptah-skillssh-legacy': {
+          kind: 'skills-sh',
+          retired: true,
+          onDisk: legacy,
+          onDiskReason: 'legacy-v1',
+          removedPaths: {},
+          keptPaths: {},
+          failedPaths: {},
+        },
+        'skills-sh:ptah-skillssh-removed': {
+          kind: 'skills-sh',
+          retired: true,
+          removedPaths: { [removedRoot]: '2026-03-01T00:00:00.000Z' },
+          keptPaths: {},
+          failedPaths: {},
+        },
+      },
+      { clonesPassedAt: '2026-03-01T00:00:00.000Z' },
+    );
+    // Make global on the v1 root and a global reinstall of the removed one.
+    await writeRegistry([]);
+
+    const result = await makeService().run();
+
+    expect(result.status).toBe('completed');
+    expect(await exists(path.join(legacy, SKILLS_SH_METADATA_FILE))).toBe(true);
+    const ledger = await readLedger();
+    expect(ledger.items['skills-sh:ptah-skillssh-legacy']).toMatchObject({
+      retired: false,
+      onDisk: legacy,
+      onDiskReason: 'legacy-v1',
+    });
+    expect(ledger.items['skills-sh:ptah-skillssh-removed']).toMatchObject({
+      retired: false,
+      removedPaths: { [removedRoot]: '2026-03-01T00:00:00.000Z' },
+    });
+    expect(result.counts).toEqual({
+      retired: 0,
+      removed: 1,
+      kept: 0,
+      onDisk: 1,
+    });
+  });
+
+  it('re-checks the live registry right before deleting: a mark cleared during the pass releases the root instead', async () => {
+    const first = await writeV2Root('ptah-skillssh-a-first', undefined, {
+      scope: 'workspace',
+    });
+    const second = await writeV2Root('ptah-skillssh-b-second', undefined, {
+      scope: 'workspace',
+    });
+    const item = (): InstallScopeLedger['items'][string] => ({
+      kind: 'skills-sh',
+      retired: true,
+      removedPaths: {},
+      keptPaths: {},
+      failedPaths: {},
+    });
+    await seedLedger({
+      'skills-sh:ptah-skillssh-a-first': item(),
+      'skills-sh:ptah-skillssh-b-second': item(),
+    });
+    await writeRegistry(['ptah-skillssh-a-first', 'ptah-skillssh-b-second']);
+    // A global reinstall of the second root lands while the pass is deleting
+    // the first one, after the pass already read the registry once.
+    logger.info.mockImplementation((message: string, data?: unknown) => {
+      if (
+        message === '[install-scope] Deleted proven skills.sh root' &&
+        (data as { rootDir?: string } | undefined)?.rootDir === first
+      ) {
+        fsSync.writeFileSync(
+          registryPath(),
+          JSON.stringify({ version: 1, roots: {} }),
+          'utf8',
+        );
+      }
+    });
+
+    const result = await makeService(fakeReaper([{}])).run();
+
+    expect(result.status).toBe('completed');
+    expect(await exists(first)).toBe(false);
+    expect(await exists(path.join(second, SKILLS_SH_METADATA_FILE))).toBe(true);
+    const ledger = await readLedger();
+    expect(ledger.items['skills-sh:ptah-skillssh-b-second']).toBeUndefined();
+  });
+
+  it('a skills.sh root whose metadata cannot be read is not retired and does not block the other roots (decision #85)', async () => {
+    const locked = await writeV2Root('ptah-skillssh-locked', undefined, {
+      scope: 'global',
+    });
+    await writeV1Root('ptah-skillssh-legacy');
+    // No search permission: lstat of the metadata file fails with EACCES.
+    await fs.chmod(locked, 0o000);
+
+    let result: InstallScopeMigrationRunResult | undefined;
+    try {
+      result = await makeService().run();
+    } finally {
+      await fs.chmod(locked, 0o755);
+    }
+
+    expect(result?.status).toBe('completed');
+    expect(await exists(path.join(locked, SKILLS_SH_METADATA_FILE))).toBe(true);
+    const registry = JSON.parse(await fs.readFile(registryPath(), 'utf8'));
+    expect(Object.keys(registry.roots)).toEqual(['ptah-skillssh-legacy']);
+    const ledger = await readLedger();
+    expect(ledger.items['skills-sh:ptah-skillssh-locked']).toBeUndefined();
+    expect(ledger.items['skills-sh:ptah-skillssh-legacy']).toBeDefined();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[install-scope] Skipped a skills.sh root whose metadata could not be read',
+      expect.objectContaining({ rootId: 'ptah-skillssh-locked' }),
+    );
   });
 });
 
@@ -910,6 +1190,27 @@ describe('InstallScopeMigrationService — unreadable MCP intent store', () => {
     );
 
     expect((await service.run()).status).toBe('completed');
+  });
+
+  it('a corrupt intent file during retire changes nothing: no skills.sh root is retired and no ledger is written (decision #85)', async () => {
+    const legacy = await writeV1Root('ptah-skillssh-legacy');
+    mcpReadError = unreadable();
+    const service = makeService();
+
+    await expect(service.run()).resolves.toMatchObject({ status: 'failed' });
+
+    expect(await exists(path.join(pluginsDir, SKILLS_SH_RETIRED_FILE))).toBe(
+      false,
+    );
+    expect(await exists(installScopeLedgerPath(fakeHome))).toBe(false);
+    expect(await exists(path.join(legacy, SKILLS_SH_METADATA_FILE))).toBe(true);
+
+    mcpReadError = null;
+    expect((await service.run()).status).toBe('completed');
+    const registry = JSON.parse(
+      await fs.readFile(path.join(pluginsDir, SKILLS_SH_RETIRED_FILE), 'utf8'),
+    );
+    expect(Object.keys(registry.roots)).toEqual(['ptah-skillssh-legacy']);
   });
 });
 

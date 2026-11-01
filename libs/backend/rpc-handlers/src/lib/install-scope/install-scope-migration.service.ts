@@ -90,6 +90,13 @@ import {
 /** Reconcile reason label carried into health reports and logs. */
 export const INSTALL_SCOPE_MIGRATION_REASON = 'install-scope-migration';
 
+/**
+ * The `keptPaths` reason for a user-layer clone whose removal had failed when
+ * the user took its root back (Make global, global reinstall): the clone is
+ * no longer the migration's to delete, so it stays where it is.
+ */
+export const KEPT_ROOT_UNRETIRED = 'root-no-longer-retired';
+
 /** `~/.ptah/migrations/install-scope.json`. */
 export function installScopeLedgerPath(homeDir: string): string {
   return path.join(homeDir, '.ptah', 'migrations', 'install-scope.json');
@@ -112,7 +119,10 @@ const LedgerItemSchema = z.object({
   outcome: z.enum(ITEM_OUTCOMES).optional(),
   /** Absolute path (or `~/` home-config fragment) → ISO removedAt. */
   removedPaths: z.record(z.string(), z.string()),
-  /** Path → why it was kept (`edited`, `git-tracked`, `diverged`, …). */
+  /**
+   * Path → why it was kept (`edited`, `git-tracked`, `diverged`,
+   * {@link KEPT_ROOT_UNRETIRED}, …).
+   */
   keptPaths: z.record(z.string(), z.string()),
   /** Path → last error. Retried by the next run. */
   failedPaths: z.record(z.string(), z.string()),
@@ -465,10 +475,14 @@ export class InstallScopeMigrationService {
       if (ledger.discoveredAt === undefined) {
         await this.retire(ledger);
       }
-      await this.deleteProvenRoots(ledger);
-      await this.reapRetiredClones(ledger);
+      const rootsSettled = await this.deleteProvenRoots(ledger);
+      const clonesSettled = await this.reapRetiredClones(ledger);
       const allWorkspacesKnown = await this.reconcileWorkspaces(ledger);
-      const status = this.finish(ledger, allWorkspacesKnown);
+      const status = this.finish(
+        ledger,
+        allWorkspacesKnown,
+        rootsSettled && clonesSettled,
+      );
       return { status, counts: installScopeMigrationCounts(ledger) };
     } catch (error: unknown) {
       // degradation-audit: reported - a ledger or registry write failed, so no
@@ -524,8 +538,13 @@ export class InstallScopeMigrationService {
    * Fix the item set: every global skills.sh root and every retired MCP
    * server. The registry is written BEFORE the ledger names an item retired,
    * so a crash in between re-runs this step (both writes are merges).
+   *
+   * Every read that can throw (the MCP intent store, the plugin listing) runs
+   * BEFORE the registry write: a corrupt intent file stops the run with no
+   * skills.sh root retired and no ledger, so nothing changed (decision #85).
    */
   private async retire(ledger: InstallScopeLedger): Promise<void> {
+    const retiredMcp = this.mcpIntents.listRetired();
     const rootIds = await this.listGlobalSkillsShRoots();
     const registry = await this.writeRetiredRegistry(rootIds);
 
@@ -541,7 +560,7 @@ export class InstallScopeMigrationService {
         failedPaths: {},
       };
     }
-    for (const server of this.mcpIntents.listRetired()) {
+    for (const server of retiredMcp) {
       const itemId = mcpRetiredItemId(server.serverKey);
       if (own(ledger.items, itemId)) continue;
       ledger.items[itemId] = {
@@ -570,8 +589,12 @@ export class InstallScopeMigrationService {
    * A root whose v2 metadata says `scope: 'global'` is NOT legacy: it is an
    * explicit global install (or Make global) written by this release, possibly
    * by another host before this one first migrated. It is never retired, so
-   * the proof cannot delete it. A metadata read error other than "missing" or
-   * "invalid" throws and stops the run; discovery is retried next start.
+   * the proof cannot delete it.
+   *
+   * A metadata read error other than "missing" or "invalid" (EACCES, EIO, …)
+   * leaves its scope unknown: the root may be a new global install, so it is
+   * NOT retired (it stays active and on disk) and discovery continues with
+   * the other roots (decision #85).
    */
   private async listGlobalSkillsShRoots(): Promise<string[]> {
     let entries: Dirent[];
@@ -585,7 +608,19 @@ export class InstallScopeMigrationService {
     for (const entry of entries) {
       if (!isSkillsShRootId(entry.name)) continue;
       if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-      const read = await readRootMetadata(this.rootDirOf(entry.name));
+      let read: Awaited<ReturnType<typeof readRootMetadata>>;
+      try {
+        read = await readRootMetadata(this.rootDirOf(entry.name));
+      } catch (error: unknown) {
+        // degradation-audit: reported - logged; an unknown scope is never
+        // retired (it may be global), and one unreadable root must not block
+        // every other root's migration.
+        this.logger.warn(
+          '[install-scope] Skipped a skills.sh root whose metadata could not be read',
+          { rootId: entry.name, error: errorMessage(error) },
+        );
+        continue;
+      }
       if (
         read.status === 'ok' &&
         read.metadata.version === 2 &&
@@ -601,20 +636,48 @@ export class InstallScopeMigrationService {
   /**
    * The retired registry as it is NOW. Make global and a global reinstall
    * clear a root's mark after discovery, so every delete and reap checks this,
-   * not the ledger. Missing or malformed retires nothing (D-2); any other read
-   * error throws and stops the run, which the next start retries.
+   * not the ledger.
+   *
+   * `null` means the registry gives no trustworthy answer, and the caller must
+   * HOLD: decide, release and reap nothing, so no ledger item is dropped and
+   * the run stays incomplete (retried next start). That is the case for a
+   * malformed or unreadable file, and for a missing file while the ledger
+   * holds skills.sh items (discovery wrote it and nothing in Ptah deletes it).
+   * Only a valid registry without a root's mark means the user took that
+   * root back (decision #85). With no skills.sh item a missing file is
+   * simply an empty registry.
    */
-  private async readLiveRetiredRegistry(): Promise<SkillsShRetiredRegistry | null> {
+  private async readLiveRetiredRegistry(
+    ledger: InstallScopeLedger,
+  ): Promise<SkillsShRetiredRegistry | null> {
     const registryPath = path.join(
       this.pluginsBasePath,
       SKILLS_SH_RETIRED_FILE,
     );
+    let raw: string;
     try {
-      return parseRegistry(await fs.readFile(registryPath, 'utf8'));
+      raw = await fs.readFile(registryPath, 'utf8');
     } catch (error: unknown) {
-      if (isEnoent(error)) return null;
-      throw error;
+      if (isEnoent(error) && sortedItems(ledger, 'skills-sh').length === 0) {
+        return { version: 1, roots: {} };
+      }
+      // degradation-audit: reported - logged; the caller holds every
+      // skills.sh step and the run stays incomplete until a readable registry
+      // answers.
+      this.logger.warn(
+        '[install-scope] Retired registry could not be read; skills.sh cleanup waits for the next start',
+        { path: registryPath, error: errorMessage(error) },
+      );
+      return null;
     }
+    const registry = parseRegistry(raw);
+    if (registry === null) {
+      this.logger.warn(
+        '[install-scope] Retired registry is malformed; skills.sh cleanup waits for the next start',
+        { path: registryPath },
+      );
+    }
+    return registry;
   }
 
   /**
@@ -667,66 +730,119 @@ export class InstallScopeMigrationService {
 
   /**
    * One proof and one ledger write per root. A root already removed or
-   * already counted `onDisk` is final and never revisited; only roots never
+   * already counted `onDisk` is final and never re-proved; only roots never
    * decided and roots whose deletion failed are processed.
    *
    * A root no longer in the LIVE retired registry (Make global or a global
    * reinstall cleared its mark after discovery) is not the migration's any
-   * more and is never deleted: see {@link releaseUnretiredRoot}.
+   * more: it is never deleted, and EVERY item for it, decided or not, gets the
+   * live-state correction of {@link releaseUnretiredRoot}.
+   *
+   * Returns `false` when the live registry could not answer (see
+   * {@link readLiveRetiredRegistry}): nothing was decided or released, and the
+   * run must stay incomplete.
    */
-  private async deleteProvenRoots(ledger: InstallScopeLedger): Promise<void> {
-    const live = await this.readLiveRetiredRegistry();
+  private async deleteProvenRoots(
+    ledger: InstallScopeLedger,
+  ): Promise<boolean> {
+    const live = await this.readLiveRetiredRegistry(ledger);
+    if (live === null) return false;
+    let settled = true;
     for (const [itemId, item] of sortedItems(ledger, 'skills-sh')) {
       const rootId = itemId.slice('skills-sh:'.length);
       const rootDir = this.rootDirOf(rootId);
+      if (!isRetiredSkillsShRoot(rootId, live)) {
+        if (this.releaseUnretiredRoot(ledger, itemId, item, rootDir)) {
+          this.writeLedger(ledger);
+        }
+        continue;
+      }
       if (own(item.removedPaths, rootDir) || item.onDisk !== undefined) {
         continue;
       }
-      if (!isRetiredSkillsShRoot(rootId, live)) {
-        this.releaseUnretiredRoot(ledger, itemId, item, rootDir);
-      } else {
-        await this.decideRoot(item, rootDir);
-      }
+      const decided = await this.decideRoot(ledger, itemId, item, rootDir);
+      if (!decided) settled = false;
       this.writeLedger(ledger);
     }
+    return settled;
   }
 
   /**
-   * The user took this root back (it is no longer retired) before the
-   * migration decided it. An item with nothing recorded is dropped, so the
-   * notice neither counts it retired nor reports a path it never touched. An
-   * item that already recorded clone rows keeps them (they happened) but is no
-   * longer counted retired, and loses any pending failure for the root.
+   * The user took this root back (it is no longer retired). Its ledger item is
+   * corrected to the live state; nothing on disk is touched:
+   *
+   *   - a pending failure for the root itself is dropped (it will never be
+   *     deleted now);
+   *   - a pending failure for a user-layer clone moves to `keptPaths`: the
+   *     reaper never visits an un-retired root's clones again, so the failure
+   *     could never resolve, and the clone stays where it is;
+   *   - an item that recorded nothing (no row, no `onDisk`) is dropped, so the
+   *     notice neither counts it retired nor reports a path it never touched;
+   *   - any other item keeps its removed / kept / `onDisk` evidence and is no
+   *     longer counted retired.
+   *
+   * Returns whether the ledger changed (so a settled item is not rewritten on
+   * every start).
    */
   private releaseUnretiredRoot(
     ledger: InstallScopeLedger,
     itemId: string,
     item: InstallScopeLedgerItem,
     rootDir: string,
-  ): void {
-    delete item.failedPaths[rootDir];
+  ): boolean {
+    let changed = false;
+    if (own(item.failedPaths, rootDir)) {
+      delete item.failedPaths[rootDir];
+      changed = true;
+    }
+    for (const p of Object.keys(item.failedPaths)) {
+      if (!isWithin(this.userLayerBase, p)) continue;
+      if (!own(item.removedPaths, p)) item.keptPaths[p] = KEPT_ROOT_UNRETIRED;
+      delete item.failedPaths[p];
+      changed = true;
+    }
     const recorded =
+      item.onDisk !== undefined ||
       Object.keys(item.removedPaths).length > 0 ||
       Object.keys(item.keptPaths).length > 0 ||
       Object.keys(item.failedPaths).length > 0;
-    if (recorded) {
-      item.retired = false;
-    } else {
+    if (!recorded) {
       delete ledger.items[itemId];
+      changed = true;
+    } else if (item.retired) {
+      item.retired = false;
+      changed = true;
     }
-    this.logger.info(
-      '[install-scope] Skipped a skills.sh root that is no longer retired',
-      { rootDir },
-    );
+    if (changed) {
+      this.logger.info(
+        '[install-scope] Released a skills.sh root that is no longer retired',
+        { rootDir },
+      );
+    }
+    return changed;
   }
 
+  /**
+   * Prove and delete (or keep) one root. The live registry is read again
+   * right before `fs.rm`, so a root the user took back while this pass ran is
+   * released, not deleted. Returns `false` when that read could not answer:
+   * the root is left undecided for the next start.
+   */
   private async decideRoot(
+    ledger: InstallScopeLedger,
+    itemId: string,
     item: InstallScopeLedgerItem,
     rootDir: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const now = new Date().toISOString();
     const proof = await verifyOwnedRoot(rootDir);
     if (proof.status === 'owned') {
+      const live = await this.readLiveRetiredRegistry(ledger);
+      if (live === null) return false;
+      if (!isRetiredSkillsShRoot(itemId.slice('skills-sh:'.length), live)) {
+        this.releaseUnretiredRoot(ledger, itemId, item, rootDir);
+        return true;
+      }
       try {
         // `rm` removes a link inside the tree, never its target; the proof
         // above has already refused any link.
@@ -745,7 +861,7 @@ export class InstallScopeMigrationService {
           error: errorMessage(error),
         });
       }
-      return;
+      return true;
     }
     if (proof.reason === 'root-missing') {
       // Gone since discovery. If an earlier deletion of ours "failed" but the
@@ -754,7 +870,7 @@ export class InstallScopeMigrationService {
         item.removedPaths[rootDir] = now;
         delete item.failedPaths[rootDir];
       }
-      return;
+      return true;
     }
     item.onDisk = rootDir;
     item.onDiskReason = proof.reason;
@@ -763,6 +879,7 @@ export class InstallScopeMigrationService {
       rootDir,
       reason: proof.reason,
     });
+    return true;
   }
 
   // ----------------------------------------------- step 2b: retired clones
@@ -771,15 +888,23 @@ export class InstallScopeMigrationService {
    * Hand the retired ids to the reaper — the one clone-deletion rule — and
    * file its per-clone rows under their items. Skipped once a sweep passed
    * with no failure; otherwise retried until one does.
+   *
+   * Returns `false` when the live registry could not answer: no sweep ran,
+   * nothing was recorded, and the run must stay incomplete.
    */
-  private async reapRetiredClones(ledger: InstallScopeLedger): Promise<void> {
+  private async reapRetiredClones(
+    ledger: InstallScopeLedger,
+  ): Promise<boolean> {
     const skillsItems = sortedItems(ledger, 'skills-sh');
     const failedClone = skillsItems.some(([, item]) =>
       Object.keys(item.failedPaths).some((p) =>
         isWithin(this.userLayerBase, p),
       ),
     );
-    if (ledger.clonesPassedAt !== undefined && !failedClone) return;
+    if (ledger.clonesPassedAt !== undefined && !failedClone) return true;
+
+    const live = await this.readLiveRetiredRegistry(ledger);
+    if (live === null) return false;
 
     // A clone whose earlier deletion "failed" but is gone now was removed.
     for (const [, item] of skillsItems) {
@@ -796,7 +921,6 @@ export class InstallScopeMigrationService {
     // some other path and never counts a clone the migration did not own —
     // and only those STILL retired, so the clones of a root the user took
     // back (Make global, global reinstall) are never reaped.
-    const live = await this.readLiveRetiredRegistry();
     const registry: SkillsShRetiredRegistry = { version: 1, roots: {} };
     for (const [itemId, item] of skillsItems) {
       const rootId = itemId.slice('skills-sh:'.length);
@@ -817,7 +941,7 @@ export class InstallScopeMigrationService {
       });
       delete ledger.clonesPassedAt;
       this.writeLedger(ledger);
-      return;
+      return true;
     }
 
     const now = new Date().toISOString();
@@ -846,6 +970,7 @@ export class InstallScopeMigrationService {
       delete ledger.clonesPassedAt;
     }
     this.writeLedger(ledger);
+    return true;
   }
 
   private userLayerRoots(): UserLayerRoots {
@@ -1089,9 +1214,14 @@ export class InstallScopeMigrationService {
 
   // -------------------------------------------------------- step 4: finish
 
+  /**
+   * `registryAnswered` is `false` when the live retired registry could not be
+   * read this run: the skills.sh steps held, so the run cannot complete.
+   */
   private finish(
     ledger: InstallScopeLedger,
     allWorkspacesKnown: boolean,
+    registryAnswered: boolean,
   ): InstallScopeMigrationRunStatus {
     const itemsDone = Object.values(ledger.items).every(
       (item) => itemOutcome(item) !== undefined,
@@ -1102,12 +1232,14 @@ export class InstallScopeMigrationService {
     if (
       ledger.discoveredAt === undefined ||
       ledger.clonesPassedAt === undefined ||
+      !registryAnswered ||
       !allWorkspacesKnown ||
       !itemsDone ||
       !workspacesDone
     ) {
       this.logger.info('[install-scope] Migration incomplete; will retry', {
         clonesPassed: ledger.clonesPassedAt !== undefined,
+        registryAnswered,
         allWorkspacesKnown,
         itemsDone,
         workspacesDone,
