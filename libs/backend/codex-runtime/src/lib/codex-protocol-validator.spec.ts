@@ -56,6 +56,15 @@ const threadResult = {
   modelProvider: 'openai',
   sandbox: { type: 'readOnly' },
 };
+const historyThread = {
+  ...threadResult.thread,
+  historyMode: 'paginated',
+  parentThreadId: null,
+};
+const historyTurn = {
+  id: 'turn', status: 'completed', itemsView: 'summary',
+  items: [{ type: 'agentMessage', id: 'item', text: 'summary' }],
+};
 const requests: [string, unknown, unknown][] = [
   [
     'initialize',
@@ -72,6 +81,10 @@ const requests: [string, unknown, unknown][] = [
   ],
   ['thread/start', {}, threadResult],
   ['thread/resume', { threadId: 'thread' }, threadResult],
+  ['thread/read', { threadId: 'thread', includeTurns: true }, { thread: historyThread }],
+  ['thread/turns/list', { threadId: 'thread', itemsView: 'full', sortDirection: 'asc' }, { data: [historyTurn], nextCursor: 'next' }],
+  ['thread/items/list', { threadId: 'thread', turnId: 'turn', cursor: { type: 'item', itemId: 'prior' } }, { data: [{ turnId: 'turn', item: historyTurn.items[0] }], nextCursor: null }],
+  ['thread/list', { cursor: 'next', sourceKinds: ['subAgent'] }, { data: [historyThread], nextCursor: null }],
   [
     'turn/start',
     { threadId: 'thread', input: [{ type: 'text', text: 'Hello' }] },
@@ -139,6 +152,28 @@ const requests: [string, unknown, unknown][] = [
     { action: 'accept', content: { confirm: true }, _meta: {} },
   ],
 ];
+
+describe('pinned history methods', () => {
+  it('admits all four methods in the pinned manifest', () => {
+    const manifest = z.object({ methods: z.object({ requests: z.array(z.string()) }) }).parse(
+      JSON.parse(readFileSync(join(__dirname, 'protocol/codex-app-server-protocol.manifest.json'), 'utf8')),
+    );
+    for (const method of ['thread/read', 'thread/turns/list', 'thread/items/list', 'thread/list'])
+      expect(manifest.methods.requests).toContain(method);
+  });
+
+  it('validates includeTurns and full versus summary views', () => {
+    expect(validateCodexParams('thread/read', { threadId: 'thread', includeTurns: false })).toEqual({ threadId: 'thread', includeTurns: false });
+    expect(validateCodexResult('thread/read', { thread: { ...historyThread, turns: [historyTurn] } })).toMatchObject({ thread: { historyMode: 'paginated', turns: [{ itemsView: 'summary' }] } });
+    expect(validateCodexResult('thread/turns/list', { data: [{ ...historyTurn, itemsView: 'full' }] })).toMatchObject({ data: [{ itemsView: 'full' }] });
+  });
+
+  it('rejects unknown item types and malformed cursors', () => {
+    expect(() => validateCodexResult('thread/items/list', { data: [{ turnId: 'turn', item: { type: 'futureType', id: 'x' } }] })).toThrow(expect.objectContaining({ code: 'invalidResult' }));
+    expect(() => validateCodexResult('thread/turns/list', { data: [], nextCursor: 7 })).toThrow(expect.objectContaining({ code: 'invalidResult' }));
+    expect(() => validateCodexParams('thread/items/list', { threadId: 'thread', cursor: { type: 'item' } })).toThrow(expect.objectContaining({ code: 'invalidParams' }));
+  });
+});
 const notifications: [string, unknown][] = [
   ['account/rateLimits/updated', { rateLimits: {} }],
   ['mcpServer/startupStatus/updated', { name: 'mcp', status: 'starting' }],

@@ -75,6 +75,7 @@ export class CodexRequestRejectedError extends Error {
     readonly method: string,
     readonly rpcCode: number,
     readonly code: 'codexRequestRejected' | 'codexTurnNoLongerActive',
+    readonly threadNotFound = false,
   ) {
     super(
       code === 'codexTurnNoLongerActive'
@@ -457,6 +458,8 @@ export class CodexAppServerProcess {
           pending.method,
           frame.error.code,
           race ? 'codexTurnNoLongerActive' : 'codexRequestRejected',
+          pending.method === 'thread/read' &&
+            /^thread(?: [^\r\n]{1,200})? not found\.?$/i.test(frame.error.message),
         ),
       );
     } else {
