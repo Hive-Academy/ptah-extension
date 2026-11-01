@@ -3,7 +3,10 @@ import {
   createMockStateStorage,
   createMockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
-import type { CliDetectionResult } from '@ptah-extension/shared';
+import {
+  DECISION_MODEL_TIMEOUT_SETTING_KEY,
+  type CliDetectionResult,
+} from '@ptah-extension/shared';
 
 import { DecisionModelConfig } from './decision-model/decision-model.config';
 import type { StructuredDecisionCompleter } from './decision-model/structured-decision.port';
@@ -21,7 +24,10 @@ import {
 } from './pipeline/model-refine';
 import type { DecisionPayload } from './decision-model/decision-payload';
 import type { SystemOneCallResult } from './decision-model/system-one.client';
-import type { SystemOneClientOptions } from './decision-model/system-one.client';
+import {
+  SystemOneClient,
+  type SystemOneClientOptions,
+} from './decision-model/system-one.client';
 import { PreflightResultSchema } from './contracts/route-decide-result.schema';
 import { HostRoutingSetting } from './scope/host-routing-setting';
 import { PreflightReuseCache } from './scope/preflight-reuse-cache';
@@ -38,13 +44,19 @@ function testLogger(): LaneRoutingLogger {
   };
 }
 
-function configFor(selection: unknown): DecisionModelConfig {
+function configFor(
+  selection: unknown,
+  extra: Record<string, unknown> = {},
+): DecisionModelConfig {
   const fetchImpl: SystemOneFetch = async (url) => {
     throw new Error(`unexpected probe ${url}`);
   };
   return new DecisionModelConfig(
     createMockWorkspaceProvider({
-      config: selection === undefined ? {} : { [SELECTION_KEY]: selection },
+      config:
+        selection === undefined
+          ? extra
+          : { ...extra, [SELECTION_KEY]: selection },
     }),
     createMockSecretStorage(),
     createMockStateStorage(),
@@ -64,6 +76,7 @@ function source(): RouteCandidateSource & { readonly rows: jest.Mock } {
 
 function harness(options: {
   readonly selection?: unknown;
+  readonly config?: Record<string, unknown>;
   readonly structured?: StructuredDecisionCompleter;
   readonly seams?: RouteDecideSeams;
   readonly reply?: (payload: DecisionPayload) => SystemOneCallResult;
@@ -89,7 +102,7 @@ function harness(options: {
     },
   };
   const service = new RouteDecideService({
-    config: configFor(options.selection),
+    config: configFor(options.selection, options.config),
     matrix: {
       load: async () => {
         throw new Error('preflight must not load the matrix');
@@ -281,6 +294,49 @@ describe('route decide preflight', () => {
       usage: { requests: 1, costUsd: null },
     });
   });
+
+  // Real timers: AbortSignal.timeout ignores Jest's fake timers, so this
+  // waits ~3.3 s. The reply is slower than the 3000 ms default and faster
+  // than the configured 5000 ms, so it succeeds only if the setting reaches
+  // the client's abort signal.
+  it('waits for a slow decision model up to the configured timeout', async () => {
+    const reply = JSON.stringify({
+      model: 'nimble',
+      answers: {
+        task_type: { type: 'choice', choice: 'o1', confidence: 0.8 },
+        depth: { type: 'choice', choice: 'o1', confidence: 0.7 },
+      },
+    });
+    const slowFetch: SystemOneFetch = (_url, init) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () =>
+            resolve({ ok: true, status: 200, text: async () => reply }),
+          DECISION_REQUEST_TIMEOUT_MS + 300,
+        );
+        init?.signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new Error('aborted'));
+        });
+      });
+    const seen: SystemOneClientOptions[] = [];
+    const { service } = harness({
+      selection: OLLAMA,
+      config: { [`ptah.${DECISION_MODEL_TIMEOUT_SETTING_KEY}`]: 5_000 },
+      seams: {
+        systemOne: (clientOptions) => {
+          seen.push(clientOptions);
+          return new SystemOneClient(clientOptions, { fetch: slowFetch });
+        },
+      },
+    });
+    const result = await service.decide(preflight, source());
+    expect(seen[0]?.timeoutMs).toBe(5_000);
+    expect(result).toMatchObject({
+      taskType: { value: 'FEATURE', source: 'model', fallbackCause: null },
+      usage: { requests: 1 },
+    });
+  }, 10_000);
 
   it('rejects invalid args before any port or model call', async () => {
     const rows = source();
