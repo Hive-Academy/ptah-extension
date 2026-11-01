@@ -32,8 +32,6 @@ const stubMatchMedia = (query: string): MediaQueryList =>
   }) as MediaQueryList;
 
 describe('HeroComponent', () => {
-  const originalUrl = window.location.href;
-
   beforeAll(() => {
     Object.defineProperty(window, 'IntersectionObserver', {
       configurable: true,
@@ -48,7 +46,6 @@ describe('HeroComponent', () => {
   });
 
   afterEach(() => {
-    window.history.replaceState({}, '', originalUrl);
     TestBed.resetTestingModule();
   });
 
@@ -82,49 +79,44 @@ describe('HeroComponent', () => {
     fixture.destroy();
   });
 
-  it('defaults to the stage variation', async () => {
+  it('centres a smaller headline in the first viewport, above the demo', async () => {
     const fixture = await create();
     const root = fixture.nativeElement as HTMLElement;
-    expect(fixture.componentInstance.variant()).toBe('stage');
+    const headline = root.querySelector('[data-hero-headline]') as HTMLElement;
+    expect(headline.className).toContain('min-h-[100svh]');
+    expect(headline.className).toContain('items-center');
+    expect(headline.className).toContain('justify-center');
+    const h1 = root.querySelector('h1') as HTMLElement;
+    expect(h1.className).toContain('lg:text-6xl');
+    expect(h1.className).not.toContain('lg:text-7xl');
+    const demo = root.querySelector('ptah-live-demo-section') as HTMLElement;
     expect(
-      root.querySelector('[data-demo-variant]')?.getAttribute('data-demo-variant'),
-    ).toBe('stage');
-    expect(root.querySelector('h1')?.className).toContain('lg:text-7xl');
+      headline.compareDocumentPosition(demo) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(root.querySelector('[data-demo-variant]')).toBeNull();
     fixture.destroy();
   });
 
-  it.each([
-    ['?demo=b', 'split'],
-    ['?demo=c', 'theater'],
-    ['?demo=a', 'stage'],
-    ['?demo=unknown', 'stage'],
-  ])('reads %s in the browser as the %s variation', async (search, variant) => {
-    window.history.replaceState({}, '', `/${search}`);
+  it('drops the download CTAs and points "Watch it work" at the live demo', async () => {
     const fixture = await create();
     const root = fixture.nativeElement as HTMLElement;
-    expect(fixture.componentInstance.variant()).toBe(variant);
-    expect(
-      root.querySelector('[data-demo-variant]')?.getAttribute('data-demo-variant'),
-    ).toBe(variant);
-    expect(root.querySelectorAll('ptah-live-demo-section')).toHaveLength(1);
-    fixture.destroy();
-  });
-
-  it('left-aligns the headline beside the window in the split variation', async () => {
-    window.history.replaceState({}, '', '/?demo=b');
-    const fixture = await create();
-    const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('h1')?.className).toContain('lg:text-6xl');
-    expect(root.querySelector('[data-demo-variant]')?.className).toContain(
-      'lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]',
+    expect(root.textContent).not.toContain("Download Ptah — it's free");
+    expect(root.textContent).not.toContain('Download PtahCode');
+    expect(root.querySelector('a[href="/download"]')).toBeNull();
+    const watch = Array.from(root.querySelectorAll('a')).find((a) =>
+      a.textContent?.includes('Watch it work'),
     );
+    expect(watch?.getAttribute('href')).toBe('#live-demo');
+    expect(root.querySelector('#live-demo')).toBeTruthy();
+    expect(root.textContent).toContain('Open source. No credit card, ever.');
     fixture.destroy();
   });
 
-  it('ignores the query on the server and renders the stage variation', async () => {
-    window.history.replaceState({}, '', '/?demo=c');
+  it('renders on the server', async () => {
     const fixture = await create('server');
-    expect(fixture.componentInstance.variant()).toBe('stage');
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('h1')).toBeTruthy();
+    expect(root.querySelector('ptah-live-demo-section')).toBeTruthy();
     fixture.destroy();
   });
 });

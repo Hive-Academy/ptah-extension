@@ -3,7 +3,6 @@ import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { LiveDemoSectionComponent } from './live-demo-section.component';
 import type { ReplayState } from '../../live-demo/runtime/types';
-import { parseLiveDemoVariant } from './live-demo-variant';
 
 const replayState = (scenario = 'orchestration'): ReplayState => ({
   scenario,
@@ -43,7 +42,10 @@ describe('LiveDemoSectionComponent', () => {
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
+    expect(tabs.map((tab) => tab.querySelector('[data-tab-label]')?.textContent?.trim())).toEqual([
+      'Orchestration', 'Tribunal Council', 'Command Center', 'Multi-agent orchestration',
+    ]);
+    expect(tabs.map((tab) => tab.getAttribute('aria-label'))).toEqual([
       'Orchestration', 'Tribunal Council', 'Command Center', 'Multi-agent orchestration',
     ]);
     expect(tabs.map((tab) => tab.tabIndex)).toEqual([0, -1, -1, -1]);
@@ -59,6 +61,13 @@ describe('LiveDemoSectionComponent', () => {
     fixture.detectChanges();
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
     tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    fixture.detectChanges();
+    expect(tabs[3].getAttribute('aria-selected')).toBe('true');
+    tabs[3].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    fixture.detectChanges();
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(tabs[0]);
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
     fixture.detectChanges();
     expect(tabs[3].getAttribute('aria-selected')).toBe('true');
     fixture.destroy();
@@ -151,66 +160,91 @@ describe('LiveDemoSectionComponent', () => {
     }
   });
 
-  describe('layout variations', () => {
-    it('maps ?demo=a|b|c to a variation and falls back to stage', () => {
-      expect(parseLiveDemoVariant('')).toBe('stage');
-      expect(parseLiveDemoVariant('?demo=a')).toBe('stage');
-      expect(parseLiveDemoVariant('?demo=b')).toBe('split');
-      expect(parseLiveDemoVariant('?demo=C')).toBe('theater');
-      expect(parseLiveDemoVariant('?demo=z&x=1')).toBe('stage');
-      expect(parseLiveDemoVariant('?other=b')).toBe('stage');
-    });
+  it('autostarts only after the page has loaded and gone idle, never before', async () => {
+    let notify: ((entries: Array<{ isIntersecting: boolean }>) => void) | undefined;
+    const original = (window as { IntersectionObserver?: unknown }).IntersectionObserver;
+    (window as { IntersectionObserver?: unknown }).IntersectionObserver = class {
+      constructor(cb: (entries: Array<{ isIntersecting: boolean }>) => void) {
+        notify = cb;
+      }
+      observe(): void {}
+      disconnect(): void {}
+    };
+    try {
+      TestBed.configureTestingModule({ imports: [LiveDemoSectionComponent] });
+      const fixture = TestBed.createComponent(LiveDemoSectionComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      notify?.([{ isIntersecting: true }]);
+      expect(fixture.componentInstance.active()).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(fixture.componentInstance.active()).toBe(true);
+      fixture.destroy();
+    } finally {
+      (window as { IntersectionObserver?: unknown }).IntersectionObserver = original;
+    }
+  });
 
-    it('renders the stage variation by default with a screen-reader heading and tabs under the window', () => {
+  describe('stage layout', () => {
+    it('renders a vertical playlist before the window with the selected scenario details inside it', () => {
       TestBed.configureTestingModule({ imports: [LiveDemoSectionComponent] });
       const fixture = TestBed.createComponent(LiveDemoSectionComponent);
       fixture.detectChanges();
       const root = fixture.nativeElement as HTMLElement;
-      expect(fixture.componentInstance.variant()).toBe('stage');
-      expect(fixture.componentInstance.layout().tilt).toBe(true);
       expect(root.querySelector('#ptah-live-demo-heading')?.classList).toContain('sr-only');
+      expect(root.querySelector('#ptah-live-demo-heading')?.textContent?.trim()).toBe('See PtahCode work');
       const panel = root.querySelector('[role="tabpanel"]') as HTMLElement;
       const tablist = root.querySelector('[role="tablist"]') as HTMLElement;
-      expect(panel.compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(panel.parentElement?.className).toContain('max-w-[1280px]');
-      fixture.destroy();
-    });
-
-    it('switches to the theater variation with a visible heading and chapter rails', () => {
-      TestBed.configureTestingModule({ imports: [LiveDemoSectionComponent] });
-      const fixture = TestBed.createComponent(LiveDemoSectionComponent);
-      fixture.componentRef.setInput('variant', 'theater');
-      fixture.detectChanges();
-      const root = fixture.nativeElement as HTMLElement;
-      expect(root.querySelector('#ptah-live-demo-heading')?.classList).not.toContain('sr-only');
-      expect(root.textContent).toContain('Explore PtahCode sessions at your own pace.');
+      expect(tablist.getAttribute('aria-orientation')).toBe('vertical');
+      expect(tablist.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(tablist.parentElement?.className).toContain('max-w-[1680px]');
+      expect(tablist.parentElement?.className).toContain('lg:grid-cols-[264px_minmax(0,1fr)]');
       const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-      expect(tabs.every((tab) => tab.querySelector('span[aria-hidden="true"]'))).toBe(true);
-      expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
-        'Orchestration', 'Tribunal Council', 'Command Center', 'Multi-agent orchestration',
-      ]);
-      expect(root.querySelector('[role="tabpanel"] .lg\\:aspect-video')).toBeTruthy();
+      expect(tabs[0].getAttribute('aria-describedby')).toBe('ptah-live-demo-desc-orchestration');
+      expect(tabs[0].textContent).toContain('01');
+      expect(tabs[0].textContent).toContain('Watch a real PtahCode session coordinate work from a single prompt.');
+      expect(tabs[1].getAttribute('aria-describedby')).toBeNull();
+      expect(tabs[1].textContent).not.toContain('bring several perspectives');
+      expect(root.querySelector('a[href="/download"]')).toBeNull();
+      expect(root.textContent).not.toContain('Download PtahCode');
+      fixture.componentInstance.selectTab(1);
+      fixture.detectChanges();
+      expect(tabs[1].textContent).toContain('See PtahCode bring several perspectives into one decision.');
+      expect(tabs[0].getAttribute('aria-describedby')).toBeNull();
       fixture.destroy();
     });
 
-    it('keeps one replay iframe when the variation changes', () => {
+    it('shows replay progress on the selected playlist item once the demo runs', async () => {
       TestBed.configureTestingModule({ imports: [LiveDemoSectionComponent] });
       const fixture = TestBed.createComponent(LiveDemoSectionComponent);
       fixture.detectChanges();
+      await fixture.whenStable();
+      const root = fixture.nativeElement as HTMLElement;
+      const selectedTab = () => root.querySelector('[role="tab"][aria-selected="true"]') as HTMLElement;
+      expect(selectedTab().querySelector('span[aria-hidden="true"] > span')).toBeNull();
       fixture.componentInstance.startDemo();
+      fixture.componentInstance.state.set(replayState());
+      fixture.detectChanges();
+      const bar = selectedTab().querySelector<HTMLElement>('span.h-1 > span');
+      expect(bar?.style.width).toBe('50%');
+      fixture.destroy();
+    });
+
+    it('renders the switched-on screen statically: the power-on veil is invisible, hidden and inert', () => {
+      TestBed.configureTestingModule({
+        imports: [LiveDemoSectionComponent],
+        providers: [{ provide: PLATFORM_ID, useValue: 'server' }],
+      });
+      const fixture = TestBed.createComponent(LiveDemoSectionComponent);
       fixture.detectChanges();
       const root = fixture.nativeElement as HTMLElement;
-      const before = root.querySelector('iframe');
-      for (const variant of ['split', 'theater', 'stage'] as const) {
-        fixture.componentRef.setInput('variant', variant);
-        fixture.detectChanges();
-        expect(root.querySelectorAll('iframe')).toHaveLength(1);
-        expect(root.querySelectorAll('[role="tabpanel"]')).toHaveLength(1);
-      }
-      expect(root.querySelector('iframe')).toBe(before);
-      expect(fixture.componentInstance.layout().tilt).toBe(true);
-      fixture.componentRef.setInput('variant', 'split');
-      expect(fixture.componentInstance.layout().tilt).toBe(false);
+      const veil = root.querySelector('[data-power-screen]') as HTMLElement;
+      expect(veil.getAttribute('aria-hidden')).toBe('true');
+      expect(veil.classList).toContain('pointer-events-none');
+      expect(veil.classList).toContain('opacity-0');
+      expect(root.querySelector('[data-power-line]')?.classList).toContain('opacity-0');
+      const panel = root.querySelector('[role="tabpanel"]') as HTMLElement;
+      expect(panel.getAttribute('style') ?? '').not.toContain('rotate');
       fixture.destroy();
     });
   });

@@ -3,13 +3,11 @@ import {
   ChangeDetectionStrategy,
   ElementRef,
   afterNextRender,
-  computed,
   inject,
-  signal,
   DestroyRef,
   PLATFORM_ID,
 } from '@angular/core';
-import { DOCUMENT, isPlatformBrowser } from '@angular/common';
+import { isPlatformBrowser } from '@angular/common';
 import {
   ViewportAnimationConfig,
   ViewportAnimationDirective,
@@ -17,43 +15,6 @@ import {
 import gsap from 'gsap';
 import { HeroContentOverlayComponent } from './hero-content-overlay.component';
 import { LiveDemoSectionComponent } from '../live-demo/live-demo-section.component';
-import {
-  parseLiveDemoVariant,
-  type LiveDemoVariant,
-} from '../live-demo/live-demo-variant';
-
-interface HeroLayout {
-  readonly root: string;
-  readonly headline: string;
-  readonly demo: string;
-  readonly stats: string;
-}
-
-/**
- * Stacked variations (stage, theater) keep the headline in the top half of the
- * first viewport, so the live window starts half-way down the hero and covers
- * its bottom half. Split puts the headline left and the window right.
- */
-const HERO_LAYOUTS: Readonly<Record<LiveDemoVariant, HeroLayout>> = {
-  stage: {
-    root: 'relative z-10 flex flex-col',
-    headline: 'flex min-h-[46svh] items-end justify-center pt-28 pb-10 sm:pb-14',
-    demo: 'relative z-20 w-full',
-    stats: 'pt-4',
-  },
-  split: {
-    root: 'relative z-10 mx-auto flex max-w-[1440px] flex-col lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start lg:gap-12 lg:px-10',
-    headline: 'flex justify-center pt-28 pb-10 lg:block lg:pb-0 lg:pt-[26svh]',
-    demo: 'relative z-20 w-full px-3 sm:px-6 lg:px-0 lg:pt-[18svh]',
-    stats: 'pt-4 lg:pt-24',
-  },
-  theater: {
-    root: 'relative z-10 flex flex-col',
-    headline: 'flex min-h-[40svh] items-end justify-center pt-28 pb-4',
-    demo: 'relative z-20 w-full',
-    stats: 'pt-4',
-  },
-};
 
 /**
  * HeroComponent — "Temple of the Machine" hero with the PtahCode live demo as
@@ -62,12 +23,10 @@ const HERO_LAYOUTS: Readonly<Record<LiveDemoVariant, HeroLayout>> = {
  * Layers:
  * 1. Sky (first viewport, decorative): pyramid backdrop veiled at 0.16 and four
  *    masked Egyptian artifacts drifting on independent sine loops.
- * 2. Headline (`HeroContentOverlayComponent`) and the live demo
- *    (`LiveDemoSectionComponent`), arranged by the `?demo=a|b|c` variation.
+ * 2. Headline (`HeroContentOverlayComponent`), centred in the first viewport
+ *    below the fixed nav, then the live demo (`LiveDemoSectionComponent`),
+ *    which starts below the fold and powers on as it scrolls in.
  * 3. Stat row.
- *
- * The variation is read in the browser only (`afterNextRender`); prerendered
- * HTML always carries the default stage layout.
  */
 @Component({
   selector: 'ptah-hero',
@@ -86,7 +45,7 @@ const HERO_LAYOUTS: Readonly<Record<LiveDemoVariant, HeroLayout>> = {
         <!-- temple backdrop, veiled -->
         <div
           class="absolute inset-0 opacity-[0.16]"
-          style="background-image: url('/assets/backgrounds/pyramid_energy_apex.png'); background-size: cover; background-position: center 30%;"
+          style="background-image: url('/assets/backgrounds/pyramid_energy_apex.webp'); background-size: cover; background-position: center 30%;"
         ></div>
         <div
           class="absolute inset-0 bg-gradient-to-b from-ink-950/70 via-transparent to-ink-950"
@@ -119,24 +78,22 @@ const HERO_LAYOUTS: Readonly<Record<LiveDemoVariant, HeroLayout>> = {
         />
       </div>
 
-      <div [class]="layout().root" [attr.data-demo-variant]="variant()">
-        <div [class]="layout().headline">
-          <ptah-hero-content-overlay
-            [align]="variant() === 'split' ? 'start' : 'center'"
-          />
+      <div class="relative z-10 flex flex-col">
+        <div
+          data-hero-headline
+          class="flex min-h-[100svh] items-center justify-center pt-24 pb-12"
+        >
+          <ptah-hero-content-overlay />
         </div>
-        <div [class]="layout().demo">
-          <ptah-live-demo-section [variant]="variant()" />
+        <div class="relative z-20 w-full">
+          <ptah-live-demo-section />
         </div>
       </div>
 
       <div
         viewportAnimation
         [viewportConfig]="statsConfig"
-        [class]="
-          'relative z-10 mx-auto grid max-w-md grid-cols-2 gap-x-10 gap-y-8 px-4 pb-20 sm:flex sm:max-w-3xl sm:flex-wrap sm:justify-center sm:pb-28 ' +
-          layout().stats
-        "
+        class="relative z-10 mx-auto grid max-w-md grid-cols-2 gap-x-10 gap-y-8 px-4 pt-4 pb-20 sm:flex sm:max-w-3xl sm:flex-wrap sm:justify-center sm:pb-28"
       >
         @for (stat of stats; track stat.label) {
           <div class="flex flex-col items-center text-center sm:w-40">
@@ -176,21 +133,13 @@ export class HeroComponent {
     threshold: 0.1,
   };
 
-  /** Live demo layout variation (`?demo=a|b|c`), browser-only. */
-  public readonly variant = signal<LiveDemoVariant>('stage');
-  protected readonly layout = computed(() => HERO_LAYOUTS[this.variant()]);
-
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly document = inject(DOCUMENT);
   private readonly destroyRef = inject(DestroyRef);
   private readonly browser = isPlatformBrowser(inject(PLATFORM_ID));
 
   constructor() {
     afterNextRender(() => {
       if (!this.browser) return;
-      const search = this.document.defaultView?.location.search ?? '';
-      this.variant.set(parseLiveDemoVariant(search));
-
       const mm = gsap.matchMedia();
       mm.add('(prefers-reduced-motion: no-preference)', () => {
         const orbs =
