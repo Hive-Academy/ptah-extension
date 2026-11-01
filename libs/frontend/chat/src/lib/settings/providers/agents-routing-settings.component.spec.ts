@@ -173,6 +173,7 @@ describe('AgentsRoutingSettingsComponent', () => {
   it('wraps the background roles in a <details> that is closed by default (deviation 4)', async () => {
     await render();
     const details = rolesDetails();
+    expect(details?.parentElement?.getAttribute('data-glass-surface')).toBe('content');
     expect(details?.tagName).toBe('DETAILS');
     expect(details?.open).toBe(false);
     expect(

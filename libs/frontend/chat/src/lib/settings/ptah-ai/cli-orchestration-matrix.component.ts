@@ -170,10 +170,12 @@ const SAVE_SCOPE = 'global';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <div class="flex flex-col gap-4">
     <section
       class="flex flex-col gap-4"
       aria-labelledby="cli-matrix-heading"
       data-testid="settings-cli-matrix"
+      data-glass-surface="content"
     >
       <div section-header class="flex flex-wrap items-center gap-x-2 gap-y-1">
         <h2
@@ -745,6 +747,8 @@ const SAVE_SCOPE = 'global';
         </table>
       </div>
 
+    </section>
+
       <!-- The Ptah CLI instances: their own sub-section under a hairline, with Add and one card per instance. -->
       <ptah-cli-instances
         [rows]="instances()"
@@ -768,7 +772,7 @@ const SAVE_SCOPE = 'global';
         (deleteCancelled)="cancelDelete($event)"
         (deleteConfirmed)="remove($event)"
       />
-    </section>
+    </div>
 
     <!-- Batch 32: centered modals on the shared native <dialog> (design-spec §6), in this lazy chunk. -->
     <ptah-add-cli-instance-modal
@@ -790,6 +794,9 @@ const SAVE_SCOPE = 'global';
     :host {
       display: block;
       container-type: inline-size;
+    }
+    :host-context([data-glass='on']) [data-testid='settings-cli-matrix'] {
+      padding: 1.25rem;
     }
     /* Cells: 10 px block and 8 px inline padding (8 px both in the narrow box, below), so every column of the wide
        VS Code box fits beside the others; rows read as rows, not lines. The On box is daisyUI's

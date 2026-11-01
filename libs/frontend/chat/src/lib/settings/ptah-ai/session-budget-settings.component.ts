@@ -172,6 +172,7 @@ function storedNumberIsValid(
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
+      data-glass-surface="content"
       class="flex flex-col gap-3 text-sm text-base-content"
       aria-labelledby="session-budget-heading"
       data-testid="settings-section-session-budget"
@@ -369,6 +370,11 @@ function storedNumberIsValid(
       }
 
     </section>
+  `,
+  styles: `
+    :host-context([data-glass='on']) [data-glass-surface='content'] {
+      padding: 1.25rem;
+    }
   `,
 })
 export class SessionBudgetSettingsComponent implements OnInit {

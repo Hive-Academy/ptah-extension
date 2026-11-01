@@ -99,7 +99,7 @@ const FOCUS =
       }
 
       <!-- Closed by default; the background-role deep links open it (focusTarget). -->
-      <section class="border-t border-base-content/10 pt-6">
+      <section class="border-t border-base-content/10 pt-6" data-glass-surface="content">
         <details class="group" data-testid="background-roles-details">
           <summary
             [class]="
@@ -154,6 +154,11 @@ const FOCUS =
         </details>
       </section>
     </div>
+  `,
+  styles: `
+    :host-context([data-glass='on']) section[data-glass-surface='content'] {
+      padding: 1.25rem;
+    }
   `,
 })
 export class AgentsRoutingSettingsComponent {

@@ -92,6 +92,7 @@ interface LoadError {
   host: { class: 'block' },
   template: `
     <section
+      data-glass-surface="content"
       class="border-b border-base-content/10 pb-7"
       aria-labelledby="agent-behaviour-heading"
       data-testid="agent-behaviour-card"
@@ -261,6 +262,11 @@ interface LoadError {
         (closed)="drawerOpen.set(false)"
         (changed)="loadPromptStatus()"
       />
+    }
+  `,
+  styles: `
+    :host-context([data-glass='on']) [data-glass-surface='content'] {
+      padding: 1.25rem;
     }
   `,
 })

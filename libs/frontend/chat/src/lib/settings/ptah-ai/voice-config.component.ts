@@ -86,7 +86,11 @@ const SAVE_PROVIDER_FAILED: Record<VoiceDirection, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <section class="border-b border-base-content/10 pb-7" aria-labelledby="voice-engines-heading">
+    <section
+      class="border-b border-base-content/10 pb-7"
+      aria-labelledby="voice-engines-heading"
+      data-glass-surface="content"
+    >
       <div class="flex items-center gap-1.5 mb-2">
         <lucide-angular [img]="MicIcon" class="w-4 h-4 text-secondary" aria-hidden="true" />
         <h2 id="voice-engines-heading" class="text-xs font-bold uppercase tracking-wider text-base-content">
@@ -197,6 +201,11 @@ const SAVE_PROVIDER_FAILED: Record<VoiceDirection, string> = {
     @defer (when drawerDirection() !== null) {
       <ptah-voice-details-drawer [(direction)]="drawerDirection" [config]="config()"
         (closed)="drawerDirection.set(null)" (changed)="reloadAll()" />
+    }
+  `,
+  styles: `
+    :host-context([data-glass='on']) [data-glass-surface='content'] {
+      padding: 1.25rem;
     }
   `,
 })
