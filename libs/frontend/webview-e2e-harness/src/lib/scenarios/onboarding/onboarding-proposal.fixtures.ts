@@ -89,6 +89,20 @@ export function proposalRpcFixtures(
 ): Record<string, unknown> {
   return {
     ...onboardingAnalyzeFixtures(),
+    // The new-project intake checks the folder before it enables Continue.
+    'harness:initialize': {
+      workspaceEffectivelyEmpty: true,
+      workspaceContext: {
+        projectName: 'ptah-e2e-ws-a',
+        projectType: 'unknown',
+        frameworks: [],
+        languages: [],
+      },
+      availableAgents: [],
+      availableSkills: [],
+      existingPresets: [],
+      workspaceRoot: WORKSPACE,
+    },
     'harness:start-new-project': {
       success: true,
       seedPrompt: 'Propose a complete incident response harness.',
