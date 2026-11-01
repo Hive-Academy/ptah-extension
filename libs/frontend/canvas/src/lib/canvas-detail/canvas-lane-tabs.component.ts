@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  HostListener,
   Injector,
   afterNextRender,
   computed,
@@ -11,6 +12,7 @@ import {
   input,
   output,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import type { SessionAgent } from '@ptah-extension/chat';
@@ -67,14 +69,14 @@ interface DockLayout {
   readonly hidden: readonly SessionAgent[];
   readonly compact: boolean;
   readonly cardId: string;
-  /** Every chip shows its name (inline roster, no overflow menu). */
+  /** Every visible chip shows its name in a small roster. */
   readonly named: boolean;
 }
 
 /**
  * Main-view agent dock. Same selector and tablist keyboard model as the lane
- * strip it replaced. Rosters of `DOCK_INLINE_MAX` or fewer show every agent
- * as a named chip. Larger rosters show one pill for the selected agent,
+ * strip it replaced. Small rosters show eligible agents as named chips.
+ * Larger rosters show one pill for the selected agent,
  * avatar circles with a hover / focus card for the rest, and an overflow
  * menu for whoever does not fit.
  */
@@ -96,6 +98,10 @@ interface DockLayout {
   },
   styles: [
     `
+      /* Theme ink at low opacity shades the left edge behind the chips. */
+      :host > [role='tablist']:not(.flex-col) {
+        background-image: linear-gradient(to right, oklch(var(--bc) / 0.07), transparent 80%);
+      }
       /* Glass on (any theme): the dock strip is part of the chat column's one
          glass surface (styles.css "Ptah chat column"): no fill, no rule and no
          drop shadow under it, and 8px of air before the messages. The lane
@@ -137,7 +143,13 @@ interface DockLayout {
       [class.flex-col]="rail()"
       [class.px-0]="rail()"
       [class.border-0]="rail()"
-      class="relative z-10 flex min-w-0 items-center gap-0.5 flex-wrap border-b border-surface-border bg-surface-1 px-2 py-0.5 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
+      [class.pt-1]="!rail()"
+      [class.pt-0.5]="rail()"
+      (pointerdown)="onDockPointerDown()"
+      (click)="onDockClick()"
+      (focusin)="onDockFocusIn($event)"
+      (focusout)="onDockFocusOut($event)"
+      class="relative z-10 flex min-w-0 items-center gap-0.5 flex-wrap border-b border-surface-border bg-surface-1 px-2 pb-0.5 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
     >
       @for (group of view.groups; track group.kind; let first = $first) {
         @if (!first && !rail()) {
@@ -217,14 +229,14 @@ interface DockLayout {
           }
         }
       }
-      @if (!rail() && !view.named) {
+      @if (!rail() && view.hidden.length > 0) {
         <ptah-agent-dock-menu
-          [agents]="agents()"
           [hidden]="view.hidden"
           [selectedKey]="selectedKey()"
           [compact]="view.compact"
           [now]="now()"
           (agentSelect)="onMenuSelect($event)"
+          (openChange)="menuOpen.set($event)"
         />
       }
       @if (cardAgent(); as agent) {
@@ -249,6 +261,7 @@ export class CanvasLaneTabsComponent {
   private readonly floatingUI = inject(FloatingUIService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly dock = viewChild.required<ElementRef<HTMLElement>>('dock');
 
   readonly tabId = input<string | null>(null);
@@ -262,6 +275,13 @@ export class CanvasLaneTabsComponent {
 
   /** Measured dock width. `Infinity` until a ResizeObserver reports one. */
   private readonly width = signal(Number.POSITIVE_INFINITY);
+  /** Keep the same chips while keyboard focus is in the dock. */
+  private readonly frozenVisibleKeys = signal<readonly string[] | null>(null);
+  private lastInputModality: 'keyboard' | 'pointer' = 'keyboard';
+  private readonly focusedChipKey = signal<string | null>(null);
+  protected readonly menuOpen = signal(false);
+  private pendingTabFocusKey: string | null = null;
+  private focusRecoveryPending = false;
   /** Agent whose hover / focus card is open, if any. */
   protected readonly cardKey = signal<string | null>(null);
   private cardTimer: ReturnType<typeof setTimeout> | null = null;
@@ -300,7 +320,7 @@ export class CanvasLaneTabsComponent {
     this.rail() ? `${this.panelId()}-rail` : this.panelId(),
   );
 
-  /** Inline roster: every chip is named, so none needs the hover / focus card. */
+  /** Small roster: visible chips are named, so none needs the hover / focus card. */
   private readonly namesInline = computed(
     () => !this.rail() && this.agents().length <= DOCK_INLINE_MAX,
   );
@@ -315,6 +335,15 @@ export class CanvasLaneTabsComponent {
       selected,
       dockCapacity(width),
     );
+    const frozen = this.frozenVisibleKeys();
+    if (frozen && !this.rail()) {
+      const keep = new Set([...frozen, selected]);
+      for (const agent of this.agents()) {
+        if (agent.status === 'waiting' || agent.status === 'failed') keep.add(agent.key);
+      }
+      visible = this.agents().filter((agent) => keep.has(agent.key));
+      hidden = this.agents().filter((agent) => !keep.has(agent.key));
+    }
     if (this.rail()) {
       const active = this.agents().filter(agent => agent.status === 'running' || agent.status === 'waiting');
       const candidates = active.length ? active : this.agents().filter(agent => agent.kind === 'orchestrator');
@@ -381,7 +410,22 @@ export class CanvasLaneTabsComponent {
   constructor() {
     effect(() => {
       const key = this.cardKey();
-      if (key !== null && this.isNamedChip(key)) this.closeCard();
+      if (key !== null && (this.isNamedChip(key) || !this.visibleKeys().includes(key))) {
+        this.closeCard();
+      }
+    });
+    // restoreDockFocus() registers afterNextRender(); keep that out of the effect's reactive context.
+    effect(() => {
+      const focused = this.focusedChipKey();
+      if (focused && !this.visibleKeys().includes(focused)) untracked(() => this.restoreDockFocus());
+    });
+    effect(() => {
+      if (this.layout().hidden.length > 0) return;
+      const open = this.menuOpen();
+      // The overflow trigger is about to be removed; if it holds focus (menu closed), recover it too.
+      if (!open && !this.isMenuTriggerFocused()) return;
+      if (open) this.menuOpen.set(false);
+      untracked(() => this.restoreDockFocus());
     });
     effect(() => {
       if (this.laneKey() !== this.selectedKey()) {
@@ -417,9 +461,8 @@ export class CanvasLaneTabsComponent {
   }
 
   protected onKeydown(event: KeyboardEvent, key: string): void {
-    const keys = this.layout().groups.flatMap((group) =>
-      group.chips.map((chip) => chip.key),
-    );
+    this.onDockKeydown();
+    const keys = this.visibleKeys();
     if (keys.length === 0) return;
     const index = keys.indexOf(key);
     const next =
@@ -436,6 +479,7 @@ export class CanvasLaneTabsComponent {
     event.preventDefault();
     event.stopPropagation();
     const nextKey = keys[next];
+    this.pendingTabFocusKey = nextKey;
     // The rail only moves focus: selecting there expands the sidebar, which Enter or a click does.
     if (this.rail()) this.railFocusKey.set(nextKey);
     else this.laneSelected.emit(nextKey);
@@ -460,6 +504,7 @@ export class CanvasLaneTabsComponent {
   }
 
   protected onTabFocus(event: FocusEvent, key: string): void {
+    this.focusedChipKey.set(key);
     if (this.rail()) this.railFocusKey.set(key);
     if (this.isNamedChip(key)) return;
     const target = event.currentTarget;
@@ -470,6 +515,49 @@ export class CanvasLaneTabsComponent {
 
   protected onTabBlur(key: string): void {
     this.queueCardClose(key);
+  }
+
+  protected onDockPointerDown(): void {
+    this.lastInputModality = 'pointer';
+  }
+
+  protected onDockClick(): void {
+    if (this.lastInputModality !== 'pointer') return;
+    this.frozenVisibleKeys.set(null);
+  }
+
+  @HostListener('document:keydown')
+  protected onDockKeydown(): void {
+    this.lastInputModality = 'keyboard';
+    const target = document.activeElement;
+    if (
+      this.rail() || this.frozenVisibleKeys() || !(target instanceof HTMLElement) ||
+      target.getAttribute('role') !== 'tab' || !this.dock().nativeElement.contains(target)
+    ) return;
+    this.frozenVisibleKeys.set(this.visibleKeys());
+  }
+
+  protected onDockFocusIn(event: FocusEvent): void {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target.getAttribute('role') !== 'tab') {
+      this.focusedChipKey.set(null);
+      return;
+    }
+    if (this.rail() || this.frozenVisibleKeys() || this.lastInputModality === 'pointer') return;
+    this.frozenVisibleKeys.set(this.visibleKeys());
+  }
+
+  protected onDockFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    if (next instanceof Node && this.dock().nativeElement.contains(next)) return;
+    if (this.pendingTabFocusKey !== null) return;
+    const focused = this.focusedChipKey();
+    if (focused && !this.visibleKeys().includes(focused)) {
+      this.restoreDockFocus();
+      return;
+    }
+    this.focusedChipKey.set(null);
+    this.frozenVisibleKeys.set(null);
   }
 
   protected onCardHovered(hovered: boolean): void {
@@ -489,6 +577,7 @@ export class CanvasLaneTabsComponent {
     afterNextRender(
       () => {
         document.getElementById(this.tabDomId(key))?.focus();
+        if (this.pendingTabFocusKey === key) this.pendingTabFocusKey = null;
       },
       { injector: this.injector },
     );
@@ -498,13 +587,45 @@ export class CanvasLaneTabsComponent {
     return `${this.idPrefix()}-tab-${key}`;
   }
 
+  private readonly visibleKeys = computed(() =>
+    this.layout().groups.flatMap((group) => group.chips.map((chip) => chip.key)),
+  );
+
+  private isMenuTriggerFocused(): boolean {
+    const active = document.activeElement;
+    return (
+      active instanceof HTMLElement &&
+      this.host.nativeElement.contains(active) &&
+      active.closest('ptah-agent-dock-menu') !== null
+    );
+  }
+
+  private restoreDockFocus(): void {
+    if (this.focusRecoveryPending) return;
+    this.focusRecoveryPending = true;
+    afterNextRender(
+      () => {
+        this.focusRecoveryPending = false;
+        const root = this.dock().nativeElement;
+        if (root.contains(document.activeElement) || document.activeElement !== document.body) return;
+        const keys = this.visibleKeys();
+        const key = keys.includes(this.selectedKey()) ? this.selectedKey() : keys[0];
+        const target = key
+          ? document.getElementById(this.tabDomId(key))
+          : root.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]');
+        target?.focus();
+      },
+      { injector: this.injector },
+    );
+  }
+
   /** A chip that already shows its name opens no hover / focus card. */
   private isNamedChip(key: string): boolean {
     return !this.rail() && (this.namesInline() || key === this.selectedKey());
   }
 
   private openCard(key: string): void {
-    if (this.isNamedChip(key)) return;
+    if (this.isNamedChip(key) || !this.visibleKeys().includes(key)) return;
     this.cardKey.set(key);
     afterNextRender(
       () => {

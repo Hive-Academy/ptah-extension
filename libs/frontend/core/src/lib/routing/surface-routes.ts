@@ -22,12 +22,16 @@ export {
   ACCEPTED_INITIAL_VIEWS,
   DEFAULT_SURFACE_ID,
   LEGACY_SURFACE_ALIASES,
+  LEGACY_SURFACE_TARGETS,
   SURFACE_ROUTE_IDS,
   isAcceptedInitialView,
+  isLegacySurfaceAlias,
   isSurfaceRouteId,
+  resolveSurfaceAlias,
   surfaceIdFromSegment,
   surfaceRoutePath,
   type ViewType,
+  type LegacySurfaceAlias,
 } from '@ptah-extension/shared';
 import { InjectionToken } from '@angular/core';
 
@@ -40,26 +44,3 @@ export const GENERATION_ROUTE_TAB_VALIDATOR =
   new InjectionToken<GenerationRouteTabValidator>(
     'GENERATION_ROUTE_TAB_VALIDATOR',
   );
-
-export function generationRouteBinding(
-  segments: readonly string[],
-): {
-  tabId: string;
-  workflow: 'setup-agent-generation' | 'setup-project-prompt';
-} | null {
-  if (
-    segments.length !== 4 ||
-    segments[0] !== 'setup-wizard' ||
-    segments[1] !== 'generation'
-  )
-    return null;
-  const workflow = segments[2];
-  if (
-    workflow !== 'setup-agent-generation' &&
-    workflow !== 'setup-project-prompt'
-  )
-    return null;
-  const tabId = segments[3];
-  if (!tabId || tabId.includes('/') || tabId.includes('\\')) return null;
-  return { tabId, workflow };
-}

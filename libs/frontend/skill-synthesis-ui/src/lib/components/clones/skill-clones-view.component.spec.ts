@@ -1673,7 +1673,7 @@ describe('SkillClonesViewComponent — Library alignment (F6)', () => {
     const open = q<HTMLButtonElement>('clones-open-wizard');
     expect(open?.textContent).toContain('Open setup wizard');
     open?.click();
-    expect(appState.setCurrentView).toHaveBeenCalledWith('setup-wizard');
+    expect(appState.setCurrentView).toHaveBeenCalledWith('onboarding');
   });
 
   it('offers the wizard only on the empty Agents tab, not while loading or filtered', () => {

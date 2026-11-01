@@ -1,5 +1,16 @@
 import type { SessionAgent } from '@ptah-extension/chat';
-import { dockCapacity, planDockOverflow } from './dock-overflow';
+import { dockCapacity, orderDockMenuAgents, planDockOverflow } from './dock-overflow';
+
+function agent(
+  key: string,
+  status: SessionAgent['status'],
+  kind: SessionAgent['kind'] = 'cli',
+): SessionAgent {
+  return {
+    key, kind, status, name: key, cliId: null, agentType: null,
+    startedAt: null, endedAt: null, activity: null, openRequestIds: [],
+  };
+}
 
 describe('inspector roster overflow', () => {
   it.each([300, 360, 400, 480, 560])(
@@ -29,4 +40,51 @@ describe('inspector roster overflow', () => {
       expect(hidden.length).toBeGreaterThan(0);
     },
   );
+
+  it('moves done and stopped agents to the menu for a small roster', () => {
+    const agents = [
+      agent('orchestrator', 'done', 'orchestrator'),
+      agent('running', 'running'),
+      agent('done', 'done'),
+      agent('queued', 'queued'),
+      agent('stopped', 'stopped'),
+    ];
+    const plan = planDockOverflow(agents, 'orchestrator', 0);
+    expect(plan.visible.map(({ key }) => key)).toEqual(['orchestrator', 'running', 'queued']);
+    expect(plan.hidden.map(({ key }) => key)).toEqual(['done', 'stopped']);
+  });
+
+  it('keeps a selected finished agent and the orchestrator inline at zero width', () => {
+    const agents = [
+      agent('orchestrator', 'done', 'orchestrator'),
+      agent('running-1', 'running'),
+      agent('selected', 'stopped'),
+      agent('running-2', 'running'),
+      agent('done', 'done'),
+      agent('waiting', 'waiting'),
+    ];
+    const plan = planDockOverflow(agents, 'selected', 0);
+    expect(plan.visible.map(({ key }) => key)).toEqual(['orchestrator', 'selected']);
+    expect(plan.hidden.map(({ key }) => key)).toEqual([
+      'running-1', 'running-2', 'done', 'waiting',
+    ]);
+  });
+
+  it('orders the dropdown by status, retaining dock order for ties', () => {
+    const agents = [
+      agent('done-1', 'done'),
+      agent('queued', 'queued'),
+      agent('running-1', 'running'),
+      agent('stopped', 'stopped'),
+      agent('waiting', 'waiting'),
+      agent('failed', 'failed'),
+      agent('running-2', 'running', 'subagent'),
+      agent('done-2', 'done', 'background'),
+    ];
+    expect(orderDockMenuAgents(agents).map(({ key }) => key)).toEqual([
+      'running-1', 'running-2', 'waiting', 'failed', 'queued',
+      'done-1', 'done-2', 'stopped',
+    ]);
+    expect(agents[0].key).toBe('done-1');
+  });
 });
