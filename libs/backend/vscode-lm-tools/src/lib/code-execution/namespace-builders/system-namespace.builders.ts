@@ -229,13 +229,10 @@ skill/server exists" from a degraded result.
 AUTHORING:
 - createSkill(name, description, content, allowedTools?, scope?) - Writes a
     SKILL.md and returns { skillId, skillPath, scope, pluginId }.
-      scope 'user' (default) -> ~/.ptah/plugins, loads in EVERY workspace here.
-      scope 'workspace'      -> {ws}/.ptah/plugins, loads in THIS project only,
-                                sits beside .ptah/specs and can be committed so
-                                it travels with the repository.
-    Prefer 'workspace' for anything naming this codebase, its conventions or its
-    domain. The two scopes share one plugin id, so the same name in both is
-    refused rather than letting the workspace copy shadow the global one.
+      scope 'workspace' (default) -> {ws}/.ptah/plugins, THIS project only;
+                                     can be committed with the repository.
+      scope 'user'                -> ~/.ptah/plugins, installs for every workspace.
+    Both scopes share one plugin id: the same name in both is refused.
 
 HANDING BACK TO THE USER:
 - proposeConfig(configUpdates, isConfigComplete?) - The only way to give the user
@@ -255,8 +252,10 @@ HANDING BACK TO THE USER:
     enabledTools) is still refused — the container shape is negotiable, the
     key is not.
 
-- installMcpServer(serverName, config, serverKey?, targets?) - Writes a transport
-    config to the target files. Defaults to ['claude','vscode'].`,
+- installMcpServer(serverName, config, serverKey?, targets?, scope?) - Writes a
+    transport config to the target files. Defaults to ['claude','vscode'] and
+    scope 'workspace'; scope 'user' installs for every workspace and is required
+    for codex/copilot/antigravity. The result includes the scope.`,
 
   ide: `ptah.ide - IDE capabilities (host-dependent, richest in VS Code)
 

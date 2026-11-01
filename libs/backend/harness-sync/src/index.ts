@@ -248,6 +248,10 @@ export {
   type HarnessMcpIntent,
 } from './lib/sources/mcp-intent-store';
 export {
+  McpIntentPersistError,
+  type McpIntentPersistErrorCode,
+} from './lib/sources/mcp-intent-store';
+export {
   PluginConfigSourceResolver,
   createPluginConfigSourceResolver,
   createStaticSourceResolver,

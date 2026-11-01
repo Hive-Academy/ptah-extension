@@ -226,6 +226,23 @@ function buildMinimalContainer(): DependencyContainer {
     },
   });
 
+  // `InstallScopeMigrationService` (TASK_2026_853 D-6) injects the harness
+  // reconciler and `RecentWorkspacesService`, which keeps its list in state
+  // storage and checks paths through the file-system provider. The real CLI
+  // container binds these through `registerHarnessSyncServices` and
+  // platform-cli `registration.ts`.
+  c.register(HARNESS_SYNC_TOKENS.RECONCILER, {
+    useValue: { reconcile: jest.fn() },
+  });
+  c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+    useValue: {
+      get: jest.fn(() => undefined),
+      update: jest.fn(async () => undefined),
+      keys: jest.fn(() => []),
+    },
+  });
+  c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: {} });
+
   c.register<Pick<OpenRouterPricingService, 'getPricing'>>(OpenRouterPricingService, { useValue: { getPricing: jest.fn() } });
   c.register<Pick<SessionStatsReaderService, 'scanDatedUsage'>>(SessionStatsReaderService, { useValue: { scanDatedUsage: jest.fn() } });
   registerUsageAnalytics(c);

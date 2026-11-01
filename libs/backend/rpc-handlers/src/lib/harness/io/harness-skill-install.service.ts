@@ -22,8 +22,10 @@
  * reported `foreign` by `ptah harness doctor` forever. Both call sites now land
  * in `~/.ptah/plugins/ptah-skillssh-*`, which is ordinary overlay source state.
  *
- * `ref.scope` is likewise no longer read. There is no project-scoped source
- * root in the reconciler's model — see `SKILLS_SH_SCOPE`.
+ * `ref.scope` is likewise not read: this path calls
+ * `SkillsShSourceRootService.install` with its default global location. A
+ * workspace source root (`{ws}/.ptah/plugins/ptah-skillssh-*`) is chosen only
+ * through `skillsSh:install`, whose scope defaults to the workspace.
  *
  * This service does NOT propagate. `harness:apply` reconciles once at the end
  * of its own flow, and a per-skill propagate inside this loop would be N

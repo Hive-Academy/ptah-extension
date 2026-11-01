@@ -24,6 +24,20 @@
         [attr.inert]="userCompact() ? '' : null"
       >
 
+      <!-- One-time install-scope migration notice (design-spec §3): top of the
+           main chat view, above the transcript, until the user dismisses it. -->
+      @if (showInstallMigrationNotice()) {
+        <div
+          class="mx-auto px-2 flex-shrink-0"
+          style="width: calc(100% - 1.5rem); max-width: var(--chat-content-max-width, 758px)"
+          data-test="install-migration-notice-slot"
+        >
+          <ptah-install-scope-migration-notice
+            (dismissed)="onInstallMigrationNoticeDismissed($event)"
+          />
+        </div>
+      }
+
       <!-- Agent-started session hint. It lives at the top of the full view
            while the composer remains enabled. -->
       @if (resolvedAgentOrigin(); as origin) {

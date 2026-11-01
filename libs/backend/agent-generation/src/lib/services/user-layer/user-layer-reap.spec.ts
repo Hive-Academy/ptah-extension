@@ -1,5 +1,14 @@
 import 'reflect-metadata';
-import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+} from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -20,8 +29,14 @@ import {
   ORIGIN_SIDECAR_FILENAME,
 } from './origin-sidecar.types';
 import type { OriginSidecar } from './origin-sidecar.types';
-import { classifyUpstream } from './user-layer-orphan-reaper';
+import {
+  classifyUpstream,
+  UserLayerOrphanReaper,
+} from './user-layer-orphan-reaper';
 import type { UpstreamLiveness } from './user-layer-orphan-reaper';
+import { UserLayerFsOps } from './user-layer-fs-ops';
+import { computeSourceHash } from './source-hash';
+import type { SkillsShRetiredRegistry } from '@ptah-extension/shared';
 
 /**
  * TASK_2026_278 batch 1b — edge case E8, "upstream deleted".
@@ -547,7 +562,10 @@ describe('UserLayerMirrorService.reconcileAll — deleted-upstream reap (E8)', (
         },
       };
       await service.mirrorAll(
-        skillsShSources({ harnessPluginRoots: [skillsShRoot], pluginDescriptors }),
+        skillsShSources({
+          harnessPluginRoots: [skillsShRoot],
+          pluginDescriptors,
+        }),
       );
       const cloneDir = join(service.getUserLayerRoots().skills, 'scroll');
       await writeFile(join(cloneDir, 'SKILL.md'), '# my edit', 'utf8');
@@ -557,7 +575,9 @@ describe('UserLayerMirrorService.reconcileAll — deleted-upstream reap (E8)', (
         skillsShSources({ harnessPluginRoots: [] }),
       );
 
-      expect(result.orphanedClones).toEqual([{ kind: 'skill', slug: 'scroll' }]);
+      expect(result.orphanedClones).toEqual([
+        { kind: 'skill', slug: 'scroll' },
+      ]);
       expect(await readSidecarDir(cloneDir)).toMatchObject({
         orphaned: true,
         pluginId: rootId,
@@ -591,5 +611,339 @@ describe('UserLayerMirrorService.reconcileAll — deleted-upstream reap (E8)', (
       sourceRef: 'ptah:p',
       sourceLabel: 'Plugin P',
     });
+  });
+});
+
+/**
+ * TASK_2026_853 D-6 (Batch 32): path-level results for the install-scope
+ * migration ledger, and the retired-root clone sweep that reuses the reaper's
+ * one deletion rule instead of a second algorithm.
+ */
+describe('UserLayerOrphanReaper — path results and retired skills.sh clones', () => {
+  const rootId = 'ptah-skillssh-acme-tools';
+  const sourceRef = `skills-sh:${rootId}`;
+  let workRoot: string;
+  let userRoots: { skills: string; commands: string; agents: string };
+  let pluginsRoot: string;
+  let logger: MockLogger;
+  let fsOps: UserLayerFsOps;
+  let reaper: UserLayerOrphanReaper;
+
+  const registry: SkillsShRetiredRegistry = {
+    version: 1,
+    roots: { [rootId]: { retiredAt: '2026-10-31T00:00:00.000Z' } },
+  };
+
+  beforeEach(async () => {
+    workRoot = await mkdtemp(join(tmpdir(), 'ptah-reap-retired-'));
+    fakeHome = join(workRoot, 'home');
+    const userBase = join(fakeHome, '.ptah', 'user');
+    userRoots = {
+      skills: join(userBase, 'skills'),
+      commands: join(userBase, 'commands'),
+      agents: join(userBase, 'agents'),
+    };
+    pluginsRoot = join(fakeHome, '.ptah', 'plugins');
+    await mkdir(userRoots.skills, { recursive: true });
+    await mkdir(userRoots.commands, { recursive: true });
+    logger = makeLogger();
+    fsOps = new UserLayerFsOps(logger as never);
+    reaper = new UserLayerOrphanReaper(logger as never, fsOps);
+  });
+
+  afterEach(async () => {
+    await rm(workRoot, { recursive: true, force: true });
+  });
+
+  function sidecarFor(
+    kind: OriginSidecar['kind'],
+    slug: string,
+    sourceHash: string,
+    over: Partial<OriginSidecar> = {},
+  ): OriginSidecar {
+    return {
+      kind,
+      slug,
+      pluginId: rootId,
+      version: null,
+      sourceHash,
+      clonedAt: 1,
+      diverged: false,
+      lastEnhancedAt: null,
+      historyDir: DEFAULT_HISTORY_DIR,
+      sourceRef,
+      ...over,
+    };
+  }
+
+  /** The retired source root, which the clone sweep must never touch. */
+  async function seedSourceRoot(slug: string, body: string): Promise<string> {
+    const dir = join(pluginsRoot, rootId, 'skills', slug);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'SKILL.md'), body, 'utf8');
+    return dir;
+  }
+
+  async function seedSkillClone(
+    slug: string,
+    body: string,
+    over: Partial<OriginSidecar> = {},
+  ): Promise<string> {
+    const dir = join(userRoots.skills, slug);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'SKILL.md'), body, 'utf8');
+    const hash = await computeSourceHash(dir);
+    await writeFile(
+      join(dir, ORIGIN_SIDECAR_FILENAME),
+      JSON.stringify(sidecarFor('skill', slug, hash, over)),
+      'utf8',
+    );
+    return dir;
+  }
+
+  async function seedCommandClone(
+    slug: string,
+    body: string,
+    over: Partial<OriginSidecar> = {},
+  ): Promise<{ file: string; sidecar: string }> {
+    const file = join(userRoots.commands, `${slug}.md`);
+    const sidecar = join(userRoots.commands, `${slug}.ptah-origin.json`);
+    await writeFile(file, body, 'utf8');
+    const hash = await computeSourceHash(file);
+    await writeFile(
+      sidecar,
+      JSON.stringify(sidecarFor('command', slug, hash, over)),
+      'utf8',
+    );
+    return { file, sidecar };
+  }
+
+  it('deletes an unchanged, non-diverged clone of a retired root and reports its exact paths; the root survives', async () => {
+    const sourceDir = await seedSourceRoot('scroll', '# v1');
+    const cloneDir = await seedSkillClone('scroll', '# v1');
+
+    const result = await reaper.reapRetired(userRoots, registry);
+
+    expect(result.reapedPaths).toEqual([
+      {
+        kind: 'skill',
+        slug: 'scroll',
+        path: cloneDir,
+        sourceRef,
+        removedPaths: [cloneDir],
+      },
+    ]);
+    expect(result.keptPaths).toEqual([]);
+    expect(result.failedPaths).toEqual([]);
+    expect(result.reaped).toBe(1);
+    expect(result.reapedClones).toEqual([{ kind: 'skill', slug: 'scroll' }]);
+    expect(await exists(cloneDir)).toBe(false);
+    // Snapshot first, at the root-level history, outside the deleted clone.
+    expect(
+      await readdir(join(userRoots.skills, DEFAULT_HISTORY_DIR, 'scroll')),
+    ).toHaveLength(1);
+    // The clone's source root is not the reaper's to delete.
+    expect(await readFile(join(sourceDir, 'SKILL.md'), 'utf8')).toBe('# v1');
+  });
+
+  it('keeps a diverged clone, reports reason diverged and does not rewrite its sidecar', async () => {
+    const cloneDir = await seedSkillClone('scroll', '# v1', { diverged: true });
+    const before = await readFile(
+      join(cloneDir, ORIGIN_SIDECAR_FILENAME),
+      'utf8',
+    );
+
+    const result = await reaper.reapRetired(userRoots, registry);
+
+    expect(result.reapedPaths).toEqual([]);
+    expect(result.keptPaths).toEqual([
+      {
+        kind: 'skill',
+        slug: 'scroll',
+        path: cloneDir,
+        sourceRef,
+        reason: 'diverged',
+      },
+    ]);
+    expect(result.orphanedClones).toEqual([{ kind: 'skill', slug: 'scroll' }]);
+    expect(
+      await readFile(join(cloneDir, ORIGIN_SIDECAR_FILENAME), 'utf8'),
+    ).toBe(before);
+  });
+
+  it('keeps an edited clone (live hash != sourceHash) as edited', async () => {
+    const cloneDir = await seedSkillClone('scroll', '# v1');
+    await writeFile(join(cloneDir, 'SKILL.md'), '# my edit', 'utf8');
+
+    const result = await reaper.reapRetired(userRoots, registry);
+
+    expect(result.keptPaths).toEqual([
+      {
+        kind: 'skill',
+        slug: 'scroll',
+        path: cloneDir,
+        sourceRef,
+        reason: 'edited',
+      },
+    ]);
+    expect(await readFile(join(cloneDir, 'SKILL.md'), 'utf8')).toBe(
+      '# my edit',
+    );
+  });
+
+  it('keeps a clone that contains a symlink, even though the hash skips links', async () => {
+    const outside = join(workRoot, 'outside.md');
+    await writeFile(outside, '# not ptah content', 'utf8');
+    const cloneDir = await seedSkillClone('scroll', '# v1');
+    // Added after the hash: the content hash still matches.
+    await symlink(outside, join(cloneDir, 'linked.md'));
+
+    const result = await reaper.reapRetired(userRoots, registry);
+
+    expect(result.reapedPaths).toEqual([]);
+    expect(result.keptPaths).toEqual([
+      {
+        kind: 'skill',
+        slug: 'scroll',
+        path: cloneDir,
+        sourceRef,
+        reason: 'symlink',
+      },
+    ]);
+    expect(await exists(join(cloneDir, 'linked.md'))).toBe(true);
+    expect(await readFile(outside, 'utf8')).toBe('# not ptah content');
+  });
+
+  it('reports a command clone with both removed paths, and keeps one whose sidecar is a symlink', async () => {
+    const plain = await seedCommandClone('review', '# review');
+    const realSidecar = join(workRoot, 'linked-sidecar.json');
+    const linked = await seedCommandClone('audit', '# audit');
+    await writeFile(
+      realSidecar,
+      await readFile(linked.sidecar, 'utf8'),
+      'utf8',
+    );
+    await rm(linked.sidecar);
+    await symlink(realSidecar, linked.sidecar);
+
+    const result = await reaper.reapRetired(userRoots, registry);
+
+    expect(result.reapedPaths).toEqual([
+      {
+        kind: 'command',
+        slug: 'review',
+        path: plain.file,
+        sourceRef,
+        removedPaths: [plain.file, plain.sidecar],
+      },
+    ]);
+    expect(result.keptPaths).toEqual([
+      {
+        kind: 'command',
+        slug: 'audit',
+        path: linked.file,
+        sourceRef,
+        reason: 'symlink',
+      },
+    ]);
+    expect(await exists(plain.file)).toBe(false);
+    expect(await exists(plain.sidecar)).toBe(false);
+    expect(await exists(linked.file)).toBe(true);
+    expect(await exists(realSidecar)).toBe(true);
+  });
+
+  it('never touches clones of live roots, other source refs, ref-less sidecars or user-authored files', async () => {
+    const other = await seedSkillClone('other', '# o', {
+      pluginId: 'ptah-skillssh-live',
+      sourceRef: 'skills-sh:ptah-skillssh-live',
+    });
+    const ptah = await seedSkillClone('ptahskill', '# p', {
+      sourceRef: 'ptah:p',
+    });
+    // Same plugin id as the retired root but no sourceRef: fail-open, like the
+    // manifest builder's retired filter.
+    const refless = await seedSkillClone('refless', '# r', {
+      sourceRef: undefined,
+    });
+    const mine = join(userRoots.skills, 'mine');
+    await mkdir(mine, { recursive: true });
+    await writeFile(join(mine, 'SKILL.md'), '# hand written', 'utf8');
+
+    const result = await reaper.reapRetired(userRoots, registry);
+
+    expect(result.reapedPaths).toEqual([]);
+    expect(result.keptPaths).toEqual([]);
+    expect(result.failedPaths).toEqual([]);
+    for (const dir of [other, ptah, refless, mine]) {
+      expect(await exists(dir)).toBe(true);
+    }
+  });
+
+  it('a null registry retires nothing', async () => {
+    const cloneDir = await seedSkillClone('scroll', '# v1');
+
+    const result = await reaper.reapRetired(userRoots, null);
+
+    expect(result).toMatchObject({ reaped: 0, orphaned: 0, errors: 0 });
+    expect(result.reapedPaths).toEqual([]);
+    expect(await exists(cloneDir)).toBe(true);
+  });
+
+  it('reports a failed delete as a failed path; the retry reports it reaped and a third pass is empty', async () => {
+    const cloneDir = await seedSkillClone('scroll', '# v1');
+    const remove = jest
+      .spyOn(fsOps, 'removePath')
+      .mockRejectedValueOnce(new Error('EBUSY: resource busy'));
+
+    const first = await reaper.reapRetired(userRoots, registry);
+
+    expect(first.failedPaths).toEqual([
+      {
+        kind: 'skill',
+        slug: 'scroll',
+        path: cloneDir,
+        sourceRef,
+        error: 'EBUSY: resource busy',
+      },
+    ]);
+    expect(first.errors).toBe(1);
+    expect(first.reapedPaths).toEqual([]);
+    expect(await exists(cloneDir)).toBe(true);
+
+    remove.mockRestore();
+    const second = await reaper.reapRetired(userRoots, registry);
+    expect(second.reapedPaths.map((r) => r.path)).toEqual([cloneDir]);
+    expect(second.failedPaths).toEqual([]);
+
+    const third = await reaper.reapRetired(userRoots, registry);
+    expect(third.reapedPaths).toEqual([]);
+    expect(third.keptPaths).toEqual([]);
+    expect(third.failedPaths).toEqual([]);
+  });
+
+  it('the deleted-upstream sweep fills the same path rows and still flags kept clones orphaned', async () => {
+    const reapable = await seedSkillClone('gone', '# g');
+    const edited = await seedSkillClone('edited', '# e');
+    await writeFile(join(edited, 'SKILL.md'), '# mine', 'utf8');
+    // The root is installed (scanned) but ships neither slug any more.
+    const live: UpstreamLiveness = {
+      scannedPluginIds: new Set([rootId]),
+      pluginsBasePath: pluginsRoot,
+      skillSlugs: new Set<string>(),
+      commandSlugs: new Set<string>(),
+      agentSlugs: new Set<string>(),
+      synthScanned: false,
+      agentSourceScanned: false,
+    };
+
+    const result = await reaper.reap(userRoots, live);
+
+    expect(result.reapedPaths).toEqual([
+      expect.objectContaining({ path: reapable, removedPaths: [reapable] }),
+    ]);
+    expect(result.keptPaths).toEqual([
+      expect.objectContaining({ path: edited, reason: 'edited' }),
+    ]);
+    expect((await readSidecarDir(edited)).orphaned).toBe(true);
   });
 });

@@ -1,0 +1,216 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": 17,
+  "title": "D-4 sole public contract owner",
+  "status": "VERIFIED",
+  "filesChanged": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/shared/src/lib/types/rpc.types.ts",
+      "change": "MODIFIED: added the install-scope block (McpHomeInstallTarget, McpDirectoryScopedInstallParams/Result, McpDirectoryMakeGlobalParams/Result, migration-notice types, harness notice params/results, InstallScopeRpcMethodRegistry); skillsSh:install now takes SkillsShInstallParams (optional scope) and returns optional scope; mcpDirectory:install now uses the scoped params/result; replaced the stale 'scope removed on purpose' doc"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/shared/src/lib/types/rpc/rpc-agents.types.ts",
+      "change": "MODIFIED: InstalledSkill.scope widened from the literal 'global' to CapabilityScope with a corrected doc; added SkillsShInstallParams, SkillsShMakeGlobalParams, SkillsShMakeGlobalResult"
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/shared/src/lib/types/rpc/rpc-plugin-marketplace.types.ts",
+      "change": "MODIFIED: ExternalInstallParams.mcpScope?: CapabilityScope; corrected the stale header rule 2 ('mcpServers are NEVER registered')"
+    }
+  ],
+  "notChanged": {
+    "libs/shared/src/lib/types/rpc/rpc-harness.types.ts": "No change. The tool scope type (HarnessSkillScope = 'user' | 'workspace') lives in vscode-lm-tools harness-namespace.builder.ts:111, not here, and no harness RPC param carries a scope.",
+    "specs": "No type spec added. Type-only contracts are checked by the shared/host typechecks; the sub-registry has no runtime value to test."
+  },
+  "contracts": [
+    {
+      "name": "CapabilityScope (reused, unchanged)",
+      "file": "libs/shared/src/lib/types/mcp-directory.types.ts:18",
+      "shape": "'global' | 'workspace'"
+    },
+    {
+      "name": "InstalledSkill.scope",
+      "file": "libs/shared/src/lib/types/rpc/rpc-agents.types.ts:73",
+      "shape": "scope: CapabilityScope  (was the literal 'global')"
+    },
+    {
+      "name": "SkillsShInstallParams",
+      "file": "libs/shared/src/lib/types/rpc/rpc-agents.types.ts:90",
+      "shape": "{ source: string; skillId?: string; scope?: CapabilityScope }  (server default 'workspace')"
+    },
+    {
+      "name": "SkillsShMakeGlobalParams",
+      "file": "libs/shared/src/lib/types/rpc/rpc-agents.types.ts:105",
+      "shape": "{ name: string }"
+    },
+    {
+      "name": "SkillsShMakeGlobalResult",
+      "file": "libs/shared/src/lib/types/rpc/rpc-agents.types.ts:111",
+      "shape": "{ success: boolean; error?: string; convertedSkills?: string[] }"
+    },
+    {
+      "name": "skillsSh:install (registry entry)",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:1723",
+      "shape": "params: SkillsShInstallParams; result: { success: boolean; error?: string; scope?: CapabilityScope; kept?: KeptItem[]; libraryPass?: LibraryPassStatus }"
+    },
+    {
+      "name": "ExternalInstallParams.mcpScope",
+      "file": "libs/shared/src/lib/types/rpc/rpc-plugin-marketplace.types.ts:333",
+      "shape": "mcpScope?: CapabilityScope  (read only on the consented call; schema default 'workspace')"
+    },
+    {
+      "name": "McpHomeInstallTarget",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:807",
+      "shape": "Extract<McpInstallTarget, 'codex' | 'copilot' | 'antigravity'>"
+    },
+    {
+      "name": "McpDirectoryScopedInstallParams",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:820",
+      "shape": "McpDirectoryInstallParams & { scope?: CapabilityScope }  (interface extends; server default 'workspace')"
+    },
+    {
+      "name": "McpDirectoryScopedInstallResult",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:829",
+      "shape": "McpDirectoryInstallResult & { scope?: CapabilityScope }"
+    },
+    {
+      "name": "mcpDirectory:install (registry entry)",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:1755",
+      "shape": "params: McpDirectoryScopedInstallParams; result: McpDirectoryScopedInstallResult"
+    },
+    {
+      "name": "McpDirectoryMakeGlobalParams",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:835",
+      "shape": "{ serverKey: string; homeTargets: McpHomeInstallTarget[] }  ([] = none; opt-in)"
+    },
+    {
+      "name": "McpDirectoryMakeGlobalResult",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:846",
+      "shape": "{ success: boolean; results: McpInstallResult[]; error?: string }"
+    },
+    {
+      "name": "InstallMigrationNoticeCounts",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:858",
+      "shape": "{ retired: number; deleted: number; kept: number; onDisk: number }"
+    },
+    {
+      "name": "InstallMigrationOnDiskKind",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:870",
+      "shape": "'skills-sh-root' | 'mcp-home-entry'"
+    },
+    {
+      "name": "InstallMigrationOnDiskEntry",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:873",
+      "shape": "{ kind: InstallMigrationOnDiskKind; name: string; path: string }"
+    },
+    {
+      "name": "InstallMigrationNotice",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:885",
+      "shape": "{ counts: InstallMigrationNoticeCounts; keptPaths: string[]; onDisk: InstallMigrationOnDiskEntry[] }"
+    },
+    {
+      "name": "HarnessGetInstallMigrationNoticeParams / Result",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:893,899",
+      "shape": "Record<string, never> / { notice: InstallMigrationNotice | null }"
+    },
+    {
+      "name": "HarnessDismissInstallMigrationNoticeParams / Result",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:903,906",
+      "shape": "Record<string, never> / { success: boolean }"
+    },
+    {
+      "name": "InstallScopeRpcMethodRegistry",
+      "file": "libs/shared/src/lib/types/rpc.types.ts:922",
+      "shape": "{ 'skillsSh:makeGlobal': SkillsShMakeGlobal*; 'mcpDirectory:makeGlobal': McpDirectoryMakeGlobal*; 'harness:get-install-migration-notice': HarnessGetInstallMigrationNotice*; 'harness:dismiss-install-migration-notice': HarnessDismissInstallMigrationNotice* }  NOT yet joined into RpcMethodRegistry (see decision 1)"
+    }
+  ],
+  "producerConsumerMap": [
+    {
+      "type": "SkillsShInstallParams.scope / skillsSh:install result.scope",
+      "producers": ["Batch 27 (skills-sh-rpc.schema.ts zod default 'workspace', skills-sh-rpc.handlers.ts)", "Batch 25 (source-root service writes the root for the scope)"],
+      "consumers": ["Batch 38 (skill-sh-browser / plugin-catalog-panel scope field)", "Batch 36 (marketplace-inventory.store install call, sole store owner)"]
+    },
+    {
+      "type": "InstalledSkill.scope",
+      "producers": ["Batch 27 (skillsSh:listInstalled)", "Batch 25 (root metadata scope)"],
+      "consumers": ["Batch 38 (installed-skill-rows, installed-skills-page scope badge / Make global)", "Batch 36 (store slices)"]
+    },
+    {
+      "type": "skillsSh:makeGlobal (SkillsShMakeGlobalParams/Result)",
+      "producers": ["Batch 27 (handler + METHODS)", "Batch 25 (conversion service)"],
+      "consumers": ["Batch 38 (Make global action, whole-root feedback via convertedSkills)", "Batch 36 (store call)"]
+    },
+    {
+      "type": "McpDirectoryScopedInstallParams/Result, McpHomeInstallTarget",
+      "producers": ["Batch 28 (mcp-directory-rpc.schema.ts default 'workspace', home-target refusal, handler switches from McpDirectoryInstallParams)", "Batch 18 (scoped installer API)"],
+      "consumers": ["Batch 36 (InstallScopeField + MCP browser + store)", "Batch 30 (installMcpServer tool maps 'user' -> 'global')", "apps/ptah-cli mcp command (unchanged, result type compatible)"]
+    },
+    {
+      "type": "mcpDirectory:makeGlobal (McpDirectoryMakeGlobalParams/Result)",
+      "producers": ["Batch 28 (handler + METHODS)", "Batch 18 (intent store makeGlobal)"],
+      "consumers": ["Batch 37 (installed MCP rows, three home targets unchecked; external-plugin servers use it too)", "Batch 36 (store call)"]
+    },
+    {
+      "type": "InstalledMcpServer.scope (existing, mcp-directory.types.ts:316, unchanged)",
+      "producers": ["Batch 28 (listInstalled returns scope)"],
+      "consumers": ["Batch 37 (scope badges)"]
+    },
+    {
+      "type": "ExternalInstallParams.mcpScope",
+      "producers": ["Batch 39 (consent dialog sends it with the token)"],
+      "consumers": ["Batch 29 (plugin-rpc.schema.ts default 'workspace', plugin-rpc.handlers.ts -> ExternalPluginMcpService)"]
+    },
+    {
+      "type": "InstallMigrationNotice*, harness:get/dismiss-install-migration-notice",
+      "producers": ["Batch 33 (ledger -> counts/paths)", "Batch 34 (notice RPC handlers + METHODS)", "Batch 35 (registration)"],
+      "consumers": ["Batch 40 (install-scope-migration-notice component)"]
+    }
+  ],
+  "handoffRequirements": [
+    "Registry join: when Batches 27, 28 and 34 add 'skillsSh:makeGlobal', 'mcpDirectory:makeGlobal', 'harness:get-install-migration-notice' and 'harness:dismiss-install-migration-notice' to their handler METHODS, this owner (Batch 17) must in the SAME cohort change `RpcMethodRegistry extends ProviderAccountRpcMethodRegistry` to also extend InstallScopeRpcMethodRegistry and add the four keys to RPC_METHOD_ENTRIES. Either half alone fails typecheck (METHODS typed as RpcMethodName) or assertManifestInvariants (manifest.spec.ts, rpc-allowlist.spec.ts, Electron dev boot). Prefixes skillsSh:, mcpDirectory:, harness: are already in ALLOWED_METHOD_PREFIXES (vscode-core rpc-handler.ts:70-75).",
+    "Batch 28 switches the handler annotation at mcp-directory-rpc.handlers.ts:442 from McpDirectoryInstallParams/Result to McpDirectoryScopedInstallParams/Result.",
+    "Batch 40 / 34: the notice result is wrapped `{ notice: ... | null }`, not a bare null.",
+    "Kept-path reasons (edited | git-tracked | unverifiable) are NOT in the notice contract: the design shows paths only, and the reason union belongs to Batch 21 (harness-sync.types.ts)."
+  ],
+  "verify": {
+    "command": "npm run verify -- -p @ptah-extension/shared,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview > /tmp/tpd-b17-verify2.log 2>&1",
+    "perTarget": "68 tasks: 67 succeeded (40 cached), 1 failed — ptah-extension-webview:lint, pre-existing command-center cycle"
+  },
+  "decisions": [
+    {
+      "decision": "New RPC methods are published as a separate InstallScopeRpcMethodRegistry and are not yet joined into RpcMethodRegistry.",
+      "options": ["Join now (adds RPC_METHOD_NAMES entries with no handler owner)", "Publish a sub-registry now, join in the handler cohort"],
+      "evidence": "assertManifestInvariants requires every RPC_METHOD_NAMES entry to have a manifest owner (rpc-handlers host-profile/manifest.ts:539-569); it runs in manifest.spec.ts:77, rpc-allowlist.spec.ts:64 and at Electron dev boot (register-rpc-surface.ts:141-143). The sub-registry pattern exists: ProviderAccountRpcMethodRegistry (rpc-provider-accounts.types.ts:283, merged via extends at rpc.types.ts RpcMethodRegistry).",
+      "reversible": true
+    },
+    {
+      "decision": "MCP directory scope types are declared in rpc.types.ts as McpDirectoryScopedInstallParams/Result extending the mcp-directory.types.ts types, instead of adding scope to McpDirectoryInstallParams.",
+      "options": ["Edit mcp-directory.types.ts (outside this batch's file list)", "Extend in rpc.types.ts (owned)"],
+      "evidence": "McpDirectoryInstallParams lives in mcp-directory.types.ts:750, which the batch does not own; plan D-4 names rpc.types.ts as the sole owner of the MCP directory contract edits. If the coordinator extends ownership, the scope field can move onto McpDirectoryInstallParams and the two Scoped types be deleted.",
+      "reversible": true
+    },
+    {
+      "decision": "Scope vocabulary is CapabilityScope ('global' | 'workspace') everywhere on the wire; no new alias.",
+      "options": ["New InstallScope alias", "Reuse CapabilityScope"],
+      "evidence": "Brief: follow CapabilityScope; InstalledMcpServer.scope already uses it (mcp-directory.types.ts:316). The tool-level 'user' word stays inside vscode-lm-tools (Batch 30 maps 'user' -> 'global').",
+      "reversible": true
+    },
+    {
+      "decision": "Home targets typed as Extract<McpInstallTarget, 'codex' | 'copilot' | 'antigravity'> (McpHomeInstallTarget); mcpDirectory:makeGlobal.homeTargets is required (new method, [] means none).",
+      "options": ["optional homeTargets", "required array"],
+      "evidence": "Plan D-4 `homeTargets: ('codex'|'copilot'|'antigravity')[]`; mirrors private USER_SCOPE_TARGETS (capability-toggle.types.ts:305-309). Optional-only rule applies to existing methods.",
+      "reversible": true
+    },
+    {
+      "decision": "Notice RPC result wrapped as { notice: InstallMigrationNotice | null }.",
+      "options": ["bare null result", "wrapped object"],
+      "evidence": "Every registry result is an object; a wrapper keeps the null case explicit for the transport and lets fields be added without a breaking change.",
+      "reversible": true
+    },
+    {
+      "decision": "Corrected the stale header rule 2 in rpc-plugin-marketplace.types.ts ('mcpServers are NEVER registered').",
+      "options": ["leave", "correct"],
+      "evidence": "Contradicted by mcpServersInstalled (same file, TASK_2026_287) and decision #25; the file is owned by this batch.",
+      "reversible": true
+    }
+  ]
+}

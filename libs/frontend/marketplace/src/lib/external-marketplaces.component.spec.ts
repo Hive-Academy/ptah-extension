@@ -1,11 +1,13 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { signal } from '@angular/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import type {
   ExternalInstallPlan,
   ExternalInstallResult,
   ExternalLocalItem,
   ExternalPluginListing,
   KeptItem,
+  WorkspaceInfo,
 } from '@ptah-extension/shared';
 import { makeLibraryAgreementFixtures } from '@ptah-extension/shared/testing';
 import { ExternalMarketplacesComponent } from './external-marketplaces.component';
@@ -103,6 +105,9 @@ describe('ExternalMarketplacesComponent', () => {
     }),
   };
 
+  /** The open folder the consent dialog's MCP scope field reads. */
+  const workspaceInfo = signal<WorkspaceInfo | null>(null);
+
   const methodsCalled = (): string[] => calls.map((c) => c.method);
   const installCalls = (): RpcCall[] =>
     calls.filter((c) => c.method === 'plugins:install-external');
@@ -133,6 +138,7 @@ describe('ExternalMarketplacesComponent', () => {
   beforeEach(() => {
     calls = [];
     responders = new Map();
+    workspaceInfo.set({ name: 'my-app', path: '/work/my-app', type: 'folder' });
     rpcMock.call.mockClear();
 
     setResponder('plugins:list-marketplaces', () =>
@@ -152,7 +158,10 @@ describe('ExternalMarketplacesComponent', () => {
 
     TestBed.configureTestingModule({
       imports: [ExternalMarketplacesComponent],
-      providers: [{ provide: ClaudeRpcService, useValue: rpcMock }],
+      providers: [
+        { provide: ClaudeRpcService, useValue: rpcMock },
+        { provide: AppStateManager, useValue: { workspaceInfo } },
+      ],
     });
   });
 
@@ -525,7 +534,93 @@ describe('ExternalMarketplacesComponent', () => {
         (el) => el.textContent,
       );
       expect(codes).toContain(commandLine);
-      expect(dialog?.textContent).toContain('NOT register or run');
+      const text = (dialog?.textContent ?? '').replace(/\s+/g, ' ');
+      expect(text).not.toContain('NOT register or run');
+      expect(text).toContain(
+        'Ptah adds these servers to the scope you choose below. Review each command before you continue.',
+      );
+    });
+
+    describe('MCP server scope on the consented call', () => {
+      const servers = [
+        {
+          name: 'binlog',
+          command: 'dotnet',
+          args: ['dnx'],
+          commandLine: 'dotnet dnx',
+        },
+      ];
+      const withServers = (): void =>
+        setResponder('plugins:install-external', () =>
+          installCalls().length > 1
+            ? ok({
+                status: 'installed',
+                result: {
+                  pluginId: PLUGIN_ID,
+                  displayName: '.NET Test',
+                  installedVersion: '1.2.0',
+                  filesWritten: 1,
+                  skippedBinaryFiles: [],
+                  collisions: [],
+                },
+              })
+            : ok({
+                status: 'consent-required',
+                reason: 'not-yet-approved',
+                plan: makePlan({ mcpServers: servers }),
+              }),
+        );
+      const pickAllWorkspaces = (): void => {
+        Array.from(
+          query('[data-testid="external-consent-mcp-scope"]')?.querySelectorAll(
+            'label',
+          ) ?? [],
+        )
+          .find((el) => el.textContent?.includes('All workspaces'))
+          ?.querySelector<HTMLInputElement>('input[type="radio"]')
+          ?.click();
+        fixture.detectChanges();
+      };
+
+      it('sends the default workspace scope with the token, never on the plan call', async () => {
+        withServers();
+        await createAndBrowse();
+        await clickInstall();
+        await clickConfirm();
+
+        expect('mcpScope' in (installCalls()[0].params as object)).toBe(false);
+        expect(installCalls()[1].params).toEqual({
+          source: SOURCE,
+          plugin: 'dotnet-test',
+          consentToken: 'token-v1',
+          mcpScope: 'workspace',
+        });
+      });
+
+      it('sends global only after the user picks All workspaces', async () => {
+        withServers();
+        await createAndBrowse();
+        await clickInstall();
+        pickAllWorkspaces();
+        await clickConfirm();
+
+        expect(installCalls()[1].params).toMatchObject({ mcpScope: 'global' });
+      });
+
+      it('with no folder open still installs the files and omits mcpScope', async () => {
+        workspaceInfo.set(null);
+        withServers();
+        await createAndBrowse();
+        await clickInstall();
+        const confirm = query<HTMLButtonElement>(
+          '[data-testid="external-consent-confirm"]',
+        );
+        expect(confirm?.disabled).toBe(false);
+        await clickConfirm();
+
+        expect('mcpScope' in (installCalls()[1].params as object)).toBe(false);
+        expect(component.pendingPlan()).toBeNull();
+      });
     });
 
     it('3. Confirm issues a SECOND call carrying exactly the plan consentToken', async () => {

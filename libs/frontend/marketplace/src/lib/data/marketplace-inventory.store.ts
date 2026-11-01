@@ -22,12 +22,19 @@ import {
   type InstalledServerGroup,
 } from '@ptah-extension/chat-ui';
 import type { SessionMcpStatus } from '@ptah-extension/chat-state';
+import {
+  MCP_DIRECTORY_CALL_FAILURE_COPY,
+  PTAH_MCP_SERVER_NAME,
+} from '@ptah-extension/shared';
 import type {
+  CapabilityScope,
   CloneSummary,
   ExternalPluginListing,
   InstalledMcpServer,
   InstalledSkill,
   LibraryPassStatus,
+  McpHomeInstallTarget,
+  McpInstallTarget,
   PluginInfo,
 } from '@ptah-extension/shared';
 import { toConnectorRows } from '../mcp-connector-rows';
@@ -114,6 +121,42 @@ export interface InventoryRemovalResult {
 /** Nav-badge counts: a number only for a `ready` slice, `null` otherwise. */
 export type InventoryCounts = Readonly<Record<InventorySliceId, number | null>>;
 
+/**
+ * What happened to one "Make global" request (design-spec §2 "Convert action
+ * on an installed row"). Messages are the fixed design copy: they never carry
+ * a host path or a raw error.
+ */
+export type InventoryConversionOutcome =
+  | {
+      readonly status: 'converted';
+      /** "{name} is now available in all workspaces." */
+      readonly message: string;
+      /**
+       * skills.sh only: every skill of the converted source root (the whole
+       * root moves, not one skill). Empty for an MCP server.
+       */
+      readonly convertedSkills: readonly string[];
+      /**
+       * MCP only: targets the global install could not write. The
+       * conversion itself succeeded. Empty for a skill.
+       */
+      readonly failedTargets: readonly McpInstallTarget[];
+    }
+  | {
+      readonly status: 'failed';
+      /** "Could not change where {name} is installed." */
+      readonly message: string;
+    }
+  | {
+      readonly status: 'refused';
+      /**
+       * `in-progress`: a conversion or removal of the same row is running.
+       * `not-convertible`: the row is not a Ptah-managed workspace install.
+       */
+      readonly reason: 'in-progress' | 'not-convertible';
+      readonly message: string;
+    };
+
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
 const BLOCKED_FALLBACK_REASON = 'Ptah cannot remove this server from here.';
@@ -165,6 +208,69 @@ function describeRemoval(ref: InventoryRemovalRef): {
     case 'marketplace-plugin':
       return { slice: 'marketplaces', label: ref.listing.name };
   }
+}
+
+/**
+ * Where an installed server group loads: `workspace` when any of its rows was
+ * declared for (or recorded as an intent of) this workspace, `global` when its
+ * rows are all user-scope, `null` when the payload names no scope (rows from
+ * before the field existed get no badge). Ptah's own unmanaged `ptah` server
+ * is `global`: Ptah serves it in every workspace. Covers external-plugin servers too:
+ * they are ordinary intent rows of the installed slice.
+ */
+export function serverGroupScope(
+  group: InstalledServerGroup,
+): CapabilityScope | null {
+  // Ptah's own server is registered by Ptah in every workspace (on by
+  // default), so its project-file row is not a workspace-only install even
+  // though `.mcp.json` sits in the repository. A key the user recorded as a
+  // Ptah intent keeps its recorded scope.
+  if (
+    group.serverKey === PTAH_MCP_SERVER_NAME &&
+    !group.servers.some((server) => server.managedByPtah)
+  ) {
+    return group.servers.some((server) => server.scope !== undefined)
+      ? 'global'
+      : null;
+  }
+  let scope: CapabilityScope | null = null;
+  for (const server of group.servers) {
+    if (server.scope === 'workspace') return 'workspace';
+    if (server.scope === 'global') scope = 'global';
+  }
+  return scope;
+}
+
+/**
+ * Whether "Make global" applies: a Ptah-managed workspace install read from a
+ * harness config. Hand-written, Smithery, OAuth and connector rows have no
+ * recorded intent the conversion could move.
+ */
+export function canMakeServerGlobal(group: InstalledServerGroup): boolean {
+  return (
+    group.origin === 'harness-config' &&
+    group.servers.some(
+      (server) => server.managedByPtah && server.scope === 'workspace',
+    )
+  );
+}
+
+/** Whether "Make global" applies to an installed skills.sh skill. */
+export function canMakeSkillGlobal(skill: InstalledSkill): boolean {
+  return skill.scope === 'workspace';
+}
+
+/** The pending id of a skill row, shared by its removal and its conversion. */
+function skillRowId(name: string): string {
+  return removalIdOf({ kind: 'community-skill', name });
+}
+
+function convertedCopy(name: string): string {
+  return `${name} is now available in all workspaces.`;
+}
+
+function conversionFailedCopy(name: string): string {
+  return `Could not change where ${name} is installed.`;
 }
 
 function messageOf(error: unknown, fallback: string): string {
@@ -247,7 +353,10 @@ function cell<T>(empty: T): SliceCell<T> {
 
 /**
  * MarketplaceInventoryStore — everything the user has installed, connected or
- * enabled, as four independently loaded slices, plus removal (plan C3, D4).
+ * enabled, as four independently loaded slices, plus removal (plan C3, D4)
+ * and the install-scope conversion "Make global" (TASK_2026_853 F-D1): this
+ * store is the only webview owner of `mcpDirectory:makeGlobal` and
+ * `skillsSh:makeGlobal`.
  *
  * ## Loading only on request (the zero-RPC rule)
  *
@@ -308,6 +417,7 @@ export class MarketplaceInventoryStore {
   };
 
   private readonly _pendingIds = signal<ReadonlySet<string>>(new Set());
+  private readonly _convertingIds = signal<ReadonlySet<string>>(new Set());
   private destroyed = false;
   private seenWorkspaceGeneration = this.scope.generation();
   /**
@@ -387,7 +497,11 @@ export class MarketplaceInventoryStore {
   public readonly libraryPassFailed: Signal<boolean> =
     this._libraryPassFailed.asReadonly();
 
-  /** skills.sh skills installed on this machine. */
+  /**
+   * skills.sh skills this workspace loads: its own workspace installs and the
+   * All workspaces ones. Each row's `scope` drives its badge and
+   * {@link canMakeSkillGlobal}.
+   */
   public readonly community = sliceView(this.cells.community);
 
   /** External marketplace plugins with a consent record. */
@@ -407,6 +521,14 @@ export class MarketplaceInventoryStore {
   /** Ids ({@link removalIdOf}) of removals in flight; only these rows disable. */
   public readonly pendingIds: Signal<ReadonlySet<string>> =
     this._pendingIds.asReadonly();
+
+  /**
+   * Row ids with a "Make global" in flight, in the same id space as
+   * {@link pendingIds} ({@link removalIdOf} of the row). A row id is in at
+   * most one of the two sets: each action refuses while the other runs.
+   */
+  public readonly convertingIds: Signal<ReadonlySet<string>> =
+    this._convertingIds.asReadonly();
 
   /**
    * Reload what is on screen when the active workspace changes. The first run
@@ -564,6 +686,13 @@ export class MarketplaceInventoryStore {
     if (!result.isSuccess()) {
       return { ok: false, error: result.error ?? LOAD_FALLBACK.installed };
     }
+    // A coded failure is not "no servers installed": show its fixed copy.
+    if (result.data.code !== undefined) {
+      return {
+        ok: false,
+        error: MCP_DIRECTORY_CALL_FAILURE_COPY[result.data.code],
+      };
+    }
     return { ok: true, data: result.data.servers };
   }
 
@@ -623,6 +752,118 @@ export class MarketplaceInventoryStore {
 
   private countOf<T>(slice: InventorySlice<T>): number | null {
     return slice.state === 'ready' ? slice.data.length : null;
+  }
+
+  // ── Make global ───────────────────────────────────────────────────────────
+
+  /**
+   * Convert a workspace MCP install to All workspaces
+   * (`mcpDirectory:makeGlobal`, decision #19). `homeTargets` are the home-
+   * folder targets the user ticked in the conversion state; they start
+   * unchecked and `[]` adds none. The workspace targets carry over. Reloads the
+   * requested slices on success.
+   */
+  public async makeServerGlobal(
+    group: InstalledServerGroup,
+    homeTargets: readonly McpHomeInstallTarget[],
+  ): Promise<InventoryConversionOutcome> {
+    const name = group.serverKey;
+    if (!canMakeServerGlobal(group)) {
+      return this.notConvertible(name);
+    }
+    return this.convert(
+      removalIdOf({ kind: 'server', group }),
+      name,
+      async () => {
+        const result = await this.rpc.call('mcpDirectory:makeGlobal', {
+          serverKey: group.serverKey,
+          homeTargets: [...homeTargets],
+        });
+        if (!result.isSuccess() || !result.data.success) return null;
+        return {
+          convertedSkills: [],
+          failedTargets: result.data.results
+            .filter((entry) => !entry.success)
+            .map((entry) => entry.target),
+        };
+      },
+    );
+  }
+
+  /**
+   * Convert the workspace skills.sh source root holding `skill` to All
+   * workspaces (`skillsSh:makeGlobal`). The WHOLE root moves, so the outcome
+   * lists every converted skill. Reloads the requested slices on success.
+   */
+  public async makeSkillGlobal(
+    skill: InstalledSkill,
+  ): Promise<InventoryConversionOutcome> {
+    if (!canMakeSkillGlobal(skill)) return this.notConvertible(skill.name);
+    return this.convert(skillRowId(skill.name), skill.name, async () => {
+      const result = await this.rpc.call('skillsSh:makeGlobal', {
+        name: skill.name,
+      });
+      if (!result.isSuccess() || !result.data.success) return null;
+      return {
+        convertedSkills: result.data.convertedSkills ?? [skill.name],
+        failedTargets: [],
+      };
+    });
+  }
+
+  private notConvertible(name: string): InventoryConversionOutcome {
+    return {
+      status: 'refused',
+      reason: 'not-convertible',
+      message: `${name} is already available in every workspace or is not a Ptah install.`,
+    };
+  }
+
+  /**
+   * Run one conversion under its row id. `perform` answers `null` for any
+   * refusal; the user sees the fixed failure copy, and the host has already
+   * logged the cause.
+   */
+  private async convert(
+    id: string,
+    name: string,
+    perform: () => Promise<{
+      convertedSkills: readonly string[];
+      failedTargets: readonly McpInstallTarget[];
+    } | null>,
+  ): Promise<InventoryConversionOutcome> {
+    if (this._convertingIds().has(id) || this._pendingIds().has(id)) {
+      return {
+        status: 'refused',
+        reason: 'in-progress',
+        message: `"${name}" is already being changed.`,
+      };
+    }
+    this.setConverting(id, true);
+    try {
+      const done = await perform();
+      if (done === null) {
+        return { status: 'failed', message: conversionFailedCopy(name) };
+      }
+      if (!this.destroyed) this.notifyContentChanged();
+      return { status: 'converted', message: convertedCopy(name), ...done };
+    } catch {
+      // degradation-audit: reported — returned as a `failed` outcome with the
+      // fixed design copy, which the row shows as its `role=alert` error.
+      return { status: 'failed', message: conversionFailedCopy(name) };
+    } finally {
+      this.setConverting(id, false);
+    }
+  }
+
+  private setConverting(id: string, converting: boolean): void {
+    if (this.destroyed) return;
+    this._convertingIds.update((current) => {
+      const next = new Set(current);
+      if (converting) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   }
 
   // ── Removal ────────────────────────────────────────────────────────────────
@@ -720,6 +961,13 @@ export class MarketplaceInventoryStore {
     id: string,
   ): InventoryRemovalOutcome | null {
     const { label } = describeRemoval(ref);
+    if (this._convertingIds().has(id)) {
+      return {
+        status: 'refused',
+        reason: 'in-progress',
+        message: `"${label}" is being made global.`,
+      };
+    }
     if (this._pendingIds().has(id)) {
       return {
         status: 'refused',

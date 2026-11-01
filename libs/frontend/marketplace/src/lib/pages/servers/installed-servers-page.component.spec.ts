@@ -154,6 +154,8 @@ describe('InstalledServersPageComponent', () => {
   let methods: string[];
   /** Every `capabilities:setEnabled` params object, in order. */
   let writes: unknown[];
+  /** Every `mcpDirectory:makeGlobal` params object, in order. */
+  let conversions: unknown[];
   let tabs: ReturnType<typeof signal<readonly TabStub[]>>;
   let tier: ReturnType<typeof signal<MarketplaceTier>>;
   let ensureLoaded: jest.Mock;
@@ -163,6 +165,7 @@ describe('InstalledServersPageComponent', () => {
   beforeEach(() => {
     methods = [];
     writes = [];
+    conversions = [];
     tabs = signal<readonly TabStub[]>([]);
     tier = signal<MarketplaceTier>('regular');
     ensureLoaded = jest.fn();
@@ -211,6 +214,9 @@ describe('InstalledServersPageComponent', () => {
             call: jest.fn((method: string, params?: unknown) => {
               methods.push(method);
               if (method === 'capabilities:setEnabled') writes.push(params);
+              if (method === 'mcpDirectory:makeGlobal') {
+                conversions.push(params);
+              }
               const responder = responders[method];
               return Promise.resolve(
                 responder
@@ -706,5 +712,298 @@ describe('InstalledServersPageComponent', () => {
         row({}),
       ]),
     ).toBe(1);
+  });
+
+  // ── Install scope (TASK_2026_853 F-D1, design-spec §2, decision #19) ──────
+  describe('install scope rows', () => {
+    const WORKSPACE_FIRECRAWL: InstalledMcpServer = {
+      ...FIRECRAWL,
+      scope: 'workspace',
+    };
+    const WORKSPACE_FIRECRAWL_VSCODE: InstalledMcpServer = {
+      ...FIRECRAWL,
+      target: 'vscode',
+      configPath: 'C:\\repo\\.vscode\\mcp.json',
+      scope: 'workspace',
+    };
+    const GLOBAL_EXA: InstalledMcpServer = {
+      ...FIRECRAWL,
+      serverKey: 'exa',
+      target: 'codex',
+      configPath: 'C:\\Users\\me\\.codex\\config.toml',
+      scope: 'global',
+    };
+    /** An external plugin's declared server: an ordinary intent row. */
+    const PLUGIN_ACME: InstalledMcpServer = {
+      ...FIRECRAWL,
+      serverKey: 'acme-files',
+      scope: 'workspace',
+    };
+    /** Hand-written in `.mcp.json`: workspace, but no intent to convert. */
+    const HAND_WRITTEN: InstalledMcpServer = {
+      ...FIRECRAWL,
+      serverKey: 'local-tool',
+      managedByPtah: false,
+      removal: 'direct',
+      scope: 'workspace',
+    };
+
+    const installedServers = (servers: readonly InstalledMcpServer[]) => {
+      responders['mcpDirectory:listInstalled'] = () => ok({ servers });
+    };
+
+    /** The real host: after a conversion the reload lists firecrawl global. */
+    const converts = (results: readonly unknown[]) => (): unknown => {
+      installedServers([
+        { ...WORKSPACE_FIRECRAWL, scope: 'global' },
+        { ...WORKSPACE_FIRECRAWL_VSCODE, scope: 'global' },
+        GLOBAL_EXA,
+        PLUGIN_ACME,
+        HAND_WRITTEN,
+        NOTION,
+      ]);
+      return ok({ success: true, results });
+    };
+
+    const scopeRow = (key: string): HTMLElement | null =>
+      root().querySelector<HTMLElement>(
+        `[data-testid="server-scope-row"][data-server-key="${key}"]`,
+      );
+    const within = (key: string, testId: string): HTMLElement | null =>
+      scopeRow(key)?.querySelector<HTMLElement>(`[data-testid="${testId}"]`) ??
+      null;
+    const text = (el: Element | null | undefined): string =>
+      el?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    const click = async (el: HTMLElement | null): Promise<void> => {
+      expect(el).not.toBeNull();
+      el?.click();
+      await settle();
+    };
+
+    beforeEach(() => {
+      installedServers([
+        WORKSPACE_FIRECRAWL,
+        WORKSPACE_FIRECRAWL_VSCODE,
+        GLOBAL_EXA,
+        PLUGIN_ACME,
+        HAND_WRITTEN,
+        NOTION,
+      ]);
+      responders['mcpDirectory:makeGlobal'] = converts([]);
+    });
+
+    it('shows the true scope badge of each row, and none for a row with no scope', async () => {
+      await mount();
+
+      expect(text(within('firecrawl', 'server-scope-badge'))).toBe(
+        'This workspace',
+      );
+      expect(text(within('firecrawl', 'server-scope-targets'))).toBe(
+        'Claude Code, VS Code',
+      );
+      expect(text(within('exa', 'server-scope-badge'))).toBe('All workspaces');
+      expect(
+        within('exa', 'server-scope-badge')?.classList.contains(
+          'border-warning',
+        ),
+      ).toBe(true);
+      expect(text(within('exa', 'server-scope-everywhere'))).toBe(
+        'Available everywhere',
+      );
+      expect(within('exa', 'server-make-global')).toBeNull();
+      // OAuth rows carry no scope on the wire: no line, no guessed badge.
+      expect(scopeRow('notion')).toBeNull();
+    });
+
+    it('offers Make global for a Ptah workspace install, external-plugin servers included', async () => {
+      await mount();
+
+      expect(
+        within('firecrawl', 'server-make-global')?.getAttribute('aria-label'),
+      ).toBe('Make firecrawl global');
+      expect(
+        within('acme-files', 'server-make-global')?.getAttribute('aria-label'),
+      ).toBe('Make acme-files global');
+      // A hand-written workspace entry has no intent to move.
+      expect(text(within('local-tool', 'server-scope-badge'))).toBe(
+        'This workspace',
+      );
+      expect(within('local-tool', 'server-make-global')).toBeNull();
+    });
+
+    it('opens the conversion state with all three home targets unchecked', async () => {
+      await mount();
+      await click(within('firecrawl', 'server-make-global'));
+
+      const state = within('firecrawl', 'server-convert-state');
+      expect(state?.getAttribute('role')).toBe('group');
+      expect(text(state?.querySelector('[role="note"]'))).toBe(
+        'Making this global also adds it to the Copilot, Codex and Antigravity files in your home folder, if you pick them.',
+      );
+      expect(text(state?.querySelector('legend'))).toBe('Also add to');
+      const boxes = Array.from(
+        state?.querySelectorAll<HTMLInputElement>(
+          '[data-testid="server-convert-target"]',
+        ) ?? [],
+      );
+      expect(boxes.map((box) => box.getAttribute('data-target'))).toEqual([
+        'copilot',
+        'codex',
+        'antigravity',
+      ]);
+      expect(boxes.every((box) => !box.checked)).toBe(true);
+      expect(text(state)).toContain(
+        'Nothing is added to your home folder unless you tick it. The existing project files stay as they are.',
+      );
+      expect(document.activeElement).toBe(boxes[0]);
+      expect(conversions).toEqual([]);
+    });
+
+    it('converts with no home target when none is ticked', async () => {
+      await mount();
+      await click(within('firecrawl', 'server-make-global'));
+      await click(within('firecrawl', 'server-convert-confirm'));
+
+      expect(conversions).toEqual([
+        { serverKey: 'firecrawl', homeTargets: [] },
+      ]);
+      expect(
+        text(root().querySelector('[data-testid="server-scope-status"]')),
+      ).toBe('firecrawl is now available in all workspaces.');
+      expect(text(within('firecrawl', 'server-scope-everywhere'))).toBe(
+        'Available everywhere',
+      );
+      expect(within('firecrawl', 'server-make-global')).toBeNull();
+      expect(document.activeElement).toBe(
+        within('firecrawl', 'server-scope-name'),
+      );
+    });
+
+    it('sends only the home targets the user ticked, and names a target that failed', async () => {
+      responders['mcpDirectory:makeGlobal'] = converts([
+        { target: 'claude', success: true, configPath: 'x' },
+        {
+          target: 'codex',
+          success: false,
+          configPath: 'y',
+          error: 'EACCES /home/me',
+        },
+      ]);
+      await mount();
+      await click(within('firecrawl', 'server-make-global'));
+      const codex = within(
+        'firecrawl',
+        'server-convert-state',
+      )?.querySelector<HTMLInputElement>('[data-target="codex"]');
+      await click(codex ?? null);
+      await click(within('firecrawl', 'server-convert-confirm'));
+
+      expect(conversions).toEqual([
+        { serverKey: 'firecrawl', homeTargets: ['codex'] },
+      ]);
+      const status = text(
+        root().querySelector('[data-testid="server-scope-status"]'),
+      );
+      expect(status).toBe(
+        'firecrawl is now available in all workspaces. It could not be added to Codex CLI.',
+      );
+      expect(status).not.toContain('EACCES');
+    });
+
+    it('starts unchecked again after a cancelled choice', async () => {
+      await mount();
+      await click(within('firecrawl', 'server-make-global'));
+      await click(
+        within('firecrawl', 'server-convert-state')?.querySelector<HTMLElement>(
+          '[data-target="copilot"]',
+        ) ?? null,
+      );
+      await click(within('firecrawl', 'server-convert-cancel'));
+
+      expect(within('firecrawl', 'server-convert-state')).toBeNull();
+      expect(document.activeElement).toBe(
+        within('firecrawl', 'server-make-global'),
+      );
+      await click(within('firecrawl', 'server-make-global'));
+      const boxes = Array.from(
+        within(
+          'firecrawl',
+          'server-convert-state',
+        )?.querySelectorAll<HTMLInputElement>(
+          '[data-testid="server-convert-target"]',
+        ) ?? [],
+      );
+      expect(boxes.every((box) => !box.checked)).toBe(true);
+      expect(conversions).toEqual([]);
+    });
+
+    it('shows the fixed error copy, never host text, and retries the same request', async () => {
+      responders['mcpDirectory:makeGlobal'] = () => ({
+        success: false,
+        error: 'ENOENT C:\\Users\\me\\.ptah\\mcp-intents.json',
+        isSuccess: () => false,
+      });
+      await mount();
+      await click(within('firecrawl', 'server-make-global'));
+      await click(
+        within('firecrawl', 'server-convert-state')?.querySelector<HTMLElement>(
+          '[data-target="antigravity"]',
+        ) ?? null,
+      );
+      await click(within('firecrawl', 'server-convert-confirm'));
+
+      const alert = within('firecrawl', 'server-convert-error');
+      expect(alert?.getAttribute('role')).toBe('alert');
+      expect(text(alert)).toContain(
+        'Could not change where firecrawl is installed.',
+      );
+      expect(text(alert)).not.toContain('ENOENT');
+      expect(text(within('firecrawl', 'server-scope-badge'))).toBe(
+        'This workspace',
+      );
+
+      responders['mcpDirectory:makeGlobal'] = converts([]);
+      await click(within('firecrawl', 'server-convert-retry'));
+
+      expect(conversions).toEqual([
+        { serverKey: 'firecrawl', homeTargets: ['antigravity'] },
+        { serverKey: 'firecrawl', homeTargets: ['antigravity'] },
+      ]);
+      expect(within('firecrawl', 'server-convert-error')).toBeNull();
+      expect(text(within('firecrawl', 'server-scope-everywhere'))).toBe(
+        'Available everywhere',
+      );
+    });
+
+    it('disables the row and reads Working... while the conversion runs', async () => {
+      let finish: (value: unknown) => void = () => undefined;
+      responders['mcpDirectory:makeGlobal'] = () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        });
+      await mount();
+      await click(within('firecrawl', 'server-make-global'));
+      await click(within('firecrawl', 'server-convert-confirm'));
+
+      const working = within(
+        'firecrawl',
+        'server-make-global',
+      ) as HTMLButtonElement | null;
+      expect(working?.disabled).toBe(true);
+      expect(text(working)).toBe('Working...');
+      expect(working?.querySelector('.loading-spinner')).not.toBeNull();
+
+      finish(converts([])());
+      await settle();
+      expect(within('firecrawl', 'server-make-global')).toBeNull();
+    });
+
+    it('never offers a reverse action on a global row', async () => {
+      await mount();
+
+      const row = scopeRow('exa');
+      expect(row?.querySelectorAll('button')).toHaveLength(0);
+      expect(text(row)).not.toMatch(/make .*workspace/i);
+    });
   });
 });

@@ -15,8 +15,10 @@
  *    derived from the plugin id, its resolved version and the exact file list,
  *    so a plan the user never saw cannot be consented to, and a plan for a
  *    DIFFERENT version of the same plugin will not validate.
- * 2. Declared `mcpServers` are shown verbatim in the plan and are NEVER
- *    registered by the install. Consent to install is not consent to run.
+ * 2. Declared `mcpServers` are shown verbatim in the plan. The consented call
+ *    records them in the scope the user chose
+ *    ({@link ExternalInstallParams.mcpScope}, workspace by default); the plan
+ *    call writes nothing.
  * 3. Installing records the plugin id in a persisted store. That store — not
  *    the presence of a directory on disk — is what makes an external id
  *    resolvable by `PluginLoaderService`. A directory that appears under
@@ -24,6 +26,7 @@
  */
 
 import type { HarnessTargetId } from '../harness-sync.types';
+import type { CapabilityScope } from '../mcp-directory.types';
 import type {
   FileDecision,
   LibraryPassStatus,
@@ -318,6 +321,16 @@ export interface ExternalInstallParams {
   consentToken?: string;
   /** Keep/replace per plan `approvalId`. Absent or missing entries = keep. */
   localItemDecisions?: Record<string, FileDecision>;
+  /**
+   * Where the plugin's declared MCP servers are installed (TASK_2026_853
+   * Phase D). Read only on the consented call (the one carrying
+   * `consentToken`); the plan call ignores it. The handler's schema defaults
+   * it to `'workspace'`: the servers go to the open workspace's config files
+   * only. `'global'` is the explicit "All workspaces" choice. With workspace
+   * scope and no workspace open, the plugin files still install and the
+   * servers are skipped with a warning.
+   */
+  mcpScope?: CapabilityScope;
 }
 
 /** Params for `plugins:uninstall-external`. */

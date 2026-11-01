@@ -8,10 +8,12 @@
  * antivirus scanner.
  */
 
-import type {
-  HarnessFacetMatrix,
-  HarnessTargetHealth,
-  HarnessTargetId,
+import {
+  harnessPathIdentity,
+  type HarnessFacetMatrix,
+  type HarnessRetiredPath,
+  type HarnessTargetHealth,
+  type HarnessTargetId,
 } from '@ptah-extension/shared';
 import type {
   HarnessApplyResult,
@@ -108,12 +110,19 @@ export function plannedTargetHealth(
  * `keptLocalEdit` merges the edits the plan kept with the ones the apply kept
  * when a save landed between plan and apply. `localEdit` stays the plan's list,
  * so it equals what a read-only verify over the same tree reports.
+ *
+ * `removedRetired` / `keptRetired` carry the apply's per-path retirement
+ * outcomes (D-2) exactly as the target reported them, one row per
+ * {@link harnessPathIdentity} under `workspaceRoot` — the key the migration
+ * ledger files them under. A failed retired removal is not repeated there: it
+ * is the `writeFailed` row carrying `itemId`.
  */
 export function appliedTargetHealth(
   plan: HarnessPlan,
   facets: HarnessFacetMatrix,
   result: HarnessApplyResult,
   durationMs: number,
+  workspaceRoot: string,
 ): HarnessTargetHealth {
   const failedPaths = new Set(result.writeFailed.map((f) => f.relPath));
   const missing = plan.writes
@@ -134,6 +143,11 @@ export function appliedTargetHealth(
     ],
     removed: [...result.removed],
     removedLocalEdit: [...(result.removedLocalEdit ?? [])],
+    removedRetired: uniqueByPathIdentity(
+      workspaceRoot,
+      result.removedRetired ?? [],
+    ),
+    keptRetired: uniqueByPathIdentity(workspaceRoot, result.keptRetired ?? []),
     adopted: [...plan.adopted],
     localEdit: [...plan.keptLocalEdit],
     agentsInSync: [
@@ -144,6 +158,28 @@ export function appliedTargetHealth(
     ],
     durationMs,
   };
+}
+
+/**
+ * One row per cross-workspace path identity, first report wins, order kept.
+ *
+ * A target reports each removal once, so this normally copies the list as is;
+ * it exists so two spellings of one path (a trailing slash, a backslash) can
+ * never count twice in the ledger that sums these rows across workspaces.
+ */
+function uniqueByPathIdentity<T extends HarnessRetiredPath>(
+  workspaceRoot: string,
+  rows: readonly T[],
+): T[] {
+  const seen = new Set<string>();
+  const unique: T[] = [];
+  for (const row of rows) {
+    const identity = harnessPathIdentity(workspaceRoot, row.relPath);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    unique.push({ ...row });
+  }
+  return unique;
 }
 
 /**

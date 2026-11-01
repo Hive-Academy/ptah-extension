@@ -115,7 +115,12 @@ import {
   SESSION_FORCED_CARD,
   SESSION_READ_ONLY,
   SESSION_START_GUARD,
+  SESSION_FOCUSED,
 } from '../../tokens/session-context.token';
+import {
+  SESSION_EMBED_CHROME,
+  type SessionEmbedChrome,
+} from '../../tokens/session-embed-chrome.token';
 import { RpcResult } from '@ptah-extension/core';
 import { SidebarTabComponent } from '@ptah-extension/chat-ui';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
@@ -197,6 +202,10 @@ function makeHarness(
     isElectron?: boolean;
     /** Provide `SESSION_READ_ONLY` (a watch-only host such as the Command Center rail). */
     readOnly?: boolean;
+    /** Initial `SESSION_FOCUSED` signal value (a session embed's pane focus). */
+    sessionFocused?: boolean;
+    /** Provide `SESSION_EMBED_CHROME` (a session embed's chrome). */
+    embedChrome?: SessionEmbedChrome;
   } = {},
 ) {
   const {
@@ -214,7 +223,11 @@ function makeHarness(
     startGuard,
     isElectron = false,
     readOnly,
+    sessionFocused,
+    embedChrome,
   } = opts;
+  const sessionFocusedSig =
+    sessionFocused === undefined ? null : signal<boolean>(sessionFocused);
   const sessionVisibleSig =
     sessionVisible === undefined ? null : signal<boolean>(sessionVisible);
   const forcedCardSig =
@@ -587,6 +600,17 @@ function makeHarness(
       ...(readOnly === undefined
         ? []
         : [{ provide: SESSION_READ_ONLY, useValue: readOnly }]),
+      ...(sessionFocusedSig
+        ? [
+            {
+              provide: SESSION_FOCUSED,
+              useValue: sessionFocusedSig.asReadonly(),
+            },
+          ]
+        : []),
+      ...(embedChrome === undefined
+        ? []
+        : [{ provide: SESSION_EMBED_CHROME, useValue: embedChrome }]),
       {
         provide: SESSION_CONTEXT,
         useValue:
@@ -670,6 +694,7 @@ function makeHarness(
     activeTabIdSig,
     tabsSig,
     sessionVisibleSig,
+    sessionFocusedSig,
     forcedCardSig,
     resumableSubagentsSig,
     isCompactingForTabMock,
@@ -1892,6 +1917,72 @@ describe('ChatViewComponent — mainPanelShowing() / SESSION_VISIBLE gating', ()
   it('tile mode without SESSION_VISIBLE token defaults to showing', () => {
     const h = makeHarness({ sessionContextTabId: 'tile-A' });
     expect(h.component.mainPanelShowing()).toBe(true);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// TASK_2026_853 (visual review V1) — the install-scope migration notice gate.
+// Electron hosts every chat view in a SessionEmbed, which always provides
+// SESSION_CONTEXT, so the notice must key on the focused full-chrome embed,
+// not on "no session context".
+// ---------------------------------------------------------------------------
+describe('ChatViewComponent — install-scope migration notice gate', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  const shows = (h: ReturnType<typeof makeHarness>): boolean =>
+    (
+      h.component as unknown as { showInstallMigrationNotice(): boolean }
+    ).showInstallMigrationNotice();
+
+  it('shows in the main panel (no session context, VS Code)', () => {
+    expect(shows(makeHarness())).toBe(true);
+  });
+
+  it('shows in the focused full-chrome embed (Electron canvas pane)', () => {
+    const h = makeHarness({
+      sessionContextTabId: 'tile-A',
+      sessionFocused: true,
+      embedChrome: 'full',
+    });
+    expect(shows(h)).toBe(true);
+  });
+
+  it('follows pane focus: an unfocused split pane hides it, refocus shows it', () => {
+    const h = makeHarness({
+      sessionContextTabId: 'tile-B',
+      sessionFocused: false,
+      embedChrome: 'full',
+    });
+    expect(shows(h)).toBe(false);
+    h.sessionFocusedSig!.set(true);
+    expect(shows(h)).toBe(true);
+  });
+
+  it('never shows in a bare embed (harness builder, setup wizard)', () => {
+    const h = makeHarness({
+      sessionContextTabId: 'tile-A',
+      sessionFocused: true,
+      embedChrome: 'bare',
+    });
+    expect(shows(h)).toBe(false);
+  });
+
+  it('never shows in a read-only main view', () => {
+    expect(shows(makeHarness({ readOnly: true }))).toBe(false);
+  });
+
+  it('never shows in a read-only embed, even when focused', () => {
+    const h = makeHarness({
+      sessionContextTabId: 'tile-A',
+      sessionFocused: true,
+      embedChrome: 'full',
+      readOnly: true,
+    });
+    expect(shows(h)).toBe(false);
   });
 });
 
