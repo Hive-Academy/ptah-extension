@@ -22,6 +22,7 @@ import {
 import type { CodexChatApprovalSink } from './codex-chat-approval-sink';
 import type { CodexChatAdmission } from './codex-chat-admission';
 import {
+  CODEX_FAILURE_NOTICE,
   CodexChatEvents,
   tokenUsage,
   type CodexChatResult,
@@ -55,8 +56,6 @@ export interface CodexChatSession {
   compacting?: Promise<void>;
 }
 
-const FAILURE_NOTICE = 'Codex reported a runtime error.';
-
 function failureNotice(
   session: CodexChatSession,
   turnId: string | undefined,
@@ -80,7 +79,7 @@ function failureNotice(
       ...base,
       id: `${messageId}:text`,
       eventType: 'text_delta',
-      delta: FAILURE_NOTICE,
+      delta: CODEX_FAILURE_NOTICE,
       blockIndex: 0,
     },
   ];
@@ -403,7 +402,7 @@ export async function* streamCodexChatTurn(
       if (!errorPresented) {
         void Promise.resolve()
           .then(() => deps.callbacks(session.id, undefined).error(
-            FAILURE_NOTICE, session.context.identity.workspaceId,
+            CODEX_FAILURE_NOTICE, session.context.identity.workspaceId,
           ))
           .catch((publicationError: unknown) => {
             deps.logger.error(

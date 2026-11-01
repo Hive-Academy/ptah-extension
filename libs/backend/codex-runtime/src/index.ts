@@ -30,6 +30,7 @@ export type {
   CodexHistoryItemEntry,
 } from './lib/codex-runtime.types';
 export { CodexSessionHistoryError } from './lib/codex-session-history';
+export { CodexEventTranslator } from './lib/codex-event-translator';
 export type { CodexRuntime as CodexRuntimePort } from './lib/codex-runtime.types';
 export type {
   CodexUsageEligibility,
