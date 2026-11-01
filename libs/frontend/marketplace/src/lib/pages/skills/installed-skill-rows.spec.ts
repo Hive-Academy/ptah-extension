@@ -2,6 +2,8 @@
  * installed-skill-rows specs — the pure view model behind the installed skills
  * page and its detail route (plan C9). Row identity, group state isolation,
  * search, and ref lookup (including an external id with `/` and `:`).
+ * Install scope (design-spec §2): community rows carry their scope, plugins
+ * none, and the "Make global" feedback names the whole converted root.
  */
 
 import {
@@ -11,9 +13,13 @@ import {
   type InstalledSkill,
   type PluginInfo,
 } from '@ptah-extension/shared';
-import type { InventorySlice } from '../../data/marketplace-inventory.store';
+import type {
+  InventoryConversionOutcome,
+  InventorySlice,
+} from '../../data/marketplace-inventory.store';
 import { decodeSkillRef, encodeSkillRef } from '../../data/skill-ref';
 import {
+  INSTALL_SCOPE_BADGE_LABELS,
   SKILL_KIND_ICONS,
   communityRow,
   plural,
@@ -26,6 +32,7 @@ import {
   pluginRow,
   pluginSourceLabel,
   shadowedAgentNames,
+  skillConversionNotice,
   type InstalledSkillSlices,
 } from './installed-skill-rows';
 
@@ -116,6 +123,7 @@ describe('installed-skill-rows', () => {
           agents: [],
         },
         shadowedAgents: [],
+        scope: null,
       });
     });
 
@@ -216,9 +224,9 @@ describe('installed-skill-rows', () => {
     });
 
     it('counts agents from their names when the host sent no agent count', () => {
-      expect(
-        pluginContents(plugin({ agentNames: ['a', 'b'] })).summary,
-      ).toBe('3 skills · 1 command · 2 agents');
+      expect(pluginContents(plugin({ agentNames: ['a', 'b'] })).summary).toBe(
+        '3 skills · 1 command · 2 agents',
+      );
     });
 
     it('labels the provenance of every kind with the shared label function', () => {
@@ -226,7 +234,9 @@ describe('installed-skill-rows', () => {
         'Plugin: Ptah Release Kit',
       );
       expect(
-        provenanceLabel(communityRow(skill({ source: 'acme/skills' })).provenance),
+        provenanceLabel(
+          communityRow(skill({ source: 'acme/skills' })).provenance,
+        ),
       ).toBe('skills.sh: acme/skills');
       expect(
         provenanceLabel(communityRow(skill({ source: 'local' })).provenance),
@@ -258,11 +268,11 @@ describe('installed-skill-rows', () => {
       const unknown = agentClone('release-manager');
 
       expect(
-        shadowedAgentNames('ptah-release-kit', ['release-manager'], [
-          own,
-          skillCopy,
-          unknown,
-        ]),
+        shadowedAgentNames(
+          'ptah-release-kit',
+          ['release-manager'],
+          [own, skillCopy, unknown],
+        ),
       ).toEqual([]);
     });
 
@@ -453,10 +463,7 @@ describe('installed-skill-rows', () => {
 
     it('returns null when the slice does not hold the id', () => {
       expect(
-        findInstalledSkill(
-          { kind: 'community-skill', id: 'gone' },
-          slices(),
-        ),
+        findInstalledSkill({ kind: 'community-skill', id: 'gone' }, slices()),
       ).toBeNull();
       expect(
         findInstalledSkill(
@@ -473,6 +480,112 @@ describe('installed-skill-rows', () => {
           slices(),
         ),
       ).toBeNull();
+    });
+  });
+
+  describe('install scope', () => {
+    it('carries a community skill scope and gives plugins none', () => {
+      expect(communityRow(skill({ scope: 'workspace' })).scope).toBe(
+        'workspace',
+      );
+      expect(communityRow(skill({ scope: 'global' })).scope).toBe('global');
+      expect(pluginRow(plugin()).scope).toBeNull();
+      expect(marketplaceRow(listing()).scope).toBeNull();
+      expect(INSTALL_SCOPE_BADGE_LABELS).toEqual({
+        workspace: 'This workspace',
+        global: 'All workspaces',
+      });
+    });
+
+    it('keeps workspace and global skills in the one community group, in host order', () => {
+      const groups = installedSkillGroups(
+        slices({
+          community: ready([
+            skill({ name: 'nx-workspace', scope: 'workspace' }),
+            skill({ name: 'deep-research', scope: 'global' }),
+            skill({ name: 'jest-runner', scope: 'workspace' }),
+          ]),
+        }),
+      );
+      const community = groups.find((group) => group.id === 'community');
+
+      expect(groups.map((group) => group.id)).toEqual([
+        'plugins',
+        'community',
+        'marketplaces',
+      ]);
+      expect(community?.rows.map((row) => [row.name, row.scope])).toEqual([
+        ['nx-workspace', 'workspace'],
+        ['deep-research', 'global'],
+        ['jest-runner', 'workspace'],
+      ]);
+      expect(community?.total).toBe(3);
+      expect(
+        groups
+          .filter((group) => group.id !== 'community')
+          .flatMap((group) => group.rows.map((row) => row.scope)),
+      ).toEqual([null, null]);
+    });
+
+    const row = communityRow(
+      skill({ name: 'nx-workspace', scope: 'workspace' }),
+    );
+
+    const converted = (
+      convertedSkills: readonly string[],
+    ): InventoryConversionOutcome => ({
+      status: 'converted',
+      message: 'nx-workspace is now available in all workspaces.',
+      convertedSkills,
+      failedTargets: [],
+    });
+
+    it('confirms a one-skill conversion with the fixed copy', () => {
+      expect(skillConversionNotice(row, converted(['nx-workspace']))).toEqual({
+        ref: row.ref,
+        role: 'status',
+        text: 'nx-workspace is now available in all workspaces.',
+      });
+    });
+
+    it('names every other skill of the converted root (whole-root move)', () => {
+      expect(
+        skillConversionNotice(
+          row,
+          converted(['nx-workspace', 'nx-generators', 'nx-migrate']),
+        ).text,
+      ).toBe(
+        'nx-workspace is now available in all workspaces. It was installed together with nx-generators, nx-migrate, which are now available in all workspaces too.',
+      );
+      expect(
+        skillConversionNotice(row, converted(['nx-generators', 'nx-workspace']))
+          .text,
+      ).toBe(
+        'nx-workspace is now available in all workspaces. It was installed together with nx-generators, which is now available in all workspaces too.',
+      );
+    });
+
+    it('shows a failed conversion as an alert with the fixed copy only', () => {
+      expect(
+        skillConversionNotice(row, {
+          status: 'failed',
+          message: 'Could not change where nx-workspace is installed.',
+        }),
+      ).toEqual({
+        ref: row.ref,
+        role: 'alert',
+        text: 'Could not change where nx-workspace is installed.',
+      });
+    });
+
+    it('shows a refused conversion as an alert', () => {
+      const notice = skillConversionNotice(row, {
+        status: 'refused',
+        reason: 'in-progress',
+        message: '"nx-workspace" is already being changed.',
+      });
+      expect(notice.role).toBe('alert');
+      expect(notice.text).toBe('"nx-workspace" is already being changed.');
     });
   });
 });

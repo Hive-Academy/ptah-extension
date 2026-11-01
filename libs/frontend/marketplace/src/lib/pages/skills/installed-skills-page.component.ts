@@ -26,7 +26,7 @@ import {
   VSCodeService,
   type MarketplaceSkillSource,
 } from '@ptah-extension/core';
-import { provenanceLabel } from '@ptah-extension/shared';
+import { provenanceLabel, type CapabilityScope } from '@ptah-extension/shared';
 import { NativeDrawerComponent } from '@ptah-extension/ui';
 import { MarketplaceInventoryStore } from '../../data/marketplace-inventory.store';
 import {
@@ -37,6 +37,7 @@ import { MarketplaceLayout } from '../../layout/marketplace-layout';
 import { marketplaceRouteLink } from '../../shell/marketplace-route-url';
 import { DockedInspectorComponent } from '../../ui/docked-inspector.component';
 import {
+  INSTALL_SCOPE_BADGE_LABELS,
   SKILL_KIND_ICONS,
   SKILL_KIND_LABELS,
   filterInstalledSkillGroups,
@@ -44,9 +45,11 @@ import {
   installedSkillGroups,
   orphanedCopyNames,
   plural,
+  skillConversionNotice,
   type InstalledSkillGroupId,
   type InstalledSkillRow,
   type InstalledSkillSlices,
+  type SkillConversionNotice,
 } from './installed-skill-rows';
 import { InstalledLibraryStaleNoticeComponent } from './installed-library-stale-notice.component';
 import { PluginConfigHomeNoticeComponent } from './plugin-config-home-notice.component';
@@ -93,6 +96,14 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
  * {@link DockedInspectorComponent}, which never takes focus; below wide it is
  * a modal {@link NativeDrawerComponent}, which traps focus and restores it on
  * close. Closing navigates back to this page.
+ *
+ * ## Install scope
+ *
+ * A community skill row shows where it is installed (This workspace / All
+ * workspaces). A workspace row offers "Make global", which moves its whole
+ * skills.sh source root; the feedback line names every skill that moved. A
+ * global row says "Available everywhere": there is no reverse action. After
+ * a successful conversion focus moves to the row's name.
  *
  * ## Keyboard
  *
@@ -343,6 +354,43 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
                           >{{ shadowedText(row) }}</span
                         >
                       }
+                      @if (row.scope; as scope) {
+                        <span
+                          class="badge badge-outline badge-sm shrink-0"
+                          [class.border-warning]="scope === 'global'"
+                          data-testid="installed-skill-scope"
+                          >{{ scopeLabel(scope) }}</span
+                        >
+                        @if (scope === 'workspace') {
+                          <button
+                            type="button"
+                            class="btn btn-outline btn-xs shrink-0"
+                            data-testid="installed-skill-make-global"
+                            [disabled]="
+                              convertingIds().has(row.ref) ||
+                              pendingIds().has(row.ref)
+                            "
+                            [attr.aria-label]="'Make ' + row.name + ' global'"
+                            (click)="makeGlobal(row)"
+                          >
+                            @if (convertingIds().has(row.ref)) {
+                              <span
+                                class="loading loading-spinner loading-xs"
+                                aria-hidden="true"
+                              ></span>
+                              Working...
+                            } @else {
+                              Make global
+                            }
+                          </button>
+                        } @else {
+                          <span
+                            class="shrink-0 text-xs text-base-content-muted"
+                            data-testid="installed-skill-everywhere"
+                            >Available everywhere</span
+                          >
+                        }
+                      }
                       @if (row.action === 'manage') {
                         <a
                           class="btn btn-ghost btn-xs shrink-0"
@@ -356,7 +404,10 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
                           type="button"
                           class="btn btn-ghost btn-xs shrink-0 text-error"
                           data-testid="installed-skill-uninstall"
-                          [disabled]="pendingIds().has(row.ref)"
+                          [disabled]="
+                            pendingIds().has(row.ref) ||
+                            convertingIds().has(row.ref)
+                          "
                           [attr.aria-label]="'Uninstall ' + row.name"
                           (click)="uninstall(row)"
                         >
@@ -366,6 +417,21 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
                               : 'Uninstall'
                           }}
                         </button>
+                      }
+                      @if (conversionNotice(); as notice) {
+                        @if (notice.ref === row.ref) {
+                          <p
+                            class="basis-full text-xs"
+                            [class.text-error]="notice.role === 'alert'"
+                            [class.text-base-content-muted]="
+                              notice.role === 'status'
+                            "
+                            [attr.role]="notice.role"
+                            data-testid="installed-skill-conversion"
+                          >
+                            {{ notice.text }}
+                          </p>
+                        }
                       }
                     </li>
                   }
@@ -436,6 +502,14 @@ export class InstalledSkillsPageComponent {
   });
 
   protected readonly pendingIds = this.inventory.pendingIds;
+
+  /** Row ids with a "Make global" in flight (same id space as the ref). */
+  protected readonly convertingIds = this.inventory.convertingIds;
+
+  /** The feedback line of the last "Make global", shown on its row. */
+  protected readonly conversionNotice = signal<SkillConversionNotice | null>(
+    null,
+  );
 
   /** The D14 plugin settings notice is Electron only (no other host sends it). */
   protected readonly isElectron = computed(() => this.vscode.isElectron);
@@ -561,6 +635,43 @@ export class InstalledSkillsPageComponent {
 
   protected shadowedText(row: InstalledSkillRow): string {
     return `${plural(row.shadowedAgents.length, 'agent', 'agents')} shadowed`;
+  }
+
+  protected scopeLabel(scope: CapabilityScope): string {
+    return INSTALL_SCOPE_BADGE_LABELS[scope];
+  }
+
+  /** Convert a workspace community skill to All workspaces (whole root). */
+  protected makeGlobal(row: InstalledSkillRow): void {
+    void this.runMakeGlobal(row);
+  }
+
+  private async runMakeGlobal(row: InstalledSkillRow): Promise<void> {
+    this.conversionNotice.set(null);
+    this.setPageError('community', null);
+    const skill = this.inventory
+      .community()
+      .data.find((item) => item.name === row.id);
+    if (skill === undefined) {
+      // Same stale-row case as an uninstall: say so and re-read the list.
+      this.setPageError(
+        'community',
+        `"${row.name}" is no longer installed. The list has been refreshed.`,
+      );
+      void this.inventory.reload('community');
+      return;
+    }
+    const outcome = await this.inventory.makeSkillGlobal(skill);
+    if (this.destroyed) return;
+    this.conversionNotice.set(skillConversionNotice(row, outcome));
+    if (outcome.status === 'converted') {
+      // The button is gone once the list reloads; keep focus on the row.
+      const link = this.rowLink(row.ref);
+      if (link !== undefined) {
+        this.activeRef.set(row.ref);
+        link.focus();
+      }
+    }
   }
 
   protected sourceLink(source: MarketplaceSkillSource): string[] {
