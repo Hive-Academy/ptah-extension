@@ -965,6 +965,33 @@ describe('CanvasLaneTabsComponent', () => {
     }
   });
 
+  it('restores the selected tab when overflow empties while the closed menu trigger has focus', async () => {
+    agents.set([
+      cli({ agentId: 'run', parentSessionId: 'owner', cli: 'Runner' }),
+      cli({ agentId: 'done-a', parentSessionId: 'owner', cli: 'Done A', status: 'completed' }),
+    ]);
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
+    try {
+      const trigger = root.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+      trigger.focus();
+      expect(document.activeElement).toBe(trigger);
+      expect(root.querySelector('[role="menu"]')).toBeNull();
+
+      agents.set(agents().filter((agent) => agent.agentId !== 'done-a'));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(root.querySelector('[aria-haspopup="menu"]')).toBeNull();
+      expect(document.activeElement).toBe(root.querySelector('[role="tab"][aria-selected="true"]'));
+    } finally {
+      root.remove();
+      fixture.destroy();
+    }
+  });
+
   it('selects from the menu with Enter, returns focus on Escape, and describes the hovered tab', async () => {
     agents.set([
       ...Array.from({ length: 5 }, (_, i) => cli({ agentId: `c${i}`, parentSessionId: 'owner', cli: `CLI ${i}` })),

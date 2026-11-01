@@ -10,6 +10,7 @@ import {
   input,
   output,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import type { SessionAgent } from '@ptah-extension/chat';
@@ -187,11 +188,14 @@ export class AgentDockMenuComponent {
       const key = this.rovingKey();
       this.activeKey.set(key);
       if (!key) return;
-      afterNextRender(() => {
-        if (this.open() && document.activeElement === document.body) {
-          document.getElementById(this.rowId(key))?.focus();
-        }
-      }, { injector: this.injector });
+      // Register the render hook outside the effect's reactive context.
+      untracked(() =>
+        afterNextRender(() => {
+          if (this.open() && document.activeElement === document.body) {
+            document.getElementById(this.rowId(key))?.focus();
+          }
+        }, { injector: this.injector }),
+      );
     });
   }
 

@@ -12,6 +12,7 @@ import {
   input,
   output,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import type { SessionAgent } from '@ptah-extension/chat';
@@ -259,6 +260,7 @@ export class CanvasLaneTabsComponent {
   private readonly floatingUI = inject(FloatingUIService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly dock = viewChild.required<ElementRef<HTMLElement>>('dock');
 
   readonly tabId = input<string | null>(null);
@@ -406,14 +408,18 @@ export class CanvasLaneTabsComponent {
         this.closeCard();
       }
     });
+    // restoreDockFocus() registers afterNextRender(); keep that out of the effect's reactive context.
     effect(() => {
       const focused = this.focusedChipKey();
-      if (focused && !this.visibleKeys().includes(focused)) this.restoreDockFocus();
+      if (focused && !this.visibleKeys().includes(focused)) untracked(() => this.restoreDockFocus());
     });
     effect(() => {
-      if (!this.menuOpen() || this.layout().hidden.length > 0) return;
-      this.menuOpen.set(false);
-      this.restoreDockFocus();
+      if (this.layout().hidden.length > 0) return;
+      const open = this.menuOpen();
+      // The overflow trigger is about to be removed; if it holds focus (menu closed), recover it too.
+      if (!open && !this.isMenuTriggerFocused()) return;
+      if (open) this.menuOpen.set(false);
+      untracked(() => this.restoreDockFocus());
     });
     effect(() => {
       if (this.laneKey() !== this.selectedKey()) {
@@ -587,6 +593,15 @@ export class CanvasLaneTabsComponent {
   private readonly visibleKeys = computed(() =>
     this.layout().groups.flatMap((group) => group.chips.map((chip) => chip.key)),
   );
+
+  private isMenuTriggerFocused(): boolean {
+    const active = document.activeElement;
+    return (
+      active instanceof HTMLElement &&
+      this.host.nativeElement.contains(active) &&
+      active.closest('ptah-agent-dock-menu') !== null
+    );
+  }
 
   private restoreDockFocus(): void {
     if (this.focusRecoveryPending) return;
