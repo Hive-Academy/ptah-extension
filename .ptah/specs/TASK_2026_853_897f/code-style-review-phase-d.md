@@ -1,0 +1,29 @@
+# Phase D code style review — TASK_2026_853_897f
+
+**Score: 7/10. Verdict: APPROVED WITH NITS.** Public imports and typed contracts are largely consistent with this repository; the main costs are oversized presentation files, duplicated scope target lists, and a CLI DI smoke list that lags the shared registration. This is below 9–10 because those costs are concrete and Phase D expands them; it is above 5–6 because no new layer-boundary violation or pervasive imprecise typing was found in the production paths examined. The behavioral blockers are in the separate logic review.
+
+## Numbered findings
+
+1. **Minor — installed server presentation is too large to review or change safely.** libs/frontend/marketplace/src/lib/pages/servers/installed-servers-page.component.ts:313 begins an inline template that runs through line 734, followed by conversion behavior in the component at line 736; the file is 937 lines. Adding another installed-row state or target choice forces a maintainer to reason across hundreds of lines of template and methods, increasing the chance that listing and conversion disagree. Extract the conversion fieldset and row into focused Angular components with typed inputs and outputs, leaving inventory coordination in the store. The existing external consent dialog at libs/frontend/marketplace/src/lib/external-consent-dialog.component.ts:160–548 shows the same growing template pattern (754 lines total); treat it as a follow-up refactor, not a separate blocker.
+
+2. **Minor — home target choices are duplicated across the install and conversion surfaces.** libs/frontend/chat-ui/src/lib/molecules/setup-plugins/mcp-directory-browser.component.ts:59 defines HOME_TARGETS, while libs/frontend/marketplace/src/lib/pages/servers/installed-servers-page.component.ts:213 defines MAKE_GLOBAL_HOME_TARGETS. A new home-only target added to one list would appear at install but not Make global, or vice versa, so the same scope policy would have two UI interpretations. Put the canonical target set in the shared MCP contract and import it through each library's public boundary; keep view-specific selected defaults local.
+
+3. **Minor — the CLI DI smoke inventory omits new shared registration classes.** apps/ptah-cli/src/di/expected-resolvable.ts:17–23 has neither InstallScopeMigrationService nor InstallScopeNoticeRpcHandlers, although apps/ptah-extension-vscode/src/di/expected-resolvable.ts:23–34 includes both and the CLI calls registerRpcSurface at libs/backend/cli-engine/src/lib/container.ts:982. A future missing CLI binding can escape the test that explicitly enumerates expected resolvables. Add both to the CLI smoke list with the required real/stubbed host tokens; this is a coverage and consistency issue, not proof that CLI startup currently fails.
+
+4. **Nit — the same path-label helper is repeated.** libs/frontend/chat-ui/src/lib/molecules/setup-plugins/skill-sh-browser.component.ts:62 defines lastPathSegment and mcp-directory-browser.component.ts:698 defines another. If path display rules change, one browser can diverge. Use one small chat-ui utility when next touching these components.
+
+## Decisions
+
+- **Large files are maintenance findings, not logic blockers.** Options: accept the present file size or extract focused row/conversion components. The 423-line inline template in installed-servers-page.component.ts:313–734 and its conversion methods at 736–936 make extraction worthwhile; it is reversible and can follow the logic fixes.
+- **One target policy should own the home target set.** Decision #76 accepted the duplication provisionally; the two definitions at mcp-directory-browser.component.ts:59 and installed-servers-page.component.ts:213 are currently equal, so this is minor drift risk, not an existing wrong target. Centralizing is reversible.
+- **No source was edited.** This is an independent review of the Phase D diff and batch reports. No build or test was run under the read-only scope; scoped ptah_get_diagnostics timed out. The available skill-loading mechanism did not expose angular-frontend-patterns, so this review used the repository instructions and source conventions rather than claiming that skill was loaded.
+
+## Known items
+
+1. **registerRpcSurface catch: confirmed with nuance.** apps/ptah-extension-vscode/src/activation/bootstrap.ts:177–180 has no local catch. libs/backend/cli-engine/src/lib/container.ts:982–989 catches and rethrows. Batch 41's VS Code smoke checks cover the new resolution; this is not independently scored as a style defect.
+2. **SkillsShSourceRootService defaulted parameter: confirmed latent, inherited.** libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.service.ts:190–208 combines an injected logger with an undecorated defaulted homeDir, and Decision #71 records the metadata concern. It predates Phase D; inspect real container resolution before treating it as a Phase D regression. An explicit factory would remove the ambiguity.
+3. **CLI EXPECTED_RESOLVABLE: confirmed.** apps/ptah-cli/src/di/expected-resolvable.ts:17–23 omits both new classes. Finding 3 describes the concrete test-coverage impact.
+
+## Scope and checks
+
+Reviewed the Phase D stat and selected changed production paths across shared contracts, harness-sync, rpc-handlers, cli-agent-runtime, agent-generation, vscode-lm-tools, Electron boot, chat-ui, marketplace, and chat notice. This was not a line-by-line audit of all 98 changed files or their tests. Public chat-ui consumption in the marketplace follows the package entry point (for example libs/frontend/marketplace/src/lib/data/marketplace-inventory.store.ts:23); no new cross-library deep import or production any was found in the inspected paths. Existing batch reports 17–41 document scoped tests and combined verification; Batch 41 notes one pre-existing webview lint failure in its combined run. These reports are evidence of checks performed by implementers, not independent reruns.

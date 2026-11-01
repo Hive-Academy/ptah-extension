@@ -1,13 +1,23 @@
 # HANDOFF — TASK_2026_853_897f (session prefix diet), Phase D
 
-Written 2026-10-31 ~20:35 UTC. Supersedes every earlier HANDOFF.md copy.
+Written 2026-11-01 ~03:35 local. Supersedes every earlier HANDOFF.md copy.
+
+## STATUS (2026-11-01, latest — read this first)
+- Fix round done and committed: `557eff874` backend (L1-L6, S3, V4, V5, round-2 defects 1-3),
+  `0ffce5523` frontend (V1-V3, minors 9/11, coded failure display). Decisions #81-#83.
+- Reviews: codex round 2 REVISE 6/10 -> one bounded fix -> round 3 REVISE 8/10 with one
+  disputed item (#83, no change); revise cap exhausted. Visual round 2 PASS
+  (`visual-review-phase-d-round2.md`, `evidence/pd-r2-*.png`).
+- Full D verify `/tmp/tpd-d-fix-verify.log`: only the known environmental
+  `agent-workspace-scope.spec.ts` failure.
+- Next: push + PR to main, watch CI. MCP registry 404 = separate session (prompt given to user).
 
 ## Goal
 Cut Ptah's fixed session prefix in four phases, each its own PR (implementation-plan.md:3-5):
 **A** built-ins default-off, **B** hide claude.ai-synced skills, **C** remove duplicate prompt
-text, **D** workspace scope as install default (Batches 17–35, 41, 36–40, then F-D4 after
+text, **D** workspace scope as install default (Batches 17–35, 41, 36–40, then F-D4 AFTER
 screenshots). Specs in this folder: `batches.md`, `implementation-plan.md`, `decisions.md`
-(#1–#65), `reports/batch-N.json`.
+(#1–#73), `reports/batch-N.json`.
 
 User decisions: claude backend/frontend-developer subagents implement, codex reviews (#52);
 skip kimi. Phase D gets ONE independent codex code-logic + style review over the combined D
@@ -16,80 +26,111 @@ diff, plus Electron visual review after Batch 40, before the initial push.
 ## Done
 - Phase A #854, B #862, C #863, CLI-lane PR #865: merged.
 - Phase D: worktree `/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d`,
-  branch `feat/session-prefix-diet-d`, NOT pushed, PR will target `main`. Commits so far:
-  - `850dc070c` B17, `19987358a` merge origin/main, `60d9d8db8` B21, `6da2753b5` B20,
-    `e08435c34` B18, `4cea6c6d0` B19, `284ec9cdc` B22, `d770661a6` B23, `50f95cf31` B24,
-    `1f9bf8beb` B24a, `1f24b89a5` audit markers, `5f862502f` B25
-  - `bf579c754` B26 feat(agent-sdk,electron): keep workspace skills.sh roots local
-  - `fa16040f3` B28 feat(rpc-handlers,shared): default MCP directory installs to workspace
-  - `4f6bca120` B29 feat(rpc-handlers): scope external-plugin MCP servers on consent
-    - B26/28/29 cohort verify: 74 tasks, 73 ok, only known webview lint; audit exit 0.
-  - `ebb9158bd` B27 feat(rpc-handlers,shared): default skills.sh installs to workspace
-  - `310efe6e2` B30 feat(vscode-lm-tools): default harness installs to workspace scope
-    (includes protocol-dispatcher.ts forwarding `scope`; install_mcp_server description
-    shortened 1002 → ~700 chars to fit its 780 budget — never raise budgets in this task)
-  - `a9b54d12d` B32 feat(agent-generation): report reaped user-layer clones by path
-    - B27/30/32 cohort verify: 77 tasks; only webview lint + vscode-lm-tools:test failed;
-      the latter was the description budget (fixed) + outliner timing under load; rerun of
-      sweep/tool-description/outliner 218/218 exit 0; audit exit 0.
+  branch `feat/session-prefix-diet-d`, NOT pushed, PR will target `main`. Head `64bd4d445`.
+  Earlier commits: B17–B30, B32 (see git log). This session:
+  - `f7283a905` B31 feat(vscode-lm-tools): document workspace default in harness help
+  - `4510058a8` B33 feat(rpc-handlers,agent-generation): migrate legacy installs to workspace
+    - 31+33 cohort verify: 71/71 ok; degradation audit exit 0.
+  - `8fd439795` B34 feat(rpc-handlers): add install migration notice RPC and fixtures
+    - V-RPC: 68 tasks, 67 ok, only known webview lint; audit exit 0.
+  - `c2b62f5db` B35 feat(shared,rpc-handlers,electron): start install migration on boot
+  - `64bd4d445` B41 test(vscode): cover install migration services in container smoke
+    - 35+41 cohort (shared, rpc-handlers, all hosts, webview): 71 tasks, 70 ok, only known
+      webview lint; audit exit 0; di-lint OK.
+- F-D4 BEFORE screenshots RECAPTURED (originals lost: `.ptah/specs/**/*.png` is git-ignored and
+  the Phase A worktree was removed): `evidence/f-d4-before-dark.png`, `evidence/f-d4-before-light.png`,
+  report `reports/a0-electron-before-recapture.md` (uncommitted). Coordinator viewed the dark
+  image: old copy "Ptah will NOT register or run these servers" — correct BEFORE state. These
+  PNGs exist only in this worktree; never remove it before AFTER evidence is taken.
 
-## In progress (uncommitted in the D worktree, implementation complete, NOT verified)
-- **Batch 31** (help copy): `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts|.spec.ts`.
-  Scoped test 110/110 exit 0 (/tmp/tpd-b31-test.log). Report `reports/batch-31.json`.
-- **Batch 33** (migration service + ledger): new folder
-  `libs/backend/rpc-handlers/src/lib/install-scope/` (service + spec, 23/23 exit 0,
-  /tmp/tpd-b33-test.log) and `libs/backend/agent-generation/src/index.ts` (reaper exports,
-  decision #65; agent-generation typecheck exit 0). Report `reports/batch-33.json` has the full
-  API, ledger schema, write→reader trace, deviations and the Batch 34/35 handoff.
-- Report fixes for batch-27/30/32.json (verify text was PENDING in the committed copies) and
-  decisions.md row #65 are uncommitted — commit them with Batch 31 or 33.
-- The cohort verify for 31+33 was SIGTERM'd while queued (/tmp/tpd-b31-33-verify.log); it
-  never ran. Both reports say `"combinedVerify": "PENDING"`.
+## UPDATE (later session, 2026-11-01)
+- `0ed598683` B36 feat(chat-ui,marketplace) (+ decisions #72-#75, recapture report).
+- `9bf67c95e` B40 feat(chat) notice card (ran in parallel with 36, decision #74; focus rule #75).
+- 36+40 cohort: `/tmp/tpd-b36-40-verify.log` 21 tasks, fails = known webview lint + chat:test
+  that did not reproduce (rerun `/tmp/tpd-chat-test.log` 311/311 suites); audit exit 0.
+- `088341e3b` B37, `b2ebf0953` B38, `c967b14c7` B39 (cohort `/tmp/tpd-b37-39-verify.log`: only
+  known webview lint; audit exit 0; decision #76 = B37 placement + file sizes).
+- origin/main merged (clean merge commit on top of c967b14c7). Running now:
+  - post-merge verify of all 15 D projects -> `/tmp/tpd-d-postmerge-verify.log`
+  - codex review lane (code-logic + style) -> `code-logic-review-phase-d.md`, `code-style-review-phase-d.md`
+  - visual-reviewer subagent (fresh Electron build under lock) -> `visual-review-phase-d.md`,
+    `evidence/f-d4-after-{dark,light}.png`
+  Codex review DONE: logic REVISE 3/10 (6 findings), style APPROVED WITH NITS 7/10; codex CLI
+  Session ID 01a1950c-69cc-7490-b2c8-9cf1723cf4de (resume it for the re-review of the fix diff).
+  Post-merge verify was STOPPED before fixes (decision #77). Fix lanes A (L1, L4, S3) and B (L2,
+  L3, L5, L6) running as backend-developer subagents. Then: full D verify, codex re-review
+  (resume), commit fixes.
+  Visual review DONE: REVISE (visual-review-phase-d.md; F-D4 AFTER pair PASSES, in evidence/).
+  Fix round state (all uncommitted, decisions #77-#80): Fix B done (L2,L3,L5,L6 + resolver
+  fail-safe), Fix C done (V1,V2,V3, minor 9/11), Fix A done (L1,L4,S3) and now continuing with
+  V4, V5 and the listRetired-throws check (/tmp/tpd-fixA2.log). After it: full D verify (15
+  projects, list in this file's post-merge command), codex re-review via resume, Electron
+  re-capture of notice card + consent focus + installed rows, then commit fixes per lane.
+  Pre-existing, outside D: live MCP registry 404 / new schema -> report to user, own task.
+  Next (old): fix confirmed findings (frontend/backend-developer subagents, 1 bounded round), re-verify,
+  push in background + `gh pr create` to main (release note: VS Code/CLI keep legacy behaviour
+  until Electron ran the migration once), watch CI. The section after this is OLD.
+
+## (OLD) In progress — Batch 36 (uncommitted, subagent stopped with the previous process)
+Frontend-developer subagent was implementing F-D1 and stopped mid-run. Files in the D worktree:
+- NEW `libs/frontend/chat-ui/src/lib/molecules/setup-plugins/install-scope-field.component.ts` + `.spec.ts`
+- MOD `libs/frontend/chat-ui/src/lib/molecules/setup-plugins/mcp-directory-browser.component.ts` + `.spec.ts`
+- MOD `libs/frontend/marketplace/src/lib/data/marketplace-inventory.store.ts` + `.spec.ts`
+- MOD `libs/frontend/chat-ui/src/index.ts` (+9 lines; decision #73 allows ONE export statement
+  for the field component and its public types — check it is only that)
+State: scoped specs `/tmp/tpd-b36-scoped.log` = 2 tasks ok (Jest counts not read). Typecheck/lint
+run `/tmp/tpd-b36-tc.log` ended exit 130 (interrupted) with `✖ @ptah-extension/chat-ui:typecheck`
+— real failure or interruption artefact is UNKNOWN. No batch-36.json report yet. Completeness vs
+acceptance (batches.md:549-558) is unverified; the store must expose the full API for 37–39.
+
+Also uncommitted: `decisions.md` rows #72, #73; `reports/a0-electron-before-recapture.md`.
 
 ## Open problems and decisions
-- Known non-batch failures (ignore): 2 tests in harness-sync `agent-workspace-scope.spec.ts`
-  (environmental; `/home/amun/projects/.ptah` exists — never touch it); `ptah-extension-webview:lint`
-  (pre-existing); ptah-electron git-watcher timing and vscode-lm-tools outliner timing tests
-  under machine load (pass alone).
-- Batch 33 service is ~795 non-comment lines → `max-lines` lint WARNING (not error). Optional
-  later split into `install-scope-ledger.ts`; not required.
-- Batch 33 deviations accepted (see report): v1 MCP intents retired in ledger only; the service
-  is a second writer of `.ptah-skillssh-retired.json` (boot-time, race theoretical).
-- Batch 28 open item: pre-existing raw error text in install results (not changed).
-- Lock contention: other worktrees (onboarding-module, feat-landing-live-demo, …) hold verify
-  slots; cohort verifies take 30+ min including queue.
-- Worktrees `session-prefix-diet-cifix` and merged B/C/cli-lane worktrees: remove only with
-  user authorization.
+- Known non-batch failures (ignore): `ptah-extension-webview:lint` (pre-existing); 2 tests in
+  harness-sync `agent-workspace-scope.spec.ts` (environmental; never touch `/home/amun/projects/.ptah`);
+  ptah-electron git-watcher and vscode-lm-tools outliner timing tests under load.
+- For the Phase D review (recorded in reports/batch-35.json `findings`):
+  `registerRpcSurface` resolves every manifest handler at activation without a try (VS Code
+  `bootstrap.ts:177`, CLI `cli-engine/src/lib/container.ts:982`), so the VS Code container smoke is
+  the only construction gate; `SkillsShSourceRootService` has the same latent defaulted-param /
+  decorator-metadata issue (#70/#71), unchanged; CLI `EXPECTED_RESOLVABLE` lacks the two new classes.
+- Batch 33 service ~795 non-comment lines → `max-lines` lint warning only.
+- Release note for the PR: VS Code and the CLI keep legacy behaviour (notice null) until Electron
+  ran the migration once (D-D5, #23).
+- Worktrees `session-prefix-diet-cifix` and merged B/C/cli-lane worktrees: remove only with user
+  authorization.
 
 ## Key files
-- `.../TASK_2026_853_897f/batches.md` — batch scope/acceptance (paths say `session-prefix-diet/`; use `session-prefix-diet-d/`); contracts lines 52-86; Batches 34+ from ~line 525.
-- `.../TASK_2026_853_897f/decisions.md` — #56-#65 are the Phase D integration contracts.
-- `.../reports/batch-33.json` — migration service API + Batch 34/35 handoff.
-- `.../reports/batch-30.json` — harness tool scope contract.
-- `libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.ts` — `verifyOwnedRoot`.
+- `.../TASK_2026_853_897f/batches.md` — scope/acceptance; contract lines 52-86; Batches 36–40 at 549-607 (paths say `session-prefix-diet/`; use `-d`).
+- `.../TASK_2026_853_897f/decisions.md` — #56-#73 are the Phase D contracts and this session's rulings.
+- `.../reports/batch-33.json`, `batch-34.json`, `batch-35.json`, `batch-41.json` — migration API, notice RPC, registration, boot trace.
+- `.../reports/a0-electron-before.md` + `a0-electron-before-recapture.md` — exact isolated Electron capture method (reuse for AFTER).
+- `.../design-spec.md`, `prototype/index.html` — UI spec for 36–40.
 
 ## Background work
-None alive. All subagents finished and reported. No CLI lanes or child sessions.
+None alive. The Batch 36 frontend-developer subagent ended with the previous process (its
+partial edits are on disk, listed above). No CLI lanes or child sessions.
 
 ## Next steps
-1. In the D worktree, run ONE cohort verify for 31+33 (background, one completion wait):
-   `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/vscode-lm-tools,@ptah-extension/agent-generation,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine > /tmp/tpd-b31-33-verify.log 2>&1`
-   Filter: `grep -E "NX .*tasks|✖" /tmp/tpd-b31-33-verify.log`; failing task log path is printed
-   under each ✖ (`~/.nx/.../terminalOutputs/...`).
-   Then `node scripts/verify.mjs --exec --task degradation-audit -- npx nx run degradation-audit:lint --skip-nx-cache --output-style=static` (must exit 0).
-2. Fill `combinedVerify` in batch-31/33.json (use node JSON edit, not sed — `|` breaks sed).
-   Commit B31 (scope `vscode-lm-tools`) with batch-31.json + decisions.md + batch-27/30/32.json
-   fixes; commit B33 (scope `rpc-handlers,agent-generation`) with batch-33.json. Foreground.
-3. Batch 34 (senior-tester: fixture suite + notice RPC, new files in install-scope/), then
-   Batch 35 + 41 as one integration cohort (registration in register-shared-rpc-handlers.ts,
-   Electron boot-heavy-services trigger, VS Code expected-resolvable). Use batch-33.json handoff.
-   35 needs rpc-allowlist and rpc-surface/container smoke to pass; verify 41 with
-   `npm run verify -- -p ptah-extension-vscode,ptah-electron,@ptah-extension/rpc-handlers`.
-4. Frontend 36–40 (frontend-developer subagents; 36 first, then 37/38/39 file-disjoint, 40
-   after 34–35). Batch 39 needs the Batch 1 BEFORE screenshots to exist.
-5. Codex Phase D review (code-logic + style) over `git diff main...HEAD`, Electron visual
-   review dark/light, F-D4 after screenshots (`evidence/f-d4-after-{dark,light}.png`), then push
-   in background, open PR to main, watch CI/reviews.
+1. Finish Batch 36: start a frontend-developer subagent with the same brief (batches.md Batch 36,
+   decision #73, files above) told to CONTINUE the existing edits, not restart. It runs only:
+   `npm run verify -- -t test -p @ptah-extension/chat-ui,@ptah-extension/marketplace -- --testPathPatterns='install-scope-field|mcp-directory-browser|marketplace-inventory' > /tmp/tpd-b36-scoped.log 2>&1`
+   and `npm run verify -- -t typecheck,lint -p @ptah-extension/chat-ui,@ptah-extension/marketplace > /tmp/tpd-b36-tc.log 2>&1`.
+   It must report the store/component API handoff for 37–40.
+2. Coordinator: inspect the diff, then V-UI-INTEGRATION:
+   `npm run verify -- -p @ptah-extension/chat-ui,@ptah-extension/marketplace,ptah-electron,ptah-extension-webview > /tmp/tpd-b36-verify.log 2>&1`
+   (filter `grep -E "NX .*tasks|✖"`), then
+   `node scripts/verify.mjs --exec --task degradation-audit -- npx nx run degradation-audit:lint --skip-nx-cache --output-style=static`.
+   Write reports/batch-36.json; commit B36 (scope `webview`? — check `.commitlintrc.json`
+   scope-enum for chat-ui/marketplace) with decisions #72/#73 and the recapture report.
+3. Batches 37, 38, 39 in parallel (file-disjoint; never edit the store or index.ts), scoped specs
+   each, then one V-UI-INTEGRATION cohort (39 = V-MARKET), commit each separately. BEFORE images exist.
+4. Batch 40 (notice card; uses `harness:get-install-migration-notice` / `harness:dismiss-install-migration-notice`).
+5. Codex Phase D review (code-logic + style) over `git diff main...HEAD`; Electron visual review
+   dark/light; F-D4 AFTER screenshots (`evidence/f-d4-after-{dark,light}.png`) using the
+   recapture method but a fresh Electron build of the D worktree (build allowed only for the
+   screenshot launch). Then push in background, open PR to main (state release note above),
+   watch CI and reviews.
 
 ## Rules (repeat to every subagent and lane)
 - Worktrees only. Verify only with `npm run verify -- -p <changed + dependent hosts>`; never
@@ -98,6 +139,7 @@ None alive. All subagents finished and reported. No CLI lanes or child sessions.
   run scoped specs only; coordinator runs one cohort verify, then commits each batch separately.
 - Other heavy commands: `node scripts/verify.mjs --exec --task <name> -- <cmd>`.
 - No build/serve/e2e except Electron screenshot launches. Electron first; keep all hosts compiling.
+- Never raise a tool-description size budget.
 - Never stage node_modules links or `.ptah/specs/TASK_2026_854_8f0d/`.
 - No DB deletion, settings/account changes or credential use without asking. Do not touch `/home/amun/projects/.ptah`.
-- Never merge, force-push, or remove worktrees. Commit each batch in the foreground; push in the background. Append decisions to decisions.md.
+- Never merge, force-push, or remove worktrees. Commit each batch in the foreground; push in the background. Append decisions to decisions.md (next is #74).
