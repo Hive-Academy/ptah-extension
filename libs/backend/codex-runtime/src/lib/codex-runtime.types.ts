@@ -190,6 +190,41 @@ export interface CodexReportedUsage {
   readonly modelContextWindow?: number;
   readonly costUsd?: number;
 }
+/** Absolute native counters. Consumers compare totals per thread, never sum snapshots. */
+export interface CodexUsageCounters {
+  readonly uncachedInputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheCreationTokens: number;
+  readonly reasoningOutputTokens: number;
+  readonly totalTokens: number;
+}
+/** Content-free reasons for partial or rejected native usage. */
+export type CodexUsageDiagnostic =
+  | 'cache-semantics-ambiguous'
+  | 'classes-inconsistent'
+  | 'last-exceeds-total'
+  | 'stale-cumulative'
+  | 'counter-reset'
+  | 'invalid-payload';
+/** Validated usage evidence, independent of a Ptah session or host. */
+export interface CodexUsageEvidence {
+  readonly threadId: string;
+  readonly turnId: string;
+  readonly parentThreadId?: string;
+  readonly modelId?: string;
+  readonly total: CodexUsageCounters;
+  readonly last: CodexUsageCounters;
+  readonly timestamp: number;
+  readonly terminalState: 'none' | 'completed' | 'failed' | 'interrupted';
+  /** A stale decrease or an explicitly proved reset. Check accepted and epoch before accounting. */
+  readonly resetOrStale: boolean;
+  readonly accepted: boolean;
+  readonly epoch: number;
+  readonly cacheSemanticsAmbiguous: boolean;
+  readonly lastExceedsTotal: boolean;
+  readonly diagnostics: readonly CodexUsageDiagnostic[];
+}
 /** Sanitized, consumer-safe information, never raw errors or credentials. */
 export interface CodexRuntimeError {
   readonly code: string;
@@ -261,7 +296,11 @@ export type CodexRuntimeEvent = CodexEventIdentity &
         readonly itemId: string;
         readonly image: Extract<CodexAttachment, { readonly type: 'image' }>;
       }
-    | { readonly type: 'usage'; readonly usage: CodexReportedUsage }
+    | {
+        readonly type: 'usage';
+        readonly usage: CodexReportedUsage;
+        readonly evidence?: CodexUsageEvidence;
+      }
     | {
         readonly type: 'compaction';
         readonly phase: 'started' | 'completed' | 'failed';
@@ -275,11 +314,16 @@ export type CodexRuntimeEvent = CodexEventIdentity &
         readonly correlation: CodexApprovalCorrelation;
         readonly decision: CodexApprovalDecision;
       }
-    | { readonly type: 'error'; readonly error: CodexRuntimeError }
+    | {
+        readonly type: 'error';
+        readonly error: CodexRuntimeError;
+        readonly diagnostic?: CodexUsageDiagnostic;
+      }
     | {
         readonly type: 'terminal';
         readonly status: 'completed' | 'interrupted' | 'failed';
         readonly usage?: CodexReportedUsage;
+        readonly evidence?: CodexUsageEvidence;
         readonly error?: CodexRuntimeError;
       }
   );
