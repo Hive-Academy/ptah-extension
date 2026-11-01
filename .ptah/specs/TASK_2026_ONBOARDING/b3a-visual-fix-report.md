@@ -1,0 +1,45 @@
+# B3a visual fix report
+
+## Changes
+
+1. **D1, narrow stepper:** `libs/frontend/onboarding/src/lib/shared/onboarding-stepper.component.ts:24-47` gives only the current step flexible width below 720px, keeps the other glyphs separate, and truncates the current label on one line. The vertical rail remains at wide widths.
+2. **D7, skipped step:** `libs/frontend/onboarding/src/lib/shared/onboarding-stepper.component.ts:46-58` uses the distinct FastForward glyph and renders `Analyze, skipped` without an extra space. The glyph has accompanying step and state text for assistive technology.
+3. **D3, saved date and actions:** `libs/frontend/onboarding/src/lib/analyze/analyze-workspace.page.ts:75` formats `savedAt` with the locale aware Angular `DatePipe` medium format and gives metadata its own full width row below 720px.
+4. **D4, empty card:** `libs/frontend/onboarding/src/lib/analyze/analyze-workspace.page.ts:68-82,103` renders Saved analyses only when a visible item, list error, or selection error exists.
+5. **D5, primary label:** `libs/frontend/onboarding/src/lib/shared/run-panel.component.ts:35,46` accepts `continueLabel`, defaulting to Continue. A1 supplies Choose agents at `libs/frontend/onboarding/src/lib/analyze/analyze-workspace.page.ts:38`.
+6. **D6, details log:** `libs/frontend/onboarding/src/lib/shared/details-log.component.ts:51-66` pluralizes event, text, tool and error counts, keeps thinking invariant, adds a rotating chevron, and places counts below the unwrapped disclosure label at narrow widths.
+7. **D8, per-row preview:** `libs/frontend/onboarding/src/lib/analyze/agent-recommendation-list.component.ts:96-165,179` adds an accessible 32px minimum Preview button and emits the agent ID. `libs/frontend/onboarding/src/lib/analyze/choose-agents.page.ts:81,236-261` opens the existing AgentPreviewDialog through GenerationPreviewStore for that ID and aligns the selected agent with the reviewed ID on confirmation. The dialog contract is unchanged.
+8. **D9, contrast:** `libs/frontend/onboarding/src/lib/analyze/choose-agents.page.ts:56` uses underlined `text-base-content` in place of `.btn-link`. Calculated WCAG contrast for base-content against base-100 / base-300: ptah-glass **15.71:1 / 12.17:1**, ptah-glass-light **15.39:1 / 12.45:1**, anubis **14.86:1 / 12.29:1**, anubis-light **15.91:1 / 13.21:1**. Values come from `apps/ptah-extension-webview/tailwind.config.js`; OKLCH tokens were converted to sRGB before relative-luminance calculation. Base-300 is the darker/lower-contrast panel case for each theme.
+9. **Landmarks:** `libs/frontend/onboarding/src/lib/analyze/analyze-workspace.page.ts:17-19` and `libs/frontend/onboarding/src/lib/analyze/choose-agents.page.ts:44-47` now use labelled section roots with their h1 IDs, preserving data test IDs. The shell remains the sole main landmark. The visual capture spec already locates pages by data test ID.
+10. **D2, empty model select:** `libs/frontend/webview-e2e-harness/src/lib/scenarios/onboarding/onboarding-analyze.fixtures.ts:139-142` supplies two realistic `config:models-list` records, including a selected Sonnet model. The picker was left unchanged.
+11. **N5, stale analysis slug:** `libs/frontend/onboarding/src/lib/analyze/analyze-workspace.page.ts:143-152` clears the pending query slug on Start fresh and Continue previous; `loadSaved` also clears it after a successful list at line 134.
+12. **N6, error source:** `libs/frontend/onboarding/src/lib/analyze/analyze-workspace.page.ts:127-135` catches only saved-list RPC failures when setting `savedError`. A later selection or navigation rejection is no longer mislabeled as a list failure.
+
+## Tests and verification
+
+- Added or extended Jest checks for narrow/skipped stepper layout and text (`shared/onboarding-stepper.component.spec.ts:37,52`), configurable continue label (`shared/run-panel.component.spec.ts:79`), count plurals and chevron (`shared/details-log.component.spec.ts:208`), row Preview output (`analyze/agent-recommendation-list.component.spec.ts:148`) and page handler (`analyze/choose-agents.page.spec.ts:77`), localized saved date, narrow action row, hidden empty card and stale slug (`analyze/analyze-workspace.render.spec.ts:85,97,105`), and navigation failure classification (`analyze/analyze-workspace.page.spec.ts:42`). Updated the existing count assertion for the new plural output.
+- Required scoped verify ran once: **`NX 8 tasks: 7 succeeded, 3 cached, 1 failed`**. The sole failure was the old details-log assertion expecting `31 text` and `88 tool`; it was corrected afterward. A focused Jest run of `details-log.component.spec.ts` then passed **8/8 tests**. The other 30 onboarding suites and all non-test verify tasks passed in the verify run.
+- `ptah_get_diagnostics` was attempted twice after edits but timed out; the scoped verify typechecks had succeeded. No browser or visual capture was run, as requested.
+- Existing unrelated changes in `HANDOFF.md` and the screenshots directory were present when work began and were not changed.
+
+## Decisions
+
+- **Empty picker list:** `GenerationModelPickerComponent` renders options only from `ModelStateService.availableModels()`. That service reads `config:models-list`, absent from the onboarding fixture. A genuinely empty model response still produces an empty select; this batch adds fixture data and leaves picker behavior unchanged. Reversible by changing the fixture.
+- **Row Preview confirmation:** The existing preview dialog includes generation confirmation. For a per-row preview, confirmation selects the reviewed agent immediately before submission so the preview token and submitted selection refer to the same agent. The ordinary bulk Preview flow keeps its selection. Reversible within the A2 page.
+- **Empty Saved analyses:** Hid the card when no visible entries or errors exist, as permitted by the fix list. Reversible within A1.
+
+## Revision 1
+
+- **V1 — preserve selection:** `libs/frontend/onboarding/src/lib/analyze/analysis-step.store.ts:121,129` accepts optional explicit agent IDs for submission. `libs/frontend/onboarding/src/lib/analyze/choose-agents.page.ts:265` passes the row ID on row Preview; confirmation no longer clears or toggles the user's selection. Thrown submission failures now set a safe error at `choose-agents.page.ts:279-281`.
+- **V2 — row selection target:** `libs/frontend/onboarding/src/lib/analyze/agent-recommendation-list.component.ts:106-166` wraps the checkbox, name and description in a pointer label. The Preview button remains outside that label and has a specific test ID.
+- **V3 — dismissed state:** `libs/frontend/onboarding/src/lib/analyze/choose-agents.page.ts:113,250-254` routes dismissal through `dismissPreview`, which cancels the dialog and clears both `previewIds` and `previewingRow`.
+- **V4 — navigation failure:** `libs/frontend/onboarding/src/lib/analyze/analyze-workspace.page.ts:137-145` catches selection and navigation failures in `useSaved`, sets `selectError`, and leaves `savedError` for list RPC failures. `ngOnInit` continues to the resumable-run check.
+- **V6 — regression tests:** `libs/frontend/onboarding/src/lib/analyze/choose-agents.page.spec.ts:79-131` checks row IDs passed to submit and unchanged selection after confirmation, dismissal, returned error, changed preview (`submit: false`) and thrown error. `libs/frontend/onboarding/src/lib/analyze/analysis-step.store.spec.ts:75-80` checks explicit IDs reach generation without changing selection. `libs/frontend/onboarding/src/lib/analyze/agent-recommendation-list.component.spec.ts:152,159-177` uses the exact Preview selector and checks name and description clicks toggle selection while Preview does not. `libs/frontend/onboarding/src/lib/shared/onboarding-stepper.component.spec.ts:59-60` requires an SVG with the FastForward path. `libs/frontend/onboarding/src/lib/analyze/analyze-workspace.page.spec.ts:42-50` checks navigation failure resolves with `selectError`, no list error, and a resumable-run check.
+
+The first scoped verify run reported `NX 3 tasks: 2 succeeded, 1 failed` because the new stepper assertion expected a class that Lucide does not render. After correcting the assertion to check the SVG path, the final run of `npm run verify -- -p @ptah-extension/onboarding` reported **`NX 3 tasks: 3 succeeded`**. Ptah diagnostics remained unavailable after a 45-second timeout; the verify typecheck passed. No browser or visual capture was run.
+
+## Decisions
+
+- **V1:** Used explicit row IDs in the store submit API, with the existing selection as its default for other callers. This supersedes the earlier row-preview alignment decision. The choice is reversible within the onboarding store and A2 page.
+- **V4:** A saved-analysis navigation rejection is shown as a selection error so the resumable-run check can still run. This is reversible within A1.
+- **Skills:** The `angular-frontend-patterns` and `impeccable` files are present, but this lane had no skill-loading tool, so their instructions could not be loaded.

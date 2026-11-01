@@ -279,6 +279,10 @@ export default [
           checkDynamicDependenciesExceptions: [
             '@ptah-extension/tasks-ui/services',
             '@ptah-extension/harness-builder/services',
+            // TASK_2026_ONBOARDING: the chat route's first-run guard, the flag
+            // and the tracker are eager; the onboarding pages load through
+            // `loadChildren`. The entry exports no component.
+            '@ptah-extension/onboarding/services',
             '@ptah-extension/mcp-apps-page/focus',
             '@ptah-extension/marketplace/services',
             '@ptah-extension/marketplace/harness',

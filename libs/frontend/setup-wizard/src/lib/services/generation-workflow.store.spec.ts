@@ -30,6 +30,152 @@ const tabProvider = {
 };
 
 describe('GenerationWorkflowStore', () => {
+  it.each(['starting', 'running', 'cancelling', 'cancelled', 'failed', 'timed-out', 'completed'] as const)(
+    'rebinds the %s lifecycle from authoritative state', async (status) => {
+      const authoritative = { ...active, status };
+      const getBoundRunState = jest.fn().mockResolvedValue(authoritative);
+      TestBed.configureTestingModule({ providers: [GenerationWorkflowStore, tabProvider,
+        { provide: WizardRpcService, useValue: { getBoundRunState } }] });
+      const store = TestBed.inject(GenerationWorkflowStore);
+      store.bind(binding, 'run');
+      await store.refresh();
+      expect(store.state()).toBe(status);
+      expect(store.run()?.binding.runId).toBe('run');
+      expect(getBoundRunState).toHaveBeenCalledWith(binding, undefined);
+      store.unbind();
+    },
+  );
+  it('flags a mismatched run on rebind for recovery', async () => {
+    const getBoundRunState = jest.fn().mockResolvedValue({ ...active, binding: { ...binding, runId: 'latest' } });
+    TestBed.configureTestingModule({ providers: [GenerationWorkflowStore, tabProvider,
+      { provide: WizardRpcService, useValue: { getBoundRunState } }] });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding, 'old');
+    await store.refresh();
+    expect(store.runMismatch()).toBe(true);
+    expect(store.run()).toBeNull();
+    store.bind(binding, 'latest');
+    await store.refresh();
+    expect(store.runMismatch()).toBe(false);
+    expect(store.run()?.binding.runId).toBe('latest');
+    store.unbind();
+  });
+  it('flags recovery when the expected run has no authoritative owner', async () => {
+    const getBoundRunState = jest.fn().mockResolvedValue(null);
+    TestBed.configureTestingModule({ providers: [GenerationWorkflowStore, tabProvider,
+      { provide: WizardRpcService, useValue: { getBoundRunState } }] });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding, 'run');
+    await store.refresh();
+    expect(store.state()).toBe('idle');
+    expect(store.run()).toBeNull();
+    expect(store.runMismatch()).toBe(true);
+    await store.refresh();
+    expect(store.runMismatch()).toBe(true);
+    store.unbind();
+  });
+  it('recovers the expected run after one failed lookup', async () => {
+    jest.useFakeTimers();
+    const getBoundRunState = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue(active);
+    TestBed.configureTestingModule({ providers: [GenerationWorkflowStore, tabProvider,
+      { provide: WizardRpcService, useValue: { getBoundRunState } }] });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding, 'run');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(store.runMismatch()).toBe(false);
+    expect(jest.getTimerCount()).toBe(1);
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(store.run()?.binding.runId).toBe('run');
+    expect(store.runMismatch()).toBe(false);
+    expect(getBoundRunState).toHaveBeenCalledTimes(2);
+    store.unbind();
+    jest.useRealTimers();
+  });
+  it('schedules a retry without consuming the expected run after a failed lookup', async () => {
+    jest.useFakeTimers();
+    const getBoundRunState = jest.fn().mockRejectedValue(new Error('offline'));
+    TestBed.configureTestingModule({ providers: [GenerationWorkflowStore, tabProvider,
+      { provide: WizardRpcService, useValue: { getBoundRunState } }] });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding, 'run');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(store.runMismatch()).toBe(false);
+    expect(store.run()).toBeNull();
+    expect(jest.getTimerCount()).toBe(1);
+    store.unbind();
+    jest.useRealTimers();
+  });
+  it('exposes lookupExhausted after the fourth failed expected-run lookup and clears it on recovery', async () => {
+    jest.useFakeTimers();
+    const getBoundRunState = jest.fn().mockRejectedValue(new Error('offline'));
+    TestBed.configureTestingModule({ providers: [GenerationWorkflowStore, tabProvider,
+      { provide: WizardRpcService, useValue: { getBoundRunState } }] });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding, 'run');
+    await jest.advanceTimersByTimeAsync(7000);
+    expect(getBoundRunState).toHaveBeenCalledTimes(4);
+    expect(store.lookupExhausted()).toBe(true);
+    expect(store.runMismatch()).toBe(false);
+    getBoundRunState.mockResolvedValue(active);
+    await store.refresh();
+    expect(store.lookupExhausted()).toBe(false);
+    expect(store.run()?.binding.runId).toBe('run');
+    store.unbind();
+    jest.useRealTimers();
+  });
+  it('keeps the held run and skips a lookup when rebinding its run id', async () => {
+    const getBoundRunState = jest.fn().mockResolvedValue(active);
+    TestBed.configureTestingModule({ providers: [GenerationWorkflowStore, tabProvider,
+      { provide: WizardRpcService, useValue: { getBoundRunState } }] });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding);
+    await store.refresh();
+    const heldRun = store.run();
+    const calls = getBoundRunState.mock.calls.length;
+    store.bind(binding, 'run');
+    expect(store.run()).toBe(heldRun);
+    expect(store.state()).toBe('running');
+    expect(getBoundRunState).toHaveBeenCalledTimes(calls);
+    store.unbind();
+  });
+  it('adopts a started run B after binding run A without a mismatch on refresh', async () => {
+    const settledA = { ...active, status: 'completed' as const };
+    const startedB = { ...active, binding: { ...binding, runId: 'B' } };
+    const getBoundRunState = jest.fn().mockImplementation(async (_binding, runId?: string) =>
+      runId === 'B' ? startedB : settledA);
+    const startBoundAgents = jest.fn().mockResolvedValue({ accepted: { runId: 'B' } });
+    TestBed.configureTestingModule({ providers: [GenerationWorkflowStore, tabProvider,
+      { provide: WizardRpcService, useValue: { getBoundRunState, startBoundAgents } }] });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding, 'run');
+    await store.refresh();
+    expect(store.run()?.binding.runId).toBe('run');
+    await store.startAgents(['agent']);
+    expect(store.run()?.binding.runId).toBe('B');
+    getBoundRunState.mockResolvedValue(startedB);
+    await store.refresh();
+    expect(store.runMismatch()).toBe(false);
+    expect(store.run()?.binding.runId).toBe('B');
+    expect(store.state()).toBe('running');
+    store.unbind();
+  });
+  it('rebinds a handoff-started run without a second guidance start', async () => {
+    const guidanceBinding = { ...binding, workflow: 'setup-project-prompt' as const };
+    const handoffRun = { ...active, binding: { ...guidanceBinding, runId: 'handoff' } };
+    const startBoundGuidance = jest.fn();
+    const getBoundRunState = jest.fn().mockResolvedValue(handoffRun);
+    TestBed.configureTestingModule({ providers: [GenerationWorkflowStore, tabProvider,
+      { provide: WizardRpcService, useValue: { getBoundRunState, startBoundGuidance } }] });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(guidanceBinding, 'handoff');
+    await store.refresh();
+    expect(store.run()?.binding.runId).toBe('handoff');
+    expect(startBoundGuidance).not.toHaveBeenCalled();
+    store.unbind();
+  });
   it('finds its own guidance run after a lost start response without claiming a model cause', async () => {
     const guidanceBinding = {
       ...binding,
