@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   CodexEventTranslator,
   type CodexHistoryThread,
@@ -187,7 +188,11 @@ function projectTurn(
   turn.items.forEach((item, index) => {
     timestamp = itemTime(turn, index, timestamp);
     if (item.type === 'userMessage') {
-      const userId = JSON.stringify([thread.id, turn.id, item.id]);
+      // Older-page cursors accept only URL-safe message ids; keep this stable
+      // across full thread reads without changing assistant live-stream ids.
+      const userId = createHash('sha256')
+        .update(JSON.stringify([thread.id, turn.id, item.id]))
+        .digest('base64url');
       const texts = item.content.filter((part) => part.type === 'text');
       const imageCount = item.content.filter((part) => part.type === 'image' || part.type === 'localImage').length;
       for (const part of item.content) {

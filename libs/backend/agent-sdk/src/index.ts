@@ -75,6 +75,15 @@ export {
   MESSAGE_ID_NOT_FOUND_PHRASE,
 } from './lib/session-history-reader.service';
 export type { SubagentEventsReadResult } from './lib/session-history-reader.service';
+export {
+  SessionHistoryRouter,
+  SessionHistoryRouteError,
+} from './lib/codex-app-server/session-history-router';
+export type {
+  NativeSessionHistoryPort,
+  SessionHistoryReadResult,
+  SessionHistoryRouteErrorCode,
+} from './lib/codex-app-server/session-history-router';
 
 export {
   SessionStatsReaderService,

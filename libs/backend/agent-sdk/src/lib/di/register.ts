@@ -166,6 +166,10 @@ import {
   type ModelDispatchProvenanceTap,
 } from '../curator-llm-adapter/model-dispatch-provenance';
 import { SDK_TOKENS } from './tokens';
+import {
+  SessionHistoryRouter,
+  type NativeSessionHistoryPort,
+} from '../codex-app-server/session-history-router';
 
 const noOpModelDispatchProvenanceTap: ModelDispatchProvenanceTap = {
   onModelDispatched: () => undefined,
@@ -304,6 +308,19 @@ export function registerSdkServices(
     { useClass: SessionHistoryReaderService },
     { lifecycle: Lifecycle.Singleton },
   );
+
+  container.register(SDK_TOKENS.SESSION_HISTORY_ROUTER, {
+    useFactory: instanceCachingFactory((c) =>
+      new SessionHistoryRouter(
+        c.resolve<SessionMetadataStore>(SDK_TOKENS.SDK_SESSION_METADATA_STORE),
+        c.resolve<SessionHistoryReaderService>(SDK_TOKENS.SDK_SESSION_HISTORY_READER),
+        () =>
+          c.isRegistered(SDK_TOKENS.NATIVE_SESSION_HISTORY_PORT, true)
+            ? c.resolve<NativeSessionHistoryPort>(SDK_TOKENS.NATIVE_SESSION_HISTORY_PORT)
+            : undefined,
+      ),
+    ),
+  });
 
   container.register(
     SDK_TOKENS.SDK_SESSION_STATS_READER,
