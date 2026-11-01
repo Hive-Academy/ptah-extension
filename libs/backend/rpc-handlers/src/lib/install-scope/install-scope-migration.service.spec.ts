@@ -133,11 +133,16 @@ async function writeFiles(
   }
 }
 
-/** A root Ptah wrote: v2 metadata, owner marker, every file hashed. */
+/**
+ * A root Ptah wrote: v2 metadata, owner marker, every file hashed. Defaults to
+ * `scope: 'workspace'`: a v2 root marked `global` is an explicit global
+ * install, which discovery never retires (decision #84), so only an unmarked
+ * shape exercises the proven-delete path.
+ */
 async function writeV2Root(
   rootId: string,
   files: Record<string, string> = { 'skills/a/SKILL.md': '# a' },
-  overrides: { ownerMarker?: string } = {},
+  overrides: { ownerMarker?: string; scope?: 'global' | 'workspace' } = {},
 ): Promise<string> {
   const dir = rootDir(rootId);
   await writeFiles(dir, files);
@@ -154,7 +159,7 @@ async function writeV2Root(
       source: 'owner/repo',
       skillIds: ['a'],
       installedAt: '2026-01-01T00:00:00.000Z',
-      scope: 'global',
+      scope: overrides.scope ?? 'workspace',
       files: hashes,
     }),
     'utf8',
@@ -360,7 +365,9 @@ describe('InstallScopeMigrationService — retire', () => {
       path.join(pluginsDir, SKILLS_SH_RETIRED_FILE),
       JSON.stringify({
         version: 1,
-        roots: { 'ptah-skillssh-old-one': { retiredAt: '2025-01-01T00:00:00Z' } },
+        roots: {
+          'ptah-skillssh-old-one': { retiredAt: '2025-01-01T00:00:00Z' },
+        },
       }),
       'utf8',
     );
@@ -391,7 +398,9 @@ describe('InstallScopeMigrationService — global deletes with proof', () => {
       counts: { retired: 1, removed: 1, kept: 0, onDisk: 0 },
     });
     expect(await exists(dir)).toBe(false);
-    const item = (await readLedger()).items['skills-sh:ptah-skillssh-acme-tools'];
+    const item = (await readLedger()).items[
+      'skills-sh:ptah-skillssh-acme-tools'
+    ];
     expect(Object.keys(item.removedPaths)).toEqual([dir]);
     expect(item.outcome).toBe('removed');
   });
@@ -415,7 +424,9 @@ describe('InstallScopeMigrationService — global deletes with proof', () => {
     expect(await fs.readFile(path.join(edited, 'SKILL.md'), 'utf8')).toBe(
       '# my edit',
     );
-    const item = (await readLedger()).items['skills-sh:ptah-skillssh-acme-tools'];
+    const item = (await readLedger()).items[
+      'skills-sh:ptah-skillssh-acme-tools'
+    ];
     expect(item).toMatchObject({
       onDisk: dir,
       onDiskReason: 'legacy-v1',
@@ -479,7 +490,9 @@ describe('InstallScopeMigrationService — global deletes with proof', () => {
       const result = await makeService().run();
 
       expect(await exists(path.join(dir, SKILLS_SH_METADATA_FILE))).toBe(true);
-      const item = (await readLedger()).items['skills-sh:ptah-skillssh-acme-tools'];
+      const item = (await readLedger()).items[
+        'skills-sh:ptah-skillssh-acme-tools'
+      ];
       expect(item).toMatchObject({
         retired: true,
         onDisk: dir,
@@ -525,6 +538,154 @@ describe('InstallScopeMigrationService — global deletes with proof', () => {
   });
 });
 
+describe('InstallScopeMigrationService — roots the user took back (decision #84)', () => {
+  const registryPath = (): string =>
+    path.join(pluginsDir, SKILLS_SH_RETIRED_FILE);
+
+  async function seedLedger(
+    items: InstallScopeLedger['items'],
+    extra: Partial<InstallScopeLedger> = {},
+  ): Promise<void> {
+    const ledgerPath = installScopeLedgerPath(fakeHome);
+    await fs.mkdir(path.dirname(ledgerPath), { recursive: true });
+    const ledger: InstallScopeLedger = {
+      version: 1,
+      items,
+      workspaces: {},
+      discoveredAt: '2026-03-01T00:00:00.000Z',
+      ...extra,
+    };
+    await fs.writeFile(ledgerPath, JSON.stringify(ledger), 'utf8');
+  }
+
+  async function writeRegistry(rootIds: string[]): Promise<void> {
+    const roots: Record<string, { retiredAt: string }> = {};
+    for (const id of rootIds) roots[id] = { retiredAt: '2026-03-01T00:00:00Z' };
+    await fs.writeFile(
+      registryPath(),
+      JSON.stringify({ version: 1, roots }),
+      'utf8',
+    );
+  }
+
+  it('never retires a v2 root marked global, even one written before the first migration', async () => {
+    const dir = await writeV2Root('ptah-skillssh-new-global', undefined, {
+      scope: 'global',
+    });
+    await writeV1Root('ptah-skillssh-legacy');
+
+    const result = await makeService().run();
+
+    expect(result.status).toBe('completed');
+    expect(await exists(path.join(dir, SKILLS_SH_METADATA_FILE))).toBe(true);
+    const registry = JSON.parse(await fs.readFile(registryPath(), 'utf8'));
+    expect(Object.keys(registry.roots)).toEqual(['ptah-skillssh-legacy']);
+    const ledger = await readLedger();
+    expect(ledger.items['skills-sh:ptah-skillssh-new-global']).toBeUndefined();
+    expect(ledger.items['skills-sh:ptah-skillssh-legacy']).toBeDefined();
+  });
+
+  it('does not delete a proven root whose retired mark was cleared after discovery', async () => {
+    const dropped = await writeV2Root('ptah-skillssh-made-global');
+    const withRows = await writeV2Root('ptah-skillssh-reinstalled');
+    const clonePath = path.join(fakeHome, '.ptah', 'user', 'skills', 'r');
+    await seedLedger({
+      'skills-sh:ptah-skillssh-made-global': {
+        kind: 'skills-sh',
+        retired: true,
+        removedPaths: {},
+        keptPaths: {},
+        failedPaths: {},
+      },
+      'skills-sh:ptah-skillssh-reinstalled': {
+        kind: 'skills-sh',
+        retired: true,
+        removedPaths: { [clonePath]: '2026-03-01T00:00:00.000Z' },
+        keptPaths: {},
+        failedPaths: { [withRows]: 'EBUSY' },
+      },
+    });
+    // Make global / a global reinstall cleared both marks since discovery.
+    await writeRegistry([]);
+
+    const result = await makeService().run();
+
+    expect(result.status).toBe('completed');
+    expect(await exists(path.join(dropped, SKILLS_SH_METADATA_FILE))).toBe(
+      true,
+    );
+    expect(await exists(path.join(withRows, SKILLS_SH_METADATA_FILE))).toBe(
+      true,
+    );
+    const ledger = await readLedger();
+    // Nothing recorded: dropped, so it is neither retired nor reported.
+    expect(ledger.items['skills-sh:ptah-skillssh-made-global']).toBeUndefined();
+    // Clone rows that already happened stay; the item is no longer retired.
+    expect(ledger.items['skills-sh:ptah-skillssh-reinstalled']).toMatchObject({
+      retired: false,
+      removedPaths: { [clonePath]: expect.any(String) },
+      failedPaths: {},
+    });
+    expect(result.counts).toEqual({
+      retired: 0,
+      removed: 1,
+      kept: 0,
+      onDisk: 0,
+    });
+  });
+
+  it('still deletes a proven root that remains retired', async () => {
+    const dir = await writeV2Root('ptah-skillssh-still-retired');
+    await seedLedger({
+      'skills-sh:ptah-skillssh-still-retired': {
+        kind: 'skills-sh',
+        retired: true,
+        removedPaths: {},
+        keptPaths: {},
+        failedPaths: {},
+      },
+    });
+    await writeRegistry(['ptah-skillssh-still-retired']);
+
+    await makeService().run();
+
+    expect(await exists(dir)).toBe(false);
+  });
+
+  it('never hands the reaper a root that is no longer retired', async () => {
+    const takenBack = rootDir('ptah-skillssh-taken-back');
+    const stillRetired = rootDir('ptah-skillssh-still-retired');
+    await seedLedger({
+      'skills-sh:ptah-skillssh-taken-back': {
+        kind: 'skills-sh',
+        retired: true,
+        removedPaths: { [takenBack]: '2026-03-01T00:00:00.000Z' },
+        keptPaths: {},
+        failedPaths: {},
+      },
+      'skills-sh:ptah-skillssh-still-retired': {
+        kind: 'skills-sh',
+        retired: true,
+        removedPaths: { [stillRetired]: '2026-03-01T00:00:00.000Z' },
+        keptPaths: {},
+        failedPaths: {},
+      },
+    });
+    await writeRegistry(['ptah-skillssh-still-retired']);
+    const reaper = fakeReaper([{}]);
+
+    await makeService(reaper).run();
+
+    expect(reaper.reapRetired).toHaveBeenCalledTimes(1);
+    expect(reaper.reapRetired.mock.calls[0][1]).toEqual({
+      version: 1,
+      roots: {
+        'ptah-skillssh-still-retired': { retiredAt: expect.any(String) },
+      },
+    });
+  });
+});
+
 describe('InstallScopeMigrationService — workspace pass and ledger', () => {
   it('reconciles recent ∪ open existing workspaces once each, with the migration reason', async () => {
     const w1 = await makeWorkspace('w1');
@@ -564,9 +725,9 @@ describe('InstallScopeMigrationService — workspace pass and ledger', () => {
 
     const ledgerAtW2 = seenAtW2 as InstallScopeLedger | null;
     expect(ledgerAtW2?.workspaces[w1].passedAt).toEqual(expect.any(String));
-    expect(Object.keys(ledgerAtW2?.items['mcp:S'].removedPaths ?? {})).toEqual(
-      [`${w1}/.mcp.json#S`],
-    );
+    expect(Object.keys(ledgerAtW2?.items['mcp:S'].removedPaths ?? {})).toEqual([
+      `${w1}/.mcp.json#S`,
+    ]);
   });
 
   it('two workspaces, one fragment fails: incomplete, then a retry of only that workspace completes; retired 1, removed counts each path once (two workspace copies + one shared home fragment)', async () => {
@@ -578,7 +739,9 @@ describe('InstallScopeMigrationService — workspace pass and ledger', () => {
     reconcile.mockImplementation(async (cwd: string) => {
       if (cwd === w2 && failW2) {
         return health(cwd, {
-          failed: [{ relPath: '.mcp.json#S', reason: 'EBUSY', itemId: 'mcp:S' }],
+          failed: [
+            { relPath: '.mcp.json#S', reason: 'EBUSY', itemId: 'mcp:S' },
+          ],
         });
       }
       return health(cwd, {
@@ -613,7 +776,11 @@ describe('InstallScopeMigrationService — workspace pass and ledger', () => {
     ledger = await readLedger();
     expect(ledger.items['mcp:S'].failedPaths).toEqual({});
     expect(Object.keys(ledger.items['mcp:S'].removedPaths).sort()).toEqual(
-      [`${w1}/.mcp.json#S`, `${w2}/.mcp.json#S`, '~/.codex/config.toml#S'].sort(),
+      [
+        `${w1}/.mcp.json#S`,
+        `${w2}/.mcp.json#S`,
+        '~/.codex/config.toml#S',
+      ].sort(),
     );
     expect(second.counts).toEqual({
       retired: 1,
@@ -634,7 +801,9 @@ describe('InstallScopeMigrationService — workspace pass and ledger', () => {
       .mockResolvedValueOnce(
         health(w1, {
           removed: [{ relPath: '.mcp.json#A', itemId: 'mcp:A' }],
-          failed: [{ relPath: '.mcp.json#B', reason: 'EPERM', itemId: 'mcp:B' }],
+          failed: [
+            { relPath: '.mcp.json#B', reason: 'EPERM', itemId: 'mcp:B' },
+          ],
         }),
       )
       // The reconciler pruned A's manifest entry, so the retry reports B only.
@@ -693,9 +862,13 @@ describe('InstallScopeMigrationService — workspace pass and ledger', () => {
 
 describe('InstallScopeMigrationService — unreadable MCP intent store', () => {
   const unreadable = (): McpIntentPersistError =>
-    new McpIntentPersistError('read-failed', '/home/x/.ptah/mcp-installed.json', {
-      cause: Object.assign(new Error('EACCES'), { code: 'EACCES' }),
-    });
+    new McpIntentPersistError(
+      'read-failed',
+      '/home/x/.ptah/mcp-installed.json',
+      {
+        cause: Object.assign(new Error('EACCES'), { code: 'EACCES' }),
+      },
+    );
 
   it('listRetired failing during retire: the run resolves failed, nothing completes, the next start retries and completes', async () => {
     const w1 = await makeWorkspace('w1');
@@ -866,9 +1039,9 @@ describe('InstallScopeMigrationService — retries and idempotence', () => {
     expect(first.status).toBe('incomplete');
     let ledger = await readLedger();
     expect(ledger.clonesPassedAt).toBeUndefined();
-    expect(ledger.items['skills-sh:ptah-skillssh-acme-tools'].failedPaths).toEqual(
-      { [clonePath]: 'EBUSY' },
-    );
+    expect(
+      ledger.items['skills-sh:ptah-skillssh-acme-tools'].failedPaths,
+    ).toEqual({ [clonePath]: 'EBUSY' });
     // The reaper only ever sees this ledger's retired roots.
     expect(reaper.reapRetired.mock.calls[0][1]).toEqual({
       version: 1,
@@ -943,7 +1116,9 @@ describe('InstallScopeMigrationService — retries and idempotence', () => {
     const result = await makeService().run();
 
     expect(result.status).toBe('completed');
-    const entries = await fs.readdir(path.join(fakeHome, '.ptah', 'migrations'));
+    const entries = await fs.readdir(
+      path.join(fakeHome, '.ptah', 'migrations'),
+    );
     expect(entries.some((name) => name.includes('.corrupt-'))).toBe(true);
   });
 });

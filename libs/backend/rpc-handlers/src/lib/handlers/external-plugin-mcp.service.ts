@@ -221,21 +221,17 @@ export class ExternalPluginMcpService {
           root,
           scope,
         );
-        outcome.serverKeys.push(server.name);
-        // With no workspace there is nothing to rewrite yet, so the per-target
-        // "no workspace" results are not failures the user can act on.
-        if (hasWorkspace) {
-          this.collectFailures(server.name, results, outcome.warnings);
-        }
+        this.collectFailures(server.name, results, outcome.warnings);
+        if (intentSaved(results)) outcome.serverKeys.push(server.name);
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
+        // Fixed copy for the UI (L6); the raw cause stays in the log.
         outcome.warnings.push(
-          `MCP server "${server.name}" could not be installed: ${message}`,
+          `MCP server "${server.name}" could not be installed. See the Ptah log for details.`,
         );
         this.logger.warn('External plugin MCP install failed', {
           pluginId,
           serverKey: server.name,
-          error: message,
+          error: error instanceof Error ? error.message : String(error),
         });
       }
     }
@@ -298,19 +294,17 @@ export class ExternalPluginMcpService {
           );
           continue;
         }
-        outcome.serverKeys.push(server.name);
-        if (hasWorkspace) {
-          this.collectFailures(server.name, results, outcome.warnings);
-        }
+        this.collectFailures(server.name, results, outcome.warnings);
+        if (intentSaved(results)) outcome.serverKeys.push(server.name);
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
+        // Fixed copy for the UI (L6); the raw cause stays in the log.
         outcome.warnings.push(
-          `MCP server "${server.name}" could not be removed: ${message}`,
+          `MCP server "${server.name}" could not be removed. See the Ptah log for details.`,
         );
         this.logger.warn('External plugin MCP uninstall failed', {
           pluginId,
           serverKey: server.name,
-          error: message,
+          error: error instanceof Error ? error.message : String(error),
         });
       }
     }
@@ -419,12 +413,23 @@ export class ExternalPluginMcpService {
     warnings: string[],
   ): void {
     for (const result of results) {
-      if (result.success) continue;
+      // A deferred result (no folder open) saved the request; the next
+      // reconcile of an opened folder writes it, so it is not a failure.
+      if (result.success || result.deferred === true) continue;
       warnings.push(
         `MCP server "${serverKey}" could not be written to ${result.target}: ${result.error ?? 'unknown error'}`,
       );
     }
   }
+}
+
+/**
+ * `McpInstallService` reports an intent-store failure as an `intent-not-saved`
+ * RESULT, not a throw, so the key only counts as recorded (or forgotten) when
+ * no result says the request was not saved.
+ */
+function intentSaved(results: readonly McpInstallResult[]): boolean {
+  return !results.some((result) => result.code === 'intent-not-saved');
 }
 
 /**

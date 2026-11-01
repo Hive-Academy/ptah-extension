@@ -41,7 +41,6 @@ describe('McpIntentStore (v2)', () => {
   let storePath: string;
   let wsA: string;
   let wsB: string;
-  let warnings: string[];
   let store: McpIntentStore;
 
   const workspace = (name: string): string => {
@@ -63,10 +62,7 @@ describe('McpIntentStore (v2)', () => {
     storePath = join(tmp, 'home', '.ptah', 'mcp-installed.json');
     wsA = workspace('a');
     wsB = workspace('b');
-    warnings = [];
-    store = new McpIntentStore(storePath, (message) => {
-      warnings.push(message);
-    });
+    store = new McpIntentStore(storePath);
   });
 
   afterEach(() => {
@@ -428,7 +424,7 @@ describe('McpIntentStore (v2)', () => {
     });
   });
 
-  describe('unreadable files never widen to global', () => {
+  describe('unreadable files fail loud and never widen to global', () => {
     it.each([
       ['corrupt JSON', '{not json'],
       ['an unknown version', JSON.stringify({ version: 3, servers: {} })],
@@ -447,19 +443,50 @@ describe('McpIntentStore (v2)', () => {
           retired: {},
         }),
       ],
-    ])('reads %s as empty and warns', (_label, content) => {
-      writeRaw(content);
+    ])(
+      'throws read-failed for %s instead of reading it as empty',
+      (_label, content) => {
+        writeRaw(content);
 
-      expect(store.listFor(wsA)).toEqual([]);
-      expect(store.listFor('')).toEqual([]);
-      expect(store.listRetired()).toEqual([]);
-      expect(store.has('k')).toBe(false);
-      expect(warnings.length).toBeGreaterThan(0);
+        for (const read of [
+          () => store.listFor(wsA),
+          () => store.listFor(''),
+          () => store.listRetired(),
+          () => store.has('k'),
+        ]) {
+          let thrown: unknown;
+          try {
+            read();
+          } catch (error: unknown) {
+            thrown = error;
+          }
+          expect(thrown).toBeInstanceOf(McpIntentPersistError);
+          expect((thrown as McpIntentPersistError).code).toBe('read-failed');
+          expect((thrown as McpIntentPersistError).path).toBe(storePath);
+          expect((thrown as McpIntentPersistError).cause).toBeDefined();
+        }
+      },
+    );
+
+    it('does not let record() overwrite a corrupt file', () => {
+      writeRaw('{not json');
+
+      expect(() =>
+        store.record({
+          serverKey: 'new',
+          registryName: 'r',
+          config: stdio,
+          targets: ['claude'],
+          scope: 'workspace',
+          workspaceRoot: wsA,
+        }),
+      ).toThrow(McpIntentPersistError);
+      expect(readFileSync(storePath, 'utf-8')).toBe('{not json');
     });
 
-    it('reads a missing file as empty without a warning', () => {
+    it('reads a missing file as empty', () => {
       expect(store.listFor(wsA)).toEqual([]);
-      expect(warnings).toEqual([]);
+      expect(store.listRetired()).toEqual([]);
     });
   });
   describe('config per scope bucket', () => {

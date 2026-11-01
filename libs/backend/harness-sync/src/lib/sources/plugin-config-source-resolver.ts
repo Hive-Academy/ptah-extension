@@ -351,9 +351,10 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
     try {
       return this.mcpIntents.listRetired().map((intent) => intent.serverKey);
     } catch {
-      // degradation-audit: optional-capability - the store already reads a
-      // corrupt file as empty; an unexpected throw here leaves nothing
-      // retired, so removals fall back to the ordinary manifest-hash rule.
+      // degradation-audit: optional-capability - an unreadable store (corrupt
+      // included, #84) already fails the pass loudly where the desired MCP
+      // state is read; here it leaves nothing retired, so removals fall back
+      // to the ordinary manifest-hash rule and never widen.
       return [];
     }
   }

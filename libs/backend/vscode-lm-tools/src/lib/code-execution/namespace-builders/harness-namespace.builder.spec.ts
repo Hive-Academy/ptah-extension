@@ -251,6 +251,16 @@ beforeEach(() => {
 // Shape
 // ---------------------------------------------------------------------------
 
+/**
+ * No folder open, as the real host reports it: `getWorkspaceRoot()` falls
+ * back to the home directory and only the policy root says "none". A scope
+ * decision that read the former would treat home as a workspace (#84).
+ */
+const NO_FOLDER_OPEN = {
+  workspaceRoot: 'D:/home',
+  policyWorkspaceRoot: undefined,
+} as const;
+
 describe('buildHarnessNamespace — shape', () => {
   it('exposes searchSkills/createSkill/searchMcpRegistry/listInstalledMcpServers/installMcpServer/proposeConfig', () => {
     const { deps } = makeDeps();
@@ -420,7 +430,7 @@ describe('buildHarnessNamespace — installMcpServer', () => {
 
   it('refuses a default (workspace) install when no folder is open and names the user scope', async () => {
     const mcpInstaller = makeInstaller();
-    const { deps } = makeDeps({ mcpInstaller, workspaceRoot: '' });
+    const { deps } = makeDeps({ mcpInstaller, ...NO_FOLDER_OPEN });
     const attempt = buildHarnessNamespace(deps).installMcpServer(
       'owner/srv',
       stdio,
@@ -488,7 +498,7 @@ describe('buildHarnessNamespace — installMcpServer', () => {
         error: 'No workspace folder open',
       },
     ]);
-    const { deps } = makeDeps({ mcpInstaller, workspaceRoot: '' });
+    const { deps } = makeDeps({ mcpInstaller, ...NO_FOLDER_OPEN });
 
     const out = await buildHarnessNamespace(deps).installMcpServer(
       'owner/srv',
@@ -1461,7 +1471,7 @@ describe('buildHarnessNamespace — createSkill', () => {
 
   it('refuses a default (workspace) skill when no folder is open and names the user scope', async () => {
     existsSync.mockReturnValue(false);
-    const { deps } = makeDeps({ workspaceRoot: '' });
+    const { deps } = makeDeps(NO_FOLDER_OPEN);
 
     const attempt = buildHarnessNamespace(deps).createSkill(
       'house-style',
@@ -1477,7 +1487,7 @@ describe('buildHarnessNamespace — createSkill', () => {
 
   it('writes an explicit user-scoped skill with no folder open', async () => {
     existsSync.mockReturnValue(false);
-    const { deps } = makeDeps({ workspaceRoot: '' });
+    const { deps } = makeDeps(NO_FOLDER_OPEN);
 
     const result = await buildHarnessNamespace(deps).createSkill(
       'house-style',

@@ -33,13 +33,14 @@
  *
  * ## Failure behaviour
  *
- * Validated with zod at the file boundary. A missing (ENOENT), corrupt or
- * unknown-version file reads as EMPTY — never as global intent, which is the
- * one reading that would widen an install to every workspace. Any other read
+ * Validated with zod at the file boundary. Only a missing file (ENOENT) reads
+ * as EMPTY. A corrupt, schema-invalid or unknown-version file, any other read
  * error (EACCES, EIO, ...) and every failed write throw
- * {@link McpIntentPersistError}: reading an unreadable file as empty would let
- * the next write replace the intent it holds, and a swallowed write would let a
- * caller reconcile as if the request were saved.
+ * {@link McpIntentPersistError}. Reading an unreadable file as empty would make
+ * reconcile plan the removal of every Ptah-owned MCP entry and let the next
+ * write replace the intent the file still holds; a swallowed write would let a
+ * caller reconcile as if the request were saved. A corrupt file is never read
+ * as global intent either, which would widen an install to every workspace.
  */
 
 import { readFileSync } from 'fs';
@@ -265,11 +266,7 @@ function requireRoot(
 }
 
 export class McpIntentStore {
-  constructor(
-    private readonly path: string = defaultMcpIntentPath(),
-    private readonly warn: (message: string, detail?: unknown) => void = () =>
-      undefined,
-  ) {}
+  constructor(private readonly path: string = defaultMcpIntentPath()) {}
 
   /**
    * Every server that applies to this workspace, sorted by key so the desired
@@ -555,15 +552,12 @@ export class McpIntentStore {
     try {
       parsed = McpIntentFileSchema.parse(JSON.parse(raw));
     } catch (error: unknown) {
-      // Corrupt or unknown-version file: empty, never global (see header).
-      this.warn(
-        '[harness-sync] MCP intent store unreadable, treating as empty',
-        {
-          path: this.path,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
-      return emptyFile();
+      // Corrupt, schema-invalid or unknown-version file: fail loud (decision
+      // #79/#84). Reading it as empty would make reconcile remove every
+      // Ptah-owned MCP entry and let the next write replace the file.
+      throw new McpIntentPersistError('read-failed', this.path, {
+        cause: error,
+      });
     }
     return parsed.version === 2
       ? normalizeV2(parsed)

@@ -766,7 +766,12 @@ export function buildHarnessNamespace(
 
       const pluginId = `${HARNESS_PLUGIN_ID_PREFIX}${sanitizedName}`;
       const userPluginsDir = path.join(os.homedir(), '.ptah', 'plugins');
-      const workspacePluginsDirPath = workspacePluginsDir(getWorkspaceRoot());
+      // The policy root, not getWorkspaceRoot(): that one falls back to the
+      // home folder, which would make "no folder open" look like a workspace
+      // and write a "workspace" skill into ~/.ptah/plugins.
+      const workspacePluginsDirPath = workspacePluginsDir(
+        getPolicyWorkspaceRoot(),
+      );
 
       if (resolvedScope === 'workspace' && workspacePluginsDirPath === null) {
         throw new Error(
@@ -1089,7 +1094,10 @@ export function buildHarnessNamespace(
         }
       }
 
-      const workspaceRoot = getWorkspaceRoot();
+      // The policy root, not getWorkspaceRoot(): its home-folder fallback
+      // would treat home as the workspace and record a workspace-scoped
+      // install against it.
+      const workspaceRoot = getPolicyWorkspaceRoot() || undefined;
       if (!workspaceRoot && resolvedScope === 'workspace') {
         throw new Error(
           'No workspace folder is open. Workspace-scoped MCP configs cannot be written — ' +
@@ -1105,7 +1113,7 @@ export function buildHarnessNamespace(
         resolvedKey,
         parsedConfig.data,
         resolvedTargets,
-        workspaceRoot || undefined,
+        workspaceRoot,
         toCapabilityScope(resolvedScope),
       );
 

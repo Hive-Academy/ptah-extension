@@ -400,7 +400,9 @@ describe('ExternalPluginMcpService.install', () => {
         target: 'claude',
         configPath: '',
         success: false,
-        error: 'No workspace folder open',
+        deferred: true,
+        code: 'deferred-no-workspace',
+        error: 'Saved. It applies when a folder is opened.',
       },
     ]);
     const { service } = makeService(installer);
@@ -417,6 +419,82 @@ describe('ExternalPluginMcpService.install', () => {
     expect(installer.installs[0]?.workspaceRoot).toBeUndefined();
     expect(outcome.serverKeys).toEqual(['binlog']);
     expect(outcome.warnings).toEqual([]);
+  });
+
+  it('does not report a global install with no workspace as recorded when the intent was not saved', async () => {
+    const installer = createFakeInstaller();
+    installer.failures.set('binlog', [
+      {
+        target: 'claude',
+        configPath: '',
+        success: false,
+        code: 'intent-not-saved',
+        error: 'The MCP install request could not be saved.',
+      },
+    ]);
+    const { service } = makeService(installer);
+
+    const outcome = await service.install(
+      PLUGIN_ID,
+      [declaredServer()],
+      undefined,
+      'global',
+    );
+
+    expect(outcome.serverKeys).toEqual([]);
+    expect(outcome.warnings).toEqual([
+      expect.stringContaining('could not be written to claude'),
+    ]);
+  });
+
+  it('does not report a workspace install as recorded when the intent was not saved', async () => {
+    const installer = createFakeInstaller();
+    installer.failures.set('binlog', [
+      {
+        target: 'claude',
+        configPath: '',
+        success: false,
+        code: 'intent-not-saved',
+        error: 'The MCP install request could not be saved.',
+      },
+    ]);
+    const { service } = makeService(installer);
+
+    const outcome = await service.install(
+      PLUGIN_ID,
+      [declaredServer()],
+      WORKSPACE_ROOT,
+      'workspace',
+    );
+
+    expect(outcome.serverKeys).toEqual([]);
+    expect(outcome.warnings).toHaveLength(1);
+  });
+
+  it('reports a throwing install with fixed copy and logs the raw cause', async () => {
+    const installer = createFakeInstaller();
+    installer.install = () =>
+      Promise.reject(
+        new Error('EACCES: /home/secret/.ptah/mcp-installed.json'),
+      );
+    const { service, logger } = makeService(installer);
+
+    const outcome = await service.install(
+      PLUGIN_ID,
+      [declaredServer()],
+      WORKSPACE_ROOT,
+      'workspace',
+    );
+
+    expect(outcome.serverKeys).toEqual([]);
+    expect(outcome.warnings).toEqual([
+      'MCP server "binlog" could not be installed. See the Ptah log for details.',
+    ]);
+    expect(outcome.warnings.join(' ')).not.toContain('EACCES');
+    expect(logger.warn).toHaveBeenCalledWith(
+      'External plugin MCP install failed',
+      expect.objectContaining({ error: expect.stringContaining('EACCES') }),
+    );
   });
 
   it('skips a declaration the schema rejects and keeps the usable ones', async () => {
@@ -537,8 +615,67 @@ describe('ExternalPluginMcpService.uninstall', () => {
 
     expect(outcome.serverKeys).toEqual([]);
     expect(outcome.warnings).toEqual([
-      expect.stringContaining('could not be removed: store locked'),
+      'MCP server "binlog" could not be removed. See the Ptah log for details.',
     ]);
+  });
+
+  it('does not report a forget with no workspace as done when the intent was not saved', async () => {
+    const installer = createFakeInstaller();
+    installer.recorded.set('binlog', ['global']);
+    const baseUninstall = installer.uninstall;
+    installer.uninstall = async (...args) => {
+      await baseUninstall(...args);
+      return [
+        {
+          target: 'claude',
+          configPath: '',
+          success: false,
+          code: 'intent-not-saved',
+          error: 'The MCP install request could not be saved.',
+        },
+      ];
+    };
+    const { service } = makeService(installer);
+
+    const outcome = await service.uninstall(
+      PLUGIN_ID,
+      [declaredServer()],
+      undefined,
+    );
+
+    expect(outcome.serverKeys).toEqual([]);
+    expect(outcome.warnings).toEqual([
+      expect.stringContaining('could not be written to claude'),
+    ]);
+  });
+
+  it('ignores deferred results of a forget with no workspace', async () => {
+    const installer = createFakeInstaller();
+    installer.recorded.set('binlog', ['global']);
+    const baseUninstall = installer.uninstall;
+    installer.uninstall = async (...args) => {
+      await baseUninstall(...args);
+      return [
+        {
+          target: 'claude',
+          configPath: '',
+          success: false,
+          deferred: true,
+          code: 'deferred-no-workspace',
+          error: 'Saved. It applies when a folder is opened.',
+        },
+      ];
+    };
+    const { service } = makeService(installer);
+
+    const outcome = await service.uninstall(
+      PLUGIN_ID,
+      [declaredServer()],
+      undefined,
+    );
+
+    expect(outcome.serverKeys).toEqual(['binlog']);
+    expect(outcome.warnings).toEqual([]);
   });
 });
 
@@ -599,12 +736,7 @@ describe('ExternalPluginMcpService scope (real intent store)', () => {
   });
 
   it('records an explicit global install for every workspace with the detected set', async () => {
-    await service.install(
-      PLUGIN_ID,
-      [declaredServer()],
-      workspaceA,
-      'global',
-    );
+    await service.install(PLUGIN_ID, [declaredServer()], workspaceA, 'global');
 
     expect(store.scopeOf('binlog', workspaceB)).toBe('global');
     expect(store.listFor(workspaceB)).toEqual([
@@ -646,19 +778,14 @@ describe('ExternalPluginMcpService scope (real intent store)', () => {
   });
 
   it('uninstall forgets the global record it was installed with, from any workspace', async () => {
-    await service.install(
-      PLUGIN_ID,
-      [declaredServer()],
-      workspaceA,
-      'global',
-    );
+    await service.install(PLUGIN_ID, [declaredServer()], workspaceA, 'global');
 
     await service.uninstall(PLUGIN_ID, [declaredServer()], workspaceB);
 
     expect(store.has('binlog')).toBe(false);
   });
 
-  it('uninstall from workspace B leaves workspace A\'s record and warns', async () => {
+  it("uninstall from workspace B leaves workspace A's record and warns", async () => {
     await service.install(
       PLUGIN_ID,
       [declaredServer()],
