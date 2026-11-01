@@ -146,7 +146,9 @@ cap of 4: two turns started 65 ms apart inside one 250 ms guard interval; settin
 (`idle 5240s exceeds 600s`, app.log 1626) for the run 4 thread, a design error of the run. A queued
 `ptah_agent_message` to a running lane was delivered after lane turn 1 and started lane turn 2 (1720). New gap G6:
 the completion signal and the `Finished` row came at the end of lane turn 1 (1726), not when the lane run ended, so
-the lane showed as finished while turn 2 ran. Check against Claude lane behavior before the proof is signed. Other:
+the lane showed as finished while turn 2 ran. Resolved as parity, not a Codex gap: the signal comes from the shared
+manager (agent-process-manager.service.ts:3078-3117), which signals each ending of a continued lane as a new event
+for every continuation-capable adapter; turn 2's own ending is signalled again. Other:
 the spawn result gave the main agent no usable agentId (first message call `isError true`, 1670).
 
 ## Proposed Removals
