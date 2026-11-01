@@ -774,15 +774,15 @@ describe('DecisionModelRowComponent', () => {
       await open();
       await pickKind('ollama');
       const close = byTestId<HTMLButtonElement>('consumer-close-decision');
-      const model = byTestId<HTMLInputElement>('decision-model');
-      if (!close || !model) throw new Error('editor controls missing');
-      // Save is disabled with an empty model, so the model field is the last stop.
-      const forward = tab(model);
+      const timeout = byTestId<HTMLInputElement>('decision-timeout');
+      if (!close || !timeout) throw new Error('editor controls missing');
+      // Save is disabled with an empty model, so the request timeout field (below the model) is the last stop.
+      const forward = tab(timeout);
       expect(forward.defaultPrevented).toBe(true);
       expect(document.activeElement).toBe(close);
       const back = tab(close, true);
       expect(back.defaultPrevented).toBe(true);
-      expect(document.activeElement).toBe(model);
+      expect(document.activeElement).toBe(timeout);
       const inside = tab(byTestId<HTMLSelectElement>('decision-kind') ?? close);
       expect(inside.defaultPrevented).toBe(false);
     });

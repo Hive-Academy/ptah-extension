@@ -7,6 +7,7 @@ import {
   SurfaceRouterService,
   VSCodeService,
   surfaceNavigationLanded,
+  onboardingGenerationTarget,
 } from '@ptah-extension/core';
 import type { SetupGenerationWorkflow } from '@ptah-extension/shared';
 
@@ -75,11 +76,14 @@ export class GenerationWorkflowLauncherService {
         ? 'analysis-result-continue'
         : 'independent-start',
     );
-    const outcome = await this.router.navigateToSurface('setup-wizard', [
-      'generation',
-      workflow,
-      tabId,
-    ]);
+    const target = onboardingGenerationTarget(workflow, tabId);
+    const outcome = await this.router.navigateToSurface(
+      'onboarding',
+      target.subPath,
+      {
+        queryParams: target.queryParams,
+      },
+    );
     if (outcome === 'cancelled') {
       this.launchIntents.delete(tabId);
       return { outcome: 'cancelled' };

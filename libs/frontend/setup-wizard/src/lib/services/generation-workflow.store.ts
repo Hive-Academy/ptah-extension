@@ -12,6 +12,8 @@ import {
 } from './wizard-rpc.service';
 import { findBoundGenerationTab } from './bound-generation-tab';
 
+const LOOKUP_FAILED = Symbol('lookup-failed');
+
 export type GenerationViewState =
   | 'idle'
   | 'starting'
@@ -40,6 +42,10 @@ export class GenerationWorkflowStore {
   private pendingStop = false;
   private watchdog: ReturnType<typeof setTimeout> | null = null;
   private lookupFailures = 0;
+  private expectedRunId: string | undefined;
+  private bindingRevision = 0;
+  readonly runMismatch = signal(false);
+  readonly lookupExhausted = signal(false);
   readonly acceptedRun = signal<{ runId: string; revision: number } | null>(
     null,
   );
@@ -68,17 +74,24 @@ export class GenerationWorkflowStore {
     return value && value !== 'unknown' ? value : null;
   });
 
-  bind(binding: SetupGenerationTabBinding): void {
+  bind(binding: SetupGenerationTabBinding, expectedRunId?: string): void {
+    this.lookupExhausted.set(false);
     const old = this.bindingValue();
     if (
       old?.tabId === binding.tabId &&
       old.workspacePath === binding.workspacePath &&
-      old.workflow === binding.workflow
+      old.workflow === binding.workflow &&
+      (this.expectedRunId === expectedRunId ||
+        (expectedRunId !== undefined && this.runValue()?.binding.runId === expectedRunId))
     )
       return;
     this.pendingStop = false;
+    this.bindingRevision++;
+    this.expectedRunId = expectedRunId;
+    this.runMismatch.set(false);
     this.clearWatchdog();
     this.lookupFailures = 0;
+    this.lookupExhausted.set(false);
     this.runValue.set(null);
     this.stateValue.set('idle');
     this.rejectionValue.set(null);
@@ -89,8 +102,12 @@ export class GenerationWorkflowStore {
 
   unbind(): void {
     this.pendingStop = false;
+    this.bindingRevision++;
+    this.expectedRunId = undefined;
+    this.runMismatch.set(false);
     this.clearWatchdog();
     this.lookupFailures = 0;
+    this.lookupExhausted.set(false);
     this.bindingValue.set(null);
     this.runValue.set(null);
     this.stateValue.set('idle');
@@ -106,6 +123,7 @@ export class GenerationWorkflowStore {
     decisions?: BoundAgentDecisions,
   ): Promise<void> {
     const binding = this.bindingValue();
+    const revision = this.bindingRevision;
     if (
       !binding ||
       binding.workflow !== 'setup-agent-generation' ||
@@ -125,13 +143,13 @@ export class GenerationWorkflowStore {
             decisions,
           )
         : await this.rpc.startBoundAgents(binding, selectedAgentIds);
-      if (!this.sameBinding(binding)) return;
+      if (!this.sameBinding(binding) || revision !== this.bindingRevision) return;
       if (response.accepted) await this.accept(binding, response.accepted);
       else if (response.rejection) this.reject(response.rejection);
       else if (response.success === false) this.failStart(response.error);
       else await this.refresh();
     } catch (error: unknown) {
-      if (this.sameBinding(binding)) {
+      if (this.sameBinding(binding) && revision === this.bindingRevision) {
         if (
           error instanceof Error &&
           error.message ===
@@ -153,6 +171,7 @@ export class GenerationWorkflowStore {
 
   private async submitGuidance(force: boolean): Promise<void> {
     const binding = this.bindingValue();
+    const revision = this.bindingRevision;
     if (
       !binding ||
       binding.workflow !== 'setup-project-prompt' ||
@@ -167,13 +186,13 @@ export class GenerationWorkflowStore {
       const response = force
         ? await this.rpc.regenerateBoundGuidance(binding)
         : await this.rpc.startBoundGuidance(binding);
-      if (!this.sameBinding(binding)) return;
+      if (!this.sameBinding(binding) || revision !== this.bindingRevision) return;
       if (response.accepted) await this.accept(binding, response.accepted);
       else if (response.rejection) this.reject(response.rejection);
       else if (response.success === false) this.failStart(response.error);
       else await this.refresh();
     } catch {
-      if (this.sameBinding(binding)) {
+      if (this.sameBinding(binding) && revision === this.bindingRevision) {
         await this.refresh();
       }
     }
@@ -252,6 +271,10 @@ export class GenerationWorkflowStore {
     binding: SetupGenerationTabBinding,
     accepted: SetupGenerationAccepted,
   ): Promise<void> {
+    this.bindingRevision++;
+    this.expectedRunId = undefined;
+    this.runMismatch.set(false);
+    const revision = this.bindingRevision;
     this.lookupFailures = 0;
     this.rejectionValue.set(null);
     this.acceptedRun.update((previous) => ({
@@ -266,8 +289,9 @@ export class GenerationWorkflowStore {
       effectiveModel: accepted.effectiveModel,
     });
     const run = await this.safeLookup(binding, accepted.runId);
-    if (!this.sameBinding(binding)) return;
-    if (run?.binding.runId === accepted.runId) this.applyRun(run);
+    if (!this.sameBinding(binding) || revision !== this.bindingRevision) return;
+    if (run !== LOOKUP_FAILED && run?.binding.runId === accepted.runId)
+      this.applyRun(run);
     else this.stateValue.set('quiet');
     if (this.pendingStop) await this.flushStop(binding, accepted.runId);
   }
@@ -281,9 +305,35 @@ export class GenerationWorkflowStore {
 
   async refresh(): Promise<void> {
     const binding = this.bindingValue();
-    if (!binding) return;
-    const run = await this.safeLookup(binding, this.runValue()?.binding.runId);
-    if (!this.sameBinding(binding)) return;
+    if (!binding || this.runMismatch()) return;
+    const revision = this.bindingRevision;
+    const expectedRunId = this.expectedRunId;
+    const lookup = await this.safeLookup(binding, expectedRunId ? undefined : this.runValue()?.binding.runId);
+    if (!this.sameBinding(binding) || revision !== this.bindingRevision) return;
+    if (lookup === LOOKUP_FAILED && expectedRunId) {
+      if (this.expectedRunId !== expectedRunId) return;
+      if (this.lookupFailures < 3) {
+        const delay = 1000 * 2 ** this.lookupFailures++;
+        this.clearWatchdog();
+        this.watchdog = setTimeout(() => void this.refresh(), delay);
+      } else {
+        this.lookupExhausted.set(true);
+      }
+      return;
+    }
+    if (lookup !== LOOKUP_FAILED) this.lookupExhausted.set(false);
+    const run = lookup === LOOKUP_FAILED ? null : lookup;
+    if (expectedRunId) {
+      if (this.expectedRunId !== expectedRunId) return;
+      this.expectedRunId = undefined;
+      if (run?.binding.runId !== expectedRunId) {
+        this.runMismatch.set(true);
+        this.runValue.set(null);
+        this.stateValue.set('idle');
+        return;
+      }
+    }
+    this.runMismatch.set(false);
     if (!run) {
       const lastRun = this.runValue();
       if (lastRun && this.isTerminal(lastRun.status)) return;
@@ -306,8 +356,8 @@ export class GenerationWorkflowStore {
     }
     this.lookupFailures = 0;
     this.clearWatchdog();
-    const expectedRunId = this.runValue()?.binding.runId;
-    if (expectedRunId && run.binding.runId !== expectedRunId) return;
+    const heldRunId = this.runValue()?.binding.runId;
+    if (heldRunId && run.binding.runId !== heldRunId) return;
     this.applyRun(run);
     if (this.pendingStop && !this.isTerminal(run.status))
       await this.flushStop(binding, run.binding.runId);
@@ -336,12 +386,12 @@ export class GenerationWorkflowStore {
   private async safeLookup(
     binding: SetupGenerationTabBinding,
     runId?: string,
-  ): Promise<SetupGenerationRunState | null> {
+  ): Promise<SetupGenerationRunState | null | typeof LOOKUP_FAILED> {
     try {
       return await this.rpc.getBoundRunState(binding, runId);
     } catch {
       // degradation-audit: reported - refresh retries a failed host lookup without exposing transport errors.
-      return null;
+      return LOOKUP_FAILED;
     }
   }
 

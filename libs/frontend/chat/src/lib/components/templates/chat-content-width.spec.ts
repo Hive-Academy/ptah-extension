@@ -25,7 +25,7 @@ const WIDTH_RULES = [
     rule: 'max-width: min(var(--chat-content-max-width, 758px), 100%)',
   },
   {
-    file: '../molecules/chat-input/chat-input.component.ts',
+    file: '../molecules/chat-input/chat-input.component.css',
     rule: 'max-width: var(--chat-content-max-width, 758px)',
   },
   {

@@ -5,7 +5,6 @@ import {
   input,
 } from '@angular/core';
 import {
-  AlertTriangle,
   CircleCheck,
   FileText,
   LucideAngularModule,
@@ -40,16 +39,6 @@ import type { EnhancedPromptsSummary } from '@ptah-extension/shared';
             aria-hidden="true"
           />
           <h3 class="text-sm font-semibold">Generated Guidance</h3>
-          @if (summaryData().usedFallback) {
-            <span class="badge badge-warning badge-xs gap-1">
-              <lucide-angular
-                [img]="AlertTriangleIcon"
-                class="w-2.5 h-2.5"
-                aria-hidden="true"
-              />
-              fallback
-            </span>
-          }
         </div>
 
         <!-- Section Grid -->
@@ -83,15 +72,12 @@ import type { EnhancedPromptsSummary } from '@ptah-extension/shared';
           }
         </div>
 
-        <!-- Footer: Total tokens -->
+        <!-- Section count -->
         <div
           class="flex items-center justify-between mt-2 pt-2 border-t border-base-300/30"
         >
           <span class="text-[10px] text-base-content-muted">
             {{ generatedCount() }} of {{ sections().length }} sections generated
-          </span>
-          <span class="badge badge-ghost badge-xs">
-            {{ summaryData().totalTokens }} tokens
           </span>
         </div>
       </div>
@@ -100,21 +86,19 @@ import type { EnhancedPromptsSummary } from '@ptah-extension/shared';
 })
 export class EnhancedPromptsSummaryCardComponent {
   /** Summary data from the backend */
-  public readonly summary = input.required<EnhancedPromptsSummary>();
+  public readonly summary = input.required<Pick<EnhancedPromptsSummary, 'sections'>>();
 
   protected readonly SparklesIcon = Sparkles;
   protected readonly CircleCheckIcon = CircleCheck;
-  protected readonly AlertTriangleIcon = AlertTriangle;
   protected readonly FileTextIcon = FileText;
 
-  /** Alias for template readability */
-  protected readonly summaryData = this.summary;
-
   /** Section list for the grid */
-  protected readonly sections = computed(() => this.summary().sections);
+  protected readonly sections = computed(() =>
+    this.summary().sections.filter((section) => section.name !== 'Quality Guidance'),
+  );
 
   /** Count of successfully generated sections */
   protected readonly generatedCount = computed(
-    () => this.summary().sections.filter((s) => s.generated).length,
+    () => this.sections().filter((s) => s.generated).length,
   );
 }

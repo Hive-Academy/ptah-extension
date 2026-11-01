@@ -76,6 +76,14 @@ export type ProvidersSettingsFocusTarget =
   | 'connections'
   | 'more-providers';
 
+/** A deep link that opens a connection drawer on a tab. Only the Claude Accounts drawer is requestable. */
+export interface ProvidersSettingsDrawerRequest {
+  /** A `ConnectionKind` value, resolved like `openAccountSignIn` does. */
+  readonly connection: 'claude-cli';
+  /** A `ConnectionDrawerTabId` member. */
+  readonly tab: 'accounts';
+}
+
 const CONTROL =
   'btn btn-outline btn-sm border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
@@ -335,7 +343,8 @@ const CONTROL =
               </p>
             }
             <!-- Compact cards (≤ 80 px): the whole card opens the drawer, which holds every per-state action but one.
-                 Rows come from the CONTAINER width: one 22 rem list column in the narrow Electron page, two at 1440 px. -->
+                 Rows come from the CONTAINER width: one 22 rem list column in the narrow Electron page, two at 1440 px; below 22 rem
+                 the one column shrinks to the container (onboarding's 400 px content area). -->
             <div
               class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))] items-start gap-2"
               data-testid="connections-grid"
@@ -544,6 +553,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   /** Emitted once the wizard was opened for {@link requestedProviderId}. */
   readonly requestedProviderConsumed = output<string>();
   readonly focusTarget = input<ProvidersSettingsFocusTarget | null>(null);
+  /** Opens the requested connection drawer once the connection list is ready (Electron only: Accounts is D34). */
+  readonly requestedDrawer = input<ProvidersSettingsDrawerRequest | null>(null);
   protected readonly state = inject(ProvidersSettingsStateService);
   /** Accounts is Electron only (D34): elsewhere the drawer tab is absent and the account reads never run. */
   protected readonly accountsAvailable = inject(VSCodeService).isElectron;
@@ -1013,6 +1024,26 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
         this.openWizard(provider);
       });
     });
+    // Drawer deep link (onboarding named-account link): open the Claude drawer on the requested tab once the
+    // connections are ready. Same per-request guard as above: closing the drawer while the request stays bound does
+    // not reopen it; clearing the input and setting it again does. Not Electron: the Accounts tab does not exist.
+    let drawerOpenedFor = '';
+    effect(() => {
+      if (!this.accountsAvailable) return;
+      const request = this.requestedDrawer();
+      if (!request) {
+        drawerOpenedFor = '';
+        return;
+      }
+      const key = `${request.connection}:${request.tab}`;
+      if (key === drawerOpenedFor || this.state.connections().status !== 'ready')
+        return;
+      drawerOpenedFor = key;
+      untracked(() => {
+        const claude = (this.state.connections().data ?? []).find((connection) => this.isClaudeCli(connection));
+        if (claude) this.openDrawer(claude.id, request.tab);
+      });
+    });
     afterRenderEffect(() => {
       if (this.focusTarget() !== this.lastInputFocus) {
         this.lastInputFocus = this.focusTarget();
@@ -1119,7 +1150,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
    * `lastCheck`, then the route re-read; local servers and key-optional routes the host cannot check, such as Ollama,
    * LM Studio and Ollama Cloud, get the route re-read alone). While the route itself failed to load, the card reads
    * "Check unavailable" and Retry keeps the full re-read, which is what can repair it. D3: nothing starts while a check
-   * or a save runs. The action leaves the card face while it reads "Checking…", so focus moves to the card itself.
+   * or a save runs. The action leaves the card face while it reads "Checking…", so focus moves to its details trigger.
    */
   protected checkFromCard(id: string): void {
     if (this.state.route().status !== 'ready') {
@@ -1133,7 +1164,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       () =>
         this.element.nativeElement
           .querySelector<HTMLElement>(
-            `ptah-provider-connection-card[data-connection-id="${id}"] [role="button"]`,
+            `ptah-provider-connection-card[data-connection-id="${id}"] [data-testid="provider-card-details-trigger"]`,
           )
           ?.focus(),
       { injector: this.injector },

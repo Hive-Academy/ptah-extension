@@ -13,7 +13,7 @@ import type {
 } from '@ptah-extension/shared';
 import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
-import { ProvidersSettingsComponent } from './providers-settings.component';
+import { ProvidersSettingsComponent, type ProvidersSettingsDrawerRequest } from './providers-settings.component';
 import { MainAgentReassignPopoverComponent } from './main-agent-reassign-popover.component';
 import { ProvidersModelsLoader } from './providers-models-loader.service';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
@@ -745,7 +745,7 @@ describe('ProvidersSettingsComponent', () => {
       button('Clear filter').click(); await render();
       expect(element.querySelectorAll('ptah-provider-connection-card')).toHaveLength(2);
     });
-    it('the list takes its columns from the container width (22rem rows), and the catalog caption is one passive row under the header', async () => {
+    it('the list takes its columns from the container width (22rem rows, never wider than the container), and the catalog caption is one passive row under the header', async () => {
       await render();
       expect(element.querySelector('[data-testid="connections-grid"]')?.className).toContain('grid-cols-[repeat(auto-fill,minmax(min(100%,22rem),1fr))]');
       expect(element.querySelector('[data-testid="connections-grid"]')?.className).toContain('items-start');
@@ -937,6 +937,9 @@ describe('ProvidersSettingsComponent', () => {
       state.connectionCheck.set({ providerId: 'second', status: 'checking' }); await render();
       expect(card('second')?.querySelector('[data-testid="provider-connection-card"]')?.getAttribute('data-state')).toBe('checking');
       expect(card('second')?.querySelector('[data-testid="btn-retry"]')).toBeNull();
+      const detailsTrigger = card('second')?.querySelector<HTMLButtonElement>('[data-testid="provider-card-details-trigger"]');
+      expect(detailsTrigger?.tagName).toBe('BUTTON');
+      expect(document.activeElement).toBe(detailsTrigger);
     });
 
     it('a later verified check clears it; a failed one older than the route probe does not win', async () => {
@@ -967,12 +970,19 @@ describe('ProvidersSettingsComponent', () => {
     const cardAction = (node: Element) => node.closest('[data-testid="provider-connection-card"]') !== null;
     // The Main agent's "Reassign" is stretched over the whole block (≥ 96px): the block is its target.
     const nodeAction = (node: Element) => node.getAttribute('data-testid') === 'routing-node-action';
+    // Each card's details trigger covers the whole card (≥ 40px): the card is its target.
+    const cardTrigger = (node: Element) => node.getAttribute('data-testid') === 'provider-card-details-trigger';
     // The catalog modal's controls are asserted in its own spec (closed here; the backdrop is the modal primitive's).
     const actions = Array.from(element.querySelectorAll('button')).filter((node) => !node.closest('ptah-provider-catalog-modal'));
-    expect(actions.some(cardAction)).toBe(true);
+    expect(actions.some((node) => cardAction(node) && !cardTrigger(node))).toBe(true);
     expect(actions.filter(nodeAction)).toHaveLength(1);
     for (const node of actions.filter(nodeAction)) expect(node.classList.contains('after:inset-0')).toBe(true);
-    for (const node of actions.filter((candidate) => !nodeAction(candidate))) {
+    expect(actions.filter(cardTrigger)).toHaveLength(2);
+    for (const node of actions.filter(cardTrigger)) {
+      expect(node.classList.contains('inset-0')).toBe(true);
+      expect(node.classList.contains('focus-visible:outline-2')).toBe(true);
+    }
+    for (const node of actions.filter((candidate) => !nodeAction(candidate) && !cardTrigger(candidate))) {
       expect(node.classList.contains('btn-sm')).toBe(true);
       expect(node.classList.contains('btn-xs')).toBe(false);
       expect(node.classList.contains('focus-visible:outline-2')).toBe(true);
@@ -1117,10 +1127,12 @@ describe('ProvidersSettingsComponent named Claude accounts (P5 F5, D41)', () => 
   let element: HTMLElement;
   let accounts: AccountsFake;
   let ambient: AmbientFake;
+  let stateStub: StateStub;
 
   async function setup(isElectron: boolean, claude: ProvidersConnection = claudeCli) {
     Object.defineProperty(Element.prototype, 'scrollIntoView', { writable: true, configurable: true, value: jest.fn() });
     const state = new StateStub();
+    stateStub = state;
     state.connections.set(ready([connection('first'), claude]));
     state.route.set(ready(route));
     accounts = new AccountsFake();
@@ -1147,7 +1159,7 @@ describe('ProvidersSettingsComponent named Claude accounts (P5 F5, D41)', () => 
   const badgeText = () => badge()?.textContent?.trim() ?? null;
   async function setAmbient(view: ClaudeAmbientStatusView) { ambient.view.set(view); await render(); }
   async function openClaudeDrawer() {
-    card('claude-cli')?.querySelector<HTMLElement>('[role="button"]')?.click();
+    card('claude-cli')?.querySelector<HTMLElement>('[data-testid="provider-card-details-trigger"]')?.click();
     await render();
   }
   function drawerAccountsAvailable(): boolean {
@@ -1159,6 +1171,74 @@ describe('ProvidersSettingsComponent named Claude accounts (P5 F5, D41)', () => 
     element.querySelector<HTMLButtonElement>('[data-testid="connection-drawer-close"]')?.click();
     return render();
   }
+
+  const ACCOUNTS_REQUEST: ProvidersSettingsDrawerRequest = { connection: 'claude-cli', tab: 'accounts' };
+  const openDrawer = () => fixture.debugElement.query(By.directive(ConnectionDetailDrawerComponent))
+    ?.injector.get(ConnectionDetailDrawerComponent) ?? null;
+  async function requestDrawer(request: ProvidersSettingsDrawerRequest | null) {
+    fixture.componentRef.setInput('requestedDrawer', request);
+    await render();
+  }
+
+  describe('requestedDrawer (onboarding deep link, component 11)', () => {
+    it('in Electron, opens the Claude drawer on Accounts when connections are ready', async () => {
+      await setup(true);
+      expect(openDrawer()).toBeNull();
+      await requestDrawer(ACCOUNTS_REQUEST);
+      expect(openDrawer()?.connection()?.id).toBe('claude-cli');
+      expect(openDrawer()?.initialTab()).toBe('accounts');
+    });
+
+    it('waits for the connection list and then opens exactly once', async () => {
+      await setup(true);
+      const claudeSetupReads = () => stateStub.refreshConnectionSetup.mock.calls
+        .filter((call: unknown[]) => call[0] === 'claude-cli').length;
+      const loaded = stateStub.connections().data;
+      stateStub.connections.set({ status: 'loading', data: null, error: null });
+      await requestDrawer(ACCOUNTS_REQUEST);
+      expect(openDrawer()).toBeNull();
+      stateStub.connections.set(ready(loaded ?? []));
+      await render();
+      expect(openDrawer()?.initialTab()).toBe('accounts');
+      stateStub.connections.set(ready([...(loaded ?? [])]));
+      await render();
+      expect(claudeSetupReads()).toBe(1);
+    });
+
+    it('does not reopen after close while the request stays bound; clearing and setting it again does', async () => {
+      await setup(true);
+      await requestDrawer(ACCOUNTS_REQUEST);
+      expect(openDrawer()?.connection()?.id).toBe('claude-cli');
+      await closeDrawerFromFooter();
+      expect(openDrawer()).toBeNull();
+      stateStub.connections.set(ready([...(stateStub.connections().data ?? [])]));
+      await render();
+      expect(openDrawer()).toBeNull();
+      await requestDrawer(null);
+      await requestDrawer({ ...ACCOUNTS_REQUEST });
+      expect(openDrawer()?.connection()?.id).toBe('claude-cli');
+      expect(openDrawer()?.initialTab()).toBe('accounts');
+    });
+
+    it('with the input absent, opens no drawer', async () => {
+      await setup(true);
+      await requestDrawer(null);
+      expect(openDrawer()).toBeNull();
+    });
+
+    it('is a no-op when the loaded list has no Claude connection', async () => {
+      await setup(true);
+      stateStub.connections.set(ready([connection('first')]));
+      await requestDrawer(ACCOUNTS_REQUEST);
+      expect(openDrawer()).toBeNull();
+    });
+
+    it('on the inert host, opens nothing', async () => {
+      await setup(false);
+      await requestDrawer(ACCOUNTS_REQUEST);
+      expect(openDrawer()).toBeNull();
+    });
+  });
 
   describe('in Electron', () => {
     beforeEach(() => setup(true));

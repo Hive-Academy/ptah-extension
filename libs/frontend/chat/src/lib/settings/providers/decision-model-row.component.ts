@@ -61,6 +61,7 @@ import {
   type DecisionSuggestions,
 } from './decision-model-suggestions';
 import { DecisionModelBaseUrlFieldComponent } from './decision-model-row.base-url-field.component';
+import { DecisionModelTimeoutFieldComponent } from './decision-model-row.timeout-field.component';
 import {
   decisionEditorMaxHeight,
   wrapEditorTab,
@@ -101,6 +102,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
     ProviderMarkComponent,
     DecisionModelKeyFieldComponent,
     DecisionModelBaseUrlFieldComponent,
+    DecisionModelTimeoutFieldComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // Angular owns (and removes) this listener with the component.
@@ -346,6 +348,11 @@ type WriteResult = { ok: true } | { ok: false; message: string };
                       (remove)="removeKey()"
                     />
                   }
+                  @if (usesSystemOne()) {
+                    <ptah-decision-model-timeout-field
+                      [disabled]="disabled()"
+                    />
+                  }
                 </div>
                 @if (draft().kind !== 'unset') {
                   <button
@@ -492,6 +499,11 @@ export class DecisionModelRowComponent implements OnInit {
   private readonly pendingInput = computed(() =>
     decisionModelInput(this.draft()),
   );
+  /** The draft's kind calls a System One endpoint, so the request timeout setting applies to it. */
+  protected readonly usesSystemOne = computed(() => {
+    const kind = this.draft().kind;
+    return kind !== 'unset' && kind !== 'structured';
+  });
   /** The draft's kind when its key is entered in this row. */
   protected readonly keyedKind = computed((): DecisionKeyedKind | null => {
     const kind = this.draft().kind;

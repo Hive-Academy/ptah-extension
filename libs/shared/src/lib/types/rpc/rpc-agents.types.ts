@@ -180,6 +180,19 @@ export interface DecisionModelStatusDto {
 }
 
 /**
+ * File-based setting (section `ptah`) holding the per-request timeout of
+ * every System One decision-model call, in milliseconds, for both
+ * localities. Unset or not a positive number means the built-in
+ * per-locality timeout. A set value is rounded and clamped to
+ * {@link DECISION_MODEL_TIMEOUT_MIN_MS}..{@link DECISION_MODEL_TIMEOUT_MAX_MS}.
+ * Written through `settings:set` by the decision-model settings row.
+ */
+export const DECISION_MODEL_TIMEOUT_SETTING_KEY =
+  'agentOrchestration.decisionModelTimeoutMs';
+export const DECISION_MODEL_TIMEOUT_MIN_MS = 1_000;
+export const DECISION_MODEL_TIMEOUT_MAX_MS = 60_000;
+
+/**
  * `agent:setConfig` error when the decision-model selection write failed and
  * the previous TypeSafe Jev key could not be put back. Fixed text shared by
  * the host and the settings row, which shows it instead of "unchanged".

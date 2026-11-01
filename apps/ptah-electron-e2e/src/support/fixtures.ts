@@ -37,6 +37,8 @@ export interface PtahFixtures {
   mainWindow: Page;
   rpcBridge: RpcBridge;
   ui: UiDriver;
+  /** Set false to exercise the first-run onboarding redirect. */
+  onboardingAlreadyShown: boolean;
   /** Captured stdout+stderr lines from the Electron main process. */
   mainProcessOutput: MainProcessOutput;
   /** Renderer console errors captured before the test starts navigating. */
@@ -44,6 +46,7 @@ export interface PtahFixtures {
 }
 
 export const test = base.extend<PtahFixtures>({
+  onboardingAlreadyShown: [true, { option: true }],
   rendererConsoleErrors: async ({ mainWindow }, use) => {
     const capture = captureRendererConsoleErrors(mainWindow);
     try {
@@ -99,7 +102,7 @@ export const test = base.extend<PtahFixtures>({
     await use(new RpcBridge(electronApp));
   },
 
-  ui: async ({ electronApp, mainWindow }, use) => {
+  ui: async ({ electronApp, mainWindow, onboardingAlreadyShown }, use) => {
     await mainWindow.waitForLoadState('domcontentloaded');
     const driver = new UiDriver(electronApp, mainWindow);
     await driver.installFakeRpcListener();
@@ -121,11 +124,17 @@ export const test = base.extend<PtahFixtures>({
       'gateway:listBindings': { bindings: [] },
       'memory:list': { memories: [], total: 0 },
     });
+    if (onboardingAlreadyShown) {
+      await mainWindow.evaluate(() =>
+        localStorage.setItem(
+          'ptah.onboarding.v1',
+          JSON.stringify({ shownAt: new Date().toISOString() }),
+        ),
+      );
+    }
     await driver.prepare();
     await use(driver);
   },
 });
 
 export const expect = base.expect;
-
-
