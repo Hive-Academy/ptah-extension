@@ -67,7 +67,7 @@
           'anubis ptah-glass synthwave halloween forest aqua black luxury dracula business night coffee dim sunset';
         var GLASS = 'ptah-glass ptah-glass-light nord cupcake dracula';
         var ACCENT = 'gold rose moonstone';
-        var SCENE = 'aurora ember tide horizon pyramid temple';
+        var SCENE = 'pyramid aurora ember tide horizon temple';
 
         function has(list, name) {
           return (' ' + list + ' ').indexOf(' ' + name + ' ') !== -1;
@@ -139,8 +139,8 @@
         if (SCENE.split(' ').indexOf(scene) === -1) {
           try { scene = localStorage.getItem('ptah-scene'); } catch (e) {}
         }
-        if (has(SCENE, scene) && scene !== 'aurora' &&
-            (!theme || theme === 'ptah-glass' || theme === 'ptah-glass-light')) {
+        if (!has(SCENE, scene)) scene = 'pyramid';
+        if (!theme || theme === 'ptah-glass' || theme === 'ptah-glass-light') {
           document.documentElement.setAttribute('data-scene', scene);
         }
 

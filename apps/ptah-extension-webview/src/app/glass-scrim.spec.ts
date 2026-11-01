@@ -238,8 +238,8 @@ describe('Ptah backdrop scenes', () => {
     const start = css.indexOf(`${selector} {`);
     expect(start).toBeGreaterThan(-1);
     const body = css.slice(start, css.indexOf('}', start) + 1);
-    expect(body).toContain('--glass-scene: var(--glass-scene-aurora);');
-    expect(body).toContain('--glass-tint-alpha: var(--glass-tint-alpha-aurora);');
+    expect(body).not.toContain('--glass-scene:');
+    expect(body).not.toContain('--glass-tint-alpha:');
     for (const [index, scene] of scenes.entries()) {
       expect(numberValue(body, `--glass-tint-alpha-${scene}`)).toBeGreaterThanOrEqual(floors[index]);
       const encoded = new RegExp(`--glass-scene-${scene}: url\\("data:image/svg\\+xml,([^"\\n]+)"\\);`).exec(body)?.[1];
@@ -265,6 +265,7 @@ describe('Ptah backdrop scenes', () => {
       const file = scene === 'pyramid' ? 'pyramid_energy_apex.webp' : 'temple-bg.webp';
       expect(body).toContain(`--glass-scene-${scene}: url("./backgrounds/${file}");`);
       expect(numberValue(body, `--glass-tint-alpha-${scene}`)).toBeGreaterThanOrEqual(floors[index]);
+      if (scene === 'pyramid') expect(numberValue(body, `--glass-tint-alpha-${scene}`)).toBe(floors[index]);
     }
   });
 
@@ -286,12 +287,12 @@ describe('Ptah backdrop scenes', () => {
     expect(light).toContain('--bcm: 40% 0.0614 293.53;');
   });
 
-  it('scopes ten overrides to the pair at specificity (0,4,0), after the dark tokens, without overriding opaque tint', () => {
+  it('scopes all twelve scene overrides to the pair at specificity (0,4,0), after the dark tokens', () => {
     const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
     const rules = [...plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector]) => selector.includes('[data-scene='));
-    expect(rules).toHaveLength(10);
+    expect(rules).toHaveLength(12);
     for (const [, selector, body] of rules) {
-      expect(selector.trim()).toMatch(/^:root\[data-theme='ptah-glass(?:-light)?'\]\[data-glass='on'\]\[data-scene='(?:ember|tide|horizon|pyramid|temple)'\]$/);
+      expect(selector.trim()).toMatch(/^:root\[data-theme='ptah-glass(?:-light)?'\]\[data-glass='on'\]\[data-scene='(?:aurora|ember|tide|horizon|pyramid|temple)'\]$/);
       expect([...body.matchAll(/(--[\w-]+):/g)].map((match) => match[1])).toEqual(['--glass-scene', '--glass-tint-alpha']);
       expect(css.indexOf(selector.trim())).toBeGreaterThan(css.indexOf(":root[data-theme][data-glass='on'][data-glass-mode='dark']"));
       const scene = /data-scene='([^']+)'/.exec(selector)?.[1];

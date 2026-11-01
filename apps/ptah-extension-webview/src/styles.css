@@ -2868,8 +2868,6 @@ END OF ANUBIS DESIGN SYSTEM
   --glass-tint-alpha-pyramid: 0.68;
   --glass-scene-temple: url("./backgrounds/temple-bg.webp");
   --glass-tint-alpha-temple: 0.68;
-  --glass-scene: var(--glass-scene-aurora);
-  --glass-tint-alpha: var(--glass-tint-alpha-aurora);
 }
 :root[data-theme='ptah-glass-light'][data-glass='on'] {
   --glass-blur: 0px;
@@ -2890,14 +2888,14 @@ END OF ANUBIS DESIGN SYSTEM
   --glass-tint-alpha-pyramid: 0.55;
   --glass-scene-temple: url("./backgrounds/temple-bg.webp");
   --glass-tint-alpha-temple: 0.55;
-  --glass-scene: var(--glass-scene-aurora);
-  --glass-tint-alpha: var(--glass-tint-alpha-aurora);
 }
+:root[data-theme='ptah-glass'][data-glass='on'][data-scene='aurora'] { --glass-scene: var(--glass-scene-aurora); --glass-tint-alpha: var(--glass-tint-alpha-aurora); }
 :root[data-theme='ptah-glass'][data-glass='on'][data-scene='ember'] { --glass-scene: var(--glass-scene-ember); --glass-tint-alpha: var(--glass-tint-alpha-ember); }
 :root[data-theme='ptah-glass'][data-glass='on'][data-scene='tide'] { --glass-scene: var(--glass-scene-tide); --glass-tint-alpha: var(--glass-tint-alpha-tide); }
 :root[data-theme='ptah-glass'][data-glass='on'][data-scene='horizon'] { --glass-scene: var(--glass-scene-horizon); --glass-tint-alpha: var(--glass-tint-alpha-horizon); }
 :root[data-theme='ptah-glass'][data-glass='on'][data-scene='pyramid'] { --glass-scene: var(--glass-scene-pyramid); --glass-tint-alpha: var(--glass-tint-alpha-pyramid); }
 :root[data-theme='ptah-glass'][data-glass='on'][data-scene='temple'] { --glass-scene: var(--glass-scene-temple); --glass-tint-alpha: var(--glass-tint-alpha-temple); }
+:root[data-theme='ptah-glass-light'][data-glass='on'][data-scene='aurora'] { --glass-scene: var(--glass-scene-aurora); --glass-tint-alpha: var(--glass-tint-alpha-aurora); }
 :root[data-theme='ptah-glass-light'][data-glass='on'][data-scene='ember'] { --glass-scene: var(--glass-scene-ember); --glass-tint-alpha: var(--glass-tint-alpha-ember); }
 :root[data-theme='ptah-glass-light'][data-glass='on'][data-scene='tide'] { --glass-scene: var(--glass-scene-tide); --glass-tint-alpha: var(--glass-tint-alpha-tide); }
 :root[data-theme='ptah-glass-light'][data-glass='on'][data-scene='horizon'] { --glass-scene: var(--glass-scene-horizon); --glass-tint-alpha: var(--glass-tint-alpha-horizon); }

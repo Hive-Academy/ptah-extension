@@ -66,8 +66,8 @@ export type AccentName = 'gold' | 'rose' | 'moonstone';
 export const ACCENTS: readonly AccentName[] = ['gold', 'rose', 'moonstone'];
 export const DEFAULT_ACCENT: AccentName = 'gold';
 export type SceneName = 'aurora' | 'ember' | 'tide' | 'horizon' | 'pyramid' | 'temple';
-export const SCENES: readonly SceneName[] = ['aurora', 'ember', 'tide', 'horizon', 'pyramid', 'temple'];
-export const DEFAULT_SCENE: SceneName = 'aurora';
+export const SCENES: readonly SceneName[] = ['pyramid', 'aurora', 'ember', 'tide', 'horizon', 'temple'];
+export const DEFAULT_SCENE: SceneName = 'pyramid';
 const SCENE_STATE_KEY = 'ptah-scene';
 const SCENE_HINT_KEY = 'ptah-scene';
 function isValidScene(value: unknown): value is SceneName {
@@ -274,7 +274,7 @@ export class ThemeService {
       if (accent === DEFAULT_ACCENT) root.removeAttribute('data-accent');
       else root.setAttribute('data-accent', accent);
       const scene = this._scene();
-      if (scene !== DEFAULT_SCENE && (theme === 'ptah-glass' || theme === 'ptah-glass-light')) {
+      if (theme === 'ptah-glass' || theme === 'ptah-glass-light') {
         root.setAttribute('data-scene', scene);
       } else {
         root.removeAttribute('data-scene');

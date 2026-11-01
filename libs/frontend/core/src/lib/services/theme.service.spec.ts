@@ -95,8 +95,8 @@ describe('ThemeService', () => {
 
   describe('backdrop scenes', () => {
     it.each([
-      [undefined, undefined, 'aurora'],
-      ['retired', 'invalid', 'aurora'],
+      [undefined, undefined, 'pyramid'],
+      ['retired', 'invalid', 'pyramid'],
       ['ember', 'tide', 'ember'],
       ['aurora', 'horizon', 'aurora'],
       [undefined, 'tide', 'tide'],
@@ -111,6 +111,7 @@ describe('ThemeService', () => {
       const service = configure(mock);
       TestBed.inject(ApplicationRef).tick();
       expect(service.scene()).toBe(expected);
+      expect(document.documentElement.getAttribute('data-scene')).toBe(expected);
       expect(mock.setState).not.toHaveBeenCalledWith('ptah-scene', expect.anything());
       expect(mirrorWrite).not.toHaveBeenCalledWith('ptah-scene', expect.anything());
       expect(localStorage.getItem('ptah-scene')).toBe(hint ?? null);
@@ -139,7 +140,7 @@ describe('ThemeService', () => {
       service.setTheme('ptah-glass');
       service.setScene('aurora');
       app.tick();
-      expect(document.documentElement.hasAttribute('data-scene')).toBe(false);
+      expect(document.documentElement.getAttribute('data-scene')).toBe('aurora');
       expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'aurora');
       expect(localStorage.getItem('ptah-scene')).toBe('aurora');
     });
@@ -149,7 +150,7 @@ describe('ThemeService', () => {
       const service = configure(mock);
       const mirrorWrite = jest.spyOn(Storage.prototype, 'setItem');
       service.setScene('retired' as SceneName);
-      expect(service.scene()).toBe('aurora');
+      expect(service.scene()).toBe('pyramid');
       expect(mock.setState).not.toHaveBeenCalled();
       expect(mirrorWrite).not.toHaveBeenCalled();
     });

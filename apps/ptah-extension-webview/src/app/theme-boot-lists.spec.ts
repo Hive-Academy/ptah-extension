@@ -131,8 +131,9 @@ describe('index.html pre-paint theme boot lists', () => {
 
   it('pre-paint accepts exactly the declared scenes, including the default', () => {
     const declared = /export const SCENES:[^=]+ = \[([^\]]+)\]/.exec(SERVICE_SOURCE)?.[1].match(/'([^']+)'/g)?.map((name) => name.slice(1, -1)) ?? [];
-    expect(declared).toEqual(['aurora', 'ember', 'tide', 'horizon', 'pyramid', 'temple']);
+    expect(declared).toEqual(['pyramid', 'aurora', 'ember', 'tide', 'horizon', 'temple']);
     expect(readList(html, 'SCENE')).toEqual(declared);
+    expect(/export const DEFAULT_SCENE: SceneName = '([^']+)'/.exec(SERVICE_SOURCE)?.[1]).toBe(declared[0]);
   });
 
   it('does not link the deferred sheet as a stylesheet or preload', () => {

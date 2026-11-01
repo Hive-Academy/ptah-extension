@@ -332,11 +332,11 @@ export class ThemeToggleComponent implements OnDestroy {
     { name: 'moonstone', label: 'Moonstone', fill: 'linear-gradient(#eef1f8, #bcc4d6)' },
   ];
   readonly scenes: readonly { name: SceneName; label: string }[] = [
+    { name: 'pyramid', label: 'Pyramid' },
     { name: 'aurora', label: 'Aurora' },
     { name: 'ember', label: 'Ember' },
     { name: 'tide', label: 'Tide' },
     { name: 'horizon', label: 'Horizon' },
-    { name: 'pyramid', label: 'Pyramid' },
     { name: 'temple', label: 'Temple' },
   ];
   readonly lightThemes = LIGHT_THEMES;

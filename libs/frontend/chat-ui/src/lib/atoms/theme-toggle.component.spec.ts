@@ -25,7 +25,7 @@ describe('ThemeToggleComponent', () => {
     setTheme = jest.fn();
     setAccent = jest.fn();
     setScene = jest.fn();
-    scene = signal<Parameters<ThemeService['setScene']>[0]>('aurora');
+    scene = signal<Parameters<ThemeService['setScene']>[0]>('pyramid');
 
     await TestBed.configureTestingModule({
       imports: [ThemeToggleComponent],
@@ -212,16 +212,16 @@ describe('ThemeToggleComponent', () => {
     const first = create();
     const second = create();
     const radios = (): HTMLInputElement[] => [...first.nativeElement.querySelectorAll('input[name$="-scene"]')];
-    expect(radios().map((radio) => radio.getAttribute('aria-label'))).toEqual(['Aurora', 'Ember', 'Tide', 'Horizon', 'Pyramid', 'Temple']);
+    expect(radios().map((radio) => radio.getAttribute('aria-label'))).toEqual(['Pyramid', 'Aurora', 'Ember', 'Tide', 'Horizon', 'Temple']);
     expect(radios().map((radio) => radio.checked)).toEqual([true, false, false, false, false, false]);
     expect(radios()[0].name).not.toBe((second.nativeElement.querySelector('input[name$="-scene"]') as HTMLInputElement).name);
-    radios()[1].dispatchEvent(new Event('change'));
+    radios()[2].dispatchEvent(new Event('change'));
     expect(setScene).toHaveBeenCalledTimes(1);
     expect(setScene).toHaveBeenCalledWith('ember');
     scene.set('ember');
     currentTheme.set('ptah-glass-light');
     first.detectChanges();
-    expect(radios().map((radio) => radio.checked)).toEqual([false, true, false, false, false, false]);
+    expect(radios().map((radio) => radio.checked)).toEqual([false, false, true, false, false, false]);
     expect([...first.nativeElement.querySelectorAll('legend')].map((node) => (node as HTMLElement).textContent)).toEqual(['Primary accent', 'Backdrop']);
     for (const name of ['anubis', 'nord', 'cupcake', 'dracula'] as const) {
       currentTheme.set(name);
