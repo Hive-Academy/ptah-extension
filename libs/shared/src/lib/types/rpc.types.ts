@@ -936,13 +936,12 @@ export interface HarnessDismissInstallMigrationNoticeResult {
  * Declared apart from {@link RpcMethodRegistry} on purpose, following the
  * `ProviderAccountRpcMethodRegistry` pattern: a registry entry is also a
  * `RPC_METHOD_NAMES` entry, and `assertManifestInvariants` (rpc-handlers)
- * requires every name to have a handler owner. Until the handlers that serve
- * these methods exist, joining this interface into `RpcMethodRegistry` would
- * fail that check at dev-time boot. The join (`extends` plus the
- * `RPC_METHOD_ENTRIES` keys) lands in the same change as the handlers'
- * `METHODS` entries, one method at a time: `mcpDirectory:makeGlobal`
- * (`McpDirectoryRpcHandlers`) and `skillsSh:makeGlobal`
- * (`SkillsShRpcHandlers`) are joined; the notice methods are not yet.
+ * requires every name to have a handler owner. Each method joined
+ * `RpcMethodRegistry` (`extends` plus the `RPC_METHOD_ENTRIES` keys) in the
+ * same change as its handler's `METHODS` entry: `mcpDirectory:makeGlobal`
+ * (`McpDirectoryRpcHandlers`), `skillsSh:makeGlobal` (`SkillsShRpcHandlers`)
+ * and the two `harness:*-install-migration-notice` methods
+ * (`InstallScopeNoticeRpcHandlers`). All four are joined.
  */
 export interface InstallScopeRpcMethodRegistry {
   'skillsSh:makeGlobal': {
@@ -989,7 +988,10 @@ export interface RpcMethodRegistry
     ProviderAccountRpcMethodRegistry,
     Pick<
       InstallScopeRpcMethodRegistry,
-      'mcpDirectory:makeGlobal' | 'skillsSh:makeGlobal'
+      | 'mcpDirectory:makeGlobal'
+      | 'skillsSh:makeGlobal'
+      | 'harness:get-install-migration-notice'
+      | 'harness:dismiss-install-migration-notice'
     > {
   'artifacts:list': {
     params: ArtifactListRequest;
@@ -3673,6 +3675,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:repairBlocked': true,
   'harness:get-skill-selection': true,
   'harness:set-skill-selection': true,
+  'harness:get-install-migration-notice': true,
+  'harness:dismiss-install-migration-notice': true,
 
   'memory:list': true,
   'memory:search': true,

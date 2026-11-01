@@ -88,6 +88,7 @@ import { DiagnosticsConsentRpcHandlers } from '../handlers/diagnostics-consent-r
 import { ArtifactRpcHandlers } from '../handlers/artifact-rpc.handlers';
 import { DisplayWindowRpcHandlers } from '../handlers/display-window-rpc.handlers';
 import { ProviderAccountRpcHandlers } from '../handlers/provider-account-rpc.handlers';
+import { InstallScopeNoticeRpcHandlers } from '../install-scope/install-scope-notice-rpc.handlers';
 
 /**
  * Structural shape every RPC handler class satisfies. tsyringe's
@@ -280,6 +281,15 @@ export const RPC_HANDLER_MANIFEST = [
     methods: HarnessRpcHandlers.METHODS,
     requires: [],
     handler: HarnessRpcHandlers,
+  },
+  {
+    // `requires: []`: the notice reads and writes only the per-user migration
+    // ledger, which every host can reach. Only Electron runs the migration, so
+    // VS Code and the CLI answer `notice: null` until it has run once.
+    key: 'installScopeNotice',
+    methods: InstallScopeNoticeRpcHandlers.METHODS,
+    requires: [],
+    handler: InstallScopeNoticeRpcHandlers,
   },
   {
     // `requires: []`: the resolver reads per-user and per-workspace policy

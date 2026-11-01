@@ -22,6 +22,7 @@ import type {
   InstallMigrationNotice,
   InstallMigrationOnDiskEntry,
   InstallScopeRpcMethodRegistry,
+  RpcMethodName,
 } from '@ptah-extension/shared';
 
 import {
@@ -89,7 +90,7 @@ export class InstallScopeNoticeRpcHandlers {
   static readonly METHODS = [
     'harness:get-install-migration-notice',
     'harness:dismiss-install-migration-notice',
-  ] as const satisfies readonly (keyof InstallScopeRpcMethodRegistry)[];
+  ] as const satisfies readonly RpcMethodName[];
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
