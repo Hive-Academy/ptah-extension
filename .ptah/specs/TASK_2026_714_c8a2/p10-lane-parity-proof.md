@@ -140,6 +140,15 @@ lane capability, same as Claude and legacy Codex lanes). The test told the lane 
 and the queued message was never started; this is a test design gap, not a parity defect. Delivery of a queued
 message to a resumed lane at the next turn stays PENDING-LIVE.
 
+Fifth Electron live run (live-test-p10dP-r5.md, head 792491e49 = 10d.L5 revision 2, 5 paid turns against an authorized
+cap of 4: two turns started 65 ms apart inside one 250 ms guard interval; settings `cmp` 0): gate S PASS (0
+`Lane outcomes start failed`). G5 PASS (input 135233, output 896). G3 PASS. Resume NOT tested: the gate chose `fresh`
+(`idle 5240s exceeds 600s`, app.log 1626) for the run 4 thread, a design error of the run. A queued
+`ptah_agent_message` to a running lane was delivered after lane turn 1 and started lane turn 2 (1720). New gap G6:
+the completion signal and the `Finished` row came at the end of lane turn 1 (1726), not when the lane run ended, so
+the lane showed as finished while turn 2 ran. Check against Claude lane behavior before the proof is signed. Other:
+the spawn result gave the main agent no usable agentId (first message call `isError true`, 1670).
+
 ## Proposed Removals
 
 None. D26 is the only already accepted reduction. The gaps in parity-inventory.md:63-67 remain gaps; no Codex chat subagent, canUseTool prompt, partial-streaming, or compaction capability is inferred from this lane proof. No source or capability is approved for Removal B.
