@@ -157,4 +157,5 @@ None. D26 is the only already accepted reduction. The gaps in parity-inventory.m
 
 ## Signature
 
-Signed: pending user approval (Electron live runs r2 and r3 complete; G1, G2 incl. resumed lane, G3 PASS)
+Signed: user 2026-11-01, Electron scope (live runs r2-r5; G1, G2 incl. resumed lane, G3, G5, gate S PASS;
+G6 parity). CLI, TUI and VS Code rows stay PENDING-LIVE. 10e/10f may start per plan-p10.md.
