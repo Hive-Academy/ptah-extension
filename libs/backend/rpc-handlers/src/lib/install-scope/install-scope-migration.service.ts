@@ -658,12 +658,13 @@ export class InstallScopeMigrationService {
     try {
       raw = await fs.readFile(registryPath, 'utf8');
     } catch (error: unknown) {
+      // degradation-audit: reported - a missing file with no skills.sh item
+      // is an empty registry; otherwise logged, the caller holds every
+      // skills.sh step and the run stays incomplete until a readable registry
+      // answers.
       if (isEnoent(error) && sortedItems(ledger, 'skills-sh').length === 0) {
         return { version: 1, roots: {} };
       }
-      // degradation-audit: reported - logged; the caller holds every
-      // skills.sh step and the run stays incomplete until a readable registry
-      // answers.
       this.logger.warn(
         '[install-scope] Retired registry could not be read; skills.sh cleanup waits for the next start',
         { path: registryPath, error: errorMessage(error) },
