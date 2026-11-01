@@ -107,6 +107,12 @@ Head after the audit fix: `e5d267b7b`. CI at `e5d267b7b`: `checks` (degradation 
 test shards 1–4, typecheck, docs-build, webview-e2e, electron-e2e (all shards), CLI E2E and
 git-real-git ×3 pass. Skipped: CodeRabbit (draft), bench jobs, electron-e2e-perf. Only
 GitGuardian fails. Review state: draft, `REVIEW_REQUIRED`, 0 reviews, 0 inline comments.
+Session 4: hero centerpiece with variations `?demo=a|b|c` (`292d2b37d`) and the converted real
+session scenario (`1951d35a0`). Local: `npm run verify -- -p web-landing,ptah-electron` 12/12,
+degradation audit exit 0, `check-live-demo` 5/5 PASS with 0 warnings (orchestration ~85 s).
+CI at `1951d35a0`: 18 pass, 4 skipped (CodeRabbit draft, bench jobs, electron-e2e-perf), only
+GitGuardian fails (same fake canaries). Review state: draft, `REVIEW_REQUIRED`, 0 reviews,
+0 inline comments. Logic review: `code-logic-review.md` (7/10, approve; finding 1 fixed).
 
 ## Known limits and follow-ups
 
