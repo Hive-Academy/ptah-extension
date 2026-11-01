@@ -1219,6 +1219,7 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     withCliAgentRuntime: boolean,
     captureDetection = false,
     isPackaged = false,
+    hostPlatform = { platform: 'linux', arch: 'x64' },
   ) {
     const c = buildMinimalContainer();
     const logger = c.resolve<Logger>(TOKENS.LOGGER);
@@ -1238,7 +1239,7 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     if (withCliAgentRuntime) {
       registerElectronCodexLaneFactory(c, logger, {
         isPackaged, resourcesPath: process.cwd(), appPath: process.cwd(),
-        env: process.env, platform: process,
+        env: process.env, platform: hostPlatform,
       });
       registerCliAgentRuntimeServices(c, logger);
       for (const token of [
@@ -1403,14 +1404,18 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     expect(detection?.getAdapter('codex')).toBeInstanceOf(CodexAppServerLaneAdapter);
   });
 
-  it('resolves the legacy Codex adapter when packaged with the lane gate closed', () => {
+  it('marks Codex unavailable when packaged on linux/x64', () => {
     const { c, detection } = composePhase2(true, true, true);
     expect(c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY)).toBe(false);
     const codex = detection?.getAdapter('codex');
-    expect(codex).toBeDefined();
-    expect(codex).not.toBeInstanceOf(CodexAppServerLaneAdapter);
-    expect(codex && typeof codex === 'object' ? codex.constructor.name : undefined)
-      .toBe('CodexCliAdapter');
+    expect(codex).toMatchObject({ name: 'codex', supportsMcp: false });
+  });
+
+  it('binds native Codex through phase 2 when packaged on win32/x64', () => {
+    const { c, detection } = composePhase2(true, true, true,
+      { platform: 'win32', arch: 'x64' });
+    expect(c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY)).toBe(true);
+    expect(detection?.getAdapter('codex')).toBeInstanceOf(CodexAppServerLaneAdapter);
   });
 
   it('the bound recorder reaches the child-session spawner (R-TL8)', () => {

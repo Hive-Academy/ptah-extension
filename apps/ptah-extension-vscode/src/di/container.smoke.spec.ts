@@ -35,7 +35,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { CLI_AGENT_RUNTIME_TOKENS, CliDetectionService, CodexAppServerLaneAdapter,
-  CodexCliAdapter, registerCliAgentRuntimeServices,
+  registerCliAgentRuntimeServices,
   type CodexAdapterFactory } from '@ptah-extension/cli-agent-runtime';
 import {
   LANE_ROUTING_TOKENS,
@@ -99,7 +99,7 @@ describe('VS Code native Codex lane factory binding', () => {
     const spawner = { spawnProcess: jest.fn(() => { throw new Error('Unexpected spawn'); }) };
     c.register(SDK_TOKENS.SDK_PROCESS_SPAWNER, { useValue: spawner });
     registerVsCodeCodexLaneFactory(c, logger, {
-      isDevelopment, env: process.env, platform: process,
+      isDevelopment, env: {}, platform: { platform: 'win32', arch: 'x64' },
     });
     const service = new CliDetectionService(
       logger,
@@ -122,7 +122,12 @@ describe('VS Code native Codex lane factory binding', () => {
     const prod = detector(false);
     try {
       expect(dev.service.getAdapter('codex')).toBeInstanceOf(CodexAppServerLaneAdapter);
-      expect(prod.service.getAdapter('codex')).toBeInstanceOf(CodexCliAdapter);
+      expect(prod.service.getAdapter('codex')).toMatchObject({
+        name: 'codex', supportsMcp: false,
+      });
+      expect(await prod.service.getAdapter('codex')?.detect()).toMatchObject({
+        cli: 'codex', installed: false, messagingMode: 'none',
+      });
       expect(prod.c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY)).toBe(false);
       for (const cli of ['copilot', 'cursor', 'antigravity', 'opencode', 'pi', 'grok'] as const)
         expect(dev.service.getAdapter(cli)?.constructor).toBe(prod.service.getAdapter(cli)?.constructor);

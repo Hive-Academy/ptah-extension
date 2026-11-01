@@ -14,6 +14,7 @@ import {
 } from '@ptah-extension/cli-agent-runtime';
 import {
   buildCodexExecutionProfile,
+  CODEX_RUNTIME_TOKENS,
   CodexRuntime,
   findCodexExecutablePin,
   normalizeCodexHomeKey,
@@ -27,7 +28,11 @@ import {
   createElectronCodexScopeFactory,
   inspectElectronCodexBinary,
 } from './codex-runtime-composition';
-import { registerElectronCodexLaneFactory } from './codex-lane-composition';
+import {
+  isElectronCodexLaneAdmitted,
+  registerElectronCodexLaneFactory,
+  resolveElectronCodexLaneRuntime,
+} from './codex-lane-composition';
 
 jest.mock('@ptah-extension/codex-runtime', () => ({
   ...jest.requireActual<typeof import('@ptah-extension/codex-runtime')>(
@@ -98,14 +103,16 @@ function fakeContext(profile: CodexExecutionProfile): CodexContext & { readonly 
   };
 }
 
-function fixture(envOverride: Record<string, string | undefined> = {}) {
+function fixture(envOverride: Record<string, string | undefined> = {}, isPackaged = false) {
   const root = mkdtempSync(join(tmpdir(), 'ptah-codex-lane-'));
   const home = join(root, 'selected-home');
   const otherHome = join(root, 'other-home');
   const work = join(root, 'work');
   const secondWork = join(root, 'second-work');
-  const bundledRoot = join(root, 'node_modules');
-  for (const path of [home, otherHome, work, secondWork, bundledRoot]) mkdirSync(path);
+  const bundledRoot = isPackaged
+    ? join(root, 'app.asar.unpacked', 'node_modules') : join(root, 'node_modules');
+  for (const path of [home, otherHome, work, secondWork, bundledRoot])
+    mkdirSync(path, { recursive: true });
   const executable = join(bundledRoot, 'codex');
   writeFileSync(executable, 'fixture');
   writeFileSync(join(home, 'auth.json'), '{"openai_api_key":"fixture"}');
@@ -132,7 +139,7 @@ function fixture(envOverride: Record<string, string | undefined> = {}) {
   parent.register(SDK_TOKENS.SDK_PROCESS_SPAWNER, { useValue: spawner });
   parent.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { useValue: metadata });
   const input = {
-    isPackaged: false,
+    isPackaged,
     resourcesPath: root,
     appPath: root,
     env: { CODEX_HOME: home, ...envOverride },
@@ -157,7 +164,7 @@ function chatProfile(
     },
     defaultHome: home,
     paths: {
-      platform: process.platform === 'win32' ? 'win32' : 'posix',
+      platform: home.includes('\\') ? 'win32' : 'posix',
       baseDirectory: work,
       entries: {
         [home]: { kind: 'directory', realpath: home },
@@ -173,6 +180,61 @@ describe('Electron Codex lane composition', () => {
     jest.mocked(findCodexExecutablePin).mockReset();
     jest.mocked(resolveCodexNativeBinaryPath).mockReset();
     jest.mocked(inspectElectronCodexBinary).mockReset();
+  });
+
+  it.each([
+    { isPackaged: true, platform: { platform: 'win32', arch: 'x64' }, admitted: true },
+    { isPackaged: true, platform: { platform: 'darwin', arch: 'arm64' }, admitted: false },
+    { isPackaged: true, platform: { platform: 'linux', arch: 'x64' }, admitted: false },
+    { isPackaged: false, platform: { platform: 'darwin', arch: 'arm64' }, admitted: true },
+    { isPackaged: false, platform: { platform: 'linux', arch: 'x64' }, admitted: true },
+  ])('binds and routes the Electron lane for $platform.platform/$platform.arch packaged=$isPackaged',
+    async ({ isPackaged, platform: hostPlatform, admitted }) => {
+      const scope = container.createChildContainer();
+      const rawRuntime = { marker: 'raw Codex runtime' };
+      scope.register(CODEX_RUNTIME_TOKENS.Runtime, { useValue: rawRuntime });
+      const input = {
+        isPackaged, platform: hostPlatform, resourcesPath: '/fixture',
+        appPath: '/fixture', env: {},
+      };
+      try {
+        expect(isElectronCodexLaneAdmitted(input)).toBe(admitted);
+        const logger = createMockLogger();
+        scope.register(TOKENS.LOGGER, { useValue: logger });
+        registerElectronCodexLaneFactory(scope, scope.resolve<Logger>(TOKENS.LOGGER), input);
+        expect(scope.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY)).toBe(admitted);
+        if (isPackaged && admitted)
+          expect(logger.info).toHaveBeenCalledWith(
+            'Codex lanes admitted for packaged Electron win32/x64 by signed lane proof (D29)',
+          );
+        if (admitted) {
+          expect(resolveElectronCodexLaneRuntime(scope, input)).toBe(rawRuntime);
+        } else {
+          expect(() => resolveElectronCodexLaneRuntime(scope, input))
+            .toThrow('Codex lane production routing disabled by parity gate');
+        }
+      } finally {
+        await scope.dispose();
+      }
+    });
+
+  it('keeps packaged win32/x64 binary inspection fail closed on a digest mismatch', async () => {
+    const f = fixture({}, true);
+    jest.mocked(inspectElectronCodexBinary).mockRejectedValue(
+      new Error('Codex executable digest mismatch'),
+    );
+    try {
+      await expect(f.factory.create().runSdk({
+        task: 'report', workingDirectory: f.work, agentId: 'lane-1', mcpPort: 51820,
+      })).rejects.toThrow('Codex executable digest mismatch');
+      expect(inspectElectronCodexBinary).toHaveBeenCalledWith(
+        f.executable, undefined, platform,
+      );
+      expect(f.spawner.spawnProcess).not.toHaveBeenCalled();
+    } finally {
+      await f.parent.dispose();
+      rmSync(f.root, { recursive: true, force: true });
+    }
   });
 
   it('creates and detects the adapter without spawning an App Server process', async () => {
@@ -268,7 +330,7 @@ describe('Electron Codex lane composition', () => {
       expect(opened.map((context) => context.profile.model)).toEqual(sequence);
       expect(new Set(opened.map((context) => context.profile)).size).toBe(4);
       expect(opened.find((context) => context.profile.model === 'chat-two')?.profile.normalizedHome)
-        .toBe(normalizeCodexHomeKey(f.otherHome, process.platform));
+        .toBe(normalizeCodexHomeKey(f.otherHome, f.otherHome.includes('\\') ? 'win32' : 'linux'));
       expect(opened.find((context) => context.profile.model === 'chat-two')?.turnPermissionLevel)
         .toBe('plan');
       expect(opened.find((context) => context.profile.model === 'chat-two')?.profile.sandboxPolicy.mode)
@@ -297,14 +359,16 @@ describe('Electron Codex lane composition', () => {
       const adapter = f.factory.create();
       expect(await adapter.ensureTokensFresh?.()).toBe(true);
       expect(await adapter.listModels?.()).toBeDefined();
-      expect(opened[0].normalizedHome).toBe(normalizeCodexHomeKey(f.home, process.platform));
+      expect(opened[0].normalizedHome).toBe(
+        normalizeCodexHomeKey(f.home, f.home.includes('\\') ? 'win32' : 'linux'));
       expect(opened[0].model).toBe(CODEX_LANE_DEFAULT_MODEL);
       expect(opened[0].cwd).not.toBe(f.home);
       const handle = await adapter.runSdk({
         task: 'report', workingDirectory: f.work, agentId: 'lane-1', mcpPort: 51820,
       });
       await handle.done;
-      expect(opened[1].normalizedHome).toBe(normalizeCodexHomeKey(f.home, process.platform));
+      expect(opened[1].normalizedHome).toBe(
+        normalizeCodexHomeKey(f.home, f.home.includes('\\') ? 'win32' : 'linux'));
       expect(opened[1].lane?.disabledUserMcpServers).toContain('selected_home_server');
       expect(opened[1].lane?.disabledUserMcpServers).not.toContain('other_home_server');
       handle.abort.abort();
@@ -337,7 +401,7 @@ describe('Electron Codex lane composition', () => {
           lane: { suppressedTools: [], explicitFullAccess: false },
         },
         paths: {
-          platform: process.platform === 'win32' ? 'win32' : 'posix',
+          platform: f.home.includes('\\') ? 'win32' : 'posix',
           baseDirectory: f.work,
           entries: {
             [f.home]: { kind: 'directory', realpath: f.home },

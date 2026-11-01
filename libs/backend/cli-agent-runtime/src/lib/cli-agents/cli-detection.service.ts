@@ -22,7 +22,6 @@ import type {
 } from './cli-adapters/cli-adapter.interface';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import { bestMessagingCapability } from './cli-adapters/cli-adapter.interface';
-import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
 import { CopilotSdkAdapter } from './cli-adapters/copilot-sdk.adapter';
 import { CopilotPermissionBridge } from './cli-adapters/copilot-permission-bridge';
 import { CursorCliAdapter } from './cli-adapters/cursor-cli.adapter';
@@ -87,7 +86,7 @@ export class CliDetectionService {
      */
     @inject(ClaudeCliAdapter)
     claudeAdapter: ClaudeCliAdapter | null = null,
-    /** A host may select the native Codex lane; null preserves the legacy SDK. */
+    /** The host supplies the native Codex lane; null marks it unavailable. */
     @inject(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, { isOptional: true })
     codexAdapterFactory: CodexAdapterFactory | null = null,
   ) {
@@ -105,7 +104,9 @@ export class CliDetectionService {
         codexAdapter = unavailableCodexAdapter(cause);
       }
     } else {
-      codexAdapter = new CodexCliAdapter(this.logger);
+      const cause = new Error('Native Codex lane adapter factory is not registered');
+      this.logger.warn('[CliDetection] Native Codex adapter unavailable', cause);
+      codexAdapter = unavailableCodexAdapter(cause);
     }
     this.adapters.set('codex', codexAdapter);
     const permissionBridge = new CopilotPermissionBridge();

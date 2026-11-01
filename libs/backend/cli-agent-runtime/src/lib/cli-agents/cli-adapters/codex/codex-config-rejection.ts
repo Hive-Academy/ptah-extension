@@ -23,23 +23,9 @@
  * `failed to load bootstrap configuration` or `Error parsing -c overrides`
  * shapes; both are added below.
  *
- * The SDK reports a non-zero exit as
- * `Codex Exec exited with code <n>: <stderr>` (`@openai/codex-sdk`
- * `dist/index.js`, `CodexExec.run`); the direct runner (S1b) sees the stderr
- * itself. Both call {@link isCodexConfigRejection}.
+ * The native lane uses the named-key filter and essential-entry reduction
+ * below when App Server rejects lane configuration.
  */
-
-import { redactSecrets } from '../sdk-error-summary';
-
-/** AS15, adjusted to the captured fixtures. */
-const CODEX_CONFIG_REJECTION_PATTERN =
-  /(error loading config|failed to load (?:bootstrap )?config(?:uration)?|error parsing -c overrides|invalid override|invalid configuration|unknown (?:config(?:uration)? )?(?:key|field)|failed to (?:parse|deserialize)[^\n]*(?:config|toml)|-c\/--config)/i;
-
-/** The SDK's error text for a `codex exec` child that exited non-zero. */
-const SDK_EXEC_EXIT_PATTERN = /^Codex Exec exited with (?:code|signal) [^:]*: /;
-
-/** Longest stderr excerpt a log line may carry. */
-const STDERR_EXCERPT_MAX_CHARS = 200;
 
 /** The builder's single user-server entry: `mcp_servers={"a"={enabled=false}}`. */
 const USER_SERVERS_ENTRY_PREFIX = 'mcp_servers={';
@@ -64,48 +50,6 @@ const ESSENTIAL_ENTRY_PREFIXES: readonly string[] = [
  * (every captured `Error loading config.toml` fixture carries one).
  */
 const NAMED_KEY_PATTERN = /\bin `([^`\n]+)`/;
-
-/** Whether `stderr` is Codex refusing its configuration. */
-export function isCodexConfigRejection(stderr: string): boolean {
-  return CODEX_CONFIG_REJECTION_PATTERN.test(stderr);
-}
-
-/**
- * The child's stderr when `errorMessage` is the SDK's non-zero-exit error AND
- * that stderr is a config rejection; otherwise `undefined`.
- */
-export function sdkConfigRejectionStderr(
-  errorMessage: string,
-): string | undefined {
-  const exit = SDK_EXEC_EXIT_PATTERN.exec(errorMessage);
-  if (exit === null) return undefined;
-  const stderr = errorMessage.slice(exit[0].length);
-  return isCodexConfigRejection(stderr) ? stderr : undefined;
-}
-
-/**
- * A one-line excerpt of a rejection for the log: from the rejection headline
- * on (Codex's own warnings above it are skipped), whitespace collapsed,
- * secrets redacted, at most {@link STDERR_EXCERPT_MAX_CHARS} chars.
- */
-export function codexStderrExcerpt(
-  stderr: string,
-  secrets: readonly string[],
-): string {
-  const lines = stderr.split(/\r?\n/);
-  const start = lines.findIndex((line) =>
-    CODEX_CONFIG_REJECTION_PATTERN.test(line),
-  );
-  const text = lines
-    .slice(start === -1 ? 0 : start)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const redacted = redactSecrets(text, secrets);
-  return redacted.length > STDERR_EXCERPT_MAX_CHARS
-    ? `${redacted.slice(0, STDERR_EXCERPT_MAX_CHARS - 3)}...`
-    : redacted;
-}
 
 /**
  * Whether the rejection names one of the user's MCP servers

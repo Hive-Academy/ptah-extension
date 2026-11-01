@@ -6,16 +6,24 @@ import type {
 } from '@ptah-extension/shared';
 import { AuthSecretsService, Logger, SentryService } from '@ptah-extension/vscode-core';
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
-import type { CodexAdapterFactory } from './cli-adapters/cli-adapter.interface';
+import type {
+  AgentMessagingCapabilities,
+  CliAdapter,
+  CliCommandOptions,
+  CliModelInfo,
+  CodexAdapterFactory,
+  SdkHandle,
+} from './cli-adapters/cli-adapter.interface';
 
-interface MockAdapter {
+interface MockAdapter extends CliAdapter {
   name: CliType;
   displayName: string;
   roleChannel: AgentRoleChannel;
   detect: jest.Mock<Promise<CliDetectionResult>, []>;
-  capabilities: jest.Mock;
-  parseOutput: jest.Mock;
-  runSdk: jest.Mock;
+  capabilities: jest.Mock<AgentMessagingCapabilities, []>;
+  parseOutput: jest.Mock<string, [string]>;
+  runSdk: jest.Mock<Promise<SdkHandle>, [CliCommandOptions]>;
+  listModels: jest.Mock<Promise<CliModelInfo[]>, []>;
 }
 
 const mockAdapters = new Map<CliType, MockAdapter>();
@@ -28,9 +36,6 @@ function mockAdapterFor(name: CliType): MockAdapter {
   return adapter;
 }
 
-jest.mock('./cli-adapters/codex-cli.adapter', () => ({
-  CodexCliAdapter: jest.fn(() => mockAdapterFor('codex')),
-}));
 jest.mock('./cli-adapters/copilot-sdk.adapter', () => ({
   CopilotSdkAdapter: jest.fn(() => mockAdapterFor('copilot')),
 }));
@@ -88,14 +93,21 @@ function createAdapter(
       messagingMode: 'queue',
     }),
     capabilities: jest
-      .fn()
+      .fn<AgentMessagingCapabilities, []>()
       .mockReturnValue({ steer: false, interrupt: false, continuation: true }),
-    parseOutput: jest.fn((raw: string) => raw),
-    runSdk: jest.fn(),
+    parseOutput: jest.fn<string, [string]>((raw) => raw),
+    runSdk: jest.fn<Promise<SdkHandle>, [CliCommandOptions]>()
+      .mockResolvedValue({
+        abort: new AbortController(), done: Promise.resolve(0),
+        onOutput: () => undefined,
+      }),
+    listModels: jest.fn<Promise<CliModelInfo[]>, []>().mockResolvedValue([]),
   };
 }
 
-function createService(codexAdapterFactory: CodexAdapterFactory | null = null): {
+function createService(codexAdapterFactory: CodexAdapterFactory | null = {
+  create: () => mockAdapterFor('codex'),
+}): {
   service: CliDetectionService;
   logger: Logger;
   sentry: { captureException: jest.Mock };
@@ -134,6 +146,18 @@ describe('CliDetectionService role stamp', () => {
     for (const [name, channel] of CHANNELS) {
       mockAdapters.set(name, createAdapter(name, channel));
     }
+  });
+
+  it('reports an unavailable Codex slot when no native factory is registered', async () => {
+    const { service, logger } = createService(null);
+    expect(await service.getDetection('codex')).toMatchObject({ installed: false });
+    await expect(service.getAdapter('codex')?.runSdk({
+      task: 'work', workingDirectory: '/work',
+    })).rejects.toThrow('Native Codex lane adapter factory is not registered');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[CliDetection] Native Codex adapter unavailable',
+      expect.any(Error),
+    );
   });
 
   it('keeps peer adapters usable and reports a native factory failure without legacy fallback', async () => {

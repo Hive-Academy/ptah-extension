@@ -29,6 +29,7 @@ import {
   type CodexContext,
   type CodexExecutionProfile,
   type CodexExecutionProfileInput,
+  type CodexParityPlatform,
   type CodexRuntimeRegistrationPorts,
   type CodexThreadIdentity,
 } from '@ptah-extension/codex-runtime';
@@ -43,7 +44,17 @@ export interface ElectronCodexLaneInput {
   readonly resourcesPath: string;
   readonly appPath: string;
   readonly env: Readonly<Record<string, string | undefined>>;
-  readonly platform: { readonly platform: string; readonly arch: string };
+  readonly platform: CodexParityPlatform;
+}
+
+/** p10-lane-parity-proof.md Signature (user 2026-11-01, Electron scope); D29. */
+export function isElectronCodexLaneAdmitted(
+  input: Pick<ElectronCodexLaneInput, 'isPackaged' | 'platform'>,
+): boolean {
+  // The shared gate is closed today; keep this branch for P14 without another Electron change.
+  // The win32/x64 literal mirrors codex-parity-gate.ts:201-212.
+  return !input.isPackaged || new CodexParityGate().isEnabled('lane', input.platform) ||
+    (input.platform.platform === 'win32' && input.platform.arch === 'x64');
 }
 
 function canonical(path: string): string {
@@ -233,18 +244,22 @@ export function registerElectronCodexLaneFactory(
     create: () => new CodexAppServerLaneAdapter(runtime, profiles, identities, logger,
       binary, undefined, home, writers),
   };
-  if (!input.isPackaged || new CodexParityGate().isEnabled('lane', input.platform))
+  if (isElectronCodexLaneAdmitted(input)) {
     container.register(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, { useValue: factory });
+    if (input.isPackaged && !new CodexParityGate().isEnabled('lane', input.platform))
+      logger.info('Codex lanes admitted for packaged Electron win32/x64 by signed lane proof (D29)');
+  }
 }
 
-/** D27's only lane routing boundary; the raw token is a dev default only. */
+/** Electron's single lane routing boundary (D27, D29). */
 export function resolveElectronCodexLaneRuntime(
   scope: DependencyContainer,
   input: Pick<ElectronCodexLaneInput, 'isPackaged' | 'platform'>,
 ): CodexRuntime {
+  if (!isElectronCodexLaneAdmitted(input))
+    throw new Error('Codex lane production routing disabled by parity gate');
+  // Unreachable while the shared gate is closed; P14 can open it without changing this route.
   if (new CodexParityGate().isEnabled('lane', input.platform))
     return resolveGatedCodexRuntime(scope, 'lane', input.platform);
-  if (!input.isPackaged)
-    return scope.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
-  throw new Error('Codex lane production routing disabled by parity gate');
+  return scope.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
 }

@@ -19,9 +19,6 @@ function adapter(name: CliType): CliAdapter {
   return selected;
 }
 
-jest.mock('./cli-adapters/codex-cli.adapter', () => ({
-  CodexCliAdapter: jest.fn(() => adapter('codex')),
-}));
 jest.mock('./cli-adapters/copilot-sdk.adapter', () => ({
   CopilotSdkAdapter: jest.fn(() => adapter('copilot')),
 }));
@@ -45,12 +42,11 @@ jest.mock('./cli-adapters/grok-cli.adapter', () => ({
 }));
 
 import { CliDetectionService } from './cli-detection.service';
-import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
 import { ClaudeCliAdapter } from './cli-adapters/claude-cli.adapter';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 
 const names: CliType[] = [
-  'codex', 'copilot', 'cursor', 'antigravity', 'opencode', 'pi', 'grok',
+  'copilot', 'cursor', 'antigravity', 'opencode', 'pi', 'grok',
 ];
 
 function makeAdapter(name: CliType, model: string): CliAdapter {
@@ -102,16 +98,19 @@ describe('Codex adapter selection', () => {
   beforeEach(() => {
     mockAdapters.clear();
     jest.clearAllMocks();
-    for (const name of names) mockAdapters.set(name, makeAdapter(name, `${name}-legacy`));
+    for (const name of names) mockAdapters.set(name, makeAdapter(name, `${name}-model`));
   });
 
-  it('keeps the legacy adapter when the optional factory is absent or null', () => {
-    expect(service().getAdapter('codex')).toBe(adapter('codex'));
-    expect(service(null).getAdapter('codex')).toBe(adapter('codex'));
-    expect(CodexCliAdapter).toHaveBeenCalledTimes(2);
+  it('marks Codex unavailable when the native factory is absent or null', async () => {
+    for (const detector of [service(), service(null)]) {
+      expect(await detector.getDetection('codex')).toMatchObject({ installed: false });
+      await expect(detector.getAdapter('codex')?.runSdk({
+        task: 'work', workingDirectory: '/work',
+      })).rejects.toThrow('Native Codex lane adapter factory is not registered');
+    }
   });
 
-  it('resolves an unregistered factory as legacy and a host binding as native', () => {
+  it('resolves an unregistered factory as unavailable and a host binding as native', async () => {
     const child = container.createChildContainer();
     const { logger, sentry, secrets } = serviceWithDeps();
     child.registerInstance<Logger>(TOKENS.LOGGER, logger);
@@ -124,7 +123,8 @@ describe('Codex adapter selection', () => {
       ClaudeCliAdapter, Object.create(ClaudeCliAdapter.prototype) as ClaudeCliAdapter,
     );
     expect(child.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, true)).toBe(false);
-    expect(child.resolve(CliDetectionService).getAdapter('codex')).toBe(adapter('codex'));
+    expect(await child.resolve(CliDetectionService).getDetection('codex'))
+      .toMatchObject({ installed: false });
 
     const native = makeAdapter('codex', 'native-model');
     child.register<CodexAdapterFactory>(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, {
@@ -140,7 +140,6 @@ describe('Codex adapter selection', () => {
     const options: CliCommandOptions = { task: 'work', workingDirectory: '/work' };
 
     expect(factory.create).toHaveBeenCalledTimes(1);
-    expect(CodexCliAdapter).not.toHaveBeenCalled();
     expect(detector.getAdapter('codex')).toBe(native);
     expect(detector.getAdapter('codex')?.capabilities()).toEqual(native.capabilities());
     expect(await detector.getDetection('codex')).toMatchObject({ path: '/bin/codex' });
@@ -153,7 +152,7 @@ describe('Codex adapter selection', () => {
     expect(native.listModels).toHaveBeenCalledTimes(1);
   });
 
-  it('surfaces a selected native runSdk failure without trying legacy', async () => {
+  it('surfaces a selected native runSdk failure', async () => {
     const native = makeAdapter('codex', 'native-model');
     const failure = new Error('native open failed');
     jest.spyOn(native, 'runSdk').mockRejectedValue(failure);
@@ -162,11 +161,9 @@ describe('Codex adapter selection', () => {
     await expect(detector.getAdapter('codex')?.runSdk({
       task: 'work', workingDirectory: '/work',
     })).rejects.toBe(failure);
-    expect(CodexCliAdapter).not.toHaveBeenCalled();
-    expect(adapter('codex').runSdk).not.toHaveBeenCalled();
   });
 
-  it('reports a selected native detect failure without trying legacy', async () => {
+  it('reports a selected native detect failure', async () => {
     const native = makeAdapter('codex', 'native-model');
     const failure = new Error('native detection failed');
     jest.spyOn(native, 'detect').mockRejectedValue(failure);
@@ -176,11 +173,9 @@ describe('Codex adapter selection', () => {
     expect(sentry.captureException).toHaveBeenCalledWith(failure, {
       errorSource: 'CliDetectionService.doDetectAll',
     });
-    expect(CodexCliAdapter).not.toHaveBeenCalled();
-    expect(adapter('codex').detect).not.toHaveBeenCalled();
   });
 
-  it('omits models after a selected native listModels failure without trying legacy', async () => {
+  it('omits models after a selected native listModels failure', async () => {
     const native = makeAdapter('codex', 'native-model');
     const failure = new Error('native models failed');
     Object.defineProperty(native, 'listModels', {
@@ -194,8 +189,6 @@ describe('Codex adapter selection', () => {
     expect(sentry.captureException).toHaveBeenCalledWith(failure, {
       errorSource: 'CliDetectionService.listModelsForAll',
     });
-    expect(CodexCliAdapter).not.toHaveBeenCalled();
-    expect(adapter('codex').listModels).not.toHaveBeenCalled();
   });
 
   it('keeps detection and model caches on the selected adapter and leaves peers unchanged', async () => {
@@ -210,8 +203,6 @@ describe('Codex adapter selection', () => {
     await detector.listModelsForAll();
     expect(native.detect).toHaveBeenCalledTimes(1);
     expect(native.listModels).toHaveBeenCalledTimes(1);
-    expect(adapter('codex').detect).not.toHaveBeenCalled();
-    expect(adapter('codex').listModels).not.toHaveBeenCalled();
     expect(copilot.detect).toHaveBeenCalledTimes(1);
     expect(copilot.listModels).toHaveBeenCalledTimes(1);
 

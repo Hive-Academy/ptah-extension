@@ -19,7 +19,7 @@ export const CODEX_OAUTH_SENTINEL = 'codex-oauth';
  * Shape of the ~/.codex/auth.json file written by the Codex CLI.
  * Supports both API key authentication and OAuth token-based authentication.
  *
- * @see codex-cli.adapter.ts for the original definition
+ * The native lane validates this file independently at its credential boundary.
  */
 export interface CodexAuthFile {
   /** Authentication mode */

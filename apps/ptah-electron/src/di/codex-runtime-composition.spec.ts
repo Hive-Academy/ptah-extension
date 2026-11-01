@@ -177,8 +177,11 @@ describe('Electron Codex runtime infrastructure', () => {
       expect(resolveElectronCodexLaneRuntime(lane.container, {
         isPackaged: false, platform,
       })).toBe(lane.container.resolve(CODEX_RUNTIME_TOKENS.Runtime));
-      expect(() => resolveElectronCodexLaneRuntime(lane.container, {
+      expect(resolveElectronCodexLaneRuntime(lane.container, {
         isPackaged: true, platform,
+      })).toBe(lane.container.resolve(CODEX_RUNTIME_TOKENS.Runtime));
+      expect(() => resolveElectronCodexLaneRuntime(lane.container, {
+        isPackaged: true, platform: { platform: 'linux', arch: 'x64' },
       })).toThrow('parity gate');
       expect(input.ports.spawner.spawnProcess).not.toHaveBeenCalled();
     } finally {
@@ -396,7 +399,7 @@ describe('Electron Codex runtime infrastructure', () => {
 
   it('accepts a worktree junction and reports the canonical executable identity', () => {
     const junction = join(temporaryRoot, 'worktree-modules');
-    symlinkSync(bundledRoot, junction, process.platform === 'win32' ? 'junction' : 'dir');
+    symlinkSync(bundledRoot, junction, 'junction');
     jest.mocked(resolveCodexNativeBinaryPath).mockReturnValue(join(junction, 'codex'));
     expect(createElectronCodexExecutable(manifest, junction).resolvedPath)
       .toBe(realpathSync(executablePath));
@@ -407,7 +410,7 @@ describe('Electron Codex runtime infrastructure', () => {
     mkdirSync(outside);
     writeFileSync(join(outside, 'codex'), 'global');
     const link = join(bundledRoot, 'linked-package');
-    symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+    symlinkSync(outside, link, 'junction');
     jest.mocked(resolveCodexNativeBinaryPath).mockReturnValue(join(link, 'codex'));
     expect(() => createElectronCodexExecutable(manifest, bundledRoot))
       .toThrow('Codex executable is outside the host bundle');
