@@ -17,14 +17,18 @@ import {
 import { LucideAngularModule, Palette, Check } from 'lucide-angular';
 import {
   ThemeService,
+  VSCodeService,
   type ThemeInfo,
   type ThemeName,
   DAISYUI_THEMES,
 } from '@ptah-extension/core';
+import { MotionPreferenceComponent } from './motion-preference.component';
+import { MotionStylePickerComponent } from './motion-style-picker.component';
 
 type AccentName = Parameters<ThemeService['setAccent']>[0];
 type SceneName = Parameters<ThemeService['setScene']>[0];
 type ThemeCategory = 'light' | 'dark' | 'glass';
+type PopoverTab = 'themes' | 'animation';
 
 /** Glass wins, then isDark. Each theme is in one tab, in DAISYUI_THEMES order. */
 function themeCategory(theme: ThemeInfo): ThemeCategory {
@@ -40,7 +44,7 @@ const CATEGORIES: readonly ThemeCategory[] = ['light', 'dark', 'glass'];
 @Component({
   selector: 'ptah-theme-toggle',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, MotionPreferenceComponent, MotionStylePickerComponent],
   styles: `
     /* DaisyUI keeps .dropdown-content opacity:0 until :focus-within, and
        position:absolute inside the 40px bar. The bar is a flex item under
@@ -59,6 +63,9 @@ const CATEGORIES: readonly ThemeCategory[] = ['light', 'dark', 'glass'];
       max-height: min(28rem, calc(100dvh - 16px));
       font-family: Inter, system-ui, sans-serif;
     }
+    .dropdown > .dropdown-content.electron-motion-menu {
+      max-height: calc(100dvh - 16px);
+    }
     .dropdown > .dropdown-content:popover-open {
       visibility: visible;
       opacity: 1;
@@ -69,6 +76,10 @@ const CATEGORIES: readonly ThemeCategory[] = ['light', 'dark', 'glass'];
       flex-wrap: wrap;
       gap: 0.25rem;
       margin-bottom: 0.375rem;
+    }
+    .surface-tabs {
+      border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+      margin-bottom: 0.5rem;
     }
     .theme-tab {
       display: inline-flex;
@@ -207,10 +218,44 @@ const CATEGORIES: readonly ThemeCategory[] = ['light', 'dark', 'glass'];
         role="dialog"
         aria-label="Theme"
         class="dropdown-content z-[1] p-2 shadow-lg bg-base-200 rounded-box overflow-y-auto"
+        [class.electron-motion-menu]="isElectron"
         [class.picker-surface-light]="!currentIsDark()"
         (beforetoggle)="onBeforeToggle($event)"
         (keydown)="onDialogKeydown($event)"
       >
+        @if (isElectron) {
+          <div class="theme-tabs surface-tabs" role="tablist" aria-label="Theme settings">
+            <button
+              type="button"
+              class="theme-tab surface-tab"
+              role="tab"
+              [id]="surfaceTabId('themes')"
+              [attr.aria-controls]="themesPanelId"
+              [attr.aria-selected]="activeSurface() === 'themes'"
+              [attr.tabindex]="activeSurface() === 'themes' ? 0 : -1"
+              [class.bg-base-300]="activeSurface() === 'themes'"
+              (click)="selectSurface('themes')"
+            >Themes</button>
+            <button
+              type="button"
+              class="theme-tab surface-tab"
+              role="tab"
+              [id]="surfaceTabId('animation')"
+              [attr.aria-controls]="animationPanelId"
+              [attr.aria-selected]="activeSurface() === 'animation'"
+              [attr.tabindex]="activeSurface() === 'animation' ? 0 : -1"
+              [class.bg-base-300]="activeSurface() === 'animation'"
+              (click)="selectSurface('animation')"
+            >Animation</button>
+          </div>
+        }
+        <div
+          #themesPanel
+          [attr.role]="isElectron ? 'tabpanel' : null"
+          [id]="themesPanelId"
+          [attr.aria-labelledby]="isElectron ? surfaceTabId('themes') : null"
+          [hidden]="isElectron && activeSurface() !== 'themes'"
+        >
         <div class="theme-tabs" role="tablist" aria-label="Theme categories">
           @for (category of categories; track category.id) {
             <button
@@ -293,6 +338,19 @@ const CATEGORIES: readonly ThemeCategory[] = ['light', 'dark', 'glass'];
             </div>
           </fieldset>
         }
+        </div>
+        @if (isElectron) {
+          <div
+            #animationPanel
+            role="tabpanel"
+            [id]="animationPanelId"
+            [hidden]="activeSurface() !== 'animation'"
+            [attr.aria-labelledby]="surfaceTabId('animation')"
+          >
+            <ptah-motion-preference />
+            <ptah-motion-style-picker />
+          </div>
+        }
       </div>
     </div>
   `,
@@ -302,9 +360,15 @@ export class ThemeToggleComponent implements OnDestroy {
   private static sequence = 0;
 
   private readonly themeService = inject(ThemeService);
+  private readonly vscodeService = inject(VSCodeService, { optional: true });
+  protected get isElectron(): boolean {
+    return this.vscodeService?.isElectron === true;
+  }
   private readonly injector = inject(Injector);
   private readonly triggerRef = viewChild<ElementRef<HTMLElement>>('trigger');
   private readonly panelRef = viewChild<ElementRef<HTMLElement>>('panel');
+  private readonly themesPanelRef = viewChild<ElementRef<HTMLElement>>('themesPanel');
+  private readonly animationPanelRef = viewChild<ElementRef<HTMLElement>>('animationPanel');
   private readonly gridRef = viewChild<ElementRef<HTMLElement>>('grid');
 
   readonly currentTheme = this.themeService.currentTheme;
@@ -312,9 +376,12 @@ export class ThemeToggleComponent implements OnDestroy {
   readonly scene = this.themeService.scene;
   protected readonly menuId = `ptah-theme-menu-${++ThemeToggleComponent.sequence}`;
   protected readonly tabPanelId = `${this.menuId}-tabpanel`;
+  protected readonly themesPanelId = `${this.menuId}-themes-panel`;
+  protected readonly animationPanelId = `${this.menuId}-animation-panel`;
   protected readonly accentGroup = `${this.menuId}-accent`;
   protected readonly sceneGroup = `${this.menuId}-scene`;
   protected readonly menuOpen = signal(false);
+  protected readonly activeSurface = signal<PopoverTab>('themes');
   protected readonly activeCategory = signal<ThemeCategory>(
     this.categoryOfName(this.currentTheme()),
   );
@@ -322,6 +389,7 @@ export class ThemeToggleComponent implements OnDestroy {
   /** Bumped on close and destroy so a render callback queued for the previous open cannot focus. */
   private focusGeneration = 0;
   private openRender: AfterRenderRef | undefined;
+  private contentObserver: ResizeObserver | undefined;
   /** Focus target for the queued follow-up. Refresh-only follow-ups leave it unchanged. */
   private pendingFocus: ThemeName | 'selected' | null = null;
   private destroyed = false;
@@ -375,6 +443,16 @@ export class ThemeToggleComponent implements OnDestroy {
 
   protected tabId(category: ThemeCategory): string {
     return `${this.menuId}-tab-${category}`;
+  }
+
+  protected surfaceTabId(tab: PopoverTab): string {
+    return `${this.menuId}-${tab}-tab`;
+  }
+
+  protected selectSurface(tab: PopoverTab, focusTab = false): void {
+    this.activeSurface.set(tab);
+    if (focusTab) this.surfaceTabButton(tab)?.focus();
+    if (this.menuOpen()) this.scheduleFollowup(null);
   }
 
   protected selectTheme(theme: ThemeName): void {
@@ -434,6 +512,7 @@ export class ThemeToggleComponent implements OnDestroy {
       return;
     }
     this.menuOpen.set(true);
+    this.activeSurface.set('themes');
     const current = this.currentTheme();
     this.activeCategory.set(this.categoryOfName(current));
     this.rovingName.set(current);
@@ -451,6 +530,10 @@ export class ThemeToggleComponent implements OnDestroy {
     }
     const target = event.target;
     if (!(target instanceof Element)) return;
+    if (target.closest('.surface-tab')) {
+      this.onSurfaceTabKeydown(event);
+      return;
+    }
     if (target.closest('[role="tab"]')) {
       this.onTabKeydown(event);
       return;
@@ -477,6 +560,17 @@ export class ThemeToggleComponent implements OnDestroy {
     else return;
     event.preventDefault();
     this.selectCategory(CATEGORIES[next], true);
+  }
+
+  private onSurfaceTabKeydown(event: KeyboardEvent): void {
+    let next: PopoverTab;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      next = this.activeSurface() === 'themes' ? 'animation' : 'themes';
+    } else if (event.key === 'Home') next = 'themes';
+    else if (event.key === 'End') next = 'animation';
+    else return;
+    event.preventDefault();
+    this.selectSurface(next, true);
   }
 
   private onTileKeydown(event: KeyboardEvent): void {
@@ -515,6 +609,7 @@ export class ThemeToggleComponent implements OnDestroy {
         if (!panel || !trigger) return;
         this.captureParentInk(panel, trigger);
         this.place(panel, trigger);
+        this.observePanelContent();
         const target = this.pendingFocus;
         this.pendingFocus = null;
         if (!this.isFollowupCurrent(generation)) return;
@@ -529,6 +624,24 @@ export class ThemeToggleComponent implements OnDestroy {
     this.pendingFocus = null;
     this.openRender?.destroy();
     this.openRender = undefined;
+    this.contentObserver?.disconnect();
+    this.contentObserver = undefined;
+  }
+
+  /** Panel dimensions change when Motion finishes loading or shows its restart note. */
+  private observePanelContent(): void {
+    if (this.contentObserver || typeof ResizeObserver === 'undefined') return;
+    const themesPanel = this.themesPanelRef()?.nativeElement;
+    if (!themesPanel) return;
+    this.contentObserver = new ResizeObserver(() => {
+      if (!this.menuOpen() || this.destroyed) return;
+      const panel = this.panelRef()?.nativeElement;
+      const trigger = this.triggerRef()?.nativeElement;
+      if (panel && trigger) this.place(panel, trigger);
+    });
+    this.contentObserver.observe(themesPanel);
+    const animationPanel = this.animationPanelRef()?.nativeElement;
+    if (animationPanel) this.contentObserver.observe(animationPanel);
   }
 
   private isFollowupCurrent(generation: number): boolean {
@@ -568,11 +681,14 @@ export class ThemeToggleComponent implements OnDestroy {
     const width = Math.min(this.rem(256), viewportWidth - margin * 2);
     if (width <= 0) return;
     panel.style.width = `${width}px`;
-    const contentHeight = panel.scrollHeight;
+    // max-height applies to the border box; scrollHeight excludes the border.
+    const borderHeight = Math.max(0, panel.offsetHeight - panel.clientHeight);
+    const contentHeight = panel.scrollHeight + borderHeight;
     if (contentHeight <= 0) return;
 
     const rect = trigger.getBoundingClientRect();
-    const cap = Math.min(this.rem(448), viewportHeight - margin * 2);
+    const viewportCap = viewportHeight - margin * 2;
+    const cap = this.isElectron ? viewportCap : Math.min(viewportCap, this.rem(448));
     const needed = Math.min(contentHeight, cap);
     const spaceBelow = viewportHeight - rect.bottom - margin;
     const spaceAbove = rect.top - margin;
@@ -668,6 +784,11 @@ export class ThemeToggleComponent implements OnDestroy {
     const id = this.tabId(category);
     const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(id) : id;
     return panel.querySelector<HTMLButtonElement>(`#${escaped}`);
+  }
+
+  private surfaceTabButton(tab: PopoverTab): HTMLButtonElement | null {
+    const panel = this.panelRef()?.nativeElement;
+    return panel?.querySelector<HTMLButtonElement>(`#${this.surfaceTabId(tab)}`) ?? null;
   }
 
   private categoryOfName(name: ThemeName): ThemeCategory {

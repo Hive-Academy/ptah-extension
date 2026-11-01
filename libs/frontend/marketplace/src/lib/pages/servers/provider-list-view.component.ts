@@ -22,6 +22,8 @@ import { CircleAlert, LucideAngularModule, X } from 'lucide-angular';
 import {
   KeyboardNavigationService,
   NativeDrawerComponent,
+  MotionRouteStageDirective,
+  detailParamKey,
 } from '@ptah-extension/ui';
 
 import {
@@ -39,6 +41,7 @@ import {
 import type { ProviderRow } from '../../data/provider-row';
 import { MarketplaceLayout } from '../../layout/marketplace-layout';
 import { marketplaceRouteLink } from '../../shell/marketplace-route-url';
+import { MARKETPLACE_LEAVE_CLONE } from '../../shell/marketplace-motion-key';
 import {
   BulkActionBarComponent,
   type BulkActionResult,
@@ -198,6 +201,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
     RouterOutlet,
     LucideAngularModule,
     NativeDrawerComponent,
+    MotionRouteStageDirective,
     BulkActionBarComponent,
     DirectRemovalConfirmComponent,
     DockedInspectorComponent,
@@ -220,6 +224,8 @@ export class ProviderListViewComponent {
   private readonly layout = inject(MarketplaceLayout);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  protected readonly detailMotionKey = detailParamKey(this.route, 'serverRef');
+  protected readonly motionLeaveClone = inject(MARKETPLACE_LEAVE_CLONE);
   private readonly keyboardNav = inject(KeyboardNavigationService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);

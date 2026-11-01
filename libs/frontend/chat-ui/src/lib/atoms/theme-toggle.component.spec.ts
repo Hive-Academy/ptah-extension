@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { ApplicationRef } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal } from '@angular/core';
-import { DAISYUI_THEMES, ThemeService, type ThemeName } from '@ptah-extension/core';
+import { ClaudeRpcService, DAISYUI_THEMES, ThemeService, VSCodeService, type MotionStyleName, type ThemeName } from '@ptah-extension/core';
 import { ThemeToggleComponent } from './theme-toggle.component';
 
 /**
@@ -15,6 +15,8 @@ describe('ThemeToggleComponent', () => {
   let setTheme: jest.Mock;
   let setAccent: jest.Mock;
   let setScene: jest.Mock;
+  let setMotionStyle: jest.Mock;
+  let motionStyle: ReturnType<typeof signal<MotionStyleName>>;
   let scene: ReturnType<typeof signal<Parameters<ThemeService['setScene']>[0]>>;
   let currentTheme: ReturnType<typeof signal<ThemeName>>;
   let accent: ReturnType<typeof signal<'gold' | 'rose' | 'moonstone'>>;
@@ -25,11 +27,15 @@ describe('ThemeToggleComponent', () => {
     setTheme = jest.fn();
     setAccent = jest.fn();
     setScene = jest.fn();
+    setMotionStyle = jest.fn();
+    motionStyle = signal<MotionStyleName>('rise');
     scene = signal<Parameters<ThemeService['setScene']>[0]>('aurora');
 
     await TestBed.configureTestingModule({
       imports: [ThemeToggleComponent],
       providers: [
+        { provide: VSCodeService, useValue: { isElectron: false } },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
         {
           provide: ThemeService,
           useValue: {
@@ -39,6 +45,8 @@ describe('ThemeToggleComponent', () => {
             setAccent,
             setScene,
             scene: scene.asReadonly(),
+            motionStyle: motionStyle.asReadonly(),
+            setMotionStyle,
           },
         },
       ],
@@ -129,6 +137,148 @@ describe('ThemeToggleComponent', () => {
     const fixture = create();
     expect(fixture.componentInstance).toBeTruthy();
     expect(fixture.componentInstance.currentTheme()).toBe('anubis');
+  });
+
+  it('shows Electron Motion choices and the restart note after saving', async () => {
+    const call = jest.fn().mockImplementation((method: string) => Promise.resolve({
+      isSuccess: () => true,
+      data: method === 'settings:getMotion'
+        ? { success: true, preference: 'system' }
+        : { success: true },
+    }));
+    TestBed.overrideProvider(VSCodeService, { useValue: { isElectron: true } });
+    TestBed.overrideProvider(ClaudeRpcService, { useValue: { call } });
+    const fixture = create();
+    surfaceTabOf(fixture, 'Animation').click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const radios = fixture.nativeElement.querySelectorAll('ptah-motion-preference input[type="radio"]') as NodeListOf<HTMLInputElement>;
+    expect(radios).toHaveLength(3);
+    expect(radios[0].parentElement?.textContent).toContain('Always animate');
+    expect(radios[1].parentElement?.textContent).toContain('Follow system');
+    expect(radios[2].parentElement?.textContent).toContain('Reduce motion');
+    expect(radios[1].checked).toBe(true);
+    radios[2].dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(call).toHaveBeenCalledWith('settings:setMotion', { preference: 'reduce' });
+    expect(fixture.nativeElement.textContent).toContain('Restart Ptah to apply');
+    const picker = fixture.nativeElement.querySelector('ptah-motion-style-picker') as HTMLElement;
+    expect(picker).not.toBeNull();
+    expect(picker.querySelectorAll('input[type="radio"]')).toHaveLength(6);
+    expect(fixture.nativeElement.querySelector('ptah-motion-preference')?.nextElementSibling).toBe(picker);
+
+    surfaceTabOf(fixture, 'Themes').click();
+    fixture.detectChanges();
+    const animationPanel = picker.closest('[role="tabpanel"]') as HTMLElement;
+    expect(animationPanel.hidden).toBe(true);
+    surfaceTabOf(fixture, 'Animation').click();
+    fixture.detectChanges();
+    expect(animationPanel.hidden).toBe(false);
+    expect(fixture.nativeElement.textContent).toContain('Restart Ptah to apply');
+    expect(radios[2].checked).toBe(true);
+    expect(fixture.nativeElement.querySelector('ptah-motion-preference')).toBe(radios[2].closest('ptah-motion-preference'));
+    expect(call.mock.calls.filter((args: unknown[]) => args[0] === 'settings:getMotion')).toHaveLength(1);
+  });
+
+  it('shows compact Themes and Animation tabs on Electron and keeps the groups in their panels', () => {
+    TestBed.overrideProvider(VSCodeService, { useValue: { isElectron: true } });
+    currentTheme.set('ptah-glass');
+    const fixture = create();
+    const tabs = [...fixture.nativeElement.querySelectorAll('[aria-label="Theme settings"] [role="tab"]')] as HTMLButtonElement[];
+    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(['Themes', 'Animation']);
+    expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['true', 'false']);
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([0, -1]);
+    const themesPanel = fixture.nativeElement.querySelector(`#${tabs[0].getAttribute('aria-controls')}`) as HTMLElement;
+    expect(themesPanel?.getAttribute('role')).toBe('tabpanel');
+    expect(themesPanel?.getAttribute('aria-labelledby')).toBe(tabs[0].id);
+    expect(themesPanel?.textContent).toContain('Primary accent');
+    expect(themesPanel?.textContent).toContain('Backdrop');
+    expect(themesPanel?.querySelectorAll('.theme-tile')).toHaveLength(6);
+    const animationPanel = fixture.nativeElement.querySelector(`#${tabs[1].getAttribute('aria-controls')}`) as HTMLElement;
+    expect(animationPanel.querySelector('ptah-motion-preference')).not.toBeNull();
+    expect(animationPanel.hidden).toBe(true);
+
+    tabs[1].click();
+    fixture.detectChanges();
+    expect(animationPanel?.getAttribute('aria-labelledby')).toBe(tabs[1].id);
+    expect(animationPanel?.textContent).toContain('Motion');
+    expect(animationPanel?.textContent).toContain('Animation style');
+    expect(animationPanel?.querySelector('ptah-motion-preference')?.nextElementSibling?.tagName.toLowerCase()).toBe('ptah-motion-style-picker');
+    expect(animationPanel?.textContent).not.toContain('Primary accent');
+    expect(themesPanel.hidden).toBe(true);
+    expect(animationPanel.hidden).toBe(false);
+    expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['false', 'true']);
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([-1, 0]);
+  });
+
+  it('moves the surface tabs with Left, Right, Home, and End', () => {
+    TestBed.overrideProvider(VSCodeService, { useValue: { isElectron: true } });
+    const fixture = create();
+    const themes = surfaceTabOf(fixture, 'Themes');
+    const animation = surfaceTabOf(fixture, 'Animation');
+    for (const [from, key, to] of [
+      [themes, 'ArrowLeft', animation],
+      [animation, 'ArrowRight', themes],
+      [themes, 'End', animation],
+      [animation, 'Home', themes],
+    ] as const) {
+      from.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      fixture.detectChanges();
+      expect(to.getAttribute('aria-selected')).toBe('true');
+      expect(document.activeElement).toBe(to);
+    }
+  });
+
+  it('re-places when panel content grows and disconnects its observer on close and destroy', () => {
+    TestBed.overrideProvider(VSCodeService, { useValue: { isElectron: true } });
+    const original = Object.getOwnPropertyDescriptor(window, 'ResizeObserver');
+    const observers: MockResizeObserver[] = [];
+    class MockResizeObserver implements ResizeObserver {
+      readonly observe = jest.fn();
+      readonly unobserve = jest.fn();
+      readonly disconnect = jest.fn();
+      constructor(private readonly callback: ResizeObserverCallback) {
+        observers.push(this);
+      }
+      fire(): void {
+        this.callback([], this);
+      }
+    }
+    Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: MockResizeObserver });
+    try {
+      const fixture = create();
+      const panel = panelOf(fixture);
+      const trigger = triggerOf(fixture);
+      setViewport(1186, 738);
+      mockRect(trigger, { top: 8, bottom: 40 });
+      setScrollHeight(panel, 120);
+      toggle(panel, 'open');
+      flush(fixture);
+      expect(observers).toHaveLength(1);
+      expect(observers[0].observe).toHaveBeenCalledTimes(2);
+      expect(panel.style.maxHeight).toBe('120px');
+
+      setScrollHeight(panel, 320);
+      observers[0].fire();
+      expect(panel.style.maxHeight).toBe('320px');
+
+      toggle(panel, 'closed');
+      expect(observers[0].disconnect).toHaveBeenCalledTimes(1);
+      setScrollHeight(panel, 400);
+      observers[0].fire();
+      expect(panel.style.maxHeight).toBe('320px');
+
+      toggle(panel, 'open');
+      flush(fixture);
+      expect(observers).toHaveLength(2);
+      fixture.destroy();
+      expect(observers[1].disconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      if (original) Object.defineProperty(window, 'ResizeObserver', original);
+      else Reflect.deleteProperty(window, 'ResizeObserver');
+    }
   });
 
   it('partitions every theme once into Light 18, Dark 12, and Glass 6', () => {
@@ -375,6 +525,70 @@ describe('ThemeToggleComponent', () => {
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('adds the panel border to the max height so a bordered theme does not scroll', () => {
+    const fixture = TestBed.createComponent(ThemeToggleComponent);
+    fixture.detectChanges();
+    const trigger = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    const panel = fixture.nativeElement.querySelector('[popover]') as HTMLElement;
+
+    mockRect(trigger, { bottom: 40, right: 800, top: 8, left: 700 });
+    setScrollHeight(panel, 400);
+    Object.defineProperty(panel, 'offsetHeight', { configurable: true, value: 402 });
+    Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 400 });
+    toggle(panel, 'open');
+    flush(fixture);
+
+    expect(panel.style.maxHeight).toBe('402px');
+  });
+
+  it('fits the Electron motion controls at the reviewed 1186 by 738 viewport', () => {
+    TestBed.overrideProvider(VSCodeService, { useValue: { isElectron: true } });
+    currentTheme.set('ptah-glass');
+    const fixture = create();
+    const trigger = triggerOf(fixture);
+    const panel = panelOf(fixture);
+    setViewport(1186, 738);
+    mockRect(trigger, { top: 8, bottom: 40, left: 1050, right: 1150 });
+    setScrollHeight(panel, 620);
+    toggle(panel, 'open');
+    flush(fixture);
+
+    expect(panel.style.top).toBe('44px');
+    expect(panel.style.maxHeight).toBe('620px');
+    expect(44 + Number.parseFloat(panel.style.maxHeight)).toBeLessThan(738);
+    expect(panel.textContent).toContain('Primary accent');
+    expect(panel.textContent).toContain('Backdrop');
+    const animationPanel = panel.querySelector(`#${surfaceTabOf(fixture, 'Animation').getAttribute('aria-controls')}`) as HTMLElement;
+    expect(animationPanel.hidden).toBe(true);
+    expect(animationPanel.querySelector('ptah-motion-preference')).not.toBeNull();
+    expect(panel.classList.contains('electron-motion-menu')).toBe(true);
+    surfaceTabOf(fixture, 'Animation').click();
+    setScrollHeight(panel, 500);
+    flush(fixture);
+    expect(panel.style.maxHeight).toBe('500px');
+    expect(44 + Number.parseFloat(panel.style.maxHeight)).toBeLessThan(738);
+    expect(animationPanel.hidden).toBe(false);
+    expect(animationPanel.textContent).not.toContain('Primary accent');
+    expect(panel.querySelectorAll('ptah-motion-preference input[type="radio"]')).toHaveLength(3);
+    expect(panel.querySelectorAll('ptah-motion-style-picker input[type="radio"]')).toHaveLength(6);
+  });
+
+  it('keeps the 28rem cap for non-Electron hosts', () => {
+    const fixture = create();
+    const trigger = triggerOf(fixture);
+    const panel = panelOf(fixture);
+    setViewport(1186, 738);
+    mockRect(trigger, { top: 8, bottom: 40, left: 1050, right: 1150 });
+    setScrollHeight(panel, 620);
+    toggle(panel, 'open');
+    flush(fixture);
+
+    expect(panel.classList.contains('electron-motion-menu')).toBe(false);
+    expect(panel.style.maxHeight).toBe('448px');
+    expect(panel.querySelector('ptah-motion-preference')).toBeNull();
+    expect(panel.querySelector('[aria-label="Theme settings"]')).toBeNull();
+  });
+
   it('caps a narrow viewport and updates height when the window resizes', () => {
     const fixture = create();
     const trigger = triggerOf(fixture);
@@ -470,6 +684,12 @@ describe('ThemeToggleComponent', () => {
   function tabOf(fixture: ComponentFixture<ThemeToggleComponent>, label: string): HTMLButtonElement {
     return [...fixture.nativeElement.querySelectorAll('[role="tab"]')].find((node) =>
       (node as HTMLElement).textContent?.includes(label),
+    ) as HTMLButtonElement;
+  }
+
+  function surfaceTabOf(fixture: ComponentFixture<ThemeToggleComponent>, label: string): HTMLButtonElement {
+    return [...fixture.nativeElement.querySelectorAll('[aria-label="Theme settings"] [role="tab"]')].find((node) =>
+      (node as HTMLElement).textContent?.trim() === label,
     ) as HTMLButtonElement;
   }
 

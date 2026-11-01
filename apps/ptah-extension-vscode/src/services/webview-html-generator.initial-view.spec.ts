@@ -96,11 +96,18 @@ describe('WebviewHtmlGenerator initialView validation', () => {
   it.each([
     'harness-builder',
     'setup-hub',
+    'setup-wizard',
     'thoth',
     'marketplace',
     'tasks',
   ])('accepts %s, which the old six-entry list rejected', (initialView) => {
     expect(generateAndCaptureError(initialView)).not.toContain(
+      'Invalid initialView',
+    );
+  });
+
+  it('accepts onboarding, the first-run surface (TASK_2026_ONBOARDING)', () => {
+    expect(generateAndCaptureError('onboarding')).not.toContain(
       'Invalid initialView',
     );
   });
@@ -163,11 +170,9 @@ describe('WebviewHtmlGenerator fallback document', () => {
 
 describe('WebviewHtmlGenerator zone fallback bootstrap config', () => {
   const integrationScript = (enabled: boolean): string => {
-    jest
-      .spyOn(vscode.workspace, 'getConfiguration')
-      .mockReturnValue({
-        get: () => enabled,
-      } as unknown as vscode.WorkspaceConfiguration);
+    jest.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue({
+      get: () => enabled,
+    } as unknown as vscode.WorkspaceConfiguration);
     try {
       return (
         createGenerator() as unknown as {

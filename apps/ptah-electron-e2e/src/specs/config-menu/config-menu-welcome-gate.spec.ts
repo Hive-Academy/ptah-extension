@@ -10,8 +10,7 @@ import { test, expect } from '../../support/fixtures';
  * gate flips against a real `AppStateManager` and a real
  * `ElectronLayoutService`.
  *
- * Starting from "no workspace" reuses the same two steps every first-launch
- * spec in this suite uses (`setup-wizard.spec.ts`): clear the persisted
+ * Starting from "no workspace" clears the persisted
  * webview state via `rpcBridge.setState({})` so `restoreLayout()`'s
  * `cachedState` fallback (`electron-layout.service.ts:701-712`) cannot
  * resurrect the `ui` fixture's default folder, then remock
@@ -92,7 +91,9 @@ test.describe('Global configuration menu — welcome gate', () => {
     // outlet replaces the 3-panel area, Settings stays mounted, and the
     // welcome screen does NOT show because a configuration surface is open.
     await expect(page.locator('ptah-settings')).toBeVisible();
-    await expect(page.locator('[data-test="config-back-to-welcome"]')).toBeVisible();
+    await expect(
+      page.locator('[data-test="config-back-to-welcome"]'),
+    ).toBeVisible();
     await expect(page.locator('ptah-app-shell')).toHaveCount(0);
     await expect(page.locator('ptah-electron-welcome')).toHaveCount(0);
   });

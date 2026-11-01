@@ -148,6 +148,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
     MESSAGE_TYPES.ASK_USER_QUESTION_AUTO_RESOLVED,
     MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+    MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED,
     MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP,
     MESSAGE_TYPES.SESSION_METADATA_CHANGED,
     MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED,
@@ -201,6 +202,9 @@ export class ChatMessageHandler implements MessageHandler {
         break;
       case MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED:
         this.handlePermissionAutoResolved(message.payload);
+        break;
+      case MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED:
+        this.handlePermissionPromptCancelled(message.payload);
         break;
       case MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP:
         this.handlePermissionSessionCleanup(message.payload);
@@ -897,6 +901,30 @@ export class ChatMessageHandler implements MessageHandler {
       );
     }
   }
+  private handlePermissionPromptCancelled(payload: unknown): void {
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      !('sessionId' in payload) ||
+      typeof payload.sessionId !== 'string' ||
+      !('requestId' in payload) ||
+      typeof payload.requestId !== 'string'
+    ) {
+      return;
+    }
+    const prompt = this.chatStore.permissionRequests().find(
+      (request) =>
+        request.id === payload.requestId &&
+        request.sessionId === payload.sessionId,
+    );
+    if (prompt) {
+      this.chatStore.handlePermissionAutoResolved({
+        id: prompt.id,
+        toolName: prompt.toolName,
+      });
+    }
+  }
+
   private handlePermissionSessionCleanup(payload: unknown): void {
     const { sessionId } = (payload as { sessionId?: string }) ?? {};
     if (sessionId) {

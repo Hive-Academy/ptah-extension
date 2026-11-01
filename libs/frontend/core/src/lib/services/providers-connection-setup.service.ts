@@ -18,6 +18,10 @@ import {
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
 import {
+  CLAUDE_CODE_NPM_INSTALL_COMMAND,
+  CLAUDE_CODE_SIGN_IN_COMMAND,
+} from './claude-code-commands';
+import {
   ProvidersCommitService,
   type ProvidersCommitHooks,
 } from './providers-commit.service';
@@ -252,7 +256,7 @@ export class ProvidersConnectionSetupService implements MessageHandler {
               : !providerId
                 ? 'Choose the named sign-in action on the Providers page. The setup dialog does not identify the requested account.'
                 : providerId === 'claude-cli'
-                  ? 'Run claude login in your terminal, then choose Check again. If missing, install with npm install -g @anthropic-ai/claude-code.'
+                  ? `Run ${CLAUDE_CODE_SIGN_IN_COMMAND} in your terminal and follow the browser prompts, then choose Check again. If missing, install with ${CLAUDE_CODE_NPM_INSTALL_COMMAND}.`
                   : 'Complete login outside Ptah, then check again.',
         },
       });

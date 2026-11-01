@@ -1,6 +1,9 @@
 import { NgTemplateOutlet } from '@angular/common';
+import { encapsulateStyle } from '@angular/compiler';
 import { Component, NO_ERRORS_SCHEMA, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type { SessionStatsInputs } from '@ptah-extension/chat-ui';
 import {
@@ -62,6 +65,28 @@ const emptyModel: SessionInspectorModel = {
 class ControlsHost {
   title = '';
 }
+
+describe('SessionInspectorComponent motion styles', () => {
+  const source = readFileSync(join(__dirname, 'session-inspector.component.ts'), 'utf8');
+  const css = source.match(/styles: `([\s\S]*?)`,\r?\n\}\)/)?.[1] ?? '';
+
+  it('uses shared preset keyframes for the stats switch', () => {
+    expect(css).toContain('animation: ptahMotionEnter var(--ptah-motion-switch)');
+    expect(css).toContain('animation: ptahMotionLeave var(--ptah-motion-out)');
+    expect(css).not.toMatch(/inspectorStats(Rise|Leave|FadeIn|FadeOut)/);
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+  });
+
+  it('scopes transform-only glass entrance and cut exit to the root ancestor', () => {
+    const compiled = encapsulateStyle(css, 'test');
+    expect(compiled).toMatch(/\[data-glass='on'\]\s+\[_nghost-test\]\s+\.inspector-stats-enter/);
+    expect(compiled).toMatch(/\[data-glass='on'\]\s+\[_nghost-test\]\s+\.inspector-stats-leave/);
+    expect(compiled).toMatch(/\[data-glass='on'\]\[data-motion-style='fade'\]\s+\[_nghost-test\]\s+\.inspector-stats-enter/);
+    expect(compiled).toMatch(/\[data-glass='on'\]\[data-motion-style='scale'\]\s+\[_nghost-test\]\s+\.inspector-stats-enter/);
+    expect(css).toContain('animation-name: ptahMotionEnterGlass');
+    expect(css).toMatch(/\.inspector-stats-leave\s*\{\s*animation: none;\s*display: none;/);
+  });
+});
 
 describe('SessionInspectorComponent presentation', () => {
   const model = signal(emptyModel);
@@ -272,6 +297,103 @@ describe('SessionInspectorComponent presentation', () => {
     fixture.componentInstance.closeRequested.subscribe(close);
     element.querySelector<HTMLButtonElement>('[data-inspector-close]')?.click();
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('crossfades stats only when the session changes', () => {
+    jest.useFakeTimers();
+    try {
+      const first = { ...emptyStats, sessionId: 'session-a' };
+      const fixture = create(first);
+      fixture.componentRef.setInput('presentation', 'docked');
+      fixture.detectChanges();
+      const stats = () => fixture.nativeElement.querySelectorAll('ptah-inspector-session-stats');
+      expect(stats()).toHaveLength(1);
+      expect(stats()[0].classList.contains('inspector-stats-enter')).toBe(false);
+
+      fixture.componentRef.setInput('stats', { ...first, compactionCount: 1 });
+      fixture.detectChanges();
+      expect(stats()).toHaveLength(1);
+      expect(stats()[0].classList.contains('inspector-stats-enter')).toBe(false);
+
+      fixture.componentRef.setInput('tabId', 'another-tab');
+      fixture.detectChanges();
+      expect(stats()).toHaveLength(1);
+      expect(stats()[0].classList.contains('inspector-stats-enter')).toBe(false);
+
+      fixture.componentRef.setInput('stats', { ...first, sessionId: 'session-b' });
+      fixture.detectChanges();
+      expect(stats()).toHaveLength(2);
+      expect(stats()[0].classList.contains('inspector-stats-leave')).toBe(true);
+      expect(stats()[0].getAttribute('aria-hidden')).toBe('true');
+      expect(stats()[1].classList.contains('inspector-stats-enter')).toBe(true);
+
+      jest.advanceTimersByTime(420);
+      fixture.detectChanges();
+      expect(stats()).toHaveLength(1);
+      expect(stats()[0].classList.contains('inspector-stats-enter')).toBe(false);
+      fixture.componentRef.setInput('stats', { ...first, sessionId: 'session-b', compactionCount: 2 });
+      fixture.detectChanges();
+      expect(stats()).toHaveLength(1);
+      expect(stats()[0].classList.contains('inspector-stats-enter')).toBe(false);
+      fixture.destroy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not animate when the same session returns after null stats', () => {
+    jest.useFakeTimers();
+    try {
+      const first = { ...emptyStats, sessionId: 'session-a' };
+      const fixture = create(first);
+      fixture.componentRef.setInput('presentation', 'docked');
+      fixture.detectChanges();
+      fixture.componentRef.setInput('stats', null);
+      fixture.detectChanges();
+      fixture.componentRef.setInput('stats', first);
+      fixture.detectChanges();
+      const stats = fixture.nativeElement.querySelectorAll('ptah-inspector-session-stats');
+      expect(stats).toHaveLength(1);
+      expect(stats[0].classList.contains('inspector-stats-enter')).toBe(false);
+      fixture.destroy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('animates A to null to B and reads the current switch token', () => {
+    jest.useFakeTimers();
+    try {
+      const first = { ...emptyStats, sessionId: 'session-a' };
+      const fixture = create(first);
+      fixture.componentRef.setInput('presentation', 'docked');
+      fixture.detectChanges();
+      const stats = () => fixture.nativeElement.querySelectorAll('ptah-inspector-session-stats');
+
+      fixture.componentRef.setInput('stats', null);
+      fixture.detectChanges();
+      expect(stats()).toHaveLength(0);
+
+      fixture.componentRef.setInput('stats', { ...first, sessionId: 'session-b' });
+      fixture.detectChanges();
+      expect(stats()).toHaveLength(2);
+      expect(stats()[0].classList.contains('inspector-stats-leave')).toBe(true);
+      expect(stats()[1].classList.contains('inspector-stats-enter')).toBe(true);
+
+      fixture.nativeElement.style.setProperty('--ptah-motion-switch', '0.7s');
+      fixture.componentRef.setInput('stats', { ...first, sessionId: 'session-c' });
+      fixture.detectChanges();
+      expect(stats()).toHaveLength(2);
+      jest.advanceTimersByTime(739);
+      fixture.detectChanges();
+      expect(stats()).toHaveLength(2);
+      jest.advanceTimersByTime(1);
+      fixture.detectChanges();
+      expect(stats()).toHaveLength(1);
+      fixture.destroy();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('keeps only the collapse control at the right of the title row, with no separate bar, and the status under the title', () => {

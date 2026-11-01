@@ -428,7 +428,7 @@ export class WebviewHtmlGenerator {
     const iconUri =
       webview
         ?.asWebviewUri(
-          vscode.Uri.joinPath(appDistPathUri, 'images', 'ptah-icon.png'),
+          vscode.Uri.joinPath(appDistPathUri, 'images', 'ptah-icon.webp'),
         )
         .toString() || '';
     const userIconUri =

@@ -150,3 +150,27 @@ describe('HarnessBuilderRecordsService', () => {
     expect(records.readSnapshot(root, 'live')).toBeNull();
   });
 });
+
+describe('Harness session record persistence', () => {
+  it('round trips through strict zod validation and clears with the tab', () => {
+    localStorage.clear();
+    TestBed.configureTestingModule({ providers: [
+      HarnessBuilderRecordsService,
+      { provide: LoggingService, useValue: { warn: jest.fn(), error: jest.fn() } },
+    ] });
+    const records = TestBed.inject(HarnessBuilderRecordsService);
+    const session = {
+      version: 1 as const, tabId: 'tab-session', mode: 'new-project' as const,
+      workspacePath: root, intake: { what: 'Scheduler', audience: 'b2b' as const, stack: 'recommend' as const },
+      intakeHash: 'abc', sendAttempt: { count: 1, ackedAt: at },
+    };
+    expect(records.writeSession(session)).toBe(true);
+    expect(records.readSession(root, 'tab-session')).toEqual(session);
+    const key = `${HARNESS_RECORD_PREFIX}.session.${encodeURIComponent(root)}.tab-session`;
+    localStorage.setItem(key, JSON.stringify({ ...session, unexpected: true }));
+    expect(records.readSession(root, 'tab-session')).toBeNull();
+    expect(records.writeSession(session)).toBe(true);
+    records.clearTab(root, 'tab-session');
+    expect(records.readSession(root, 'tab-session')).toBeNull();
+  });
+});

@@ -96,6 +96,27 @@ if (
 // Step 2: Read the bundle and find external imports
 const bundle = fs.readFileSync(DIST_MAIN, 'utf8');
 
+// Step 2b: Production bundle must never ship dev-only replay recorder code or env markers (M1)
+const FORBIDDEN_REPLAY_RECORDER_MARKERS = [
+  'PTAH_REPLAY_RECORD',
+  '__PTAH_REPLAY_RECORDER__',
+  'createReplayRecorderIfEnabled',
+  'ReplayRecorder',
+];
+const leakedRecorderMarkers = FORBIDDEN_REPLAY_RECORDER_MARKERS.filter(
+  (marker) => bundle.includes(marker),
+);
+if (leakedRecorderMarkers.length > 0) {
+  console.error(
+    `\n❌ Production main bundle contains dev-only replay recorder markers: ${leakedRecorderMarkers.join(', ')}`,
+  );
+  console.error(
+    '   Ensure __PTAH_REPLAY_RECORDER__ is false in production builds and tree-shaken out of main.mjs.\n',
+  );
+  process.exit(1);
+}
+console.log('✅ Production main bundle contains no replay recorder code.');
+
 const externalImports = collectExternalImports(bundle);
 
 // Step 3: Read electron package.json dependencies

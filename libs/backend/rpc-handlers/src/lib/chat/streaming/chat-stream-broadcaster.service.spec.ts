@@ -30,7 +30,7 @@ import type {
   SdkAgentAdapter,
   SessionMetadataStore,
 } from '@ptah-extension/agent-sdk';
-import { SessionTurnStateRegistry } from '@ptah-extension/agent-sdk';
+import { SessionTurnStateRegistry, toTurnStateEvent } from '@ptah-extension/agent-sdk';
 import type { PtahCliRegistry } from '@ptah-extension/cli-agent-runtime';
 import type { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
@@ -85,6 +85,7 @@ interface Harness {
     >
   >;
   logger: jest.Mocked<Pick<Logger, 'info' | 'debug' | 'warn' | 'error'>>;
+  sentryService: SentryService;
   ptahCli: jest.Mocked<
     Pick<
       ChatPtahCliService,
@@ -173,6 +174,7 @@ function makeHarness(ptahCliOverride?: ChatPtahCliService): Harness {
     ptahCli,
     sessionMetadataStore,
     logger,
+    sentryService,
     turnState,
   };
 }
@@ -1049,6 +1051,80 @@ function turnStateChunks(h: Harness): TurnStateEvent[] {
 }
 
 describe('ChatStreamBroadcaster.streamEventsToWebview - turn state (TASK_2026_360)', () => {
+  it('preserves a reported failed terminal after its notice without a second error', async () => {
+    const h = makeHarness();
+    const failure = new Error('Codex chat turn: runtime-failed');
+    Object.defineProperty(failure, 'webviewReported', { value: true });
+    h.turnState.recordFailure(SESSION_ID, {
+      error: 'unknown',
+      terminalReason: null,
+    });
+    const failed = h.turnState.settleTurn(SESSION_ID);
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      yield makeEvent('message_start');
+      yield makeEvent('text_delta');
+      yield {
+        ...toTurnStateEvent(SESSION_ID, failed),
+        consumedClientMessageId: 'client-1',
+      };
+      throw failure;
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    const states = turnStateChunks(h);
+    expect(states).toEqual([
+      expect.objectContaining({
+        sessionId: SESSION_ID,
+        phase: 'failed',
+        consumedClientMessageId: 'client-1',
+      }),
+    ]);
+    const chunks = broadcastsFor(h, 'chat:chunk');
+    expect(chunks).toHaveLength(4);
+    expect(chunks.map((chunk) => (chunk['event'] as FlatStreamEventUnion).eventType)).toEqual([
+      'message_start',
+      'message_start',
+      'text_delta',
+      'turn_state',
+    ]);
+    expect(chunks[3]).toMatchObject({ tabId: TAB_ID, sessionId: SESSION_ID });
+    expect(broadcastsFor(h, 'chat:error')).toHaveLength(0);
+    expect(broadcastsFor(h, 'chat:complete')).toHaveLength(0);
+    expect(h.sdkAdapter.endSession).not.toHaveBeenCalled();
+  });
+
+  it('flushes and forces idle for a webview-reported failure without another error card', async () => {
+    const h = makeHarness();
+    h.turnState.markGenerating(SESSION_ID);
+    const failure = new Error('Codex chat turn: runtime-failed');
+    Object.defineProperty(failure, 'webviewReported', { value: true });
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+      yield makeEvent('text_delta');
+      throw failure;
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(turnStateChunks(h).at(-1)).toMatchObject({
+      phase: 'idle',
+      terminalReason: null,
+    });
+    expect(broadcastsFor(h, 'chat:chunk')).toHaveLength(3);
+    expect(broadcastsFor(h, 'chat:error')).toHaveLength(0);
+    expect(h.logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Error streaming flat events'),
+      failure,
+    );
+    expect(h.sentryService.captureException).toHaveBeenCalledWith(
+      failure,
+      { errorSource: 'ChatRpcHandlers.streamExecutionNodesToWebview' },
+    );
+  });
   it('pushes an idle turn_state AFTER the chunks and BEFORE chat:error when the stream throws', async () => {
     const h = makeHarness();
     h.turnState.markGenerating(SESSION_ID);

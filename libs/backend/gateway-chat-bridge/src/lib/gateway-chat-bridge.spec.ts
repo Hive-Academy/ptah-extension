@@ -70,6 +70,10 @@ import {
 
 const accessMock = access as jest.MockedFunction<typeof access>;
 import type {
+  ExecutionProfileRequest,
+  ResolvedExecutionProfile,
+} from '@ptah-extension/auth-providers';
+import type {
   FlatStreamEventUnion,
   IAgentAdapter,
   ProviderProfile,
@@ -254,15 +258,26 @@ function makeEvent(
 const SDK_UUID = '11111111-2222-4333-8444-555555555555';
 const SDK_UUID_B = '99999999-8888-4777-8666-555555555555';
 
-function textDelta(sessionId: string, delta: string): FlatStreamEventUnion {
+function textDelta(
+  sessionId: string,
+  delta: string,
+  extra: {
+    source?: 'stream' | 'complete' | 'history';
+    messageId?: string;
+    blockIndex?: number;
+  } = {},
+): FlatStreamEventUnion {
+  const messageId = extra.messageId ?? 'msg-1';
+  const blockIndex = extra.blockIndex ?? 0;
   return {
-    id: `t-${delta}`,
+    id: `t-${messageId}-${blockIndex}-${delta}`,
     eventType: 'text_delta',
     timestamp: 1,
     sessionId,
-    messageId: 'msg-1',
+    ...(extra.source !== undefined ? { source: extra.source } : {}),
+    messageId,
     delta,
-    blockIndex: 0,
+    blockIndex,
   } as FlatStreamEventUnion;
 }
 
@@ -347,6 +362,10 @@ interface Harness {
       Promise<ProviderProfile | undefined>,
       [string, string]
     >;
+    resolveExecutionProfile: jest.Mock<
+      Promise<ResolvedExecutionProfile>,
+      [ExecutionProfileRequest]
+    >;
   };
 }
 
@@ -430,13 +449,28 @@ function setup(options?: {
       .mockResolvedValue(options?.enhancedPromptsContent ?? null),
   };
   const permissionHandler = new FakePermissionHandler();
+  const resolveProviderProfileForWorkspace = jest
+    .fn<Promise<ProviderProfile | undefined>, [string, string]>()
+    .mockResolvedValue(options?.providerProfile);
   const providerProfileResolver: Harness['providerProfileResolver'] = {
     resolveStoredModel: jest.fn<string, [string, string]>(
       (_path, model) => model || 'default',
     ),
-    resolveProviderProfileForWorkspace: jest
-      .fn<Promise<ProviderProfile | undefined>, [string, string]>()
-      .mockResolvedValue(options?.providerProfile),
+    resolveProviderProfileForWorkspace,
+    resolveExecutionProfile: jest.fn<
+      Promise<ResolvedExecutionProfile>,
+      [ExecutionProfileRequest]
+    >(async (input) => {
+      const providerProfile = await resolveProviderProfileForWorkspace(
+        input.workspacePath,
+        input.requestedModel,
+      );
+      return {
+        runtime: 'claude-sdk',
+        model: input.requestedModel,
+        providerProfile,
+      };
+    }),
   };
 
   const ctorArgs = [
@@ -497,12 +531,12 @@ describe('GatewayChatBridge', () => {
     expect(config.workspaceId).toBe('/ws/proj');
   });
 
-  it('appends a route-bearing chunk per text_delta and flushes once at end of turn', async () => {
+  it('appends one joined chunk for the turn text and flushes once at end of turn', async () => {
     const h = setup();
     const binding = makeBinding({ workspaceRoot: '/ws/proj' });
     h.adapter.startChatSession.mockResolvedValue(
       await scriptedStream([
-        textDelta(SDK_UUID, 'foo'),
+        textDelta(SDK_UUID, 'foo', { source: 'stream' }),
         textDelta(SDK_UUID, 'bar'),
         messageComplete(SDK_UUID),
       ]),
@@ -522,13 +556,9 @@ describe('GatewayChatBridge', () => {
     };
     expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
       expectedRoute,
-      'foo',
+      'foobar',
     );
-    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
-      expectedRoute,
-      'bar',
-    );
-    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledTimes(2);
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledTimes(1);
     // No mid-turn drain on the agent-reply path — the single flush is the
     // end-of-turn seal via completeOutboundTurn.
     expect(h.gateway.drainOutbound).not.toHaveBeenCalled();
@@ -1109,11 +1139,13 @@ describe('GatewayChatBridge', () => {
     ).resolves.toBeUndefined();
 
     expect(h.gateway.drainOutbound).toHaveBeenCalledWith(key);
-    expect(
-      h.gateway.appendOutboundChunk.mock.calls.some(
-        ([, msg]) => typeof msg === 'string' && msg.length > 0,
-      ),
-    ).toBe(true);
+    const chunks = h.gateway.appendOutboundChunk.mock.calls.map(
+      ([, msg]) => msg,
+    );
+    expect(chunks.filter((msg) => msg === 'partial')).toEqual(['partial']);
+    expect(chunks).toContain(
+      'Ptah could not complete this request. Please try again.',
+    );
   });
 
   it('discards a stranded partial reply before retrying a failed resume on a fresh session (TASK_2026_271 #6)', async () => {
@@ -1207,13 +1239,173 @@ describe('GatewayChatBridge', () => {
       () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
     );
 
-    // All three deltas were appended (accumulated), none triggered a send.
-    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledTimes(3);
+    // All three deltas were joined into one append. None triggered a send.
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledTimes(1);
+    expect(h.gateway.appendOutboundChunk).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationKey: key }),
+      'abc',
+    );
     // NO mid-turn drain on the agent-reply path.
     expect(h.gateway.drainOutbound).not.toHaveBeenCalled();
     // The single flush is the end-of-turn seal, fired exactly once.
     expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
     expect(h.gateway.completeOutboundTurn).toHaveBeenCalledWith(key);
+  });
+
+  it('keeps only the complete-source text when it follows streamed deltas for the same block', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'old', { source: 'stream' }),
+        textDelta(SDK_UUID, 'corrected answer', { source: 'complete' }),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.gateway.appendOutboundChunk.mock.calls.map(([, text]) => text)).toEqual([
+      'corrected answer',
+    ]);
+  });
+
+  it('replaces a streamed block with a shorter complete final', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'hello', { source: 'stream' }),
+        textDelta(SDK_UUID, ' world', { source: 'stream' }),
+        textDelta(SDK_UUID, 'hi', { source: 'complete' }),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.gateway.appendOutboundChunk.mock.calls.map(([, text]) => text)).toEqual([
+      'hi',
+    ]);
+  });
+
+  it('drops a block when a complete-source delta replaces it with empty text', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'hello', { source: 'stream' }),
+        textDelta(SDK_UUID, '', { source: 'complete' }),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.gateway.appendOutboundChunk).not.toHaveBeenCalled();
+    expect(h.gateway.completeOutboundTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces a block from history the same way as a complete final', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'draft', { source: 'stream' }),
+        textDelta(SDK_UUID, 'from history', { source: 'history' }),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.gateway.appendOutboundChunk.mock.calls.map(([, text]) => text)).toEqual([
+      'from history',
+    ]);
+  });
+
+  it('joins messages in arrival order and blocks by blockIndex', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'B', {
+          source: 'stream',
+          messageId: 'm1',
+          blockIndex: 1,
+        }),
+        textDelta(SDK_UUID, 'C', {
+          source: 'stream',
+          messageId: 'm2',
+          blockIndex: 0,
+        }),
+        textDelta(SDK_UUID, 'A', {
+          source: 'stream',
+          messageId: 'm1',
+          blockIndex: 0,
+        }),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.gateway.appendOutboundChunk.mock.calls.map(([, text]) => text)).toEqual([
+      'ABC',
+    ]);
+  });
+
+  it('orders messages by message_start, like the webview, not by first text', async () => {
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    const messageStart = (messageId: string): FlatStreamEventUnion =>
+      ({
+        id: `s-${messageId}`,
+        eventType: 'message_start',
+        timestamp: 1,
+        sessionId: SDK_UUID,
+        messageId,
+        role: 'assistant',
+      }) as FlatStreamEventUnion;
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        messageStart('m1'),
+        messageStart('m2'),
+        textDelta(SDK_UUID, 'second', { messageId: 'm2' }),
+        textDelta(SDK_UUID, 'first', { messageId: 'm1' }),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.gateway.appendOutboundChunk.mock.calls.map(([, text]) => text)).toEqual([
+      'firstsecond',
+    ]);
   });
 
   it('still seals the turn when the stream errors mid-flight (finally path)', async () => {
@@ -1687,6 +1879,33 @@ describe('GatewayChatBridge — turn watchdog (Task 2.3/3.3)', () => {
       ),
     ).toBe(false);
     expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('does not append streamed text after the watchdog cancels the turn', async () => {
+    jest.useFakeTimers();
+    const h = setup();
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue({
+      async *[Symbol.asyncIterator]() {
+        yield textDelta(SDK_UUID, 'stale prefix', { source: 'stream' });
+        await new Promise<void>(() => {
+          /* never resolves */
+        });
+      },
+    } as AsyncIterable<FlatStreamEventUnion>);
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'hangs after text'));
+    await jest.advanceTimersByTimeAsync(0);
+    expect(h.adapter.startChatSession).toHaveBeenCalledTimes(1);
+
+    await jest.advanceTimersByTimeAsync(TURN_WATCHDOG_MS);
+
+    const chunks = h.gateway.appendOutboundChunk.mock.calls.map(([, msg]) => msg);
+    expect(chunks).not.toContain('stale prefix');
+    expect(chunks).toContain(
+      'This request took too long and was stopped. Please try again.',
+    );
   });
 });
 

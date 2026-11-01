@@ -1,0 +1,4 @@
+<!doctype html><title>640px harness</title><body style="margin:0;background:#888">
+<!-- usage: narrow.html?theme=ptah-glass&view=project&w=360&state=missing (state: checking|ready|missing|signed-out|error)  renders index.html in a 640px frame -->
+<iframe id="f" style="height:1000px;border:0;background:#fff"></iframe>
+<script>const p=new URLSearchParams(location.search);document.getElementById('f').style.width=(p.get('w')||640)+'px';document.getElementById('f').src='index.html?theme='+(p.get('theme')||'ptah-glass')+'&state='+(p.get('state')||'ready')+'#'+(p.get('view')||'home')</script>

@@ -1,0 +1,771 @@
+import 'reflect-metadata';
+import { Logger } from '@ptah-extension/vscode-core';
+import { createMockLogger } from '@ptah-extension/shared/testing';
+import { container } from 'tsyringe';
+import {
+  CODEX_RUNTIME_TOKENS,
+  CodexParityGate,
+  type ApprovalSink,
+  type CodexContext,
+  type CodexDevRouteOverride,
+  type CodexExecutionProfile,
+  type CodexReportedUsage,
+  type CodexRuntimeEvent,
+} from '@ptah-extension/codex-runtime';
+import { SessionId, type FlatStreamEventUnion } from '@ptah-extension/shared';
+import {
+  CodexChatAdapter,
+  type CodexChatAdapterPorts,
+} from './codex-chat-adapter';
+import { SessionApprovalRouter } from './session-approval-router';
+import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
+
+const id = SessionId.from('11111111-1111-4111-8111-111111111111');
+const tabId = SessionId.from('22222222-2222-4222-8222-222222222222');
+const identity = {
+  contextId: 'context',
+  threadId: id,
+  processGeneration: 1,
+  normalizedHome: '/home',
+  workspaceId: '/workspace',
+  providerId: 'openai-codex',
+  profileFingerprint: 'fp',
+};
+const profile: CodexExecutionProfile = {
+  ...identity,
+  consumer: 'chat',
+  cwd: '/workspace',
+  model: 'gpt',
+  permissionLevel: 'ask',
+  approvalPolicy: 'on-request',
+  sandboxPolicy: { mode: 'read-only', networkAccess: false, writableRoots: [] },
+  instructionSources: [],
+  mcpServers: [],
+  attachments: [],
+};
+const terminal: CodexRuntimeEvent = {
+  ...identity,
+  turnId: 'turn',
+  sequence: 2,
+  type: 'terminal',
+  status: 'completed',
+};
+
+function mockLogger(): Logger {
+  return Object.assign(Object.create(Logger.prototype), createMockLogger());
+}
+
+function setup(override = true, consumer: 'chat' | 'gateway' = 'chat') {
+  const logger = mockLogger();
+  const turnState = new SessionTurnStateRegistry();
+  const context: jest.Mocked<CodexContext> = {
+    listModels: jest.fn(async () => [
+      { id: 'catalog-gpt', model: 'gpt', displayName: 'GPT', isDefault: true },
+    ]),
+    identity,
+    turnPermissionLevel: profile.permissionLevel,
+    events: jest.fn<
+      ReturnType<CodexContext['events']>,
+      Parameters<CodexContext['events']>
+    >(() =>
+      (async function* () {
+        yield terminal;
+        yield terminal;
+      })(),
+    ),
+    startTurn: jest.fn<
+      ReturnType<CodexContext['startTurn']>,
+      Parameters<CodexContext['startTurn']>
+    >(async () => ({
+      threadId: id,
+      turnId: 'turn',
+      revision: 1,
+    })),
+    steer: jest.fn<
+      ReturnType<CodexContext['steer']>,
+      Parameters<CodexContext['steer']>
+    >(async () => ({ threadId: id, turnId: 'turn', revision: 2 })),
+    interrupt: jest.fn<
+      ReturnType<CodexContext['interrupt']>,
+      Parameters<CodexContext['interrupt']>
+    >(async () => true),
+    updateNextTurn: jest.fn<
+      ReturnType<CodexContext['updateNextTurn']>,
+      Parameters<CodexContext['updateNextTurn']>
+    >(async () => ({
+      timing: 'nextTurn' as const,
+      revision: 2,
+    })),
+    compact: jest.fn(async () => undefined),
+    close: jest.fn(async () => undefined),
+  };
+  const callbacks = {
+    result: jest.fn(),
+    content: jest.fn(),
+    live: jest.fn(),
+    compaction: jest.fn(),
+    error: jest.fn(),
+  };
+  const lifecycle = { opened: jest.fn(), closed: jest.fn() };
+  const scope = container.createChildContainer();
+  const open = jest.fn(async () => context);
+  scope.register(CODEX_RUNTIME_TOKENS.ParityGate, {
+    useValue: new CodexParityGate(),
+  });
+  scope.register(CODEX_RUNTIME_TOKENS.DevRouteOverride, {
+    useFactory: (): CodexDevRouteOverride | null => (
+      override ? { consumers: ['chat', 'gateway'], source: 'PTAH_CODEX_RUNTIME_DEV' } : null
+    ),
+  });
+  scope.register(CODEX_RUNTIME_TOKENS.Logger, {
+    useValue: { warn: jest.fn() },
+  });
+  scope.register(CODEX_RUNTIME_TOKENS.Runtime, { useValue: { open } });
+  const dispose = jest.fn(async () => {
+    await scope.dispose();
+  });
+  let sink: ApprovalSink | undefined;
+  const cancelPrompt = jest.fn();
+  const approvals = new SessionApprovalRouter(
+    { handleResponse: jest.fn() },
+    cancelPrompt,
+  );
+  const ports: CodexChatAdapterPorts = {
+    checkOptions: jest.fn(),
+    logger,
+    platform: { platform: 'win32', arch: 'x64' },
+    info: {
+      id: 'ptah-cli',
+      name: 'Codex',
+      vendor: 'OpenAI',
+      version: '1',
+      description: 'Native chat',
+      capabilities: {
+        streaming: true,
+        fileAttachments: true,
+        contextManagement: true,
+        sessionPersistence: true,
+        multiTurn: true,
+        codeGeneration: true,
+        imageAnalysis: true,
+        functionCalling: true,
+      },
+    },
+    profile: jest.fn(async (_config, resumeId) => ({
+      profile: { ...profile, consumer },
+      ...(resumeId ? { resume: identity } : {}),
+    })),
+    createScope: (value) => {
+      sink = value;
+      return { container: scope, dispose };
+    },
+    metadata: { save: jest.fn(async () => undefined) },
+    approvals,
+    presentation: {
+      present: jest.fn(),
+      dismiss: jest.fn(),
+      cancelPrompt,
+    },
+    replacement: { validateReplacement: jest.fn(), failed: jest.fn() },
+    callbacks: jest.fn(() => callbacks),
+    sessions: lifecycle,
+    publish: jest.fn(async (_id, stream) => {
+      for await (const event of stream) void event;
+    }),
+  };
+  return {
+    adapter: new CodexChatAdapter(ports, turnState),
+    turnState,
+    ports,
+    context,
+    open,
+    dispose,
+    callbacks,
+    lifecycle,
+    sink: () => {
+      if (!sink) throw new Error('Expected an approval sink after opening');
+      return sink;
+    },
+  };
+}
+
+async function collect(stream: AsyncIterable<FlatStreamEventUnion>) {
+  const output: FlatStreamEventUnion[] = [];
+  for await (const event of stream) output.push(event);
+  return output;
+}
+
+const delta: CodexRuntimeEvent = {
+  ...identity,
+  turnId: 'turn',
+  sequence: 1,
+  type: 'textDelta',
+  itemId: 'item',
+  delta: 'hello',
+};
+
+describe('Codex chat turn lifecycle', () => {
+  it('orders generating and completed settlement around the projected message', async () => {
+    const h = setup();
+    h.context.events.mockImplementation(() =>
+      (async function* () {
+        yield delta;
+        yield terminal;
+      })(),
+    );
+    const output = await collect(
+      await h.adapter.startChatSession({ tabId, prompt: 'hello' }),
+    );
+    expect(output.map((event) => event.eventType)).toEqual([
+      'turn_state',
+      'message_start',
+      'text_delta',
+      'message_complete',
+      'turn_state',
+    ]);
+    const states = output.filter((event) => event.eventType === 'turn_state');
+    expect(states).toHaveLength(2);
+    expect(states[0]).toMatchObject({
+      phase: 'generating',
+      terminalReason: null,
+    });
+    expect(states[1]).toMatchObject({
+      phase: 'idle',
+      terminalReason: 'completed',
+    });
+    expect(states[1].revision).toBeGreaterThan(states[0].revision);
+    expect(h.turnState.get(id)?.revision).toBe(states[1].revision);
+    await h.adapter.dispose();
+  });
+
+  it.each([
+    ['completed', 'idle'], ['interrupted', 'idle'], ['failed', 'failed'],
+  ] as const)('consumes a first-turn prompt on %s', async (status, phase) => {
+    const h = setup();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, status };
+    })());
+    const start = { tabId, prompt: 'hello', clientMessageId: 'prompt-1' };
+    const output: FlatStreamEventUnion[] = [];
+    let failure: unknown;
+    try {
+      for await (const event of await h.adapter.startChatSession(start)) output.push(event);
+    } catch (error) {
+      failure = error;
+    }
+    expect(output.filter((event) => event?.eventType === 'message_start' && event.role === 'user'))
+      .toEqual([expect.objectContaining({ clientMessageId: 'prompt-1' })]);
+    expect(output.at(-1)).toMatchObject({
+      eventType: 'turn_state', phase, consumedClientMessageId: 'prompt-1',
+    });
+    if (status === 'completed') expect(failure).toBeUndefined();
+    else expect(failure).toMatchObject({
+      code: status === 'failed' ? 'runtime-failed' : 'cancelled',
+    });
+    const notices = output.filter((event) =>
+      event.eventType === 'text_delta' && event.delta === 'Codex reported a runtime error.',
+    );
+    expect(notices).toHaveLength(status === 'failed' ? 1 : 0);
+    if (status === 'failed')
+      expect(output.indexOf(notices[0])).toBeLessThan(output.length - 1);
+    await h.adapter.dispose();
+  });
+
+  it('feeds native usage and model into the session-stats payload', async () => {
+    const h = setup();
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    const reported: CodexReportedUsage = {
+      inputTokens: 120,
+      cachedInputTokens: 40,
+      outputTokens: 30,
+      totalTokens: 150,
+      lastRequestTotalTokens: 90,
+      modelContextWindow: 272_000,
+    };
+    const usageEvent: CodexRuntimeEvent = {
+      ...identity,
+      turnId: 'turn',
+      sequence: 2,
+      type: 'usage',
+      usage: reported,
+    };
+    const settled: CodexRuntimeEvent = {
+      ...identity,
+      turnId: 'turn',
+      sequence: 3,
+      type: 'terminal',
+      status: 'completed',
+      usage: reported,
+    };
+    h.context.events.mockImplementation(() =>
+      (async function* () {
+        yield delta;
+        yield usageEvent;
+        yield settled;
+      })(),
+    );
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(stats).toHaveBeenCalledTimes(1);
+    expect(stats).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: id,
+        turnCost: null,
+        tokens: { input: 80, output: 30, cacheRead: 40 },
+        modelUsage: [
+          expect.objectContaining({
+            model: 'gpt',
+            inputTokens: 80,
+            outputTokens: 30,
+            contextWindow: 272_000,
+            contextCapacity: {
+              tokens: 272_000,
+              source: 'sdk-native',
+              providerId: null,
+              model: 'gpt',
+            },
+            costUSD: null,
+            cacheReadInputTokens: 40,
+            lastTurnContextTokens: 90,
+          }),
+        ],
+      }),
+    );
+    await h.adapter.dispose();
+  });
+
+  it('reports an unknown native context window without inventing one', async () => {
+    const h = setup();
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    const reported: CodexReportedUsage = {
+      inputTokens: 120,
+      cachedInputTokens: 40,
+      outputTokens: 30,
+      totalTokens: 150,
+      lastRequestTotalTokens: 90,
+    };
+    const usageEvent: CodexRuntimeEvent = {
+      ...identity,
+      turnId: 'turn',
+      sequence: 2,
+      type: 'usage',
+      usage: reported,
+    };
+    const settled: CodexRuntimeEvent = {
+      ...identity,
+      turnId: 'turn',
+      sequence: 3,
+      type: 'terminal',
+      status: 'completed',
+      usage: reported,
+    };
+    h.context.events.mockImplementation(() =>
+      (async function* () {
+        yield delta;
+        yield usageEvent;
+        yield settled;
+      })(),
+    );
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(stats).toHaveBeenCalledTimes(1);
+    expect(stats).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelUsage: [
+          expect.objectContaining({
+            model: 'gpt',
+            contextWindow: 0,
+            contextCapacity: {
+              tokens: null,
+              source: 'unknown',
+              providerId: null,
+              model: 'gpt',
+            },
+            costUSD: null,
+            lastTurnContextTokens: 90,
+          }),
+        ],
+      }),
+    );
+    await h.adapter.dispose();
+  });
+
+  it.each([
+    ['interrupted', 'idle', 'aborted_streaming'],
+    ['failed', 'failed', null],
+  ] as const)(
+    'settles a %s terminal with a consumable terminal state',
+    async (status, phase, terminalReason) => {
+      const h = setup();
+      h.context.events.mockImplementation(() =>
+        (async function* () {
+          yield delta;
+          yield { ...terminal, status };
+        })(),
+      );
+      const output: FlatStreamEventUnion[] = [];
+      let failure: unknown;
+      try {
+        for await (const event of await h.adapter.startChatSession({ tabId })) output.push(event);
+      } catch (error) {
+        failure = error;
+      }
+      expect(output.map((event) => event.eventType)).toEqual(status === 'failed'
+        ? ['turn_state', 'message_start', 'text_delta', 'message_start', 'text_delta', 'turn_state']
+        : ['turn_state', 'message_start', 'text_delta', 'turn_state']);
+      expect(output.at(-1)).toMatchObject({ phase, terminalReason, sessionId: id });
+      expect(failure).toMatchObject({
+        code: status === 'failed' ? 'runtime-failed' : 'cancelled',
+        webviewReported: status === 'failed' ? true : undefined,
+      });
+      expect(output.filter((event) => event.eventType === 'text_delta' &&
+        event.delta === 'Codex reported a runtime error.')).toHaveLength(status === 'failed' ? 1 : 0);
+      expect(h.turnState.get(id)).toMatchObject({ phase, terminalReason });
+      if (status === 'failed') {
+        expect(h.turnState.get(id)).toMatchObject({ error: 'unknown' });
+        expect(h.callbacks.error).toHaveBeenCalledWith('Codex reported a runtime error.', '/workspace');
+        expect(h.ports.logger.error).toHaveBeenCalledWith(
+          expect.stringContaining('runtime-failed: turn'),
+          expect.any(Error),
+        );
+      } else {
+        expect(h.callbacks.error).not.toHaveBeenCalled();
+      }
+      if (status === 'failed') expect(h.adapter.owns(id)).toBe(false);
+      await h.adapter.dispose();
+    },
+  );
+
+  it('rearms generating with a higher revision for the second turn', async () => {
+    const h = setup();
+    const first = await collect(await h.adapter.startChatSession({ tabId }));
+    h.context.startTurn.mockResolvedValue({
+      threadId: id,
+      turnId: 'second',
+      revision: 2,
+    });
+    h.context.events.mockImplementation(() =>
+      (async function* () {
+        yield { ...terminal, turnId: 'second' };
+      })(),
+    );
+    const second: FlatStreamEventUnion[] = [];
+    let finishPublish: () => void = () => undefined;
+    const published = new Promise<void>((resolve) => {
+      finishPublish = resolve;
+    });
+    jest.mocked(h.ports.publish).mockImplementation(async (_id, stream) => {
+      try {
+        second.push(...(await collect(stream)));
+      } finally {
+        finishPublish();
+      }
+    });
+    await h.adapter.sendMessageToSession(id, 'again');
+    await published;
+    const lastState = first
+      .filter((event) => event.eventType === 'turn_state')
+      .at(-1);
+    const nextState = second.filter(
+      (event) => event.eventType === 'turn_state',
+    )[0];
+    expect(nextState).toMatchObject({ phase: 'generating' });
+    expect(nextState.revision).toBeGreaterThan(lastState?.revision ?? 0);
+    expect(second.at(-1)).toMatchObject({
+      phase: 'idle',
+      terminalReason: 'completed',
+    });
+    await h.adapter.dispose();
+  });
+
+  it.each(['done', 'reject'] as const)(
+    'closes and classifies a Stop without a terminal as cancelled when the iterator ends via %s',
+    async (mode) => {
+      const h = setup();
+      let finishStop: (() => void) | undefined;
+      const stopped = new Promise<void>((resolve) => { finishStop = resolve; });
+      h.context.interrupt.mockImplementation(async () => {
+        finishStop?.();
+        return true;
+      });
+      h.context.events.mockImplementation(() =>
+        (async function* () {
+          yield delta;
+          await stopped;
+          if (mode === 'reject') throw new Error('Subscription ended');
+        })(),
+      );
+      const stream = await h.adapter.startChatSession({ tabId });
+      const iterator = stream[Symbol.asyncIterator]();
+      expect((await iterator.next()).value).toMatchObject({
+        eventType: 'turn_state',
+        phase: 'generating',
+      });
+      await iterator.next();
+      await iterator.next();
+      const request = {
+        ...identity,
+        turnId: 'turn',
+        requestId: 7,
+        kind: 'command' as const,
+        message: 'Run?',
+        details: {},
+      };
+      const approval = h.sink().request(request, new AbortController().signal);
+      const pending = iterator.next();
+      await h.adapter.interruptSession(id);
+      await expect(pending).resolves.toMatchObject({
+        value: { eventType: 'turn_state', phase: 'idle' },
+      });
+      await expect(iterator.next()).rejects.toMatchObject({
+        code: 'cancelled',
+        message: expect.stringMatching(/cancel/i),
+      });
+      await expect(approval).resolves.toBe('cancel');
+      expect(h.ports.presentation.cancelPrompt).toHaveBeenCalledWith({
+        sessionId: id,
+        requestId: '7',
+        reason: 'turn-ended',
+      });
+      expect(h.ports.presentation.dismiss).toHaveBeenCalledWith(id, request);
+      expect(h.context.close).toHaveBeenCalledTimes(1);
+      expect(h.adapter.isSessionActive(id)).toBe(false);
+      await h.adapter.dispose();
+    },
+  );
+
+  it('keeps an unexpected end of the runtime stream classified as a failure', async () => {
+    const h = setup();
+    h.context.events.mockImplementation(() =>
+      (async function* () {
+        yield delta;
+      })(),
+    );
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    await iterator.next();
+    await iterator.next();
+    const request = {
+      ...identity,
+      turnId: 'turn',
+      requestId: 7,
+      kind: 'command' as const,
+      message: 'Run?',
+      details: {},
+    };
+    const approval = h.sink().request(request, new AbortController().signal);
+    expect((await iterator.next()).value).toMatchObject({ eventType: 'message_start', role: 'assistant' });
+    expect((await iterator.next()).value).toMatchObject({
+      eventType: 'text_delta', delta: 'Codex reported a runtime error.',
+    });
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { eventType: 'turn_state', phase: 'failed', sessionId: id },
+    });
+    await expect(iterator.next()).rejects.toMatchObject({
+      code: 'runtime-failed',
+    });
+    await expect(approval).resolves.toBe('cancel');
+    expect(h.ports.presentation.cancelPrompt).toHaveBeenCalledWith({
+      sessionId: id,
+      requestId: '7',
+      reason: 'turn-ended',
+    });
+    await h.adapter.dispose();
+  });
+
+  it.each(['before receipt', 'after receipt'] as const)(
+    'settles a zero-content process death %s with one failure presentation',
+    async (point) => {
+      const h = setup();
+      if (point === 'before receipt')
+        h.context.startTurn.mockRejectedValueOnce(new Error('process died'));
+      else
+        h.context.events.mockImplementation(() => ({
+          [Symbol.asyncIterator]: () => ({
+            next: async () => { throw new Error('process died'); },
+          }),
+        }));
+      const start = { tabId, prompt: 'hello', clientMessageId: 'prompt-1' };
+      const stream = await h.adapter.startChatSession(start);
+      const iterator = stream[Symbol.asyncIterator]();
+      if (point === 'after receipt')
+        expect((await iterator.next()).value).toMatchObject({
+          eventType: 'message_start', role: 'user', clientMessageId: 'prompt-1',
+        });
+      expect((await iterator.next()).value).toMatchObject({
+        eventType: 'message_start', role: 'assistant', source: 'complete',
+      });
+      expect((await iterator.next()).value).toMatchObject({
+        eventType: 'text_delta', delta: 'Codex reported a runtime error.', source: 'complete',
+      });
+      expect((await iterator.next()).value).toMatchObject({
+        eventType: 'turn_state', phase: 'failed', sessionId: id,
+        consumedClientMessageId: 'prompt-1',
+      });
+      await expect(iterator.next()).rejects.toMatchObject({
+        code: 'runtime-failed', webviewReported: true,
+      });
+      expect(h.callbacks.error).toHaveBeenCalledTimes(1);
+      expect(h.callbacks.error).toHaveBeenCalledWith('Codex reported a runtime error.', '/workspace');
+      expect(h.context.close).toHaveBeenCalledTimes(1);
+      expect(h.adapter.isSessionActive(id)).toBe(false);
+      await expect(h.adapter.interruptSession(id)).resolves.toBeUndefined();
+      await h.adapter.dispose();
+    },
+  );
+
+  it.each(['before receipt', 'after receipt'] as const)(
+    'retires a failed turn %s when error publication never settles',
+    async (point) => {
+      const h = setup();
+      h.callbacks.error.mockReturnValue(new Promise<void>(() => undefined));
+      if (point === 'before receipt')
+        h.context.startTurn.mockRejectedValueOnce(new Error('process died'));
+      else
+        h.context.events.mockImplementation(() => (async function* () {
+          yield { ...terminal, status: 'failed' as const };
+        })());
+      const output: FlatStreamEventUnion[] = [];
+      let failure: unknown;
+      try {
+        for await (const event of await h.adapter.startChatSession({ tabId })) output.push(event);
+      } catch (error) {
+        failure = error;
+      }
+      expect(output.at(-1)).toMatchObject({ eventType: 'turn_state', phase: 'failed' });
+      expect(failure).toMatchObject({ code: 'runtime-failed', webviewReported: true });
+      expect(h.context.close).toHaveBeenCalledTimes(1);
+      expect(h.adapter.owns(id)).toBe(false);
+      await h.adapter.dispose();
+    },
+  );
+
+  it('keeps the gateway failure notice out of reply text', async () => {
+    const h = setup(true, 'gateway');
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, status: 'failed' as const };
+    })());
+    const output: FlatStreamEventUnion[] = [];
+    let failure: unknown;
+    try {
+      for await (const event of await h.adapter.startChatSession({
+        tabId, consumer: 'gateway',
+      })) output.push(event);
+    } catch (error) {
+      failure = error;
+    }
+    expect(output.filter((event) => event.eventType === 'text_delta')).toHaveLength(0);
+    expect(output.at(-1)).toMatchObject({ eventType: 'turn_state', phase: 'failed' });
+    expect(failure).toMatchObject({ code: 'runtime-failed' });
+    expect(h.callbacks.error).toHaveBeenCalledTimes(1);
+    await h.adapter.dispose();
+  });
+
+  it.each(['completed', 'interrupted', 'failed', 'missing'] as const)(
+    'settles a detached consumer when its terminal is %s',
+    async (status) => {
+      const h = setup();
+      let finish: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      h.context.events.mockImplementation(() =>
+        (async function* () {
+          yield delta;
+          await gate;
+          if (status !== 'missing') yield { ...terminal, status };
+        })(),
+      );
+      const stream = await h.adapter.startChatSession({ tabId });
+      const iterator = stream[Symbol.asyncIterator]();
+      await iterator.next();
+      expect(h.turnState.get(id)?.phase).toBe('generating');
+      await iterator.return?.();
+      finish?.();
+      // Drain runs independently after consumer return; let its microtasks finish.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(h.turnState.get(id)).toMatchObject({
+        phase: status === 'failed' ? 'failed' : 'idle',
+        terminalReason:
+          status === 'completed'
+            ? 'completed'
+            : status === 'failed'
+              ? null
+              : 'aborted_streaming',
+      });
+      if (status === 'missing')
+        expect(h.context.close).toHaveBeenCalledTimes(1);
+      if (status === 'interrupted') {
+        expect(h.context.close).not.toHaveBeenCalled();
+        expect(h.ports.logger.error).not.toHaveBeenCalledWith(
+          expect.stringContaining('detached turn cleanup'),
+          expect.any(Error),
+        );
+      }
+      await h.adapter.dispose();
+    },
+  );
+
+  it.each(['completed', 'interrupted', 'failed'] as const)(
+    'ends pending approvals on a %s terminal',
+    async (status) => {
+      const h = setup();
+      h.context.events.mockImplementation(() =>
+        (async function* () {
+          yield delta;
+          yield { ...terminal, status };
+        })(),
+      );
+      const stream = await h.adapter.startChatSession({ tabId });
+      const iterator = stream[Symbol.asyncIterator]();
+      await iterator.next();
+      const request = {
+        ...identity,
+        turnId: 'turn',
+        requestId: 7,
+        kind: 'command' as const,
+        message: 'Run?',
+        details: {},
+      };
+      const approval = h.sink().request(request, new AbortController().signal);
+      const consume = async () => {
+        while (!(await iterator.next()).done) {
+          /* Consume through settlement. */
+        }
+      };
+      if (status === 'completed') {
+        await consume();
+      } else {
+        await expect(consume()).rejects.toMatchObject({
+          code: status === 'failed' ? 'runtime-failed' : 'cancelled',
+        });
+      }
+      await expect(approval).resolves.toBe('cancel');
+      expect(h.ports.presentation.cancelPrompt).toHaveBeenCalledWith({
+        sessionId: id,
+        requestId: '7',
+        reason: 'turn-ended',
+      });
+      expect(h.ports.presentation.dismiss).toHaveBeenCalledWith(id, request);
+      await h.adapter.dispose();
+    },
+  );
+
+  it('settles if the consumer returns immediately after message_complete', async () => {
+    const h = setup();
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    await iterator.next();
+    expect((await iterator.next()).value).toMatchObject({
+      eventType: 'message_complete',
+    });
+    await iterator.return?.();
+    expect(h.turnState.get(id)).toMatchObject({
+      phase: 'idle',
+      terminalReason: 'completed',
+    });
+    await h.adapter.dispose();
+  });
+});

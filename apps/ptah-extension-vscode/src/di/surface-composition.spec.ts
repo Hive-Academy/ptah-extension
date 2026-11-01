@@ -54,6 +54,9 @@
 
 import 'reflect-metadata';
 
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
 
@@ -80,6 +83,36 @@ import type { SurfaceEnvelope } from '@ptah-extension/shared';
 import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 
 import { createVscodeRpcHostProfile } from '../rpc-host-profile';
+
+describe('VS Code legacy runtime composition', () => {
+  it('uses SDK registration and adapter aliases without native host bindings', () => {
+    const phase2 = readFileSync(join(__dirname, 'phase-2-libraries.ts'), 'utf8');
+    expect(phase2).toMatch(/registerSdkServices\(container, logger\)/);
+    expect(phase2).toMatch(/wireAgentAdapterAliases\(container\)/);
+    expect(phase2.match(/^import .* from ['"]\.\/codex-lane-runtime-composition['"];?$/gm)).toEqual([
+      'import { registerVsCodeCodexLaneFactory } from \'./codex-lane-runtime-composition\';',
+    ]);
+    expect(phase2).toMatch(/registerVsCodeCodexLaneFactory\(container, logger, \{/);
+
+    const sourceRoot = join(__dirname, '..');
+    const sources = readdirSync(sourceRoot, { encoding: 'utf8', recursive: true })
+      .filter((file) => file.endsWith('.ts') && !file.endsWith('.spec.ts')
+        && !file.endsWith('expected-resolvable.ts'));
+    expect(sources.length).toBeGreaterThan(0);
+    for (const file of sources) {
+      const source = readFileSync(join(sourceRoot, file), 'utf8');
+      const isLaneFile = (`/${file.replace(/\\/g, '/')}`).endsWith('/di/codex-lane-runtime-composition.ts');
+      expect({ file, nativeWiring: source.match(
+        isLaneFile
+          ? /\b(?:devRoute|readCodexDevRouteOverride)\b/g
+          : /\b(?:devRoute|readCodexDevRouteOverride|registerCodexRuntime\w*|CODEX_RUNTIME_TOKENS)\b/g,
+      ) }).toEqual({ file, nativeWiring: null });
+      expect({ file, hostBindings: source.match(
+        /SDK_TOKENS\.(?:SESSION_RUNTIME_IDENTITY_LOOKUP|CODEX_CHAT_ADAPTER_PORTS|RUNTIME_ADMISSION_PORT|RUNTIME_HOST_CAPABILITIES|LEGACY_SESSION_CONTROL_PORTS|NATIVE_SESSION_CONTROLS)\b/g,
+      ) }).toEqual({ file, hostBindings: null });
+    }
+  });
+});
 
 function makeLogger(): Logger {
   return {

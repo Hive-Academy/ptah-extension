@@ -43,6 +43,26 @@ export {
   type SelectedProviderDiscovery,
 } from './lib/cli-agents/limits/plan-limit-owner-discovery.service';
 export { CLI_AGENT_RUNTIME_TOKENS } from './lib/di/tokens';
+export type { CodexAdapterFactory } from './lib/cli-agents/cli-adapters/cli-adapter.interface';
+export {
+  CodexAppServerLaneAdapter,
+  CodexLaneResumeIdentityError,
+} from './lib/cli-agents/cli-adapters/codex/codex-app-server-lane.adapter';
+export { CODEX_LANE_DEFAULT_MODEL } from './lib/cli-agents/cli-adapters/codex/codex-app-server-lane-models';
+export type {
+  CodexLaneRuntimeProvider,
+  CodexLaneProfileResolver,
+  CodexLaneIdentityStore,
+} from './lib/cli-agents/cli-adapters/codex/codex-app-server-lane.adapter';
+export type {
+  CodexLaneBinary,
+  CodexLaneBinaryProbe,
+} from './lib/cli-agents/cli-adapters/codex/codex-app-server-lane-binary';
+export type {
+  CodexLaneCredentialProbe,
+  CodexLaneCredentialStatus,
+} from './lib/cli-agents/cli-adapters/codex/codex-app-server-lane-auth';
+export type { CodexLaneProfileInput } from './lib/cli-agents/cli-adapters/codex/codex-lane-profile';
 export { MCP_ATTACHMENT_TIMEOUT_MS } from './lib/cli-agents/mcp-attachment-probe.port';
 export type { IMcpAttachmentProbe, McpAttachment } from './lib/cli-agents/mcp-attachment-probe.port';
 export type { CliAgentRuntimeDIToken } from './lib/di/tokens';

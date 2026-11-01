@@ -153,8 +153,12 @@ export const DISPLAY_DOCK_DEFAULT_WIDTH = 400;
 /** `PanelResizeService` bounds: 300 px, at most 75% of the host. */
 const DOCK_MIN_WIDTH = 300;
 const DOCK_MAX_WIDTH_RATIO = 0.75;
-/** Includes the last inspector row's entrance and a small cleanup margin. */
-const ENTER_WINDOW_MS = 400;
+/** Read the current motion preset at each switch; jsdom has no root tokens. */
+function motionDurationMs(style: CSSStyleDeclaration | null, token: string, fallbackMs: number): number {
+  const value = style?.getPropertyValue(token).trim() ?? '';
+  const match = /^(\d+(?:\.\d+)?)(ms|s)$/.exec(value);
+  return match ? Number(match[1]) * (match[2] === 's' ? 1000 : 1) : fallbackMs;
+}
 
 /** One separator arrow-key step (design-spec section 8, assertion 11). */
 const DOCK_KEY_STEP = 16;
@@ -732,6 +736,7 @@ export class ChatViewComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     if (this.enteringTimer !== null) clearTimeout(this.enteringTimer);
+    if (this.leavingTimer !== null) clearTimeout(this.leavingTimer);
     this._cancelResizeFrame();
     this._cleanupResizeListeners();
     this.resizeObserver?.disconnect();
@@ -1046,25 +1051,100 @@ export class ChatViewComponent implements OnDestroy {
   });
 
   protected readonly enteringTabId = signal<string | null>(null);
+  /** The previous tab, kept on screen over the new one while it fades out. */
+  protected readonly leavingTabId = signal<string | null>(null);
   private enteringTimer: ReturnType<typeof setTimeout> | null = null;
+  private leavingTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** A tab edge owns one entrance window; changing its session or mode does not. */
+  /**
+   * A tab edge owns one entrance window; changing its session or mode does not.
+   * The previous transcript stays visible while history loads. Once the new
+   * one has content, their glass-free slots crossfade and the new pane rises.
+   */
   private wireSessionEntrance(): void {
     let lastTabId: string | null = null;
+    let pendingTabId: string | null = null;
     effect(() => {
       const tabId = this.resolvedTabId();
-      if (tabId === null || tabId === lastTabId) return;
-      lastTabId = tabId;
-      untracked(() => {
-        if (this.enteringTimer !== null) clearTimeout(this.enteringTimer);
-        this.enteringTabId.set(tabId);
-        this.ngZone.runOutsideAngular(() => {
-          this.enteringTimer = setTimeout(() => {
-            this.enteringTimer = null;
-            this.enteringTabId.set(null);
-          }, ENTER_WINDOW_MS);
-        });
+      if (tabId === null) {
+        lastTabId = null;
+        pendingTabId = null;
+        untracked(() => this.startLeave(null));
+        return;
+      }
+      if (tabId !== lastTabId) {
+        const previous = lastTabId;
+        lastTabId = tabId;
+        pendingTabId = tabId;
+        untracked(() => this.startLeave(previous));
+      }
+      if (pendingTabId !== tabId || !this.entranceContentReady()) return;
+      pendingTabId = null;
+      untracked(() => this.startEnter(tabId));
+    });
+  }
+
+  /** True when the shown tab has messages or is not waiting for history. */
+  private entranceContentReady(): boolean {
+    const tab = this.resolvedActiveTab();
+    if (!tab || tab.messages?.length) return true;
+    return (
+      tab.status !== 'resuming' &&
+      tab.status !== 'switching' &&
+      !this.isHistoryReplaying(tab.id)
+    );
+  }
+
+  private startEnter(tabId: string): void {
+    if (this.enteringTimer !== null) clearTimeout(this.enteringTimer);
+    if (this.leavingTimer !== null) clearTimeout(this.leavingTimer);
+    const style = typeof getComputedStyle === 'function'
+      ? getComputedStyle(this.hostEl.nativeElement) : null;
+    const stagger = motionDurationMs(style, '--ptah-stagger-step', 36);
+    const entrance = motionDurationMs(style, '--ptah-motion-in', 320);
+    const paneSwitch = motionDurationMs(style, '--ptah-motion-switch', 380);
+    // Last staggered row: 60 ms lead + six steps + its own entrance.
+    const enterWindowMs = Math.max(60 + 6 * stagger + entrance, paneSwitch) + 44;
+    this.enteringTabId.set(tabId);
+    this.ngZone.runOutsideAngular(() => {
+      this.enteringTimer = setTimeout(() => {
+        this.enteringTimer = null;
+        this.enteringTabId.set(null);
+      }, enterWindowMs);
+    });
+    if (this.leavingTabId() !== null) {
+      const leaveWindowMs = motionDurationMs(style, '--ptah-motion-out', 180) + 40;
+      this.ngZone.runOutsideAngular(() => {
+        this.leavingTimer = setTimeout(() => {
+          this.leavingTimer = null;
+          this.leavingTabId.set(null);
+        }, leaveWindowMs);
       });
+    }
+  }
+
+  private startLeave(previous: string | null): void {
+    if (this.leavingTimer !== null) {
+      clearTimeout(this.leavingTimer);
+      this.leavingTimer = null;
+    }
+    const shown =
+      previous !== null &&
+      this.mainPanelShowing() &&
+      this.transcriptTabIds().includes(previous);
+    this.leavingTabId.set(shown ? previous : null);
+    if (!shown) return;
+    const style = typeof getComputedStyle === 'function'
+      ? getComputedStyle(this.hostEl.nativeElement) : null;
+    const switchMs = motionDurationMs(style, '--ptah-motion-switch', 380);
+    const leaveMs = motionDurationMs(style, '--ptah-motion-out', 180);
+    // Show the new tab's loading state even if history never becomes ready.
+    const safetyWindowMs = Math.min(2000, Math.max(1000, switchMs + leaveMs + 40));
+    this.ngZone.runOutsideAngular(() => {
+      this.leavingTimer = setTimeout(() => {
+        this.leavingTimer = null;
+        this.leavingTabId.set(null);
+      }, safetyWindowMs);
     });
   }
 

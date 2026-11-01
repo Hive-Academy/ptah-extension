@@ -4,6 +4,7 @@ import {
   isUnmodeledCodexNotification,
 } from './codex-protocol-validator';
 import type {
+  CodexJsonValue,
   CodexRuntimeEvent,
   CodexRuntimeError,
   CodexReportedUsage,
@@ -22,6 +23,27 @@ const correlation = z.object({ threadId: z.string(), turnId: z.string() });
 const itemEnvelope = correlation.extend({
   item: z.object({ id: z.string(), type: z.string() }),
 });
+const asyncQuestions = z.array(z.object({
+  title: z.string(),
+  options: z.array(z.string()).nullish(),
+}));
+type Usage = z.infer<
+  (typeof codexNotificationSchemas)['thread/tokenUsage/updated']
+>['tokenUsage']['total'];
+function difference(total: Usage, baseline: Usage): Usage {
+  return {
+    inputTokens: total.inputTokens - baseline.inputTokens,
+    cachedInputTokens: total.cachedInputTokens - baseline.cachedInputTokens,
+    cacheWriteInputTokens:
+      (total.cacheWriteInputTokens ?? 0) -
+      (baseline.cacheWriteInputTokens ?? 0),
+    outputTokens: total.outputTokens - baseline.outputTokens,
+    reasoningOutputTokens:
+      total.reasoningOutputTokens - baseline.reasoningOutputTokens,
+    totalTokens: total.totalTokens - baseline.totalTokens,
+  };
+}
+
 type Identity = z.infer<typeof correlation>;
 
 function safeError(code: string, retryable = false): CodexRuntimeError {
@@ -38,11 +60,40 @@ function toolStatus(status: string): 'completed' | 'failed' | 'cancelled' {
   return 'failed';
 }
 
+/** Forwarded tool output is bounded per string; the exposure equals Claude's Bash output. */
+export const MAX_TOOL_OUTPUT_CHARS = 10_000;
+const TRUNCATED_MARKER = '\n[output truncated]';
+
+function boundText(text: string): string {
+  return text.length <= MAX_TOOL_OUTPUT_CHARS
+    ? text
+    : `${text.slice(0, MAX_TOOL_OUTPUT_CHARS)}${TRUNCATED_MARKER}`;
+}
+
+/** Bounds every string leaf of a validated value; structure and other leaves pass through. */
+function boundJson(value: CodexJsonValue): CodexJsonValue {
+  if (typeof value === 'string') return boundText(value);
+  if (Array.isArray(value)) return value.map(boundJson);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value).map(
+      ([key, entry]): [string, CodexJsonValue] => [key, boundJson(entry)],
+    ),
+  );
+}
+
 /** One instance per context/process generation. No I/O or routing side effects. */
 export class CodexEventTranslator {
   private sequence = 0;
   private readonly terminals = new Set<string>();
   private readonly usage = new Map<string, CodexReportedUsage>();
+  private readonly totals = new Map<string, Usage>();
+  private readonly baselines = new Map<string, Usage>();
+  /** Turn key -> item ids whose reasoning summary deltas were streamed; textDelta stays silent for them. */
+  private readonly summaryItems = new Map<string, Set<string>>();
+  private readonly asyncMessageItems = new Set<string>();
+  /** Deltas that were already visible before completion revealed async delivery. */
+  private readonly streamedMessageItems = new Set<string>();
   private disposed = false;
 
   constructor(
@@ -59,8 +110,20 @@ export class CodexEventTranslator {
     const { method, params } = notification;
     switch (method) {
       case 'initialized':
-      case 'turn/started':
         return [];
+      case 'turn/started': {
+        const parsed = codexNotificationSchemas[method].safeParse(params);
+        if (!parsed.success) return this.invalid(params);
+        const identity = {
+          threadId: parsed.data.threadId,
+          turnId: parsed.data.turn.id,
+        };
+        const total = this.totals.get(identity.threadId);
+        const key = this.key(identity);
+        if (total && !this.baselines.has(key) && !this.terminals.has(key))
+          this.baselines.set(key, total);
+        return [];
+      }
       // Approval correlation and decisions belong to the approval bridge (2g).
       case 'serverRequest/resolved':
       case 'account/rateLimits/updated':
@@ -73,11 +136,50 @@ export class CodexEventTranslator {
       case 'item/agentMessage/delta': {
         const parsed = codexNotificationSchemas[method].safeParse(params);
         if (!parsed.success) return this.invalid(params);
+        const itemKey = this.key(parsed.data) + ':' + parsed.data.itemId;
+        if (this.asyncMessageItems.has(itemKey)) return [];
+        if (parsed.data.delta !== '') this.streamedMessageItems.add(itemKey);
         return this.emit(parsed.data, [
           {
             type: 'textDelta',
             itemId: parsed.data.itemId,
             delta: parsed.data.delta,
+          },
+        ]);
+      }
+      case 'item/reasoning/summaryTextDelta': {
+        const parsed = codexNotificationSchemas[method].safeParse(params);
+        if (!parsed.success) return this.invalid(params);
+        if (parsed.data.delta === '') return [];
+        const key = this.key(parsed.data);
+        const items = this.summaryItems.get(key) ?? new Set<string>();
+        items.add(parsed.data.itemId);
+        this.summaryItems.set(key, items);
+        return this.emit(parsed.data, [
+          {
+            type: 'reasoning',
+            itemId: parsed.data.itemId,
+            phase: 'delta',
+            text: parsed.data.delta,
+          },
+        ]);
+      }
+      case 'item/reasoning/textDelta': {
+        const parsed = codexNotificationSchemas[method].safeParse(params);
+        if (!parsed.success) return this.invalid(params);
+        // Raw reasoning text streams only for items with no summary deltas;
+        // the completed item's summary stays authoritative.
+        if (
+          parsed.data.delta === '' ||
+          this.summaryStreamed(parsed.data, parsed.data.itemId)
+        )
+          return [];
+        return this.emit(parsed.data, [
+          {
+            type: 'reasoning',
+            itemId: parsed.data.itemId,
+            phase: 'delta',
+            text: parsed.data.delta,
           },
         ]);
       }
@@ -93,6 +195,18 @@ export class CodexEventTranslator {
               ])
             : this.invalid(params);
         }
+        if (parsed.data.item.type === 'agentMessage') {
+          const itemKey = this.key(parsed.data) + ':' + parsed.data.item.id;
+          if (method === 'item/started' && parsed.data.item.delivery === 'async')
+            this.asyncMessageItems.add(itemKey);
+          if (method === 'item/completed') this.asyncMessageItems.delete(itemKey);
+          const streamed = this.streamedMessageItems.has(itemKey);
+          if (method === 'item/completed') this.streamedMessageItems.delete(itemKey);
+          return this.emit(
+            parsed.data,
+            this.item(parsed.data.item, method === 'item/completed', streamed),
+          );
+        }
         return this.emit(
           parsed.data,
           this.item(parsed.data.item, method === 'item/completed'),
@@ -103,20 +217,23 @@ export class CodexEventTranslator {
         if (!parsed.success) return this.invalid(params);
         const data = parsed.data;
         if (this.terminals.has(this.key(data))) return [];
-        // `last` is turn usage; `total` is cumulative thread usage. No inferred cost.
-        const {
-          inputTokens,
-          cachedInputTokens,
-          outputTokens,
-          reasoningOutputTokens,
-          totalTokens,
-        } = data.tokenUsage.last;
-        const usage = {
-          inputTokens,
-          cachedInputTokens,
-          outputTokens,
-          reasoningOutputTokens,
-          totalTokens,
+        // last is one model request; total accumulates all requests in the thread.
+        const key = this.key(data);
+        const baseline =
+          this.baselines.get(key) ??
+          this.totals.get(data.threadId) ??
+          difference(data.tokenUsage.total, data.tokenUsage.last);
+        this.baselines.set(key, baseline);
+        this.totals.set(data.threadId, data.tokenUsage.total);
+        const modelContextWindow = data.tokenUsage.modelContextWindow;
+        const usage: CodexReportedUsage = {
+          ...difference(data.tokenUsage.total, baseline),
+          lastRequestTotalTokens: data.tokenUsage.last.totalTokens,
+          // Only a positive server-reported window is carried; null or absent
+          // stays absent so no consumer can mistake a missing window for one.
+          ...(typeof modelContextWindow === 'number' && modelContextWindow > 0
+            ? { modelContextWindow }
+            : {}),
         };
         this.usage.set(this.key(data), usage);
         return this.emit(data, [{ type: 'usage', usage }]);
@@ -150,6 +267,12 @@ export class CodexEventTranslator {
         ]);
         this.terminals.add(key);
         this.usage.delete(key);
+        this.baselines.delete(key);
+        this.summaryItems.delete(key);
+        for (const itemKey of this.asyncMessageItems)
+          if (itemKey.startsWith(key + ':')) this.asyncMessageItems.delete(itemKey);
+        for (const itemKey of this.streamedMessageItems)
+          if (itemKey.startsWith(key + ':')) this.streamedMessageItems.delete(itemKey);
         return events;
       }
       default:
@@ -163,10 +286,19 @@ export class CodexEventTranslator {
     this.disposed = true;
     this.terminals.clear();
     this.usage.clear();
+    this.totals.clear();
+    this.baselines.clear();
+    this.summaryItems.clear();
+    this.asyncMessageItems.clear();
+    this.streamedMessageItems.clear();
   }
 
   private key(identity: Identity): string {
     return JSON.stringify([identity.threadId, identity.turnId]);
+  }
+
+  private summaryStreamed(identity: Identity, itemId: string): boolean {
+    return this.summaryItems.get(this.key(identity))?.has(itemId) ?? false;
   }
 
   private emit(identity: Identity, payloads: Payload[]): CodexRuntimeEvent[] {
@@ -190,14 +322,28 @@ export class CodexEventTranslator {
       : [];
   }
 
-  private item(item: Item, completed: boolean): Payload[] {
+  private item(item: Item, completed: boolean, streamed = false): Payload[] {
     switch (item.type) {
       case 'userMessage':
         return [];
-      case 'agentMessage':
-        return completed
-          ? [{ type: 'textFinal', itemId: item.id, text: item.text }]
-          : [];
+      case 'agentMessage': {
+        if (!completed) return [];
+        const parsedQuestions = asyncQuestions.safeParse(item.questions);
+        if (item.delivery === 'async' && parsedQuestions.success && parsedQuestions.data.length)
+          return [{
+            type: 'userInputAsync',
+            itemId: item.id,
+            text: item.text,
+            ...(streamed ? { presentation: 'text' as const } : {}),
+            questions: parsedQuestions.data.map((question) => ({
+              title: question.title,
+              ...(question.options == null ? {} : { options: question.options }),
+            })),
+          }];
+        return [{ type: 'textFinal', itemId: item.id, text: item.text }];
+      }
+      case 'sleep':
+        return [];
       case 'reasoning':
         return completed
           ? [
@@ -234,10 +380,8 @@ export class CodexEventTranslator {
                 type: 'toolCompleted',
                 toolId: item.id,
                 status: toolStatus(item.status),
-                output:
-                  item.status === 'completed'
-                    ? (item.aggregatedOutput ?? null)
-                    : { error: safeError('commandFailed').message },
+                output: boundJson(item.aggregatedOutput ?? null),
+                ...(item.exitCode == null ? {} : { exitCode: item.exitCode }),
               },
             ]
           : [
@@ -255,10 +399,18 @@ export class CodexEventTranslator {
                 type: 'toolCompleted',
                 toolId: item.id,
                 status: item.error ? 'failed' : toolStatus(item.status),
-                output:
-                  item.error || item.status !== 'completed'
-                    ? { error: safeError('toolFailed').message }
-                    : (item.result ?? null),
+                // _meta is protocol plumbing, not tool output; it is not forwarded.
+                output: item.result
+                  ? boundJson({
+                      content: item.result.content,
+                      ...(item.result.structuredContent === undefined
+                        ? {}
+                        : { structuredContent: item.result.structuredContent }),
+                    })
+                  : null,
+                ...(item.error
+                  ? { errorText: boundText(item.error.message) }
+                  : {}),
               },
             ]
           : [
@@ -307,10 +459,8 @@ export class CodexEventTranslator {
                 toolId: item.id,
                 status:
                   item.success === false ? 'failed' : toolStatus(item.status),
-                output:
-                  item.status === 'completed' && item.success !== false
-                    ? (item.contentItems ?? null)
-                    : { error: safeError('toolFailed').message },
+                // A failure reports its own content items; no text is invented.
+                output: boundJson(item.contentItems ?? null),
               },
             ]
           : [

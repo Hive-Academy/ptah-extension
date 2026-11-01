@@ -168,22 +168,64 @@ describe('OutputStyleEditorComponent', () => {
         'ptah-native-tab-group',
       );
       expect(tabGroup).not.toBeNull();
+      const stage = fixture.nativeElement.querySelector('#output-style-body')?.closest('.ptah-motion-stage') as HTMLElement | null;
+      expect(stage).not.toBeNull();
 
       field.onTabChange('preview');
       fixture.detectChanges();
 
       expect(field.showPreview()).toBe(true);
+      expect(stage?.getAttribute('data-motion-dir')).toBe('forward');
       expect(
         fixture.nativeElement.querySelector('[data-test="body-preview"]'),
       ).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('[data-test="body-preview"]')?.classList.contains('ptah-motion-panel')).toBe(true);
+      expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
 
       field.onTabChange('edit');
       fixture.detectChanges();
 
       expect(field.showPreview()).toBe(false);
+      expect(stage?.getAttribute('data-motion-dir')).toBe('back');
+      expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
       expect(
         fixture.nativeElement.querySelector('#output-style-body'),
       ).not.toBeNull();
+    });
+
+    it('hides the leaving editor panel while its animation completes', () => {
+      const panel = document.createElement('div');
+      const animationComplete = jest.fn();
+      instructionsField().leaveEditorPanel({ target: panel, animationComplete });
+      expect(panel.hasAttribute('inert')).toBe(true);
+      expect(panel.getAttribute('aria-hidden')).toBe('true');
+      expect(panel.classList.contains('ptah-motion-leave')).toBe(true);
+      expect(animationComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits for every editor leave animation, including a cancelled one', async () => {
+      const panel = document.createElement('div');
+      let finishFirst = (): void => undefined;
+      let cancelSecond = (_reason: Error): void => undefined;
+      const first = new Promise<void>((resolve) => {
+        finishFirst = resolve;
+      });
+      const second = new Promise<void>((_resolve, reject) => {
+        cancelSecond = reject;
+      });
+      Object.defineProperty(panel, 'getAnimations', {
+        value: () => [{ finished: first }, { finished: second }],
+      });
+      const animationComplete = jest.fn();
+      instructionsField().leaveEditorPanel({ target: panel, animationComplete });
+      expect(animationComplete).not.toHaveBeenCalled();
+      finishFirst();
+      await Promise.resolve();
+      expect(animationComplete).not.toHaveBeenCalled();
+      cancelSecond(new Error('animation cancelled'));
+      await Promise.allSettled([first, second]);
+      await Promise.resolve();
+      expect(animationComplete).toHaveBeenCalledTimes(1);
     });
 
     it('shows fixed error sentence on save failure without raw host text (D15)', async () => {

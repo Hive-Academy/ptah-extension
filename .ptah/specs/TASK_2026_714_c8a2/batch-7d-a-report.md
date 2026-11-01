@@ -1,0 +1,39 @@
+# Batch 7d.1 — chat runtime review fixes
+
+Implemented B1, S1, R7-4 notice fixes, and the slash metadata minor. Changes remain uncommitted. FM10 cancellation behavior and the location of currentModel computation are unchanged. No resolveStoredModel was added.
+
+## Changes and regression coverage
+
+- **B1:** `chat-runtime-profile.service.ts:42` provides the shared `storedChatRuntimeIdentity` helper. It returns native metadata unchanged; otherwise it builds the same version/session/runtime/provider/workspace identity as `session-runtime-identity-cache.ts:44-50`. Resume (`chat-session.service.ts:1672`) and slash relaunch (`chat-slash-command-router.service.ts:315`) now pass that explicit identity. Metadata workspace wins, with the caller's resolved workspace used when metadata is absent. `chat-session.native.spec.ts:217` and `chat-slash-command-router.native.spec.ts:234` exercise real ChatRuntimeProfileService.prepare and WorkspaceProviderProfileResolver.resolveExecutionProfile with native enabled and a Codex-serving workspace, retaining the Claude model and exact providerProfile and publishing no notice. Only the credential-materialization boundary is stubbed in those resolver regressions.
+- **S1:** `agent-adapter.types.ts:179` adds an optional runtime marker. `chat-session.service.ts:945` passes the prepared runtime. `routing-agent-adapter.ts:90` uses the marker for dispatch and validates any available serving-provider admission against it. Disagreement throws ChatRuntimeAdmissionError with code `runtime-admission-mismatch` (`routing-agent-adapter.ts:12`), before either adapter starts. Existing callers without the marker retain the old capability/provider routing. `routing-agent-adapter.spec.ts:348` tests both marker routes when admission is absent; `:367` tests both mismatch directions. The existing no-marker matrix remains intact. The native-start RPC spec now also asserts the prepared runtime marker.
+- **Notice:** publication now follows successful adapter resolution at `chat-session.service.ts:954,1696` and `chat-slash-command-router.service.ts:398`. Native compact returns through its controls before publication. `chat-runtime-profile.service.ts:127` filters empty/default/unchanged requests, and a WeakSet guard (`:62,134`) claims each prepared result before the first asynchronous broadcast, including concurrent duplicate calls. Profile specs at `:252,265` test filters and sequential/concurrent one-shot publication. Session specs at `:192,210` cover successful publication ordering, a second busy launch on the same tab, and failed resume; successful resume also asserts publication has not happened inside the adapter call. Slash specs at `:113,150,216` cover no compact notice, post-success slash publication, and busy rejection. Existing compact and pre-launch notice expectations were changed to assert the newly required behavior, rather than removed; the successful slash notice count is still asserted after resolution.
+- **Slash metadata minor:** when the optional metadata service is absent, relaunch explicitly retains Claude rather than looking like a new start. `chat-slash-command-router.native.spec.ts:223` asserts the full fallback identity and absence of publication.
+
+## Verification
+
+- Only the two authorized test invocations were launched, once each, with output filtered to the last lines:
+  - `npm run verify -- -t test -p @ptah-extension/rpc-handlers -- --testPathPatterns="chat-session|chat-slash|chat-runtime-profile"` — exec session 59457; still running with no tail output at its one completion check.
+  - `npm run verify -- -t test -p @ptah-extension/agent-sdk -- --testPathPatterns=routing-agent-adapter` — exec session 86027; still running with no tail output at its one completion check.
+- The machine-wide FIFO lock serializes heavy execution. Neither suite is claimed passed; no repeat run or status loop was performed. The team-leader must obtain final test results. A workspace-fallback type correction and minor test strengthening were made after submission, so final-tree verification remains necessary regardless of these runs' eventual results.
+- Scoped ptah_get_diagnostics initially reported a single error: synthesized workspaceId could be undefined. Fixed by requiring a resolved-workspace fallback. The final scoped request returned unavailable: "TypeScript check still running after 45s"; coverage qualified with nine requested files unchecked. No final clean typecheck is claimed.
+- No git commands, formatter, installation, live paid tests, build, serve, dev, e2e, package, host edits, or settings changes.
+
+## Decisions
+
+1. **Missing slash metadata retains Claude.** Options: visible refusal or explicit Claude identity. Evidence: RoutingAgentAdapter already routes unknown pre-metadata sessions to legacy, and the task explicitly permits this fallback. Chosen: preserve that established behavior with an explicit identity and the resolved workspace. Reversible: yes, replace with visible refusal if the metadata service becomes mandatory.
+2. **Prepared marker controls dispatch; admission validates it.** Options: reselect silently, ignore conflicting admission, or reject disagreement. Evidence: S1 and the existing coded session routing errors require deterministic ownership and visible failure. Chosen: coded rejection when a concrete serving provider implies a different runtime; absent admission leaves the prepared marker authoritative. Reversible: yes, additive optional contract; old unmarked callers remain supported.
+3. **One-shot state uses weak object identity.** Options: mutable prepared-result property, a persistent ID registry, or WeakSet. Evidence: prepare returns an object per native launch, and publication can overlap across awaits. Chosen: WeakSet claim before broadcasting, preventing duplicate attempts without retaining completed launches. Reversible: yes. A broadcast failure still propagates and does not permit replay of a partial notice.
+4. **Real runtime resolution, stubbed credential materialization in regressions.** Options: mock prepare, use real resolution with mocked I/O, or live auth tests. Evidence: B1 was hidden by prepare mocks; paid/live tests are forbidden. Chosen: actual preparation and runtime-selection methods, stubbing only provider-profile materialization. Reversible: yes.
+
+## Absolute paths changed
+
+- D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts
+- D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-router.service.ts
+- D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/libs/backend/rpc-handlers/src/lib/chat/session/chat-runtime-profile.service.ts
+- D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/libs/backend/rpc-handlers/src/lib/chat/session/chat-runtime-profile.service.spec.ts
+- D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/libs/backend/rpc-handlers/src/lib/chat/session/chat-session.native.spec.ts
+- D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-router.native.spec.ts
+- D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/libs/shared/src/lib/types/agent-adapter.types.ts
+- D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/libs/backend/agent-sdk/src/lib/codex-app-server/routing-agent-adapter.ts
+- D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/libs/backend/agent-sdk/src/lib/codex-app-server/routing-agent-adapter.spec.ts
+- D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/.ptah/specs/TASK_2026_714_c8a2/batch-7d-a-report.md

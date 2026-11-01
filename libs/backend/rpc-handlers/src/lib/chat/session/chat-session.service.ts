@@ -17,6 +17,7 @@
  * callback-setter wiring from the handler.
  */
 
+import { CodexChatOptionError } from '../codex-host/codex-chat-profile-options';
 import { injectable, inject } from 'tsyringe';
 import { isAbsolute, resolve } from 'node:path';
 import {
@@ -56,11 +57,17 @@ import {
   SDK_TOKENS,
   SlashCommandInterceptor,
   AuthRequiredError,
+  isCodexChatAdapterError,
+  type StreamlessFollowUpAdmission,
   type SessionEndCallbackRegistry,
   type SessionMcpStatusCallbackRegistry,
   type SessionBudgetService,
   type SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
+import {
+  CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+  isCodexResumeProfileChangedError,
+} from '@ptah-extension/codex-runtime';
 import {
   PLATFORM_TOKENS,
   isUnsafeWorkspacePath,
@@ -69,6 +76,8 @@ import {
 } from '@ptah-extension/platform-core';
 import type {
   IAgentAdapter,
+  AgentSessionStartConfig,
+  AgentSessionResumeConfig,
   SessionId,
   ChatStartParams,
   ChatStartResult,
@@ -93,6 +102,11 @@ import {
 
 import type { ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
 
+import {
+  resolveClaudeExecution,
+  storedChatRuntimeIdentity,
+  type ChatRuntimeProfileService,
+} from './chat-runtime-profile.service';
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
@@ -152,6 +166,9 @@ interface AutoResumePreflight extends MainSessionAccountSelection {
   surfaceMode?: ChatContinueParams['surfaceMode'];
   mcpToolProfile?: ChatContinueParams['mcpToolProfile'];
   ptahUiFence?: ChatContinueParams['ptahUiFence'];
+  /** Attachments for a Codex resume turn. Claude resume does not receive them. */
+  files?: ChatContinueParams['files'];
+  images?: ChatContinueParams['images'];
   /** Absolute end of the calling RPC, from {@link namedAdmissionDeadline} (named admission only). */
   admissionDeadline?: number;
 }
@@ -343,6 +360,14 @@ export class ChatSessionService {
       isOptional: true,
     })
     private readonly activeProvider?: ActiveProviderResolver,
+    @inject(CHAT_TOKENS.RUNTIME_PROFILE, { isOptional: true })
+    private readonly runtimeProfile?: ChatRuntimeProfileService,
+    /**
+     * Optional, and null on hosts without native runtimes: those keep the
+     * broadcaster-only liveness check of {@link hasLiveSessionStream}.
+     */
+    @inject(SDK_TOKENS.SESSION_RUNTIME_ROUTER, { isOptional: true })
+    private readonly sessionRuntimeRouter: StreamlessFollowUpAdmission | null = null,
     /**
      * Host pre-flight routing (TASK_2026_857). Bound by Electron only; on
      * VS Code and the CLI it is absent and no turn is admitted.
@@ -884,6 +909,57 @@ export class ChatSessionService {
     };
   }
 
+  /** Classify native failures before logging; never expose runtime causes or option values. */
+  private codexFailure(error: unknown): ChatStartResult | undefined {
+    const adapterError = isCodexChatAdapterError(error) ? error : undefined;
+    if (adapterError?.code === 'cancelled') {
+      return { success: false, cancelled: true };
+    }
+    const optionError = error instanceof CodexChatOptionError
+      ? error
+      : adapterError?.cause instanceof CodexChatOptionError
+        ? adapterError.cause
+        : undefined;
+    // The adapter normally maps the refusal to its own code; the cause check
+    // also covers an adapter error that kept the typed refusal as its cause.
+    const resumeProfileChanged = adapterError?.code === 'resume-profile-changed' ||
+      isCodexResumeProfileChangedError(adapterError?.cause);
+    // Show the fixed refusal text. The chat UI prints an uncoded `error`
+    // and replaces `CODEX_RUNTIME_FAILED` with a generic sentence, so this
+    // narrow case omits that code. Real runtime failures keep it below.
+    if (resumeProfileChanged) {
+      return {
+        success: false,
+        error: CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+      };
+    }
+    let failure: RpcUserError;
+    if (optionError) {
+      failure = new RpcUserError(
+        `Codex chat does not support the "${optionError.key}" option.`,
+        'CODEX_UNSUPPORTED_OPTION',
+      );
+    } else if (adapterError?.code === 'busy') {
+      failure = new RpcUserError(
+        'Codex chat is busy. Try again when the current operation finishes.',
+        'CODEX_BUSY',
+      );
+    } else if (adapterError?.code === 'unavailable') {
+      failure = new RpcUserError(
+        'Codex chat is unavailable. Reconnect and try again.',
+        'CODEX_UNAVAILABLE',
+      );
+    } else if (adapterError) {
+      failure = new RpcUserError(
+        'Codex chat could not complete the operation.',
+        'CODEX_RUNTIME_FAILED',
+      );
+    } else {
+      return undefined;
+    }
+    return { success: false, error: failure.message, errorCode: failure.errorCode };
+  }
+
   /**
    * Hand one dispatched user turn to host routing (TASK_2026_857, Req 4).
    *
@@ -1041,6 +1117,8 @@ export class ChatSessionService {
 
       return { success: true };
     } catch (error) {
+      const codexFailure = this.codexFailure(error);
+      if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
       if (refusal) return refusal;
       this.logger.error(
@@ -1127,6 +1205,8 @@ export class ChatSessionService {
 
       return { success: true };
     } catch (error) {
+      const codexFailure = this.codexFailure(error);
+      if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
       if (refusal) return refusal;
       this.logger.error(
@@ -1233,6 +1313,8 @@ export class ChatSessionService {
 
       return { success: true };
     } catch (error) {
+      const codexFailure = this.codexFailure(error);
+      if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
       if (refusal) return refusal;
       const kind = safeErrorKind(error);
@@ -1307,13 +1389,7 @@ export class ChatSessionService {
     const files = options?.files ?? [];
     const images = options?.images ?? [];
 
-    const {
-      enhancedPromptsContent,
-      mcpServersOverride,
-      currentModel,
-      providerProfile,
-      outputStyle,
-    } = await this.withinNamedAdmissionDeadline(
+    const { config, execution } = await this.withinNamedAdmissionDeadline(
       !!input.accountSelection,
       input.admissionDeadline,
       async () => {
@@ -1335,39 +1411,63 @@ export class ChatSessionService {
         const mcpServersOverride = await this.buildMcpServersOverride(
           input.mcpServersOverride,
         );
-        // Checked after the last await before the profile read, so both see the
-        // same provider.
-        const currentModel =
-          options?.model ||
-          this.workspaceProviderProfileResolver.resolveStoredModel(
-            workspaceId,
-            this.modelSettings.selectedModel.get(),
-          );
-        // Resolve an isolated per-workspace provider profile so a session in
-        // workspace A runs against A's provider even when a different workspace's
-        // provider is currently the process-global active one. `undefined` only
-        // when the shared auth env serves this same provider; a mismatch throws
-        // AuthRequiredError, which each caller result-shapes as AUTH_REQUIRED.
-        const providerProfile =
-          await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-            workspaceId,
-            currentModel,
-          );
         // Output-style activation, resolved fresh for THIS session (Req 5.6).
         // Spreads to at most one field — `outputStyleName` for the flag tier or
         // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
         // both (R3 / Req 5.3).
-        const outputStyle =
-          await this.outputStyleActivation.resolveSessionFields({
-            workspaceRoot: workspaceId,
-          });
-        return {
+        const outputStyle = await this.outputStyleActivation.resolveSessionFields({
+          workspaceRoot: workspaceId,
+        });
+        // Read after the last await before prepare(), so the model and the
+        // provider profile see the same provider.
+        const modelIsStored = !options?.model;
+        const currentModel =
+          options?.model || this.modelSettings.selectedModel.get() || 'default';
+        const config: AgentSessionStartConfig = {
+          tabId,
+          workspaceId,
+          model: currentModel,
+          systemPrompt: options?.systemPrompt,
+          projectPath,
+          ...(input.pluginConfigAncestorRoots !== undefined
+            ? { pluginConfigAncestorRoots: input.pluginConfigAncestorRoots }
+            : {}),
+          name: input.name,
+          prompt: input.prompt,
+          files,
+          images, // inline pasted/dropped images
+          mcpServerRunning: input.mcpServerRunning,
           enhancedPromptsContent,
+          thinking: options?.thinking,
+          effort: options?.effort,
+          workflowsDisabled: this.resolveWorkflowsDisabled(),
+          includePartialMessages: options?.includePartialMessages,
           mcpServersOverride,
-          currentModel,
-          providerProfile,
-          outputStyle,
+          // Only agent-started sessions pass a level; `chat:start` keeps the
+          // global default.
+          ...(input.permissionLevel
+            ? { permissionLevel: input.permissionLevel }
+            : {}),
+          ...outputStyle,
+          ...(input.mcpToolProfile
+            ? { mcpToolProfile: input.mcpToolProfile }
+            : {}),
+          ...(input.ptahUiFence !== undefined
+            ? { ptahUiFence: input.ptahUiFence }
+            : {}),
         };
+        // Resolves the runtime, model and isolated per-workspace provider
+        // profile; a provider mismatch throws AuthRequiredError, which each
+        // caller result-shapes as AUTH_REQUIRED.
+        const execution = this.runtimeProfile
+          ? await this.runtimeProfile.prepare(config, undefined, modelIsStored)
+          : await resolveClaudeExecution(
+              this.workspaceProviderProfileResolver,
+              workspaceId,
+              currentModel,
+              modelIsStored,
+            );
+        return { config, execution };
       },
     );
     this.pendingLineage.set(tabId, {
@@ -1375,47 +1475,43 @@ export class ChatSessionService {
       roots: input.pluginConfigAncestorRoots ?? [],
     });
     try {
-      const stream = await this.sdkAdapter.startChatSession({
-        tabId,
-        workspaceId,
-        model: currentModel,
-        systemPrompt: options?.systemPrompt,
-        projectPath,
-        ...(input.pluginConfigAncestorRoots !== undefined
-          ? { pluginConfigAncestorRoots: input.pluginConfigAncestorRoots }
-          : {}),
-        name: input.name,
-        prompt: input.prompt,
-        files,
-        images, // inline pasted/dropped images
-        mcpServerRunning: input.mcpServerRunning,
-        enhancedPromptsContent,
-        thinking: options?.thinking,
-        effort: options?.effort,
-        workflowsDisabled: this.resolveWorkflowsDisabled(),
-        includePartialMessages: options?.includePartialMessages,
-        mcpServersOverride,
-        providerProfile,
-        // Only agent-started sessions pass a level; `chat:start` keeps the
-        // global default.
-        ...(input.permissionLevel
-          ? { permissionLevel: input.permissionLevel }
-          : {}),
-        ...outputStyle,
-        ...(input.mcpToolProfile
-          ? { mcpToolProfile: input.mcpToolProfile }
-          : {}),
-        ...(input.ptahUiFence !== undefined
-          ? { ptahUiFence: input.ptahUiFence }
-          : {}),
-        // Named only; the ambient launch config keeps its existing fields.
-        ...(input.accountSelection
+      const startConfig: AgentSessionStartConfig = {
+        ...config,
+        runtime: execution.runtime,
+        ...(execution.runtime === 'claude-sdk'
           ? {
-              accountSelection: input.accountSelection,
-              admissionDeadline: input.admissionDeadline,
+              model: execution.model,
+              providerProfile: execution.providerProfile,
+              // Named only; the ambient launch config keeps its existing fields.
+              ...(input.accountSelection
+                ? {
+                    accountSelection: input.accountSelection,
+                    admissionDeadline: input.admissionDeadline,
+                  }
+                : {}),
             }
-          : {}),
-      });
+          : { model: execution.seed.model }),
+      };
+      // By design, Codex does not consume Claude plugin-config roots; persist
+      // them as session policy lineage through its native metadata write.
+      const codexStartConfig = {
+        ...startConfig,
+        pluginConfigAncestorRoots: undefined,
+      };
+      const stream = execution.runtime === 'codex-app-server'
+        ? await this.sessionMetadataStore.withCodexStartLineage(
+            input.pluginConfigAncestorRoots ?? [],
+            () => this.sdkAdapter.startChatSession(codexStartConfig),
+          )
+        : await this.sdkAdapter.startChatSession(startConfig);
+      if (execution.runtime === 'codex-app-server') {
+        this.pendingLineage.delete(tabId);
+        try {
+          await this.runtimeProfile?.publishRuntimeNotices(execution, { tabId });
+        } catch {
+          this.logger.warn('[RPC] Model substitution notice failed; continuing session stream');
+        }
+      }
       this.streamBroadcaster.streamEventsToWebview(
         tabId as SessionId,
         stream,
@@ -1498,6 +1594,7 @@ export class ChatSessionService {
       const isSlashCommand = SlashCommandInterceptor.isSlashCommand(prompt);
 
       let justResumed = false;
+      let promptDelivered = false;
       let slashLineage:
         { roots: readonly string[]; legacy: boolean } | undefined;
       if (isSlashCommand) {
@@ -1520,9 +1617,11 @@ export class ChatSessionService {
           prompt,
           { ...params, admissionDeadline },
           mcpRegisteredForSubagents,
+          { deliversFollowUp: true },
         );
         if ('error' in resumeOutcome) return resumeOutcome.error;
         justResumed = resumeOutcome.justResumed;
+        promptDelivered = resumeOutcome.promptDelivered === true;
       }
 
       const files = params.files ?? [];
@@ -1559,10 +1658,28 @@ export class ChatSessionService {
           sessionId,
           workspacePath,
         );
+      // Native Codex thread resume starts the turn (prompt and attachments).
+      // Claude resume ignores them, so only that Codex turn skips the second send.
+      if (promptDelivered) {
+        // The resumed turn carried the user's prompt without the injected
+        // context, so the interrupted agents stay resumable.
+        injection.release();
+        // The resumed turn is a dispatched user turn: admit it like the send below.
+        if (!isSlashCommand) {
+          this.admitHostRoutingTurn({ tabId, sessionId, prompt });
+        }
+        // The resumed native turn may have finished while slash routing and
+        // prompt context were prepared. A running resume has no clientMessageId,
+        // so omit enqueued to retire the pending prompt when the UI re-arms.
+        return this.streamBroadcaster.isStreaming(sessionId as string)
+          ? { success: true, sessionId }
+          : { success: true, sessionId, settled: true };
+      }
       const enhancedPrompt = injection.prompt;
       // Injected agents are retired only once the prompt was accepted. Any
       // early return or throw below hands them back, still resumable.
       let sent = false;
+      let nativeFollowUp = false;
       try {
         if (!justResumed && hasStopIntent(prompt)) {
           const autopilotEnabled = this.configManager.getWithDefault<boolean>(
@@ -1593,6 +1710,10 @@ export class ChatSessionService {
           }
         }
         const images = params.images ?? [];
+        nativeFollowUp =
+          !this.streamBroadcaster.isStreaming(sessionId as string) &&
+          !this.streamBroadcaster.isStreaming(tabId) &&
+          this.sessionRuntimeRouter?.acceptsFollowUpWithoutStream(sessionId) === true;
         await this.sdkAdapter.sendMessageToSession(sessionId, enhancedPrompt, {
           files,
           images,
@@ -1609,8 +1730,19 @@ export class ChatSessionService {
       // Only now has the model actually been told about them.
       await injection.commit();
 
+      // The native send now resolves at turn/start admission. A fast terminal
+      // can still arrive before this reply, so do not re-arm an ended stream.
+      if (
+        nativeFollowUp &&
+        !this.streamBroadcaster.isStreaming(sessionId as string) &&
+        !this.streamBroadcaster.isStreaming(tabId)
+      ) {
+        return { success: true, sessionId, settled: true };
+      }
       return { success: true, sessionId, enqueued: true };
     } catch (error) {
+      const codexFailure = this.codexFailure(error);
+      if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
       if (refusal) return refusal;
       if (error instanceof RpcUserError) {
@@ -1774,6 +1906,8 @@ export class ChatSessionService {
             activated =
               activateResult.justResumed ||
               this.sdkAdapter.isSessionActive(sessionId);
+          } else if (activateResult.error.cancelled) {
+            return { success: false, cancelled: true };
           } else {
             activationError =
               activateResult.error.error ?? 'Auto-resume failed';
@@ -1831,6 +1965,8 @@ export class ChatSessionService {
         ...(activationErrorCode ? { activationErrorCode } : {}),
       };
     } catch (error) {
+      const codexFailure = this.codexFailure(error);
+      if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
       if (refusal) return refusal;
       if (error instanceof RpcUserError) {
@@ -2060,6 +2196,12 @@ export class ChatSessionService {
    * consumer: the turn hangs forever with no events and no error. The stream is
    * keyed by tabId for a session started via `chat:start` and by the real
    * session UUID once resumed, so both keys count as live.
+   *
+   * A native Codex thread is the exception: each turn is its own stream, so
+   * between turns no loop is attached while the thread stays open, and
+   * `sendMessageToSession` publishes the next turn's stream itself. The
+   * runtime router answers that case (idle, unblocked native thread); it
+   * answers false for Claude, and is consulted only when no stream is attached.
    */
   private hasLiveSessionStream(sessionId: SessionId, tabId: string): boolean {
     if (!this.sdkAdapter.isSessionActive(sessionId)) {
@@ -2067,7 +2209,9 @@ export class ChatSessionService {
     }
     return (
       this.streamBroadcaster.isStreaming(sessionId as string) ||
-      this.streamBroadcaster.isStreaming(tabId)
+      this.streamBroadcaster.isStreaming(tabId) ||
+      this.sessionRuntimeRouter?.acceptsFollowUpWithoutStream(sessionId) ===
+        true
     );
   }
 
@@ -2075,8 +2219,11 @@ export class ChatSessionService {
    * Auto-resume an inactive SDK session before continuing. Returns
    * `{ justResumed: false }` when already active; otherwise resumes via
    * the resolved session config and streams to the webview. `{ error }`
-   * carries a structured `ChatContinueResult` on failure. Log messages +
-   * payloads are byte-identical to the pre-extraction inline block.
+   * carries a structured `ChatContinueResult` on failure.
+   *
+   * `promptDelivered` is set only when chat:continue successfully resumes a
+   * Codex thread and starts its follow-up turn, including attachment-only turns.
+   * Callers that ignore the field keep the previous `{ justResumed }` behavior.
    */
   private async autoResumeIfInactive(
     sessionId: SessionId,
@@ -2093,7 +2240,11 @@ export class ChatSessionService {
      * does register, passes the real answer.
      */
     mcpRegisteredForSubagents = true,
-  ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
+    options: { deliversFollowUp: boolean } = { deliversFollowUp: false },
+  ): Promise<
+    | { justResumed: boolean; promptDelivered?: boolean }
+    | { error: ChatContinueResult }
+  > {
     let accountSelection: ResolvedMainAccountSelection | undefined;
     try {
       accountSelection = await this.gateAccount({
@@ -2200,63 +2351,107 @@ export class ChatSessionService {
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
     });
 
-    const currentModel =
-      params.model ||
-      this.workspaceProviderProfileResolver.resolveStoredModel(
-        workspacePath,
-        this.modelSettings.selectedModel.get(),
-      );
-
     try {
       // Same per-workspace isolation as chat:start — the resumed turn must run
       // against the session's own workspace provider, not whichever provider
-      // is globally active after a workspace switch. Throws AuthRequiredError
-      // (→ AUTH_REQUIRED below) rather than resume on another provider.
+      // is globally active after a workspace switch. A provider mismatch throws
+      // AuthRequiredError (→ AUTH_REQUIRED below) rather than resume on another
+      // provider.
       //
       // Output style is re-resolved for the resumed turn rather than carried
       // over from the original start: the provider or the style may have
       // changed since, and Req 5.6 forbids caching the decision across sessions.
-      const { providerProfile, outputStyle } =
-        await this.withinNamedAdmissionDeadline(
-          named,
-          params.admissionDeadline,
-          async () => ({
-            providerProfile:
-              await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+      // Named resumes bound this preparation by the handler-entry deadline (D76).
+      const { config, execution } = await this.withinNamedAdmissionDeadline(
+        named,
+        params.admissionDeadline,
+        async () => {
+          const outputStyle =
+            await this.outputStyleActivation.resolveSessionFields({
+              workspaceRoot: workspacePath,
+            });
+          const identity = this.runtimeProfile
+            ? storedChatRuntimeIdentity(
+                sessionId,
+                await this.sessionMetadataStore.get(sessionId),
+                workspacePath,
+              )
+            : undefined;
+          // Read after the last await before prepare(), so the model and the
+          // provider profile see the same provider.
+          const modelIsStored = !params.model;
+          const currentModel =
+            params.model || this.modelSettings.selectedModel.get() || 'default';
+
+          const config: AgentSessionResumeConfig = {
+            projectPath: workspacePath,
+            pluginConfigAncestorRoots: lineage.roots,
+            model: currentModel,
+            mcpServerRunning,
+            enhancedPromptsContent,
+            tabId,
+            thinking: params.thinking,
+            effort: params.effort,
+            workflowsDisabled: this.resolveWorkflowsDisabled(),
+            prompt,
+            ...outputStyle,
+            ...(params.systemPrompt
+              ? { systemPrompt: params.systemPrompt }
+              : {}),
+            ...(params.mcpToolProfile
+              ? { mcpToolProfile: params.mcpToolProfile }
+              : {}),
+            ...(params.ptahUiFence !== undefined
+              ? { ptahUiFence: params.ptahUiFence }
+              : {}),
+          };
+          const execution = this.runtimeProfile
+            ? await this.runtimeProfile.prepare(config, identity, modelIsStored)
+            : await resolveClaudeExecution(
+                this.workspaceProviderProfileResolver,
                 workspacePath,
                 currentModel,
-              ),
-            outputStyle: await this.outputStyleActivation.resolveSessionFields({
-              workspaceRoot: workspacePath,
+                modelIsStored,
+              );
+          return { config, execution };
+        },
+      );
+      const resumeConfig: AgentSessionResumeConfig = {
+        ...config,
+        ...(execution.runtime === 'claude-sdk'
+          ? {
+              model: execution.model,
+              providerProfile: execution.providerProfile,
+              // Named only: the resume reuses the stored binding (no second lease).
+              ...(accountSelection
+                ? { accountSelection, admissionDeadline: params.admissionDeadline }
+                : {}),
+            }
+          : {
+              model: execution.seed.model,
+              // Codex thread/resume starts the turn; Claude resume ignores these.
+              ...(params.files !== undefined ? { files: params.files } : {}),
+              ...(params.images !== undefined ? { images: params.images } : {}),
             }),
-          }),
-        );
-
-      const stream = await this.sdkAdapter.resumeSession(sessionId, {
-        projectPath: workspacePath,
-        pluginConfigAncestorRoots: lineage.roots,
-        model: currentModel,
-        mcpServerRunning,
-        enhancedPromptsContent,
-        tabId,
-        thinking: params.thinking,
-        effort: params.effort,
-        workflowsDisabled: this.resolveWorkflowsDisabled(),
-        prompt,
-        providerProfile,
-        ...outputStyle,
-        ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
-        ...(params.mcpToolProfile
-          ? { mcpToolProfile: params.mcpToolProfile }
-          : {}),
-        ...(params.ptahUiFence !== undefined
-          ? { ptahUiFence: params.ptahUiFence }
-          : {}),
-        // Named only: the resume reuses the stored binding (no second lease).
-        ...(accountSelection
-          ? { accountSelection, admissionDeadline: params.admissionDeadline }
-          : {}),
-      });
+      };
+      const stream = await this.sdkAdapter.resumeSession(
+        sessionId,
+        execution.runtime === 'codex-app-server'
+          ? { ...resumeConfig, pluginConfigAncestorRoots: undefined }
+          : resumeConfig,
+      );
+      if (execution.runtime === 'codex-app-server') {
+        try {
+          await this.runtimeProfile?.publishRuntimeNotices(execution, {
+            tabId,
+            sessionId,
+          });
+        } catch {
+          this.logger.warn('[RPC] Model substitution notice failed; continuing session stream');
+        }
+      }
+      // Not awaited: the renderer's chat:continue timeout is shorter than a
+      // turn. A turn that ends before the reply is answered `settled` below.
       this.streamBroadcaster.streamEventsToWebview(
         sessionId,
         stream,
@@ -2266,8 +2461,13 @@ export class ChatSessionService {
       if (lineage.legacy)
         await this.upgradeLegacyLineage(sessionId, lineage.roots);
       this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
-      return { justResumed: true };
+      // Native Codex resume starts the follow-up turn even for an empty prompt.
+      const promptDelivered =
+        options.deliversFollowUp && execution.runtime === 'codex-app-server';
+      return { justResumed: true, promptDelivered };
     } catch (resumeError) {
+      const codexFailure = this.codexFailure(resumeError);
+      if (codexFailure) return { error: codexFailure };
       // A named run's refusal keeps its typed code; the conversation is kept.
       const refusal = mainSessionAccountFailure(resumeError);
       if (refusal) {
@@ -2301,6 +2501,8 @@ export class ChatSessionService {
     roots: readonly string[],
   ): Promise<void> {
     try {
+      const metadata = await this.sessionMetadataStore.get(sessionId);
+      if (metadata?.codexExecution?.runtime === 'codex-app-server') return;
       const upgraded =
         await this.sessionMetadataStore.upgradeLegacyPluginConfigAncestorRoots(
           sessionId,

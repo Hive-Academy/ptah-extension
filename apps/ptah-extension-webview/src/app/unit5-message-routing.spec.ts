@@ -4,7 +4,7 @@
  * Batch 4 does two things that could silently break push-message delivery:
  *   1. It flips `TASKS_VIEW_COMPONENT`, `HARNESS_BUILDER_COMPONENT` and
  *      `SETUP_HUB_COMPONENT` to deferred `LazyViewLoader` arrows, so neither
- *      `tasks-ui`'s board nor `harness-builder`'s two views are in the initial
+ *      `tasks-ui`'s board nor the former harness-builder views are in the initial
  *      bundle any more.
  *   2. It repoints two composition-root imports from the libs' WIDE barrels to
  *      new services-only barrels (`@ptah-extension/tasks-ui/services`,
@@ -26,14 +26,16 @@
  * effect on each service.
  *
  * Crucially, it does all of that WITHOUT ever instantiating
- * `TasksViewComponent`, `HarnessBuilderViewComponent`, `SetupHubComponent` or
- * `WizardViewComponent` — i.e. it reproduces the exact condition R4 is about:
+ * `TasksViewComponent`, the removed setup views — i.e. it reproduces the exact condition R4 is about:
  * the app sitting on chat with those views never opened.
  *
  * `SetupWizardStateService` is included even though the wizard was NOT deferred
  * (it is a launch surface — see R15 in the Batch 4 report): its registration
  * sits in the same provider block and is worth pinning.
  */
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -122,7 +124,29 @@ async function flushHarnessHandler(
   await handler.handleMessage({ type: '__test_flush__' });
 }
 
-describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub never opened (R4)', () => {
+describe('initial setup bundle boundary', () => {
+  it('does not route or export the removed harness views', () => {
+    const routes = readFileSync(join(__dirname, 'app.routes.ts'), 'utf8');
+    const config = readFileSync(join(__dirname, 'app.config.ts'), 'utf8');
+    const barrel = readFileSync(
+      join(__dirname, '../../../../libs/frontend/harness-builder/src/index.ts'),
+      'utf8',
+    );
+    for (const name of [
+      'HarnessBuilderViewComponent',
+      'HarnessBuilderSidebarComponent',
+      'SetupHubComponent',
+    ]) {
+      expect(routes).not.toContain(name);
+      expect(config).not.toContain(name);
+      expect(barrel).not.toContain(name);
+    }
+    expect(routes).not.toContain("import('@ptah-extension/harness-builder')");
+    expect(config).not.toContain("from '@ptah-extension/harness-builder'");
+  });
+});
+
+describe('Unit 5 push-message delivery with tasks and onboarding never opened (R4)', () => {
   let router: MessageRouterService;
   let tasks: TasksStore;
   let harness: HarnessWorkflowMessageHandler;

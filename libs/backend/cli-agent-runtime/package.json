@@ -21,7 +21,6 @@
     "cross-spawn": "^7.0.6",
     "which": "^7.0.0",
     "@cursor/sdk": "^1.0.13",
-    "@openai/codex-sdk": "^0.165.0",
     "uuid": "^11.1.0",
     "@ptah-extension/auth-providers": "0.0.1",
     "@ptah-extension/auth-providers-tokens": "0.0.1",

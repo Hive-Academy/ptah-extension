@@ -49,6 +49,7 @@ import { buildLaneCompletionEnvelope } from './lane-completion-envelope';
 import { readReviewDeliverables } from './review-deliverable.reader';
 import type {
   AgentProcessInfo,
+  CliOutputSegment,
   IAgentAdapter,
   LaneCompletionDelivery,
   LaneCompletionRefusalReason,
@@ -284,6 +285,8 @@ export function buildSessionChildCompletionEnvelope(
 export interface LaneCompletionContext {
   /** Reports this lane delivered through `ptah_agent_report` before it ended. */
   readonly reportsDelivered: number;
+  /** Provider-reported usage for this lane turn, when available. */
+  readonly usage?: CliOutputSegment['usage'];
   readonly authMatched?: boolean;
   /** API rate-limit wording seen in this turn's bounded output; in memory only. */
   readonly rateLimited?: boolean;
@@ -356,6 +359,11 @@ export class LaneCompletionNotifier {
     this.remember(key);
 
     const signal = await this.buildSignal(info, completedAt, context);
+    const parentSessionId = SessionId.safeParse(info.parentSessionId?.trim());
+    const activeParentSessionId =
+      parentSessionId && this.agentAdapter?.isSessionActive(parentSessionId)
+        ? parentSessionId
+        : null;
     enqueueLaneCompletionOutcome(
       this.outcomeRecorder,
       this.logger,
@@ -364,6 +372,8 @@ export class LaneCompletionNotifier {
       signal,
       context.authMatched ?? false,
       context.rateLimited ?? false,
+      activeParentSessionId,
+      context.usage,
     );
 
     const queueReviewCapture = (): void => {
@@ -375,7 +385,6 @@ export class LaneCompletionNotifier {
     // until the real SDK uuid arrives, so a value that is not a session id
     // means the parent never resolved one. That is a modelled state, not an
     // exception — the same rule `AgentReportRouter` follows.
-    const parentSessionId = SessionId.safeParse(info.parentSessionId?.trim());
     if (!parentSessionId) {
       queueReviewCapture();
       return this.refuse('no-parent-recorded', signal, {
@@ -394,7 +403,7 @@ export class LaneCompletionNotifier {
       });
     }
 
-    if (!this.agentAdapter.isSessionActive(parentSessionId)) {
+    if (!activeParentSessionId) {
       queueReviewCapture();
       return this.refuse('parent-session-not-active', signal, {
         parentSessionId,

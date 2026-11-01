@@ -41,6 +41,9 @@ import {
   CatalogCardSkeletonComponent,
   CatalogGridComponent,
   NativeDrawerComponent,
+  MotionRouteStageDirective,
+  MotionStageDirective,
+  detailParamKey,
 } from '@ptah-extension/ui';
 
 import {
@@ -51,6 +54,7 @@ import { HarnessHealthStore } from '../../harness/harness-health.store';
 import { harnessTargetLabel } from '../../harness/harness-health.model';
 import { MarketplaceLayout } from '../../layout/marketplace-layout';
 import { marketplaceRouteLink } from '../../shell/marketplace-route-url';
+import { MARKETPLACE_LEAVE_CLONE } from '../../shell/marketplace-motion-key';
 import {
   CONNECTOR_CATEGORY_QUERY_PARAM,
   CategoryBentoComponent,
@@ -156,6 +160,8 @@ interface PageActionError extends TrackedActionError {
     CatalogCardSkeletonComponent,
     CatalogGridComponent,
     NativeDrawerComponent,
+    MotionRouteStageDirective,
+    MotionStageDirective,
     StorefrontHeroComponent,
     FeaturedConnectorsComponent,
     CategoryBentoComponent,
@@ -165,7 +171,9 @@ interface PageActionError extends TrackedActionError {
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [ConnectorActionsTracker],
   host: {
-    class: 'block',
+    class: 'block ptah-motion-panel',
+    'animate.enter': 'ptah-motion-enter',
+    'animate.leave': 'ptah-motion-leave',
     'data-testid': 'connectors-page',
     '(keydown)': 'onKeyDown($event)',
   },
@@ -174,6 +182,8 @@ interface PageActionError extends TrackedActionError {
 export class ConnectorsPageComponent {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  protected readonly detailMotionKey = detailParamKey(this.route, 'connectorId');
+  protected readonly motionLeaveClone = inject(MARKETPLACE_LEAVE_CLONE);
   private readonly injector = inject(Injector);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly harness = inject(HarnessHealthStore);
@@ -238,6 +248,7 @@ export class ConnectorsPageComponent {
   protected readonly fullPageDetail = computed(
     () => this.detailOpen() && this.placement() === 'page',
   );
+  protected readonly hasRendered = signal(false);
 
   /**
    * True until the first connection read settles: the grid shows skeletons
@@ -383,6 +394,7 @@ export class ConnectorsPageComponent {
 
   public constructor() {
     void this.links.ensure();
+    afterNextRender(() => this.hasRendered.set(true), { injector: this.injector });
 
     // The hero needs the detected CLIs, and only at wide. Ask once; the root
     // store keeps the answer for every other page. The CLI tile's Retry asks

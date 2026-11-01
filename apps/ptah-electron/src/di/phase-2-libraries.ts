@@ -66,7 +66,6 @@ import {
 import {
   LANE_OUTCOME_TOKENS,
   registerLaneOutcomeServices,
-  startAndRegisterLaneOutcomes,
 } from '@ptah-extension/lane-outcomes';
 import {
   registerAgentGenerationServices,
@@ -124,6 +123,7 @@ import { ElectronSetupWizardService } from '../services/electron-setup-wizard.se
 import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
 import { createUserLayerRefresher } from '../activation/plugin-activation';
 import { registerClaudeNamedAccountBindings } from './claude-named-account-bindings';
+import { registerElectronCodexLaneFactory } from './codex-lane-composition';
 
 /**
  * `harness.preflightTimeoutMs` — how long a session start may wait for the
@@ -301,6 +301,13 @@ export function registerPhase2Libraries(
   container.register(LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER, {
     useToken: LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER,
   });
+  registerElectronCodexLaneFactory(container, logger, {
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+    env: process.env,
+    platform: process,
+  });
   registerCliAgentRuntimeServices(container, logger);
   container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, {
     useValue: mcpAttachmentObserver,
@@ -410,9 +417,6 @@ export function registerPhase2Libraries(
   const namedAccountsBound = registerClaudeNamedAccountBindings(container);
   logger.info('[Electron DI] Named Claude account persistence', {
     bound: namedAccountsBound,
-  });
-  startAndRegisterLaneOutcomes(container, logger, {
-    observeSubagentEnded: true,
   });
   // Register the skill trigger and telemetry seam for library RPC handlers.
   registerSkillSynthesisServices(container, logger);

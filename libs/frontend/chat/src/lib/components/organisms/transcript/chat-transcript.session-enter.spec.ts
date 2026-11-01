@@ -118,6 +118,7 @@ describe('ChatTranscriptComponent session pane entrance', () => {
 
   it('disables the pane animation under reduced motion', () => {
     const css = readFileSync(join(__dirname, 'chat-transcript.component.css'), 'utf8');
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.ptah-pane-switch-enter\s*\{\s*animation: none !important/);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.ptah-pane-switch-enter,[\s\S]*?animation: none;/);
+    expect(css).toMatch(/:host\(\.ptah-pane-switch-leave\)\s*\{\s*display: none;/);
   });
 });
