@@ -18,7 +18,14 @@ import {
   Layers,
   X,
 } from 'lucide-angular';
+import {
+  InstallScopeFieldComponent,
+  defaultInstallScope,
+  effectiveInstallScope,
+  type InstallScopeChoice,
+} from '@ptah-extension/chat-ui';
 import type {
+  CapabilityScope,
   ExternalConsentReason,
   ExternalInstallPlan,
   ExternalLocalItem,
@@ -29,6 +36,18 @@ import {
   MarketplaceKeepReplaceComponent,
   ModalFocusTrap,
 } from './kept-items-repair-prompt.component';
+
+/**
+ * What `confirmed` carries: the keep/replace decision per local item, keyed
+ * by its server-issued `approvalId` (empty when the plan lists no local
+ * item), and the scope for the plugin's declared MCP servers. `mcpScope` is
+ * present only when the plan declares servers and a scope is chosen; with no
+ * folder open and nothing chosen it is absent and the servers are skipped.
+ */
+export interface ExternalConsentApproval {
+  readonly localItemDecisions: Record<string, FileDecision>;
+  readonly mcpScope?: CapabilityScope;
+}
 
 /** Badge, note and C1 labels of one local-item row (design 3.3). */
 interface LocalItemCopy {
@@ -99,8 +118,11 @@ function localItemCopy(item: ExternalLocalItem): LocalItemCopy {
  *  - `mcpServers`, each `commandLine` rendered VERBATIM inside `<code>` via text
  *    interpolation. It is never truncated, ellipsized, reformatted, or passed
  *    through `[innerHTML]`: it is untrusted remote text, and a user asked to
- *    approve a command line must see the exact command line. Installing does NOT
- *    register or run these servers — the copy says so;
+ *    approve a command line must see the exact command line. The consented
+ *    install registers these servers in the scope the user picks in the
+ *    "Install servers for" field below the list (This workspace by default;
+ *    All workspaces only by explicit choice). With no folder open the plugin
+ *    files still install and the help line names the servers Ptah skips;
  *  - `skippedBinaryFiles`, which the installer refuses as non-text;
  *  - `collisions`, so a skill that will be shadowed (and therefore never take
  *    effect) is disclosed before install rather than discovered after. The
@@ -129,7 +151,11 @@ function localItemCopy(item: ExternalLocalItem): LocalItemCopy {
 @Component({
   selector: 'ptah-external-consent-dialog',
   standalone: true,
-  imports: [LucideAngularModule, MarketplaceKeepReplaceComponent],
+  imports: [
+    LucideAngularModule,
+    MarketplaceKeepReplaceComponent,
+    InstallScopeFieldComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <dialog
@@ -273,7 +299,7 @@ function localItemCopy(item: ExternalLocalItem): LocalItemCopy {
             </div>
           }
 
-          <!-- Declared MCP servers: shown verbatim, never registered. -->
+          <!-- Declared MCP servers: shown verbatim, added in the chosen scope. -->
           @if (plan().mcpServers.length > 0) {
             <div
               class="rounded-lg border border-warning/40 bg-warning/10 p-2.5 space-y-2"
@@ -288,10 +314,12 @@ function localItemCopy(item: ExternalLocalItem): LocalItemCopy {
                   This plugin declares MCP servers
                 </span>
               </div>
-              <p class="text-[11px] text-base-content-muted">
-                Ptah will NOT register or run these servers. Installing only
-                puts the plugin's files on disk. Nothing below executes unless
-                you add it yourself.
+              <p
+                class="text-[11px] text-base-content-muted"
+                data-testid="external-consent-mcp-copy"
+              >
+                Ptah adds these servers to the scope you choose below. Review
+                each command before you continue.
               </p>
               @for (server of plan().mcpServers; track $index) {
                 <div class="space-y-1">
@@ -312,6 +340,16 @@ function localItemCopy(item: ExternalLocalItem): LocalItemCopy {
                   }
                 </div>
               }
+              <ptah-install-scope-field
+                class="block pt-1"
+                data-testid="external-consent-mcp-scope"
+                legend="Install servers for"
+                itemKind="server"
+                [workspaceName]="workspaceName()"
+                [disabled]="busy()"
+                [noFolderHelp]="noFolderHelp()"
+                [(scope)]="mcpScope"
+              />
             </div>
           }
 
@@ -523,13 +561,19 @@ export class ExternalConsentDialogComponent {
    * reason is passed in, so host error text cannot reach the dialog.
    */
   public readonly installFailed = input(false);
+  /**
+   * The open folder's display name, or `null` when no folder is open. With
+   * no folder the MCP scope field starts empty and only an explicit All
+   * workspaces choice adds the servers; consent stays enabled because the
+   * plugin files still install.
+   */
+  public readonly workspaceName = input<string | null>(null);
 
   /**
    * User authorized the install — the parent echoes back `plan.consentToken`
-   * with these keep/replace decisions, one per local item, keyed by its
-   * server-issued `approvalId` (empty when the plan lists no local item).
+   * with these keep/replace decisions and the chosen MCP server scope.
    */
-  public readonly confirmed = output<Record<string, FileDecision>>();
+  public readonly confirmed = output<ExternalConsentApproval>();
   /** User declined. The parent must fire NO RPC in response. */
   public readonly cancelled = output<void>();
 
@@ -569,6 +613,36 @@ export class ExternalConsentDialogComponent {
   >({
     source: this.plan,
     computation: () => ({}),
+  });
+
+  private readonly workspaceOpen = computed(
+    () => this.workspaceName() !== null,
+  );
+
+  /**
+   * The MCP server scope choice. Starts at This workspace with a folder open
+   * and at nothing without one; an explicit All workspaces survives a folder
+   * opening or closing, and is never chosen on the user's behalf.
+   */
+  protected readonly mcpScope = linkedSignal<boolean, InstallScopeChoice>({
+    source: this.workspaceOpen,
+    computation: (open, previous) =>
+      previous?.value === 'global' ? 'global' : defaultInstallScope(open),
+  });
+
+  /** The scope `confirmed` sends, or `null` when the servers are skipped. */
+  public readonly chosenMcpScope = computed(() =>
+    this.plan().mcpServers.length > 0
+      ? effectiveInstallScope(this.mcpScope(), this.workspaceOpen())
+      : null,
+  );
+
+  /** No-folder help: names the servers this install skips. */
+  protected readonly noFolderHelp = computed(() => {
+    const names = this.plan()
+      .mcpServers.map((server) => server.name)
+      .join(', ');
+    return `No folder is open, so Ptah skips these servers: ${names}. The plugin files still install. Choose All workspaces to add the servers for every workspace.`;
   });
 
   public readonly localRows = computed(() =>
@@ -638,14 +712,22 @@ export class ExternalConsentDialogComponent {
     this.decisions.set(next);
   }
 
-  /** Emit one decision per local item, keyed by `approvalId`. */
+  /**
+   * Emit one decision per local item, keyed by `approvalId`, plus the MCP
+   * server scope when the plan declares servers and a scope is chosen.
+   */
   public confirm(): void {
     if (this.busy()) return;
-    const decisions: Record<string, FileDecision> = {};
+    const localItemDecisions: Record<string, FileDecision> = {};
     for (const item of this.localItems()) {
-      decisions[item.approvalId] = this.decisionOf(item);
+      localItemDecisions[item.approvalId] = this.decisionOf(item);
     }
-    this.confirmed.emit(decisions);
+    const mcpScope = this.chosenMcpScope();
+    this.confirmed.emit(
+      mcpScope === null
+        ? { localItemDecisions }
+        : { localItemDecisions, mcpScope },
+    );
   }
 
   protected onKeydown(event: KeyboardEvent): void {

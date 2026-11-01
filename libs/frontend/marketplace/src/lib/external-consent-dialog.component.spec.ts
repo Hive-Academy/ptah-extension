@@ -4,7 +4,10 @@ import type {
   ExternalLocalItem,
 } from '@ptah-extension/shared';
 import { makeLibraryAgreementFixtures } from '@ptah-extension/shared/testing';
-import { ExternalConsentDialogComponent } from './external-consent-dialog.component';
+import {
+  ExternalConsentDialogComponent,
+  type ExternalConsentApproval,
+} from './external-consent-dialog.component';
 
 /** A plan with every disclosure empty — tests opt IN to the parts they assert. */
 function makePlan(
@@ -146,7 +149,7 @@ describe('ExternalConsentDialogComponent', () => {
     expect(dialog()?.textContent).toContain('binlog');
   });
 
-  it('states that Ptah will not register or run declared MCP servers', () => {
+  it('states that Ptah adds declared MCP servers in the chosen scope', () => {
     render(
       makePlan({
         mcpServers: [
@@ -160,9 +163,22 @@ describe('ExternalConsentDialogComponent', () => {
       }),
     );
 
+    const copy = host.querySelector(
+      '[data-testid="external-consent-mcp-copy"]',
+    );
+    expect(copy?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Ptah adds these servers to the scope you choose below. Review each command before you continue.',
+    );
+    // The false claim is gone: the consented install DOES register them.
     const text = dialog()?.textContent ?? '';
-    expect(text).toContain('NOT register or run');
-    expect(text).toContain('files on disk');
+    expect(text).not.toContain('NOT register or run');
+    expect(text).not.toContain('Nothing below executes');
+    // Command line still verbatim.
+    expect(
+      Array.from(dialog()?.querySelectorAll('code') ?? []).map(
+        (el) => el.textContent,
+      ),
+    ).toContain('dotnet dnx');
   });
 
   it('discloses env variable NAMES a declared server sets', () => {
@@ -410,7 +426,10 @@ describe('ExternalConsentDialogComponent', () => {
     it('emits a decision per item keyed by approvalId', () => {
       render(acmePlan());
       const emitted: Record<string, string>[] = [];
-      component.confirmed.subscribe((decisions) => emitted.push(decisions));
+      component.confirmed.subscribe(({ localItemDecisions, mcpScope }) => {
+        expect(mcpScope).toBeUndefined();
+        emitted.push(localItemDecisions);
+      });
       replaceOf(rows()[1])?.click();
       fixture.detectChanges();
       expect(confirmButton()?.textContent?.trim()).toBe(
@@ -511,6 +530,128 @@ describe('ExternalConsentDialogComponent', () => {
       fixture.destroy();
       expect(document.activeElement).toBe(opener);
       opener.remove();
+    });
+  });
+  describe('MCP server scope (F-D4)', () => {
+    const servers: ExternalInstallPlan['mcpServers'] = [
+      {
+        name: 'binlog',
+        command: 'dotnet',
+        args: ['dnx'],
+        commandLine: 'dotnet dnx',
+      },
+      {
+        name: 'tracer',
+        command: 'npx',
+        args: ['tracer'],
+        commandLine: 'npx tracer',
+      },
+    ];
+
+    const renderWith = (
+      plan: ExternalInstallPlan,
+      workspaceName: string | null,
+    ): void => {
+      fixture = TestBed.createComponent(ExternalConsentDialogComponent);
+      component = fixture.componentInstance;
+      host = fixture.nativeElement as HTMLElement;
+      fixture.componentRef.setInput('plan', plan);
+      fixture.componentRef.setInput('workspaceName', workspaceName);
+      fixture.detectChanges();
+    };
+    const field = (): HTMLElement | null =>
+      host.querySelector('[data-testid="external-consent-mcp-scope"]');
+    const radio = (label: string): HTMLInputElement | null =>
+      Array.from(field()?.querySelectorAll('label') ?? [])
+        .find((el) => el.textContent?.includes(label))
+        ?.querySelector<HTMLInputElement>('input[type="radio"]') ?? null;
+    const help = (): string =>
+      (
+        field()?.querySelector('[data-testid="install-scope-help"]')
+          ?.textContent ?? ''
+      )
+        .replace(/\s+/g, ' ')
+        .trim();
+    const emitted = (): ExternalConsentApproval[] => {
+      const out: ExternalConsentApproval[] = [];
+      component.confirmed.subscribe((approval) => out.push(approval));
+      return out;
+    };
+
+    it('is absent when the plan declares no MCP servers', () => {
+      renderWith(makePlan(), 'my-app');
+      const out = emitted();
+      expect(field()).toBeNull();
+      confirmButton()?.click();
+      expect(out).toEqual([{ localItemDecisions: {} }]);
+    });
+
+    it('renders after the server list with the legend "Install servers for"', () => {
+      renderWith(makePlan({ mcpServers: servers }), 'my-app');
+      expect(field()?.querySelector('legend')?.textContent?.trim()).toBe(
+        'Install servers for',
+      );
+      const lastCommand = Array.from(
+        dialog()?.querySelectorAll('pre') ?? [],
+      ).pop();
+      expect(
+        lastCommand &&
+          field() &&
+          lastCommand.compareDocumentPosition(field() as Node) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    it('defaults to This workspace and sends it with the consent', () => {
+      renderWith(makePlan({ mcpServers: servers }), 'my-app');
+      const out = emitted();
+      expect(radio('This workspace')?.checked).toBe(true);
+      expect(radio('All workspaces')?.checked).toBe(false);
+      confirmButton()?.click();
+      expect(out).toEqual([{ localItemDecisions: {}, mcpScope: 'workspace' }]);
+    });
+
+    it('sends global only after the user picks All workspaces', () => {
+      renderWith(makePlan({ mcpServers: servers }), 'my-app');
+      const out = emitted();
+      radio('All workspaces')?.click();
+      fixture.detectChanges();
+      expect(radio('All workspaces')?.checked).toBe(true);
+      confirmButton()?.click();
+      expect(out).toEqual([{ localItemDecisions: {}, mcpScope: 'global' }]);
+    });
+
+    it('with no folder keeps consent enabled, names skipped servers and sends no scope', () => {
+      renderWith(makePlan({ mcpServers: servers }), null);
+      const out = emitted();
+      expect(radio('This workspace')?.disabled).toBe(true);
+      expect(radio('This workspace')?.checked).toBe(false);
+      expect(radio('All workspaces')?.checked).toBe(false);
+      expect(help()).toBe(
+        'No folder is open, so Ptah skips these servers: binlog, tracer. The plugin files still install. Choose All workspaces to add the servers for every workspace.',
+      );
+      expect(confirmButton()?.disabled).toBe(false);
+      confirmButton()?.click();
+      expect(out).toEqual([{ localItemDecisions: {} }]);
+    });
+
+    it('with no folder sends global after the explicit All workspaces choice', () => {
+      renderWith(makePlan({ mcpServers: servers }), null);
+      const out = emitted();
+      radio('All workspaces')?.click();
+      fixture.detectChanges();
+      expect(help()).not.toContain('skips');
+      confirmButton()?.click();
+      expect(out).toEqual([{ localItemDecisions: {}, mcpScope: 'global' }]);
+    });
+
+    it('disables the scope radios while the install runs', () => {
+      renderWith(makePlan({ mcpServers: servers }), 'my-app');
+      fixture.componentRef.setInput('busy', true);
+      fixture.detectChanges();
+      expect(field()?.querySelector('fieldset')?.hasAttribute('disabled')).toBe(
+        true,
+      );
     });
   });
 });
