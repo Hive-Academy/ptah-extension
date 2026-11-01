@@ -51,6 +51,7 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
   private readonly contexts = new Map<string, RuntimeContext>();
   private readonly generations = new Map<string, number>();
   private readonly rules = new CodexPermissionRuleStore();
+  private readonly historyReads = new Map<AbortController, Promise<void>>();
   private closed = false;
 
   constructor(private readonly options: CodexRuntimeOptions) {}
@@ -58,6 +59,28 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
   async readHistory(
     profile: CodexExecutionProfile,
     resume: CodexThreadIdentity,
+    signal?: AbortSignal,
+  ): Promise<CodexSessionHistory> {
+    if (this.closed) throw new Error('Codex runtime is closed');
+    if (signal?.aborted) throw new Error('Codex history read aborted');
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) controller.abort();
+    const read = this.readHistoryProcess(profile, resume, controller.signal);
+    this.historyReads.set(controller, read.then(() => undefined, () => undefined));
+    try {
+      return await read;
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+      this.historyReads.delete(controller);
+    }
+  }
+
+  private async readHistoryProcess(
+    profile: CodexExecutionProfile,
+    resume: CodexThreadIdentity,
+    signal: AbortSignal,
   ): Promise<CodexSessionHistory> {
     if (profile.normalizedHome !== resume.normalizedHome)
       throw new CodexSessionHistoryError('homeMismatch');
@@ -73,13 +96,13 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
       this.options.logger,
     );
     try {
-      await process.start();
+      await process.start(signal);
       if (process.verifiedCodexHome !== profile.normalizedHome)
         throw new CodexHomeMismatchError();
       return await readCodexSessionHistory(
         resume.threadId,
         (method, params) => process.request(method, params),
-        () => { if (this.closed) throw new Error('Codex runtime is closed'); },
+        () => { if (this.closed || signal.aborted) throw new Error('Codex history read aborted'); },
       );
     } catch (error) {
       throw CodexSessionHistoryError.from(error);
@@ -200,8 +223,12 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
 
   async close(): Promise<void> {
     this.closed = true;
+    for (const controller of this.historyReads.keys()) controller.abort();
     await Promise.all(
-      [...this.contexts.values()].map((context) => context.close()),
+      [
+        ...[...this.contexts.values()].map((context) => context.close()),
+        ...this.historyReads.values(),
+      ],
     );
     this.rules.dispose();
   }

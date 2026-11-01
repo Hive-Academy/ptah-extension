@@ -295,6 +295,7 @@ export interface CodexHistoryReader {
   readHistory(
     profile: CodexExecutionProfile,
     resume: CodexThreadIdentity,
+    signal?: AbortSignal,
   ): Promise<CodexSessionHistory>;
 }
 export interface CodexSessionHistory {

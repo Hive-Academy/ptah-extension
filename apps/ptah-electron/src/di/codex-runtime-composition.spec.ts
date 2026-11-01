@@ -1,11 +1,11 @@
 import 'reflect-metadata';
 import { createHash } from 'node:crypto';
-import type { IAgentAdapter, SessionId } from '@ptah-extension/shared';
+import { SessionId, type IAgentAdapter } from '@ptah-extension/shared';
 import {
   createCodexChatHostPorts,
   type CodexChatHostPorts,
 } from '@ptah-extension/rpc-handlers';
-import type { ElectronCodexBindingInput } from './codex-binding.types';
+import type { ElectronCodexBindingInput, ElectronCodexPreparedSession } from './codex-binding.types';
 import {
   createElectronCodexSessionState,
   createElectronCodexSessionLifecycle,
@@ -16,7 +16,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
 import {
-  mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync,
+  mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,8 +27,14 @@ import {
   CodexParityGate,
   findCodexExecutablePin,
   buildCodexExecutionProfile,
+  normalizeCodexHomeKey,
+  normalizeCodexWorkspaceKey,
+  CodexSessionHistoryError,
+  type CodexSessionHistory,
   resolveGatedCodexRuntime,
   type CodexRuntime,
+  type CodexExecutionProfile,
+  type CodexThreadIdentity,
 } from '@ptah-extension/codex-runtime';
 import {
   CodexChatAdapter,
@@ -37,6 +43,7 @@ import {
   SessionTurnStateRegistry,
   wireAgentAdapterAliases,
   type CodexChatAdapterPorts,
+  type SessionMetadata,
   type PermissionPromptLifecycleEvent,
   resolveCodexNativeBinaryPath,
 } from '@ptah-extension/agent-sdk';
@@ -47,7 +54,10 @@ import {
   resolveElectronCodexBundledRoot,
   createElectronCodexRouting,
   createElectronCodexScopeFactory,
+  createElectronCodexHistoryPort,
+  ElectronCodexHistoryError,
   type ElectronCodexScopeInput,
+  type ElectronCodexHistoryDeps,
 } from './codex-runtime-composition';
 import { resolveElectronCodexLaneRuntime } from './codex-lane-composition';
 import { isElectronCodexConsumerAdmitted } from './codex-electron-admission';
@@ -79,6 +89,268 @@ jest.mock('@ptah-extension/rpc-handlers', () => {
     ...actual,
     createCodexChatHostPorts: jest.fn(actual.createCodexChatHostPorts),
   };
+});
+
+function historyFixture() {
+  const home = join(temporaryRoot, 'saved-home');
+  const workspace = join(temporaryRoot, 'workspace');
+  mkdirSync(home);
+  mkdirSync(workspace);
+  const mcpConfig = '[mcp_servers.ptah]\nurl = "http://127.0.0.1:7700/mcp"\n';
+  writeFileSync(join(home, 'config.toml'), mcpConfig);
+  const sessionId = SessionId.create();
+  const row: SessionMetadata = {
+    sessionId,
+    name: 'Saved native chat',
+    workspaceId: workspace,
+    providerId: 'openai-codex',
+    createdAt: 1,
+    lastActiveAt: 1,
+    totalCost: 0,
+    totalTokens: { input: 0, output: 0 },
+    codexExecution: {
+      version: 1,
+      runtime: 'codex-app-server',
+      sessionId,
+      providerId: 'openai-codex',
+      workspaceId: normalizeCodexWorkspaceKey(workspace, process.platform),
+      codex: { normalizedHome: normalizeCodexHomeKey(home, process.platform) },
+    },
+  };
+  const snapshot: CodexSessionHistory = { rootThreadId: sessionId, threads: [] };
+  const readHistory = jest.fn(async (
+    _profile: CodexExecutionProfile,
+    _resume: CodexThreadIdentity,
+    _signal?: AbortSignal,
+  ): Promise<CodexSessionHistory> => snapshot);
+  const runtime = {
+    open: jest.fn(async () => { throw new Error('History must not resume a thread'); }),
+    readHistory,
+  };
+  const scopes: Array<{ container: ReturnType<typeof container.createChildContainer>; dispose: jest.Mock }> = [];
+  const verifyBinary = jest.fn(async () => undefined);
+  const logger = { error: jest.fn() };
+  const liveProfiles = new Map<SessionId, ElectronCodexPreparedSession>();
+  const deps: ElectronCodexHistoryDeps = {
+    currentHome: () => home,
+    verifyBinary,
+    createScope: () => {
+      const child = container.createChildContainer();
+      const dispose = jest.fn(async () => child.dispose());
+      scopes.push({ container: child, dispose });
+      return { container: child, dispose };
+    },
+    resolveRuntime: () => runtime,
+    liveProfiles,
+    timeoutMs: 25,
+    logger,
+  };
+  return { home, workspace, row, snapshot, runtime, readHistory, scopes, verifyBinary, logger, deps, mcpConfig };
+}
+
+describe('Electron native history binding', () => {
+  it('reads after live scope loss with the saved home and unchanged MCP configuration', async () => {
+    const h = historyFixture();
+    const port = createElectronCodexHistoryPort(h.deps);
+    expect(await port.readHistory(h.row)).toBe(h.snapshot);
+    expect(h.scopes).toHaveLength(1);
+    expect(h.scopes[0]?.dispose).toHaveBeenCalledTimes(1);
+    const firstCall = h.readHistory.mock.calls[0];
+    if (!firstCall) throw new Error('History reader was not called');
+    const [profile, resume] = firstCall;
+    expect(profile.normalizedHome).toBe(h.row.codexExecution?.codex.normalizedHome);
+    expect(profile.cwd).toBe(realpathSync(h.workspace));
+    expect(resume.threadId).toBe(h.row.sessionId);
+    expect(readFileSync(join(h.home, 'config.toml'), 'utf8')).toBe(h.mcpConfig);
+    expect(h.runtime.open).not.toHaveBeenCalled();
+  });
+
+  it('keeps the matching live session MCP references in the read profile', async () => {
+    const h = historyFixture();
+    const profile = buildCodexExecutionProfile({
+      session: {
+        contextId: 'live-chat', consumer: 'chat', providerId: 'openai-codex',
+        workspaceId: h.workspace, cwd: h.workspace, model: 'gpt', permissionLevel: 'ask',
+        normalizedHome: h.home,
+        mcpServers: [{
+          name: 'ptah', transport: 'http', url: 'http://127.0.0.1:7700/mcp',
+          urlReference: 'ptah-url', headerReferences: { Authorization: 'ptah-auth' },
+          authReference: 'ptah-auth', toolTimeoutSec: 15,
+        }, {
+          name: 'local', transport: 'stdio', command: 'local-mcp', args: ['--safe'],
+          envReferences: { TOKEN: 'local-token' }, toolTimeoutSec: 20,
+        }],
+      },
+      paths: {
+        platform: process.platform === 'win32' ? 'win32' : 'posix',
+        baseDirectory: h.workspace,
+        entries: {
+          [h.workspace]: { kind: 'directory', realpath: realpathSync(h.workspace) },
+          [h.home]: { kind: 'directory', realpath: realpathSync(h.home) },
+        },
+      },
+    });
+    if (!h.row.codexExecution) throw new Error('Missing fixture execution');
+    h.deps.liveProfiles.set(h.row.codexExecution.sessionId, { profile });
+    await createElectronCodexHistoryPort(h.deps).readHistory(h.row);
+    expect(h.readHistory.mock.calls[0]?.[0].mcpServers).toEqual(profile.mcpServers);
+    expect(h.scopes[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not copy a live profile from another Codex home', async () => {
+    const h = historyFixture();
+    const otherHome = join(temporaryRoot, 'live-other-home');
+    mkdirSync(otherHome);
+    const live = buildCodexExecutionProfile({
+      session: {
+        contextId: 'other', consumer: 'chat', providerId: 'openai-codex',
+        workspaceId: h.workspace, cwd: h.workspace, model: 'gpt', permissionLevel: 'ask',
+        normalizedHome: otherHome,
+        mcpServers: [{ name: 'other', transport: 'http', url: 'http://127.0.0.1:7701/mcp', headerReferences: {} }],
+      },
+      paths: {
+        platform: process.platform === 'win32' ? 'win32' : 'posix',
+        baseDirectory: h.workspace,
+        entries: {
+          [h.workspace]: { kind: 'directory', realpath: realpathSync(h.workspace) },
+          [otherHome]: { kind: 'directory', realpath: realpathSync(otherHome) },
+        },
+      },
+    });
+    if (!h.row.codexExecution) throw new Error('Missing fixture execution');
+    h.deps.liveProfiles.set(h.row.codexExecution.sessionId, { profile: live });
+    await createElectronCodexHistoryPort(h.deps).readHistory(h.row);
+    expect(h.readHistory.mock.calls[0]?.[0].mcpServers).toEqual([]);
+  });
+
+  it('rejects a changed home before binary verification or scope allocation', async () => {
+    const h = historyFixture();
+    const other = join(temporaryRoot, 'other-home');
+    mkdirSync(other);
+    const port = createElectronCodexHistoryPort({ ...h.deps, currentHome: () => other });
+    await expect(port.readHistory(h.row)).rejects.toMatchObject({ code: 'homeMismatch' });
+    expect(h.verifyBinary).not.toHaveBeenCalled();
+    expect(h.scopes).toHaveLength(0);
+  });
+
+  it('reports binary failure without allocating a scope', async () => {
+    const h = historyFixture();
+    const port = createElectronCodexHistoryPort({
+      ...h.deps,
+      verifyBinary: async () => { throw new Error('sensitive executable path'); },
+    });
+    await expect(port.readHistory(h.row)).rejects.toEqual(
+      new ElectronCodexHistoryError('binaryUnavailable'),
+    );
+    expect(h.scopes).toHaveLength(0);
+  });
+
+  it('maps a missing rollout to a fixed user-safe error and disposes', async () => {
+    const h = historyFixture();
+    h.readHistory.mockRejectedValueOnce(new CodexSessionHistoryError('threadNotFound'));
+    await expect(createElectronCodexHistoryPort(h.deps).readHistory(h.row))
+      .rejects.toEqual(new ElectronCodexHistoryError('threadNotFound'));
+    expect(h.scopes[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('disposes on timeout and abort', async () => {
+    const h = historyFixture();
+    h.readHistory.mockImplementation(async () => new Promise<CodexSessionHistory>(() => undefined));
+    const port = createElectronCodexHistoryPort({ ...h.deps, timeoutMs: 5 });
+    await expect(port.readHistory(h.row)).rejects.toMatchObject({ code: 'timeout' });
+    const controller = new AbortController();
+    const abortPort = createElectronCodexHistoryPort({ ...h.deps, timeoutMs: 1000 });
+    const pending = abortPort.readHistory(h.row, controller.signal);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ code: 'cancelled' });
+    expect(h.readHistory.mock.calls[0]?.[2]?.aborted).toBe(true);
+    expect(h.readHistory.mock.calls[1]?.[2]?.aborted).toBe(true);
+    expect(h.scopes).toHaveLength(2);
+    expect(h.scopes.every((scope) => scope.dispose.mock.calls.length === 1)).toBe(true);
+  });
+
+  it('preserves success and timeout when scope disposal fails', async () => {
+    const h = historyFixture();
+    const dispose = jest.fn(async () => { throw new Error('dispose failed'); });
+    const createScope: ElectronCodexHistoryDeps['createScope'] = () => {
+      const child = container.createChildContainer();
+      return {
+        container: child,
+        dispose: async () => {
+          await child.dispose();
+          await dispose();
+        },
+      };
+    };
+    const port = createElectronCodexHistoryPort({ ...h.deps, createScope });
+    expect(await port.readHistory(h.row)).toBe(h.snapshot);
+    h.readHistory.mockImplementation(async () => new Promise<CodexSessionHistory>(() => undefined));
+    await expect(port.readHistory(h.row)).rejects.toMatchObject({ code: 'timeout' });
+    expect(dispose).toHaveBeenCalledTimes(2);
+    expect(h.logger.error).toHaveBeenCalledTimes(2);
+  });
+
+  it('maps scope creation failure and rejects a pre-aborted signal before setup', async () => {
+    const h = historyFixture();
+    const port = createElectronCodexHistoryPort({
+      ...h.deps,
+      createScope: () => { throw new Error('scope failed'); },
+    });
+    await expect(port.readHistory(h.row)).rejects.toMatchObject({ code: 'runtimeFailed' });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(port.readHistory(h.row, controller.signal)).rejects.toMatchObject({ code: 'cancelled' });
+    expect(h.scopes).toHaveLength(0);
+    expect(h.readHistory).not.toHaveBeenCalled();
+  });
+
+  it('disposes a scope whose runtime has no history reader', async () => {
+    const h = historyFixture();
+    const port = createElectronCodexHistoryPort({
+      ...h.deps,
+      resolveRuntime: () => ({ open: h.runtime.open }),
+    });
+    await expect(port.readHistory(h.row)).rejects.toMatchObject({ code: 'runtimeFailed' });
+    expect(h.scopes[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('limits simultaneous history processes to two', async () => {
+    const h = historyFixture();
+    const controllers: Array<(snapshot: CodexSessionHistory) => void> = [];
+    h.readHistory.mockImplementation(() => new Promise<CodexSessionHistory>((resolve) => controllers.push(resolve)));
+    const port = createElectronCodexHistoryPort(h.deps);
+    const first = port.readHistory(h.row);
+    const second = port.readHistory(h.row);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await expect(port.readHistory(h.row)).rejects.toMatchObject({ code: 'busy' });
+    expect(h.scopes).toHaveLength(2);
+    for (const resolve of controllers) resolve(h.snapshot);
+    await expect(Promise.all([first, second])).resolves.toEqual([h.snapshot, h.snapshot]);
+  });
+
+  it('gives simultaneous sessions distinct scopes and thread identities', async () => {
+    const h = historyFixture();
+    const secondId = SessionId.create();
+    if (!h.row.codexExecution) throw new Error('Missing fixture execution');
+    const second: SessionMetadata = {
+      ...h.row,
+      sessionId: secondId,
+      codexExecution: { ...h.row.codexExecution, sessionId: secondId },
+    };
+    const port = createElectronCodexHistoryPort(h.deps);
+    const [firstResult, secondResult] = await Promise.all([
+      port.readHistory(h.row), port.readHistory(second),
+    ]);
+    expect(firstResult).toBe(h.snapshot);
+    expect(secondResult).toBe(h.snapshot);
+    expect(h.scopes).toHaveLength(2);
+    expect(h.scopes[0]?.container).not.toBe(h.scopes[1]?.container);
+    expect(h.readHistory.mock.calls.map(([, resume]) => resume.threadId)).toEqual([
+      h.row.sessionId, secondId,
+    ]);
+    expect(h.scopes.every((scope) => scope.dispose.mock.calls.length === 1)).toBe(true);
+  });
 });
 
 let temporaryRoot: string;
@@ -763,7 +1035,8 @@ describe('Electron complete Codex binding', () => {
 describe('Electron Codex binding failure', () => {
   it('retains default ports and disposes the identity lookup if a dependency fails', async () => {
     const { parent, unsubscribe, scopeResolver, settingsStore } = bindingFixture();
-    const defaults = new Map(ELECTRON_CODEX_BOUND_TOKENS.map((token) => [token, parent.resolve(token)]));
+    const defaults = new Map(ELECTRON_CODEX_BOUND_TOKENS
+      .map((token) => [token, parent.resolve(token)]));
     parent.register(PLATFORM_TOKENS.PLATFORM_INFO, {
       useFactory: () => { throw new Error('platform unavailable'); },
     });
@@ -850,7 +1123,7 @@ describe('Electron Codex session lifecycle composition', () => {
   it('records opening and closing before Electron effects without mutating record hooks', async () => {
     const parent = container.createChildContainer();
     const state = createElectronCodexSessionState(parent);
-    const id = 'session-1' as SessionId;
+    const id = SessionId.from('11111111-1111-4111-8111-111111111111');
     const prepared = {
       profile: buildCodexExecutionProfile({
         session: {

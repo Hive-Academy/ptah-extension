@@ -142,6 +142,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
   steerResultTurnId?: string;
   modelPages: unknown[] = [{ data: [catalogModel] }];
   historyThread?: Record<string, unknown>;
+  reportedCodexHome = '/home/codex';
   completeBeforeReply = false;
   turnNumber = 0;
   readonly fixtureErrors: string[] = [];
@@ -229,7 +230,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
         break;
       case 'initialize':
         result = {
-          codexHome: '/home/codex',
+          codexHome: this.reportedCodexHome,
           platformFamily: 'unix',
           platformOs: 'linux',
           userAgent: 'test',
@@ -415,6 +416,68 @@ describe('CodexRuntime', () => {
     const snapshot = await runtime.readHistory(profile, identity);
     expect(snapshot.rootThreadId).toBe(identity.threadId);
     expect(children[1].killed || children[1].exitCode !== null).toBe(true);
+  });
+
+  it('aborts and closes an in-flight history process when its signal fires', async () => {
+    const identity: CodexThreadIdentity = {
+      threadId: 'saved-thread', contextId: profile.contextId,
+      processGeneration: 1, normalizedHome: profile.normalizedHome,
+      providerId: profile.providerId, workspaceId: profile.workspaceId,
+      profileFingerprint: profile.profileFingerprint,
+    };
+    jest.mocked(options.spawner.spawnProcess).mockImplementation(() => {
+      const child = new FakeChild(identity.threadId);
+      child.holdMethod = 'thread/read';
+      children.push(child);
+      return child;
+    });
+    const controller = new AbortController();
+    const pending = runtime.readHistory(profile, identity, controller.signal);
+    await flush();
+    controller.abort();
+    await expect(pending).rejects.toBeDefined();
+    expect(children[0].killed || children[0].exitCode !== null).toBe(true);
+  });
+
+  it('aborts in-flight history reads when the runtime closes', async () => {
+    const identity: CodexThreadIdentity = {
+      threadId: 'saved-thread', contextId: profile.contextId,
+      processGeneration: 1, normalizedHome: profile.normalizedHome,
+      providerId: profile.providerId, workspaceId: profile.workspaceId,
+      profileFingerprint: profile.profileFingerprint,
+    };
+    jest.mocked(options.spawner.spawnProcess).mockImplementation(() => {
+      const child = new FakeChild(identity.threadId);
+      child.holdMethod = 'thread/read';
+      children.push(child);
+      return child;
+    });
+    const pending = runtime.readHistory(profile, identity);
+    const rejection = expect(pending).rejects.toBeDefined();
+    await flush();
+    await runtime.close();
+    await rejection;
+    expect(children[0].killed || children[0].exitCode !== null).toBe(true);
+    await expect(runtime.readHistory(profile, identity)).rejects.toBeDefined();
+    expect(children).toHaveLength(1);
+  });
+
+  it('rejects a history process whose verified Codex home differs', async () => {
+    const identity: CodexThreadIdentity = {
+      threadId: 'saved-thread', contextId: profile.contextId,
+      processGeneration: 1, normalizedHome: profile.normalizedHome,
+      providerId: profile.providerId, workspaceId: profile.workspaceId,
+      profileFingerprint: profile.profileFingerprint,
+    };
+    jest.mocked(options.spawner.spawnProcess).mockImplementation(() => {
+      const child = new FakeChild(identity.threadId);
+      child.reportedCodexHome = '/another-home';
+      children.push(child);
+      return child;
+    });
+    await expect(runtime.readHistory(profile, identity))
+      .rejects.toMatchObject({ code: 'homeMismatch' });
+    expect(children[0].frames.map((frame) => frame['method'])).not.toContain('thread/read');
   });
 
   it('reports an unavailable binary as a typed process failure', async () => {

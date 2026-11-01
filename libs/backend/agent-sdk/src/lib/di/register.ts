@@ -316,7 +316,7 @@ export function registerSdkServices(
         c.resolve<SessionHistoryReaderService>(SDK_TOKENS.SDK_SESSION_HISTORY_READER),
         () =>
           c.isRegistered(SDK_TOKENS.NATIVE_SESSION_HISTORY_PORT, true)
-            ? c.resolve<NativeSessionHistoryPort>(SDK_TOKENS.NATIVE_SESSION_HISTORY_PORT)
+            ? c.resolve<NativeSessionHistoryPort | null>(SDK_TOKENS.NATIVE_SESSION_HISTORY_PORT)
             : undefined,
       ),
     ),
@@ -1026,6 +1026,7 @@ export function registerCodexChatServices(
     SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
     SDK_TOKENS.LEGACY_SESSION_CONTROL_PORTS,
     SDK_TOKENS.NATIVE_SESSION_CONTROLS,
+    SDK_TOKENS.NATIVE_SESSION_HISTORY_PORT,
     SDK_TOKENS.RUNTIME_ADMISSION_PORT,
   ]) {
     if (!container.isRegistered(token, true))

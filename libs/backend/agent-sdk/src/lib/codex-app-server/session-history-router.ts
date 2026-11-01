@@ -38,7 +38,7 @@ export class SessionHistoryRouter {
       SessionHistoryReaderService,
       'readSessionHistory' | 'readSessionEvents'
     >,
-    private readonly getNative: () => NativeSessionHistoryPort | undefined,
+    private readonly getNative: () => NativeSessionHistoryPort | null | undefined,
   ) {}
 
   async readSessionHistory(

@@ -92,7 +92,7 @@ const snapshot: CodexSessionHistory = {
 
 function fixture(
   session: SessionMetadata | null,
-  getNative: () => NativeSessionHistoryPort | undefined = () => undefined,
+  getNative: () => NativeSessionHistoryPort | null | undefined = () => undefined,
 ) {
   const metadata = { get: jest.fn(async () => session) };
   const legacy = {
@@ -168,6 +168,16 @@ describe('SessionHistoryRouter', () => {
       .rejects.toMatchObject({ name: 'SessionHistoryRouteError', code: 'nativePortUnavailable' });
     await expect(router.readSessionEvents(sessionId, workspacePath))
       .rejects.toBeInstanceOf(SessionHistoryRouteError);
+    expect(legacy.readSessionHistory).not.toHaveBeenCalled();
+    expect(legacy.readSessionEvents).not.toHaveBeenCalled();
+  });
+
+  it('treats a null-registered native port as unavailable', async () => {
+    const { router, legacy } = fixture(nativeSession, () => null);
+    await expect(router.readSessionHistory(sessionId, workspacePath))
+      .rejects.toMatchObject({ code: 'nativePortUnavailable' });
+    await expect(router.readSessionEvents(sessionId, workspacePath))
+      .rejects.toMatchObject({ code: 'nativePortUnavailable' });
     expect(legacy.readSessionHistory).not.toHaveBeenCalled();
     expect(legacy.readSessionEvents).not.toHaveBeenCalled();
   });

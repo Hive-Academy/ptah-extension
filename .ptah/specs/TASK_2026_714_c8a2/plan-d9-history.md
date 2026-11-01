@@ -40,3 +40,7 @@ Paths below are relative to the worktree. Each row owns at most six files; no fi
   receiver's `parentThreadId`. Revisit in 12c-2 or the release gate.
 
 Release gate: inspect an authorized pinned-binary `thread/read` response (including paginated and child-thread cases), then run a packaged Electron reload of a native session and compare its rendered event tree with the same UI contract used by Claude. If AS7-2 or child discovery fails, keep D9 open and Removal A blocked; report the exact missing App Server detail. VS Code/CLI/TUI continue compiling with the Claude path and an explicit unavailable-native error. No frontend source changes are planned.
+
+- M1 release gate: distinguish a missing child `thread/read` from a missing root thread in the history reader.
+- M2 release gate: replace key-order-sensitive serialized JSON comparison for embedded versus paged items with structural equality.
+- M4 release gate: index parent-to-child links for closure and assess full corpus listing cost on large histories.
