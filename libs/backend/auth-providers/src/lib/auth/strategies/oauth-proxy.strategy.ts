@@ -3,7 +3,7 @@
  *
  * Handles authentication for OAuth-based providers that require a translation proxy:
  * - GitHub Copilot (VS Code GitHub OAuth + Copilot translation proxy)
- * - OpenAI Codex (file-based auth from ~/.codex/auth.json + Codex translation proxy)
+ * - OpenAI Codex (native runtime only; legacy OAuth proxy requests fail)
  * - Kimi Code (Kimi Code CLI login from ~/.kimi-code, stored API key as a
  *   fallback, Kimi Code Messages relay proxy)
  *
@@ -27,7 +27,6 @@ import type {
 } from '../../providers/copilot/copilot-provider.types';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../../providers/copilot/copilot-provider.types';
 import type { ICodexAuthService } from '../../providers/codex/codex-provider.types';
-import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../../providers/codex/codex-provider.types';
 import type { IKimiCodeAuthService } from '../../providers/kimi-code/kimi-code-provider.types';
 import {
   KIMI_CODE_PROVIDER_ID,
@@ -266,12 +265,12 @@ export class OAuthProxyStrategy implements IAuthStrategy {
 
   /**
    * Configure OpenAI Codex OAuth authentication.
-   * Uses file-based auth from ~/.codex/auth.json and the Codex translation proxy.
+   * Native authentication is owned by the runtime. Legacy requests fail explicitly.
    */
   private async configureCodexOAuth(
     context: AuthConfigureContext,
   ): Promise<AuthConfigureResult> {
-    const { providerId, authEnv, operationContext } = context;
+    const { operationContext } = context;
     if (resolveCodexProxyPolicy(operationContext) === 'native-return') {
       return {
         configured: false,
@@ -280,96 +279,10 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     }
 
     await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
-    this.logger.info(`[${this.name}] Configuring OAuth provider: OpenAI Codex`);
-    // Start watching before the auth check so that if auth currently fails, a
-    // later `codex login` is detected and the adapter re-initializes itself.
-    this.codexAuth.startWatchingAuthFile();
-    const isAuthed = await this.codexAuth.isAuthenticated();
-    if (!isAuthed) {
-      this.logger.warn(
-        `[${this.name}] OpenAI Codex not authenticated. Run \`codex login\` to authenticate.`,
-      );
-      return {
-        configured: false,
-        details: [],
-        errorMessage:
-          'OpenAI Codex is not authenticated. Run `codex login` in your terminal to set up authentication.',
-      };
-    }
-
-    const tokensFresh = await this.codexAuth.ensureTokensFresh();
-    if (!tokensFresh) {
-      this.logger.warn(
-        `[${this.name}] OpenAI Codex token refresh failed. Run \`codex login\` to re-authenticate.`,
-      );
-      return {
-        configured: false,
-        details: [],
-        errorMessage:
-          'OpenAI Codex token has expired. Run `codex login` in your terminal to re-authenticate.',
-      };
-    }
-    let proxyUrl: string;
-    try {
-      if (this.codexProxy.isRunning()) {
-        proxyUrl = this.codexProxy.getUrl() ?? '';
-        if (!proxyUrl) {
-          this.logger.error(
-            `[${this.name}] Proxy reports running but returned no URL`,
-          );
-          return {
-            configured: false,
-            details: [],
-            errorMessage: 'Translation proxy URL unavailable. Try restarting.',
-          };
-        }
-        this.logger.info(
-          `[${this.name}] Codex translation proxy already running at ${proxyUrl}`,
-        );
-      } else {
-        const result = await this.codexProxy.start();
-        proxyUrl = result.url;
-        this.logger.info(
-          `[${this.name}] Codex translation proxy started at ${proxyUrl}`,
-        );
-      }
-    } catch (error) {
-      this.sentryService.captureException(
-        error instanceof Error ? error : new Error(String(error)),
-        {
-          errorSource: 'OAuthProxyStrategy.configureCodexOAuth',
-          activeProvider: providerId,
-        },
-      );
-      this.logger.error(
-        `[${this.name}] Failed to start Codex translation proxy: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return {
-        configured: false,
-        details: [],
-        errorMessage:
-          'Failed to start Codex translation proxy. Check if the port is available.',
-      };
-    }
-    authEnv.ANTHROPIC_BASE_URL = proxyUrl;
-    authEnv.ANTHROPIC_AUTH_TOKEN = CODEX_PROXY_TOKEN_PLACEHOLDER;
-    process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
-    process.env['ANTHROPIC_AUTH_TOKEN'] = CODEX_PROXY_TOKEN_PLACEHOLDER;
-    this.providerModels.switchActiveProvider(providerId);
-    seedStaticModelPricing(providerId);
-
-    this.logger.info(
-      `[${this.name}] Using OpenAI Codex via translation proxy (${proxyUrl})`,
-    );
-    this.logger.info(
-      `[${this.name}] Set ANTHROPIC_BASE_URL=${proxyUrl}, ANTHROPIC_AUTH_TOKEN=<proxy-managed>`,
-    );
-
     return {
-      configured: true,
-      details: [`OpenAI Codex (OAuth via translation proxy at ${proxyUrl})`],
+      configured: false,
+      details: [],
+      errorMessage: 'Codex chat requires a host with the native Codex runtime.',
     };
   }
 

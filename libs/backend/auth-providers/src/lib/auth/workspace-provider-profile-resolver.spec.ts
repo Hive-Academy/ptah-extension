@@ -641,6 +641,27 @@ describe('WorkspaceProviderProfileResolver — cross-workspace isolation', () =>
 });
 
 describe('WorkspaceProviderProfileResolver — no snapshot', () => {
+  it.each([
+    'resolveProviderProfileForWorkspace',
+    'buildProfileForPath',
+  ] as const)('%s rejects Codex before a legacy SDK profile or shared env can be used', async (method) => {
+    const h = createHarness({
+      workspaceSettings: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'openai-codex',
+      },
+      sharedAuth: { authMethod: 'thirdParty', providerId: 'openai-codex' },
+    });
+
+    await expect(h.resolver[method](WORKSPACE, 'default')).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+      providerId: 'openai-codex',
+      message: 'Codex chat requires a host with the native Codex runtime.',
+      recoveryHint: 'Use the Ptah desktop app (Electron) with native Codex enabled.',
+    });
+    expect(h.acquire).not.toHaveBeenCalled();
+  });
+
   it('fails closed when the shared auth env serves a different provider', async () => {
     // Z.AI resolved, but no key is stored: no snapshot can be built.
     const { resolver } = createHarness({
@@ -980,38 +1001,36 @@ describe('resolveExecutionProfile', () => {
 
   it.each([
     {
-      name:
-        'keeps a gateway turn on Claude when only the chat capability is enabled',
+      name: 'rejects a gateway Codex turn with only chat capability',
       consumer: 'gateway' as const,
       hostCapabilities: { nativeCodex: true },
       providerId: 'openai-codex',
-      readsActiveProvider: false,
+      allowedLegacy: false,
     },
     {
-      name:
-        'keeps a chat turn on Claude when only the gateway capability is enabled',
+      name: 'rejects a chat Codex turn with only gateway capability',
       consumer: 'chat' as const,
       hostCapabilities: { nativeCodex: false, nativeCodexGateway: true },
       providerId: 'openai-codex',
-      readsActiveProvider: false,
+      allowedLegacy: false,
     },
     {
-      name: 'keeps a lane turn on Claude when both native capabilities are enabled',
+      name: 'rejects a Codex lane turn without native chat capability',
       consumer: 'lane' as const,
       hostCapabilities: { nativeCodex: true, nativeCodexGateway: true },
       providerId: 'openai-codex',
-      readsActiveProvider: false,
+      allowedLegacy: false,
     },
     {
       name: 'keeps a gateway turn on Claude when the provider is not Codex',
       consumer: 'gateway' as const,
       hostCapabilities: { nativeCodex: true, nativeCodexGateway: true },
       providerId: 'kimi-code',
-      readsActiveProvider: true,
+      allowedLegacy: true,
     },
   ])(
     '$name',
-    async ({ consumer, hostCapabilities, providerId, readsActiveProvider }) => {
+    async ({ consumer, hostCapabilities, providerId, allowedLegacy }) => {
       const h = nativeHarness(providerId);
       const active = jest.spyOn(
         h.activeProviderResolver,
@@ -1020,23 +1039,26 @@ describe('resolveExecutionProfile', () => {
       const legacy = jest
         .spyOn(h.resolver, 'resolveProviderProfileForWorkspace')
         .mockResolvedValue(undefined);
-      await expect(
-        h.resolver.resolveExecutionProfile({
-          ...input,
-          consumer,
-          hostCapabilities,
-        }),
-      ).resolves.toEqual({
-        runtime: 'claude-sdk',
-        model: input.requestedModel,
-        providerProfile: undefined,
+      const profile = h.resolver.resolveExecutionProfile({
+        ...input,
+        consumer,
+        hostCapabilities,
       });
-      expect(legacy).toHaveBeenCalledWith(WORKSPACE, input.requestedModel);
-      if (readsActiveProvider) {
-        expect(active).toHaveBeenCalledWith(WORKSPACE);
+      if (allowedLegacy) {
+        await expect(profile).resolves.toEqual({
+          runtime: 'claude-sdk',
+          model: input.requestedModel,
+          providerProfile: undefined,
+        });
+        expect(legacy).toHaveBeenCalledWith(WORKSPACE, input.requestedModel);
       } else {
-        expect(active).not.toHaveBeenCalled();
+        await expect(profile).rejects.toThrow(
+          'Codex chat requires a host with the native Codex runtime.',
+        );
+        expect(legacy).not.toHaveBeenCalled();
+        expect(h.acquire).not.toHaveBeenCalled();
       }
+      expect(active).toHaveBeenCalledWith(WORKSPACE);
     },
   );
 
@@ -1254,29 +1276,28 @@ describe('resolveExecutionProfile', () => {
       } as SessionRuntimeIdentity,
     },
   ])(
-    'returns the unchanged legacy profile when native selection is disabled',
+    'rejects Codex when native selection is disabled',
     async (overrides) => {
-      const { resolver } = nativeHarness();
-      const profile = await resolver.resolveProviderProfileForWorkspace(
-        WORKSPACE,
-        input.requestedModel,
+      const h = nativeHarness();
+      const legacy = jest.spyOn(
+        h.resolver,
+        'resolveProviderProfileForWorkspace',
       );
-      const legacy = jest
-        .spyOn(resolver, 'resolveProviderProfileForWorkspace')
-        .mockResolvedValue(profile);
       await expect(
-        resolver.resolveExecutionProfile({ ...input, ...overrides }),
-      ).resolves.toEqual({
-        runtime: 'claude-sdk',
-        model: input.requestedModel,
-        providerProfile: profile,
+        h.resolver.resolveExecutionProfile({ ...input, ...overrides }),
+      ).rejects.toMatchObject({
+        name: 'AuthRequiredError',
+        message: 'Codex chat requires a host with the native Codex runtime.',
+        providerId: 'openai-codex',
+        recoveryHint: 'Use the Ptah desktop app (Electron) with native Codex enabled.',
       });
-      expect(legacy).toHaveBeenCalledWith(WORKSPACE, input.requestedModel);
+      expect(legacy).not.toHaveBeenCalled();
+      expect(h.acquire).not.toHaveBeenCalled();
     },
   );
 
   it('checks a stored model only on the Claude branch', async () => {
-    const { resolver } = nativeHarness();
+    const { resolver } = nativeHarness('kimi-code');
     const stored = jest
       .spyOn(resolver, 'resolveStoredModel')
       .mockReturnValue('default');
@@ -1298,8 +1319,10 @@ describe('resolveExecutionProfile', () => {
     expect(legacy).toHaveBeenCalledWith(WORKSPACE, 'default');
 
     stored.mockClear();
+    const native = nativeHarness();
+    const nativeStored = jest.spyOn(native.resolver, 'resolveStoredModel');
     await expect(
-      resolver.resolveExecutionProfile({
+      native.resolver.resolveExecutionProfile({
         ...input,
         requestedModelIsStored: true,
       }),
@@ -1307,7 +1330,7 @@ describe('resolveExecutionProfile', () => {
       runtime: 'codex-app-server',
       seed: { model: input.requestedModel },
     });
-    expect(stored).not.toHaveBeenCalled();
+    expect(nativeStored).not.toHaveBeenCalled();
   });
 
   it('keeps other providers on the legacy path and preserves its refusal', async () => {

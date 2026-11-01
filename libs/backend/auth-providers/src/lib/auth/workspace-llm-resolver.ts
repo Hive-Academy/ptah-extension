@@ -22,11 +22,12 @@ import {
   SETTINGS_TOKENS,
   type WorkspaceScopeResolver,
 } from '@ptah-extension/settings-core';
-import type {
-  IWorkspaceLlmResolver,
-  OneShotAuthOverride,
-  WorkspaceLlmResolveOptions,
-  WorkspaceLlmSnapshot,
+import {
+  AuthRequiredError,
+  type IWorkspaceLlmResolver,
+  type OneShotAuthOverride,
+  type WorkspaceLlmResolveOptions,
+  type WorkspaceLlmSnapshot,
 } from '@ptah-extension/agent-sdk';
 import type { ProviderProfile } from '@ptah-extension/shared';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
@@ -92,6 +93,14 @@ export class WorkspaceLlmResolver implements IWorkspaceLlmResolver {
         requestedModel ?? savedModel,
       );
     } catch (error: unknown) {
+      // Codex has no Claude-SDK route any more: fail explicitly instead of
+      // letting the one-shot ride another provider's process-wide auth.
+      if (
+        error instanceof AuthRequiredError &&
+        error.providerId === 'openai-codex'
+      ) {
+        throw error;
+      }
       // degradation-audit: optional-capability - the builder already returns
       // `undefined` on its own failures; a throw degrades the same way.
       this.logger.warn(

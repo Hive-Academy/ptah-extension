@@ -7,6 +7,7 @@ import {
   WorkspaceScopeResolver,
   type ISettingsStore,
 } from '@ptah-extension/settings-core';
+import { AuthRequiredError } from '@ptah-extension/agent-sdk';
 import type { ProviderProfile } from '@ptah-extension/shared';
 import { ActiveProviderResolver } from './active-provider-resolver';
 import { WorkspaceLlmResolver } from './workspace-llm-resolver';
@@ -241,6 +242,35 @@ describe('WorkspaceLlmResolver', () => {
     const snapshot = await resolver.resolveForPath(WS_B);
 
     expect(snapshot.model).toBe('or-model');
+    expect(snapshot.auth).toBeUndefined();
+  });
+
+  it('fails explicitly for a Codex workspace instead of riding the process-wide auth', async () => {
+    const codexError = new AuthRequiredError(
+      'Codex chat requires a host with the native Codex runtime.',
+      { providerId: 'openai-codex' },
+    );
+    const { resolver } = await harness({
+      global: GLOBAL,
+      profile: () => {
+        throw codexError;
+      },
+    });
+
+    await expect(resolver.resolveForPath(WS_B)).rejects.toBe(codexError);
+  });
+
+  it('still degrades to the process-wide auth when a non-Codex snapshot build throws', async () => {
+    const { resolver } = await harness({
+      global: GLOBAL,
+      profile: () => {
+        throw new Error('snapshot failed');
+      },
+    });
+
+    const snapshot = await resolver.resolveForPath(WS_B);
+
+    expect(snapshot.providerId).toBe('openrouter');
     expect(snapshot.auth).toBeUndefined();
   });
 });
