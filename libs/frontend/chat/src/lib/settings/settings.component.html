@@ -227,6 +227,32 @@
       } @placeholder {
         <div class="min-h-24" aria-busy="true"></div>
       }
+      <section
+        class="settings-plate mt-3 rounded-xl border border-base-300 bg-base-200 p-4"
+        aria-label="Setup"
+      >
+        <h2 class="mb-2 text-base font-semibold">Setup</h2>
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="btn btn-sm btn-outline"
+            data-testid="settings-run-onboarding-again"
+            (click)="runOnboardingAgain()"
+          >
+            Run onboarding again
+          </button>
+          @if (isElectron) {
+            <button
+              type="button"
+              class="btn btn-sm btn-outline"
+              data-testid="settings-check-claude-code"
+              (click)="checkClaudeCode()"
+            >
+              Check Claude Code
+            </button>
+          }
+        </div>
+      </section>
     }
 
     <!-- ============================================ -->

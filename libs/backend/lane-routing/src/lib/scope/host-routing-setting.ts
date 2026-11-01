@@ -12,12 +12,10 @@ import {
 const HOST_ROUTING_SECTION = 'ptah';
 const HOST_ROUTING_KEY = 'agentOrchestration.hostRouting';
 
-export interface HostRoutingSettingChange {
-  readonly switchChanged: boolean;
-}
-
 /** Live effective-enable rule shared by the coordinator and reuse cache. */
 export class HostRoutingSetting {
+  private eventGeneration = 0;
+
   constructor(
     private readonly workspace: IWorkspaceProvider,
     private readonly config: DecisionModelConfig,
@@ -36,25 +34,30 @@ export class HostRoutingSetting {
     }
   }
 
+  getConfigurationGeneration(): number {
+    // Every host provider implements the write-time generation. A provider without it
+    // falls back to a count of observed change events.
+    return (
+      this.workspace.getRoutingConfigurationGeneration?.() ??
+      this.eventGeneration
+    );
+  }
+
   /**
-   * Fires after a configuration write that can change `isEnabled()`: the
-   * host-routing switch (`switchChanged: true`) or the decision model
-   * selection (`switchChanged: false`).
+   * Fires after a host-routing switch or decision-model write.
    */
-  onDidChange(
-    listener: (change: HostRoutingSettingChange) => void,
-  ): IDisposable {
+  onDidChange(listener: () => void): IDisposable {
     return this.workspace.onDidChangeConfiguration((event) => {
-      const switchChanged = event.affectsConfiguration(
-        `${HOST_ROUTING_SECTION}.${HOST_ROUTING_KEY}`,
-      );
       if (
-        switchChanged ||
+        event.affectsConfiguration(
+          `${HOST_ROUTING_SECTION}.${HOST_ROUTING_KEY}`,
+        ) ||
         event.affectsConfiguration(
           `${DECISION_MODEL_CONFIG_SECTION}.${DECISION_MODEL_CONFIG_KEY}`,
         )
       ) {
-        listener({ switchChanged });
+        this.eventGeneration += 1;
+        listener();
       }
     });
   }

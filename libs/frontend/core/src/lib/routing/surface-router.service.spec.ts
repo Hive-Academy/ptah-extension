@@ -474,9 +474,8 @@ describe('SurfaceRouterService', () => {
     const service = createService();
     await service.navigateToSurface('settings');
 
-    // 'orchestra-canvas' is a legal `ViewType` with no route. Callers are
-    // expected to normalise it first; if one does not, landing on chat is
-    // better than staying on settings while `currentView()` claims otherwise.
+    // 'orchestra-canvas' is a legal `ViewType` with no route. Its alias
+    // resolves to chat, but the fallback still warns.
     await expect(service.navigateToSurface('orchestra-canvas')).resolves.toBe(
       'navigated',
     );
@@ -486,6 +485,21 @@ describe('SurfaceRouterService', () => {
   });
 
   describe('result semantics (F3)', () => {
+    it.each(['setup-hub', 'setup-wizard', 'harness-builder'] as const)(
+      'normalises legacy surface %s and drops its old child address',
+      async (legacy) => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation();
+        const service = createService();
+        await expect(
+          service.navigateToSurface(legacy, ['old'], {
+            queryParams: { tab: 'old-tab' },
+          }),
+        ).resolves.toBe('navigated');
+        expect(TestBed.inject(Router).url).toBe('/onboarding');
+        expect(warn).not.toHaveBeenCalled();
+      },
+    );
+
     it('reports a repeat navigation as already-there, NOT as a failure', async () => {
       // Angular's default `onSameUrlNavigation: 'ignore'` resolves `false` for
       // this. Forwarding that boolean made `HarnessWorkflowMessageHandler`
@@ -499,7 +513,7 @@ describe('SurfaceRouterService', () => {
         'already-there',
       );
 
-      expect(service.currentSurface()).toBe('harness-builder');
+      expect(service.currentSurface()).toBe('onboarding');
     });
 
     it('counts already-there as landed', () => {
@@ -557,7 +571,90 @@ describe('SurfaceRouterService', () => {
     });
   });
 
+  describe('queryParams (TASK_2026_ONBOARDING B1)', () => {
+    function createServiceWithOnboardingChildren(): SurfaceRouterService {
+      const service = createService();
+      TestBed.inject(Router).resetConfig(
+        surfaceTestRoutes().map((route) =>
+          route.path === 'onboarding'
+            ? { path: 'onboarding', children: [{ path: '**', children: [] }] }
+            : route,
+        ),
+      );
+      return service;
+    }
+
+    it('serialises the query onto the target URL', async () => {
+      const service = createServiceWithOnboardingChildren();
+
+      await expect(
+        service.navigateToSurface('onboarding', ['analyze', 'generate'], {
+          queryParams: { tab: 'tab-1', run: 'run-7' },
+        }),
+      ).resolves.toBe('navigated');
+
+      expect(TestBed.inject(Router).url).toBe(
+        '/onboarding/analyze/generate?tab=tab-1&run=run-7',
+      );
+      expect(service.currentSurface()).toBe('onboarding');
+    });
+
+    it('reports already-there when path and query are identical', async () => {
+      const service = createServiceWithOnboardingChildren();
+      const extras = { queryParams: { tab: 'tab-1' } };
+
+      await service.navigateToSurface('onboarding', ['guidance'], extras);
+      await expect(
+        service.navigateToSurface('onboarding', ['guidance'], extras),
+      ).resolves.toBe('already-there');
+    });
+
+    it('navigates when only the query differs', async () => {
+      const service = createServiceWithOnboardingChildren();
+
+      await service.navigateToSurface('onboarding', ['guidance'], {
+        queryParams: { tab: 'tab-1' },
+      });
+      await expect(
+        service.navigateToSurface('onboarding', ['guidance'], {
+          queryParams: { tab: 'tab-2' },
+        }),
+      ).resolves.toBe('navigated');
+      expect(TestBed.inject(Router).url).toBe('/onboarding/guidance?tab=tab-2');
+    });
+
+    it('encodes reserved characters in query values', async () => {
+      const service = createServiceWithOnboardingChildren();
+
+      await service.navigateToSurface('onboarding', ['guidance'], {
+        queryParams: { tab: 'a&b=c' },
+      });
+      expect(TestBed.inject(Router).url).toBe(
+        '/onboarding/guidance?tab=a%26b%3Dc',
+      );
+    });
+
+    it('drops the query with the sub-path when the id has no route', async () => {
+      jest.spyOn(console, 'warn').mockImplementation();
+      const service = createService();
+
+      await service.navigateToSurface('orchestra-canvas', ['x'], {
+        queryParams: { tab: 'tab-1' },
+      });
+      expect(TestBed.inject(Router).url).toBe('/chat');
+    });
+  });
+
   describe('navigateToUrl (restored route, TASK_2026_524 Batch 4)', () => {
+    it.each([
+      '/setup-hub/old',
+      '/setup-wizard/generation/setup-agent-generation/old-tab',
+      '/harness-builder/new-project/old-tab',
+    ])('restores legacy route %s to onboarding Home', async (route) => {
+      const service = createService();
+      await expect(service.navigateToUrl(route)).resolves.toBe('navigated');
+      expect(TestBed.inject(Router).url).toBe('/onboarding');
+    });
     it('rejects a generation route whose tab identity is absent or invalid', async () => {
       TestBed.configureTestingModule({
         providers: [
@@ -567,12 +664,10 @@ describe('SurfaceRouterService', () => {
       });
       const service = TestBed.inject(SurfaceRouterService);
       await expect(
-        service.navigateToUrl(
-          '/setup-wizard/generation/setup-agent-generation/deleted-tab',
-        ),
+        service.navigateToUrl('/onboarding/analyze/generate?tab=deleted-tab'),
       ).resolves.toBe('failed');
       await expect(
-        service.navigateToUrl('/setup-wizard/generation/unknown/deleted-tab'),
+        service.navigateToUrl('/onboarding/analyze/generate?tab=deleted-tab'),
       ).resolves.toBe('failed');
       expect(TestBed.inject(Router).url).toBe('/');
     });

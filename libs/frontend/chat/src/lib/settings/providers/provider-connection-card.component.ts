@@ -42,9 +42,8 @@ interface InlineAction {
 /**
  * Compact connection card (≤ 80 px; plan :627-636, design-spec §3.3, prototype `.conn-card`).
  *
- * - The whole card is the trigger: a click, Enter or Space on it emits `detailsRequested` (the parent
- *   opens the connection drawer), via `NativeCardComponent`'s `activated`, which ignores clicks that
- *   land on the inline action.
+ * - A full-surface native button opens the connection drawer. Inline controls are siblings of that
+ *   button so they remain independent keyboard and pointer targets.
  * - One list row: avatar; name over provenance, "Used by N" and the consumer names (`usedByLabels`); then
  *   the status dot and label, at most ONE inline repair action (the state's primary,
  *   `primaryConnectionAction`) and the auth-modality badge on the right. There is no
@@ -66,10 +65,13 @@ interface InlineAction {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block self-start' },
   template: `
-    <ptah-native-card class="block" density="compact" [tone]="cardTone()" [spine]="cardSpine()" [clickable]="true"
-      [ariaLabel]="cardAriaLabel()" (activated)="detailsRequested.emit()" [attr.title]="keyUnreadable() ? keyUnreadableText : statusCopy()"
+    <ptah-native-card class="block [&>div]:hover:bg-base-200/70 [&>div]:hover:border-base-content/20"
+      density="compact" [tone]="cardTone()" [spine]="cardSpine()"
+      [attr.title]="keyUnreadable() ? keyUnreadableText : statusCopy()"
       [attr.data-state]="resolvedState()" data-testid="provider-connection-card">
-      <div class="flex min-h-[40px] items-center gap-3">
+      <button type="button" class="absolute inset-0 z-0 w-full cursor-pointer rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-base-content"
+        [attr.aria-label]="cardAriaLabel()" [attr.title]="triggerTitle()" (click)="detailsRequested.emit()" data-testid="provider-card-details-trigger"></button>
+      <div class="pointer-events-none relative z-10 flex min-h-[40px] items-center gap-3">
         <span [class]="avatarClass()" aria-hidden="true" data-testid="card-avatar">{{ initials() }}</span>
         <!-- The name keeps at least 7rem (a long status once squeezed it to one letter per line);
              the status shrinks instead and wraps its own chips, so the card keeps its height. -->
@@ -79,7 +81,7 @@ interface InlineAction {
           </p>
           <!-- Wraps between two whole segments (a narrow 3-column grid cut the first one to a few letters): the provenance,
                then the usage ("Used by N · Used for: …" as ONE segment), so the line is at most two lines and the card
-               stays within its 80 px budget. A segment cut at the row's full width keeps its whole text in its title.
+               stays within its 80 px budget. Full segment text is also in the card trigger's title for pointer hover.
                Each "·" ends the segment before it, so a wrapped line never starts with a separator. -->
           <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs leading-snug text-base-content-muted">
             @if (subtitle(); as text) {
@@ -129,7 +131,7 @@ interface InlineAction {
             </button>
           }
           @if (hasScope()) {
-            <ptah-setting-scope-row [scope]="scope()" [hasOverride]="hasOverride()" [supportedTargets]="supportedTargets()"
+            <ptah-setting-scope-row class="pointer-events-auto relative z-20" [scope]="scope()" [hasOverride]="hasOverride()" [supportedTargets]="supportedTargets()"
               [workspaceName]="workspaceName()" [workspaceCrossApp]="workspaceCrossApp()" [fieldName]="displayName()"
               (clearRequested)="scopeClearRequested.emit()" (useGlobalRequested)="scopeUseGlobalRequested.emit()"
               (copyGlobalRequested)="scopeCopyGlobalRequested.emit()" data-testid="card-scope-wrapper" />
@@ -150,7 +152,7 @@ export class ProviderConnectionCardComponent {
   protected readonly AlertTriangleIcon = AlertTriangle;
   protected readonly keyUnreadableText = KEY_UNREADABLE_TEXT;
   protected readonly inlineActionClass =
-    'btn btn-ghost btn-sm px-2 text-xs font-medium text-base-content underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+    'pointer-events-auto relative z-20 btn btn-ghost btn-sm px-2 text-xs font-medium text-base-content underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
   /** Provider registry or connection identifier (e.g. 'anthropic', 'kimi-code', 'claude-cli'). */
   readonly providerId = input<string>('');
@@ -277,6 +279,12 @@ export class ProviderConnectionCardComponent {
     return this.sourceLabel() || (connected ? `Last connected ${connected}` : failed ? `Last check failed ${failed}` : null)
       || authModalityLabel(this.authModality());
   });
+
+  protected readonly triggerTitle = computed(() => [
+    this.keyUnreadable() ? this.keyUnreadableText : this.statusCopy(),
+    this.subtitle(),
+    this.usedByLabels().length ? `Used for: ${this.usedForText()}` : null,
+  ].filter((part): part is string => part !== null).join('\n'));
 
   protected readonly inlineAction = computed<InlineAction | null>(() => {
     const action = primaryConnectionAction(this.resolvedState(), {

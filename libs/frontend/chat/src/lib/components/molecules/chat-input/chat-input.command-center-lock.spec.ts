@@ -32,6 +32,8 @@ import {
 import { ChatInputComponent } from './chat-input.component';
 import { ChatStore } from '../../../services/chat.store';
 import { ComposerDraftStore } from '../../../services/composer-draft.store';
+import { ComposerCompactStore } from '../../../services/composer-compact.store';
+import { ComposerTypeToExpandDirective } from './composer-type-to-expand.directive';
 import { COMPOSER_TRIGGER_CACHE_ENABLED } from '../../../services/composer-trigger-scheduler';
 import { FilePickerService } from '../../../services/file-picker.service';
 import { VoiceInputService } from '../../../services/voice-input.service';
@@ -185,11 +187,14 @@ describe('ChatInputComponent Command Center lock', () => {
           },
         },
         { provide: COMPOSER_TRIGGER_CACHE_ENABLED, useValue: false },
+        // Component-level in production; the override below clears those.
+        ComposerCompactStore,
       ],
     })
       .overrideComponent(ChatInputComponent, {
         set: {
-          imports: [],
+          // The root's type-to-expand directive binds an input on a plain div.
+          imports: [ComposerTypeToExpandDirective],
           providers: [],
           schemas: [CUSTOM_ELEMENTS_SCHEMA],
         },
@@ -244,6 +249,12 @@ describe('ChatInputComponent Command Center lock', () => {
   it('keeps Stop available for a held streaming tab', async () => {
     tabs.set([{ id: 'tab-1', status: 'streaming' }]);
     heldTabId.set('tab-1');
+    fixture.detectChanges();
+    // An idle streaming composer folds and its Stop moves to the compact bar
+    // (stubbed out here), so keep the card open with a pending draft.
+    const input = textarea();
+    input.value = 'Keep this draft';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
     fixture.detectChanges();
     const stop = button('chat-stop-btn');
     expect(stop.disabled).toBe(false);

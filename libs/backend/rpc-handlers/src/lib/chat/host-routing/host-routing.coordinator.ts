@@ -12,18 +12,11 @@
  * Concurrency guards:
  *  - `generation` (bumped per admission): only the newest admission's scope
  *    answer may mutate state.
- *  - `epoch` (bumped by every Disable reset, Gate 2 carry-forward): an
- *    assessment or pre-flight that started before a reset is discarded
- *    before any state, cache or queue mutation, even when the setting is on
- *    again by the time it settles. A configuration change (switch or decision
- *    model) resets every tab and drops this coordinator's queued reminders.
- *    It is detected from the live values at each admission and settlement,
- *    not only from the change event, which Electron fires after persisting
- *    (`HostRoutingConfigTracker`). A late event for an already observed change
- *    keeps work admitted under the current values.
- *  - The queue gate: the hook re-reads the live setting before injecting a
- *    reminder of this coordinator, so a reminder drained while routing turns
- *    off is withheld.
+ *  - A write-time configuration generation discards work admitted before
+ *    either routing key was written, even when writes restore the old value.
+ *    A late event cannot cancel work admitted under the latest generation.
+ *  - The queue gate checks the reminder's generation at drain and again
+ *    after the hook's awaited handoff pointer.
  *  - `inFlight` is cleared only by the pre-flight that owns it (promise
  *    identity), so an old settle never clears a newer request.
  *  - The tab state object itself: a tab evicted from the LRU while work is
@@ -65,7 +58,6 @@ import {
   formatRoutingReminder,
   type RoutingCandidates,
 } from './routing-reminder.format';
-import { HostRoutingConfigTracker } from './host-routing-config-tracker';
 
 const MAX_TABS = 200;
 const MAX_ALIASES = 200;
@@ -141,9 +133,7 @@ export class HostRoutingCoordinator {
   private readonly aliases = new Map<string, string>();
   private readonly releases: Array<() => void> = [];
   private candidateSource: RouteCandidateSource | null = null;
-  private readonly config = new HostRoutingConfigTracker(() =>
-    this.configStamp(),
-  );
+  private lastConfigGeneration: number | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER)
@@ -151,7 +141,7 @@ export class HostRoutingCoordinator {
     @inject(LANE_ROUTING_TOKENS.HOST_ROUTING_SETTING)
     private readonly setting: Pick<
       HostRoutingSetting,
-      'isEnabled' | 'onDidChange'
+      'isEnabled' | 'onDidChange' | 'getConfigurationGeneration'
     >,
     @inject(LANE_ROUTING_TOKENS.SCOPE_CHECK_SERVICE)
     private readonly scopeCheck: ScopeCheck,
@@ -175,7 +165,13 @@ export class HostRoutingCoordinator {
     const settingChanges = setting.onDidChange(() => this.onSettingChanged());
     this.releases.push(() => settingChanges.dispose());
     this.releases.push(
-      queue.gateOwner(REMINDER_OWNER, () => setting.isEnabled()),
+      queue.gateOwner(
+        REMINDER_OWNER,
+        (generation) =>
+          generation !== undefined &&
+          setting.isEnabled() &&
+          generation === setting.getConfigurationGeneration(),
+      ),
     );
     if (events) {
       this.releases.push(
@@ -198,6 +194,7 @@ export class HostRoutingCoordinator {
       const text = input.prompt.trim();
       if (text.length === 0 || text.startsWith('/')) return;
       this.syncConfig();
+      const configGeneration = this.setting.getConfigurationGeneration();
       if (!this.setting.isEnabled()) {
         this.cache?.clear();
         const existing = this.tabs.get(input.tabId);
@@ -229,6 +226,7 @@ export class HostRoutingCoordinator {
             state,
             generation,
             epoch,
+            configGeneration,
             snapshot,
             answer,
           ),
@@ -269,6 +267,7 @@ export class HostRoutingCoordinator {
     state: TabRoutingState,
     generation: number,
     epoch: number,
+    configGeneration: number,
     snapshot: ScopeConversation,
     answer: ScopeAssessment,
   ): void {
@@ -278,7 +277,10 @@ export class HostRoutingCoordinator {
       return;
     }
     this.syncConfig();
-    if (state.epoch !== epoch) {
+    if (
+      state.epoch !== epoch ||
+      this.setting.getConfigurationGeneration() !== configGeneration
+    ) {
       this.discarded(tabId, 'scope', 'cancelled');
       return;
     }
@@ -332,6 +334,7 @@ export class HostRoutingCoordinator {
       tabId,
       state,
       epoch,
+      configGeneration,
       { ...snapshot, pendingScope: state.pendingScope },
       answer.settled?.value === 'yes',
     );
@@ -341,17 +344,30 @@ export class HostRoutingCoordinator {
     tabId: string,
     state: TabRoutingState,
     epoch: number,
+    configGeneration: number,
     conversation: ScopeConversation,
     settled: boolean,
   ): void {
     const revision = state.revision;
     if (revision === state.routedRevision) return;
     if (settled) {
-      this.startPreflight(tabId, state, epoch, revision, conversation);
+      this.startPreflight(
+        tabId,
+        state,
+        epoch,
+        configGeneration,
+        revision,
+        conversation,
+      );
       return;
     }
     if (state.nudgedRevision === revision) return;
-    this.queue.put(state.latestSessionKey, ROUTING_NUDGE_TEXT, REMINDER_OWNER);
+    this.queue.put(
+      state.latestSessionKey,
+      ROUTING_NUDGE_TEXT,
+      REMINDER_OWNER,
+      configGeneration,
+    );
     state.nudgedRevision = revision;
   }
 
@@ -359,6 +375,7 @@ export class HostRoutingCoordinator {
     tabId: string,
     state: TabRoutingState,
     epoch: number,
+    configGeneration: number,
     revision: number,
     conversation: ScopeConversation,
   ): void {
@@ -370,11 +387,19 @@ export class HostRoutingCoordinator {
     const fingerprint = JSON.stringify(this.decisionConfig.getSelection());
     const source = this.routeCandidateSource();
     const settle = (outcome: PreflightOutcome, own: Promise<void>): void =>
-      this.settlePreflight(tabId, state, epoch, revision, own, {
-        ...outcome,
-        request,
-        fingerprint,
-      });
+      this.settlePreflight(
+        tabId,
+        state,
+        epoch,
+        configGeneration,
+        revision,
+        own,
+        {
+          ...outcome,
+          request,
+          fingerprint,
+        },
+      );
     const promise: Promise<void> = Promise.all([
       this.requestPreflight(request, source),
       this.listCandidates(tabId, source),
@@ -400,6 +425,7 @@ export class HostRoutingCoordinator {
     tabId: string,
     state: TabRoutingState,
     epoch: number,
+    configGeneration: number,
     revision: number,
     own: Promise<void>,
     outcome: SettledPreflight,
@@ -408,7 +434,11 @@ export class HostRoutingCoordinator {
       // Gate 2 carry-forward: a request started before a Disable reset (or
       // for an evicted tab) changes nothing at all.
       this.syncConfig();
-      if (this.tabs.get(tabId) !== state || state.epoch !== epoch) {
+      if (
+        this.tabs.get(tabId) !== state ||
+        state.epoch !== epoch ||
+        this.setting.getConfigurationGeneration() !== configGeneration
+      ) {
         this.discarded(tabId, 'pre-flight', 'cancelled');
         return;
       }
@@ -448,7 +478,12 @@ export class HostRoutingCoordinator {
         modelFingerprint: outcome.fingerprint,
         result: outcome.result,
       });
-      this.queue.put(state.latestSessionKey, reminder, REMINDER_OWNER);
+      this.queue.put(
+        state.latestSessionKey,
+        reminder,
+        REMINDER_OWNER,
+        configGeneration,
+      );
     } catch (error: unknown) {
       this.reportFailure(tabId, 'pre-flight', error);
     }
@@ -516,24 +551,21 @@ export class HostRoutingCoordinator {
     state.nudgedRevision = null;
   }
 
-  /** A change event resets unless it announces a change a read already saw. */
+  /** A late event only observes the write generation; it cannot cancel newer work. */
   private onSettingChanged(): void {
     try {
-      if (this.config.onEvent()) this.resetAll();
+      this.syncConfig();
     } catch (error: unknown) {
       this.reportFailure(null, 'setting-change', error);
     }
   }
 
-  /** Resets every tab when the live configuration changed since last read. */
+  /** Resets every tab after any effective write to either routing key. */
   private syncConfig(): void {
-    if (this.config.observe()) this.resetAll();
-  }
-
-  /** Effective configuration: off, or on with the selected decision model. */
-  private configStamp(): string {
-    if (!this.setting.isEnabled()) return 'off';
-    return `on:${JSON.stringify(this.decisionConfig.getSelection())}`;
+    const live = this.setting.getConfigurationGeneration();
+    const previous = this.lastConfigGeneration;
+    this.lastConfigGeneration = live;
+    if (previous !== null && previous !== live) this.resetAll();
   }
 
   private resetAll(): void {

@@ -179,7 +179,10 @@ export class UserPromptSubmitHookHandler {
   private stillAllowed(drained: NextTurnReminder | null): string | null {
     if (!drained || !this.nextTurnReminderQueue) return null;
     try {
-      return this.nextTurnReminderQueue.allows(drained.owner)
+      return this.nextTurnReminderQueue.allows(
+        drained.owner,
+        drained.generation,
+      )
         ? drained.text
         : null;
     } catch (error: unknown) {
