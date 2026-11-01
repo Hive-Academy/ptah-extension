@@ -229,13 +229,13 @@ describe('glass scene tint', () => {
 describe('Ptah backdrop scenes', () => {
   const scenes = ['aurora', 'ember', 'tide', 'horizon'];
   const modes = [
-    { theme: 'ptah-glass', floors: [0.70, 0.62, 0.58, 0.50] },
-    { theme: 'ptah-glass-light', floors: [0.50, 0.42, 0.42, 0.38] },
+    { theme: 'ptah-glass', floors: [0.58, 0.50, 0.45, 0.42] },
+    { theme: 'ptah-glass-light', floors: [0.38, 0.35, 0.35, 0.32] },
   ];
 
-  it.each(modes)('keeps all $theme scenes at their measured tint floors and reuses each URI', ({ theme, floors }) => {
+  it.each(modes)('keeps all $theme scenes at their pane-contrast tint floors and reuses each URI', ({ theme, floors }) => {
     const selector = `:root[data-theme='${theme}'][data-glass='on']`;
-    const start = css.indexOf(`${selector} {\n  --glass-scene-aurora:`);
+    const start = css.indexOf(`${selector} {`);
     expect(start).toBeGreaterThan(-1);
     const body = css.slice(start, css.indexOf('}', start) + 1);
     expect(body).toContain('--glass-scene: var(--glass-scene-aurora);');
@@ -257,8 +257,8 @@ describe('Ptah backdrop scenes', () => {
   });
 
   it.each([
-    { theme: 'ptah-glass', floors: [0.82, 0.78] },
-    { theme: 'ptah-glass-light', floors: [0.84, 0.82] },
+    { theme: 'ptah-glass', floors: [0.68, 0.68] },
+    { theme: 'ptah-glass-light', floors: [0.55, 0.55] },
   ])('uses local image assets beneath the $theme tint for pyramid and temple', ({ theme, floors }) => {
     const body = block(new RegExp(`:root\\[data-theme='${theme}'\\]\\[data-glass='on'\\]`));
     for (const [index, scene] of ['pyramid', 'temple'].entries()) {
@@ -266,6 +266,22 @@ describe('Ptah backdrop scenes', () => {
       expect(body).toContain(`--glass-scene-${scene}: url("./backgrounds/${file}");`);
       expect(numberValue(body, `--glass-tint-alpha-${scene}`)).toBeGreaterThanOrEqual(floors[index]);
     }
+  });
+
+  it.each(['ptah-glass', 'ptah-glass-light'])('limits $theme pane and overlay blur', (theme) => {
+    const body = block(new RegExp(`:root\\[data-theme='${theme}'\\]\\[data-glass='on'\\]`));
+    expect(body).toContain('--glass-blur: 7px;');
+    expect(body).toContain('--glass-blur-overlay: 12px;');
+    expect(body).toContain('--glass-saturation: 1.08;');
+  });
+
+  it('backs dark chrome and light reading text locally as scene tint falls', () => {
+    const dark = block(/:root\[data-theme='ptah-glass'\]\[data-glass='on'\]/);
+    const light = block(/:root\[data-theme='ptah-glass-light'\]\[data-glass='on'\]/);
+    expect(b1Alpha(dark, '--glass-under')).toBeGreaterThanOrEqual(0.3);
+    expect(b1Alpha(light, '--glass-fill')).toBeGreaterThanOrEqual(0.6);
+    expect(b1Alpha(light, '--glass-scrim-text')).toBeGreaterThanOrEqual(0.6);
+    expect(light).toContain('--bcm: 40% 0.0614 293.53;');
   });
 
   it('scopes ten overrides to the pair at specificity (0,4,0), after the dark tokens, without overriding opaque tint', () => {
