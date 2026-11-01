@@ -109,12 +109,15 @@ export async function handleRouteToolCall(
   args: unknown,
   route: RouteNamespace,
   logger: RouteToolLogger,
+  context?: { readonly sessionKey?: string },
 ): Promise<RouteToolReply> {
   const parsed = RouteDecideArgsSchema.safeParse(args);
   if (!parsed.success) return invalidArguments(parsed.error);
 
   try {
-    const result: RouteDecideResult = await route.decide(parsed.data);
+    const result: RouteDecideResult = context
+      ? await route.decide(parsed.data, context)
+      : await route.decide(parsed.data);
     const text = JSON.stringify(result);
     if (!returnedWhole(text)) {
       const { chars, tokens } = ROUTE_DECIDE_RESULT_BUDGET;

@@ -71,7 +71,7 @@ describe('ChatTranscriptComponent — lane event slots', () => {
 import { By } from '@angular/platform-browser';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { ChatTranscriptComponent } from './chat-transcript.component';
-import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { SURFACE_ACTIVE, WallClockService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionHistoryReplayer } from '../../../services/chat-store/session-history-replayer.service';
 import {
@@ -209,6 +209,33 @@ describe('ChatTranscriptComponent — hidden-transcript reactivity pause', () =>
     rafSpy.mockRestore();
     TestBed.resetTestingModule();
     jest.clearAllMocks();
+  });
+
+  it('uses the shared second clock only while a live turn is visible', () => {
+    jest.useFakeTimers();
+    try {
+      jest.setSystemTime(100_000);
+      const h = makeHarness();
+      const clock = TestBed.inject(WallClockService);
+      h.streamingStateSig.set({ pendingStats: null });
+      h.buildTreeMock.mockReturnValue([makeTree('live', 98_000)]);
+      h.fixture.detectChanges();
+
+      const liveBubble = () => h.bubbleComponents().find((bubble) => bubble.turnLive);
+      expect(liveBubble()?.now).toBe(100_000);
+      jest.advanceTimersByTime(1_000);
+      h.fixture.detectChanges();
+      expect(liveBubble()?.now).toBe(101_000);
+
+      h.fixture.componentRef.setInput('active', false);
+      h.fixture.detectChanges();
+      const pausedNow = clock.now('second')();
+      jest.advanceTimersByTime(1_000);
+      expect(clock.now('second')()).toBe(pausedNow);
+      h.fixture.destroy();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('combines inherited surface activity with tab activity and cancels stale scroll frames', () => {

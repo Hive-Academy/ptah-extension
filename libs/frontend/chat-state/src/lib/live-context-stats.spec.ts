@@ -20,6 +20,21 @@ const prior: LiveModelStatsPayload = {
 };
 
 describe('contextFillStats', () => {
+  it.each([
+    { window: 200_000, used: 130_000, percent: 65 }, // F2
+    { window: 1_000_000, used: 130_000, percent: 13 }, // F3
+    { window: 200_000, used: 30_000, percent: 15 }, // F8
+  ])('reports $percent% for $used used in a $window trusted window', ({ window, used, percent }) => {
+    expect(contextFillStats({
+      ...prior,
+      contextCapacity: { ...capacity, tokens: window, source: 'sdk-native' },
+    }, used)).toEqual(expect.objectContaining({
+      contextUsed: used,
+      contextWindow: window,
+      contextPercent: percent,
+    }));
+  });
+
   it('replaces the fill and reuses the prior trusted capacity', () => {
     expect(contextFillStats(prior, 60_000)).toEqual({
       ...prior,
@@ -39,12 +54,12 @@ describe('contextFillStats', () => {
     expect(contextFillStats(null, 60_000)).toBeNull();
   });
 
-  it('reports an unknown window for an untrusted capacity', () => {
-    const untrusted: LiveModelStatsPayload = {
-      ...prior,
-      contextCapacity: { ...capacity, providerId: '' },
-    };
-    expect(contextFillStats(untrusted, 60_000)).toEqual(
+  it.each([
+    { ...capacity, providerId: '' },
+    { ...capacity, model: 'another-model' },
+    { ...capacity, source: 'unknown' as const, tokens: null },
+  ])('reports an unknown window for untrusted capacity %j (F6)', (untrustedCapacity) => {
+    expect(contextFillStats({ ...prior, contextCapacity: untrustedCapacity }, 60_000)).toEqual(
       expect.objectContaining({ contextWindow: 0, contextPercent: 0 }),
     );
   });

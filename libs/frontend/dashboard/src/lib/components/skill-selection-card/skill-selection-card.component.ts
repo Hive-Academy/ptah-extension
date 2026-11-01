@@ -8,7 +8,10 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, Sparkles, X } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import { PluginCatalogPanelComponent } from '@ptah-extension/chat-ui';
+import {
+  PLUGIN_SAVE_APPLIES_NOTICE,
+  PluginCatalogPanelComponent,
+} from '@ptah-extension/chat-ui';
 import type { HarnessGetSkillSelectionResult } from '@ptah-extension/shared';
 
 /** Budget for the one read this card makes. A cached gate resolve plus one skills walk. */
@@ -111,12 +114,22 @@ const SKILL_SELECTION_READ_TIMEOUT_MS = 10_000;
             class="btn btn-sm btn-primary btn-outline self-start"
             type="button"
             data-testid="skill-selection-card-choose"
-            (click)="pickerOpen.set(true)"
+            (click)="onPickerOpened()"
           >
             Choose skills…
           </button>
         </div>
       </section>
+    }
+
+    @if (savedNotice()) {
+      <p
+        class="surface-2 mt-2 rounded-xl p-4 text-sm text-base-content-muted"
+        role="status"
+        data-testid="skill-selection-save-notice"
+      >
+        {{ pluginSaveAppliesNotice }}
+      </p>
     }
 
     @if (pickerOpen()) {
@@ -144,7 +157,7 @@ const SKILL_SELECTION_READ_TIMEOUT_MS = 10_000;
             <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
           </button>
 
-          <ptah-plugin-catalog-panel (saved)="onPickerClosed()" />
+          <ptah-plugin-catalog-panel (saved)="onPluginsSaved()" />
         </div>
         <!--
           A real button, not the styled div daisyui's own markup uses: a click
@@ -166,9 +179,13 @@ export class SkillSelectionCardComponent implements OnInit {
 
   protected readonly SparklesIcon = Sparkles;
   protected readonly XIcon = X;
+  protected readonly pluginSaveAppliesNotice = PLUGIN_SAVE_APPLIES_NOTICE;
 
   /** Whether the Configure Ptah Skills modal is mounted. */
   protected readonly pickerOpen = signal(false);
+
+  /** Whether the panel just saved and its application notice should show. */
+  protected readonly savedNotice = signal(false);
 
   /**
    * The last answer from `harness:get-skill-selection`, or `null` before one
@@ -204,6 +221,16 @@ export class SkillSelectionCardComponent implements OnInit {
 
   public ngOnInit(): void {
     void this.refresh();
+  }
+
+  protected onPickerOpened(): void {
+    this.savedNotice.set(false);
+    this.pickerOpen.set(true);
+  }
+
+  protected onPluginsSaved(): void {
+    this.onPickerClosed();
+    this.savedNotice.set(true);
   }
 
   /**

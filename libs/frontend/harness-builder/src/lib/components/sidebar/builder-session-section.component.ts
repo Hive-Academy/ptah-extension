@@ -7,6 +7,7 @@ import {
 } from '@angular/core';
 import {
   SessionStatsSummaryComponent,
+  sessionContextCue,
   type LiveModelStats,
 } from '@ptah-extension/chat-ui';
 import type { SessionStatsEntry } from '@ptah-extension/shared';
@@ -55,7 +56,7 @@ export class BuilderSessionSectionComponent {
   readonly liveModelStats = input<LiveModelStats | null>(null);
   protected readonly sessionOpen = signal(false);
   protected readonly sessionSummary = computed(() => {
-    const percent = this.liveModelStats()?.contextPercent;
-    return `Context ${percent === null || percent === undefined ? '—' : `${percent}%`} · ${this.statsSnapshot()?.totalCost === null || this.statsSnapshot()?.totalCost === undefined ? 'Cost unavailable' : '$' + this.statsSnapshot()?.totalCost?.toFixed(2)}`;
+    const contextLabel = sessionContextCue(this.liveModelStats()).label;
+    return `Context ${contextLabel} · ${this.statsSnapshot()?.totalCost === null || this.statsSnapshot()?.totalCost === undefined ? 'Cost unavailable' : '$' + this.statsSnapshot()?.totalCost?.toFixed(2)}`;
   });
 }

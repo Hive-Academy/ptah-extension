@@ -148,8 +148,13 @@ export const REQUEST_SIZE_LIMIT_BYTES = 64 * 1024;
 export const STALENESS_AGE_DAYS = 180;
 export const STALENESS_AGE_MS = STALENESS_AGE_DAYS * MS_PER_DAY;
 
-/** Verified runs required in the window before a local value replaces a seed. */
-export const MINIMUM_SAMPLE_COUNT = 5;
+/**
+ * Prior weight `k` in the local-cell blend (Requirement 8):
+ * `round(100 * (s + k * prior / 100) / (n + k))` per available rate. The
+ * prior is the exact seed cell for the same family, model and task kind,
+ * else `NEUTRAL_SCORE`.
+ */
+export const BLEND_PRIOR_WEIGHT = 10;
 
 /** `sinceMs = now - OUTCOME_WINDOW_MS` for routing rates. */
 export const OUTCOME_WINDOW_DAYS = 90;

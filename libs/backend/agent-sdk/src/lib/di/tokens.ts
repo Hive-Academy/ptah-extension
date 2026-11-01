@@ -155,6 +155,7 @@ export const SDK_TOKENS = {
   SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY: Symbol.for(
     'SdkUserPromptSubmitCallbackRegistry',
   ),
+  SDK_NEXT_TURN_REMINDER_QUEUE: Symbol.for('SdkNextTurnReminderQueue'),
   SDK_USER_PROMPT_EXPANSION_REGISTRY: Symbol.for(
     'SdkUserPromptExpansionRegistry',
   ),

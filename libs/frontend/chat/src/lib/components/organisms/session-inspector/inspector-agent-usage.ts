@@ -11,6 +11,7 @@ import type {
 import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
 import {
   cliLaneStats,
+  resolveCliLaneUsage,
   subagentLaneStats,
 } from '../../../utils/lane-stats.adapters';
 import { usageTotalsFromSegments } from '../../molecules/agent-card/stats-bar.utils';
@@ -41,11 +42,12 @@ export function laneUsage(
     : cli
       ? cliLaneStats(cli)
       : null;
+  const cliUsage = cli ? resolveCliLaneUsage(cli) : null;
   const fallback =
-    agent.usageTotals == null
+    cliUsage === null && agent.usageTotals == null
       ? usageTotalsFromSegments(agent.segments ?? [])
       : null;
-  const usage = agent.usageTotals ?? fallback;
+  const usage = cliUsage ? cliUsage.usage : agent.usageTotals ?? fallback;
   const usageTotal =
     typeof usage?.totalTokens === 'number'
       ? usage.totalTokens
@@ -53,15 +55,20 @@ export function laneUsage(
           typeof usage?.outputTokens === 'number'
         ? usage.inputTokens + usage.outputTokens
         : null;
-  const tokens =
-    stats?.tokens ?? (agent.kind === 'cli' ? usageTotal : sources.trayTokens);
-  const partial = stats ? stats.tokensPartial : fallback?.partial === true;
+  const tokens = cliUsage
+    ? cliUsage.tokens
+    : stats?.tokens ?? (agent.kind === 'cli' ? usageTotal : sources.trayTokens);
+  const partial = cliUsage
+    ? cliUsage.partial || !cliUsage.tokensExact
+    : stats ? stats.tokensPartial : fallback?.partial === true;
   return {
     usage: {
       tokens,
       tokensPartial: tokens !== null && partial,
-      cost: (stats ? stats.cost : usage?.costUsd) ?? null,
-      costPartial: stats ? stats.costPartial : fallback?.partial === true,
+      cost: (cliUsage ? cliUsage.usage?.costUsd : stats ? stats.cost : usage?.costUsd) ?? null,
+      costPartial: cliUsage
+        ? cliUsage.partial && cliUsage.usage?.costUsd !== undefined
+        : stats ? stats.costPartial : fallback?.partial === true,
       costEstimated: true,
       input: subagent?.usage?.input ?? usage?.inputTokens ?? null,
       output: subagent?.usage?.output ?? usage?.outputTokens ?? null,

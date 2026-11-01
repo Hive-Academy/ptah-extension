@@ -531,6 +531,8 @@ export interface EnhancedPromptsGetStatusResponse {
   hasGeneratedPrompt: boolean;
   /** ISO timestamp of last generation (null if never generated) */
   generatedAt: string | null;
+  /** ISO timestamp when an unbound regeneration started (null if none is running) */
+  regenerationStartedAt?: string | null;
   /** Detected technology stack (null if never generated) */
   detectedStack: EnhancedPromptsDetectedStack | null;
   /** Whether the cached prompt is still valid */

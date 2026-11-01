@@ -19,6 +19,7 @@ import {
   todoStateFromProgress,
   summarizeFinalized,
   summarizeLive,
+  sessionContextCue,
   type CompactCallout,
   type CompactPermissionCallout,
   type CompactPermissionDecision,
@@ -31,7 +32,7 @@ import {
   type CompactSummaryMetrics,
   type CompactTodoState,
 } from '@ptah-extension/chat-ui';
-import { VSCodeService } from '@ptah-extension/core';
+import { injectWallClock, VSCodeService } from '@ptah-extension/core';
 import {
   ConversationRegistry,
   TabManagerService,
@@ -43,9 +44,11 @@ import {
   PermissionHandlerService,
 } from '@ptah-extension/chat-streaming';
 import type { StreamingState, TabState } from '@ptah-extension/chat-types';
-import type {
-  AskUserQuestionRequest,
-  PermissionRequest,
+import {
+  contextFillPercent,
+  trustedContextWindow,
+  type AskUserQuestionRequest,
+  type PermissionRequest,
 } from '@ptah-extension/shared';
 import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
 import { SessionGitDockOpener } from '../../../services/session-git-scope/session-git-dock-opener.service';
@@ -257,10 +260,17 @@ export class CompactSessionCardComponent {
     () => this.tab().claudeSessionId ?? this.tab().id,
   );
   readonly branch = computed(() => this.tab().agentOrigin?.branch ?? null);
-  readonly now = signal(Date.now());
+  readonly now = injectWallClock(
+    'second',
+    () => this.streaming() || this.laneSummary().counts.running > 0,
+  );
+  private readonly mountedAt = Date.now();
   readonly elapsed = computed(() => {
     const startedAt = this.tab().agentOrigin?.startedAt;
-    return startedAt === undefined ? null : Math.max(0, this.now() - startedAt);
+    // The shared clock can be idle between mounts; retain the mount-time floor.
+    return startedAt === undefined
+      ? null
+      : Math.max(0, Math.max(this.now(), this.mountedAt) - startedAt);
   });
   readonly railElapsed = computed(() => {
     const elapsed = this.elapsed();
@@ -270,11 +280,14 @@ export class CompactSessionCardComponent {
       ? `${seconds}s`
       : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   });
-  readonly contextPercent = computed(() =>
-    this.tab().liveModelStats?.contextKnown
-      ? (this.tab().liveModelStats?.contextPercent ?? null)
-      : null,
-  );
+  readonly contextPercent = computed(() => {
+    const stats = this.tab().liveModelStats;
+    if (!stats || !sessionContextCue(stats).known) return null;
+    const window = trustedContextWindow(stats.contextCapacity, stats.model);
+    return stats.contextWindow === window
+      ? contextFillPercent(stats.contextUsed, window)
+      : null;
+  });
   private readonly sessionAgents = computed(() =>
     this.cardActions || this.sessionContext
       ? this.agentStore.agentsOwnedBySession(this.sessionIdentity())
@@ -424,7 +437,6 @@ export class CompactSessionCardComponent {
   private sampledTabId: string | null = null;
   private lastSampleAt = 0;
   private pendingSample: ReturnType<typeof setTimeout> | null = null;
-  private elapsedTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly routingRevision = computed(() =>
     this.permissionHandler.routingTargetRevision(),
@@ -559,19 +571,8 @@ export class CompactSessionCardComponent {
     });
     effect(() => this.sampleStream(this.tab()));
     effect(() => this.railState.emit(this.railStateValue()));
-    effect(() => {
-      if (this.streaming() || this.laneSummary().counts.running > 0) {
-        if (this.elapsedTimer === null) {
-          this.now.set(Date.now());
-          this.elapsedTimer = setInterval(() => this.now.set(Date.now()), 1000);
-        }
-      } else {
-        this.clearElapsedTimer();
-      }
-    });
     inject(DestroyRef).onDestroy(() => {
       this.cancelPendingSample();
-      this.clearElapsedTimer();
     });
   }
 
@@ -672,12 +673,6 @@ export class CompactSessionCardComponent {
     } else {
       this.expandToFull.emit();
     }
-  }
-
-  private clearElapsedTimer(): void {
-    if (this.elapsedTimer === null) return;
-    clearInterval(this.elapsedTimer);
-    this.elapsedTimer = null;
   }
 
   /**

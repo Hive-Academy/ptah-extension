@@ -7,6 +7,7 @@
  * losing totals.
  */
 import type { CliOutputSegment } from '../types/agent-process.types';
+import { isValidTokenCount } from './token-usage.utils';
 
 /** Accumulated usage of one CLI lane run. */
 export type CliUsageTotals = NonNullable<CliOutputSegment['usage']>;
@@ -19,6 +20,30 @@ export function hasReportedCliCacheTokens(
     usage?.cacheReadTokens !== undefined ||
     usage?.cacheWriteTokens !== undefined
   );
+}
+
+/** Prefer a provider total; split input/output is an inexact fallback. */
+export function cliUsageTokenTotal(
+  usage: CliUsageTotals | null | undefined,
+): { value: number; exact: boolean } | null {
+  if (!usage) return null;
+
+  if (usage.totalTokens !== undefined) {
+    return isValidTokenCount(usage.totalTokens)
+      ? { value: usage.totalTokens, exact: true }
+      : null;
+  }
+
+  const { inputTokens, outputTokens } = usage;
+  if (inputTokens === undefined && outputTokens === undefined) return null;
+  if (
+    (inputTokens !== undefined && !isValidTokenCount(inputTokens)) ||
+    (outputTokens !== undefined && !isValidTokenCount(outputTokens))
+  ) {
+    return null;
+  }
+  const value = (inputTokens ?? 0) + (outputTokens ?? 0);
+  return Number.isFinite(value) ? { value, exact: false } : null;
 }
 
 /**

@@ -101,6 +101,7 @@ import {
   SdkRuntimeStateService,
   SdkAdapterEvents,
 } from '../helpers';
+import { NextTurnReminderQueue } from '../helpers/next-turn-reminder.queue';
 import { InternalQueryService } from '../internal-query';
 import { StructuredDecisionAdapter } from '../lane-routing/structured-decision.adapter';
 import { CommitMessageGenerator } from '../commit-message/commit-message-generator.service';
@@ -381,6 +382,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY,
     { useClass: UserPromptSubmitCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_NEXT_TURN_REMINDER_QUEUE,
+    { useClass: NextTurnReminderQueue },
     { lifecycle: Lifecycle.Singleton },
   );
 

@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
+import { MIGRATIONS, SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import { reportEffectOf } from '../write/report-effect';
 import { SqliteLaneOutcomeStore } from './sqlite-lane-outcome.store';
 import { heldReport, outcomeRow } from './store.test-support';
@@ -19,14 +19,21 @@ const DatabaseConstructor = require('better-sqlite3') as new (
   file: string,
 ) => Database;
 
-function fixture(file = ':memory:') {
+function fixture(file = ':memory:', migrate = false) {
   const db = new DatabaseConstructor(file);
-  db.exec(`
+  if (migrate) {
+    for (const version of [54, 64]) {
+      const migration = MIGRATIONS.find((entry) => entry.version === version);
+      if (!migration?.sql) throw new Error(`Missing SQL migration ${version}`);
+      db.exec(migration.sql);
+    }
+  } else db.exec(`
     CREATE TABLE IF NOT EXISTS lane_outcome_records (
       run_id TEXT NOT NULL PRIMARY KEY, executor_kind TEXT NOT NULL,
       lane_id TEXT NOT NULL, agent_id TEXT NOT NULL, family TEXT,
       subagent_session_id TEXT, parent_session_id TEXT, workspace_root TEXT,
       provider TEXT, model TEXT NOT NULL, role TEXT, task_kind TEXT,
+      task_kind_source TEXT,
       task_id TEXT, verdict TEXT NOT NULL, failure_class TEXT,
       budget_stopped INTEGER NOT NULL DEFAULT 0, started_at INTEGER,
       ended_at INTEGER NOT NULL, duration_ms INTEGER, input_tokens INTEGER,
@@ -55,6 +62,94 @@ function fixture(file = ':memory:') {
 }
 
 describe('SqliteLaneOutcomeStore', () => {
+  it('reads legacy null provenance and writes new sources after migrations 0054 and 0064', async () => {
+    const { db, store } = fixture(':memory:', true);
+    try {
+      db.prepare(`INSERT INTO lane_outcome_records
+        (run_id, executor_kind, lane_id, agent_id, family, model, verdict,
+         ended_at, created_at, updated_at)
+        VALUES (?, 'subagent', 'lane', 'old', 'subagent', 'model', 'unverified', 1, 1, 1)`)
+        .run('legacy');
+      expect((await store.get('legacy'))?.taskKindSource).toBeNull();
+      await store.insertIfAbsent({
+        ...outcomeRow('fresh'),
+        taskKind: 'review',
+        taskKindSource: 'mapped',
+      });
+      expect(await store.get('fresh')).toMatchObject({
+        taskKind: 'review',
+        taskKindSource: 'mapped',
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('round-trips provenance and guards classification', async () => {
+    const { db, store } = fixture();
+    try {
+      await store.insertIfAbsent({
+        ...outcomeRow('pending'),
+        taskKind: null,
+        taskKindSource: 'unclassified',
+      });
+      expect((await store.get('pending'))?.taskKindSource).toBe('unclassified');
+      expect(await store.setClassifiedTaskKind('missing', 'review')).toBe(false);
+      expect(await store.setClassifiedTaskKind('pending', 'implement')).toBe(true);
+      expect(await store.get('pending')).toMatchObject({
+        taskKind: 'implement',
+        taskKindSource: 'classified',
+      });
+      expect(await store.setClassifiedTaskKind('pending', 'review')).toBe(false);
+      await store.insertIfAbsent({
+        ...outcomeRow('explicit'),
+        taskKind: 'review',
+        taskKindSource: 'explicit',
+      });
+      expect(await store.setClassifiedTaskKind('explicit', 'implement')).toBe(false);
+      expect(await store.get('explicit')).toMatchObject({
+        taskKind: 'review',
+        taskKindSource: 'explicit',
+      });
+      await store.insertIfAbsent({
+        ...outcomeRow('protected'),
+        taskKind: null,
+        taskKindSource: 'mapped',
+      });
+      expect(await store.setClassifiedTaskKind('protected', 'implement')).toBe(false);
+      expect((await store.get('protected'))?.taskKindSource).toBe('mapped');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('enriches null join columns without replacing prior evidence', async () => {
+    const { db, store } = fixture();
+    try {
+      const join = {
+        subagentSessionId: 'replacement',
+        parentSessionId: 'parent',
+        workspaceRoot: '/workspace',
+      };
+      expect(await store.fillMissingSubagentJoin('missing', join)).toBe(false);
+      await store.insertIfAbsent({
+        ...outcomeRow('joined'),
+        subagentSessionId: 'original',
+        parentSessionId: null,
+        workspaceRoot: null,
+      });
+      expect(await store.fillMissingSubagentJoin('joined', join)).toBe(true);
+      expect(await store.get('joined')).toMatchObject({
+        subagentSessionId: 'original',
+        parentSessionId: 'parent',
+        workspaceRoot: '/workspace',
+      });
+      expect(await store.fillMissingSubagentJoin('joined', join)).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
   it('skips invalid rows in lane and role reads with one warning per read', async () => {
     const { db, store, logger } = fixture();
     try {

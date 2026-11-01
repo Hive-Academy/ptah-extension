@@ -4,10 +4,14 @@ import {
   OnInit,
   inject,
 } from '@angular/core';
-import { ProvidersSettingsStateService } from '@ptah-extension/core';
+import {
+  ProvidersSettingsStateService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.component';
 import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
+import { HostRoutingSettingComponent } from './host-routing-setting.component';
 import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-group.component';
 
 /**
@@ -15,7 +19,8 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
  * do not change). Opens the shared state itself, because a user can land on this tab first and the subagent cache TTL
  * reads it.
  *
- * Order: the subagent prompt-cache TTL, the session budget, Lane guards, then the advanced groups (context budgets,
+ * Order: the subagent prompt-cache TTL, the session budget, Lane guards, Routing suggestions (Electron only: only the
+ * Electron host runs the routing coordinator; TASK_2026_857), then the advanced groups (context budgets,
  * Codex agents, background query limits; TASK_2026_658) in one viewport-deferred chunk. The CLI matrix and the
  * background model roles moved to the Providers tab (`AgentsRoutingSettingsComponent`), with their deep links.
  *
@@ -30,6 +35,7 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
     SubagentCacheTtlSettingComponent,
     SessionBudgetSettingsComponent,
     LaneGuardsSettingsComponent,
+    HostRoutingSettingComponent,
     AdvancedSettingsGroupComponent,
   ],
   template: `
@@ -60,6 +66,11 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
       <!-- Independent of the tall budget form: guards are small and should always be available. -->
       <ptah-lane-guards-settings />
 
+      <!-- Routing suggestions (TASK_2026_857): Electron only, because only the Electron host runs the coordinator. -->
+      @if (isElectron) {
+        <ptah-host-routing-setting />
+      }
+
       <!-- Advanced orchestration values (TASK_2026_658): one chunk, loaded when scrolled into view, below the session
            budget and the always-available Lane guards; the placeholder is one row. -->
       @defer (on viewport) {
@@ -77,6 +88,7 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
 })
 export class OrchestrationSettingsComponent implements OnInit {
   private readonly state = inject(ProvidersSettingsStateService);
+  protected readonly isElectron = inject(VSCodeService).isElectron === true;
 
   ngOnInit(): void {
     void this.state.open();

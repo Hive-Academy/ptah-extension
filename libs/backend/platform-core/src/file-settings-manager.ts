@@ -46,6 +46,10 @@ const CROSS_PROCESS_WATCH_DEBOUNCE_MS = 50;
  * any in-flight write (including the bounded rename retries).
  */
 const STALE_TEMP_FILE_AGE_MS = 10 * 60 * 1000;
+const ROUTING_KEYS = new Set([
+  'agentOrchestration.hostRouting',
+  'agentOrchestration.decisionModel',
+]);
 
 /**
  * Process-wide counter that keeps each persist()'s temp file name unique. It is
@@ -70,6 +74,8 @@ export class PtahFileSettingsManager {
    * while its generation is still the latest one (write ownership).
    */
   private readonly writeGenerations = new Map<string, number>();
+  /** Counts every effective in-memory routing write, including rollback. */
+  private routingConfigurationGeneration = 0;
   /** Bumped whenever a cross-process reload replaces the in-memory map. */
   private reloadEpoch = 0;
   /**
@@ -124,6 +130,10 @@ export class PtahFileSettingsManager {
     return this.settings[key] !== undefined;
   }
 
+  getRoutingConfigurationGeneration(): number {
+    return this.routingConfigurationGeneration;
+  }
+
   /**
    * Set a setting value. Updates in-memory cache, persists to disk atomically,
    * then fires in-process listeners registered via watch().
@@ -142,6 +152,7 @@ export class PtahFileSettingsManager {
     this.writeGenerations.set(key, generation);
     const epoch = this.reloadEpoch;
     this.settings[key] = value;
+    if (ROUTING_KEYS.has(key)) this.routingConfigurationGeneration += 1;
     const write = this.writePromise.then(
       () => this.persist(),
       () => this.persist(),
@@ -162,6 +173,7 @@ export class PtahFileSettingsManager {
         } else {
           delete this.settings[key];
         }
+        if (ROUTING_KEYS.has(key)) this.routingConfigurationGeneration += 1;
       }
       throw error;
     }
@@ -509,6 +521,9 @@ export class PtahFileSettingsManager {
     }
     this.settings = freshSettings;
     this.reloadEpoch += 1;
+    if (changedKeys.some((key) => ROUTING_KEYS.has(key))) {
+      this.routingConfigurationGeneration += 1;
+    }
     for (const key of changedKeys) {
       const newVal = freshSettings[key];
       this.listeners.get(key)?.forEach((cb) => {

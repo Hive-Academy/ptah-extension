@@ -1,6 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { WallClockService } from '@ptah-extension/core';
 import {
   AgentMonitorStore,
   BackgroundAgentStore,
@@ -138,6 +139,56 @@ describe('CanvasLaneTabsComponent', () => {
         },
       ],
     });
+  });
+
+  it('acquires the second clock only while an agent with a start time is running', () => {
+    jest.useFakeTimers({
+      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    }).setSystemTime(10_000);
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
+    const clearIntervalSpy = jest.spyOn(globalThis, 'clearInterval');
+    const clock = TestBed.inject(WallClockService);
+    const realAcquire = clock.acquire.bind(clock);
+    const releases: Array<jest.Mock<void, []>> = [];
+    const intervals: Array<ReturnType<typeof setInterval>> = [];
+    const acquire = jest.spyOn(clock, 'acquire').mockImplementation((cadence) => {
+      const prior = setIntervalSpy.mock.results.length;
+      const release = jest.fn(realAcquire(cadence));
+      expect(setIntervalSpy.mock.results.slice(prior)).toHaveLength(1);
+      intervals.push(setIntervalSpy.mock.results[prior].value);
+      releases.push(release);
+      return release;
+    });
+    try {
+      const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+      fixture.componentRef.setInput('tabId', TAB_ID);
+      fixture.detectChanges();
+      TestBed.tick();
+      expect(acquire).not.toHaveBeenCalled();
+
+      agents.set([cli({ agentId: 'timed', parentSessionId: 'owner', cli: 'Timed', startedAt: 10_000 })]);
+      fixture.detectChanges();
+      TestBed.tick();
+      expect(acquire).toHaveBeenCalledWith('second');
+      const label = () => tabLabels(fixture.nativeElement).find((value) => value.includes('Timed')) ?? '';
+      expect(label()).not.toContain('0s');
+      jest.advanceTimersByTime(1_000);
+      fixture.detectChanges();
+      expect(label()).toContain('1s');
+      jest.advanceTimersByTime(1_000);
+      fixture.detectChanges();
+      expect(label()).toContain('2s');
+
+      agents.set([cli({ agentId: 'timed', parentSessionId: 'owner', cli: 'Timed', status: 'completed', startedAt: 10_000, completedAt: 12_000 })]);
+      fixture.detectChanges();
+      TestBed.tick();
+      expect(releases[0]).toHaveBeenCalledTimes(1);
+      expect(clearIntervalSpy).toHaveBeenCalledWith(intervals[0]);
+      fixture.destroy();
+    } finally {
+      jest.restoreAllMocks();
+      jest.useRealTimers();
+    }
   });
 
   it('rail shows five active avatars, expands overflow and selects with the shared tooltip', () => {

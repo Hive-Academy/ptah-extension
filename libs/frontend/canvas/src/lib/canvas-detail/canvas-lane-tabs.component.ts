@@ -22,6 +22,7 @@ import {
   agentAccessibleLabel,
   type AgentKind,
 } from '@ptah-extension/chat-ui';
+import { injectWallClock } from '@ptah-extension/core';
 import { FloatingUIService } from '@ptah-extension/ui';
 import { AgentDockCardComponent } from './agent-dock-card.component';
 import { AgentDockMenuComponent } from './agent-dock-menu.component';
@@ -281,7 +282,6 @@ export class CanvasLaneTabsComponent {
   protected readonly menuOpen = signal(false);
   private pendingTabFocusKey: string | null = null;
   private focusRecoveryPending = false;
-  protected readonly now = signal(Date.now());
   /** Agent whose hover / focus card is open, if any. */
   protected readonly cardKey = signal<string | null>(null);
   private cardTimer: ReturnType<typeof setTimeout> | null = null;
@@ -292,6 +292,12 @@ export class CanvasLaneTabsComponent {
   protected readonly railChipClass = RAIL_CHIP_CLASS;
 
   readonly agents = computed(() => this.roster.roster(this.tabId()));
+  private readonly ticking = computed(() =>
+    this.agents().some(
+      (agent) => agent.status === 'running' && typeof agent.startedAt === 'number',
+    ),
+  );
+  protected readonly now = injectWallClock('second', () => this.ticking());
 
   readonly selectedKey = computed(() => {
     const key = this.laneKey();
@@ -425,15 +431,6 @@ export class CanvasLaneTabsComponent {
       if (this.laneKey() !== this.selectedKey()) {
         this.laneSelected.emit(this.selectedKey());
       }
-    });
-    effect((onCleanup) => {
-      const ticking = this.agents().some(
-        (agent) =>
-          agent.status === 'running' && typeof agent.startedAt === 'number',
-      );
-      if (!ticking) return;
-      const timer = setInterval(() => this.now.set(Date.now()), 1000);
-      onCleanup(() => clearInterval(timer));
     });
     this.destroyRef.onDestroy(() => this.clearCardTimer());
     afterNextRender(() => {

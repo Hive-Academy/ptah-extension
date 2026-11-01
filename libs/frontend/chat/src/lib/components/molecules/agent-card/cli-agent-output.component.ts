@@ -12,6 +12,7 @@ import type {
   CliOutputSegment,
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
+import { addCliUsage, type CliUsageTotals } from '@ptah-extension/shared';
 import {
   AgentCardOutputComponent,
   formatAgentDuration,
@@ -21,8 +22,8 @@ import {
 import { LaneTranscriptComponent } from '../../organisms/transcript/lane-transcript.component';
 import { LANE_COLUMN_CLASS } from '../execution-header/lane-column';
 import { AgentMonitorTreeBuilderService } from '../../../services/agent-monitor-tree-builder.service';
+import type { CliLaneUsage } from '../../../utils/lane-stats.adapters';
 import {
-  extractCliAgentStats,
   isUsageSegment,
   formatTokens,
 } from './stats-bar.utils';
@@ -39,9 +40,10 @@ import {
       [class.!border-0]="presentation() === 'flat'"
     >
       <!-- Stats bar (only shown when stats are available) -->
-      @if (presentation() === 'card' && modelStats(); as stats) {
+      @if (presentation() === 'card' && headerStats(); as stats) {
         <div
           class="flex items-center gap-3 px-2 py-1 bg-base-200/50 border-b border-base-content/5"
+          [attr.title]="usage()?.partial ? 'From retained output, may be partial' : null"
         >
           @if (stats.model) {
             <span class="text-[9px] font-mono text-base-content-muted">
@@ -50,22 +52,22 @@ import {
           }
           @if (stats.inputTokens !== undefined) {
             <span class="text-[9px] font-mono text-info/70">
-              &#8593; {{ fmtTokens(stats.inputTokens) }}
+              &#8593; {{ usage()?.partial ? '≥ ' : '' }}{{ fmtTokens(stats.inputTokens) }}
             </span>
           }
           @if (stats.outputTokens !== undefined) {
             <span class="text-[9px] font-mono text-accent/70">
-              &#8595; {{ fmtTokens(stats.outputTokens) }}
+              &#8595; {{ usage()?.partial ? '≥ ' : '' }}{{ fmtTokens(stats.outputTokens) }}
             </span>
           }
-          @if (stats.totalTokens !== undefined) {
+          @if (headerTokens() !== null) {
             <span class="text-[9px] font-mono text-info/70">
-              Reported total: {{ fmtTokens(stats.totalTokens) }} tokens
+              {{ usage() === null || usage()?.tokensExact ? 'Reported total: ' : '' }}{{ usage() && (usage()?.partial || !usage()?.tokensExact) ? '≥ ' : '' }}{{ fmtTokens(headerTokens()!) }} tokens
             </span>
           }
           @if (stats.costUsd !== undefined) {
             <span class="text-[9px] font-mono text-warning/70">
-              {{ '$' + stats.costUsd.toFixed(4) }}
+              {{ usage()?.partial ? '≥ ' : '' }}{{ '$' + stats.costUsd.toFixed(4) }}
             </span>
           }
           @if (
@@ -131,6 +133,19 @@ export class CliAgentOutputComponent {
   );
 
   readonly segments = input<CliOutputSegment[]>([]);
+  readonly usage = input<CliLaneUsage | null>(null);
+  /** Direct output consumers still supply segments without a lane record. */
+  readonly headerStats = computed(() =>
+    this.usage()
+      ? this.usage()?.usage ?? null
+      : this.segments().reduce<CliUsageTotals | null>(
+          (total, segment) => addCliUsage(total, segment.usage),
+          null,
+        ),
+  );
+  readonly headerTokens = computed(() =>
+    this.usage() ? this.usage()?.tokens ?? null : this.headerStats()?.totalTokens ?? null,
+  );
   readonly stdoutSegments = input<RenderSegment[]>([]);
   readonly stderrSegments = input<StderrSegment[]>([]);
   readonly streamEvents = input<FlatStreamEventUnion[]>([]);
@@ -182,8 +197,6 @@ export class CliAgentOutputComponent {
     }
     return tree;
   });
-
-  readonly modelStats = computed(() => extractCliAgentStats(this.segments()));
 
   /** Stdout is the output only for a lane that emits no structured content. */
   protected readonly showStdoutFallback = computed(
