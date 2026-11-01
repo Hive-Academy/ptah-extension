@@ -37,5 +37,13 @@ Spawnable rows: codex (confirmed room, weekly 83%), antigravity, grok, kimi code
 Ollama Code AT LIMIT; copilot/claude disabled. Planned: code-logic review on codex (OpenAI family,
 different from Claude implementers).
 
+### Lane limits
+- antigravity (family antigravity): usage limit, RESOURCE_EXHAUSTED 429 "Individual quota reached",
+  resets in 72h9m (~2026-11-04 15:16 UTC). Skipped for this run. Batch 3 moved to grok
+  (other family, same capability).
+- grok (family grok): usage limit, HTTP 402 "Grok Build usage balance exhausted", reset unknown.
+  Skipped for the rest of this run. Batch 3 moved to kimi code (codex stays reserved as the
+  different-family reviewer).
+
 ## Conversation Summary
 - Before screenshots: main checkout state = broken behaviour already documented in finding 8.

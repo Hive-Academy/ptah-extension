@@ -1,6 +1,6 @@
 # Batches - TASK_2026_859_b561
 
-Total tasks: 11 | Batches: 5 | Complete: 1/5
+Total tasks: 12 | Batches: 5 | Complete: 4/5
 
 Flow: BUGFIX, plan-free. Inputs: task.md, context.md, decisions.md (D3-D10 binding),
 research-report.md, fixtures/. Worktree for every path, command and commit:
@@ -18,6 +18,8 @@ code-logic reviewer covers in the combined diff.
 ## Rules for every executor (repeat into every lane prompt)
 
 - Work only inside `/home/amun/ptah-extension/.claude-worktrees/mcp-registry-api`.
+- From Batch 5 on (user instruction, 2026-11-01): run NO local verify or heavy check; CI is
+  the gate.
 - Verify only with `npm run verify -- -p <projects>` (memory-safe lock). Never workspace-wide,
   never `nx run-many` over unchanged projects, never build/serve/dev/e2e/package targets. Filter
   output with `| tail -40`; do not re-run to read it.
@@ -86,7 +88,7 @@ Edge cases:
 | Mapper file `libs/shared/src/lib/types/mcp-registry-config.mapper.ts`, exported from `libs/shared/src/index.ts` | lib/utils / next to types | prompt: "a new file in libs/shared next to the types" | yes |
 | Unresolved URL variables → `installable: false` + required inputs, not a D7 error code | new error code / required input | D8 says required values are inputs, not failure; R4 | yes |
 
-## Batch 1: Shared registry types and install-config mapper — COMPLETE
+## Batch 1: Shared registry types and install-config mapper — COMPLETE (commit 6c9f150e2)
 
 - Recommended executor: CLI lane, backend capability (agent shape: backend-developer)
 - Execution mode: sequential
@@ -187,7 +189,7 @@ Edge cases:
   so Batch 2's Zod schema must require `transport` on every package it passes on.
 - No per-batch review; covered by the phase code-logic review.
 
-## Batch 2: Registry provider and RPC error propagation — PENDING
+## Batch 2: Registry provider and RPC error propagation — COMPLETE (commit 09ede97d8)
 
 - Recommended executor: CLI lane, backend capability (agent shape: backend-developer)
 - Execution mode: sequential
@@ -199,7 +201,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batch 1 (may run in parallel with Batches 3 and 4)
 - Phase: registry-fix | Phase review: code-logic (combined diff, after Batch 5)
 
-### Task 2.1: Provider on the new endpoint, Zod schema and coded shape error — PENDING
+### Task 2.1: Provider on the new endpoint, Zod schema and coded shape error — COMPLETE
 
 - Files:
   - `/home/amun/ptah-extension/.claude-worktrees/mcp-registry-api/libs/backend/cli-agent-runtime/src/lib/mcp-directory/mcp-registry.provider.ts`
@@ -227,7 +229,7 @@ Edge cases:
 - Validation notes: R7, D6; keep the "returns null when getServerDetails throws" case meaning
   network failure only.
 
-### Task 2.2: RPC handlers return the coded error instead of an empty list — PENDING
+### Task 2.2: RPC handlers return the coded error instead of an empty list — COMPLETE
 
 - Depends on: Task 2.1
 - Files:
@@ -248,8 +250,15 @@ Edge cases:
 
 - Artifacts exist; fixtures are byte-identical copies.
 - `npm run verify -- -p @ptah-extension/cli-agent-runtime,@ptah-extension/rpc-handlers` passes.
+- Result (team-leader, 2026-11-01): implementer kimi-code (CLI lane). Diff read on disk: Zod
+  envelope schema, `McpRegistryShapeError` thrown on bad envelope / all-invalid items / bad
+  detail body, 404 and network failure still `null`; search and getPopular return
+  `errorCode` + message, getDetails logs the code. 4 fixtures `cmp`-identical. No scope
+  violations, no stubs. Lane-reported verify 6/6 pass (team-leader re-run was a 6/6 Nx
+  cache hit). Local verify skipped by user instruction; CI is the gate.
+  Report: batch-2-report.md.
 
-## Batch 3: Directory browser auto-detect via the shared mapper — PENDING
+## Batch 3: Directory browser auto-detect via the shared mapper — COMPLETE (commit 18dd03019)
 
 - Recommended executor: CLI lane, frontend capability (agent shape: frontend-developer)
 - Execution mode: sequential
@@ -262,7 +271,7 @@ Edge cases:
 - Phase: registry-fix | Phase review: code-logic (combined diff, after Batch 5); visual
   before/after (dark + light) in Electron at completion (D10 supplies the "before").
 
-### Task 3.1: Replace generateConfig and version_detail reads; coded messages — PENDING
+### Task 3.1: Replace generateConfig and version_detail reads; coded messages — COMPLETE
 
 - Files:
   - `/home/amun/ptah-extension/.claude-worktrees/mcp-registry-api/libs/frontend/chat-ui/src/lib/molecules/setup-plugins/mcp-directory-browser.component.ts`
@@ -296,8 +305,15 @@ Edge cases:
 ### Batch 3 verification
 
 - `npm run verify -- -p @ptah-extension/chat-ui` passes.
+- Result (team-leader, 2026-11-01): implementer kimi-code (CLI lane). Diff read on disk:
+  `generateConfig` removed, `registryEntryToInstallConfig` drives `suggestedConfig`, required
+  inputs list (secret badge), install disabled when not installable, coded error messages on
+  search/popular. Install target selection untouched. Local verify skipped by user
+  instruction; CI is the gate. (A team-leader run started before that instruction exited 0,
+  3/3 targets.) Report: batch-3-report.md. Note for the phase review: the `installConfigResult`
+  signal is written but may have no reader (dead state).
 
-## Batch 4: CLI install path via the shared mapper — PENDING
+## Batch 4: CLI install path via the shared mapper — COMPLETE (commit: subject "fix(cli): batch 4 - install via the shared registry mapper"; the batches.md update rides in that commit, so its SHA is the one in git log)
 
 - Recommended executor: CLI lane, backend capability (agent shape: backend-developer)
 - Execution mode: sequential
@@ -309,7 +325,7 @@ Edge cases:
 - Tasks: 1 | Depends on: Batch 1 (parallel-safe with Batches 2 and 3)
 - Phase: registry-fix | Phase review: code-logic (combined diff, after Batch 5)
 
-### Task 4.1: Remove duplicate generateConfig; map with registryEntryToInstallConfig — PENDING
+### Task 4.1: Remove duplicate generateConfig; map with registryEntryToInstallConfig — COMPLETE
 
 - Files:
   - `/home/amun/ptah-extension/.claude-worktrees/mcp-registry-api/apps/ptah-cli/src/cli/commands/mcp.ts`
@@ -328,6 +344,12 @@ Edge cases:
 ### Batch 4 verification
 
 - `npm run verify -- -p ptah-cli` passes.
+- Result (team-leader, 2026-11-01): implementer kimi-code (CLI lane). Diff read on disk:
+  `generateConfig` deleted, `registryEntryToInstallConfig` used; `ok:false` throws
+  `<code>: <message>`; `installable:false` throws with input names only; secret inputs passed
+  as names only. 3 new spec cases. No stubs, no install-scope changes. Local verify skipped
+  by user instruction; CI is the gate (a run in progress was stopped). Report:
+  batch-4-report.md.
 
 ## Batch 5: Remove old-shape types and stale fixtures; host verification — PENDING
 
@@ -340,8 +362,9 @@ Edge cases:
 - Review family: different from implementer (phase review on codex)
 - Rationale: deletion is only safe after Batches 2-4 moved every consumer; it is the phase's
   last batch and carries the dependent-host checks.
-- Tasks: 2 | Depends on: Batches 2, 3, 4
+- Tasks: 3 | Depends on: Batches 2, 3, 4
 - Phase: registry-fix | Phase review: code-logic over `<parent of Batch 1 commit>..HEAD`
+- Order: 5.1, then 5.3, then 5.2 (host checks run last over both).
 
 ### Task 5.1: Delete old registry types and update remaining references — PENDING
 
@@ -360,22 +383,45 @@ Edge cases:
   and report zero hits outside `.ptah/`.
 - Validation notes: R3.
 
+### Task 5.3: runtimeHint must match the package's registry type — PENDING
+
+- Files:
+  - `/home/amun/ptah-extension/.claude-worktrees/mcp-registry-api/libs/shared/src/lib/types/mcp-registry-config.mapper.ts`
+  - `/home/amun/ptah-extension/.claude-worktrees/mcp-registry-api/libs/shared/src/lib/types/mcp-registry-config.mapper.spec.ts`
+- Source: Batch 1 note (a), confirmed as a defect by the orchestrator. Defect at
+  mcp-registry-config.mapper.ts:58 and :133-138: `ALLOWED_RUNTIME_HINTS` is one global set
+  (`npx`, `uvx`, `docker`, `dnx`), so an npm package with `runtimeHint: "uvx"` becomes
+  `uvx -y pkg@ver` (npm arg layout under the pypi runner), and the same for every other
+  cross-type pair.
+- Pattern to follow: `DEFAULT_COMMANDS` (mapper.ts:51-56), a `Record<SupportedRegistryType, ...>`.
+- Quality requirements: replace the global set with a per-registry-type allowlist
+  (`Record<SupportedRegistryType, ReadonlySet<string>>`; npm `npx`, pypi `uvx`, oci `docker`,
+  nuget `dnx`; add a further runner only if the existing arg layout for that type is correct
+  for it). Use `runtimeHint` only when it is in the allowlist of the package's own
+  `registryType`; otherwise fall back to `DEFAULT_COMMANDS[registryType]`. No throw, no logging,
+  args stay an array. Keep the hostile-hint case (`"sh -c"`) passing.
+- Spec: regression cases built by cloning a fixture, labelled "derived from <fixture>":
+  npm package (detail-package-npm.json) with `runtimeHint: "uvx"` → command `npx`, args start
+  `-y`; pypi package (detail-pypi.json) with `runtimeHint: "npx"` → command `uvx`, no `-y`;
+  matching hint (`npx` on npm) still honoured.
+- Validation notes: R6 (args array, no shell); pure function, no zod import (A2).
+- Verify: CI only (Task 5.2).
+
 ### Task 5.2: Dependent-host verification — PENDING
 
 - Depends on: Task 5.1
 - Files: none (verification only).
-- Quality requirements: run, in this order, under the verify lock:
-  1. `npm run verify -- -p @ptah-extension/shared,@ptah-extension/webview-e2e-harness,@ptah-extension/ui`
-  2. `npm run verify -- -t typecheck -p ptah-electron,ptah-cli,ptah-extension-vscode,ptah-extension-webview,ptah-tui,@ptah-extension/marketplace,@ptah-extension/vscode-lm-tools`
-  3. `npm run verify -- -t test -p ptah-electron,ptah-cli` — confirm the header says
-     "Running target test for 2 projects".
-  Report tailed output only.
+- Quality requirements: CI only. By user instruction (2026-11-01) no local `npm run verify`
+  or other heavy check runs for this batch; the PR's CI jobs (shared, webview-e2e-harness, ui,
+  and the dependent hosts ptah-electron, ptah-cli, ptah-extension-vscode,
+  ptah-extension-webview, ptah-tui, marketplace, vscode-lm-tools) are the gate. The executor
+  runs no checks; the team-leader reads CI results after the push.
 - Validation notes: CLAUDE.md "keep every host compiling".
 
 ### Batch 5 verification
 
 - Zero old-shape hits (Task 5.1 grep).
-- Task 5.2 commands all pass.
+- Local verify: CI only (user instruction); the PR's CI jobs pass.
 - Then return NEEDS REVIEW for the phase (code-logic on codex, combined diff).
 
 ## Completion requirements (Mode 3)

@@ -6,7 +6,9 @@
  *   - details: dispatches mcpDirectory:getDetails; usage error without name
  *   - install:
  *       * UsageError when --target invalid or missing
- *       * derives stdio/npx config from version_detail
+ *       * derives stdio/npx config from packages
+ *       * returns coded mapper errors without calling install
+ *       * reports required secret input names without values
  *       * second invocation against an identical existing config →
  *         `changed: false` and skips the install RPC
  *       * partial-failure (results[].success === false) bubbles via task.error
@@ -23,6 +25,7 @@ import { ExitCode } from '../jsonrpc/types.js';
 import type { Formatter } from '../output/formatter.js';
 import type { GlobalOptions } from '../router.js';
 import type { CliMessageTransport } from '@ptah-extension/cli-engine';
+import { MCP_REGISTRY_ERROR_MESSAGES } from '@ptah-extension/shared';
 
 const baseGlobals: GlobalOptions = {
   json: true,
@@ -132,16 +135,20 @@ function buildHooks(): {
 }
 
 // A minimal registry-entry fixture whose first stdio package resolves to
-// `npx -y <pkg>`. Used by every install-flow test.
+// `npx -y <pkg>@<version>`. Used by the npm install-flow tests.
 function makeNpmEntry(name: string, pkg: string): unknown {
   return {
     name,
     description: 'fixture',
-    version_detail: {
-      version: '1.0.0',
-      transports: [{ type: 'stdio' }],
-      packages: [{ registry_name: 'npm', name: pkg, version: '1.0.0' }],
-    },
+    version: '1.0.0',
+    packages: [
+      {
+        registryType: 'npm',
+        identifier: pkg,
+        version: '1.0.0',
+        transport: { type: 'stdio' },
+      },
+    ],
   };
 }
 
@@ -284,12 +291,170 @@ describe('ptah mcp install', () => {
       serverName: 'io.github.x/y',
       serverKey: 'y',
       targets: ['claude'],
-      config: { type: 'stdio', command: 'npx', args: ['-y', '@scope/foo'] },
+      config: {
+        type: 'stdio',
+        command: 'npx',
+        args: ['-y', '@scope/foo@1.0.0'],
+      },
     });
     const last =
       formatterTrace.notifications[formatterTrace.notifications.length - 1];
     expect(last?.method).toBe('mcp.installed');
     expect(last?.params).toMatchObject({ changed: true, target: 'claude' });
+  });
+
+  it('returns a coded mapper error without calling install', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('mcpDirectory:listInstalled', {
+      success: true,
+      data: { servers: [] },
+    });
+    engine.scripted.set('mcpDirectory:getDetails', {
+      success: true,
+      data: {
+        name: 'io.github.x/y',
+        description: 'fixture',
+        version: '1.0.0',
+        packages: [],
+        remotes: [],
+      },
+    });
+
+    const exit = await execute(
+      {
+        subcommand: 'install',
+        name: 'io.github.x/y',
+        target: 'claude',
+      } satisfies McpOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.InternalFailure);
+    expect(
+      engine.rpcCalls.find((c) => c.method === 'mcpDirectory:install'),
+    ).toBeUndefined();
+    expect(formatterTrace.notifications.at(-1)).toEqual({
+      method: 'task.error',
+      params: {
+        ptah_code: 'internal_failure',
+        message: `MCP_NO_INSTALL_SOURCE: ${MCP_REGISTRY_ERROR_MESSAGES.MCP_NO_INSTALL_SOURCE}`,
+      },
+    });
+  });
+
+  it('emits required secret input names only and omits their values', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('mcpDirectory:listInstalled', {
+      success: true,
+      data: { servers: [] },
+    });
+    engine.scripted.set('mcpDirectory:getDetails', {
+      success: true,
+      data: {
+        name: 'io.github.x/y',
+        description: 'fixture',
+        version: '1.0.0',
+        packages: [
+          {
+            registryType: 'npm',
+            identifier: '@scope/foo',
+            version: '1.0.0',
+            transport: { type: 'stdio' },
+            environmentVariables: [
+              {
+                name: 'AI_2KW_API_KEY',
+                description: 'API key',
+                isRequired: true,
+                isSecret: true,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    engine.scripted.set('mcpDirectory:install', {
+      success: true,
+      data: {
+        results: [
+          { target: 'claude', success: true, configPath: '/tmp/.mcp.json' },
+        ],
+      },
+    });
+
+    const exit = await execute(
+      {
+        subcommand: 'install',
+        name: 'io.github.x/y',
+        target: 'claude',
+      } satisfies McpOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.Success);
+    const installCall = engine.rpcCalls.find(
+      (c) => c.method === 'mcpDirectory:install',
+    );
+    expect(installCall?.params).not.toHaveProperty('config.env');
+    expect(formatterTrace.notifications.at(-1)?.params).toMatchObject({
+      requiredInputs: ['AI_2KW_API_KEY'],
+    });
+  });
+
+  it('rejects a non-installable config with required input names only', async () => {
+    const { formatterTrace, engine, hooks } = buildHooks();
+    engine.scripted.set('mcpDirectory:listInstalled', {
+      success: true,
+      data: { servers: [] },
+    });
+    engine.scripted.set('mcpDirectory:getDetails', {
+      success: true,
+      data: {
+        name: 'io.github.x/y',
+        description: 'fixture',
+        version: '1.0.0',
+        remotes: [
+          {
+            type: 'streamable-http',
+            url: 'https://{api_host}/mcp',
+            variables: {
+              api_host: {
+                description: 'API host',
+                isRequired: true,
+                choices: ['api.example.com'],
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const exit = await execute(
+      {
+        subcommand: 'install',
+        name: 'io.github.x/y',
+        target: 'claude',
+      } satisfies McpOptions,
+      baseGlobals,
+      hooks,
+    );
+
+    expect(exit).toBe(ExitCode.InternalFailure);
+    expect(
+      engine.rpcCalls.find((c) => c.method === 'mcpDirectory:install'),
+    ).toBeUndefined();
+    expect(formatterTrace.notifications.at(-1)).toEqual({
+      method: 'task.error',
+      params: {
+        ptah_code: 'internal_failure',
+        message:
+          'Cannot install "io.github.x/y" without required inputs: api_host',
+      },
+    });
+    expect(
+      JSON.stringify(formatterTrace.notifications.at(-1)?.params),
+    ).not.toContain('api.example.com');
   });
 
   it('is idempotent — second install with identical config emits changed:false and skips the install RPC', async () => {
@@ -306,7 +471,7 @@ describe('ptah mcp install', () => {
             config: {
               type: 'stdio',
               command: 'npx',
-              args: ['-y', '@scope/foo'],
+              args: ['-y', '@scope/foo@1.0.0'],
             },
             managedByPtah: true,
           },

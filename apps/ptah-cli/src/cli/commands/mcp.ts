@@ -12,7 +12,7 @@
  *   details <name>              RPC `mcpDirectory:getDetails`
  *   install <name> --target X   RPC `mcpDirectory:getDetails` → `mcpDirectory:install`
  *                               (config derived from registry entry's
- *                                `version_detail.transports/packages`)
+ *                                `packages/remotes` via the shared mapper)
  *   uninstall <key> --target X  RPC `mcpDirectory:uninstall`
  *   list                        RPC `mcpDirectory:listInstalled`
  *   popular                     RPC `mcpDirectory:getPopular`
@@ -34,6 +34,7 @@ import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import type { CliMessageTransport } from '@ptah-extension/cli-engine';
+import { registryEntryToInstallConfig } from '@ptah-extension/shared';
 import type {
   InstalledMcpServer,
   McpDirectoryGetDetailsResult,
@@ -43,7 +44,6 @@ import type {
   McpDirectorySearchResult,
   McpDirectoryUninstallResult,
   McpInstallTarget,
-  McpRegistryEntry,
   McpServerConfig,
 } from '@ptah-extension/shared';
 
@@ -214,23 +214,29 @@ async function runInstall(
       'mcpDirectory:getDetails',
       { name },
     );
-    if (!entry || !entry.version_detail) {
+    if (!entry) {
+      throw new Error(`mcpDirectory:getDetails returned no entry for "${name}"`);
+    }
+    const installConfig = registryEntryToInstallConfig(entry);
+    if (!installConfig.ok) {
+      throw new Error(`${installConfig.code}: ${installConfig.message}`);
+    }
+    const requiredInputs = installConfig.requiredInputs.map(
+      (input) => input.name,
+    );
+    if (!installConfig.installable) {
       throw new Error(
-        `mcpDirectory:getDetails returned no version_detail for "${name}"`,
+        `Cannot install "${name}" without required inputs: ${requiredInputs.join(', ')}`,
       );
     }
-    const config = generateConfig(entry);
-    if (!config) {
-      throw new Error(
-        `Cannot derive an MCP server config for "${name}" — no usable transport found in version_detail`,
-      );
-    }
+    const config = installConfig.config;
     if (beforeMatch && configsEqual(beforeMatch.config, config)) {
       await formatter.writeNotification('mcp.installed', {
         serverName: name,
         serverKey,
         target,
         changed: false,
+        requiredInputs,
         results: [
           {
             target,
@@ -266,6 +272,7 @@ async function runInstall(
       serverKey,
       target,
       changed,
+      requiredInputs,
       results,
     });
     return ExitCode.Success;
@@ -386,50 +393,6 @@ function parseTarget(raw: string | undefined): McpInstallTarget | null {
 function deriveServerKey(name: string): string {
   const parts = name.split('/');
   return parts[parts.length - 1] || name;
-}
-
-/**
- * Translate a registry entry's `version_detail` into a concrete `McpServerConfig`.
- * Mirrors `mcp-directory-browser.component.ts#generateConfig` — npm → npx,
- * pypi → uvx, docker → docker run, then http/sse fallback.
- */
-function generateConfig(entry: McpRegistryEntry): McpServerConfig | null {
-  const vd = entry.version_detail;
-  if (!vd) return null;
-
-  const stdioTransport = vd.transports.find((t) => t.type === 'stdio');
-  const httpTransport = vd.transports.find((t) => t.type === 'http');
-  const sseTransport = vd.transports.find((t) => t.type === 'sse');
-
-  if (stdioTransport) {
-    const npmPkg = vd.packages.find((p) => p.registry_name === 'npm');
-    const pypiPkg = vd.packages.find((p) => p.registry_name === 'pypi');
-    const dockerPkg = vd.packages.find((p) => p.registry_name === 'docker');
-
-    if (npmPkg) {
-      return { type: 'stdio', command: 'npx', args: ['-y', npmPkg.name] };
-    }
-    if (pypiPkg) {
-      return { type: 'stdio', command: 'uvx', args: [pypiPkg.name] };
-    }
-    if (dockerPkg) {
-      return {
-        type: 'stdio',
-        command: 'docker',
-        args: ['run', '-i', '--rm', dockerPkg.name],
-      };
-    }
-  }
-
-  if (httpTransport?.url) {
-    return { type: 'http', url: httpTransport.url };
-  }
-
-  if (sseTransport?.url) {
-    return { type: 'sse', url: sseTransport.url };
-  }
-
-  return null;
 }
 
 function findInstalled(
