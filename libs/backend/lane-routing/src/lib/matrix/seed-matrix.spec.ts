@@ -281,7 +281,7 @@ describe('matrix schema', () => {
         ...seedCell,
         source: 'local',
         sourceRef: undefined,
-        sampleCount: 4,
+        sampleCount: 0,
       },
     ],
     [

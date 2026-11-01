@@ -96,6 +96,8 @@ export class ElectronLayoutService implements MessageHandler {
    * elsewhere, so VS Code never sees the loading state.
    */
   private readonly _workspaceResolved = signal(!this.vscodeService.isElectron);
+  /** Start of the initial workspace resolution, shared across loading view mounts. */
+  readonly workspaceResolveStartedAt = Date.now();
   /** Basename of the active folder in the restored layout cache, if any. */
   private readonly _cachedWorkspaceName = signal<string | null>(null);
   private _switchId = 0;

@@ -32,6 +32,10 @@ const ollamaUnknown: QuotaOwnerRef = {
   key: 'ollama-cloud#unknown:0123456789abcdef',
   label: 'Unknown owner',
 };
+const kimiOwner: QuotaOwnerRef = {
+  providerId: 'kimi-code', identityKind: 'credential',
+  key: 'kimi-code#credential:0123456789abcdef', label: 'Kimi Code API key',
+};
 
 function createLogger(): jest.Mocked<Logger> {
   return {
@@ -105,6 +109,23 @@ const success = (billing: 'plan' | 'overage' | 'unknown') =>
   }) as const;
 
 describe('PtahCliLanePlanLimits — lane owner', () => {
+  it('records a Kimi lane owner at spawn for direct or shared credentials', async () => {
+    for (const identityKind of ['credential', 'cli-store'] as const) {
+      const selected = {
+        ...kimiOwner,
+        identityKind,
+        key: `kimi-code#${identityKind}:0123456789abcdef`,
+      };
+      const owners = createOwners();
+      owners.ownerForPtahCliKey.mockResolvedValue(selected);
+      const { lane, recordOwner } = createLane('kimi-code', { owners });
+      lane.attach('agent-1');
+      await lane.settled;
+      expect(owners.ownerForPtahCliKey).toHaveBeenCalledWith('pc-1', 'kimi-code');
+      expect(recordOwner).toHaveBeenCalledWith('agent-1', selected);
+    }
+  });
+
   it('records a claude-cli lane owner from its own accountInfo() once the run is tracked', async () => {
     const { lane, owners, recordOwner } = createLane('claude-cli');
     const account = { email: 'dev@example.test', organization: 'org' };

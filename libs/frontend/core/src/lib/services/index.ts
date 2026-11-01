@@ -1,4 +1,5 @@
 export * from './logging.service';
+export { WallClockService, injectWallClock, WALL_CLOCK_COARSE_MS, type WallClockCadence } from './wall-clock.service';
 export * from './attention.types';
 export { NotificationService, attentionRequestKey, attentionConditionKey, ATTENTION_RECENT_LIMIT, ATTENTION_SOUND_BURST_MS, ATTENTION_SOUND_COOLDOWN_MS } from './notification.service';
 export {
@@ -68,3 +69,11 @@ export {
   ACTIVITY_IDLE_AFTER_MS,
   type ActivityItem,
 } from './back-office-activity.service';
+export {
+  CLAUDE_CODE_SIGN_IN_COMMAND,
+  CLAUDE_CODE_NPM_INSTALL_COMMAND,
+  CLAUDE_CODE_SETUP_DOCS_URL,
+  CLAUDE_CODE_INSTALL_COMMANDS,
+  type ClaudeCodeInstallTab,
+  type ClaudeCodeInstallCommand,
+} from './claude-code-commands';

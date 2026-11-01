@@ -1,7 +1,10 @@
-import { inject } from '@angular/core';
+import { inject, Injector } from '@angular/core';
+import { toObservable } from '@angular/core/rxjs-interop';
 import { PRIMARY_OUTLET, Router } from '@angular/router';
+import { firstValueFrom, filter } from 'rxjs';
 import {
   AppStateManager,
+  ElectronLayoutService,
   SurfaceRoutePersistence,
   SurfaceRouterService,
   VSCodeService,
@@ -12,7 +15,9 @@ import {
 import {
   DEFAULT_SURFACE_ID,
   WEBVIEW_ROUTE_STATE_KEY,
+  isAcceptedInitialView,
   parseWebviewRouteState,
+  resolveSurfaceAlias,
   type ViewType,
   type WebviewRouteState,
 } from '@ptah-extension/shared';
@@ -50,6 +55,8 @@ export function injectInitialNavigation(): () => Promise<SurfaceNavigationResult
   const vscodeService = inject(VSCodeService);
   const surfaceRouter = inject(SurfaceRouterService);
   const routePersistence = inject(SurfaceRoutePersistence);
+  const layout = inject(ElectronLayoutService);
+  const injector = inject(Injector);
 
   const router = inject(Router);
 
@@ -106,6 +113,18 @@ export function injectInitialNavigation(): () => Promise<SurfaceNavigationResult
       return navigateToHostSurface(plan.rawView);
     }
 
+    if (
+      firstSegmentPath(router, plan.route) === 'onboarding' &&
+      router.parseUrl(plan.route).queryParams['tab'] !== undefined
+    ) {
+      // The saved tab can only be validated after Electron restores its workspace.
+      await firstValueFrom(
+        toObservable(layout.workspaceResolved, { injector }).pipe(filter(Boolean)),
+      );
+      if (router.navigated || supersededByNewerNavigation()) return 'cancelled';
+    }
+
+    // SurfaceRouterService normalizes legacy setup URLs before navigating.
     const result = await surfaceRouter.navigateToUrl(plan.route);
     if (!surfaceNavigationLanded(result)) {
       if (supersededByNewerNavigation()) return result;
@@ -118,7 +137,16 @@ export function injectInitialNavigation(): () => Promise<SurfaceNavigationResult
     // (`/thoth` to `/thoth/memory`) is the restore; the wildcard sending a
     // stale `/settings/obsolete` to `/chat` is not.
     const settledSegment = firstSegmentPath(router, router.url);
-    if (settledSegment === firstSegmentPath(router, plan.route)) return result;
+    const savedSegment = firstSegmentPath(router, plan.route);
+    const plannedSegment = isAcceptedInitialView(savedSegment)
+      ? resolveSurfaceAlias(savedSegment)
+      : savedSegment;
+    if (settledSegment === plannedSegment) return result;
+    // A restore that settles on onboarding went through the first-run guard
+    // (its only producer), whether `/chat` was restored or a stale route fell
+    // through the wildcard to chat. The guard already spent the one-time
+    // showing; falling back here would navigate to chat again and hide it.
+    if (settledSegment === 'onboarding') return result;
     console.warn(
       `[App] Restored route ${plan.route} settled on ${router.url}; falling back to the host view.`,
     );

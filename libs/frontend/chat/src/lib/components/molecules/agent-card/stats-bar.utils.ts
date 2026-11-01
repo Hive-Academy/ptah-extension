@@ -1,4 +1,8 @@
-import { addCliUsage, type CliOutputSegment } from '@ptah-extension/shared';
+import {
+  addCliUsage,
+  isValidTokenCount,
+  type CliOutputSegment,
+} from '@ptah-extension/shared';
 
 export type CliAgentStats = NonNullable<CliOutputSegment['usage']>;
 export type PartialUsageTotals = Pick<CliAgentStats, 'inputTokens' | 'outputTokens' | 'totalTokens' | 'costUsd'> & { readonly partial: true };
@@ -19,7 +23,7 @@ export const NOT_REPORTED = '—';
 
 /** {@link formatTokens}, or {@link NOT_REPORTED} when the count is missing. */
 export function formatOptionalTokens(count: number | undefined): string {
-  return count === undefined ? NOT_REPORTED : formatTokens(count);
+  return isValidTokenCount(count) ? formatTokens(count) : NOT_REPORTED;
 }
 
 /**

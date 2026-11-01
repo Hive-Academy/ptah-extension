@@ -1,5 +1,9 @@
 import { container as rootContainer, type DependencyContainer } from 'tsyringe';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  type SdkAdapterEvents,
+  type SdkAdapterSubagentEndedEvent,
+} from '@ptah-extension/agent-sdk';
 import type { LaneOutcomeLogger } from '../lane-outcome-logger';
 import { LANE_OUTCOME_PIPELINE } from './register';
 import {
@@ -21,9 +25,10 @@ function quietLogger(): LaneOutcomeLogger & { warn: jest.Mock } {
 /** A child container whose pipeline `dispose` is `disposePipeline`. */
 function containerWith(
   disposePipeline: () => Promise<void>,
+  recorder: { recordSubagentEnded?: jest.Mock } = {},
 ): DependencyContainer {
   const container = rootContainer.createChildContainer();
-  container.register(LANE_OUTCOME_TOKENS.RECORDER, { useValue: {} });
+  container.register(LANE_OUTCOME_TOKENS.RECORDER, { useValue: recorder });
   container.register(LANE_OUTCOME_PIPELINE, {
     useValue: { dispose: disposePipeline },
   });
@@ -40,6 +45,54 @@ function registeredDisposer(
 describe('startAndRegisterLaneOutcomes', () => {
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it('subscribes to subagentEnded on request and releases the listener on dispose', async () => {
+    const disposePipeline = jest.fn(async () => undefined);
+    const recordSubagentEnded = jest.fn();
+    const container = containerWith(disposePipeline, { recordSubagentEnded });
+    let listener: Parameters<SdkAdapterEvents['onSubagentEnded']>[0] | undefined;
+    const unsubscribe = jest.fn();
+    const onSubagentEnded = jest.fn(
+      (callback: Parameters<SdkAdapterEvents['onSubagentEnded']>[0]) => {
+        listener = callback;
+        return unsubscribe;
+      },
+    );
+    container.register(SDK_TOKENS.SDK_ADAPTER_EVENTS, {
+      useValue: { onSubagentEnded },
+    });
+
+    startAndRegisterLaneOutcomes(container, quietLogger(), {
+      observeSubagentEnded: true,
+    });
+    expect(onSubagentEnded).toHaveBeenCalledTimes(1);
+    const event: SdkAdapterSubagentEndedEvent = {
+      sessionId: 'parent',
+      cwd: 'workspace',
+      agentId: 'agent',
+      agentType: 'general-purpose',
+      lastAssistantMessage: null,
+      backgroundTasks: [],
+      timestamp: 1,
+    };
+    listener?.(event);
+    expect(recordSubagentEnded).toHaveBeenCalledWith(event);
+
+    await registeredDisposer(container).dispose();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(disposePipeline).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves subagentEnded unobserved by default', async () => {
+    const container = containerWith(async () => undefined);
+    const onSubagentEnded = jest.fn(() => jest.fn());
+    container.register(SDK_TOKENS.SDK_ADAPTER_EVENTS, {
+      useValue: { onSubagentEnded },
+    });
+    startAndRegisterLaneOutcomes(container, quietLogger());
+    expect(onSubagentEnded).not.toHaveBeenCalled();
+    await registeredDisposer(container).dispose();
   });
 
   it('cleans up a partial callback start and registers a drain', async () => {

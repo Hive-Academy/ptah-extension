@@ -117,7 +117,7 @@ test.describe('Tasks / Harness MESSAGE_HANDLERS — eager while unopened (R4, TA
 
     // Confirm we start somewhere that is NOT the harness builder — the
     // negative half of the proof below.
-    await expect(page.locator('ptah-harness-builder-view')).toHaveCount(0);
+    await expect(page.locator('ptah-proposal-workspace-page')).toHaveCount(0);
 
     // Push while still on 'chat' — the harness builder has never been
     // opened, by any means, at this point in the test.
@@ -129,6 +129,6 @@ test.describe('Tasks / Harness MESSAGE_HANDLERS — eager while unopened (R4, TA
     // The eager handler accepts the valid intake and delegates to the
     // request service, which creates a normal tab and navigates to its
     // builder route. No explicit view switch appears in this test.
-    await expect(page.locator('ptah-harness-builder-view')).toBeVisible();
+    await expect(page.locator('ptah-proposal-workspace-page')).toBeVisible();
   });
 });

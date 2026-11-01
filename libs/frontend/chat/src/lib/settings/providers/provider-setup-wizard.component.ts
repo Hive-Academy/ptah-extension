@@ -40,6 +40,7 @@ import {
   type WritableSignal,
 } from '@angular/core';
 import { LucideAngularModule, Check, Loader2, Server } from 'lucide-angular';
+import { injectWallClock } from '@ptah-extension/core';
 import type { LucideIconData } from 'lucide-angular';
 import {
   NativeDrawerComponent,
@@ -1071,7 +1072,7 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                   class="mt-1 text-xs text-base-content-muted"
                   data-testid="wizard-verify-elapsed"
                 >
-                  {{ elapsedSeconds() }} s elapsed
+                   {{ elapsedSeconds() === null ? '—' : elapsedSeconds() + ' s elapsed' }}
                 </p>
                 <button
                   type="button"
@@ -1527,7 +1528,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   private readonly _probeState = signal<WizardProbeState>('idle');
   private readonly _probeResult = signal<AuthVerifyDraftConnectionResult | null>(null);
   private readonly _probeId = signal<string | null>(null);
-  private readonly _elapsedSeconds = signal(0);
+  private readonly _probeStartedAt = signal<number | null>(null);
   private readonly _tiers: Record<WizardTierKey, WritableSignal<string>> = {
     everyday: signal(''),
     complex: signal(''),
@@ -1546,7 +1547,6 @@ export class ProviderSetupWizardComponent implements OnDestroy {
 
   /** Non-signal: any settled probe (result applied or cancelled) discards late arrivals. */
   private probeSettled = true;
-  private probeTimer: ReturnType<typeof setInterval> | null = null;
 
   protected readonly stepHeading = viewChild<ElementRef<HTMLElement>>('stepHeading');
   private readonly failureHeading = viewChild<ElementRef<HTMLElement>>('failureHeading');
@@ -1781,8 +1781,11 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   });
 
   protected readonly probeChecking = computed<boolean>(() => this._probeState() === 'checking');
-
-  protected readonly elapsedSeconds = computed<number>(() => this._elapsedSeconds());
+  private readonly now = injectWallClock('second', () => this.probeChecking());
+  protected readonly elapsedSeconds = computed<number | null>(() => {
+    const startedAt = this._probeStartedAt();
+    return startedAt === null ? null : Math.max(0, Math.floor((this.now() - startedAt) / 1000));
+  });
 
   protected readonly probeDetail = computed<string | null>(() => this._probeResult()?.detail ?? null);
 
@@ -2035,7 +2038,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.stopElapsedTimer();
+    this.invalidateVerification();
   }
 
   // ------------------------------------------------------------ step machine
@@ -2167,8 +2170,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     this._probeResult.set(null);
     this._probeId.set(null);
     this.probeSettled = true;
-    this.stopElapsedTimer();
-    this._elapsedSeconds.set(0);
+    this._probeStartedAt.set(null);
     for (const key of TIER_KEYS) this._tiers[key].set('');
     this._tierSnapshot.set({ everyday: null, complex: null, fast: null });
     this._saveTo.set('app');
@@ -2227,12 +2229,10 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     this._probeResult.set(null);
     this._probeId.set(null);
     this.probeSettled = true;
-    this.stopElapsedTimer();
-    this._elapsedSeconds.set(0);
+    this._probeStartedAt.set(null);
     if (wasChecking && probeId) {
-      void this.cancelDraftVerification()({ probeId }).catch((error: unknown) => {
-        const errorType = error instanceof Error ? error.constructor.name : typeof error;
-        console.error('[ProviderSetupWizardComponent] Cancel draft verification failed:', errorType);
+      void this.cancelDraftVerification()({ probeId }).catch(() => {
+        // Intentional suppression: the invalidated probe is already settled locally; a late cancel failure cannot restore it.
       });
     }
   }
@@ -2246,13 +2246,13 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     this._probeState.set('checking');
     this._probeResult.set(null);
     this.probeSettled = false;
-    this.startElapsedTimer();
+    this._probeStartedAt.set(Date.now());
 
     const params = this.buildProbeParams(probeId);
     void this.verifyDraftConnection()(params)
       .then((result) => {
-        this.stopElapsedTimer();
         if (this.probeSettled || result.probeId !== this._probeId()) return;
+        this._probeStartedAt.set(null);
         this._probeResult.set(result);
         this.probeSettled = true;
         this._probeState.set(
@@ -2264,8 +2264,8 @@ export class ProviderSetupWizardComponent implements OnDestroy {
         );
       })
       .catch(() => {
-        this.stopElapsedTimer();
         if (this.probeSettled || this._probeId() !== probeId) return;
+        this._probeStartedAt.set(null);
         this.probeSettled = true;
         this._probeResult.set({
           probeId,
@@ -2293,17 +2293,15 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     void this.cancelDraftVerification()({ probeId })
       .then((result) => {
         if (result.cancelled && this._probeState() === 'checking' && this._probeId() === probeId) {
-          this.stopElapsedTimer();
+          this._probeStartedAt.set(null);
           this.probeSettled = true;
           this._probeResult.set(null);
           this._probeState.set('cancelled');
         }
       })
-      .catch((error: unknown) => {
-        const errorType = error instanceof Error ? error.constructor.name : typeof error;
-        console.error('[ProviderSetupWizardComponent] Cancel probe failed:', errorType);
+      .catch(() => {
         if (this._probeState() === 'checking' && this._probeId() === probeId) {
-          this.stopElapsedTimer();
+          this._probeStartedAt.set(null);
           this.probeSettled = true;
           this._probeResult.set({
             probeId,
@@ -2462,22 +2460,8 @@ export class ProviderSetupWizardComponent implements OnDestroy {
 
   // ------------------------------------------------------------------ helpers
 
-  private startElapsedTimer(): void {
-    this.stopElapsedTimer();
-    this._elapsedSeconds.set(0);
-    this.probeTimer = setInterval(() => {
-      this._elapsedSeconds.update((seconds) => seconds + 1);
-    }, 1000);
-  }
-
-  private stopElapsedTimer(): void {
-    if (this.probeTimer === null) return;
-    clearInterval(this.probeTimer);
-    this.probeTimer = null;
-  }
-
   private resetDraft(): void {
-    this.stopElapsedTimer();
+    this._probeStartedAt.set(null);
     this._credentialModeSwitch.set(false);
     this._step.set('provider');
     this._selection.set(null);
@@ -2495,7 +2479,6 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     this._probeState.set('idle');
     this._probeResult.set(null);
     this._probeId.set(null);
-    this._elapsedSeconds.set(0);
     this.probeSettled = true;
     for (const key of TIER_KEYS) this._tiers[key].set('');
     this._tierSnapshot.set({ everyday: null, complex: null, fast: null });

@@ -34,7 +34,7 @@ export interface PlanOwnerReadContext {
    * session it is never read (no other query may stand in).
    */
   readonly claudeRoute?: ClaudeAccountNamedRoute;
-  /** The Ptah CLI agent whose own key (or sign-in) an Ollama Cloud read uses. */
+  /** The Ptah CLI agent whose own key or shared connection a read uses. */
   readonly ptahCliId?: string;
   /** Grok CLI session id recorded when Ptah started the lane. */
   readonly cliSessionId?: string;
@@ -163,6 +163,17 @@ export function planOwnerRead(
           credentialRef: context.ptahCliId
             ? { kind: 'ollama-cloud-agent-key', ptahCliId: context.ptahCliId }
             : { kind: 'provider-key', providerId: 'ollama-cloud' },
+        },
+      };
+    case 'kimi-code':
+      return {
+        kind: 'read',
+        target: {
+          providerId: 'kimi-code',
+          ownerRef: owner,
+          ...(context.ptahCliId && {
+            credentialRef: { kind: 'ptah-cli-key' as const, ptahCliId: context.ptahCliId },
+          }),
         },
       };
     case 'grok':

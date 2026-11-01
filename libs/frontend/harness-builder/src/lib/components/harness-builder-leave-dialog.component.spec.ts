@@ -115,3 +115,57 @@ describe('HarnessBuilderLeaveDialogComponent', () => {
     expect(buttons[2].textContent).toContain('Try again');
   });
 });
+
+describe('HarnessBuilderLeaveDialogComponent uncertain stop', () => {
+  it('offers Retry stop and Keep current without a save or discard choice', async () => {
+    await TestBed.configureTestingModule({
+      imports: [HarnessBuilderLeaveDialogComponent],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(HarnessBuilderLeaveDialogComponent);
+    fixture.componentRef.setInput('stopUncertain', true);
+    fixture.detectChanges();
+    const stopChoices: string[] = [];
+    const leaveChoices: string[] = [];
+    fixture.componentInstance.stopChoice.subscribe((choice) =>
+      stopChoices.push(choice),
+    );
+    fixture.componentInstance.choice.subscribe((choice) =>
+      leaveChoices.push(choice),
+    );
+    const buttons = (
+      fixture.nativeElement as HTMLElement
+    ).querySelectorAll<HTMLButtonElement>('button');
+    expect(
+      Array.from(buttons).map((button) => button.textContent?.trim()),
+    ).toEqual(['Keep current', 'Retry stop']);
+    buttons[1].click();
+    buttons[0].click();
+    expect(stopChoices).toEqual(['retry-stop', 'keep-current']);
+    expect(leaveChoices).toEqual([]);
+    fixture.destroy();
+  });
+});
+
+describe('HarnessBuilderLeaveDialogComponent inert boundary', () => {
+  it('inerts onboarding content while leaving app chrome interactive', async () => {
+    await TestBed.configureTestingModule({
+      imports: [HarnessBuilderLeaveDialogComponent],
+    }).compileComponents();
+    const chrome = document.createElement('nav');
+    const shell = document.createElement('ptah-onboarding-shell');
+    const page = document.createElement('main');
+    const sibling = document.createElement('section');
+    shell.append(page, sibling);
+    document.body.append(chrome, shell);
+    const fixture = TestBed.createComponent(HarnessBuilderLeaveDialogComponent);
+    page.appendChild(fixture.nativeElement as HTMLElement);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(sibling.hasAttribute('inert')).toBe(true);
+    expect(chrome.hasAttribute('inert')).toBe(false);
+    fixture.destroy();
+    expect(sibling.hasAttribute('inert')).toBe(false);
+    shell.remove();
+    chrome.remove();
+  });
+});

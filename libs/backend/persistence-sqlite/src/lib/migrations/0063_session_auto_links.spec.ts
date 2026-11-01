@@ -49,14 +49,14 @@ describe('migration 0063_session_auto_links', () => {
     ).map((row) => row.name);
   }
 
-  it('registers 0063 immediately after 0062 as the maximum version', () => {
+  it('registers 0063 immediately after 0062 and keeps the latest version current', () => {
     const previousIndex = MIGRATIONS.findIndex((entry) => entry.version === 62);
     expect(MIGRATIONS[previousIndex + 1]).toEqual({
       version: 63,
       name: '0063_session_auto_links',
       sql,
     });
-    expect(Math.max(...MIGRATIONS.map((entry) => entry.version))).toBe(63);
+    expect(Math.max(...MIGRATIONS.map((entry) => entry.version))).toBe(64);
     expect(sql).not.toContain('${');
   });
 

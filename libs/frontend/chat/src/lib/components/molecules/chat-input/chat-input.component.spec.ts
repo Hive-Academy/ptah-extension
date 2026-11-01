@@ -55,6 +55,7 @@ jest.mock('ngx-markdown', () => {
 
 import { TestBed } from '@angular/core/testing';
 import {
+  ChangeDetectorRef,
   EnvironmentInjector,
   createEnvironmentInjector,
   runInInjectionContext,
@@ -63,6 +64,7 @@ import {
 } from '@angular/core';
 import { ChatInputComponent } from './chat-input.component';
 import { ComposerDraftStore } from '../../../services/composer-draft.store';
+import { ComposerCompactStore } from '../../../services/composer-compact.store';
 import { COMPOSER_TRIGGER_CACHE_ENABLED } from '../../../services/composer-trigger-scheduler';
 import { ChatStore } from '../../../services/chat.store';
 import type { SendOutcome } from '../../../services/message-sender.service';
@@ -198,6 +200,8 @@ describe('ChatInputComponent', () => {
     cancelRecording: jest.fn(),
   };
 
+  const mockChangeDetector = { detectChanges: jest.fn() };
+
   function createComponent(
     opts: {
       isElectron?: boolean;
@@ -215,6 +219,9 @@ describe('ChatInputComponent', () => {
     TestBed.configureTestingModule({
       providers: [
         provideZonelessChangeDetection(),
+        // Component-level in production; the class is built directly here.
+        ComposerCompactStore,
+        { provide: ChangeDetectorRef, useValue: mockChangeDetector },
         { provide: ChatStore, useValue: mockChatStore },
         { provide: TabManagerService, useValue: mockTabManager },
         { provide: AutopilotStateService, useValue: mockAutopilotState },
@@ -795,6 +802,8 @@ describe('ChatInputComponent', () => {
       TestBed.configureTestingModule({
         providers: [
           provideZonelessChangeDetection(),
+          ComposerCompactStore,
+          { provide: ChangeDetectorRef, useValue: mockChangeDetector },
           { provide: ChatStore, useValue: chatStore },
           { provide: TabManagerService, useValue: tabManager },
           { provide: AutopilotStateService, useValue: mockAutopilotState },

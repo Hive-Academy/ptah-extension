@@ -49,11 +49,7 @@ import {
   FALLBACK_CAUSES,
 } from '../contracts/route-decide-result.schema';
 import type { MatrixCell, ValueMatrixCell } from '../matrix/matrix.types';
-import {
-  MINIMUM_SAMPLE_COUNT,
-  SCORE_MAX,
-  SCORE_MIN,
-} from '../routing-constants';
+import { SCORE_MAX, SCORE_MIN } from '../routing-constants';
 import { formatConfidence } from './confidence';
 
 export const ROSTER_EXCLUSION_REASONS = [
@@ -229,12 +225,9 @@ function localSampleCount(cell: ValueMatrixCell): number {
   if (cell.sampleCount === undefined) {
     throw new Error('a local matrix cell must carry sampleCount');
   }
-  if (
-    !Number.isInteger(cell.sampleCount) ||
-    cell.sampleCount < MINIMUM_SAMPLE_COUNT
-  ) {
+  if (!Number.isInteger(cell.sampleCount) || cell.sampleCount < 1) {
     throw new Error(
-      `a local matrix cell sampleCount must be an integer of at least ${MINIMUM_SAMPLE_COUNT}`,
+      'a local matrix cell sampleCount must be an integer of at least 1',
     );
   }
   return cell.sampleCount;

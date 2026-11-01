@@ -87,6 +87,10 @@ export class ElectronWorkspaceProvider
     return this.activeFolder ?? this.folders[0];
   }
 
+  getRoutingConfigurationGeneration(): number {
+    return this.fileSettings.getRoutingConfigurationGeneration();
+  }
+
   getConfiguration<T>(
     section: string,
     key: string,

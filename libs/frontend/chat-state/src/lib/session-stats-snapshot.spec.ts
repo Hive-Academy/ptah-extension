@@ -22,6 +22,23 @@ function snapshot(
 }
 
 describe('isValidSessionStatsSnapshot', () => {
+  it('accepts a snapshot without turnCount from an older host', () => {
+    expect(isValidSessionStatsSnapshot(snapshot(1))).toBe(true);
+  });
+
+  it.each([0, 2])('accepts turnCount: %p', (turnCount) => {
+    expect(isValidSessionStatsSnapshot(snapshot(1, { turnCount }))).toBe(true);
+  });
+
+  it.each([-1, 1.5, Infinity, NaN, '2'])(
+    'rejects turnCount: %p',
+    (turnCount) => {
+      expect(isValidSessionStatsSnapshot({ ...snapshot(1), turnCount })).toBe(
+        false,
+      );
+    },
+  );
+
   it('accepts a snapshot without a provisional flag', () => {
     expect(isValidSessionStatsSnapshot(snapshot(1))).toBe(true);
   });

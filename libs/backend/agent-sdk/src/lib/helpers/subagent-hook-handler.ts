@@ -505,10 +505,11 @@ export class SubagentHookHandler {
         }
       }
 
-      if (input.agent_transcript_path) {
-        const derivedSessionId = this.deriveSubagentSessionId(
-          input.agent_transcript_path,
-        );
+      if (input.agent_id) {
+        const transcriptPath = input.agent_transcript_path || null;
+        const derivedSessionId = transcriptPath
+          ? this.deriveSubagentSessionId(transcriptPath)
+          : null;
         // Same rigour as the SubagentStop twin in subagent-stop-hook-handler:
         // payload first, closure second, `''` from either means absent. This
         // used to fan the raw payload id out unvalidated, so subscribers could
@@ -517,43 +518,33 @@ export class SubagentHookHandler {
           input.session_id,
           parentSessionId,
         );
-        if (derivedSessionId !== null && resolvedParentSessionId !== null) {
-          try {
-            this.subagentStopRegistry.notifyAll({
-              subagentSessionId: derivedSessionId,
-              parentSessionId: resolvedParentSessionId,
-              workspaceRoot: workspacePath,
-              agentId: input.agent_id,
-              agentType: record?.agentType ?? 'unknown',
-              transcriptPath: input.agent_transcript_path,
-              timestamp: Date.now(),
-            });
-          } catch (notifyError: unknown) {
-            this.logger.warn(
-              '[subagent-hook] SubagentStopCallbackRegistry.notifyAll threw',
-              {
-                error:
-                  notifyError instanceof Error
-                    ? notifyError.message
-                    : String(notifyError),
-              },
-            );
-          }
-        } else if (derivedSessionId === null) {
+        // Transcript path, parent session and cwd are optional metadata; every
+        // stop with an agent id is fanned out.
+        try {
+          this.subagentStopRegistry.notifyAll({
+            subagentSessionId: derivedSessionId,
+            parentSessionId: resolvedParentSessionId,
+            workspaceRoot: workspacePath || null,
+            agentId: input.agent_id,
+            agentType: input.agent_type || record?.agentType || null,
+            transcriptPath,
+            timestamp: Date.now(),
+          });
+        } catch (notifyError: unknown) {
           this.logger.warn(
-            '[subagent-hook] could not derive subagentSessionId from agent_transcript_path',
+            '[subagent-hook] SubagentStopCallbackRegistry.notifyAll threw',
             {
-              transcriptPath: input.agent_transcript_path,
+              error:
+                notifyError instanceof Error
+                  ? notifyError.message
+                  : String(notifyError),
             },
           );
-        } else {
+        }
+        if (transcriptPath !== null && derivedSessionId === null) {
           this.logger.warn(
-            '[subagent-hook] SubagentStop has no resolvable parentSessionId, skipping fan-out',
-            {
-              subagentSessionId: derivedSessionId,
-              payloadSessionId: input.session_id,
-              closureParentSessionId: parentSessionId,
-            },
+            '[subagent-hook] could not derive subagentSessionId from agent_transcript_path',
+            { transcriptPath },
           );
         }
       }

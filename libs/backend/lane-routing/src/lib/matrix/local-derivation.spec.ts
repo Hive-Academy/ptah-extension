@@ -3,7 +3,7 @@ import {
   type LaneOutcomeSummary,
   type OutcomeTaskKind,
 } from '@ptah-extension/shared';
-import { MINIMUM_SAMPLE_COUNT, OUTCOME_WINDOW_MS } from '../routing-constants';
+import { OUTCOME_WINDOW_MS } from '../routing-constants';
 import { CapabilityMatrixSchema } from './matrix.schema';
 import {
   FAMILY_PROFILE_MODEL,
@@ -93,43 +93,138 @@ function valueAt(
 }
 
 describe('deriveLocalMatrix', () => {
-  it('derives round(100 * delivered rate) from five verified runs (Req 6.6)', () => {
-    const rows = [
-      ...runs(4, { verdict: 'delivered', prefix: 'ok' }),
-      ...runs(1, { verdict: 'failed', prefix: 'bad', endedAt: NOW - 500 }),
-    ];
-    const matrix = deriveLocalMatrix(rows, NOW);
+  // The blend table from the plan (implementation-plan.md:698-710), one test
+  // per row. The seeded prior 80 is the z-ai/glm-5 implement seed; every
+  // other key blends with the neutral prior 50.
+
+  it('blends one seeded failure toward the prior 80 (Req 8)', () => {
+    const matrix = deriveLocalMatrix(runs(1, { verdict: 'failed' }), NOW);
     expect(CapabilityMatrixSchema.safeParse(matrix).success).toBe(true);
     const cell = valueAt(matrix, 'z-ai', 'glm-5');
     expect(cell).toEqual({
       kind: 'value',
-      score: 80,
+      score: 73,
       source: 'local',
-      asOf: new Date(NOW - 500).toISOString(),
+      asOf: new Date(NOW - 1000).toISOString(),
       stale: false,
-      sampleCount: MINIMUM_SAMPLE_COUNT,
+      sampleCount: 1,
     });
     expect('sourceRef' in cell).toBe(false);
   });
 
-  it('uses 100 when every verified run was delivered', () => {
-    const cell = valueAt(deriveLocalMatrix(runs(5), NOW), 'z-ai', 'glm-5');
-    expect(cell.score).toBe(100);
+  it('blends five seeded failures toward the prior 80', () => {
+    const cell = valueAt(
+      deriveLocalMatrix(runs(5, { verdict: 'failed' }), NOW),
+      'z-ai',
+      'glm-5',
+    );
+    expect(cell.score).toBe(53);
     expect(cell.sampleCount).toBe(5);
   });
 
-  it('does not derive below the minimum sample count', () => {
-    expect(deriveLocalMatrix(runs(4), NOW).profiles).toEqual([]);
+  it('blends fifty seeded failures toward the prior 80', () => {
+    const cell = valueAt(
+      deriveLocalMatrix(runs(50, { verdict: 'failed' }), NOW),
+      'z-ai',
+      'glm-5',
+    );
+    expect(cell.score).toBe(13);
+    expect(cell.sampleCount).toBe(50);
   });
 
-  it('uses only the review pass rate when delivery is below the minimum', () => {
+  it('blends one delivered run toward the neutral prior 50', () => {
+    const cell = valueAt(
+      deriveLocalMatrix(runs(1, { family: 'codex' }), NOW),
+      'codex',
+      'glm-5',
+    );
+    expect(cell.score).toBe(55);
+    expect(cell.sampleCount).toBe(1);
+  });
+
+  it('blends five delivered runs toward the neutral prior 50', () => {
+    const cell = valueAt(
+      deriveLocalMatrix(runs(5, { family: 'codex' }), NOW),
+      'codex',
+      'glm-5',
+    );
+    expect(cell.score).toBe(67);
+    expect(cell.sampleCount).toBe(5);
+  });
+
+  it('blends one hundred delivered runs toward the neutral prior 50', () => {
+    const cell = valueAt(
+      deriveLocalMatrix(runs(100, { family: 'codex' }), NOW),
+      'codex',
+      'glm-5',
+    );
+    expect(cell.score).toBe(95);
+    expect(cell.sampleCount).toBe(100);
+  });
+
+  it('blends both rates before their mean (delivery 5/5, review 1/1)', () => {
+    const rows = [
+      ...runs(4, { family: 'codex', prefix: 'del' }),
+      summary({
+        runId: 'reviewed',
+        family: 'codex',
+        model: 'glm-5',
+        taskKind: 'implement',
+        verdict: 'delivered',
+        finalReview: 'approved',
+        endedAt: NOW - 500,
+      }),
+    ];
+    const cell = valueAt(deriveLocalMatrix(rows, NOW), 'codex', 'glm-5');
+    expect(cell.score).toBe(61);
+    expect(cell.sampleCount).toBe(5);
+  });
+
+  it('rounds an exact half away from zero (neutral prior, thirty failed)', () => {
+    const cell = valueAt(
+      deriveLocalMatrix(runs(30, { family: 'codex', verdict: 'failed' }), NOW),
+      'codex',
+      'glm-5',
+    );
+    expect(cell.score).toBe(13);
+    expect(cell.sampleCount).toBe(30);
+  });
+
+  it('derives no cell when only unverified rows exist', () => {
+    expect(
+      deriveLocalMatrix(runs(5, { verdict: 'unverified' }), NOW).profiles,
+    ).toEqual([]);
+  });
+
+  it('uses the seeded prior only for the seeded task kind', () => {
+    const cell = valueAt(
+      deriveLocalMatrix(runs(1, { taskKind: 'plan', verdict: 'failed' }), NOW),
+      'z-ai',
+      'glm-5',
+      'plan',
+    );
+    // z-ai/glm-5 seeds only implement, so plan blends with 50: round(500/11).
+    expect(cell.score).toBe(45);
+  });
+
+  it('uses the neutral prior when no seed profile matches the model', () => {
+    const cell = valueAt(
+      deriveLocalMatrix(runs(1, { model: 'glm-5-air', verdict: 'failed' }), NOW),
+      'z-ai',
+      'glm-5-air',
+    );
+    expect(cell.score).toBe(45);
+  });
+
+  it('uses only the blended review rate when no delivery verdict exists', () => {
     const rows = runs(5, { verdict: 'unverified', finalReview: 'approved' });
     const cell = valueAt(deriveLocalMatrix(rows, NOW), 'z-ai', 'glm-5');
-    expect(cell.score).toBe(100);
+    // Review 5/5 with prior 80: round((500 + 800) / 15).
+    expect(cell.score).toBe(87);
     expect(cell.sampleCount).toBe(5);
   });
 
-  it('uses the mean when both rates reach the minimum', () => {
+  it('blends both seeded rates before their mean', () => {
     const rows = [0, 1, 2, 3, 4].map((index) =>
       summary({
         runId: `both-${index}`,
@@ -142,57 +237,24 @@ describe('deriveLocalMatrix', () => {
       }),
     );
     const cell = valueAt(deriveLocalMatrix(rows, NOW), 'z-ai', 'glm-5');
-    expect(cell.score).toBe(60);
+    // Delivery 4/5 and review 2/5, each blended with 80, mean to 73.
+    expect(cell.score).toBe(73);
     expect(cell.sampleCount).toBe(5);
-  });
-
-  it('rounds a half up away from zero', () => {
-    const rows = [0, 1, 2, 3, 4, 5, 6, 7].map((index) =>
-      summary({
-        runId: `half-${index}`,
-        family: 'z-ai',
-        model: 'glm-5',
-        taskKind: 'implement',
-        verdict: index === 0 ? 'delivered' : 'failed',
-        endedAt: NOW - (8 - index) * 1000,
-      }),
-    );
-    expect(valueAt(deriveLocalMatrix(rows, NOW), 'z-ai', 'glm-5').score).toBe(
-      13,
-    );
-  });
-
-  it('rounds the mean of two one-eighth rates to 13', () => {
-    const rows = [0, 1, 2, 3, 4, 5, 6, 7].map((index) =>
-      summary({
-        runId: `mean-half-${index}`,
-        family: 'z-ai',
-        model: 'glm-5',
-        taskKind: 'implement',
-        verdict: index === 0 ? 'delivered' : 'failed',
-        finalReview: index === 0 ? 'approved' : 'rejected',
-        endedAt: NOW - (8 - index) * 1000,
-      }),
-    );
-    const cell = valueAt(deriveLocalMatrix(rows, NOW), 'z-ai', 'glm-5');
-    expect(cell.score).toBe(13);
-    expect(cell.sampleCount).toBe(8);
   });
 
   it('sets asOf from the newest record that contributed to the used rate', () => {
     const delivered = runs(5, { prefix: 'del', endedAt: NOW - 10_000 });
     const newestDelivered = NOW - 10_000 + 4 * 1000;
-    const newerReview = summary({
-      runId: 'review-only',
+    const newerNoContribution = summary({
+      runId: 'unverified-new',
       family: 'z-ai',
       model: 'glm-5',
       taskKind: 'implement',
       verdict: 'unverified',
-      finalReview: 'approved',
       endedAt: NOW - 1000,
     });
     const cell = valueAt(
-      deriveLocalMatrix([...delivered, newerReview], NOW),
+      deriveLocalMatrix([...delivered, newerNoContribution], NOW),
       'z-ai',
       'glm-5',
     );
@@ -209,7 +271,7 @@ describe('deriveLocalMatrix', () => {
     expect(deriveLocalMatrix(ignored, NOW).profiles).toEqual([]);
     const inside = runs(5, { prefix: 'in', endedAt: SINCE });
     expect(valueAt(deriveLocalMatrix(inside, NOW), 'z-ai', 'glm-5').score).toBe(
-      100,
+      87,
     );
   });
 
@@ -219,7 +281,14 @@ describe('deriveLocalMatrix', () => {
       ...runs(3, { family: 'codex', prefix: 'b' }),
       ...runs(3, { taskKind: 'plan', prefix: 'c' }),
     ];
-    expect(deriveLocalMatrix(split, NOW).profiles).toEqual([]);
+    const matrix = deriveLocalMatrix(split, NOW);
+    expect(matrix.profiles).toHaveLength(2);
+    // z-ai/glm-5 implement, prior 80: round((300 + 800) / 13).
+    expect(valueAt(matrix, 'z-ai', 'glm-5').score).toBe(85);
+    // codex/glm-5 implement, prior 50: round((300 + 500) / 13).
+    expect(valueAt(matrix, 'codex', 'glm-5').score).toBe(62);
+    // z-ai/glm-5 plan has no seed: round((300 + 500) / 13).
+    expect(valueAt(matrix, 'z-ai', 'glm-5', 'plan').score).toBe(62);
   });
 
   it('maps lane-default and auto onto the family profile and pools them', () => {
@@ -230,7 +299,8 @@ describe('deriveLocalMatrix', () => {
     const matrix = deriveLocalMatrix(rows, NOW);
     expect(cellAt(matrix, 'z-ai', LANE_DEFAULT_MODEL)).toBeUndefined();
     expect(cellAt(matrix, 'z-ai', AUTOMATIC_MATRIX_MODEL)).toBeUndefined();
-    expect(valueAt(matrix, 'z-ai', FAMILY_PROFILE_MODEL).score).toBe(100);
+    // The family profile has no seed, so the prior is 50: round(1000/15).
+    expect(valueAt(matrix, 'z-ai', FAMILY_PROFILE_MODEL).score).toBe(67);
     expect(valueAt(matrix, 'z-ai', FAMILY_PROFILE_MODEL).sampleCount).toBe(5);
   });
 
@@ -277,7 +347,7 @@ describe('deriveLocalMatrix', () => {
     );
     expect(backward).toEqual(forward);
     expect(valueAt(forward, 'z-ai', 'glm-5')).toMatchObject({
-      score: 100,
+      score: 87,
       sampleCount: 5,
     });
     expect(deriveLocalMatrix([...rest, older, newer], NOW)).toEqual(forward);

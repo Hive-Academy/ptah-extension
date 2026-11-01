@@ -63,7 +63,6 @@ describe('window-all-closed', () => {
   });
 });
 
-
 // ---------------------------------------------------------------------------
 // `will-quit` — LIFO disposal and quit-during-boot (TASK_2026_331 B1.T6).
 //
@@ -110,6 +109,8 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   'memoryTrigger',
   'memoryCurator',
   'chatBridge',
+  // Releases routing subscriptions while the SDK adapter is still alive.
+  'hostRouting',
   'messagingGateway',
   // Child sessions end BEFORE the agents are reaped (TASK_2026_584), and the
   // reap runs BEFORE the SQLite close because an agent exit stages a lane
@@ -201,6 +202,7 @@ function makeFullRefs(order: string[]): BootRefs {
     },
   };
   refs.sessionSpawner = { dispose: record('sessionSpawner') };
+  refs.hostRouting = { dispose: record('hostRouting') };
   refs.chatSessions = {
     disposeAllSessionsForShutdown: async () => {
       order.push('chatSessions');
@@ -281,6 +283,27 @@ describe('will-quit — LIFO disposal order', () => {
     expect(order.indexOf('integrityService')).toBeGreaterThanOrEqual(0);
     expect(order.indexOf('integrityService')).toBeLessThan(
       order.indexOf('sqliteConnection'),
+    );
+  });
+
+  it('a throwing host routing dispose skips neither the flushes nor the chain', async () => {
+    const order: string[] = [];
+    const refs = makeFullRefs(order);
+    refs.hostRouting = {
+      dispose: () => {
+        throw new Error('routing dispose failed');
+      },
+    };
+    const deps = inertDeps(order);
+
+    handleWillQuit({ ...deps, refs, deferQuit: jest.fn(), quit: jest.fn() });
+
+    await flushMicrotasks();
+
+    expect(deps.flushWorkspacePersistence).toHaveBeenCalledTimes(1);
+    expect(deps.flushSessionMetadataStores).toHaveBeenCalled();
+    expect(order).toEqual(
+      EXPECTED_LIFO_ORDER.filter((name) => name !== 'hostRouting'),
     );
   });
 

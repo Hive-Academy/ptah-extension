@@ -1,5 +1,6 @@
 import { Component, input, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import {
   WorkspaceVitalsStore,
   type ActivityVitals,
@@ -7,8 +8,8 @@ import {
   type VitalsLoad,
   type WorkspaceReadiness,
 } from '@ptah-extension/chat';
-import type { StagedStep } from '@ptah-extension/chat-ui';
-import { LoggingService, VSCodeService } from '@ptah-extension/core';
+import { ActivityGridComponent, type StagedStep } from '@ptah-extension/chat-ui';
+import { LoggingService, VSCodeService, WallClockService, WALL_CLOCK_COARSE_MS } from '@ptah-extension/core';
 import { AuroraEffectComponent } from '@ptah-extension/ui';
 import { CanvasEmptyBoardComponent, LOAD_STEPS_MAX_MS } from './canvas-empty-board.component';
 import { FIRST_SESSION_CAPTION, OPEN_TODAY_CAPTION, QUIET_CAPTION } from './canvas-empty-board.view';
@@ -93,6 +94,40 @@ function mount() {
 }
 
 describe('CanvasEmptyBoardComponent', () => {
+  it('updates the local grid day at the next coarse tick across midnight', () => {
+    jest.useFakeTimers({
+      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    }).setSystemTime(new Date(2026, 9, 30, 23, 59, 45));
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
+    const clearIntervalSpy = jest.spyOn(globalThis, 'clearInterval');
+    try {
+      const { fixture, activity90, previousSessionCount } = mount();
+      const clock = TestBed.inject(WallClockService);
+      expect(clock.now('coarse')()).toBe(Date.now());
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), WALL_CLOCK_COARSE_MS);
+      const interval = setIntervalSpy.mock.results.find((result) => result.type === 'return')?.value;
+      activity90.set({ status: 'empty' });
+      previousSessionCount.set(0);
+      fixture.detectChanges();
+      const grid = fixture.debugElement.query(By.directive(ActivityGridComponent)).componentInstance as ActivityGridComponent;
+      expect(grid.today()).toBe('2026-10-30');
+      jest.advanceTimersByTime(WALL_CLOCK_COARSE_MS - 1);
+      fixture.detectChanges();
+      expect(grid.today()).toBe('2026-10-30');
+      jest.advanceTimersByTime(1);
+      fixture.detectChanges();
+      expect(grid.today()).toBe('2026-10-31');
+      activity90.set(activity(4, 10_000, null));
+      fixture.detectChanges();
+      expect(grid.today()).toBe('2026-10-31');
+      fixture.destroy();
+      expect(clearIntervalSpy).toHaveBeenCalledWith(interval);
+    } finally {
+      jest.restoreAllMocks();
+      jest.useRealTimers();
+    }
+  });
+
   it('binds the store once to its workspace', () => {
     const { vitals } = mount();
     expect(vitals.bind).toHaveBeenCalledTimes(1);
