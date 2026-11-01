@@ -29,7 +29,7 @@ describe('ThemeToggleComponent', () => {
     setScene = jest.fn();
     setMotionStyle = jest.fn();
     motionStyle = signal<MotionStyleName>('rise');
-    scene = signal<Parameters<ThemeService['setScene']>[0]>('aurora');
+    scene = signal<Parameters<ThemeService['setScene']>[0]>('pyramid');
 
     await TestBed.configureTestingModule({
       imports: [ThemeToggleComponent],
@@ -195,7 +195,7 @@ describe('ThemeToggleComponent', () => {
     expect(themesPanel?.getAttribute('aria-labelledby')).toBe(tabs[0].id);
     expect(themesPanel?.textContent).toContain('Primary accent');
     expect(themesPanel?.textContent).toContain('Backdrop');
-    expect(themesPanel?.querySelectorAll('.theme-tile')).toHaveLength(6);
+    expect(themesPanel?.querySelectorAll('.theme-tile')).toHaveLength(5);
     const animationPanel = fixture.nativeElement.querySelector(`#${tabs[1].getAttribute('aria-controls')}`) as HTMLElement;
     expect(animationPanel.querySelector('ptah-motion-preference')).not.toBeNull();
     expect(animationPanel.hidden).toBe(true);
@@ -281,19 +281,18 @@ describe('ThemeToggleComponent', () => {
     }
   });
 
-  it('partitions every theme once into Light 18, Dark 12, and Glass 6', () => {
+  it('partitions every theme once into Light 18, Dark 12, and Glass 5', () => {
     const fixture = create();
     const { lightThemes, darkThemes, glassThemes } = fixture.componentInstance;
     expect(lightThemes).toHaveLength(18);
     expect(darkThemes).toHaveLength(12);
-    expect(glassThemes).toHaveLength(6);
+    expect(glassThemes).toHaveLength(5);
     expect(lightThemes.every((theme) => theme.glass !== true && !theme.isDark)).toBe(true);
     expect(darkThemes.every((theme) => theme.glass !== true && theme.isDark)).toBe(true);
     expect(glassThemes.every((theme) => theme.glass === true)).toBe(true);
     expect(glassThemes.map((theme) => theme.name)).toEqual([
       'ptah-glass',
       'ptah-glass-light',
-      'dark',
       'cupcake',
       'dracula',
       'nord',
@@ -313,10 +312,10 @@ describe('ThemeToggleComponent', () => {
       tab.click();
       fixture.detectChanges();
       const tiles = [...fixture.nativeElement.querySelectorAll('button[data-theme]')] as HTMLButtonElement[];
-      expect(tiles).toHaveLength(label === 'Light' ? 18 : label === 'Dark' ? 12 : 6);
+      expect(tiles).toHaveLength(label === 'Light' ? 18 : label === 'Dark' ? 12 : 5);
       for (const tile of tiles) seen.add(tile.dataset['theme'] ?? '');
     }
-    expect(seen.size).toBe(36);
+    expect(seen.size).toBe(35);
   });
 
   it('names each tile with title and aria-label and paints the four theme channels', () => {
@@ -358,23 +357,23 @@ describe('ThemeToggleComponent', () => {
     expect(hide).not.toHaveBeenCalled();
   });
 
-  it('renders four named backdrop radios only for the pair and delegates selection once', () => {
+  it('renders six named backdrop radios only for the pair and delegates selection once', () => {
     currentTheme.set('ptah-glass');
     const first = create();
     const second = create();
     const radios = (): HTMLInputElement[] => [...first.nativeElement.querySelectorAll('input[name$="-scene"]')];
-    expect(radios().map((radio) => radio.getAttribute('aria-label'))).toEqual(['Aurora', 'Ember', 'Tide', 'Horizon']);
-    expect(radios().map((radio) => radio.checked)).toEqual([true, false, false, false]);
+    expect(radios().map((radio) => radio.getAttribute('aria-label'))).toEqual(['Pyramid', 'Aurora', 'Ember', 'Tide', 'Horizon', 'Temple']);
+    expect(radios().map((radio) => radio.checked)).toEqual([true, false, false, false, false, false]);
     expect(radios()[0].name).not.toBe((second.nativeElement.querySelector('input[name$="-scene"]') as HTMLInputElement).name);
-    radios()[1].dispatchEvent(new Event('change'));
+    radios()[2].dispatchEvent(new Event('change'));
     expect(setScene).toHaveBeenCalledTimes(1);
     expect(setScene).toHaveBeenCalledWith('ember');
     scene.set('ember');
     currentTheme.set('ptah-glass-light');
     first.detectChanges();
-    expect(radios().map((radio) => radio.checked)).toEqual([false, true, false, false]);
+    expect(radios().map((radio) => radio.checked)).toEqual([false, false, true, false, false, false]);
     expect([...first.nativeElement.querySelectorAll('legend')].map((node) => (node as HTMLElement).textContent)).toEqual(['Primary accent', 'Backdrop']);
-    for (const name of ['anubis', 'dark', 'nord', 'cupcake', 'dracula'] as const) {
+    for (const name of ['anubis', 'nord', 'cupcake', 'dracula'] as const) {
       currentTheme.set(name);
       first.detectChanges();
       expect(radios()).toHaveLength(0);
@@ -414,7 +413,7 @@ describe('ThemeToggleComponent', () => {
     expect(nameA).not.toBe('ptah-accent');
     expect(nameB).not.toBe('ptah-accent');
 
-    for (const name of ['lofi', 'dark', 'cupcake', 'dracula', 'nord'] as const) {
+    for (const name of ['lofi', 'cupcake', 'dracula', 'nord'] as const) {
       currentTheme.set(name);
       first.detectChanges();
       expect(first.nativeElement.querySelector('fieldset')).toBeNull();

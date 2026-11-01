@@ -108,7 +108,11 @@ function providerLabel(provider: ProviderId): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <section class="border-b border-base-content/10 pb-7" aria-labelledby="web-search-heading">
+    <section
+      class="border-b border-base-content/10 pb-7"
+      aria-labelledby="web-search-heading"
+      data-glass-surface="content"
+    >
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-1.5">
           <lucide-angular [img]="GlobeIcon" class="w-4 h-4 text-secondary" aria-hidden="true" />
@@ -287,6 +291,11 @@ function providerLabel(provider: ProviderId): string {
         <span class="text-xs text-base-content-muted whitespace-nowrap">per search</span>
       </div>
     </section>
+  `,
+  styles: `
+    :host-context([data-glass='on']) [data-glass-surface='content'] {
+      padding: 1.25rem;
+    }
   `,
 })
 export class WebSearchConfigComponent implements OnInit {

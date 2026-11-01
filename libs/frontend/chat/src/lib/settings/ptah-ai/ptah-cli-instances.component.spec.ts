@@ -56,6 +56,7 @@ describe('PtahCliInstancesComponent', () => {
   describe('section', () => {
     it('is its own labelled sub-section under a hairline, saying what an instance is', () => {
       const section = q('[data-testid="cli-instances"]');
+      expect(section?.getAttribute('data-glass-surface')).toBe('content');
       expect(section?.className).toContain('border-t');
       expect(section?.className).toContain('border-base-content/15');
       expect(section?.getAttribute('aria-labelledby')).toBe(

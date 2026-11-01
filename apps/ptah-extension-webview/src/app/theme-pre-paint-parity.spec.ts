@@ -198,6 +198,16 @@ const CASES: ReadonlyArray<{
     expected: 'cupcake',
   },
   {
+    name: 'a retired v2 dark choice migrates to dracula',
+    persisted: { state: { 'theme-v2': 'dark' }, hints: {} },
+    expected: 'dracula',
+  },
+  {
+    name: 'a retired legacy dark choice migrates to dracula',
+    persisted: { state: { theme: 'dark' }, hints: {} },
+    expected: 'dracula',
+  },
+  {
     name: 'second Electron workspace: legacy state plus an origin-wide v2 mirror',
     persisted: {
       state: { theme: 'anubis' },
@@ -248,9 +258,13 @@ describe('pre-paint theme script and ThemeService agree', () => {
       ['state choice', { 'ptah-scene': 'ember' }, {}, 'ember'],
       ['mirror only', {}, { 'ptah-scene': 'tide' }, 'tide'],
       ['invalid state uses mirror', { 'ptah-scene': 'retired' }, { 'ptah-scene': 'horizon' }, 'horizon'],
+      ['pyramid state choice', { 'ptah-scene': 'pyramid' }, {}, 'pyramid'],
+      ['temple mirror choice', {}, { 'ptah-scene': 'temple' }, 'temple'],
       ['joined ids are invalid', { 'ptah-scene': 'ember tide' }, { 'ptah-scene': 'horizon' }, 'horizon'],
-      ['invalid values', { 'ptah-scene': 'retired' }, { 'ptah-scene': 'invalid' }, null],
-      ['stored default', { 'ptah-scene': 'aurora' }, {}, null],
+      ['no stored scene', {}, {}, 'pyramid'],
+      ['invalid values', { 'ptah-scene': 'retired' }, { 'ptah-scene': 'invalid' }, 'pyramid'],
+      ['stored default', { 'ptah-scene': 'pyramid' }, {}, 'pyramid'],
+      ['stored aurora', { 'ptah-scene': 'aurora' }, {}, 'aurora'],
     ] as const)('%s', (_name, state, hints, expected) => {
       for (const theme of [undefined, 'ptah-glass', 'ptah-glass-light', 'dark', 'nord', 'cupcake', 'dracula', 'light']) {
         const persisted = shape({ state: { ...state, ...(theme ? { 'theme-v2': theme } : {}) }, hints });
@@ -284,8 +298,8 @@ describe('pre-paint theme script and ThemeService agree', () => {
 
   it('keeps valid state aurora ahead of a stale non-default mirror', () => {
     const persisted = { state: { 'ptah-scene': 'aurora' }, hints: { 'ptah-scene': 'ember' } };
-    expect(runPrePaint(persisted).attributes['data-scene']).toBeNull();
-    expect(runService(persisted).painted.attributes['data-scene']).toBeNull();
+    expect(runPrePaint(persisted).attributes['data-scene']).toBe('aurora');
+    expect(runService(persisted).painted.attributes['data-scene']).toBe('aurora');
     expect(localStorage.getItem('ptah-scene')).toBe('ember');
   });
 

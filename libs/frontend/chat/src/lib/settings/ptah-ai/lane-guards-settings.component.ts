@@ -50,6 +50,7 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
+      data-glass-surface="content"
       class="flex flex-col gap-3 text-sm text-base-content"
       aria-labelledby="lane-guards-heading"
       data-testid="settings-section-lane-guards"
@@ -152,6 +153,11 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
       }
 
     </section>
+  `,
+  styles: `
+    :host-context([data-glass='on']) [data-glass-surface='content'] {
+      padding: 1.25rem;
+    }
   `,
 })
 export class LaneGuardsSettingsComponent implements OnInit {
