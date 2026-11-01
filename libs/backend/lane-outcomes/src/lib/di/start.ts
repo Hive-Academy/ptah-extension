@@ -74,9 +74,10 @@ export function startLaneOutcomes(
 ): () => Promise<void> {
   if (!container.isRegistered(LANE_OUTCOME_TOKENS.RECORDER))
     registerLaneOutcomeServices(container, logger);
-  const recorder = container.resolve<LaneOutcomeRecorder>(
-    LANE_OUTCOME_TOKENS.RECORDER,
-  );
+  // The recorder resolves model classifiers, which need workspace settings.
+  // Hosts register those settings after attaching outcome callbacks.
+  const recorder = (): LaneOutcomeRecorder =>
+    container.resolve<LaneOutcomeRecorder>(LANE_OUTCOME_TOKENS.RECORDER);
   const pipeline = container.resolve<OutcomeWritePipeline>(
     LANE_OUTCOME_PIPELINE,
   );
@@ -102,7 +103,7 @@ export function startLaneOutcomes(
         SDK_TOKENS.SDK_SUBAGENT_STOP_CALLBACK_REGISTRY,
       );
       unsubs.push(
-        registry.register((payload) => recorder.recordSubagentStop(payload)),
+        registry.register((payload) => recorder().recordSubagentStop(payload)),
       );
     }
     if (
@@ -115,7 +116,7 @@ export function startLaneOutcomes(
       );
       unsubs.push(
         registry.register((payload) =>
-          recorder.markSubagentBudgetStop(payload.agentId),
+          recorder().markSubagentBudgetStop(payload.agentId),
         ),
       );
     }
@@ -127,7 +128,7 @@ export function startLaneOutcomes(
         SDK_TOKENS.SDK_ADAPTER_EVENTS,
       );
       unsubs.push(
-        events.onSubagentEnded((event) => recorder.recordSubagentEnded(event)),
+        events.onSubagentEnded((event) => recorder().recordSubagentEnded(event)),
       );
     }
   } catch (error: unknown) {
