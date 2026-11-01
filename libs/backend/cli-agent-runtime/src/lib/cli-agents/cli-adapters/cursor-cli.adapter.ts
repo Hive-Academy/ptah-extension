@@ -2,8 +2,8 @@
  * Cursor CLI Adapter
  *
  * Runs in-process via the official `@cursor/sdk` (Agent.create → send →
- * run.stream()) instead of spawning the `cursor-agent` binary. Mirrors the
- * CodexCliAdapter SDK pattern: cached dynamic ESM import, typed SDKMessage
+ * run.stream()) instead of spawning the `cursor-agent` binary. Uses a
+ * cached dynamic ESM import and a typed SDKMessage
  * event loop, AbortSignal → run.cancel().
  *
  * Auth: requires a Cursor API key. Resolved from CURSOR_API_KEY, falling back
@@ -216,7 +216,7 @@ export class CursorCliAdapter implements CliAdapter {
    *
    * Order: CURSOR_API_KEY env var, then the injected resolver's secret.
    * Resolved lazily (per call) so changes applied after construction are
-   * honoured, mirroring CodexCliAdapter.getAuthPath(). A resolver failure is
+   * honoured, mirroring FileCodexLaneCredentialProbe.check(). A resolver failure is
    * the ordinary "not configured" state: the fixed-text log line deliberately
    * carries no error detail, which may embed secret material.
    */

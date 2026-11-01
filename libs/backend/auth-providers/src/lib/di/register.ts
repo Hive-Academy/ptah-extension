@@ -341,6 +341,8 @@ function registerPlanLimitServices(container: DependencyContainer): void {
           c.resolve(AUTH_PROVIDERS_TOKENS.PLAN_CREDENTIAL_SOURCE),
           c.resolve(SDK_TOKENS.SDK_SESSION_QUOTA_PROBE),
           c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE),
+          Date.now,
+          c.resolve(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH),
         ),
     ),
   });

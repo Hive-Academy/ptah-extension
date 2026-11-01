@@ -13,6 +13,9 @@ export {
   type ThemeName,
   type ThemeInfo,
   DAISYUI_THEMES,
+  type MotionStyleName,
+  MOTION_STYLES,
+  DEFAULT_MOTION_STYLE,
 } from './theme.service';
 export { ModelStateService } from './model-state.service';
 export { PluginCatalogService } from './plugin-catalog.service';
@@ -66,3 +69,11 @@ export {
   ACTIVITY_IDLE_AFTER_MS,
   type ActivityItem,
 } from './back-office-activity.service';
+export {
+  CLAUDE_CODE_SIGN_IN_COMMAND,
+  CLAUDE_CODE_NPM_INSTALL_COMMAND,
+  CLAUDE_CODE_SETUP_DOCS_URL,
+  CLAUDE_CODE_INSTALL_COMMANDS,
+  type ClaudeCodeInstallTab,
+  type ClaudeCodeInstallCommand,
+} from './claude-code-commands';

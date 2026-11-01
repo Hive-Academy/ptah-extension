@@ -32,6 +32,7 @@ import {
   AuthStateService,
 } from '@ptah-extension/core';
 import { MessageSenderService } from './message-sender.service';
+import { SessionAgentRosterService } from './session-agents/session-agent-roster.service';
 import { UltracodeStateService } from './ultracode-state.service';
 import {
   ABORT_REASON_SUPERSEDED,
@@ -40,6 +41,9 @@ import {
 import {
   SessionManager,
   StreamingHandlerService,
+  AgentMonitorStore,
+  BackgroundAgentStore,
+  PermissionHandlerService,
 } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
 import type { TabState } from '@ptah-extension/chat-types';
@@ -88,6 +92,7 @@ describe('MessageSenderService', () => {
     applyNewConversationStreaming: jest.Mock;
     appendUserMessageAndResetStreaming: jest.Mock;
     markLoaded: jest.Mock;
+    setLastTerminalReason: jest.Mock;
     markStreaming: jest.Mock;
     markResuming: jest.Mock;
     detachSessionAndMarkLoaded: jest.Mock;
@@ -181,6 +186,9 @@ describe('MessageSenderService', () => {
             streamingState: null,
           }),
       ),
+      setLastTerminalReason: jest.fn((tabId: string, reason: TabState['lastTerminalReason']) =>
+        applyPatch(tabId, { lastTerminalReason: reason }),
+      ),
       markLoaded: jest.fn((tabId: string) =>
         applyPatch(tabId, { status: 'loaded' }),
       ),
@@ -241,6 +249,12 @@ describe('MessageSenderService', () => {
     TestBed.configureTestingModule({
       providers: [
         MessageSenderService,
+        SessionAgentRosterService,
+        { provide: AgentMonitorStore, useValue: { subagents: signal(new Map()), agents: signal([]) } },
+        { provide: BackgroundAgentStore, useValue: { agents: signal([]) } },
+        { provide: PermissionHandlerService, useValue: {
+          routingTargetRevision: signal(0), permissionRequests: signal([]), questionRequests: signal([]),
+        } },
         { provide: TabManagerService, useValue: tabManager },
         { provide: SessionManager, useValue: sessionManager },
         {
@@ -864,6 +878,78 @@ describe('MessageSenderService', () => {
       expect(tabManager.markTabStreaming).toHaveBeenCalledWith('tab-1');
       expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
       expect(tabManager.isTabStreaming('tab-1')).toBe(false);
+    });
+
+    it('marks a native start failure as an error for the session card and header', async () => {
+      rpcCall.mockResolvedValue({ success: false, errorCode: 'SESSION_ENDED', error: 'Codex chat could not start.' });
+      await expect(service.send('hello')).resolves.toEqual({ success: false, error: 'Codex chat could not start.' });
+      expect(tabManager.setLastTerminalReason).toHaveBeenCalledWith('tab-1', 'api_error');
+      expect(tabManager.isTabStreaming('tab-1')).toBe(false);
+    });
+
+    it('settles a cancelled continue without logging or failing the session', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      rpcCall.mockImplementation(async (method: string) => method === 'session:validate'
+        ? { success: true, data: { exists: true } }
+        : { success: true, data: { success: false, cancelled: true } });
+      await expect(service.send('hello')).resolves.toEqual({ success: false, cancelled: true });
+      expect(tabsSignal()[0].status).toBe('loaded');
+      expect(streamingTabIds.has('tab-1')).toBe(false);
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(sessionManager.failSession).not.toHaveBeenCalled();
+    });
+
+    it('leaves a settled compact failure to CHAT_ERROR without a second error or success state', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X', lastTerminalReason: 'api_error' })]);
+      rpcCall.mockImplementation(async (method: string) => method === 'session:validate'
+        ? { success: true, data: { exists: true } }
+        : { success: true, data: { success: false, settled: true, errorCode: 'CODEX_RUNTIME_FAILED' } });
+
+      await expect(service.send('/compact')).resolves.toEqual({
+        success: false,
+        errorAlreadyShown: true,
+      });
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(tabManager.markLoaded).not.toHaveBeenCalled();
+      expect(tabManager.markStreaming).not.toHaveBeenCalled();
+      expect(tabManager.setLastTerminalReason).not.toHaveBeenCalled();
+      expect(removeBoundary).toHaveBeenCalled();
+      expect(tabsSignal()[0].lastTerminalReason).toBe('api_error');
+    });
+
+    it('settles a cancelled start quietly, restores its preamble and leaves no failed chip', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', lastTerminalReason: 'completed' })]);
+      tabManager.consumeFirstMessagePreamble.mockReturnValue('preamble');
+      rpcCall.mockResolvedValue({ success: true, data: { success: false, cancelled: true } });
+
+      await expect(service.send('hello')).resolves.toEqual({ success: false, cancelled: true });
+
+      expect(tabManager.setFirstMessagePreamble).toHaveBeenCalledWith('tab-1', 'preamble');
+      expect(tabsSignal()[0].status).toBe('loaded');
+      expect(streamingTabIds.has('tab-1')).toBe(false);
+      expect(sessionManager.failSession).not.toHaveBeenCalled();
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(flagAuthRequired).not.toHaveBeenCalled();
+      expect(tabsSignal()[0].lastTerminalReason).toBe('completed');
+      expect(TestBed.inject(SessionAgentRosterService).roster('tab-1')[0].status).toBeNull();
+    });
+
+    describe.each(['outer', 'data'])('Codex failure code on %s', (location) => {
+      it.each([
+        ['CODEX_BUSY', 'Codex is busy, try again when the current operation finishes'],
+        ['CODEX_UNSUPPORTED_OPTION', 'Unsupported Codex option: maxTurns'],
+        ['CODEX_UNAVAILABLE', 'Codex chat could not start.'],
+        ['CODEX_RUNTIME_FAILED', 'Codex chat could not start.'],
+      ])('maps %s and keeps the Orchestrator failed', async (errorCode, expected) => {
+        const error = 'Unsupported Codex option: maxTurns';
+        rpcCall.mockResolvedValue(location === 'outer'
+          ? { success: false, errorCode, error }
+          : { success: true, data: { success: false, errorCode, error } });
+
+        await expect(service.send('hello')).resolves.toEqual({ success: false, error: expected });
+        expect(streamingTabIds.has('tab-1')).toBe(false);
+        expect(TestBed.inject(SessionAgentRosterService).roster('tab-1')[0].status).toBe('failed');
+      });
     });
 
     it('leaves no tab in the streaming set after a transport-level chat:start failure', async () => {

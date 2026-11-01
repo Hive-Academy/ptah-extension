@@ -220,7 +220,7 @@ describe('libs/frontend does not use opacity-modified base-content for text', ()
       'chat-ui',
       'skill-synthesis-ui',
       'memory-curator-ui',
-      'setup-wizard',
+      'onboarding',
     ];
 
     expect(largestConsumers.filter((lib) => !libs.has(lib))).toEqual([]);

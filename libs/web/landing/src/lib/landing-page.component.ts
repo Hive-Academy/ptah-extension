@@ -6,7 +6,6 @@ import { CTASectionComponent } from './sections/cta/cta-section.component';
 import { FooterComponent } from '@ptah-web/ui';
 import { HeroComponent } from './sections/hero/hero.component';
 import { ProblemSectionComponent } from './sections/problem/problem-section.component';
-import { VideoShowcaseComponent } from './sections/video-showcase/video-showcase.component';
 import { PillarsSpineComponent } from './sections/pillars/pillars-spine.component';
 import { ProviderStripComponent } from './sections/provider-strip/provider-strip.component';
 import { BuildersSectionComponent } from './sections/builders/builders-section.component';
@@ -20,7 +19,6 @@ import { AlsoAvailableComponent } from './sections/also-available/also-available
     NavigationComponent,
     HeroComponent,
     ProblemSectionComponent,
-    VideoShowcaseComponent,
     PillarsSpineComponent,
     ProviderStripComponent,
     ComparisonSectionComponent,
@@ -35,14 +33,11 @@ import { AlsoAvailableComponent } from './sections/also-available/also-available
       <ptah-navigation />
 
       <main>
-        <!-- S1 Promise -->
+        <!-- S1 Promise + live PtahCode demo (?demo=a|b|c picks the layout) -->
         <ptah-hero />
 
         <!-- S2 Problem -->
         <ptah-problem-section />
-
-        <!-- S3 Demo -->
-        <ptah-video-showcase />
 
         <!--
           S4–S7 render eagerly (not @defer) so their SEO/GEO-bearing copy and

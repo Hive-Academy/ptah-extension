@@ -27,6 +27,7 @@ export {
 export { StatusBadgeComponent } from './lib/atoms/status-badge.component';
 export { StreamingQuotesComponent } from './lib/atoms/streaming-quotes.component';
 export { ThemeToggleComponent } from './lib/atoms/theme-toggle.component';
+export { MotionStylePickerComponent } from './lib/atoms/motion-style-picker.component';
 export { TokenBadgeComponent } from './lib/atoms/token-badge.component';
 export { ToolIconComponent } from './lib/atoms/tool-icon.component';
 export { TypingCursorComponent } from './lib/atoms/typing-cursor.component';

@@ -239,6 +239,7 @@ export type AgentWaitMode = 'any' | 'all';
 
 /** Longest {@link AgentProcessManager.waitForAgents} wait: 15 minutes (TASK_2026_597, D13). */
 export const MAX_AGENT_WAIT_MS = 900_000;
+const MAX_RESOLVED_PARENT_SESSIONS = 256;
 
 /**
  * One requested id in a {@link AgentWaitResult}.
@@ -305,6 +306,8 @@ export class LaneModelBlockedError extends Error {
 @injectable()
 export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
+  /** Recent tab resolutions cover lanes spawned after session open. */
+  private readonly resolvedParentSessions = new Map<string, string>();
   private readonly turns = new WeakMap<TrackedAgent, symbol>();
   /**
    * Lanes adopted by a handoff whose new session is still starting, keyed by
@@ -815,7 +818,9 @@ export class AgentProcessManager {
       deliverables: request.deliverables,
       status: 'running',
       startedAt,
-      parentSessionId: request.parentSessionId,
+      parentSessionId:
+        this.resolvedParentSessions.get(request.parentSessionId ?? '') ??
+        request.parentSessionId,
       displayName,
       model: resolvedModel,
       ...(request.resumeSessionId
@@ -1026,7 +1031,9 @@ export class AgentProcessManager {
         deliverables: meta.deliverables,
         status: 'running',
         startedAt,
-        parentSessionId: meta.parentSessionId,
+        parentSessionId:
+          this.resolvedParentSessions.get(meta.parentSessionId ?? '') ??
+          meta.parentSessionId,
         displayName: meta.ptahCliName,
         ptahCliName: meta.ptahCliName,
         ptahCliId: meta.ptahCliId,
@@ -1250,6 +1257,9 @@ export class AgentProcessManager {
       );
       sdkHandle.onSegment((segment: CliOutputSegment) => {
         if (this.agents.get(agentId) !== tracked) return;
+        if (sdkHandle.outcomeUsageIsTurnTotal && segment.usage) {
+          tracked.outcomeUsage = segment.usage;
+        }
         this.outputBuffer.appendSegment(
           agentId,
           this.agents.get(agentId),
@@ -1958,6 +1968,12 @@ export class AgentProcessManager {
       );
       return;
     }
+    this.resolvedParentSessions.delete(tabId);
+    this.resolvedParentSessions.set(tabId, realSessionId);
+    if (this.resolvedParentSessions.size > MAX_RESOLVED_PARENT_SESSIONS) {
+      const oldest = this.resolvedParentSessions.keys().next().value;
+      if (oldest !== undefined) this.resolvedParentSessions.delete(oldest);
+    }
     for (const tracked of this.agents.values()) {
       if (tracked.info.parentSessionId === tabId) {
         tracked.info.parentSessionId = realSessionId;
@@ -2239,6 +2255,7 @@ export class AgentProcessManager {
     tracked.hasExited = false;
     // This turn's rate-limit match reads only the segments it produces.
     tracked.turnSegmentStart = tracked.accumulatedSegments.length;
+    tracked.outcomeUsage = undefined;
     tracked.rateLimitMatched = undefined;
     // A stop or timeout of this turn never re-reads auth wording, so an
     // earlier turn's match must not label it `auth`.
@@ -2446,6 +2463,7 @@ export class AgentProcessManager {
     }
 
     this.agents.clear();
+    this.resolvedParentSessions.clear();
     this.laneGuards.clear();
     this.logger.info(`[AgentProcessManager] ${entries.length} agents disposed`);
   }
@@ -3085,6 +3103,7 @@ export class AgentProcessManager {
       tracked.guardToolCalls;
     void this.laneCompletion.signal(info, {
       reportsDelivered,
+      ...(tracked.outcomeUsage ? { usage: tracked.outcomeUsage } : {}),
       authMatched: tracked.authMatched ?? false,
       ...(tracked.rateLimitMatched ? { rateLimited: true } : {}),
       ...(toolCalls !== undefined ? { toolCalls } : {}),

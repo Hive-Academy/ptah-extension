@@ -1,6 +1,6 @@
 /**
- * `SurfaceRoutePersistence` specs — every settled URL is written into webview
- * state, in the shape the boot path and the host read back.
+ * `SurfaceRoutePersistence` specs — restorable settled URLs are written into
+ * webview state, in the shape the boot path and the host read back.
  *
  * Properties that carry the design:
  *   1. The write follows `NavigationEnd` and records `urlAfterRedirects`, so a
@@ -107,21 +107,28 @@ describe('SurfaceRoutePersistence', () => {
     const router = TestBed.inject(Router);
     router.resetConfig(
       surfaceTestRoutes().map((route) =>
-        route.path === 'setup-wizard'
+        route.path === 'onboarding'
           ? {
               ...route,
-              children: [{ path: 'generation/:workflow/:tabId', children: [] }],
+              children: [
+                {
+                  path: 'analyze',
+                  children: [{ path: 'generate', children: [] }],
+                },
+              ],
             }
           : route,
       ),
     );
     persistence.start(null);
     await surfaceRouter.navigateToSurface('settings');
-    await surfaceRouter.navigateToSurface('setup-wizard', [
-      'generation',
-      'setup-agent-generation',
-      'stale-tab',
-    ]);
+    await surfaceRouter.navigateToSurface(
+      'onboarding',
+      ['analyze', 'generate'],
+      {
+        queryParams: { tab: 'stale-tab' },
+      },
+    );
     expect(api.writes).toHaveLength(1);
     expect(parseWebviewRouteState(api.state)?.route).toBe('/settings');
   });
@@ -162,6 +169,108 @@ describe('SurfaceRoutePersistence', () => {
 
     expect(api.writes).toHaveLength(3);
     expect(parseWebviewRouteState(api.state)?.route).toBe('/chat/tab-2');
+  });
+
+  it('keeps the last route when navigating to onboarding Home', async () => {
+    const api = new FakeVsCodeApi();
+    const { persistence, surfaceRouter } = setup(api);
+    persistence.start(null);
+
+    await surfaceRouter.navigateToUrl('/chat/tab-1');
+    await surfaceRouter.navigateToSurface('onboarding');
+
+    expect(TestBed.inject(Router).url).toBe('/onboarding');
+    expect(api.writes).toHaveLength(1);
+    expect(parseWebviewRouteState(api.state)?.route).toBe('/chat/tab-1');
+  });
+
+  it('keeps the last route when navigating to onboarding ready', async () => {
+    const api = new FakeVsCodeApi();
+    const { persistence, surfaceRouter } = setup(api);
+    const router = TestBed.inject(Router);
+    router.resetConfig(
+      surfaceTestRoutes().map((route) =>
+        route.path === 'onboarding'
+          ? { ...route, children: [{ path: 'ready', children: [] }] }
+          : route,
+      ),
+    );
+    persistence.start(null);
+
+    await surfaceRouter.navigateToUrl('/chat/tab-1');
+    await surfaceRouter.navigateToSurface('onboarding', ['ready']);
+
+    expect(router.url).toBe('/onboarding/ready');
+    expect(api.writes).toHaveLength(1);
+    expect(parseWebviewRouteState(api.state)?.route).toBe('/chat/tab-1');
+  });
+
+  it('persists a generation URL bound to a valid tab', async () => {
+    const api = new FakeVsCodeApi();
+    const { persistence, surfaceRouter } = setup(api, '', () => true);
+    const router = TestBed.inject(Router);
+    router.resetConfig(
+      surfaceTestRoutes().map((route) =>
+        route.path === 'onboarding'
+          ? {
+              ...route,
+              children: [
+                {
+                  path: 'analyze',
+                  children: [{ path: 'generate', children: [] }],
+                },
+              ],
+            }
+          : route,
+      ),
+    );
+    persistence.start(null);
+
+    await surfaceRouter.navigateToSurface(
+      'onboarding',
+      ['analyze', 'generate'],
+      { queryParams: { tab: 'valid-tab' } },
+    );
+
+    expect(api.writes).toHaveLength(1);
+    expect(parseWebviewRouteState(api.state)?.route).toBe(
+      '/onboarding/analyze/generate?tab=valid-tab',
+    );
+  });
+
+  it('keeps the last route for an invalid generation binding', async () => {
+    const api = new FakeVsCodeApi();
+    const validator = jest.fn(() => true);
+    const { persistence, surfaceRouter } = setup(api, '', validator);
+    const router = TestBed.inject(Router);
+    router.resetConfig(
+      surfaceTestRoutes().map((route) =>
+        route.path === 'onboarding'
+          ? {
+              ...route,
+              children: [
+                {
+                  path: 'analyze',
+                  children: [{ path: 'generate', children: [] }],
+                },
+              ],
+            }
+          : route,
+      ),
+    );
+    persistence.start(null);
+
+    await surfaceRouter.navigateToUrl('/chat/tab-1');
+    await surfaceRouter.navigateToSurface(
+      'onboarding',
+      ['analyze', 'generate'],
+      { queryParams: { tab: '' } },
+    );
+
+    expect(router.url).toBe('/onboarding/analyze/generate?tab=');
+    expect(validator).not.toHaveBeenCalled();
+    expect(api.writes).toHaveLength(1);
+    expect(parseWebviewRouteState(api.state)?.route).toBe('/chat/tab-1');
   });
 
   it('writes nothing for a navigation that does not settle', async () => {

@@ -47,7 +47,7 @@ const INITIAL_ATTRIBUTES: Readonly<Record<string, string>> = {
   'data-glass-mode': 'dark',
 };
 
-const COMPARED = [...Object.keys(INITIAL_ATTRIBUTES), 'data-accent', 'data-scene'];
+const COMPARED = [...Object.keys(INITIAL_ATTRIBUTES), 'data-accent', 'data-scene', 'data-motion-style'];
 
 const STATE_TO_HINT: Readonly<Record<string, string>> = {
   'theme-v2': 'ptah-theme-v2',
@@ -76,6 +76,7 @@ function resetDocument(hints: Readonly<Record<string, string>>): void {
   const root = document.documentElement;
   root.removeAttribute('data-accent');
   root.removeAttribute('data-scene');
+  root.removeAttribute('data-motion-style');
   for (const [name, value] of Object.entries(INITIAL_ATTRIBUTES)) {
     root.setAttribute(name, value);
   }
@@ -260,6 +261,24 @@ describe('pre-paint theme script and ThemeService agree', () => {
         expect(after.writes).toEqual([]);
         expect(localStorage.getItem('ptah-scene')).toBe(persisted.hints['ptah-scene'] ?? null);
       }
+    });
+  });
+
+  describe.each(shapes)('motion style parity: %s', (_shape, shape) => {
+    it.each([
+      ['default', {}, {}, null],
+      ['state choice', { 'ptah-motion-style': 'slide-left' }, {}, 'slide-left'],
+      ['mirror only', {}, { 'ptah-motion-style': 'scale' }, 'scale'],
+      ['invalid state uses mirror', { 'ptah-motion-style': 'retired' }, { 'ptah-motion-style': 'directional' }, 'directional'],
+      ['stored default', { 'ptah-motion-style': 'rise' }, {}, null],
+      ['invalid values', { 'ptah-motion-style': 'retired' }, { 'ptah-motion-style': 'none' }, null],
+    ] as const)('%s', (_name, state, hints, expected) => {
+      const persisted = shape({ state, hints });
+      const before = runPrePaint(persisted);
+      const after = runService(persisted);
+      expect(before.attributes['data-motion-style']).toBe(expected);
+      expect(after.painted).toEqual(before);
+      expect(after.writes).toEqual([]);
     });
   });
 

@@ -211,17 +211,22 @@ describe('AppStateManager', () => {
   describe('normalizeInitialView', () => {
     it.each([
       'chat',
-      'setup-wizard',
+      'onboarding',
       'settings',
       'analytics',
-      'harness-builder',
-      'setup-hub',
       'thoth',
       'marketplace',
       'tasks',
     ] as const)('passes the routable id %s through unchanged', (view) => {
       expect(createService().normalizeInitialView(view)).toBe(view);
     });
+
+    it.each(['setup-hub', 'setup-wizard', 'harness-builder'] as const)(
+      'normalises legacy %s onto onboarding',
+      (view) => {
+        expect(createService().normalizeInitialView(view)).toBe('onboarding');
+      },
+    );
 
     it('normalises legacy "orchestra-canvas" → "chat"', () => {
       const service = createService();
@@ -259,6 +264,39 @@ describe('AppStateManager', () => {
   });
 
   describe('view navigation', () => {
+    it.each(['setup-hub', 'setup-wizard', 'harness-builder'] as const)(
+      'routes legacy SWITCH_VIEW %s to onboarding Home',
+      async (view) => {
+        const service = createService();
+        service.handleMessage({
+          type: MESSAGE_TYPES.SWITCH_VIEW,
+          payload: { view },
+        });
+        await settle();
+        expect(service.currentView()).toBe('onboarding');
+        expect(TestBed.inject(Router).url).toBe('/onboarding');
+      },
+    );
+
+    it('opens the Claude Code readiness step and obeys the view-switch guard', async () => {
+      const service = createService();
+      const router = TestBed.inject(Router);
+      router.resetConfig(
+        surfaceTestRoutes().map((route) =>
+          route.path === 'onboarding'
+            ? { ...route, children: [{ path: 'ready', children: [] }] }
+            : route,
+        ),
+      );
+      service.openOnboardingReady();
+      await settle();
+      expect(router.url).toBe('/onboarding/ready');
+      service.setLoading(true);
+      service.openOnboardingReady();
+      await settle();
+      expect(router.url).toBe('/onboarding/ready');
+    });
+
     it('setCurrentView navigates and adds the surface to openViews', async () => {
       const service = createService();
       const harness = makeSignalStoreHarness<AppStoreState>(service);
@@ -302,13 +340,13 @@ describe('AppStateManager', () => {
       const service = createService();
       service.setCurrentView('analytics');
       await settle();
-      service.setCurrentView('harness-builder');
+      service.setCurrentView('onboarding');
       await settle();
 
       service.closeView('analytics');
       await settle();
 
-      expect(service.currentView()).toBe('harness-builder');
+      expect(service.currentView()).toBe('onboarding');
       expect(service.openViews()).not.toContain('analytics');
     });
 
@@ -518,6 +556,37 @@ describe('AppStateManager', () => {
   });
 
   describe('handleMessage (SWITCH_VIEW)', () => {
+    it('opens a named session after switching to chat', () => {
+      const service = createService();
+      const switchSpy = jest.spyOn(service, 'handleViewSwitch');
+      const sessionId = '11111111-1111-4111-8111-111111111111';
+      service.handleMessage({ type: MESSAGE_TYPES.SWITCH_VIEW,
+        payload: { view: 'chat', sessionId, sessionName: 'Explore the project' } });
+      expect(service.sessionOpenRequest()).toEqual({ sessionId, name: 'Explore the project' });
+      expect(switchSpy).toHaveBeenCalledWith('chat');
+    });
+
+    it('drops a non-string session name while opening the session', () => {
+      const service = createService();
+      const sessionId = '11111111-1111-4111-8111-111111111111';
+      service.handleMessage({ type: MESSAGE_TYPES.SWITCH_VIEW,
+        payload: { view: 'chat', sessionId, sessionName: 42 } });
+      expect(service.sessionOpenRequest()).toEqual({ sessionId, name: undefined });
+    });
+
+    it.each(['', 123, null])('ignores an empty or non-string session id (%s)', (sessionId) => {
+      const service = createService();
+      service.handleMessage({ type: MESSAGE_TYPES.SWITCH_VIEW, payload: { view: 'chat', sessionId } });
+      expect(service.sessionOpenRequest()).toBeNull();
+    });
+
+    it('ignores a session id on another view', () => {
+      const service = createService();
+      service.handleMessage({ type: MESSAGE_TYPES.SWITCH_VIEW,
+        payload: { view: 'analytics', sessionId: '11111111-1111-4111-8111-111111111111' } });
+      expect(service.sessionOpenRequest()).toBeNull();
+    });
+
     it('delegates to handleViewSwitch for a valid view payload', () => {
       const service = createService();
       const spy = jest.spyOn(service, 'handleViewSwitch');
@@ -660,7 +729,7 @@ describe('AppStateManager', () => {
 
   describe('per-workspace view partitioning (TASK_2026_195)', () => {
     it.each(['pending', 'settled'] as const)(
-      'keeps a %s boot-restored builder route when the first workspace activates',
+      'keeps a %s boot-restored workspace route when the first workspace activates',
       async (timing) => {
         const service = createService();
         const router = TestBed.inject(Router);
@@ -671,9 +740,9 @@ describe('AppStateManager', () => {
         });
         router.resetConfig(
           surfaceTestRoutes().map((route) =>
-            route.path === 'harness-builder'
+            route.path === 'tasks'
               ? {
-                  path: 'harness-builder',
+                  path: 'tasks',
                   children: [
                     {
                       path: ':mode/:tabId',
@@ -686,11 +755,11 @@ describe('AppStateManager', () => {
           ),
         );
 
-        const restoredRoute = '/harness-builder/new-project/boot-tab';
+        const restoredRoute = '/tasks/new-project/boot-tab';
         const navigation = router.navigateByUrl(restoredRoute);
         if (timing === 'pending') {
           await settle();
-          expect(surfaceRouter.pendingSurface()).toBe('harness-builder');
+          expect(surfaceRouter.pendingSurface()).toBe('tasks');
         } else {
           releaseGuard?.(true);
           await navigation;
@@ -703,8 +772,8 @@ describe('AppStateManager', () => {
         await settle();
 
         expect(router.url).toBe(restoredRoute);
-        expect(service.currentView()).toBe('harness-builder');
-        expect(service.openViews()).toContain('harness-builder');
+        expect(service.currentView()).toBe('tasks');
+        expect(service.openViews()).toContain('tasks');
       },
     );
 
@@ -713,16 +782,16 @@ describe('AppStateManager', () => {
       // `App.handleInitialView` lands the host's deep link before the initial
       // workspace:switch RPC settles, so the surface is recorded against the
       // bootstrap sentinel slice.
-      service.setCurrentView('harness-builder');
+      service.setCurrentView('tasks');
       await settle();
-      expect(service.currentView()).toBe('harness-builder');
+      expect(service.currentView()).toBe('tasks');
 
       service.switchWorkspace('/ws/a');
       await settle();
 
-      expect(service.currentView()).toBe('harness-builder');
+      expect(service.currentView()).toBe('tasks');
       expect(service.openViews()).toEqual(
-        expect.arrayContaining(['chat', 'harness-builder']),
+        expect.arrayContaining(['chat', 'tasks']),
       );
     });
 
@@ -730,9 +799,9 @@ describe('AppStateManager', () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
       await settle();
-      service.setCurrentView('harness-builder');
+      service.setCurrentView('tasks');
       await settle();
-      expect(service.currentView()).toBe('harness-builder');
+      expect(service.currentView()).toBe('tasks');
 
       service.switchWorkspace('/ws/b');
       await settle();
@@ -745,7 +814,7 @@ describe('AppStateManager', () => {
       const service = createService();
       service.switchWorkspace('/ws/a');
       await settle();
-      service.setCurrentView('harness-builder');
+      service.setCurrentView('analytics');
       await settle();
       service.switchWorkspace('/ws/b');
       await settle();
@@ -756,7 +825,7 @@ describe('AppStateManager', () => {
 
       service.switchWorkspace('/ws/a');
       await settle();
-      expect(service.currentView()).toBe('harness-builder');
+      expect(service.currentView()).toBe('analytics');
 
       service.switchWorkspace('/ws/b');
       await settle();
@@ -866,7 +935,7 @@ describe('AppStateManager', () => {
         const surfaceRouter = TestBed.inject(SurfaceRouterService);
         service.switchWorkspace('/ws/a');
         await settle();
-        service.setCurrentView('harness-builder');
+        service.setCurrentView('tasks');
         await settle();
         service.switchWorkspace('/ws/b');
         await settle();
@@ -874,15 +943,15 @@ describe('AppStateManager', () => {
         await settle();
         service.switchWorkspace('/ws/a');
         await settle();
-        expect(service.currentView()).toBe('harness-builder');
+        expect(service.currentView()).toBe('tasks');
 
         // A→B→A with B's restore still in flight. The surface on screen is
-        // A's; stamping it onto B made B remember 'harness-builder'.
+        // A's; stamping it onto B made B remember 'tasks'.
         service.switchWorkspace('/ws/b');
         service.switchWorkspace('/ws/a');
         await settle();
 
-        expect(service.currentView()).toBe('harness-builder');
+        expect(service.currentView()).toBe('tasks');
         service.switchWorkspace('/ws/b');
         await settle();
         expect(service.currentView()).toBe('analytics');
@@ -1136,11 +1205,11 @@ describe('AppStateManager', () => {
       const service = createService();
       const surfaceRouter = TestBed.inject(SurfaceRouterService);
 
-      await surfaceRouter.navigateToSurface('setup-hub');
+      await surfaceRouter.navigateToSurface('onboarding');
       await settle();
 
-      expect(service.openConfigurationSurface()).toBe('setup-hub');
-      expect(service.currentView()).toBe('setup-hub');
+      expect(service.openConfigurationSurface()).toBe('onboarding');
+      expect(service.currentView()).toBe('onboarding');
     });
 
     it('owner null after removeWorkspaceState: an external configuration navigation still updates the global state', async () => {
@@ -1284,11 +1353,11 @@ describe('AppStateManager', () => {
 
       // Every navigation rewrites the slice through the constructor effect —
       // the in-surface pointer must survive that, not be reset by it.
-      service.setCurrentView('harness-builder');
+      service.setCurrentView('analytics');
       await settle();
       service.setCurrentView('tasks');
       await settle();
-      service.closeView('harness-builder');
+      service.closeView('analytics');
       await settle();
 
       expect(service.thothActiveTab()).toBe('cron');
@@ -1861,7 +1930,11 @@ describe('AppStateManager', () => {
         await expect(bounded).resolves.toBe(false);
         // Only the exact timed-out request is removed; the other still waits.
         expect(service.canvasTabRequests()).toEqual([
-          { tabId: 'tab-14', workspacePath: '/ws/a', resolve: expect.any(Function) },
+          {
+            tabId: 'tab-14',
+            workspacePath: '/ws/a',
+            resolve: expect.any(Function),
+          },
         ]);
       } finally {
         jest.useRealTimers();

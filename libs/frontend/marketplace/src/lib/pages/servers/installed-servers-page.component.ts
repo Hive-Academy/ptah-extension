@@ -309,7 +309,12 @@ interface ConversionError {
     CapabilityToggleComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block', 'data-testid': 'installed-servers-page' },
+  host: {
+    class: 'block ptah-motion-panel',
+    'data-testid': 'installed-servers-page',
+    'animate.enter': 'ptah-motion-enter',
+    'animate.leave': 'ptah-motion-leave',
+  },
   template: `
     <div class="space-y-4 p-4">
       <header class="flex flex-wrap items-end justify-between gap-3">

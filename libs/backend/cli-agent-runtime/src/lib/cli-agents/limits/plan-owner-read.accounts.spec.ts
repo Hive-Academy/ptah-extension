@@ -35,6 +35,25 @@ import {
 import { LaneOwnerResolver, type LaneOwnerSource } from './lane-owner.resolver';
 import { PtahCliLanePlanLimits } from '../../ptah-cli/helpers/ptah-cli-lane-plan-limits';
 
+describe('Kimi Code owner read plans', () => {
+  const owner: QuotaOwnerRef = {
+    providerId: 'kimi-code', identityKind: 'credential',
+    key: 'kimi-code#credential:0123456789abcdef', label: 'Kimi Code API key',
+  };
+
+  it('reads the shared connection for a main provider and selects a lane slot for an agent', () => {
+    expect(planOwnerRead(owner)).toEqual({
+      kind: 'read', target: { providerId: 'kimi-code', ownerRef: owner },
+    });
+    expect(planOwnerRead(owner, { ptahCliId: 'kimi-1' })).toEqual({
+      kind: 'read', target: {
+        providerId: 'kimi-code', ownerRef: owner,
+        credentialRef: { kind: 'ptah-cli-key', ptahCliId: 'kimi-1' },
+      },
+    });
+  });
+});
+
 const route = (
   fingerprint: string,
   authEpoch = 1,

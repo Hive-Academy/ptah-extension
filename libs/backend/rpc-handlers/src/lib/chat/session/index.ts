@@ -21,3 +21,8 @@ export {
   type SurfaceSubmitTurnOutcome,
   type SurfaceSubmitTurnRejectReason,
 } from './surface-submit-turn.service';
+export {
+  ChatRuntimeProfileService,
+  type ChatRuntimeConfig,
+  type ResolvedChatExecution,
+} from './chat-runtime-profile.service';

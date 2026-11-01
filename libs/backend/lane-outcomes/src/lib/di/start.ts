@@ -74,9 +74,10 @@ export function startLaneOutcomes(
 ): () => Promise<void> {
   if (!container.isRegistered(LANE_OUTCOME_TOKENS.RECORDER))
     registerLaneOutcomeServices(container, logger);
-  const recorder = container.resolve<LaneOutcomeRecorder>(
-    LANE_OUTCOME_TOKENS.RECORDER,
-  );
+  // The recorder resolves model classifiers, which need workspace settings.
+  // Hosts register those settings after attaching outcome callbacks.
+  const recorder = (): LaneOutcomeRecorder =>
+    container.resolve<LaneOutcomeRecorder>(LANE_OUTCOME_TOKENS.RECORDER);
   const pipeline = container.resolve<OutcomeWritePipeline>(
     LANE_OUTCOME_PIPELINE,
   );
@@ -86,8 +87,10 @@ export function startLaneOutcomes(
       try {
         unsubscribe();
       } catch (error: unknown) {
+        const failure = asError(error);
         logger.warn('Lane outcomes callback cleanup failed (non-fatal)', {
-          error: asError(error),
+          error: failure.message,
+          stack: failure.stack,
         });
       }
     }
@@ -100,7 +103,7 @@ export function startLaneOutcomes(
         SDK_TOKENS.SDK_SUBAGENT_STOP_CALLBACK_REGISTRY,
       );
       unsubs.push(
-        registry.register((payload) => recorder.recordSubagentStop(payload)),
+        registry.register((payload) => recorder().recordSubagentStop(payload)),
       );
     }
     if (
@@ -113,7 +116,7 @@ export function startLaneOutcomes(
       );
       unsubs.push(
         registry.register((payload) =>
-          recorder.markSubagentBudgetStop(payload.agentId),
+          recorder().markSubagentBudgetStop(payload.agentId),
         ),
       );
     }
@@ -125,13 +128,15 @@ export function startLaneOutcomes(
         SDK_TOKENS.SDK_ADAPTER_EVENTS,
       );
       unsubs.push(
-        events.onSubagentEnded((event) => recorder.recordSubagentEnded(event)),
+        events.onSubagentEnded((event) => recorder().recordSubagentEnded(event)),
       );
     }
   } catch (error: unknown) {
     unsubscribeAll();
+    const failure = asError(error);
     logger.warn('Lane outcomes callback registration failed (non-fatal)', {
-      error: asError(error),
+      error: failure.message,
+      stack: failure.stack,
     });
   }
   return async () => {
@@ -148,8 +153,10 @@ async function drainOrWarn(
   try {
     await drain();
   } catch (error: unknown) {
+    const failure = asError(error);
     warnDuringShutdown(logger, 'Lane outcomes drain failed (non-fatal)', {
-      error: asError(error),
+      error: failure.message,
+      stack: failure.stack,
     });
   }
 }
@@ -197,8 +204,10 @@ export function startAndRegisterLaneOutcomes(
   try {
     drain = startLaneOutcomes(container, logger, options);
   } catch (error: unknown) {
+    const failure = asError(error);
     logger.warn('Lane outcomes start failed (non-fatal)', {
-      error: asError(error),
+      error: failure.message,
+      stack: failure.stack,
     });
   }
   const disposer: LaneOutcomesDisposer = boundedDisposer(drain, logger);

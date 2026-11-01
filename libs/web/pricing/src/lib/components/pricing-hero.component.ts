@@ -8,7 +8,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
 /**
  * PricingHeroComponent — pricing page hero in the Operator Console system.
  *
- * Replaces the previous Egyptian pyramid-image hero (pyramid_energy_apex.png,
+ * Replaces the previous Egyptian pyramid-image hero (pyramid_energy_apex.webp,
  * 3D text shadows, gradient display type) with a coded ConsoleGridBackground +
  * amber-glow treatment, a mono kicker, and a clean H1 whose only accent is the
  * amber trial phrase — consistent with the home hero and section headers.

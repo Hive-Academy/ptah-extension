@@ -29,9 +29,10 @@ import { join } from 'node:path';
 import { generationRouteTabValidator } from './app.config';
 
 import { PlatformLocation } from '@angular/common';
-import { ErrorHandler } from '@angular/core';
+import { ErrorHandler, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
+  NavigationStart,
   PartialMatchRouteSnapshot,
   Route,
   Router,
@@ -43,6 +44,7 @@ import {
 import {
   ACCEPTED_INITIAL_VIEWS,
   AppStateManager,
+  ElectronLayoutService,
   LEGACY_SURFACE_ALIASES,
   MESSAGE_HANDLERS,
   MemoryPlatformLocation,
@@ -56,6 +58,10 @@ import {
 } from '@ptah-extension/core';
 import { settleSurfaceNavigation as settle } from '@ptah-extension/core/testing';
 import { MESSAGE_TYPES, WEBVIEW_ROUTE_STATE_KEY } from '@ptah-extension/shared';
+import {
+  ONBOARDING_FLAG_KEY,
+  provideOnboardingFirstRun,
+} from '@ptah-extension/onboarding/services';
 
 import { appRoutes } from './app.routes';
 import { electronOnlySurface } from './electron-only-surface.guard';
@@ -280,9 +286,7 @@ describe('webview routing composition', () => {
 
       // The last surface is Electron-only, so the `**` fallback put the user
       // back on chat — through the Router, not through the History API.
-      expect(ELECTRON_ONLY_SURFACES).toContain(
-        SURFACE_ROUTE_IDS.at(-1),
-      );
+      expect(ELECTRON_ONLY_SURFACES).toContain(SURFACE_ROUTE_IDS.at(-1));
       expect(surfaceRouter.currentSurface()).toBe('chat');
       expect(TestBed.inject(Router).url).toBe('/chat');
       for (const spy of Object.values(history)) {
@@ -345,22 +349,25 @@ describe('webview routing composition', () => {
   });
 
   describe('initial navigation from the host deep link', () => {
-    it('lands a setup-wizard panel on the setup-wizard route', async () => {
-      // `ptah.setupAgents` opens a dedicated panel whose HTML hardcodes this
-      // (webview-lifecycle.service.ts:153). The user is already waiting on it,
-      // which is why its route is eager.
-      (window as unknown as HostWindow).ptahConfig = {
-        initialView: 'setup-wizard',
-      };
+    it.each(['setup-wizard', 'setup-hub', 'harness-builder'] as const)(
+      'lands a legacy %s initialView on onboarding Home',
+      async (legacyView) => {
+        // `ptah.setupAgents` opens a dedicated panel whose HTML hardcodes this
+        // (webview-lifecycle.service.ts:153). The user is already waiting on it,
+        // which is why its route is eager.
+        (window as unknown as HostWindow).ptahConfig = {
+          initialView: legacyView,
+        };
 
-      await bootWithInitialView('setup-wizard');
+        await bootWithInitialView(legacyView);
 
-      expect(TestBed.inject(Router).url).toBe('/setup-wizard');
-      expect(TestBed.inject(AppStateManager).currentView()).toBe(
-        'setup-wizard',
-      );
-      expect(history['pushState']).not.toHaveBeenCalled();
-    });
+        expect(TestBed.inject(Router).url).toBe('/onboarding');
+        expect(TestBed.inject(AppStateManager).currentView()).toBe(
+          'onboarding',
+        );
+        expect(history['pushState']).not.toHaveBeenCalled();
+      },
+    );
 
     it.each([...SURFACE_ROUTE_IDS])(
       'lands a %s deep link on its route',
@@ -466,6 +473,17 @@ describe('webview routing composition', () => {
       return TestBed.inject(VSCodeService).getState(WEBVIEW_ROUTE_STATE_KEY);
     }
 
+    it.each([
+      '/setup-hub/old',
+      '/setup-wizard/generation/setup-agent-generation/old-tab',
+      '/harness-builder/configure-harness/old-tab',
+    ])('restores legacy %s to onboarding Home', async (route) => {
+      installHost(savedRoute(route, null), null);
+      expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+      expect(TestBed.inject(Router).url).toBe('/onboarding');
+      expect(TestBed.inject(AppStateManager).currentView()).toBe('onboarding');
+    });
+
     it('restores a saved /chat/<tabId> when the host sends no deep link', async () => {
       installHost(savedRoute(`/chat/${tabId}`, null), null);
 
@@ -495,6 +513,84 @@ describe('webview routing composition', () => {
         expect.objectContaining({ route: '/thoth/skills', seed: 'chat' }),
       );
     }, 30_000);
+
+    it('waits for the Electron workspace before restoring an onboarding tab', async () => {
+      const workspaceResolved = signal(false);
+      const tabs = {
+        activeWorkspacePath: '/ws',
+        findTabByIdAcrossWorkspaces: jest.fn().mockReturnValue(null),
+      };
+      TestBed.configureTestingModule({
+        providers: [
+          { provide: ElectronLayoutService, useValue: { workspaceResolved } },
+          {
+            provide: SurfaceRouterService.generationRouteTabValidatorToken,
+            useValue: generationRouteTabValidator(tabs),
+          },
+        ],
+      });
+      const route = `/onboarding/analyze/agents?tab=${tabId}`;
+      installHost(savedRoute(route, 'chat'), 'chat');
+      hostIsElectron(true);
+
+      const boot = runBoot();
+      await Promise.resolve();
+      expect(tabs.findTabByIdAcrossWorkspaces).not.toHaveBeenCalled();
+
+      tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
+        workspacePath: '/ws',
+        tab: { workflow: 'setup-agent-generation' },
+      });
+      workspaceResolved.set(true);
+
+      expect(surfaceNavigationLanded(await boot)).toBe(true);
+      expect(TestBed.inject(Router).url).toBe(route);
+      expect(TestBed.inject(AppStateManager).currentView()).toBe('onboarding');
+    });
+
+    it('restores a non-onboarding route before the Electron workspace resolves', async () => {
+      const workspaceResolved = signal(false);
+      TestBed.configureTestingModule({
+        providers: [
+          { provide: ElectronLayoutService, useValue: { workspaceResolved } },
+        ],
+      });
+      installHost(savedRoute('/settings', 'chat'), 'chat');
+      hostIsElectron(true);
+
+      expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+      expect(TestBed.inject(Router).url).toBe('/settings');
+      expect(workspaceResolved()).toBe(false);
+    });
+
+    it('keeps a newer host navigation that lands during the workspace wait', async () => {
+      const workspaceResolved = signal(false);
+      TestBed.configureTestingModule({
+        providers: [
+          { provide: ElectronLayoutService, useValue: { workspaceResolved } },
+          {
+            provide: SurfaceRouterService.generationRouteTabValidatorToken,
+            useValue: () => true,
+          },
+        ],
+      });
+      installHost(
+        savedRoute(`/onboarding/analyze/agents?tab=${tabId}`, 'chat'),
+        'chat',
+      );
+      hostIsElectron(true);
+
+      const boot = runBoot();
+      expect(
+        surfaceNavigationLanded(
+          await TestBed.inject(SurfaceRouterService).navigateToSurface('settings'),
+        ),
+      ).toBe(true);
+      workspaceResolved.set(true);
+
+      expect(await boot).toBe('cancelled');
+      expect(TestBed.inject(Router).url).toBe('/settings');
+    });
 
     it('lets a new host deep link win over the saved route, and seeds it', async () => {
       installHost(savedRoute('/thoth/skills', 'chat'), 'settings');
@@ -592,6 +688,155 @@ describe('webview routing composition', () => {
         expect.stringContaining('[App] Restored route'),
       );
     }, 30_000);
+  });
+
+  /**
+   * TASK_2026_ONBOARDING B1: the chat route's first-run guard, against the real
+   * table and the real boot. `provideOnboardingFirstRun()` is added here as
+   * `app.config.ts` registers it, so the tracker watches the boot navigation.
+   */
+  describe('onboarding first run (chat guard)', () => {
+    function configureFirstRun(): void {
+      TestBed.configureTestingModule({
+        providers: [provideOnboardingFirstRun()],
+      });
+    }
+
+    function storedFlag(): Record<string, unknown> | null {
+      const raw = localStorage.getItem(ONBOARDING_FLAG_KEY);
+      return raw === null ? null : (JSON.parse(raw) as Record<string, unknown>);
+    }
+
+    beforeEach(() => configureFirstRun());
+
+    it('lands an Electron boot to the host default chat on /onboarding/ready, once', async () => {
+      installHost({}, 'chat');
+      hostIsElectron(true);
+      const setItem = jest.spyOn(Storage.prototype, 'setItem');
+
+      await bootWithInitialView('chat');
+
+      expect(TestBed.inject(Router).url).toBe('/onboarding/ready');
+      expect(storedFlag()).toEqual({ shownAt: expect.any(String) });
+      expect(
+        setItem.mock.calls.filter(([key]) => key === ONBOARDING_FLAG_KEY),
+      ).toHaveLength(1);
+
+      // A second boot reads the written flag and stays on chat.
+      TestBed.resetTestingModule();
+      configure();
+      configureFirstRun();
+      installHost({}, 'chat');
+      hostIsElectron(true);
+
+      await bootWithInitialView('chat');
+
+      expect(TestBed.inject(Router).url).toBe('/chat');
+    });
+
+    it('accepts a restored /chat that the guard settles on /onboarding/ready', async () => {
+      const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+      installHost(savedRoute('/chat', 'chat'), 'chat');
+      hostIsElectron(true);
+
+      expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+
+      expect(TestBed.inject(Router).url).toBe('/onboarding/ready');
+      expect(storedFlag()).toEqual({ shownAt: expect.any(String) });
+      expect(consoleWarn).not.toHaveBeenCalledWith(
+        expect.stringContaining('[App] Restored route'),
+      );
+    });
+
+    it('stays on onboarding when a stale restored route falls through to chat', async () => {
+      const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+      installHost(savedRoute('/settings/obsolete', 'chat'), 'chat');
+      hostIsElectron(true);
+
+      expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+
+      expect(TestBed.inject(Router).url).toBe('/onboarding/ready');
+      expect(storedFlag()).toEqual({ shownAt: expect.any(String) });
+      expect(consoleWarn).not.toHaveBeenCalledWith(
+        expect.stringContaining('[App] Restored route'),
+      );
+    });
+
+    it('lands on onboarding Home when a Get ready pre-step was already left (ready.claudeAt)', async () => {
+      const claudeAt = '2026-10-01T10:00:00.000Z';
+      localStorage.setItem(
+        ONBOARDING_FLAG_KEY,
+        JSON.stringify({ ready: { claudeAt } }),
+      );
+      installHost({}, 'chat');
+      hostIsElectron(true);
+
+      await bootWithInitialView('chat');
+
+      expect(TestBed.inject(Router).url).toBe('/onboarding');
+      expect(storedFlag()).toEqual({
+        shownAt: expect.any(String),
+        ready: { claudeAt },
+      });
+    });
+
+    it('leaves shownAt unset when SWITCH_VIEW supersedes the redirect', async () => {
+      installHost({}, 'chat');
+      hostIsElectron(true);
+      TestBed.inject(MessageRouterService);
+      TestBed.inject(AppStateManager);
+      const router = TestBed.inject(Router);
+      let switched = false;
+      const subscription = router.events.subscribe((event) => {
+        if (
+          !switched &&
+          event instanceof NavigationStart &&
+          event.url.startsWith('/onboarding')
+        ) {
+          switched = true;
+          post('settings');
+        }
+      });
+
+      await runBoot();
+      await settle();
+      subscription.unsubscribe();
+
+      expect(switched).toBe(true);
+      expect(router.url).toBe('/settings');
+      expect(storedFlag()).toBeNull();
+    });
+
+    it('never redirects on VS Code', async () => {
+      installHost({}, 'chat');
+      hostIsElectron(false);
+
+      await bootWithInitialView('chat');
+
+      expect(TestBed.inject(Router).url).toBe('/chat');
+      expect(storedFlag()).toBeNull();
+    });
+
+    it('does not redirect when the stored record is unreadable', async () => {
+      localStorage.setItem(ONBOARDING_FLAG_KEY, '{not json');
+      installHost({}, 'chat');
+      hostIsElectron(true);
+
+      await bootWithInitialView('chat');
+
+      expect(TestBed.inject(Router).url).toBe('/chat');
+      expect(localStorage.getItem(ONBOARDING_FLAG_KEY)).toBe('{not json');
+    });
+
+    it('never runs on a deep link to another surface', async () => {
+      installHost({}, 'settings');
+      hostIsElectron(true);
+
+      await bootWithInitialView('settings');
+
+      expect(TestBed.inject(Router).url).toBe('/settings');
+      expect(storedFlag()).toBeNull();
+    });
   });
 
   /**
@@ -833,40 +1078,35 @@ describe('app.routes', () => {
   const allPaths = appRoutes
     .map((route) => route.path)
     .filter((path): path is string => path !== '' && path !== '**');
-  // Parameter routes (e.g. `harness-builder/:mode/:tabId`) are deep links
-  // into an existing surface, not surfaces of their own.
   const paths = allPaths.filter((path) => !path.includes('/:'));
+  const canonicalPaths = paths.filter((path) =>
+    SURFACE_ROUTE_IDS.some((id) => id === path),
+  );
 
-  it('declares exactly the surfaces in SURFACE_ROUTE_IDS, in the same order', () => {
-    expect(paths).toEqual([...SURFACE_ROUTE_IDS]);
+  it('declares canonical surfaces in order without old setup routes', () => {
+    expect(canonicalPaths).toEqual([...SURFACE_ROUTE_IDS]);
+    expect(paths.filter((path) => !canonicalPaths.includes(path))).toEqual([]);
   });
 
   it('roots every parameter route in a declared surface', () => {
     const paramRoutes = allPaths.filter((path) => path.includes('/:'));
-    expect(paramRoutes).toEqual([
-      'setup-wizard/generation/:workflow/:tabId',
-      'harness-builder/:mode/:tabId',
-    ]);
+    expect(paramRoutes).toEqual([]);
     for (const path of paramRoutes) {
-      expect(SURFACE_ROUTE_IDS).toContain(path.split('/')[0]);
+      expect(paths).toContain(path.split('/')[0]);
     }
   });
 
   it('cannot drift from the HOST allow-list (F4)', () => {
     // `WebviewHtmlGenerator` validates `initialView` against
     // `ACCEPTED_INITIAL_VIEWS` from `@ptah-extension/shared`. This is the gate
-    // that stops the two from disagreeing again: the host must accept exactly
-    // this route table plus the legacy aliases the renderer rewrites, and
-    // nothing else. Before revision 1 the host list was six ids, four of them
-    // not routes and two of them not surfaces at all.
+    // The host accepts canonical surfaces plus the legacy aliases even while
+    // the old route components are gone.
     expect([...ACCEPTED_INITIAL_VIEWS].sort()).toEqual(
-      [...paths, ...LEGACY_SURFACE_ALIASES].sort(),
+      [...SURFACE_ROUTE_IDS, ...LEGACY_SURFACE_ALIASES].sort(),
     );
 
-    // Each alias must be something the renderer can actually resolve, or the
-    // host would accept a value that lands nowhere.
+    // Each alias must be something the renderer can resolve.
     for (const alias of LEGACY_SURFACE_ALIASES) {
-      expect(paths).not.toContain(alias);
       expect(isAcceptedInitialView(alias)).toBe(true);
     }
   });
@@ -897,7 +1137,7 @@ describe('app.routes', () => {
     expect(chat?.loadChildren).toBeUndefined();
   });
 
-  it.each(['setup-wizard', 'settings', 'analytics'])(
+  it.each(['settings', 'analytics'])(
     'keeps the startup-reachable surface %s eager',
     (path) => {
       const route = appRoutes.find((candidate) => candidate.path === path);
@@ -906,17 +1146,14 @@ describe('app.routes', () => {
     },
   );
 
-  it.each([
-    'harness-builder',
-    'setup-hub',
-    'tasks',
-    'apps',
-    'command-center',
-  ])('defers %s with loadComponent', (path) => {
-    const route = appRoutes.find((candidate) => candidate.path === path);
-    expect(typeof route?.loadComponent).toBe('function');
-    expect(route?.component).toBeUndefined();
-  });
+  it.each(['tasks', 'apps', 'command-center'])(
+    'defers %s with loadComponent',
+    (path) => {
+      const route = appRoutes.find((candidate) => candidate.path === path);
+      expect(typeof route?.loadComponent).toBe('function');
+      expect(route?.component).toBeUndefined();
+    },
+  );
 
   it('defers thoth as a lazily loaded route tree that resolves THOTH_ROUTES', async () => {
     // Pins the `THOTH_ROUTES` barrel export (TASK_2026_524 Batch 4e2): a
@@ -967,7 +1204,7 @@ describe('app.routes', () => {
     expect(order.indexOf('command-center')).toBe(appRoutes.length - 3);
   });
 
-  it.each(['harness-builder', 'setup-hub', 'tasks', 'apps', 'command-center'])(
+  it.each(['tasks', 'apps', 'command-center'])(
     'resolves %s to a real component class',
     async (path) => {
       // Pins the barrel export each `loadComponent` names. A rename would
@@ -989,24 +1226,6 @@ describe('app.routes', () => {
 
     expect(loaded).toBe(module.AppsPageComponent);
   }, 30_000);
-
-  it('serves harness-builder and setup-hub from the SAME module', async () => {
-    // Both resolve out of `@ptah-extension/harness-builder`, so ONE chunk
-    // serves both views. That is expected — do not restructure to force two.
-    const load = (path: string) =>
-      (
-        appRoutes.find((route) => route.path === path)
-          ?.loadComponent as () => Promise<unknown>
-      )();
-    const [builder, hub] = await Promise.all([
-      load('harness-builder'),
-      load('setup-hub'),
-    ]);
-    const module = await import('@ptah-extension/harness-builder');
-
-    expect(builder).toBe(module.HarnessBuilderViewComponent);
-    expect(hub).toBe(module.SetupHubComponent);
-  }, 30_000);
 });
 
 /**
@@ -1020,6 +1239,11 @@ describe('app.routes', () => {
  */
 describe('app.config routing wiring', () => {
   const source = readFileSync(join(__dirname, 'app.config.ts'), 'utf-8');
+
+  it('starts the onboarding first-run tracker at bootstrap', () => {
+    // The chat guard's redirect commits `shownAt` only through the tracker.
+    expect(source).toContain('provideOnboardingFirstRun()');
+  });
 
   it('binds PlatformLocation to MemoryPlatformLocation', () => {
     // Without this the Router reaches `history.pushState`, which the Electron

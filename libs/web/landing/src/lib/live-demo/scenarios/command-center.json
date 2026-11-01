@@ -1,0 +1,674 @@
+{
+  "id": "command-center",
+  "title": "PtahCode Command Center",
+  "timeBase": 1793476800000,
+  "config": {
+    "initialView": "command-center",
+    "workspaceRoot": "/workspace/acme-app",
+    "workspaceName": "acme-app"
+  },
+  "rpc": {
+    "workspace:getInfo": {
+      "folders": [
+        "/workspace/acme-app"
+      ],
+      "root": "/workspace/acme-app",
+      "activeFolder": "/workspace/acme-app",
+      "name": "acme-app"
+    },
+    "workspace:listRecent": {
+      "workspaces": []
+    },
+    "boot:getReadiness": {
+      "phase": "settled",
+      "readiness": "ready",
+      "startedAt": 1793476800000,
+      "steps": []
+    },
+    "session:list": {
+      "sessions": [
+        {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "name": "Coordinate dashboard release",
+          "messageCount": 6,
+          "createdAt": 1793476800000,
+          "lastActivityAt": 1793476808000,
+          "isActive": true,
+          "hasTranscript": true
+        },
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "name": "Fix checkout loading state",
+          "messageCount": 4,
+          "createdAt": 1793476800000,
+          "lastActivityAt": 1793476800000,
+          "isActive": false,
+          "hasTranscript": true
+        },
+        {
+          "id": "33333333-3333-4333-8333-333333333333",
+          "name": "Review accessibility notes",
+          "messageCount": 3,
+          "createdAt": 1793476800000,
+          "lastActivityAt": 1793476800000,
+          "isActive": false,
+          "hasTranscript": true
+        }
+      ],
+      "total": 3,
+      "hasMore": false
+    },
+    "session:load": {
+      "sessionId": "11111111-1111-4111-8111-111111111111",
+      "messages": [],
+      "agentSessions": []
+    },
+    "session:cli-sessions": {
+      "cliSessions": []
+    },
+    "session:status": {
+      "isActive": false,
+      "isStreaming": false
+    },
+    "chat:resume": {
+      "success": true,
+      "sessionId": "11111111-1111-4111-8111-111111111111",
+      "events": [
+        {
+          "id": "cc-history-start",
+          "eventType": "message_start",
+          "timestamp": 1793476800000,
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "source": "history",
+          "messageId": "cc-prompt",
+          "role": "user"
+        },
+        {
+          "id": "cc-history-text",
+          "eventType": "text_delta",
+          "timestamp": 1793476800000,
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "source": "history",
+          "messageId": "cc-prompt",
+          "blockIndex": 0,
+          "delta": "Coordinate the dashboard release and tell me when every lane is done."
+        },
+        {
+          "id": "cc-history-end",
+          "eventType": "message_complete",
+          "timestamp": 1793476800000,
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "source": "history",
+          "messageId": "cc-prompt"
+        }
+      ],
+      "historyPage": {
+        "olderCursor": null
+      },
+      "cliSessions": []
+    },
+    "auth:getAuthStatus": {
+      "hasApiKey": false,
+      "hasOpenRouterKey": false,
+      "hasAnyProviderKey": false,
+      "authMethod": "claudeCli",
+      "anthropicProviderId": "anthropic",
+      "availableProviders": [],
+      "claudeCliInstalled": true
+    },
+    "license:getStatus": {
+      "valid": true,
+      "tier": "community",
+      "isPremium": false,
+      "isCommunity": true,
+      "daysRemaining": null,
+      "plan": {
+        "name": "Community",
+        "description": "Free tier",
+        "features": []
+      }
+    },
+    "workspace:switch": {
+      "success": true
+    },
+    "config:models-list": {
+      "models": []
+    },
+    "config:pricing-get": {
+      "pricing": {},
+      "hydrated": true
+    },
+    "config:effort-get": {
+      "effort": "medium"
+    },
+    "config:autopilot-get": {
+      "enabled": false,
+      "permissionLevel": "ask"
+    },
+    "ptahCli:list": {
+      "agents": []
+    },
+    "displayWindow:status": {
+      "supported": false,
+      "open": false
+    },
+    "update:get-state": {
+      "state": {
+        "state": "idle"
+      }
+    },
+    "attention:getSnapshot": {
+      "notices": []
+    },
+    "artifacts:list": {
+      "artifacts": []
+    },
+    "chat:agent-sessions": {
+      "sessions": []
+    },
+    "git:turnChangeSets": {
+      "changeSets": []
+    },
+    "auth:getScope": {
+      "authMethodScope": "global",
+      "providerScope": "global",
+      "activePath": null
+    },
+    "chat:setStreamViewport": {
+      "acceptedProtocolVersion": 2
+    },
+    "git:info": {
+      "isGitRepo": true,
+      "branch": {
+        "branch": "demo",
+        "upstream": null,
+        "ahead": 0,
+        "behind": 0
+      },
+      "files": []
+    },
+    "provider:getPlanLimits": {
+      "generatedAt": 1793476800000,
+      "owners": [
+        {
+          "owner": {
+            "key": "anthropic#account:demo-owner",
+            "providerId": "anthropic",
+            "identityKind": "account",
+            "label": "Claude account"
+          },
+          "status": "available",
+          "fetchedAt": 1793476800000,
+          "windowSetEstablished": true,
+          "windows": [
+            {
+              "key": "five_hour",
+              "kind": "five_hour",
+              "label": "5-hour",
+              "used": {
+                "kind": "percent",
+                "percent": 31
+              },
+              "usedSource": "provider-api",
+              "usedObservedAt": 1793476800000,
+              "observedAt": 1793476800000,
+              "resetsAt": 1793484000000,
+              "resetSource": "provider-api"
+            },
+            {
+              "key": "weekly",
+              "kind": "weekly",
+              "label": "Weekly",
+              "used": {
+                "kind": "percent",
+                "percent": 18
+              },
+              "usedSource": "provider-api",
+              "usedObservedAt": 1793476800000,
+              "observedAt": 1793476800000,
+              "resetsAt": 1793563200000,
+              "resetSource": "provider-api"
+            }
+          ],
+          "ownerEvidence": []
+        }
+      ],
+      "sessionOwners": {
+        "11111111-1111-4111-8111-111111111111": {
+          "ownerKey": "anthropic#account:demo-owner",
+          "modelScope": null
+        }
+      }
+    },
+    "plugins:get-config": {
+      "enabledPluginIds": [],
+      "disabledSkillIds": []
+    },
+    "plugins:list-available": {
+      "plugins": []
+    },
+    "setup-status:get-status": {
+      "isConfigured": true,
+      "agentCount": 0,
+      "ruleCount": 0,
+      "lastUpdated": null,
+      "hasClaudeConfig": false
+    },
+    "wizard:list-analyses": {
+      "analyses": []
+    },
+    "analytics:spendSummary": {
+      "version": 1,
+      "generatedAt": "2026-10-31T00:00:00.000Z",
+      "timeZone": "UTC",
+      "fromDay": "2026-10-24",
+      "untilDayExclusive": "2026-11-01",
+      "facts": [],
+      "topSessions": [],
+      "sessionCount": 3,
+      "messageCount": 13,
+      "subagentCount": 0,
+      "sources": [],
+      "pricing": {
+        "source": "bundled",
+        "asOf": null
+      }
+    },
+    "indexing:getStatus": {
+      "status": {
+        "state": "never-indexed",
+        "workspaceFingerprint": "demo-fingerprint",
+        "gitHeadSha": null,
+        "currentGitHeadSha": null,
+        "lastIndexedAt": null,
+        "symbolsEnabled": false,
+        "memoryEnabled": false,
+        "symbolsCursor": null,
+        "disclosureAcknowledgedAt": null,
+        "lastDismissedStaleSha": null,
+        "errorMessage": null
+      }
+    },
+    "git:branches": {
+      "current": "demo",
+      "local": [],
+      "remote": []
+    },
+    "git:stashList": {
+      "count": 0,
+      "entries": []
+    },
+    "git:lastCommit": {
+      "hash": "d3a0c0de00000000000000000000000000000000",
+      "shortHash": "d3a0c0d",
+      "subject": "Demo workspace baseline",
+      "body": "",
+      "author": "Demo Contributor",
+      "time": 1793476800000,
+      "authorEmail": "demo@example.invalid"
+    },
+    "session:stats-batch": {
+      "sessionStats": [
+        {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "model": "claude-sonnet-4-5",
+          "totalCost": 0.084,
+          "knownCost": 0.084,
+          "tokens": {
+            "input": 5400,
+            "output": 1750,
+            "cacheRead": 2100,
+            "cacheCreation": 350
+          },
+          "tokenCount": 9600,
+          "messageCount": 3,
+          "agentSessionCount": 2,
+          "cliAgents": [
+            "codex",
+            "copilot"
+          ],
+          "modelUsageList": [
+            {
+              "model": "claude-sonnet-4-5",
+              "inputTokens": 5400,
+              "outputTokens": 1750,
+              "cacheRead": 2100,
+              "cacheCreation": 350,
+              "costUSD": 0.084,
+              "contextWindow": 200000
+            }
+          ],
+          "status": "ok",
+          "coverage": "complete",
+          "pricingCoverage": "full",
+          "scope": "session",
+          "revision": 1
+        },
+        {
+          "sessionId": "22222222-2222-4222-8222-222222222222",
+          "model": "claude-sonnet-4-5",
+          "totalCost": 0.084,
+          "knownCost": 0.084,
+          "tokens": {
+            "input": 5400,
+            "output": 1750,
+            "cacheRead": 2100,
+            "cacheCreation": 350
+          },
+          "tokenCount": 9600,
+          "messageCount": 3,
+          "agentSessionCount": 2,
+          "cliAgents": [
+            "codex",
+            "copilot"
+          ],
+          "modelUsageList": [
+            {
+              "model": "claude-sonnet-4-5",
+              "inputTokens": 5400,
+              "outputTokens": 1750,
+              "cacheRead": 2100,
+              "cacheCreation": 350,
+              "costUSD": 0.084,
+              "contextWindow": 200000
+            }
+          ],
+          "status": "ok",
+          "coverage": "complete",
+          "pricingCoverage": "full",
+          "scope": "session",
+          "revision": 1
+        },
+        {
+          "sessionId": "33333333-3333-4333-8333-333333333333",
+          "model": "claude-sonnet-4-5",
+          "totalCost": 0.084,
+          "knownCost": 0.084,
+          "tokens": {
+            "input": 5400,
+            "output": 1750,
+            "cacheRead": 2100,
+            "cacheCreation": 350
+          },
+          "tokenCount": 9600,
+          "messageCount": 3,
+          "agentSessionCount": 2,
+          "cliAgents": [
+            "codex",
+            "copilot"
+          ],
+          "modelUsageList": [
+            {
+              "model": "claude-sonnet-4-5",
+              "inputTokens": 5400,
+              "outputTokens": 1750,
+              "cacheRead": 2100,
+              "cacheCreation": 350,
+              "costUSD": 0.084,
+              "contextWindow": 200000
+            }
+          ],
+          "status": "ok",
+          "coverage": "complete",
+          "pricingCoverage": "full",
+          "scope": "session",
+          "revision": 1
+        }
+      ]
+    },
+    "chat:running-agents": {
+      "agents": []
+    },
+    "chat:subagent-query": {
+      "subagents": []
+    },
+    "chat:pending-questions": {
+      "success": true,
+      "questions": []
+    },
+    "voice:getProviderConfig": {
+      "ok": true,
+      "config": {
+        "ttsProvider": "local",
+        "sttProvider": "local",
+        "local": {
+          "whisperModel": "tiny.en",
+          "modelSource": "curated",
+          "sttDownloaded": true,
+          "ttsDownloaded": true,
+          "ttsVoice": "Demo voice"
+        },
+        "elevenlabs": {
+          "apiKeyConfigured": false,
+          "ttsModelId": "",
+          "outputFormat": "",
+          "sttModelId": ""
+        }
+      }
+    }
+  },
+  "bootMessages": [
+    {
+      "type": "switchView",
+      "payload": {
+        "view": "command-center",
+        "sessionId": "11111111-1111-4111-8111-111111111111"
+      }
+    }
+  ],
+  "timeline": [
+    {
+      "at": 500,
+      "message": {
+        "type": "session:stats-live",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-sonnet-4-5",
+            "totalCost": 0.084,
+            "knownCost": 0.084,
+            "tokens": {
+              "input": 5400,
+              "output": 1750,
+              "cacheRead": 2100,
+              "cacheCreation": 350
+            },
+            "tokenCount": 9600,
+            "messageCount": 3,
+            "agentSessionCount": 2,
+            "cliAgents": [
+              "codex",
+              "copilot"
+            ],
+            "modelUsageList": [
+              {
+                "model": "claude-sonnet-4-5",
+                "inputTokens": 5400,
+                "outputTokens": 1750,
+                "cacheRead": 2100,
+                "cacheCreation": 350,
+                "costUSD": 0.084,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 2,
+            "provisional": true
+          },
+          "context": {
+            "model": "claude-sonnet-4-5",
+            "contextTokens": 6800
+          }
+        }
+      }
+    },
+    {
+      "at": 3500,
+      "message": {
+        "type": "agent-monitor:spawned",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "cli": "codex",
+          "displayName": "Codex",
+          "task": "Review dashboard UI",
+          "workingDirectory": "/workspace/acme-app",
+          "status": "running",
+          "startedAt": "2026-10-31T20:00:03.500Z",
+          "parentSessionId": "11111111-1111-4111-8111-111111111111"
+        }
+      }
+    },
+    {
+      "at": 7500,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "stdoutDelta": "Checked the focused change; no issues found.\n",
+          "stderrDelta": "",
+          "timestamp": 1793476807500,
+          "segments": [
+            {
+              "type": "info",
+              "content": "Checked the focused change; no issues found.",
+              "usage": {
+                "model": "gpt-5",
+                "inputTokens": 2300,
+                "outputTokens": 720,
+                "totalTokens": 3020,
+                "costUsd": 0.026,
+                "durationMs": 12000
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 11000,
+      "message": {
+        "type": "agent-monitor:spawned",
+        "payload": {
+          "agentId": "55555555-5555-4555-8555-555555555555",
+          "cli": "copilot",
+          "displayName": "Copilot",
+          "task": "Check accessibility",
+          "workingDirectory": "/workspace/acme-app",
+          "status": "running",
+          "startedAt": "2026-10-31T20:00:11.000Z",
+          "parentSessionId": "11111111-1111-4111-8111-111111111111"
+        }
+      }
+    },
+    {
+      "at": 16500,
+      "message": {
+        "type": "agent-monitor:output",
+        "payload": {
+          "agentId": "55555555-5555-4555-8555-555555555555",
+          "stdoutDelta": "Checked the focused change; no issues found.\n",
+          "stderrDelta": "",
+          "timestamp": 1793476816500,
+          "segments": [
+            {
+              "type": "info",
+              "content": "Checked the focused change; no issues found.",
+              "usage": {
+                "model": "claude-sonnet-4-5",
+                "inputTokens": 2300,
+                "outputTokens": 720,
+                "totalTokens": 3020,
+                "costUsd": 0.026,
+                "durationMs": 12000
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": 23000,
+      "message": {
+        "type": "agent-monitor:exited",
+        "payload": {
+          "agentId": "44444444-4444-4444-8444-444444444444",
+          "cli": "codex",
+          "displayName": "Codex",
+          "task": "Review dashboard UI",
+          "workingDirectory": "/workspace/acme-app",
+          "status": "completed",
+          "startedAt": "2026-10-31T20:00:03.500Z",
+          "completedAt": "2026-10-31T20:00:23.000Z",
+          "exitCode": 0,
+          "parentSessionId": "11111111-1111-4111-8111-111111111111"
+        }
+      }
+    },
+    {
+      "at": 29000,
+      "message": {
+        "type": "agent-monitor:exited",
+        "payload": {
+          "agentId": "55555555-5555-4555-8555-555555555555",
+          "cli": "copilot",
+          "displayName": "Copilot",
+          "task": "Check accessibility",
+          "workingDirectory": "/workspace/acme-app",
+          "status": "completed",
+          "startedAt": "2026-10-31T20:00:11.000Z",
+          "completedAt": "2026-10-31T20:00:29.000Z",
+          "exitCode": 0,
+          "parentSessionId": "11111111-1111-4111-8111-111111111111"
+        }
+      }
+    },
+    {
+      "at": 31000,
+      "message": {
+        "type": "session:stats-live",
+        "payload": {
+          "sessionId": "11111111-1111-4111-8111-111111111111",
+          "sessionStats": {
+            "sessionId": "11111111-1111-4111-8111-111111111111",
+            "model": "claude-sonnet-4-5",
+            "totalCost": 0.084,
+            "knownCost": 0.084,
+            "tokens": {
+              "input": 5400,
+              "output": 1750,
+              "cacheRead": 2100,
+              "cacheCreation": 350
+            },
+            "tokenCount": 9600,
+            "messageCount": 3,
+            "agentSessionCount": 2,
+            "cliAgents": [
+              "codex",
+              "copilot"
+            ],
+            "modelUsageList": [
+              {
+                "model": "claude-sonnet-4-5",
+                "inputTokens": 5400,
+                "outputTokens": 1750,
+                "cacheRead": 2100,
+                "cacheCreation": 350,
+                "costUSD": 0.084,
+                "contextWindow": 200000
+              }
+            ],
+            "status": "ok",
+            "coverage": "complete",
+            "pricingCoverage": "full",
+            "scope": "session",
+            "revision": 4
+          }
+        }
+      }
+    }
+  ]
+}

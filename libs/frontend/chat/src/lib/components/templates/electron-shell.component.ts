@@ -7,7 +7,7 @@
  * With a workspace, the main app uses the 3-panel layout.
  *
  * 3-panel layout:
- *   - Global navbar: Logo, tabs (incl. Setup hub), Thoth/Marketplace/Settings
+ *   - Global navbar: Logo, tabs (incl. Setup), Thoth/Marketplace/Settings
  *     icon buttons, theme toggle, notifications
  *   - Workspace sidebar (left) — folder list
  *   - Chat panel (center) — reuses AppShellComponent entirely
@@ -127,15 +127,23 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
       overflow-clip-margin: 8px;
     }
 
-    :host-context([data-glass='on']) .electron-shell-body > :not(ptah-electron-resize-handle):not(:last-child) {
+    :host-context([data-glass='on'])
+      .electron-shell-body
+      > :not(ptah-electron-resize-handle):not(:last-child) {
       margin-inline-end: 8px;
     }
 
-    :host-context([data-glass='on']) .electron-shell-body > [data-test='configuration-surface-host']:has(+ ptah-electron-resize-handle) {
+    :host-context([data-glass='on'])
+      .electron-shell-body
+      > [data-test='configuration-surface-host']:has(
+        + ptah-electron-resize-handle
+      ) {
       margin-inline-end: 0;
     }
 
-    :host-context([data-glass='on']) .electron-shell-body > ptah-electron-resize-handle {
+    :host-context([data-glass='on'])
+      .electron-shell-body
+      > ptah-electron-resize-handle {
       margin-inline: 1px;
     }
 
@@ -147,13 +155,19 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
        The dock keeps flex-shrink so a row that still does not fit — sidebar
        open — gives the leftover to the dock (down to its 300px min) instead
        of clipping the trailing Git tab. */
-    :host-context([data-glass='on']) .electron-shell-body > [data-test='configuration-surface-host'] {
+    :host-context([data-glass='on'])
+      .electron-shell-body
+      > [data-test='configuration-surface-host'] {
       min-width: 384px;
     }
 
-    :host-context([data-glass='on']) .electron-shell-body > ptah-workspace-sidebar,
+    :host-context([data-glass='on'])
+      .electron-shell-body
+      > ptah-workspace-sidebar,
     :host-context([data-glass='on']) .electron-shell-body > ptah-sidebar-tab,
-    :host-context([data-glass='on']) .electron-shell-body > [data-test='configuration-surface-host'],
+    :host-context([data-glass='on'])
+      .electron-shell-body
+      > [data-test='configuration-surface-host'],
     :host-context([data-glass='on']) .electron-shell-body > .electron-git-dock {
       border-radius: var(--glass-radius);
       overflow: hidden;
@@ -186,7 +200,9 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
     }
   `,
   template: `
-    <div class="electron-shell-root flex flex-col h-screen w-screen bg-surface-0">
+    <div
+      class="electron-shell-root flex flex-col h-screen w-screen bg-surface-0"
+    >
       <!-- Global Navbar (spans full width, draggable on macOS).
            One surface-1 plane and a single bottom edge. The canvas behind
            the panels is the surface-0 root above. -->
@@ -280,29 +296,28 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
               <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
               <span class="tab-label whitespace-nowrap">Analytics</span>
             </button>
-            <!-- Keeps the former config-menu hook: e2e specs and the showcase
-                 harness address the Setup hub surface by it. -->
+            <!-- Keep the former config-menu hook for the Setup entry. -->
             <button
               role="tab"
               class="tab gap-1.5 no-drag whitespace-nowrap"
               data-test="config-menu-item-setup-hub"
               [class.tab-active]="
-                appState.openConfigurationSurface() === 'setup-hub'
+                appState.openConfigurationSurface() === 'onboarding'
               "
               [attr.aria-selected]="
-                appState.openConfigurationSurface() === 'setup-hub'
+                appState.openConfigurationSurface() === 'onboarding'
               "
               [attr.aria-current]="
-                appState.openConfigurationSurface() === 'setup-hub'
+                appState.openConfigurationSurface() === 'onboarding'
                   ? 'true'
                   : null
               "
-              title="Setup hub"
-              aria-label="Setup hub"
+              title="Setup"
+              aria-label="Setup"
               (click)="openSetupHub()"
             >
               <lucide-angular [img]="WrenchIcon" class="w-3.5 h-3.5" />
-              <span class="tab-label whitespace-nowrap">Setup hub</span>
+              <span class="tab-label whitespace-nowrap">Setup</span>
             </button>
           </div>
         }
@@ -364,7 +379,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
            welcome, pre-workspace configuration, or workspace layout. -->
       @if (!layout.workspaceResolved()) {
         <ptah-workspace-loading-state
-          class="flex-1 min-h-0 ptah-vt-surface"
+          class="flex-1 min-h-0" data-shell-surface
           [workspaceName]="layout.pendingWorkspaceName()"
         />
       } @else if (
@@ -379,10 +394,10 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
              nor re-exported by the chat barrel, or the compiler and esbuild
              keep it eager (electron-welcome.lazy-boundary.spec.ts). -->
         @defer (on immediate) {
-          <ptah-electron-welcome class="flex-1 ptah-vt-surface" />
+          <ptah-electron-welcome class="flex-1" data-shell-surface />
         } @placeholder {
           <div
-            class="flex-1 ptah-vt-surface"
+            class="flex-1" data-shell-surface
             data-testid="electron-welcome-placeholder"
             aria-hidden="true"
           ></div>
@@ -391,7 +406,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
                loader, so a remount would fail again: Reload restarts the
                renderer instead. -->
           <div
-            class="flex-1 ptah-vt-surface flex flex-col items-center justify-center gap-3 p-6 text-center"
+            class="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center" data-shell-surface
             data-testid="electron-welcome-error"
             role="alert"
           >
@@ -414,7 +429,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
           </div>
         }
       } @else if (!layout.hasWorkspaceFolders()) {
-        <div class="flex-1 min-h-0 overflow-hidden ptah-vt-surface"><router-outlet /></div>
+        <div class="flex-1 min-h-0 overflow-hidden" data-shell-surface><router-outlet /></div>
       } @else {
         <!-- 3-Panel Content Area -->
         <div class="electron-shell-body flex flex-1 min-h-0 overflow-hidden">
@@ -442,7 +457,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             data-test="configuration-surface-host"
             data-glass-surface="chrome"
             tabindex="-1"
-            class="flex-1 min-h-0 min-w-[400px] overflow-hidden outline-none ptah-vt-surface"
+            class="flex-1 min-h-0 min-w-[400px] overflow-hidden outline-none" data-shell-surface
           >
             <ptah-app-shell class="h-full w-full" />
           </div>
@@ -658,6 +673,6 @@ export class ElectronShellComponent {
   }
 
   openSetupHub(): void {
-    this.appState.setCurrentView('setup-hub');
+    this.appState.setCurrentView('onboarding');
   }
 }

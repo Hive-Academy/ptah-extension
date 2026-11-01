@@ -18,6 +18,7 @@ import { container, DependencyContainer } from 'tsyringe';
 
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { startAndRegisterLaneOutcomes } from '@ptah-extension/lane-outcomes';
 
 import { registerPhase0Platform } from './phase-0-platform';
 import { registerPhase1Infra } from './phase-1-infra';
@@ -43,6 +44,8 @@ export class ElectronDIContainer {
     registerPhase2Libraries(root, logger);
     registerPhase3Storage(root, logger);
     registerPhase4Handlers(root, logger);
+    // Start after every phase so eager recorder resolution sees the complete graph.
+    startAndRegisterLaneOutcomes(root, logger, { observeSubagentEnded: true });
     logger.info('[Electron DI] All services registered successfully');
     return root;
   }

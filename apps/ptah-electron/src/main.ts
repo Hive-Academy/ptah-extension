@@ -1,9 +1,11 @@
 import 'reflect-metadata';
 
-import { app, BrowserWindow, crashReporter } from 'electron';
+import { app, BrowserWindow, crashReporter, session } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { readFile } from 'node:fs/promises';
+import { readMotionPreference } from './config/motion-preference';
+import { installMotionEmulation } from './config/motion-emulation';
 import {
   registerArtifactHandler,
   registerArtifactScheme,
@@ -61,6 +63,7 @@ app.setName(isDev ? 'Ptah Dev' : 'Ptah');
 if (isDev) {
   app.setPath('userData', path.join(app.getPath('appData'), 'Ptah Dev'));
 }
+const motionPreference = readMotionPreference(app.getPath('userData'));
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
@@ -97,6 +100,36 @@ if (!gotLock) {
   // slot read through a closure, not a copy: the responder is registered before
   // a container exists and must see the real one the moment boot produces it.
   let bootContainer: DependencyContainer | null = null;
+  let motionLogger: Logger | null = null;
+  let motionBootFailed = false;
+  const pendingMotionErrors: Error[] = [];
+  const reportMotionError = (error: Error): void => {
+    if (motionLogger) {
+      motionLogger.error('Electron motion emulation failed', error);
+    } else if (motionBootFailed) {
+      reportBootFailure('Electron motion emulation failed', error);
+    } else {
+      pendingMotionErrors.push(error);
+    }
+  };
+  const reportMotionWarning = (warning: Error): void => {
+    if (motionLogger) {
+      motionLogger.warn('Electron motion emulation detached', warning);
+    } else {
+      console.warn('[Ptah Electron] Motion emulation detached:', warning);
+    }
+  };
+  // Registered before any BrowserWindow is constructed, including the preparing
+  // shell and detached Display window. The preference remains fixed until restart.
+  app.on('browser-window-created', (_event, window) => {
+    installMotionEmulation(
+      window.webContents,
+      motionPreference,
+      reportMotionError,
+      reportMotionWarning,
+      session.defaultSession,
+    );
+  });
 
   // Crash and hang records (TASK_2026_437, INV-8). BEFORE `whenReady`, for two
   // reasons: Crashpad must start before the app is ready to capture anything,
@@ -205,8 +238,16 @@ if (!gotLock) {
       boot = await bootstrapElectron(() => mainWindow, coordinator);
       bootStep('bootstrapElectron done');
       bootContainer = boot.container;
+      motionLogger = boot.container.resolve<Logger>(TOKENS.LOGGER);
+      for (const error of pendingMotionErrors) reportMotionError(error);
+      pendingMotionErrors.length = 0;
       workspaceStorageReady = true;
     } catch (error: unknown) {
+      motionBootFailed = true;
+      for (const motionError of pendingMotionErrors) {
+        reportMotionError(motionError);
+      }
+      pendingMotionErrors.length = 0;
       startupShellQuery = {
         state: 'recovery',
         code:

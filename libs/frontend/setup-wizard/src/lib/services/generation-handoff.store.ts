@@ -3,6 +3,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import { WizardRpcService } from './wizard-rpc.service';
 import { findBoundGenerationTab } from './bound-generation-tab';
+import type { SetupGenerationRunBinding } from '@ptah-extension/shared';
 
 export interface GuidanceHandoff {
   agentTabId: string;
@@ -16,11 +17,18 @@ export class GenerationHandoffStore {
   private readonly launcher = inject(GenerationWorkflowLauncherService);
   private readonly rpc = inject(WizardRpcService);
   private readonly pendingValue = signal<GuidanceHandoff | null>(null);
+  private readonly startedValue = signal<SetupGenerationRunBinding | null>(null);
+  private readonly openedTabValue = signal<{ tabId: string; workspacePath: string } | null>(null);
+  private readonly inFlightValue = signal(false);
   private readonly outcomeValue = signal<
     'idle' | 'started' | 'manual-recovery' | 'skipped'
   >('idle');
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private revision = 0;
   readonly pending = this.pendingValue.asReadonly();
+  readonly started = this.startedValue.asReadonly();
+  readonly openedTab = this.openedTabValue.asReadonly();
+  readonly inFlight = this.inFlightValue.asReadonly();
   readonly outcome = this.outcomeValue.asReadonly();
 
   constructor() {
@@ -38,7 +46,11 @@ export class GenerationHandoffStore {
   }
 
   schedule(agentTabId: string, workspacePath: string): void {
+    this.revision++;
     this.clearTimer();
+    this.startedValue.set(null);
+    this.openedTabValue.set(null);
+    this.inFlightValue.set(false);
     this.pendingValue.set(null);
     const handoff = {
       agentTabId,
@@ -51,7 +63,11 @@ export class GenerationHandoffStore {
   }
 
   skip(): void {
+    this.revision++;
     this.clearTimer();
+    this.startedValue.set(null);
+    this.openedTabValue.set(null);
+    this.inFlightValue.set(false);
     this.pendingValue.set(null);
     this.outcomeValue.set('skipped');
   }
@@ -80,7 +96,10 @@ export class GenerationHandoffStore {
   }
 
   async manualContinue(workspacePath: string): Promise<void> {
+    this.revision++;
     this.clearTimer();
+    this.startedValue.set(null);
+    this.openedTabValue.set(null);
     this.pendingValue.set(null);
     this.outcomeValue.set('idle');
     await this.openAndStart(workspacePath, true);
@@ -90,43 +109,54 @@ export class GenerationHandoffStore {
     workspacePath: string,
     focus: boolean,
   ): Promise<void> {
-    const opened = await this.launcher.open({
-      workspacePath,
-      workflow: 'setup-project-prompt',
-      origin: focus ? 'independent-start' : 'analysis-result-continue',
-      focus,
-    });
-    if (opened.outcome !== 'landed') {
-      this.outcomeValue.set('manual-recovery');
-      return;
-    }
-    const tab = findBoundGenerationTab(this.tabs, {
-      tabId: opened.tabId,
-      workspacePath,
-    });
-    if (
-      !tab ||
-      tab.status === 'streaming' ||
-      tab.status === 'resuming' ||
-      this.tabs.isTabStreaming(opened.tabId) ||
-      (tab.streamingState?.currentMessageId != null &&
-        tab.status !== 'awaiting-background' &&
-        tab.status !== 'sleeping') ||
-      Boolean(tab.queuedContent?.trim()) ||
-      Boolean(tab.queuedOptions)
-    ) {
-      this.outcomeValue.set('manual-recovery');
-      return;
-    }
+    const revision = this.revision;
+    this.inFlightValue.set(true);
     try {
+      const opened = await this.launcher.open({
+        workspacePath,
+        workflow: 'setup-project-prompt',
+        origin: focus ? 'independent-start' : 'analysis-result-continue',
+        focus,
+      });
+      if (revision !== this.revision) return;
+      if (opened.outcome !== 'landed') {
+        this.outcomeValue.set('manual-recovery');
+        return;
+      }
+      this.openedTabValue.set({ tabId: opened.tabId, workspacePath });
+      const tab = findBoundGenerationTab(this.tabs, {
+        tabId: opened.tabId,
+        workspacePath,
+      });
+      if (
+        !tab ||
+        tab.status === 'streaming' ||
+        tab.status === 'resuming' ||
+        this.tabs.isTabStreaming(opened.tabId) ||
+        (tab.streamingState?.currentMessageId != null &&
+          tab.status !== 'awaiting-background' &&
+          tab.status !== 'sleeping') ||
+        Boolean(tab.queuedContent?.trim()) ||
+        Boolean(tab.queuedOptions)
+      ) {
+        this.outcomeValue.set('manual-recovery');
+        return;
+      }
       const response = await this.rpc.startBoundGuidance({
         workspacePath,
         tabId: opened.tabId,
         workflow: 'setup-project-prompt',
       });
+      if (revision !== this.revision) return;
+      this.startedValue.set(response.accepted ? {
+        workspacePath, tabId: opened.tabId,
+        workflow: 'setup-project-prompt', runId: response.accepted.runId,
+      } : null);
       this.outcomeValue.set(response.accepted ? 'started' : 'manual-recovery');
     } catch {
-      this.outcomeValue.set('manual-recovery');
+      if (revision === this.revision) this.outcomeValue.set('manual-recovery');
+    } finally {
+      if (revision === this.revision) this.inFlightValue.set(false);
     }
   }
 }

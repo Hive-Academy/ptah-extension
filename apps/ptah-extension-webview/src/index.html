@@ -143,6 +143,15 @@
           document.documentElement.setAttribute('data-scene', scene);
         }
 
+        var motionStyle = state && state['ptah-motion-style'];
+        var motionStyles = 'fade rise slide-left slide-right scale directional';
+        if (!has(motionStyles, motionStyle)) {
+          try { motionStyle = localStorage.getItem('ptah-motion-style'); } catch (e) {}
+        }
+        if (has(motionStyles, motionStyle) && motionStyle !== 'rise') {
+          document.documentElement.setAttribute('data-motion-style', motionStyle);
+        }
+
         // Nothing persisted, or an unrecognised value: leave the
         // <html data-theme="ptah-glass"> default in place and fetch nothing.
         if (!theme) return;

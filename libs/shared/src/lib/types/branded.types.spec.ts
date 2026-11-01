@@ -2,7 +2,7 @@
  * Unit tests for branded.types.ts
  *
  * Covers:
- *   - SessionId, MessageId, CorrelationId, TabId (UUID v4 backed)
+ *   - SessionId, MessageId, CorrelationId, TabId (UUID v4/v7 validation, v4 creation)
  *   - JobId, RunId (ULID backed)
  *   - SessionIdSchema, MessageIdSchema, CorrelationIdSchema (Zod)
  *   - BrandedTypeValidator static methods
@@ -38,6 +38,7 @@ describe('UUID_REGEX with an SDK-shaped id', () => {
 // Fixed fixtures so tests are deterministic
 const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
 const VALID_UUID2 = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+const VALID_UUID_V7 = '0190b6a8-3c4e-7a1b-8c2d-1e2f3a4b5c6d';
 // Valid ULID: 26 chars, Crockford base32 (no I, L, O, U)
 const VALID_ULID = '01HV4KP9C7N3X5JTGQ2B8DZRMW';
 const VALID_ULID2 = '01HWKZM5B0R8TAECFVGX3NJ7PY';
@@ -48,10 +49,37 @@ const INVALID_INPUTS = ['', 'not-an-id', 'abc', '1234', 'null'];
 // SessionId
 // ---------------------------------------------------------------------------
 describe('SessionId', () => {
+  it.each([VALID_UUID, VALID_UUID_V7, VALID_UUID_V7.toUpperCase()])(
+    'accepts supported UUID %s through every constructor',
+    (id) => {
+      expect(UUID_REGEX.test(id)).toBe(true);
+      expect(SessionId.validate(id)).toBe(true);
+      expect(SessionId.from(id)).toBe(id);
+      expect(SessionId.safeParse(id)).toBe(id);
+    },
+  );
+
+  it.each([
+    ...[1, 3, 5, 8, 9].map(
+      (version) => `0190b6a8-3c4e-${version}a1b-8c2d-1e2f3a4b5c6d`,
+    ),
+    '0190b6a8-3c4e-7a1b-cc2d-1e2f3a4b5c6d',
+    '00000000-0000-0000-0000-000000000000',
+    'ffffffff-ffff-ffff-ffff-ffffffffffff',
+    `prefix-${VALID_UUID_V7}`,
+    `${VALID_UUID_V7}-suffix`,
+  ])('rejects unsupported UUID %s through every constructor', (id) => {
+    expect(UUID_REGEX.test(id)).toBe(false);
+    expect(SessionId.validate(id)).toBe(false);
+    expect(() => SessionId.from(id)).toThrow(TypeError);
+    expect(SessionId.safeParse(id)).toBeNull();
+  });
+
   describe('create()', () => {
     it('returns a string that passes validate()', () => {
       const id = SessionId.create();
       expect(SessionId.validate(id)).toBe(true);
+      expect(id[14]).toBe('4');
     });
 
     it('returns different values on successive calls', () => {

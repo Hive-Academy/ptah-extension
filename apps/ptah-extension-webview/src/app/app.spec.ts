@@ -258,6 +258,52 @@ describe('injectInitialNavigation boot branches', () => {
 
     expect(navigateToSurface).not.toHaveBeenCalled();
   });
+
+  it('accepts a restored /chat that the first-run guard settled on /onboarding/ready', async () => {
+    // TASK_2026_ONBOARDING Risk R2: falling back here would navigate to chat
+    // again, after `shownAt` was committed, and hide onboarding.
+    const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+    getState.mockReturnValue(savedRoute('/chat/tab-1', null));
+    navigateToUrl.mockImplementation(async () => {
+      routerUrl = '/onboarding/ready';
+      return 'navigated';
+    });
+
+    expect(await boot()).toBe('navigated');
+
+    expect(navigateToSurface).not.toHaveBeenCalled();
+    expect(consoleWarn).not.toHaveBeenCalled();
+  });
+
+  it('accepts a restored /chat that the first-run guard settled on onboarding Home', async () => {
+    // With `ready.claudeAt` or `ready.skippedAt` stored, the guard targets Home.
+    const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+    getState.mockReturnValue(savedRoute('/chat', null));
+    navigateToUrl.mockImplementation(async () => {
+      routerUrl = '/onboarding';
+      return 'navigated';
+    });
+
+    expect(await boot()).toBe('navigated');
+
+    expect(navigateToSurface).not.toHaveBeenCalled();
+    expect(consoleWarn).not.toHaveBeenCalled();
+  });
+
+  it('accepts a restored non-chat route that settles on onboarding', async () => {
+    const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+    getState.mockReturnValue(savedRoute('/settings', 'analytics'));
+    (window as unknown as HostWindow).ptahConfig = { initialView: 'analytics' };
+    navigateToUrl.mockImplementation(async () => {
+      routerUrl = '/onboarding';
+      return 'navigated';
+    });
+
+    expect(await boot()).toBe('navigated');
+
+    expect(navigateToSurface).not.toHaveBeenCalled();
+    expect(consoleWarn).not.toHaveBeenCalled();
+  });
 });
 
 /**

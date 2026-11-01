@@ -44,9 +44,8 @@ import {
 export class ModelStateService {
   private readonly rpc = inject(ClaudeRpcService);
   /**
-   * Which workspace a `config:models-list` answer belongs to. See
-   * {@link modelsInFlight} — this RPC carries no workspace parameter, so the
-   * scope is the only thing that can tell two of its answers apart.
+   * Which workspace a `config:models-list` answer belongs to. The request
+   * names that workspace and the response echoes it. See {@link modelsInFlight}.
    */
   private readonly scope = inject(WorkspaceScopeService);
   private readonly _currentModel = signal<string>(''); // Populated from backend RPC
@@ -72,13 +71,13 @@ export class ModelStateService {
    * burst of callers one request while leaving a LATER caller its own — a
    * refresh after an auth change must actually re-read.
    *
-   * **Keyed by workspace scope** (judge round 1). `config:models-list` carries
-   * no workspace parameter and the host resolves the active provider at
-   * RPC-PROCESSING time, so a request issued before a workspace switch may be
-   * answered with the OLD provider's models.
-   * `WorkspaceCoordinatorService.refreshWorkspaceProviderState` calls
-   * `refreshModels()` immediately after a switch precisely to get the NEW
-   * provider's list; an unkeyed latch let that caller await the pre-switch
+   * **Keyed by workspace scope** (judge round 1). Each request names the
+   * workspace it started in, and the host builds the list for that path
+   * rather than for whichever workspace is active when the catalog await
+   * resumes. A response whose echoed path or local generation does not match
+   * is discarded. `WorkspaceCoordinatorService.refreshWorkspaceProviderState`
+   * calls `refreshModels()` immediately after a switch precisely to get the
+   * NEW provider's list; an unkeyed latch let that caller await the pre-switch
    * request and receive the wrong one, defeating the coordinator's own
    * `switchGeneration` guard. A request is filed under the scope it started in
    * and only a caller in that same scope may join it.
@@ -292,23 +291,29 @@ export class ModelStateService {
     scopeKey: string,
     generation: number,
   ): Promise<void> {
+    const workspacePath = this.scope.activeWorkspacePath();
     try {
-      const result = await this.rpc.call('config:models-list', {});
+      const result = await this.rpc.call('config:models-list', {
+        workspacePath,
+      });
 
       // A newer read started while this one was in flight (a `fresh` caller
       // after a provider switch); its answer is the one to publish.
       if (generation !== this.modelsGeneration) return;
 
-      // The user switched while this was in flight. The host resolved the
-      // provider against whichever workspace was active when it PROCESSED the
-      // call, so this list may describe either one — publishing it would
-      // clobber the newer request's answer with a coin flip. This is the
-      // residual window `refreshWorkspaceProviderState` documents and could not
-      // close from its side.
+      // The user switched while this was in flight. Publishing the old
+      // workspace's list would clobber the newer request.
       if (scopeKey !== this.scope.scopeKey()) return;
 
-      if (result.isSuccess() && result.data?.models) {
-        const models = result.data.models;
+      const data = result.data;
+      if (result.isSuccess() && data?.models) {
+        // The host echoes the workspace it actually answered. A list built
+        // for a different scope is dropped even when this generation is still
+        // the latest (the ambient workspace moved while the catalog was read).
+        if (!this.responseMatchesWorkspace(data, workspacePath)) {
+          return;
+        }
+        const models = data.models;
         this._availableModels.set(models);
         const selected = models.find((m) => m.isSelected);
         if (selected) {
@@ -342,6 +347,26 @@ export class ModelStateService {
       console.error('[ModelStateService] Error loading models:', error);
       this._isLoaded.set(true);
     }
+  }
+
+  /**
+   * Whether `data` was built for `requestedPath`.
+   *
+   * A response that omits `workspacePath` is a legacy answer (tests and hosts
+   * that have not echoed the scope yet). When the field is present it must
+   * equal the path this read asked for. `null` is the ambient scope.
+   */
+  private responseMatchesWorkspace(
+    data: { workspacePath?: string | null },
+    requestedPath: string | null,
+  ): boolean {
+    if (!Object.prototype.hasOwnProperty.call(data, 'workspacePath')) {
+      return true;
+    }
+    const answered = data.workspacePath;
+    const normalized =
+      typeof answered === 'string' && answered.length > 0 ? answered : null;
+    return normalized === requestedPath;
   }
 
   /**

@@ -8,6 +8,7 @@ export type {
   CodexAttachment,
   CodexInstructionSource,
   CodexMcpServer,
+  CodexMcpSecrets,
   CodexExecutionProfile,
   CodexThreadIdentity,
   CodexTurnInput,
@@ -21,6 +22,7 @@ export type {
   CodexRuntimeError,
   CodexRuntimeEvent,
   CodexContext,
+  CodexModelInfo,
 } from './lib/codex-runtime.types';
 export type { CodexRuntime as CodexRuntimePort } from './lib/codex-runtime.types';
 export type {
@@ -42,7 +44,20 @@ export type {
   CodexHomeAuthReader,
 } from './lib/codex-home-auth-reader';
 export { CODEX_RUNTIME_TOKENS } from './lib/di/tokens';
-export { CodexRuntime, type CodexRuntimeOptions } from './lib/codex-runtime';
+export {
+  codexDevRouteCovers,
+  readCodexDevRouteOverride,
+  type CodexDevRouteOverride,
+} from './lib/codex-dev-route';
+export { CodexRuntime } from './lib/codex-runtime';
+export { CodexContextStateError } from './lib/codex-context-state-error';
+export type { CodexRuntimeOptions } from './lib/codex-context';
+export {
+  CodexResumeProfileChangedError,
+  isCodexResumeProfileChangedError,
+  CODEX_RESUME_PROFILE_CHANGED_CODE,
+  CODEX_RESUME_PROFILE_CHANGED_MESSAGE,
+} from './lib/codex-resume-profile-error';
 export { CodexAccountUsageClient } from './lib/codex-account-usage-client';
 export {
   CodexParityGate,
@@ -63,7 +78,31 @@ export {
   type CodexExecutionProfileInput,
   type BuiltCodexExecutionProfile,
 } from './lib/codex-execution-profile';
+export {
+  buildCodexLaneThreadConfig,
+  codexLaneThreadConfigSchema,
+  type CodexLaneThreadConfig,
+} from './lib/codex-lane-thread-config';
+export {
+  buildCodexMcpConfigOverrides,
+  CodexMcpConfigError,
+} from './lib/codex-mcp-config';
+export {
+  CODEX_PTAH_TOOL_TIMEOUT_SEC,
+  ptahMcpSessionUrl,
+} from './lib/codex-ptah-mcp';
 // CodexExecutableManifestRow (ports above) is the canonical public pin; the
 // process and validator remain implementation details.
 export type { CodexBinaryIdentity } from './lib/codex-protocol-manifest';
-export { normalizeCodexHomeKey } from './lib/codex-home-path';
+export { findCodexExecutablePin } from './lib/codex-executable-pin';
+export * from './lib/codex-executable-inspection';
+export {
+  normalizeCodexHomeKey,
+  normalizeCodexWorkspaceKey,
+} from './lib/codex-home-path';
+
+export {
+  CodexProcessFailureError,
+  CODEX_INITIALIZE_TIMEOUT_MS,
+} from './lib/codex-app-server-process';
+export { CodexPreTurnConfigRejectedError } from './lib/codex-runtime';

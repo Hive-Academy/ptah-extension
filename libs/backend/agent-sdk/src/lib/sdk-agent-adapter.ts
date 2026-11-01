@@ -61,7 +61,8 @@ import {
   type ForkSessionResult,
   type RewindFilesResult,
 } from './types/sdk-types/claude-sdk.types';
-import type { IAuthEnvProvider } from './auth-env.port';
+import type { AuthOperationContext, IAuthEnvProvider } from './auth-env.port';
+
 import {
   SessionLifecycleManager,
   StreamTransformer,
@@ -645,7 +646,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     }
   }
 
-  async initialize(): Promise<boolean> {
+  async initialize(context?: AuthOperationContext): Promise<boolean> {
     if (this.initInFlight !== null) {
       this.logger.debug(
         '[SdkAgentAdapter] initialize already in progress, awaiting existing call',
@@ -653,7 +654,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       return this.initInFlight;
     }
 
-    const pass = (this.initInFlight = this.doInitialize());
+    const pass = (this.initInFlight = this.doInitialize(context));
     try {
       return await pass;
     } finally {
@@ -674,7 +675,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * drains any in-flight pass before disposing, so it can never be answered by
    * the guard.
    */
-  private async doInitialize(): Promise<boolean> {
+  private async doInitialize(context?: AuthOperationContext): Promise<boolean> {
     try {
       this.logger.info('[SdkAgentAdapter] Initializing SDK adapter...');
 
@@ -682,7 +683,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // credential-aware default (a missing `authMethod` uses the connected
       // Claude CLI login when no API key exists). `resolveActiveAuth()` then
       // reports that same resolved method.
-      const authResult = await this.authManager.configureAuthentication();
+      const authResult =
+        context === undefined
+          ? await this.authManager.configureAuthentication()
+          : await this.authManager.configureAuthentication(undefined, context);
       const active = this.authManager.resolveActiveAuth();
       this.lastConfiguredAuth = {
         authMethod: active.authMethod,

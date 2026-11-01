@@ -13,6 +13,25 @@ import {
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 
+/** Optional SDK ports resolve successfully to null on the legacy VS Code host. */
+export const EXPECTED_NULL_RUNTIME_TOKENS = [
+  SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
+  SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+  SDK_TOKENS.RUNTIME_ADMISSION_PORT,
+  SDK_TOKENS.LEGACY_SESSION_CONTROL_PORTS,
+  SDK_TOKENS.NATIVE_SESSION_CONTROLS,
+  SDK_TOKENS.LEGACY_SESSION_CONTROLS,
+  SDK_TOKENS.SESSION_RUNTIME_ROUTER,
+  SDK_TOKENS.CODEX_CHAT_ADAPTER,
+  SDK_TOKENS.ROUTING_AGENT_ADAPTER,
+] as const;
+
+/** Symbols stay separate from the handler-class list, whose titles use `.name`. */
+export const EXPECTED_RUNTIME_TOKENS = [
+  ...EXPECTED_NULL_RUNTIME_TOKENS,
+  SDK_TOKENS.RUNTIME_HOST_CAPABILITIES,
+] as const;
+
 /** Attention ports and ingress attached during phase 2. */
 export const EXPECTED_ATTENTION_TOKENS = [
   PLATFORM_TOKENS.PTAH_VIEW_VISIBILITY,

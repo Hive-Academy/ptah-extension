@@ -110,6 +110,7 @@ import {
   registerCliAgentRuntimeServices,
   createContainerHarnessCliDetector,
 } from '@ptah-extension/cli-agent-runtime';
+import { registerCliCodexLaneFactory } from './codex-lane-runtime-composition';
 import { registerLaneRoutingServices } from '@ptah-extension/lane-routing';
 import { startCliLaneOutcomes, wireLaneOutcomes } from './lane-outcomes-wiring';
 import {
@@ -765,6 +766,7 @@ export class CliDIContainer {
     // AgentRpcHandlers injects DECISION_MODEL_CONFIG.
     registerLaneRoutingServices(container, logger);
     wireLaneOutcomes(container, logger);
+    registerCliCodexLaneFactory(container, logger);
     registerCliAgentRuntimeServices(container, logger);
 
     wireAgentAdapterAliases(container);
