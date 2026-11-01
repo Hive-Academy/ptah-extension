@@ -150,8 +150,14 @@ import {
   buildSurfaceUpdateTool,
 } from './surface-tools';
 import { handleSurfaceToolCall } from './surface-tool-handlers';
-import { ARTIFACT_PUBLISH_TOOL_NAME, buildArtifactPublishTool } from './artifact-tools';
-import { handleArtifactPublish, type ArtifactNotification } from './artifact-tool-handlers';
+import {
+  ARTIFACT_PUBLISH_TOOL_NAME,
+  buildArtifactPublishTool,
+} from './artifact-tools';
+import {
+  handleArtifactPublish,
+  type ArtifactNotification,
+} from './artifact-tool-handlers';
 import type { IArtifactStore } from '@ptah-extension/platform-core';
 import type { McpToolProfile } from '@ptah-extension/shared';
 import {
@@ -680,8 +686,8 @@ const APPROVAL_PROMPT_TOOL_NAME = 'approval_prompt';
  * Tools that should load eagerly on every runtime instead of being deferred
  * behind the SDK's built-in tool-search tool.
  *
- * `ptah_route_decide` and `ptah_outcome_report` are listed on every
- * tools/list and are deliberately absent here, so they stay deferred.
+ * Lane discovery and spawning are eager so delegation is visible without
+ * tool search. Other agent tools, route_decide and outcome_report stay deferred.
  */
 const ALWAYS_EAGER_TOOLS: ReadonlySet<string> = new Set([
   'ptah_search_files',
@@ -689,6 +695,8 @@ const ALWAYS_EAGER_TOOLS: ReadonlySet<string> = new Set([
   'ptah_context_enrich_file',
   'ptah_get_diagnostics',
   'ptah_workspace_analyze',
+  'ptah_agent_list',
+  'ptah_agent_spawn',
 ]);
 
 /** Eager only where VS Code IDE capabilities are present. */
@@ -2377,7 +2385,7 @@ async function handleIndividualTool(
           {
             workspaceRoot: callerWorkspace,
             sessionId: callerSessionId
-              ? deps.getSessionTabId?.(callerSessionId) ?? callerSessionId
+              ? (deps.getSessionTabId?.(callerSessionId) ?? callerSessionId)
               : undefined,
           },
           deps.artifactStore,
@@ -2878,7 +2886,16 @@ async function routeDecideResponse(
   logger: Logger,
   deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
-  const reply = await handleRouteToolCall(args, ptahAPI.route, logger);
+  const callerSessionId = getCallerSessionId()?.trim() || undefined;
+  const sessionKey = callerSessionId
+    ? (deps.getSessionTabId?.(callerSessionId) ?? callerSessionId)
+    : undefined;
+  const reply = await handleRouteToolCall(
+    args,
+    ptahAPI.route,
+    logger,
+    sessionKey ? { sessionKey } : undefined,
+  );
   return reply.isError
     ? toolErrorResponse(request, reply.text)
     : createToolSuccessResponse(request, reply.text, deps);

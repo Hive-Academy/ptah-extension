@@ -685,6 +685,7 @@ import type {
   QualityExportResult,
   PluginInfo,
   PluginConfigStateWithHome,
+  PluginsGetConfigParams,
   PluginSkillEntry,
   PluginsResolveConfigHomeParams,
   PluginsResolveConfigHomeResult,
@@ -1536,8 +1537,8 @@ export interface RpcMethodRegistry
     result: { plugins: PluginInfo[] };
   };
   'plugins:get-config': {
-    params: Record<string, never>;
-    /** `configHome` is Electron-only and absent when no notice applies. */
+    params: PluginsGetConfigParams;
+    /** `configHome` and `sessionNotice` are Electron-only and absent when no notice applies. */
     result: PluginConfigStateWithHome;
   };
   'plugins:save-config': {

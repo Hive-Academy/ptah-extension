@@ -100,6 +100,7 @@ import {
   DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
+  EXPECTED_RESOLVABLE_TOKENS,
   GIT_ROOT_WATCH_REGISTRY_TOKEN,
   HOST_ATTENTION_COORDINATOR_TOKEN,
   LANE_MODEL_LISTING_TOKEN,
@@ -742,8 +743,8 @@ describe('Electron DI — lane outcomes', () => {
     const runtime = source.indexOf(
       'registerCliAgentRuntimeServices(container, logger);',
     );
-    expect(source).toContain(
-      'container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { useValue: mcpAttachmentObserver });',
+    expect(source).toMatch(
+      /container\.register\(CLI_AGENT_RUNTIME_TOKENS\.MCP_ATTACHMENT_PROBE,\s*\{\s*useValue: mcpAttachmentObserver,\s*\}\);/,
     );
     const reader = source.indexOf('useToken: LANE_OUTCOME_TOKENS.READER');
     const classifier = source.indexOf(
@@ -755,9 +756,13 @@ describe('Electron DI — lane outcomes', () => {
     expect(outcomes).toBeLessThan(runtime);
     expect(reader).toBeGreaterThan(outcomes);
     expect(classifier).toBeGreaterThan(outcomes);
+    expect(source).toContain(
+      'useToken: LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER',
+    );
+    expect(source).toContain('observeSubagentEnded: true');
   });
 
-  it('resolves both aliases', () => {
+  it('resolves the lane-routing and lane-outcome aliases', () => {
     const c = buildMinimalContainer();
     c.register(PLATFORM_TOKENS.STATE_STORAGE, {
       useValue: {
@@ -775,11 +780,17 @@ describe('Electron DI — lane outcomes', () => {
     c.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, {
       useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
     });
+    c.register(LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER, {
+      useToken: LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER,
+    });
     expect(c.resolve(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER)).toBe(
       c.resolve(LANE_OUTCOME_TOKENS.READER),
     );
     expect(c.resolve(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER)).toBe(
       c.resolve(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER),
+    );
+    expect(c.resolve(LANE_OUTCOME_TOKENS.TASK_KIND_CLASSIFIER)).toBe(
+      c.resolve(LANE_ROUTING_TOKENS.TASK_KIND_CLASSIFIER),
     );
   });
 });
@@ -845,6 +856,18 @@ function buildPhase4Container(): { c: DependencyContainer; logger: Logger } {
   } as unknown as Logger;
 
   registerOutputStyleServices(c, logger);
+  // The isolated phase-4 alias test supplies the earlier-phase tokens that
+  // registerHostRouting validates at registration time.
+  for (const token of [
+    LANE_ROUTING_TOKENS.HOST_ROUTING_SETTING,
+    LANE_ROUTING_TOKENS.SCOPE_CHECK_SERVICE,
+    LANE_ROUTING_TOKENS.ROUTE_DECIDE_SERVICE,
+    LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+    SDK_TOKENS.SDK_NEXT_TURN_REMINDER_QUEUE,
+    TOKENS.PTAH_API_BUILDER,
+  ]) {
+    c.register(token, { useValue: {} });
+  }
 
   return { c, logger };
 }
@@ -928,6 +951,7 @@ describe('Electron DI — app updater token aliasing (Risk R1)', () => {
     });
 
     registerPhase4Handlers(c, logger);
+    expect(c.isRegistered(EXPECTED_RESOLVABLE_TOKENS[0][1])).toBe(true);
 
     const viaPort = c.resolve(PLATFORM_TOKENS.APP_UPDATER);
     const viaConcreteToken = c.resolve(UPDATE_MANAGER_TOKEN);

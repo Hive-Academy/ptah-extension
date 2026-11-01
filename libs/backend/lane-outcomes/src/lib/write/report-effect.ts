@@ -30,6 +30,44 @@ export const ReviewPayloadSchema = z
   })
   .strict();
 
+const SUBAGENT_RUN_PREFIX = 'subagent:';
+/** The `:${completedAt}` suffix of a lane run id (`${agentId}:${completedAt}`). */
+const LANE_RUN_ENDING = /:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+
+/**
+ * The agent behind a run id: a lane run id loses its ending timestamp, a
+ * subagent run id its `subagent:` prefix, and a bare agent id stays as is.
+ * Host capture knows the reviewer's run id and a reviewer reporting through
+ * `ptah_outcome_report` knows at most its agent id, so both reduce to this.
+ */
+export function reviewerIdentity(runOrAgentId: string): string {
+  const id = runOrAgentId.startsWith(SUBAGENT_RUN_PREFIX)
+    ? runOrAgentId.slice(SUBAGENT_RUN_PREFIX.length)
+    : runOrAgentId;
+  return id.replace(LANE_RUN_ENDING, '');
+}
+
+/** A reviewer that reviews a run of its own agent. */
+export function isSelfReview(
+  reviewedRunId: string,
+  reviewerRunId: string,
+): boolean {
+  return reviewerIdentity(reviewedRunId) === reviewerIdentity(reviewerRunId);
+}
+
+/**
+ * One review per (reviewed run, reviewer agent). The reviewer is reduced to
+ * its agent so the host capture path and the reviewer's own
+ * `ptah_outcome_report` call, and a continuation lane that ends twice over the
+ * same review, all share one report id and one store receipt.
+ */
+export function deterministicReviewReportId(
+  reviewedRunId: string,
+  reviewerRunId: string,
+): string {
+  return `review:${reviewedRunId}|${reviewerIdentity(reviewerRunId)}`;
+}
+
 type DeliverableCheck = z.infer<
   typeof DeliverablesPayloadSchema
 >['checks'][number];

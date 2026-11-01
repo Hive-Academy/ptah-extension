@@ -46,6 +46,7 @@ export function isValidSessionStatsSnapshot(
 
   return (
     isOptional(value['tokenCount'], isAmount) &&
+    isOptional(value['turnCount'], isRevision) &&
     isOptional(value['knownCost'], isNullableAmount) &&
     isOptional(value['agentSessionCount'], isRevision) &&
     isOptional(value['durationMs'], isNullableAmount) &&

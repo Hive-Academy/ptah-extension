@@ -2,11 +2,9 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  DestroyRef,
-  effect,
   inject,
-  signal,
 } from '@angular/core';
+import { injectWallClock } from '@ptah-extension/core';
 import {
   Activity,
   AlertTriangle,
@@ -26,10 +24,6 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
  * - Display message type breakdown with colored badges
  * - All data derived from existing SetupWizardStateService signals
  * - No new services or state mutations required
- *
- * Timer Cleanup:
- * - Uses DestroyRef.onDestroy() to clear the setInterval timer
- * - Prevents memory leaks when the component is destroyed during navigation
  *
  * Usage:
  * ```html
@@ -150,7 +144,10 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
 })
 export class AnalysisStatsDashboardComponent {
   private readonly wizardState = inject(SetupWizardStateService);
-  private readonly destroyRef = inject(DestroyRef);
+  private readonly now = injectWallClock(
+    'second',
+    () => this.wizardState.analysisStartedAt() !== null,
+  );
 
   /** Array used for skeleton card iteration in the template */
   protected readonly skeletonItems = [1, 2, 3, 4];
@@ -160,28 +157,6 @@ export class AnalysisStatsDashboardComponent {
   protected readonly ClockIcon = Clock;
   protected readonly BrainIcon = Brain;
   protected readonly AlertTriangleIcon = AlertTriangle;
-
-  /** Analysis start timestamp (set once when first message arrives) */
-  private readonly analysisStartTime = signal<number | null>(null);
-
-  /** Current elapsed time string, updated every second */
-  private readonly elapsedTimeValue = signal('0:00');
-
-  /** Timer interval ID for cleanup */
-  private timerInterval: ReturnType<typeof setInterval> | null = null;
-
-  public constructor() {
-    effect(() => {
-      const stream = this.wizardState.analysisStream();
-      if (stream.length > 0 && this.analysisStartTime() === null) {
-        this.analysisStartTime.set(stream[0].timestamp);
-        this.startTimer();
-      }
-    });
-    this.destroyRef.onDestroy(() => {
-      this.stopTimer();
-    });
-  }
 
   protected readonly messageCount = computed(
     () => this.wizardState.analysisStream().length
@@ -222,27 +197,12 @@ export class AnalysisStatsDashboardComponent {
     return `${completed}/4 complete`;
   });
 
-  protected readonly elapsedTime = this.elapsedTimeValue.asReadonly();
-
-  private startTimer(): void {
-    if (this.timerInterval) return;
-    this.timerInterval = setInterval(() => {
-      const start = this.analysisStartTime();
-      if (start) {
-        const elapsed = Math.floor((Date.now() - start) / 1000);
-        const minutes = Math.floor(elapsed / 60);
-        const seconds = elapsed % 60;
-        this.elapsedTimeValue.set(
-          `${minutes}:${seconds.toString().padStart(2, '0')}`
-        );
-      }
-    }, 1000);
-  }
-
-  private stopTimer(): void {
-    if (this.timerInterval) {
-      clearInterval(this.timerInterval);
-      this.timerInterval = null;
-    }
-  }
+  protected readonly elapsedTime = computed(() => {
+    const start = this.wizardState.analysisStartedAt();
+    if (start === null) return '—';
+    const elapsed = Math.max(0, Math.floor((this.now() - start) / 1000));
+    const minutes = Math.floor(elapsed / 60);
+    const seconds = elapsed % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  });
 }

@@ -158,12 +158,12 @@ export class SessionInspectorComponent {
     return `${count == null ? 'Running agents unavailable' : `Running agents: ${count}`}; ${model.needsYouCount} need you`;
   });
 
-  /** Prompt (uncached + cache) and output tokens of the session. */
+  /** Uncached input and output tokens of the session. */
   protected readonly sessionTokens = computed(() => {
     const tokens = this.stats()?.snapshot?.tokens;
     return tokens
       ? {
-          input: tokens.input + tokens.cacheRead + tokens.cacheCreation,
+          input: tokens.input,
           output: tokens.output,
         }
       : null;

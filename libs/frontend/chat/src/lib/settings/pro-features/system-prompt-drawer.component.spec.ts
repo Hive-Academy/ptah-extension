@@ -252,7 +252,7 @@ describe('SystemPromptDrawerComponent', () => {
       expect(element.querySelector('[data-testid="regenerate-confirm"]')).toBeNull();
     });
 
-    it('shows fixed error on {success:false} and does not re-read status (regression, F1)', async () => {
+    it('re-reads status and shows a fixed error when generation fails', async () => {
       await render();
 
       call.mockImplementation(async (method: string) => {
@@ -271,6 +271,7 @@ describe('SystemPromptDrawerComponent', () => {
       call.mockClear();
       element.querySelector<HTMLButtonElement>('[data-testid="regenerate-confirm-button"]')?.click();
       fixture.detectChanges();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
       await fixture.whenStable();
       fixture.detectChanges();
 
@@ -279,7 +280,7 @@ describe('SystemPromptDrawerComponent', () => {
         { workspacePath: '.', force: true },
         { timeout: 120000 },
       );
-      expect(call).not.toHaveBeenCalledWith('enhancedPrompts:getStatus', { workspacePath: '.' });
+      expect(call).toHaveBeenCalledWith('enhancedPrompts:getStatus', { workspacePath: '.' });
       expect(host.changedCalled).toBe(false);
 
       expect(announce).toHaveBeenCalledWith('Could not regenerate the system prompt.', 'alert');
@@ -288,6 +289,12 @@ describe('SystemPromptDrawerComponent', () => {
 
     it('re-reads status and emits changed on successful regeneration', async () => {
       await render();
+
+      call.mockImplementation(async (method: string) => {
+        if (method === 'enhancedPrompts:getStatus') return rpcSuccess({ ...defaultStatus, generatedAt: '2026-10-02T09:00:00.000Z' });
+        if (method === 'enhancedPrompts:regenerate') return rpcSuccess({ success: true, enabled: true, hasGeneratedPrompt: true });
+        return rpcSuccess(undefined);
+      });
 
       // Open confirm and click confirm
       element.querySelector<HTMLButtonElement>('[data-testid="system-prompt-regenerate-button"]')?.click();
@@ -513,107 +520,87 @@ describe('SystemPromptDrawerComponent', () => {
       });
     });
 
-    describe('unanswered regenerate (Moderate 9, lane Serious 1)', () => {
-      const newer: EnhancedPromptsGetStatusResponse = { ...defaultStatus, generatedAt: '2026-10-02T09:00:00.000Z' };
-      let clock = 0;
+    describe('host regeneration status', () => {
+      const startedAt = '2026-10-02T08:00:00.000Z';
+      const running: EnhancedPromptsGetStatusResponse = { ...defaultStatus, regenerationStartedAt: startedAt };
+      const newer: EnhancedPromptsGetStatusResponse = { ...defaultStatus, generatedAt: '2026-10-02T09:00:00.000Z', regenerationStartedAt: null };
 
-      /** The client timeout: the regenerate call resolves a failed result after the full 120 s budget. */
-      async function regenerateWithoutAnswer(): Promise<void> {
-        call.mockImplementation(async (method: string) => {
-          if (method === 'enhancedPrompts:getStatus') return rpcSuccess(defaultStatus);
-          if (method === 'enhancedPrompts:regenerate') {
-            clock += 120_000;
-            return rpcError('RPC timeout: enhancedPrompts:regenerate');
-          }
-          return rpcSuccess(undefined);
-        });
-        by('system-prompt-regenerate-button')?.click();
+      beforeEach(() => jest.useFakeTimers({ now: Date.parse(startedAt) + 2_000 }));
+      afterEach(() => jest.useRealTimers());
+
+      async function flush(): Promise<void> {
         fixture.detectChanges();
-        call.mockClear();
-        by('regenerate-confirm-button')?.click();
-        await settle();
+        await fixture.whenStable();
+        fixture.detectChanges();
       }
 
-      beforeEach(() => {
-        clock = Date.now();
-        jest.spyOn(Date, 'now').mockImplementation(() => clock);
-      });
-
-      afterEach(() => jest.restoreAllMocks());
-
-      it.each([
-        ['an RPC error', async () => rpcError('handler unavailable')],
-        [
-          'a rejected call',
-          async () => {
-            throw new Error('transport closed');
-          },
-        ],
-      ])('a fast failure (%s) shows the fixed sentence and leaves Regenerate enabled (N1)', async (_label, regenerate) => {
-        await render();
-        call.mockImplementation(async (method: string) => {
-          if (method === 'enhancedPrompts:getStatus') return rpcSuccess(defaultStatus);
-          if (method === 'enhancedPrompts:regenerate') {
-            clock += 2_000;
-            return regenerate();
-          }
-          return rpcSuccess(undefined);
-        });
-        by('system-prompt-regenerate-button')?.click();
-        fixture.detectChanges();
-        call.mockClear();
-        by('regenerate-confirm-button')?.click();
-        await settle();
-
-        expect(announce).toHaveBeenCalledWith('Could not regenerate the system prompt.', 'alert');
-        expect(by('system-prompt-drawer-error')).toBeNull();
-        expect(by('regenerate-may-be-running')).toBeNull();
-        expect(call).not.toHaveBeenCalledWith('enhancedPrompts:getStatus', expect.anything());
-        expect(isDisabledControl((by('system-prompt-regenerate-button') as HTMLButtonElement))).toBe(false);
-      });
-
-      it('re-reads the status, shows a fixed note and blocks a second regenerate', async () => {
-        await render();
-        await regenerateWithoutAnswer();
-
-        expect(call).toHaveBeenCalledWith('enhancedPrompts:getStatus', { workspacePath: '.' });
-        expect(by('regenerate-may-be-running')?.textContent).toContain('may still be running');
-        expect(isDisabledControl((by('system-prompt-regenerate-button') as HTMLButtonElement))).toBe(true);
-
+      it('blocks Regenerate on a fresh mount and shows host elapsed time', async () => {
+        await render(running);
+        expect(by('regenerate-may-be-running')?.textContent).toContain('2 s elapsed');
+        expect(isDisabledControl(by('system-prompt-regenerate-button') as HTMLButtonElement)).toBe(true);
         call.mockClear();
         drawer().requestRegenerate();
         await drawer().confirmRegenerate();
-        expect(call).not.toHaveBeenCalledWith('enhancedPrompts:regenerate', expect.anything(), expect.anything());
+        expect(call).not.toHaveBeenCalled();
       });
 
-      it('Check again lifts the block once a newer prompt is on disk, and reports the change', async () => {
-        await render();
-        await regenerateWithoutAnswer();
-
+      it('reconciles a cleared host flag and new generation on a coarse tick', async () => {
+        await render(running);
         call.mockImplementation(async () => rpcSuccess(newer));
-        by('regenerate-check-again')?.click();
-        await settle();
-
+        call.mockClear();
+        jest.advanceTimersByTime(30_000);
+        await flush();
+        expect(call).toHaveBeenCalledWith('enhancedPrompts:getStatus', { workspacePath: '.' });
         expect(by('regenerate-may-be-running')).toBeNull();
-        expect(isDisabledControl((by('system-prompt-regenerate-button') as HTMLButtonElement))).toBe(false);
         expect(host.changedCalled).toBe(true);
       });
 
-      it('keeps the block while the host may run, and lifts it with the failure once that time has passed', async () => {
-        await render();
-        const start = clock;
-        await regenerateWithoutAnswer();
+      it('keeps the status body mounted while a coarse reconciliation is pending', async () => {
+        await render(running);
+        const generatedAt = by('system-prompt-generated-at');
+        expect(generatedAt).not.toBeNull();
+        let releaseStatus = () => undefined;
+        call.mockImplementation(() => new Promise((resolve) => {
+          releaseStatus = () => resolve(rpcSuccess(running));
+        }));
 
-        clock = start + 180_000;
-        await drawer().checkRegenerate();
+        jest.advanceTimersByTime(30_000);
         fixture.detectChanges();
-        expect(by('regenerate-may-be-running')).not.toBeNull();
 
-        clock = start + 240_000;
-        await drawer().checkRegenerate();
-        fixture.detectChanges();
-        expect(by('regenerate-may-be-running')).toBeNull();
+        expect(call).toHaveBeenCalledWith('enhancedPrompts:getStatus', { workspacePath: '.' });
+        expect(drawer().isLoading()).toBe(false);
+        expect(by('system-prompt-generated-at')).toBe(generatedAt);
+        expect(by('system-prompt-drawer-loading')).toBeNull();
+
+        releaseStatus();
+        await flush();
+      });
+
+      it('announces failure when the coarse refresh clears the flag without a new prompt', async () => {
+        await render(running);
+        call.mockImplementation(async () => rpcSuccess({ ...defaultStatus, regenerationStartedAt: null }));
+        jest.advanceTimersByTime(30_000);
+        await flush();
         expect(announce).toHaveBeenCalledWith('Could not regenerate the system prompt.', 'alert');
+        expect(by('regenerate-may-be-running')).toBeNull();
+      });
+
+      it('lets an older host without the field regenerate', async () => {
+        await render(defaultStatus);
+        expect(by('regenerate-may-be-running')).toBeNull();
+        expect(isDisabledControl(by('system-prompt-regenerate-button') as HTMLButtonElement)).toBe(false);
+      });
+
+      it('keeps the block after an RPC error when the host reports a run', async () => {
+        await render();
+        call.mockImplementation(async (method: string) =>
+          method === 'enhancedPrompts:regenerate' ? rpcError('timeout') : rpcSuccess(running),
+        );
+        drawer().requestRegenerate();
+        await drawer().confirmRegenerate();
+        await flush();
+        expect(by('regenerate-may-be-running')).not.toBeNull();
+        expect(announce).not.toHaveBeenCalled();
       });
     });
   });

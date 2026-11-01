@@ -132,6 +132,11 @@ import type {
   AnalysisStorageService,
   EnhancedPromptsService,
 } from '@ptah-extension/agent-generation';
+import { ENHANCED_PROMPTS_RUN_CEILING_MS } from '@ptah-extension/agent-generation';
+import type {
+  EnhancedPromptsGetStatusResponse,
+  EnhancedPromptsRegenerateResponse,
+} from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -190,7 +195,7 @@ type MockEnhancedPromptsService = jest.Mocked<
     | 'resolveGuidanceRoute'
     | 'resolveGuidanceSource'
   >
->;
+> & { generationInProgress: boolean };
 
 function createMockEnhancedPromptsService(): MockEnhancedPromptsService {
   return {
@@ -207,6 +212,7 @@ function createMockEnhancedPromptsService(): MockEnhancedPromptsService {
     resolveGuidanceSource: jest
       .fn()
       .mockResolvedValue({ kind: 'workspace-discovery', reason: 'missing' }),
+    generationInProgress: false,
   };
 }
 
@@ -1137,6 +1143,215 @@ describe('EnhancedPromptsRpcHandlers', () => {
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/access denied/i);
       expect(h.enhancedPrompts.regenerate).not.toHaveBeenCalled();
+    });
+
+    describe('host-owned unbound regeneration state', () => {
+      const status = {
+        enabled: true,
+        hasGeneratedPrompt: true,
+        generatedAt: '2026-01-01T00:00:00Z',
+        detectedStack: null,
+        cacheValid: true,
+      };
+      type ServiceResult = Awaited<ReturnType<EnhancedPromptsService['regenerate']>>;
+
+      function ready(): Harness {
+        const h = makeHarness();
+        h.enhancedPrompts.getStatus.mockResolvedValue(status);
+        h.handlers.register();
+        return h;
+      }
+
+      function read(
+        h: Harness,
+        workspacePath = WORKSPACE,
+      ): Promise<EnhancedPromptsGetStatusResponse> {
+        return call(h, 'enhancedPrompts:getStatus', { workspacePath });
+      }
+
+      function begin(h: Harness): Promise<EnhancedPromptsRegenerateResponse> {
+        return call(h, 'enhancedPrompts:regenerate', { workspacePath: WORKSPACE });
+      }
+
+      beforeEach(() => jest.useFakeTimers());
+      afterEach(() => jest.useRealTimers());
+
+      it('reports the ISO start while a regenerate is pending', async () => {
+        const h = ready();
+        h.enhancedPrompts.regenerate.mockImplementation(() => {
+          h.enhancedPrompts.generationInProgress = true;
+          return new Promise<ServiceResult>(() => undefined);
+        });
+
+        const startedAt = new Date().toISOString();
+        void begin(h);
+
+        expect((await read(h)).regenerationStartedAt).toBe(startedAt);
+      });
+
+      it('keeps the start through a forced regenerate pre-lock await', async () => {
+        const h = ready();
+        let finishInvalidation: () => void = () => {
+          throw new Error('Regeneration did not reach invalidation');
+        };
+        const invalidation = new Promise<void>((resolve) => {
+          finishInvalidation = resolve;
+        });
+        h.enhancedPrompts.regenerate.mockImplementation(async () => {
+          await invalidation;
+          h.enhancedPrompts.generationInProgress = true;
+          return new Promise<ServiceResult>(() => undefined);
+        });
+
+        const startedAt = new Date().toISOString();
+        void call<EnhancedPromptsRegenerateResponse>(h, 'enhancedPrompts:regenerate', {
+          workspacePath: WORKSPACE,
+          force: true,
+        });
+        expect(h.enhancedPrompts.regenerate).toHaveBeenCalledWith(
+          WORKSPACE,
+          expect.objectContaining({ force: true }),
+          undefined,
+          expect.anything(),
+        );
+        expect((await read(h)).regenerationStartedAt).toBe(startedAt);
+
+        finishInvalidation();
+        await invalidation;
+        expect((await read(h)).regenerationStartedAt).toBe(startedAt);
+      });
+
+      it('rejects a second regenerate during the pre-lock gap and retains the first status', async () => {
+        const h = ready();
+        let finishInvalidation: () => void = () => {
+          throw new Error('Regeneration did not reach invalidation');
+        };
+        const invalidation = new Promise<void>((resolve) => {
+          finishInvalidation = resolve;
+        });
+        h.enhancedPrompts.regenerate.mockImplementation(async () => {
+          await invalidation;
+          h.enhancedPrompts.generationInProgress = true;
+          return new Promise<ServiceResult>(() => undefined);
+        });
+
+        const startedAt = new Date().toISOString();
+        void begin(h);
+        expect(await begin(h)).toEqual({
+          success: false,
+          error: 'A regeneration is already running for this workspace.',
+        });
+        expect(h.enhancedPrompts.regenerate).toHaveBeenCalledTimes(1);
+        expect((await read(h)).regenerationStartedAt).toBe(startedAt);
+
+        finishInvalidation();
+        await invalidation;
+        expect((await read(h)).regenerationStartedAt).toBe(startedAt);
+      });
+
+      it('rejects a second regenerate for the same workspace', async () => {
+        const h = ready();
+        h.enhancedPrompts.regenerate.mockImplementation(() => {
+          h.enhancedPrompts.generationInProgress = true;
+          return new Promise<ServiceResult>(() => undefined);
+        });
+
+        void begin(h);
+        expect(await begin(h)).toEqual({
+          success: false,
+          error: 'A regeneration is already running for this workspace.',
+        });
+        expect(h.enhancedPrompts.regenerate).toHaveBeenCalledTimes(1);
+      });
+
+      it('reconciles a never-settling run after its lock is released', async () => {
+        const h = ready();
+        h.enhancedPrompts.regenerate.mockImplementation(() => {
+          h.enhancedPrompts.generationInProgress = true;
+          return new Promise<ServiceResult>(() => undefined);
+        });
+
+        void begin(h);
+        expect((await read(h)).regenerationStartedAt).not.toBeNull();
+        h.enhancedPrompts.generationInProgress = false;
+
+        expect((await read(h)).regenerationStartedAt).toBeNull();
+        void begin(h);
+        expect(h.enhancedPrompts.regenerate).toHaveBeenCalledTimes(2);
+      });
+
+      it('reconciles a never-settling run at the run ceiling even if a lock is held', async () => {
+        const h = ready();
+        h.enhancedPrompts.regenerate.mockImplementation(() => {
+          h.enhancedPrompts.generationInProgress = true;
+          return new Promise<ServiceResult>(() => undefined);
+        });
+
+        void begin(h);
+        jest.advanceTimersByTime(ENHANCED_PROMPTS_RUN_CEILING_MS + 1);
+
+        expect((await read(h)).regenerationStartedAt).toBeNull();
+      });
+
+      it('keeps a newer run visible when a reconciled run finishes late', async () => {
+        const h = ready();
+        let finishFirst: (result: ServiceResult) => void = () => {
+          throw new Error('First run did not start');
+        };
+        h.enhancedPrompts.regenerate
+          .mockImplementationOnce(
+            () => new Promise<ServiceResult>((resolve) => {
+              h.enhancedPrompts.generationInProgress = true;
+              finishFirst = resolve;
+            }),
+          )
+          .mockImplementationOnce(() => {
+            h.enhancedPrompts.generationInProgress = true;
+            return new Promise<ServiceResult>(() => undefined);
+          });
+
+        const first = begin(h);
+        expect((await read(h)).regenerationStartedAt).not.toBeNull();
+        h.enhancedPrompts.generationInProgress = false;
+        expect((await read(h)).regenerationStartedAt).toBeNull();
+
+        jest.advanceTimersByTime(1);
+        const secondStartedAt = new Date().toISOString();
+        void begin(h);
+        finishFirst({ success: true, status });
+
+        expect(await first).toMatchObject({ success: true, status });
+        expect((await read(h)).regenerationStartedAt).toBe(secondStartedAt);
+      });
+
+      it('clears the state after a successful regenerate', async () => {
+        const h = ready();
+        h.enhancedPrompts.regenerate.mockResolvedValue({ success: true, status });
+
+        expect((await begin(h)).success).toBe(true);
+        expect((await read(h)).regenerationStartedAt).toBeNull();
+      });
+
+      it('clears the state after the service throws', async () => {
+        const h = ready();
+        h.enhancedPrompts.regenerate.mockRejectedValue(new Error('failed'));
+
+        expect(await begin(h)).toMatchObject({ success: false, error: 'failed' });
+        expect((await read(h)).regenerationStartedAt).toBeNull();
+      });
+
+      it('does not report workspace A regeneration for workspace B', async () => {
+        const h = ready();
+        h.enhancedPrompts.regenerate.mockImplementation(() => {
+          h.enhancedPrompts.generationInProgress = true;
+          return new Promise<ServiceResult>(() => undefined);
+        });
+
+        void begin(h);
+
+        expect((await read(h, '/other/workspace')).regenerationStartedAt).toBeNull();
+        expect((await read(h)).regenerationStartedAt).not.toBeNull();
+      });
     });
   });
 

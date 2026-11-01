@@ -20,7 +20,7 @@ import {
 } from '@ptah-extension/chat';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
-import { SurfaceRouterService } from '@ptah-extension/core';
+import { SurfaceRouterService, injectWallClock } from '@ptah-extension/core';
 import type { SetupGenerationWorkflow } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { AgentGenerationStore } from '../services/agent-generation.store';
@@ -294,7 +294,10 @@ export class GenerationWorkflowShellComponent implements OnDestroy {
   private combinedTabId: string | null = null;
   private combinedBaselineRevision = 0;
   private discoveredTerminalRunId: string | null = null;
-  protected readonly now = signal(Date.now());
+  protected readonly now = injectWallClock(
+    'second',
+    () => this.handoff.pending() !== null,
+  );
   readonly hasVerifiedResults = computed(() => {
     const result = this.store.run()?.result;
     return !!(
@@ -446,12 +449,6 @@ export class GenerationWorkflowShellComponent implements OnDestroy {
         this.combinedTabId = null;
         this.handoff.schedule(run.binding.tabId, run.binding.workspacePath);
       }
-    });
-    effect((onCleanup) => {
-      if (!this.handoff.pending()) return;
-      this.now.set(Date.now());
-      const timer = setInterval(() => this.now.set(Date.now()), 250);
-      onCleanup(() => clearInterval(timer));
     });
   }
 }

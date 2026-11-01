@@ -213,6 +213,25 @@ describe('normalizePluginConfig (lenient display read)', () => {
 });
 
 describe('PluginConfigHome', () => {
+  it('a read-only view returns legacy config without import while a normal get imports it', async () => {
+    const legacy = cfg({ enabledPluginIds: ['legacy-plugin'] });
+    const { home, repo, homeStorage } = makeFixture({ a: legacy });
+    const view = home.viewFor(repo, true);
+
+    expect(view.get(PLUGIN_CONFIG_KEY)).toEqual(legacy);
+    expect(view.keys()).toEqual([PLUGIN_CONFIG_KEY]);
+    await flush();
+    expect(homeStorage.raw.size).toBe(0);
+
+    expect(home.viewFor(repo).get(PLUGIN_CONFIG_KEY)).toEqual(legacy);
+    await flush();
+    expect(homeStorage.raw.size).toBe(1);
+    expect([...homeStorage.raw.values()][0]).toMatchObject({
+      origin: 'imported',
+      config: legacy,
+    });
+  });
+
   it('the view serves only the plugin config key', async () => {
     const { home, repo } = makeFixture({});
     const view = home.viewFor(repo);

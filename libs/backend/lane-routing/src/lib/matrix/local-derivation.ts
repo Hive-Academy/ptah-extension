@@ -4,12 +4,13 @@ import {
   type OutcomeTaskKind,
 } from '@ptah-extension/shared';
 import {
-  MINIMUM_SAMPLE_COUNT,
+  BLEND_PRIOR_WEIGHT,
+  NEUTRAL_SCORE,
   OUTCOME_WINDOW_MS,
   SCORE_MAX,
   SCORE_MIN,
 } from '../routing-constants';
-import { isStale } from './seed-matrix';
+import { buildSeedMatrix, isStale } from './seed-matrix';
 import {
   CAPABILITY_MATRIX_VERSION,
   FAMILY_PROFILE_MODEL,
@@ -25,13 +26,19 @@ import {
  * Pure: the same summaries and `nowMs` always produce the same matrix. The
  * store supplies the summaries; this module does not read the outcome port.
  *
- * A cell is derived only when at least one Requirement 9.1 rate has
- * `MINIMUM_SAMPLE_COUNT` verified runs in the 90-day window. `r` is the
- * delivered rate when only that rate qualifies, the review pass rate when
- * only that one does, otherwise the mean of the two. The score is
- * `round(100 * r)` (half away from zero). `asOf` is the newest contributing
- * record. `sampleCount` is how many unique runs contributed to the rate or
- * rates that qualified.
+ * A cell is derived when at least one Requirement 9.1 rate has a verified
+ * run in the 90-day window: delivery counts `delivered` over
+ * `delivered + noDeliverable + failed` runs, review counts `approved`
+ * over `approved + rejected`. Each available rate is blended toward the
+ * prior (Requirement 8): `round(100 * (s + k * prior / 100) / (n + k))`
+ * with `k = BLEND_PRIOR_WEIGHT`, successes `s` and observed runs `n`. The
+ * prior is the score of the exact seed cell for the same family, model
+ * and task kind (`buildSeedMatrix`, a pure function of `nowMs`), else
+ * `NEUTRAL_SCORE`. The score is the blended delivered rate when only
+ * delivery has runs, the blended review pass rate when only review does,
+ * otherwise the mean of the two, rounded half away from zero. `asOf` is
+ * the newest contributing record. `sampleCount` is how many unique runs
+ * contributed to the rate or rates used.
  *
  * Runs stored under `LANE_DEFAULT_MODEL` or `auto` land on the family
  * profile (`*`), which is the key lookup uses for those models (Req 11.3).
@@ -54,8 +61,8 @@ interface RateBucket {
 }
 
 /**
- * One profile per family and model that reached the sample count. Profiles
- * are sorted by family, then by model, with `*` before other models.
+ * One profile per family and model that derived a cell. Profiles are
+ * sorted by family, then by model, with `*` before other models.
  */
 export function deriveLocalMatrix(
   summaries: readonly LaneOutcomeSummary[],
@@ -214,8 +221,9 @@ function profilesFrom(
       cells: Record<OutcomeTaskKind, MatrixCell>;
     }
   >();
+  const seedProfiles = buildSeedMatrix(nowMs).profiles;
   for (const bucket of buckets.values()) {
-    const cell = cellFrom(bucket, nowMs);
+    const cell = cellFrom(bucket, nowMs, priorScore(bucket, seedProfiles));
     if (cell === undefined) continue;
     const key = JSON.stringify([bucket.family, bucket.model]);
     const draft = drafts.get(key) ?? {
@@ -244,23 +252,32 @@ function unknownCells(): Record<OutcomeTaskKind, MatrixCell> {
   };
 }
 
+/**
+ * The blend prior: the score of the seed value cell for the same family,
+ * model and task kind (an exact profile match), else `NEUTRAL_SCORE`.
+ */
+function priorScore(
+  bucket: RateBucket,
+  seedProfiles: readonly MatrixProfile[],
+): number {
+  const profile = seedProfiles.find(
+    (candidate) =>
+      candidate.family === bucket.family && candidate.model === bucket.model,
+  );
+  const cell = profile?.cells[bucket.taskKind];
+  return cell?.kind === 'value' ? cell.score : NEUTRAL_SCORE;
+}
+
 function cellFrom(
   bucket: RateBucket,
   nowMs: number,
+  prior: number,
 ): ValueMatrixCell | undefined {
   const deliveryTotal = bucket.delivered + bucket.noDeliverable + bucket.failed;
   const reviewTotal = bucket.approved + bucket.rejected;
-  const deliveryReady = deliveryTotal >= MINIMUM_SAMPLE_COUNT;
-  const reviewReady = reviewTotal >= MINIMUM_SAMPLE_COUNT;
-  if (!deliveryReady && !reviewReady) return undefined;
+  if (deliveryTotal === 0 && reviewTotal === 0) return undefined;
 
-  const scored = scoreBucket(
-    bucket,
-    deliveryTotal,
-    reviewTotal,
-    deliveryReady,
-    reviewReady,
-  );
+  const scored = scoreBucket(bucket, deliveryTotal, reviewTotal, prior);
   if (scored === undefined) return undefined;
   const newest = newestContributing(scored.contributing);
   const asOf = new Date(newest.endedAt).toISOString();
@@ -278,29 +295,29 @@ function scoreBucket(
   bucket: RateBucket,
   deliveryTotal: number,
   reviewTotal: number,
-  deliveryReady: boolean,
-  reviewReady: boolean,
+  prior: number,
 ):
   | {
       readonly score: number;
       readonly contributing: readonly LaneOutcomeSummary[];
     }
   | undefined {
-  if (deliveryReady && !reviewReady) {
-    const score = roundPercent(bucket.delivered, deliveryTotal);
+  if (deliveryTotal > 0 && reviewTotal === 0) {
+    const score = blendedRate(bucket.delivered, deliveryTotal, prior);
     if (score === undefined) return undefined;
     return { score, contributing: bucket.delivery };
   }
-  if (reviewReady && !deliveryReady) {
-    const score = roundPercent(bucket.approved, reviewTotal);
+  if (reviewTotal > 0 && deliveryTotal === 0) {
+    const score = blendedRate(bucket.approved, reviewTotal, prior);
     if (score === undefined) return undefined;
     return { score, contributing: bucket.review };
   }
-  const score = roundMean(
+  const score = blendedMean(
     bucket.delivered,
     deliveryTotal,
     bucket.approved,
     reviewTotal,
+    prior,
   );
   if (score === undefined) return undefined;
   return { score, contributing: unionByRun(bucket.delivery, bucket.review) };
@@ -341,6 +358,67 @@ function scale(count: number, otherDenominator: number): number | undefined {
   return safeMul(scaled, otherDenominator);
 }
 
+/**
+ * One rate blended toward the prior (Requirement 8):
+ * `round(100 * (s + k * prior / 100) / (n + k))`, half away from zero,
+ * through `roundPercent(100*s + k*prior, 100*(n + k))`.
+ */
+function blendedRate(
+  successes: number,
+  total: number,
+  prior: number,
+): number | undefined {
+  const numerator = blendNumerator(successes, prior);
+  const denominator = blendDenominator(total);
+  if (numerator === undefined || denominator === undefined) {
+    return undefined;
+  }
+  return roundPercent(numerator, denominator);
+}
+
+/** Both rates blended toward the prior, then combined by `roundMean`. */
+function blendedMean(
+  deliverySuccesses: number,
+  deliveryTotal: number,
+  reviewSuccesses: number,
+  reviewTotal: number,
+  prior: number,
+): number | undefined {
+  const deliveryNumerator = blendNumerator(deliverySuccesses, prior);
+  const deliveryDenominator = blendDenominator(deliveryTotal);
+  const reviewNumerator = blendNumerator(reviewSuccesses, prior);
+  const reviewDenominator = blendDenominator(reviewTotal);
+  if (
+    deliveryNumerator === undefined ||
+    deliveryDenominator === undefined ||
+    reviewNumerator === undefined ||
+    reviewDenominator === undefined
+  ) {
+    return undefined;
+  }
+  return roundMean(
+    deliveryNumerator,
+    deliveryDenominator,
+    reviewNumerator,
+    reviewDenominator,
+  );
+}
+
+/** `100 * s + k * prior`, or undefined when a product or the sum is unsafe. */
+function blendNumerator(successes: number, prior: number): number | undefined {
+  const successesScaled = safeMul(100, successes);
+  const priorScaled = safeMul(BLEND_PRIOR_WEIGHT, prior);
+  if (successesScaled === undefined || priorScaled === undefined) {
+    return undefined;
+  }
+  return safeAdd(successesScaled, priorScaled);
+}
+
+/** `100 * (n + k)`, or undefined when the product is unsafe. */
+function blendDenominator(total: number): number | undefined {
+  return safeMul(100, total + BLEND_PRIOR_WEIGHT);
+}
+
 function floorRatio(
   numerator: number,
   denominator: number,
@@ -366,6 +444,16 @@ function safeMul(left: number, right: number): number | undefined {
   const product = left * right;
   if (!Number.isSafeInteger(product)) return undefined;
   return product;
+}
+
+/** Sum of two safe integers, or undefined when the sum is unsafe. */
+function safeAdd(left: number, right: number): number | undefined {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right)) {
+    return undefined;
+  }
+  const sum = left + right;
+  if (!Number.isSafeInteger(sum)) return undefined;
+  return sum;
 }
 
 function unionByRun(

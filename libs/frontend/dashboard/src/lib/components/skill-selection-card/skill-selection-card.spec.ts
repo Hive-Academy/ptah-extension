@@ -21,9 +21,19 @@
  *     screen.
  */
 
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  PLUGIN_SAVE_APPLIES_NOTICE,
+  PluginCatalogPanelComponent,
+} from '@ptah-extension/chat-ui';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type { HarnessGetSkillSelectionResult } from '@ptah-extension/shared';
+import type {
+  HarnessGetSkillSelectionResult,
+  SessionId,
+} from '@ptah-extension/shared';
 import { SkillSelectionCardComponent } from './skill-selection-card.component';
 
 /**
@@ -96,7 +106,13 @@ describe('dashboard skill-selection card', () => {
     responders = new Map();
     rpcMock.call.mockClear();
     TestBed.configureTestingModule({
-      providers: [{ provide: ClaudeRpcService, useValue: rpcMock }],
+      providers: [
+        { provide: ClaudeRpcService, useValue: rpcMock },
+        {
+          provide: TabManagerService,
+          useValue: { activeTabSessionId: signal<SessionId | null>(null) },
+        },
+      ],
     });
   });
 
@@ -300,6 +316,39 @@ describe('dashboard skill-selection card', () => {
       expect(box?.querySelector('ptah-brand-mark')).toBeNull();
     });
 
+    it('closes on saved, shows the application notice, and clears it on reopen', async () => {
+      const fixture = await openPicker();
+      const host = fixture.nativeElement as HTMLElement;
+      const panel = fixture.debugElement.query(
+        By.directive(PluginCatalogPanelComponent),
+      );
+
+      expect(panel).not.toBeNull();
+      panel?.componentInstance.saved.emit([]);
+      await settle(fixture);
+
+      expect(host.querySelector('dialog.modal')).toBeNull();
+      const notice = host.querySelector(
+        '[data-testid="skill-selection-save-notice"]',
+      );
+      expect(notice?.getAttribute('role')).toBe('status');
+      expect(notice?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        PLUGIN_SAVE_APPLIES_NOTICE,
+      );
+
+      host
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="skill-selection-card-choose"]',
+        )
+        ?.click();
+      await settle(fixture);
+
+      expect(host.querySelector('dialog.modal')).not.toBeNull();
+      expect(
+        host.querySelector('[data-testid="skill-selection-save-notice"]'),
+      ).toBeNull();
+    });
+
     it('closes on the close button and on the backdrop, re-reading the selection each time', async () => {
       for (const closer of [
         '[data-testid="skill-selection-card-close"]',
@@ -313,6 +362,9 @@ describe('dashboard skill-selection card', () => {
         await settle(fixture);
 
         expect(host.querySelector('dialog.modal')).toBeNull();
+        expect(
+          host.querySelector('[data-testid="skill-selection-save-notice"]'),
+        ).toBeNull();
         expect(
           calls.some((c) => c.method === 'harness:get-skill-selection'),
         ).toBe(true);

@@ -5,7 +5,7 @@ import {
   TabManagerService,
   type TerminalTurnPulse,
 } from '@ptah-extension/chat-state';
-import { ClaudeRpcService, ThemeService } from '@ptah-extension/core';
+import { ClaudeRpcService, ThemeService, WallClockService } from '@ptah-extension/core';
 import { ChatStore } from '@ptah-extension/chat';
 import { CommandCenterStore } from '../model/command-center.store';
 import { CommandCenterSessionCoordinator } from '../model/session-coordinator';
@@ -14,6 +14,12 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
 import { CommandOverlayComponent } from './command-overlay.component';
 
 describe('CommandCenterPageController', () => {
+  const clockNow = signal(1_000);
+  const releaseClock = jest.fn();
+  const clock = {
+    now: jest.fn(() => clockNow.asReadonly()),
+    acquire: jest.fn(() => releaseClock),
+  };
   const recordWriteFailure = signal<{
     workspacePath: string;
     record: 'lastSession';
@@ -101,6 +107,7 @@ describe('CommandCenterPageController', () => {
     visibleTabIds.set(new Set());
     registrationCounts.clear();
     tabs.set([]);
+    clockNow.set(1_000);
     activeWorkspacePath.set('/workspace');
     permissionRequests.set([]);
     rpc.call.mockReset();
@@ -109,6 +116,7 @@ describe('CommandCenterPageController', () => {
       providers: [
         CommandCenterPageController,
         CommandCenterStore,
+        { provide: WallClockService, useValue: clock },
         { provide: CommandCenterVoiceSessionService, useValue: voiceSessions },
         {
           provide: TabManagerService,
@@ -161,6 +169,16 @@ describe('CommandCenterPageController', () => {
   it('forwards the theme action to ThemeService', () => {
     page.toggleTheme();
     expect(theme.toggleTheme).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses and releases the core coarse wall clock', () => {
+    expect(clock.acquire).toHaveBeenCalledWith('coarse');
+    expect(clock.now).toHaveBeenCalledWith('coarse');
+    expect(page.now()).toBe(1_000);
+    clockNow.set(31_000);
+    expect(page.now()).toBe(31_000);
+    TestBed.resetTestingModule();
+    expect(releaseClock).toHaveBeenCalledTimes(1);
   });
 
   it('loads local provider models and download status on open', async () => {

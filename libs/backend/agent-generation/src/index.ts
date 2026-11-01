@@ -98,6 +98,7 @@ export type {
 } from './lib/services/prompt-designer';
 export {
   EnhancedPromptsService,
+  ENHANCED_PROMPTS_RUN_CEILING_MS,
   DEFAULT_ENHANCED_PROMPTS_CONFIG,
   createInitialEnhancedPromptsState,
 } from './lib/services/enhanced-prompts';

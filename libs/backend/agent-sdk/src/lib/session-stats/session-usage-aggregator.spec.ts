@@ -15,7 +15,9 @@ import {
 } from './session-usage-ledger';
 import {
   aggregateSessionUsage,
+  emptySessionStats,
   type PricingLookup,
+  type SessionStatsReadEntry,
   type SessionStatsScopeSelection,
 } from './session-usage-aggregator';
 
@@ -114,8 +116,8 @@ const SUBAGENT = ledger([
 
 describe('SessionUsageLedgerBuilder', () => {
   it('keeps one record per message id with the last counters, and no content', () => {
-    expect(PARENT.records).toHaveLength(5);
-    expect(PARENT.records[0]).toEqual({
+    expect(PARENT.records).toHaveLength(6);
+    expect(PARENT.records[1]).toEqual({
       messageId: 'm1',
       timestampMs: T(1),
       model: 'zz-priced-alpha',
@@ -124,10 +126,11 @@ describe('SessionUsageLedgerBuilder', () => {
       cacheRead: 10,
       cacheCreation: 5,
       assistant: true,
+      prompt: false,
       hasUsage: true,
     });
     expect(JSON.stringify(PARENT)).not.toContain('content is never retained');
-    expect(PARENT.currentContextStart).toBe(2);
+    expect(PARENT.currentContextStart).toBe(3);
     expect(PARENT.initModel).toBe('zz-priced-alpha');
     expect(PARENT.firstSessionId).toBe(SESSION);
   });
@@ -149,6 +152,97 @@ describe('SessionUsageLedgerBuilder', () => {
       }),
     ]);
     expect(built.records[0]).toMatchObject({ input: 5, output: 0, hasUsage: true });
+  });
+});
+
+describe('aggregateSessionUsage — lifetime user turns', () => {
+  const count = (
+    lines: readonly (object | string)[],
+    scope: SessionStatsScopeSelection = { kind: 'session' },
+  ) => aggregateSessionUsage({
+    sessionId: SESSION,
+    parent: ledger(lines),
+    subagents: [],
+    unreadableSubagents: 0,
+    subagentIds: [],
+    scope,
+  }, lookup);
+
+  it('counts a run of prompts once and starts another after an assistant', () => {
+    const entry = count([
+      { type: 'user', message: { content: 'first' }, timestamp: iso(T(0)) },
+      { type: 'user', message: { content: [{ type: 'image' }] }, timestamp: iso(T(1)) },
+      assistant('a', 'zz-priced-alpha', T(2), { input_tokens: 1 }),
+      { type: 'user', message: { content: 'second' }, timestamp: iso(T(3)) },
+      assistant('b', 'zz-priced-alpha', T(4), { input_tokens: 1 }),
+    ]);
+    expect(entry.turnCount).toBe(2);
+  });
+
+  it('excludes tool results, meta, sidechain and compact-summary users', () => {
+    const entry = count([
+      { type: 'user', message: { content: [{ type: 'tool_result' }] } },
+      { type: 'user', isMeta: true, message: { content: 'metadata' } },
+      { type: 'user', isSidechain: true, message: { content: 'agent' } },
+      { type: 'user', isCompactSummary: true, message: { content: 'summary' } },
+    ]);
+    expect(entry.turnCount).toBe(0);
+  });
+
+  it('accepts message.role user and retains no usage on a prompt record', () => {
+    const built = ledger([
+      {
+        type: 'event',
+        message: {
+          role: 'user',
+          content: [{ type: 'text' }],
+          usage: { input_tokens: 17 },
+        },
+      },
+    ]);
+    expect(built.records[0]).toMatchObject({ prompt: true, hasUsage: false, input: 0 });
+  });
+
+  it('does not let a tool-result record split consecutive prompts', () => {
+    const entry = count([
+      { type: 'user', message: { content: 'first' } },
+      { type: 'user', message: {
+        content: [{ type: 'tool_result' }],
+        usage: { input_tokens: 1 },
+      } },
+      { type: 'user', message: { content: 'continuation' } },
+      assistant('a', 'zz-priced-alpha', T(1), { input_tokens: 1 }),
+    ]);
+    expect(entry.turnCount).toBe(1);
+  });
+
+  it('keeps compact-summary parity with resume and applies scope filters', () => {
+    const lines = [
+      { type: 'user', timestamp: iso(T(0)), message: { role: 'user', content: 'first' } },
+      assistant('a', 'zz-priced-alpha', T(1), { input_tokens: 1 }),
+      { type: 'user', isCompactSummary: true, timestamp: iso(T(2)), message: { role: 'user', content: 'This session is being continued from a previous conversation …' } },
+      assistant('b', 'zz-priced-alpha', T(3), { input_tokens: 1 }),
+      { type: 'system', subtype: 'compact_boundary', timestamp: iso(T(4)) },
+      { type: 'user', timestamp: iso(T(5)), message: { role: 'user', content: 'second' } },
+      assistant('c', 'zz-priced-alpha', T(6), { input_tokens: 1 }),
+    ];
+    expect(count(lines).turnCount).toBe(2);
+    expect(count(lines, { kind: 'current-context' }).turnCount).toBe(1);
+    expect(count(lines, { kind: 'range', since: T(4), until: T(7) }).turnCount).toBe(1);
+  });
+
+  it('sums complete contributions and omits an incomplete turn count', () => {
+    const first = { ...emptySessionStats(SESSION), turnCount: 3 };
+    const second = { ...emptySessionStats(SESSION), turnCount: 2 };
+    const aggregate = (contributions: readonly SessionStatsReadEntry[]) => aggregateSessionUsage({
+      sessionId: SESSION,
+      contributions,
+      subagentIds: [],
+    });
+    expect(aggregate([first, second]).turnCount).toBe(5);
+    const missing = { ...second, turnCount: undefined };
+    expect(aggregate([first, missing]).turnCount).toBeUndefined();
+    expect(Object.hasOwn(aggregate([first, missing]), 'turnCount')).toBe(false);
   });
 });
 
@@ -420,8 +514,8 @@ describe('aggregateSessionUsage — subagent compaction', () => {
     );
 
   it('records where the subagent compacted', () => {
-    expect(COMPACTED_SUBAGENT.records).toHaveLength(2);
-    expect(COMPACTED_SUBAGENT.currentContextStart).toBe(1);
+    expect(COMPACTED_SUBAGENT.records).toHaveLength(3);
+    expect(COMPACTED_SUBAGENT.currentContextStart).toBe(2);
   });
 
   it('current-context: counts a subagent only after its own last boundary', () => {
