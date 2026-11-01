@@ -102,6 +102,9 @@ describe('glass local scrim floors', () => {
     expect(readingPlane).toContain('background-color: var(--glass-scrim-text);');
     expect(readingPlane).toContain('border-color: var(--glass-frame, var(--glass-line));');
     expect(readingPlane).toContain('box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint));');
+
+    const stickyFloor = block(/:root\[data-glass='on'\] :is\(\.surface-1, \.surface-2\)\.sticky:not\(\[data-glass-surface\]\)/);
+    expect(stickyFloor).toContain('background-color: var(--glass-fill-overlay);');
   });
 
   it('clears only Electron dock canvases and composer wrappers under glass', () => {

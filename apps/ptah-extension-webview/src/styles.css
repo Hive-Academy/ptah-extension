@@ -3646,6 +3646,10 @@ END OF ANUBIS DESIGN SYSTEM
   border-color: var(--glass-frame, var(--glass-line));
   box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint));
 }
+/* Sticky headers sit over scrolling rows, so they need a near-opaque floor. */
+:root[data-glass='on'] :is(.surface-1, .surface-2).sticky:not([data-glass-surface]) {
+  background-color: var(--glass-fill-overlay);
+}
 
 /* Composer lists sit over text, so their local scrim is denser than menus.
    Native wrappers keep positioning/top-layer ownership; the projected panel
