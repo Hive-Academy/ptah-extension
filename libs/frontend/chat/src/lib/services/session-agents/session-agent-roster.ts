@@ -13,9 +13,11 @@ import {
 import type { AgentKind, AgentStatusWord } from '@ptah-extension/chat-ui';
 import type {
   AskUserQuestionRequest,
+  BackgroundTaskSnapshotEntry,
   CliOutputSegment,
   PermissionRequest,
 } from '@ptah-extension/shared';
+import { isAgentTaskType } from '@ptah-extension/shared';
 import { laneKey } from '../../components/molecules/compact-session/compact-lane-rows';
 import { ownedBySession } from './owned-by-session';
 import { isUsageSegment } from '../../components/molecules/agent-card/stats-bar.utils';
@@ -47,6 +49,7 @@ export interface SessionAgentRosterInput {
   readonly subagents: readonly SubagentRecord[];
   readonly cliAgents: readonly MonitoredAgent[];
   readonly backgroundAgents: readonly BackgroundAgentEntry[];
+  readonly backgroundTasks?: readonly BackgroundTaskSnapshotEntry[];
   readonly permissions: readonly PermissionRequest[];
   readonly questions: readonly AskUserQuestionRequest[];
 }
@@ -192,6 +195,20 @@ export function buildSessionAgentRoster(
           openRequestIds: [],
         }),
       ),
+    ...(input.backgroundTasks ?? [])
+      .filter((task) => !isAgentTaskType(task.taskType))
+      .map((task): SessionAgent => ({
+        key: `task:${task.taskId}`,
+        kind: 'task',
+        name: `${task.taskType}: ${task.description}`,
+        cliId: null,
+        agentType: null,
+        status: task.status,
+        startedAt: null,
+        endedAt: null,
+        activity: task.description,
+        openRequestIds: [],
+      })),
   ];
   const hasLiveAgents = agents.some(
     (agent) =>

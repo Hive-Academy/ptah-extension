@@ -3,6 +3,7 @@ import { SystemMessageTransformer } from './system-message.transformer';
 import type { TransformerState } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
 import { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
+import type { SDKBackgroundTasksChangedMessage } from '../types/sdk-types/claude-sdk.types';
 
 function makeState(): jest.Mocked<TransformerState> {
   // Backs the announcement-mark mocks with a real Map (id → origin), so
@@ -109,6 +110,24 @@ describe('SystemMessageTransformer', () => {
   beforeEach(() => {
     transformer = new SystemMessageTransformer();
     state = makeState();
+  });
+
+  it('emits one replacement snapshot and excludes ambient SDK tasks', () => {
+    const message: SDKBackgroundTasksChangedMessage = {
+      type: 'system', subtype: 'background_tasks_changed',
+      uuid: '00000000-0000-0000-0000-000000000001', session_id: 'session-1',
+      tasks: [
+        { task_id: 'bash-1', task_type: 'local_bash', description: 'Compile', ambient: false },
+        { task_id: 'watch-1', task_type: 'watcher', description: 'Watch', ambient: true },
+      ],
+    };
+    const [event] = transformer.transformBackgroundTasksChanged(message);
+    expect(event.eventType).toBe('background_tasks_snapshot');
+    expect(event.sessionId).toBe('session-1');
+    expect(event.tasks).toEqual([{ taskId: 'bash-1', taskType: 'local_bash', description: 'Compile', status: 'running' }]);
+    expect(transformer.transformBackgroundTasksChanged({ ...message, tasks: [] })[0].tasks).toEqual([]);
+    // A malformed push with no owner cannot be routed to a session.
+    expect(transformer.transformBackgroundTasksChanged({ ...message, session_id: '' })).toEqual([]);
   });
 
   describe('compact_boundary', () => {

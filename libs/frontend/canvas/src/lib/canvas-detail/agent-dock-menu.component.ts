@@ -96,6 +96,7 @@ let nextMenuId = 0;
             <button
               type="button"
               role="menuitemradio"
+              [disabled]="agent.kind === 'task'"
               class="relative flex min-h-6 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-base-content hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
               [id]="rowId(agent.key)"
               [attr.aria-checked]="agent.key === selectedKey()"
@@ -175,9 +176,12 @@ export class AgentDockMenuComponent {
   });
 
   protected readonly orderedAgents = computed(() => orderDockMenuAgents(this.hidden()));
+  private readonly selectableAgents = computed(() =>
+    this.orderedAgents().filter((agent) => agent.kind !== 'task'),
+  );
   protected readonly rovingKey = computed(() => {
     const active = this.activeKey();
-    return this.orderedAgents().some((agent) => agent.key === active)
+    return this.selectableAgents().some((agent) => agent.key === active)
       ? active
       : this.checkedKey();
   });
@@ -232,12 +236,13 @@ export class AgentDockMenuComponent {
   }
 
   protected choose(key: string): void {
+    if (!this.selectableAgents().some((agent) => agent.key === key)) return;
     this.agentSelect.emit(key);
     this.setOpen(false);
   }
 
   protected onMenuKeydown(event: KeyboardEvent): void {
-    const keys = this.orderedAgents().map((agent) => agent.key);
+    const keys = this.selectableAgents().map((agent) => agent.key);
     if (keys.length === 0) return;
     if (event.key === 'Tab') {
       event.stopPropagation();
@@ -278,7 +283,7 @@ export class AgentDockMenuComponent {
   }
 
   private checkedKey(): string | null {
-    const agents = this.orderedAgents();
+    const agents = this.selectableAgents();
     if (agents.length === 0) return null;
     const selected = this.selectedKey();
     return agents.some((agent) => agent.key === selected)

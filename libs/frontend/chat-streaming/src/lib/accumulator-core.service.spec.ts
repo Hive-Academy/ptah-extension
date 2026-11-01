@@ -35,6 +35,7 @@ import type {
   BackgroundAgentCompletedEvent,
   BackgroundAgentStartedEvent,
   BackgroundAgentStoppedEvent,
+  BackgroundTasksSnapshotEvent,
   CompactionCompleteEvent,
   CompactionStartEvent,
   FlatStreamEventUnion,
@@ -57,6 +58,7 @@ import {
 import { EventDeduplicationService } from './event-deduplication.service';
 import { BatchedUpdateService } from './batched-update.service';
 import { BackgroundAgentStore } from './background-agent.store';
+import { BackgroundTaskStore } from './background-task.store';
 import { AgentMonitorStore } from './agent-monitor.store';
 import { SessionManager } from './session-manager.service';
 
@@ -439,6 +441,27 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
 
   afterEach(() => {
     TestBed.resetTestingModule();
+  });
+
+  it('replaces task rows without writing a tree node and respects skipStoreEffects', () => {
+    const store = TestBed.inject(BackgroundTaskStore);
+    const snapshot: BackgroundTasksSnapshotEvent = {
+      id: 'snapshot-1',
+      eventType: 'background_tasks_snapshot',
+      timestamp: 1,
+      sessionId: SESSION_ID,
+      messageId: 'background-tasks-' + SESSION_ID,
+      tasks: [{ taskId: 'bash-1', taskType: 'local_bash', description: 'Compile', status: 'running' }],
+    };
+    const result = core.process(state, snapshot, makeCtx());
+    expect(result.stateMutated).toBe(false);
+    expect(state.events.size).toBe(0);
+    expect(store.tasksForSession(SESSION_ID)).toEqual(snapshot.tasks);
+
+    core.process(state, { ...snapshot, id: 'snapshot-2', tasks: [] }, makeCtx({ skipStoreEffects: true }));
+    expect(store.tasksForSession(SESSION_ID)).toEqual(snapshot.tasks);
+    core.process(state, { ...snapshot, id: 'snapshot-3', tasks: [] }, makeCtx());
+    expect(store.tasksForSession(SESSION_ID)).toEqual([]);
   });
 
   // ---- Event-type matrix (parametrized over a bare list of events) -------

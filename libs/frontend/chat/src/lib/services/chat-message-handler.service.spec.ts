@@ -16,6 +16,7 @@ import {
 } from '@ptah-extension/chat-routing';
 import {
   AgentMonitorStore,
+  BackgroundTaskStore,
   TurnStateApplier,
 } from '@ptah-extension/chat-streaming';
 import {
@@ -189,9 +190,26 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
   });
 
   it('retires pending ids only on a confirmed session-ended message', () => {
+    const tasks = TestBed.inject(BackgroundTaskStore);
+    tasks.replace({
+      id: 'snapshot-1', eventType: 'background_tasks_snapshot',
+      timestamp: 1, sessionId: 'old-session', messageId: 'background-tasks-old-session',
+      tasks: [{ taskId: 'bash-1', taskType: 'local_bash', description: 'Compile', status: 'running' }],
+    });
+    handler.handleMessage({ type: MESSAGE_TYPES.CHAT_COMPLETE, payload: { tabId: 'tab-1' } });
+    expect(tasks.tasksForSession('old-session')).toHaveLength(1);
     handler.handleMessage({ type: MESSAGE_TYPES.CHAT_SESSION_ENDED, payload: { tabId: 'tab-1', sessionId: 'old-session' } });
     expect(chatStore.retireEndedSessionPrompts).toHaveBeenCalledWith('tab-1', 'old-session');
+    expect(tasks.tasksForSession('old-session')).toEqual([]);
     handler.handleMessage({ type: MESSAGE_TYPES.CHAT_SESSION_ENDED, payload: { tabId: 'tab-1' } });
+    expect(chatStore.retireEndedSessionPrompts).toHaveBeenCalledTimes(1);
+    tasks.replace({
+      id: 'snapshot-2', eventType: 'background_tasks_snapshot',
+      timestamp: 2, sessionId: 'old-session', messageId: 'background-tasks-old-session',
+      tasks: [{ taskId: 'bash-2', taskType: 'local_bash', description: 'Package', status: 'running' }],
+    });
+    handler.handleMessage({ type: MESSAGE_TYPES.CHAT_SESSION_ENDED, payload: { sessionId: 'old-session' } });
+    expect(tasks.tasksForSession('old-session')).toEqual([]);
     expect(chatStore.retireEndedSessionPrompts).toHaveBeenCalledTimes(1);
   });
 

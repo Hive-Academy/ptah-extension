@@ -33,6 +33,7 @@ import {
   isCompactBoundary,
   isLocalCommandOutput,
   isTaskStarted,
+  isBackgroundTasksChanged,
   isTaskProgress,
   isTaskUpdated,
   isTaskNotification,
@@ -395,6 +396,10 @@ export class SdkMessageTransformer implements TransformerState {
           this.helpers,
           sessionId,
         );
+      }
+
+      if (isBackgroundTasksChanged(sdkMessage)) {
+        return this.systemTransformer.transformBackgroundTasksChanged(sdkMessage, sessionId);
       }
 
       if (isTaskProgress(sdkMessage)) {

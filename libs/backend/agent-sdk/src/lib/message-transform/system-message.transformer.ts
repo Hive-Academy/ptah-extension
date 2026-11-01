@@ -11,6 +11,7 @@ import {
   BackgroundAgentStartedEvent,
   BackgroundAgentCompletedEvent,
   BackgroundAgentStoppedEvent,
+  BackgroundTasksSnapshotEvent,
   ToolResultEvent,
   SessionId,
   isAgentTaskType,
@@ -22,6 +23,7 @@ import type {
   SDKTaskProgressMessage,
   SDKTaskUpdatedMessage,
   SDKTaskNotificationMessage,
+  SDKBackgroundTasksChangedMessage,
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
 import { toTurnStateEvent } from '../helpers/session-turn-state.registry';
@@ -33,6 +35,29 @@ import type {
 import type { TransformerHelpers } from './transformer-helpers';
 
 export class SystemMessageTransformer {
+  transformBackgroundTasksChanged(
+    msg: SDKBackgroundTasksChangedMessage,
+    sessionId?: TransformerSessionId,
+  ): BackgroundTasksSnapshotEvent[] {
+    const owner = sessionId || msg.session_id;
+    if (!owner) return [];
+    return [{
+      id: generateEventId(),
+      eventType: 'background_tasks_snapshot',
+      messageId: `background-tasks-${owner}`,
+      timestamp: Date.now(),
+      sessionId: owner,
+      tasks: msg.tasks
+        .filter((task) => task.ambient !== true)
+        .map((task) => ({
+          taskId: task.task_id,
+          taskType: task.task_type,
+          description: task.description,
+          status: 'running' as const,
+        })),
+    }];
+  }
+
   transformCompactBoundary(
     sdkMessage: SDKMessage & {
       compact_metadata: {

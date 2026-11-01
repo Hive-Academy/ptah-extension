@@ -77,6 +77,7 @@ export class StreamingHandlerService {
       'background_agent_started',
       'background_agent_completed',
       'background_agent_stopped',
+      'background_tasks_snapshot',
     ],
   );
 

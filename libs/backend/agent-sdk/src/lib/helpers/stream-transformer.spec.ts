@@ -55,7 +55,7 @@ import type {
 } from './session-mcp-status-callback-registry';
 import type { IPricingProvider } from '../pricing.port';
 import type { SessionPlanLimitCallbackRegistry } from './plan-limits/session-plan-limit-callback-registry';
-import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
+import type { SDKBackgroundTasksChangedMessage, SDKMessage } from '../types/sdk-types/claude-sdk.types';
 
 import {
   StreamTransformer,
@@ -1543,6 +1543,44 @@ describe('StreamTransformer — no-activity watchdog wiring (TASK_2026_190)', ()
 });
 
 describe('StreamTransformer — task_* forwarding (workflow watch gate)', () => {
+  it('forwards SDK background task snapshots and clears them when the query ends', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+    const message: SDKBackgroundTasksChangedMessage = {
+      type: 'system',
+      subtype: 'background_tasks_changed',
+      uuid: '00000000-0000-0000-0000-000000000001',
+      session_id: 'sess-1',
+      tasks: [{ task_id: 'bash-1', task_type: 'local_bash', description: 'Compile' }],
+    };
+    const snapshot: FlatStreamEventUnion = {
+      id: 'snapshot-1',
+      eventType: 'background_tasks_snapshot',
+      timestamp: 1,
+      sessionId: 'sess-1',
+      messageId: 'background-tasks-sess-1',
+      tasks: [{ taskId: 'bash-1', taskType: 'local_bash', description: 'Compile', status: 'running' }],
+    };
+    messageTransformer.transform.mockReturnValue([snapshot]);
+
+    const events: FlatStreamEventUnion[] = [];
+    for await (const event of transformer.transform({
+      sdkQuery: asAsyncIterable([message]),
+      sessionId: 'sess-1' as SessionId,
+      initialModel: MODEL,
+      onResultStats: jest.fn(),
+    })) events.push(event);
+
+    expect(messageTransformer.transform).toHaveBeenCalledWith(message, 'sess-1');
+    expect(events).toEqual([
+      snapshot,
+      expect.objectContaining({
+        eventType: 'background_tasks_snapshot',
+        sessionId: 'sess-1',
+        tasks: [],
+      }),
+    ]);
+  });
+
   function taskSystemMessage(subtype: string): SDKMessage {
     return {
       type: 'system',

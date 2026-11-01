@@ -10,7 +10,7 @@ export type AgentStatusWord =
   'running' | 'waiting' | 'done' | 'failed' | 'stopped' | 'queued';
 
 /** The four agent kinds a session can hold; there is no other lane kind. */
-export type AgentKind = 'orchestrator' | 'subagent' | 'cli' | 'background';
+export type AgentKind = 'orchestrator' | 'subagent' | 'cli' | 'background' | 'task';
 
 /** Kind badge copy, one label per kind. */
 export const AGENT_KIND_LABEL: Readonly<Record<AgentKind, string>> = {
@@ -18,6 +18,7 @@ export const AGENT_KIND_LABEL: Readonly<Record<AgentKind, string>> = {
   subagent: 'Sub-agent',
   cli: 'CLI lane',
   background: 'Background',
+  task: 'Background task',
 };
 
 /** Avatar tile sizes in px: turn chips 24, dock 28, inspector rows 32. */
