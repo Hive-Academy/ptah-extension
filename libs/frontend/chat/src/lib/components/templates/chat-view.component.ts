@@ -48,6 +48,10 @@ import {
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { SessionBudgetBannerComponent } from '../molecules/notifications/session-budget-banner.component';
+import {
+  InstallScopeMigrationNoticeComponent,
+  type InstallScopeMigrationNoticeAction,
+} from '../molecules/notifications/install-scope-migration-notice.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/agent-origin-banner.component';
 import { SessionInspectorStore } from '../../services/session-inspector';
@@ -186,6 +190,7 @@ const VIEW_PANEL_KEY = '';
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
     SessionBudgetBannerComponent,
+    InstallScopeMigrationNoticeComponent,
     CompactionNotificationComponent,
     CompactionMarkerComponent,
     SidebarTabComponent,
@@ -342,6 +347,30 @@ export class ChatViewComponent implements OnDestroy {
   /** Dismiss the re-auth banner. */
   protected onAuthBannerDismiss(): void {
     this._authState.clearAuthRequiredBanner();
+  }
+
+  /**
+   * The install-scope migration notice belongs to the main chat view only:
+   * canvas tiles (SESSION_CONTEXT) and read-only hosts never mount it, so one
+   * notice shows however many session views exist.
+   */
+  protected readonly showInstallMigrationNotice =
+    !this._sessionContext &&
+    !(inject(SESSION_READ_ONLY, { optional: true }) ?? false);
+
+  /**
+   * After "Got it" the notice is gone, so focus moves to the chat input
+   * instead of falling back to the document body. "Open Marketplace" hides
+   * this view; the marketplace view takes over and focus is not forced into
+   * a hidden textarea.
+   */
+  protected onInstallMigrationNoticeDismissed(
+    action: InstallScopeMigrationNoticeAction,
+  ): void {
+    if (action !== 'got-it') return;
+    this.hostEl.nativeElement
+      .querySelector<HTMLTextAreaElement>('[sessionComposer] textarea')
+      ?.focus();
   }
 
   /**
