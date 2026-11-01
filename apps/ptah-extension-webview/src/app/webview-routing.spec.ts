@@ -29,7 +29,7 @@ import { join } from 'node:path';
 import { generationRouteTabValidator } from './app.config';
 
 import { PlatformLocation } from '@angular/common';
-import { ErrorHandler } from '@angular/core';
+import { ErrorHandler, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
   NavigationStart,
@@ -44,6 +44,7 @@ import {
 import {
   ACCEPTED_INITIAL_VIEWS,
   AppStateManager,
+  ElectronLayoutService,
   LEGACY_SURFACE_ALIASES,
   MESSAGE_HANDLERS,
   MemoryPlatformLocation,
@@ -512,6 +513,84 @@ describe('webview routing composition', () => {
         expect.objectContaining({ route: '/thoth/skills', seed: 'chat' }),
       );
     }, 30_000);
+
+    it('waits for the Electron workspace before restoring an onboarding tab', async () => {
+      const workspaceResolved = signal(false);
+      const tabs = {
+        activeWorkspacePath: '/ws',
+        findTabByIdAcrossWorkspaces: jest.fn().mockReturnValue(null),
+      };
+      TestBed.configureTestingModule({
+        providers: [
+          { provide: ElectronLayoutService, useValue: { workspaceResolved } },
+          {
+            provide: SurfaceRouterService.generationRouteTabValidatorToken,
+            useValue: generationRouteTabValidator(tabs),
+          },
+        ],
+      });
+      const route = `/onboarding/analyze/agents?tab=${tabId}`;
+      installHost(savedRoute(route, 'chat'), 'chat');
+      hostIsElectron(true);
+
+      const boot = runBoot();
+      await Promise.resolve();
+      expect(tabs.findTabByIdAcrossWorkspaces).not.toHaveBeenCalled();
+
+      tabs.findTabByIdAcrossWorkspaces.mockReturnValue({
+        workspacePath: '/ws',
+        tab: { workflow: 'setup-agent-generation' },
+      });
+      workspaceResolved.set(true);
+
+      expect(surfaceNavigationLanded(await boot)).toBe(true);
+      expect(TestBed.inject(Router).url).toBe(route);
+      expect(TestBed.inject(AppStateManager).currentView()).toBe('onboarding');
+    });
+
+    it('restores a non-onboarding route before the Electron workspace resolves', async () => {
+      const workspaceResolved = signal(false);
+      TestBed.configureTestingModule({
+        providers: [
+          { provide: ElectronLayoutService, useValue: { workspaceResolved } },
+        ],
+      });
+      installHost(savedRoute('/settings', 'chat'), 'chat');
+      hostIsElectron(true);
+
+      expect(surfaceNavigationLanded(await runBoot())).toBe(true);
+      expect(TestBed.inject(Router).url).toBe('/settings');
+      expect(workspaceResolved()).toBe(false);
+    });
+
+    it('keeps a newer host navigation that lands during the workspace wait', async () => {
+      const workspaceResolved = signal(false);
+      TestBed.configureTestingModule({
+        providers: [
+          { provide: ElectronLayoutService, useValue: { workspaceResolved } },
+          {
+            provide: SurfaceRouterService.generationRouteTabValidatorToken,
+            useValue: () => true,
+          },
+        ],
+      });
+      installHost(
+        savedRoute(`/onboarding/analyze/agents?tab=${tabId}`, 'chat'),
+        'chat',
+      );
+      hostIsElectron(true);
+
+      const boot = runBoot();
+      expect(
+        surfaceNavigationLanded(
+          await TestBed.inject(SurfaceRouterService).navigateToSurface('settings'),
+        ),
+      ).toBe(true);
+      workspaceResolved.set(true);
+
+      expect(await boot).toBe('cancelled');
+      expect(TestBed.inject(Router).url).toBe('/settings');
+    });
 
     it('lets a new host deep link win over the saved route, and seeds it', async () => {
       installHost(savedRoute('/thoth/skills', 'chat'), 'settings');
@@ -999,28 +1078,19 @@ describe('app.routes', () => {
   const allPaths = appRoutes
     .map((route) => route.path)
     .filter((path): path is string => path !== '' && path !== '**');
-  // Parameter routes (e.g. `harness-builder/:mode/:tabId`) are deep links
-  // into an existing surface, not surfaces of their own.
   const paths = allPaths.filter((path) => !path.includes('/:'));
   const canonicalPaths = paths.filter((path) =>
     SURFACE_ROUTE_IDS.some((id) => id === path),
   );
 
-  it('declares canonical surfaces in order and retains legacy routes for B5b', () => {
+  it('declares canonical surfaces in order without old setup routes', () => {
     expect(canonicalPaths).toEqual([...SURFACE_ROUTE_IDS]);
-    expect(paths.filter((path) => !canonicalPaths.includes(path))).toEqual([
-      'setup-wizard',
-      'harness-builder',
-      'setup-hub',
-    ]);
+    expect(paths.filter((path) => !canonicalPaths.includes(path))).toEqual([]);
   });
 
   it('roots every parameter route in a declared surface', () => {
     const paramRoutes = allPaths.filter((path) => path.includes('/:'));
-    expect(paramRoutes).toEqual([
-      'setup-wizard/generation/:workflow/:tabId',
-      'harness-builder/:mode/:tabId',
-    ]);
+    expect(paramRoutes).toEqual([]);
     for (const path of paramRoutes) {
       expect(paths).toContain(path.split('/')[0]);
     }
@@ -1030,7 +1100,7 @@ describe('app.routes', () => {
     // `WebviewHtmlGenerator` validates `initialView` against
     // `ACCEPTED_INITIAL_VIEWS` from `@ptah-extension/shared`. This is the gate
     // The host accepts canonical surfaces plus the legacy aliases even while
-    // their old routes remain declared for B5b cleanup.
+    // the old route components are gone.
     expect([...ACCEPTED_INITIAL_VIEWS].sort()).toEqual(
       [...SURFACE_ROUTE_IDS, ...LEGACY_SURFACE_ALIASES].sort(),
     );
@@ -1067,7 +1137,7 @@ describe('app.routes', () => {
     expect(chat?.loadChildren).toBeUndefined();
   });
 
-  it.each(['setup-wizard', 'settings', 'analytics'])(
+  it.each(['settings', 'analytics'])(
     'keeps the startup-reachable surface %s eager',
     (path) => {
       const route = appRoutes.find((candidate) => candidate.path === path);
@@ -1076,7 +1146,7 @@ describe('app.routes', () => {
     },
   );
 
-  it.each(['harness-builder', 'setup-hub', 'tasks', 'apps', 'command-center'])(
+  it.each(['tasks', 'apps', 'command-center'])(
     'defers %s with loadComponent',
     (path) => {
       const route = appRoutes.find((candidate) => candidate.path === path);
@@ -1134,7 +1204,7 @@ describe('app.routes', () => {
     expect(order.indexOf('command-center')).toBe(appRoutes.length - 3);
   });
 
-  it.each(['harness-builder', 'setup-hub', 'tasks', 'apps', 'command-center'])(
+  it.each(['tasks', 'apps', 'command-center'])(
     'resolves %s to a real component class',
     async (path) => {
       // Pins the barrel export each `loadComponent` names. A rename would
@@ -1155,24 +1225,6 @@ describe('app.routes', () => {
     const module = await import('@ptah-extension/mcp-apps-page');
 
     expect(loaded).toBe(module.AppsPageComponent);
-  }, 30_000);
-
-  it('serves harness-builder and setup-hub from the SAME module', async () => {
-    // Both resolve out of `@ptah-extension/harness-builder`, so ONE chunk
-    // serves both views. That is expected — do not restructure to force two.
-    const load = (path: string) =>
-      (
-        appRoutes.find((route) => route.path === path)
-          ?.loadComponent as () => Promise<unknown>
-      )();
-    const [builder, hub] = await Promise.all([
-      load('harness-builder'),
-      load('setup-hub'),
-    ]);
-    const module = await import('@ptah-extension/harness-builder');
-
-    expect(builder).toBe(module.HarnessBuilderViewComponent);
-    expect(hub).toBe(module.SetupHubComponent);
   }, 30_000);
 });
 

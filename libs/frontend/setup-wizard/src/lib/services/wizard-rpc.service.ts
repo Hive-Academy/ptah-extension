@@ -103,7 +103,6 @@ export interface AgentSelectionResponse {
  * Pattern: Facade pattern - provides wizard-specific API over unified RPC
  *
  * Supported RPC methods:
- * - setup-wizard:launch - Launch the wizard webview
  * - wizard:submit-selection - Submit agent selection and trigger generation
  * - wizard:cancel - Cancel the wizard session
  * - wizard:retry-item - Retry a failed generation item
@@ -232,17 +231,6 @@ export class WizardRpcService {
     if (!result.isSuccess() || !result.data)
       throw new Error('Regeneration unconfirmed');
     return result.data;
-  }
-
-  /**
-   * Launch the setup wizard webview
-   * This uses the existing `setup-wizard:launch` RPC handler
-   */
-  public async launchWizard(): Promise<void> {
-    const result = await this.rpcService.call('setup-wizard:launch', {});
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to launch wizard');
-    }
   }
 
   /**
@@ -628,7 +616,9 @@ export class WizardRpcService {
    *
    * @returns Array of saved analysis metadata sorted by date (newest first)
    */
-  public async listAnalyses(options?: { throwOnError?: boolean }): Promise<SavedAnalysisMetadata[]> {
+  public async listAnalyses(options?: {
+    throwOnError?: boolean;
+  }): Promise<SavedAnalysisMetadata[]> {
     const result = await this.rpcService.call(
       'wizard:list-analyses',
       {},
@@ -640,7 +630,8 @@ export class WizardRpcService {
       if (Array.isArray(analyses)) return analyses as SavedAnalysisMetadata[];
     }
 
-    if (options?.throwOnError) throw new Error('Saved analyses could not be loaded.');
+    if (options?.throwOnError)
+      throw new Error('Saved analyses could not be loaded.');
     return [];
   }
 

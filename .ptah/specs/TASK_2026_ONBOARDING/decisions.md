@@ -165,3 +165,51 @@
   (resume store reads the first tab per workflow), 5 (resume uses raw Router.navigate), R1-2, R1-3.
 - Final verify: 29/30 (webview lint cycle only) and host lint/typecheck 11/12 (the pre-existing
   ptah-electron-e2e lint only); Electron and VS Code host specs 7/7 and 33/33.
+
+## B5b
+- Codex lane deleted 51 ledger files, narrowed the focus-router union, updated barrels, routes,
+  specs and e2e migrations, and authored onboarding.spec.ts (not run). Verify 17/18 and 7/8
+  (accepted webview lint cycle and pre-existing e2e git-watcher lint only).
+- Parity gap found by the lane: P22 moved the legacy completion page to A5, but A5 does not render
+  P17-P19 from CompletionData.result (a B3b gap). The lane kept completion.component.ts(+spec)
+  under the preserve rule. Coordinator decision: close the gap inside this task (it is in the
+  plan, not a new scope): Codex lane renders P17-P19 on A5, adds specs and the done-state capture
+  fixture, then deletes the two files. Needs its own logic review and a visual pass of analyze-done.
+- B5b logic review: round 1 REVISE 6/10 (F1-F10); Codex fix r1 (b5b-fix-r1-report.md); round 2
+  APPROVE 8/10. F7 kept as a source-text guard over app.config.ts and app.routes.ts (accepted).
+- Coordinator fixed R2-3 directly (setup-wizard-tour.scene.ts spotlight targets now match the 13
+  narration lines: 3 analyze, 4-6 new project, 7 team builder, 8-11 home).
+- Deferred minors: R2-1 onboarding.spec.ts:21-22 re-seeds setup the fixture already did and relies
+  on RPC mocks surviving reload; R2-2 (F10) stale comments in Electron, core, mcp-apps-page,
+  setup-wizard and message-handlers-eager.spec.ts. Electron e2e specs authored, not run.
+- A5 logic review: round 1 REVISE 7/10; Codex fix r1 (b5b-a5-fix-r1-report.md); round 2 APPROVE
+  8/10 with R2-1 (cancelled/timed-out runs show success) and R2-2 (old completion page sections
+  dropped without approval: agent count, result.errors list, workflow types, pro tips, example
+  commands). Not approved for removal in context.md, so the coordinator restores them. Codex fix r2
+  (last revise round, lane 23e32487) fixes R2-1..R2-6; R2-7 (Enhanced badge keyed on
+  enhancedPromptsUsed) accepted. Webview build after r1: exit 0 (4/4).
+- A5 final review (round 3) APPROVE 8.5/10. Coordinator bounded correction for R3-1 (skipped
+  agent generation now shows "You're ready to work") and R3-2 (cancelled/timed-out note precedes
+  the failure note); same-family review (weaker evidence, revise cap reached): APPROVE.
+- Deferred minors: R3-3 completion-payload error fallback matches runs by shape, not identity
+  (safe copy only, no length cap); 'missing' from no workspace path reads as ready; no spec that
+  running/failed-lookup keep the ready heading absent.
+- Captures after B5b: 0/76 generate captures landed; boot restored chat. Root cause (B5a
+  01f9f88c8): navigateToUrl validates onboarding ?tab= routes against workspace tabs, but the boot
+  restore ran before Electron's workspace sync loaded them, so the restore failed and fell back to
+  chat. Real Electron users were affected (Generate/Guidance never restored after restart).
+- Fix (Codex lane 616e1a54, b5b-restore-fix-report.md): initial-navigation.ts waits for
+  ElectronLayoutService.workspaceResolved before restoring an onboarding ?tab= route, and yields to
+  a newer navigation. Claude logic review: APPROVE 8/10 (code-logic-review.b5b.md). Deferred
+  hardening: no own wait cap (worst case two sequential 30 s RPC timeouts); returning 'cancelled'
+  after a failed in-wait navigation could leave an empty outlet; skip the await when already
+  resolved; no spec for "resolved but tab missing" or the VS Code already-resolved case.
+- Coordinator updated stale done-facts capture assertions: the inline "1 written" sentence is
+  intentionally dropped when per-file outcomes render (A5 F2); the fixture's opened-folder target
+  never reaches the Library, so the stale notice is asserted absent (unit spec still covers it).
+- Captures: onboarding-generate-visual 88/88 passed (80 full run + 8 done-facts re-run).
+- Visual review (visual-review.b5b-a5.md): REVISE 6/10. Coordinator fixed #2 (focusable example
+  <pre>) and #4 ("Agents: needs attention" for a completed run with failures); re-capture 8/8,
+  axe scrollable-region-focusable gone. Deferred: #1 anubis error-token contrast 3.87:1
+  (pre-existing on main, reused outcome-summary), #3 state-colour treatments, #5 Guidance stepper
+  length, #6 narrow orphan tile. Same-family follow-up, evidence: axe JSON re-check.

@@ -1,7 +1,10 @@
-import { inject } from '@angular/core';
+import { inject, Injector } from '@angular/core';
+import { toObservable } from '@angular/core/rxjs-interop';
 import { PRIMARY_OUTLET, Router } from '@angular/router';
+import { firstValueFrom, filter } from 'rxjs';
 import {
   AppStateManager,
+  ElectronLayoutService,
   SurfaceRoutePersistence,
   SurfaceRouterService,
   VSCodeService,
@@ -52,6 +55,8 @@ export function injectInitialNavigation(): () => Promise<SurfaceNavigationResult
   const vscodeService = inject(VSCodeService);
   const surfaceRouter = inject(SurfaceRouterService);
   const routePersistence = inject(SurfaceRoutePersistence);
+  const layout = inject(ElectronLayoutService);
+  const injector = inject(Injector);
 
   const router = inject(Router);
 
@@ -106,6 +111,17 @@ export function injectInitialNavigation(): () => Promise<SurfaceNavigationResult
 
     if (plan.kind === 'surface') {
       return navigateToHostSurface(plan.rawView);
+    }
+
+    if (
+      firstSegmentPath(router, plan.route) === 'onboarding' &&
+      router.parseUrl(plan.route).queryParams['tab'] !== undefined
+    ) {
+      // The saved tab can only be validated after Electron restores its workspace.
+      await firstValueFrom(
+        toObservable(layout.workspaceResolved, { injector }).pipe(filter(Boolean)),
+      );
+      if (router.navigated || supersededByNewerNavigation()) return 'cancelled';
     }
 
     // SurfaceRouterService normalizes legacy setup URLs before navigating.

@@ -11,10 +11,7 @@ export {
   NEW_PROJECT_PLATFORM_OPTIONS,
 } from './lib/services/new-project-intake';
 export { HarnessWorkflowMessageHandler } from './lib/services/harness-workflow-message.handler';
-export { HarnessBuilderViewComponent } from './lib/components/harness-builder-view.component';
-export { HarnessBuilderSidebarComponent } from './lib/components/harness-builder-sidebar.component';
 export { HarnessBuilderLeaveDialogComponent } from './lib/components/harness-builder-leave-dialog.component';
-export { SetupHubComponent } from './lib/components/setup-hub.component';
 export { HarnessConfigPreviewComponent } from './lib/components/harness-config-preview.component';
 export { BuilderSessionSectionComponent } from './lib/components/sidebar/builder-session-section.component';
 export { BuilderStackProfileSectionComponent } from './lib/components/sidebar/builder-stack-profile-section.component';

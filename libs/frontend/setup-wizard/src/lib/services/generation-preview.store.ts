@@ -51,7 +51,7 @@ export class GenerationPreviewStore {
   /** Root the user chose in the preview; null = the server default. */
   private readonly targetChoice = signal<GenerationTargetChoice | null>(null);
   private request = 0;
-  private binding: SetupGenerationTabBinding | undefined;
+  private binding!: SetupGenerationTabBinding;
 
   readonly isOpen = this.openSignal.asReadonly();
   readonly loading = this.loadingSignal.asReadonly();
@@ -66,7 +66,11 @@ export class GenerationPreviewStore {
    * Keep. `keepTarget` keeps the chosen root when the server asks for another
    * review (preview-required), which also flags the change.
    */
-  async open(agentIds: readonly string[], keepTarget: boolean, binding?: SetupGenerationTabBinding): Promise<void> {
+  async open(
+    agentIds: readonly string[],
+    keepTarget: boolean,
+    binding: SetupGenerationTabBinding,
+  ): Promise<void> {
     this.binding = binding;
     this.previewSignal.set(null);
     this.decisionsSignal.set(null);
@@ -85,23 +89,12 @@ export class GenerationPreviewStore {
   }
 
   /**
-   * Confirm the open preview. After a preview failure this is "Generate
-   * without preview": no token and no Replace, so the server only creates
-   * missing files and keeps every existing one, but an explicitly chosen root
-   * is still honored (B1). Otherwise the comparison runs again and the run
-   * submits only when nothing the user reviewed changed.
+   * Confirm the open preview. A failed comparison is retried before submission;
+   * confirmation only succeeds after a bound comparison settles.
    */
   async confirm(agentIds: readonly string[]): Promise<PreviewConfirmation> {
     if (!this.isOpen() || this.loading()) return { submit: false };
-    if (this.error()) {
-      if (this.binding) return this.load(agentIds, false);
-      const target = this.targetChoice();
-      this.cancel();
-      return {
-        submit: true,
-        decisions: target !== null ? { fileDecisions: {}, target } : undefined,
-      };
-    }
+    if (this.error()) return this.load(agentIds, false);
     return this.load(agentIds, true);
   }
 
@@ -141,9 +134,11 @@ export class GenerationPreviewStore {
     const target = this.targetChoice();
     this.loadingSignal.set(true);
     try {
-      const preview = this.binding
-        ? await this.rpc.previewGeneration([...agentIds], target ?? undefined, this.binding)
-        : await this.rpc.previewGeneration([...agentIds], target ?? undefined);
+      const preview = await this.rpc.previewGeneration(
+        [...agentIds],
+        target ?? undefined,
+        this.binding,
+      );
       if (request !== this.request) return { submit: false };
       const next = nextSnapshot(
         previousDecisions,
