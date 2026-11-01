@@ -3,7 +3,9 @@ import {
   ChangeDetectionStrategy,
   ElementRef,
   afterNextRender,
+  computed,
   inject,
+  input,
   DestroyRef,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
@@ -34,11 +36,14 @@ const KEYWORDS = ['the SaaS.', 'the billing.', 'the auth.', 'the audit.'];
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, LucideAngularModule],
   template: `
-    <div class="max-w-4xl mx-auto px-6 text-center py-24">
+    <div [class]="start() ? 'max-w-xl px-6 lg:px-0 text-center lg:text-left' : 'max-w-4xl mx-auto px-6 text-center'">
       <h1
         data-headline
         aria-label="It ships the SaaS."
-        class="font-bold uppercase tracking-tight text-white leading-[0.95] text-5xl sm:text-6xl lg:text-7xl"
+        [class]="
+          'font-bold uppercase tracking-tight text-white leading-[0.95] text-5xl sm:text-6xl ' +
+          (start() ? 'lg:text-6xl' : 'lg:text-7xl')
+        "
       >
         It ships<br />
         <span data-keyword class="text-amber-500">the SaaS.</span>
@@ -46,13 +51,22 @@ const KEYWORDS = ['the SaaS.', 'the billing.', 'the auth.', 'the audit.'];
 
       <p
         data-reveal
-        class="mt-8 text-lg sm:text-xl text-ink-300 max-w-xl mx-auto [text-wrap:balance]"
+        [class]="
+          'mt-8 text-lg sm:text-xl text-ink-300 max-w-xl mx-auto [text-wrap:balance]' +
+          (start() ? ' lg:mx-0' : '')
+        "
       >
         The AI dev team for SaaS you'll actually charge for — nine agents in
         parallel, any model.
       </p>
 
-      <div data-reveal class="mt-10 flex flex-col items-center gap-3">
+      <div
+        data-reveal
+        [class]="
+          'mt-10 flex flex-col items-center gap-3' +
+          (start() ? ' lg:items-start' : '')
+        "
+      >
         <a
           routerLink="/download"
           class="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-lg bg-amber-500 text-ink-950 font-semibold text-base transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber active:bg-amber-600 active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
@@ -89,6 +103,10 @@ const KEYWORDS = ['the SaaS.', 'the billing.', 'the auth.', 'the audit.'];
   ],
 })
 export class HeroContentOverlayComponent {
+  /** `start` left-aligns the block on wide screens (split hero). */
+  public readonly align = input<'center' | 'start'>('center');
+  protected readonly start = computed(() => this.align() === 'start');
+
   public readonly DownloadIcon = Download;
   public readonly PlayIcon = CirclePlay;
 

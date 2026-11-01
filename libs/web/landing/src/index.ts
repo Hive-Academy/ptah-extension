@@ -1,5 +1,4 @@
 export * from './lib/console/alwayson-loop-diagram.component';
-export * from './lib/console/council-demo.component';
 export * from './lib/console/device-frame.component';
 export * from './lib/console/memory-recall-diagram.component';
 export * from './lib/console/orchestra-fanout-diagram.component';
@@ -12,7 +11,6 @@ export * from './lib/sections/comparison/comparison-section.component';
 export * from './lib/sections/comparison/comparison-tug-meter.component';
 export * from './lib/sections/cta/cta-section.component';
 export * from './lib/sections/hero/hero-content-overlay.component';
-export * from './lib/sections/hero/hero-device-showcase.component';
 export * from './lib/sections/hero/hero.component';
 export * from './lib/sections/pillars/pillars-spine.component';
 export * from './lib/sections/problem/problem-section.component';

@@ -3,6 +3,7 @@ import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { LiveDemoSectionComponent } from './live-demo-section.component';
 import type { ReplayState } from '../../live-demo/runtime/types';
+import { parseLiveDemoVariant } from './live-demo-variant';
 
 const replayState = (scenario = 'orchestration'): ReplayState => ({
   scenario,
@@ -148,5 +149,69 @@ describe('LiveDemoSectionComponent', () => {
     } finally {
       Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
     }
+  });
+
+  describe('layout variations', () => {
+    it('maps ?demo=a|b|c to a variation and falls back to stage', () => {
+      expect(parseLiveDemoVariant('')).toBe('stage');
+      expect(parseLiveDemoVariant('?demo=a')).toBe('stage');
+      expect(parseLiveDemoVariant('?demo=b')).toBe('split');
+      expect(parseLiveDemoVariant('?demo=C')).toBe('theater');
+      expect(parseLiveDemoVariant('?demo=z&x=1')).toBe('stage');
+      expect(parseLiveDemoVariant('?other=b')).toBe('stage');
+    });
+
+    it('renders the stage variation by default with a screen-reader heading and tabs under the window', () => {
+      TestBed.configureTestingModule({ imports: [LiveDemoSectionComponent] });
+      const fixture = TestBed.createComponent(LiveDemoSectionComponent);
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      expect(fixture.componentInstance.variant()).toBe('stage');
+      expect(fixture.componentInstance.layout().tilt).toBe(true);
+      expect(root.querySelector('#ptah-live-demo-heading')?.classList).toContain('sr-only');
+      const panel = root.querySelector('[role="tabpanel"]') as HTMLElement;
+      const tablist = root.querySelector('[role="tablist"]') as HTMLElement;
+      expect(panel.compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(panel.parentElement?.className).toContain('max-w-[1280px]');
+      fixture.destroy();
+    });
+
+    it('switches to the theater variation with a visible heading and chapter rails', () => {
+      TestBed.configureTestingModule({ imports: [LiveDemoSectionComponent] });
+      const fixture = TestBed.createComponent(LiveDemoSectionComponent);
+      fixture.componentRef.setInput('variant', 'theater');
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      expect(root.querySelector('#ptah-live-demo-heading')?.classList).not.toContain('sr-only');
+      expect(root.textContent).toContain('Explore PtahCode sessions at your own pace.');
+      const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+      expect(tabs.every((tab) => tab.querySelector('span[aria-hidden="true"]'))).toBe(true);
+      expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
+        'Orchestration', 'Tribunal Council', 'Command Center', 'Multi-agent orchestration',
+      ]);
+      expect(root.querySelector('[role="tabpanel"] .lg\\:aspect-video')).toBeTruthy();
+      fixture.destroy();
+    });
+
+    it('keeps one replay iframe when the variation changes', () => {
+      TestBed.configureTestingModule({ imports: [LiveDemoSectionComponent] });
+      const fixture = TestBed.createComponent(LiveDemoSectionComponent);
+      fixture.detectChanges();
+      fixture.componentInstance.startDemo();
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      const before = root.querySelector('iframe');
+      for (const variant of ['split', 'theater', 'stage'] as const) {
+        fixture.componentRef.setInput('variant', variant);
+        fixture.detectChanges();
+        expect(root.querySelectorAll('iframe')).toHaveLength(1);
+        expect(root.querySelectorAll('[role="tabpanel"]')).toHaveLength(1);
+      }
+      expect(root.querySelector('iframe')).toBe(before);
+      expect(fixture.componentInstance.layout().tilt).toBe(true);
+      fixture.componentRef.setInput('variant', 'split');
+      expect(fixture.componentInstance.layout().tilt).toBe(false);
+      fixture.destroy();
+    });
   });
 });
