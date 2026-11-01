@@ -20,6 +20,9 @@ import { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../providers/codex/codex-provider.types';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local/local-provider.types';
+import { KIMI_CODE_PROXY_TOKEN_PLACEHOLDER } from '@ptah-extension/shared';
+import type { KimiCodeAuthStatus } from '../providers/kimi-code/kimi-code-provider.types';
+import { KimiCodeHomeResolver } from '../providers/kimi-code/kimi-code-home-resolver';
 import {
   ProviderOwnerResolver,
   ANTIGRAVITY_OBSERVED_ACCOUNT_MAX_AGE_MS,
@@ -58,6 +61,8 @@ function harness(
     codexOwnerKeyAfterRead?: string | null;
     fileContent?: string;
     fileReadFails?: boolean;
+    kimiStatus?: KimiCodeAuthStatus;
+    kimiStatusFails?: boolean;
   } = {},
 ) {
   const logger = createMockLogger();
@@ -101,6 +106,13 @@ function harness(
     probe,
     codexAccountUsage,
     codexHome,
+    { getStatus: async () => {
+      if (options.kimiStatusFails) throw new Error(SECRET);
+      return options.kimiStatus ?? {
+        cliDetected: false, loggedIn: false, stale: false,
+        hasApiKey: false, credentialSource: 'none',
+      };
+    } },
   );
   return {
     resolver,
@@ -407,7 +419,40 @@ describe('ProviderOwnerResolver', () => {
       'glm-1',
       'kimi-code',
     );
-    expect(missing.key).toBe(unknownOwnerKey('kimi-code', 'ptah-cli:glm-1'));
+    expect(missing.key).toBe(unknownOwnerKey('kimi-code', 'shared-connection'));
+  });
+
+  it('uses the Kimi CLI login owner for a placeholder lane and shared route', async () => {
+    const status: KimiCodeAuthStatus = {
+      cliDetected: true, loggedIn: true, stale: false,
+      hasApiKey: false, credentialSource: 'cli-login',
+    };
+    const { resolver } = harness({
+      keys: { 'ptahCli.kimi-1': KIMI_CODE_PROXY_TOKEN_PLACEHOLDER },
+      kimiStatus: status,
+    });
+    const expected = cliStoreOwnerKey('kimi-code', new KimiCodeHomeResolver().path);
+    expect((await resolver.ownerForPtahCli('kimi-1', 'kimi-code')).key).toBe(expected);
+    expect((await resolver.ownerForKimiCode()).key).toBe(expected);
+  });
+
+  it('uses the shared Kimi key for a successfully missing lane slot', async () => {
+    const { resolver } = harness({
+      keys: { 'kimi-code': SECRET },
+      kimiStatus: {
+        cliDetected: false, loggedIn: false, stale: false,
+        hasApiKey: true, credentialSource: 'api-key',
+      },
+    });
+    expect((await resolver.ownerForPtahCli('kimi-1', 'kimi-code')).key)
+      .toBe(credentialOwnerKey('kimi-code', SECRET));
+  });
+
+  it('keeps failed Kimi slot and status reads unknown', async () => {
+    const failedSlot = harness({ keyReadFails: true });
+    expect((await failedSlot.resolver.ownerForPtahCli('kimi-1', 'kimi-code')).identityKind).toBe('unknown');
+    const failedStatus = harness({ kimiStatusFails: true });
+    expect((await failedStatus.resolver.ownerForKimiCode()).identityKind).toBe('unknown');
   });
 
   it('bills an Ollama Cloud Ptah CLI agent to the shared ollama-cloud provider key, not its sign-in placeholder slot', async () => {
@@ -768,6 +813,34 @@ describe('ProviderOwnerResolver', () => {
       expect((await resolver.ownerForSession('s1')).key).toBe(
         credentialOwnerKey('ollama-cloud', SECRET),
       );
+    });
+
+    it('Kimi OAuth proxy: resolves the CLI login owner without a provider key', async () => {
+      const { resolver, getProviderKey } = harness({
+        route: { providerId: 'kimi-code', routeKind: 'proxy' },
+        kimiStatus: {
+          cliDetected: true, loggedIn: true, stale: false,
+          hasApiKey: false, credentialSource: 'cli-login',
+        },
+      });
+      const owner = await resolver.ownerForSession('kimi-session');
+      expect(owner.key).toBe(cliStoreOwnerKey('kimi-code', new KimiCodeHomeResolver().path));
+      expect(owner.identityKind).toBe('cli-store');
+      expect(getProviderKey).not.toHaveBeenCalled();
+    });
+
+    it('Kimi API-key proxy: resolves the shared provider key owner', async () => {
+      const { resolver, getProviderKey } = harness({
+        route: { providerId: 'kimi-code', routeKind: 'proxy' },
+        keys: { 'kimi-code': SECRET },
+        kimiStatus: {
+          cliDetected: false, loggedIn: false, stale: false,
+          hasApiKey: true, credentialSource: 'api-key',
+        },
+      });
+      const owner = await resolver.ownerForSession('kimi-session');
+      expect(owner.key).toBe(credentialOwnerKey('kimi-code', SECRET));
+      expect(getProviderKey).toHaveBeenCalledWith('kimi-code');
     });
 
     it('cloud-direct proxy with no provider id resolves to the Ollama Cloud key', async () => {

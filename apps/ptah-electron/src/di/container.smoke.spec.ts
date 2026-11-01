@@ -23,6 +23,7 @@ import {
   ClaudeNamedAccountPersistence,
   OpenRouterPricingService,
   ProviderAccountService,
+  PlanUsageService,
   registerAuthProvidersServices,
 } from '@ptah-extension/auth-providers';
 import {
@@ -482,6 +483,18 @@ describe('Electron DI — named Claude account persistence (TASK_2026_719 B17)',
     }
     return c;
   }
+
+  it('resolves plan usage with the registered Kimi auth singleton', () => {
+    const c = buildAccountsContainer(false);
+    const auth = c.resolve(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH);
+    expect(auth).toBeDefined();
+    c.register(AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER, { useValue: {} });
+    c.register(AUTH_PROVIDERS_TOKENS.PLAN_CREDENTIAL_SOURCE, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_SESSION_QUOTA_PROBE, { useValue: {} });
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE, { useValue: {} });
+    expect(c.resolve<PlanUsageService>(AUTH_PROVIDERS_TOKENS.PLAN_USAGE_SERVICE))
+      .toBeInstanceOf(PlanUsageService);
+  });
 
   it('binds the three tokens to one adapter and the query runner holds it', () => {
     const c = buildAccountsContainer(true);
