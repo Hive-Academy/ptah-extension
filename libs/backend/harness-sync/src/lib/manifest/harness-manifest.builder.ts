@@ -323,7 +323,7 @@ export class HarnessManifestBuilder {
     const collisions: HarnessCollision[] = [];
     const hashOptions = { signal: options.signal };
     const retired = indexRetiredSkillSources(sources);
-    const skills = await this.buildSkills(
+    const { skills, excludedBySelection } = await this.buildSkills(
       sources,
       collisions,
       {
@@ -358,6 +358,7 @@ export class HarnessManifestBuilder {
       sources: this.classifySources(
         skills.length + commands.length + agents.length,
         options.downloadPending === true,
+        excludedBySelection,
       ),
       sourceRoots: this.deriveSourceRoots(sources),
     };
@@ -413,18 +414,24 @@ export class HarnessManifestBuilder {
     return servers.sort((a, b) => a.serverKey.localeCompare(b.serverKey));
   }
 
+  /**
+   * `excludedBySelection`: the user layer offered at least one skill that this
+   * workspace's selection left out. Sources are installed then, so an empty
+   * desired state is the user's choice, not "not installed yet".
+   */
   private classifySources(
     artifactCount: number,
     downloadPending: boolean,
+    excludedBySelection: boolean,
   ): HarnessSourcesStatus {
-    if (artifactCount > 0) return 'ok';
+    if (artifactCount > 0 || excludedBySelection) return 'ok';
     return downloadPending ? 'pending-download' : 'sources-missing';
   }
 
   // ---------------------------------------------------------------- skills
 
   /**
-   * Skills, gated three times over. Evaluated OUTERMOST FIRST:
+   * Skills, gated three times over. Listed OUTERMOST FIRST:
    *
    * 1. The per-workspace SELECTION (`skillSync`, TASK_2026_316). Under
    *    `'selected'` only the recorded slugs are propagated here at all. It is
@@ -461,10 +468,11 @@ export class HarnessManifestBuilder {
    *   skills.sh root, a harness plugin and a bundled plugin stay subject to the
    *   selection exactly as before.
    *
-   * The cheap set tests run before the sidecar reads that level 2 and the
-   * retirement test need (the latter only when something is retired).
-   * That is a cost ordering and not a semantic one — all three levels are a
-   * conjunction, so no ordering of them changes the answer.
+   * The selection test runs LAST, after the disabled, retirement and plugin
+   * gates: the skill set is a conjunction, so the order does not change which
+   * skills are built, but `excludedBySelection` must only count a skill that
+   * every other gate admitted. Otherwise a retired or disabled leftover would
+   * make a workspace with no usable sources read as healthy.
    *
    * A slug any gate rejects is NOT recorded in `userLayerSlugs`, deliberately.
    * That set exists to stop an overlay plugin's own mirrored copy being reported
@@ -484,7 +492,11 @@ export class HarnessManifestBuilder {
     collisions: HarnessCollision[],
     { skillSync, retired, workspaceSkillsShParent }: SkillGateOptions,
     hashOptions: ContentHashOptions,
-  ): Promise<HarnessDesiredSkill[]> {
+  ): Promise<{
+    skills: HarnessDesiredSkill[];
+    /** At least one offered skill was left out only by the selection. */
+    excludedBySelection: boolean;
+  }> {
     const disabled = new Set(sources.disabledSkillIds);
     const checkRetiredRefs = retired.rootIds.size > 0;
     const pluginGate = createPluginOriginGate(sources);
@@ -494,9 +506,13 @@ export class HarnessManifestBuilder {
       skillSync?.mode === 'selected' ? new Set(skillSync.slugs) : null;
     const claimed = new Map<string, HarnessDesiredSkill>();
     const userLayerSlugs = new Set<string>();
+    let excludedBySelection = false;
 
     for (const slug of this.listSkillSlugs(sources.layout.skillsRoot)) {
-      if (selected !== null && !selected.has(slug)) continue;
+      // The selection is checked LAST: `excludedBySelection` must mean an
+      // active, enabled, non-retired, gate-passing skill that only the
+      // selection left out, or a retired/disabled leftover would make missing
+      // sources read as healthy.
       if (disabled.has(slug)) continue;
       const cloneDir = join(sources.layout.skillsRoot, slug);
       if (
@@ -509,6 +525,10 @@ export class HarnessManifestBuilder {
         continue;
       }
       if (!pluginGate(cloneDir)) continue;
+      if (selected !== null && !selected.has(slug)) {
+        excludedBySelection = true;
+        continue;
+      }
       userLayerSlugs.add(canonicalSlug(slug));
       await this.claimSkill(
         claimed,
@@ -536,10 +556,13 @@ export class HarnessManifestBuilder {
         // reaches a workspace only through this loop, and it is exactly the
         // kind of skill a per-project selection exists to be able to exclude.
         // This workspace's own skills.sh roots are the one exception (D-D4).
+        // Disabled skills are dropped first so only an enabled skill counts
+        // as excluded by the selection.
+        if (disabled.has(slug)) continue;
         if (!exemptFromSelection && selected !== null && !selected.has(slug)) {
+          excludedBySelection = true;
           continue;
         }
-        if (disabled.has(slug)) continue;
         // Expected, not a conflict: the mirror already published this plugin's
         // skill into the user layer. Reporting it would drown the real cases.
         if (userLayerSlugs.has(canonicalSlug(slug))) continue;
@@ -554,7 +577,12 @@ export class HarnessManifestBuilder {
       }
     }
 
-    return [...claimed.values()].sort((a, b) => a.slug.localeCompare(b.slug));
+    return {
+      skills: [...claimed.values()].sort((a, b) =>
+        a.slug.localeCompare(b.slug),
+      ),
+      excludedBySelection,
+    };
   }
 
   private async claimSkill(

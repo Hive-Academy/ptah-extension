@@ -60,9 +60,15 @@ import {
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import { classifyMcpScope } from '@ptah-extension/shared';
+import {
+  classifyMcpScope,
+  MCP_DIRECTORY_CALL_FAILURE_COPY,
+  MCP_INSTALL_RESULT_COPY,
+  type McpDirectoryCallFailureCode,
+} from '@ptah-extension/shared';
 import {
   HARNESS_SYNC_TOKENS,
+  McpIntentPersistError,
   type HarnessReconcilerService,
 } from '@ptah-extension/harness-sync';
 import type {
@@ -286,7 +292,12 @@ export class McpDirectoryRpcHandlers {
           )
         : null,
       undefined,
-      { smithery: this.smitheryManifest, oauth: this.oauthManifest },
+      {
+        smithery: this.smitheryManifest,
+        oauth: this.oauthManifest,
+        // Results carry fixed copy only; the raw cause lands here.
+        warn: (message, detail) => this.logger.warn(message, detail),
+      },
     );
 
     // Optional host-native redirect capture. Selection is purely DI: the VS
@@ -510,7 +521,10 @@ export class McpDirectoryRpcHandlers {
         );
 
         const successes = results.filter((r) => r.success);
-        const failures = results.filter((r) => !r.success);
+        const deferred = results.filter((r) => r.deferred === true);
+        const failures = results.filter(
+          (r) => !r.success && r.deferred !== true,
+        );
 
         if (successes.length > 0) {
           this.logger.info('MCP server installed', {
@@ -520,12 +534,20 @@ export class McpDirectoryRpcHandlers {
           });
         }
 
+        if (deferred.length > 0) {
+          this.logger.info('MCP server install saved, applied on next folder', {
+            serverKey: input.serverKey,
+            scope: input.scope,
+            deferredTargets: deferred.map((r) => r.target),
+          });
+        }
+
         if (failures.length > 0) {
           this.logger.warn('MCP server install partial failure', {
             serverKey: input.serverKey,
             failures: failures.map((r) => ({
               target: r.target,
-              error: r.error,
+              code: r.code,
             })),
           });
         }
@@ -539,19 +561,21 @@ export class McpDirectoryRpcHandlers {
           ? { results, scope: input.scope }
           : { results, scope: input.scope, capabilityWarning };
       } catch (error) {
-        this.sentryService.captureException(
-          error instanceof Error ? error : new Error(String(error)),
-          { errorSource: 'McpDirectoryRpcHandlers.registerInstall' },
-        );
-        this.logger.error('RPC: mcpDirectory:install failed', {
-          error: String(error),
+        // degradation-audit: reported - the cause goes to Sentry and the log;
+        // the UI gets fixed copy, never the exception text (paths, config
+        // values or provider text could be in it).
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerInstall',
         });
+        this.logger.error('RPC: mcpDirectory:install failed', err);
         return {
           results: input.targets.map((target) => ({
             target,
             success: false,
             configPath: '',
-            error: error instanceof Error ? error.message : String(error),
+            code: 'install-failed' as const,
+            error: MCP_INSTALL_RESULT_COPY['install-failed'],
           })),
           scope: input.scope,
         };
@@ -595,7 +619,7 @@ export class McpDirectoryRpcHandlers {
             serverKey: input.serverKey,
             failures: failures.map((r) => ({
               target: r.target,
-              error: r.error,
+              code: r.code,
             })),
           });
         }
@@ -643,14 +667,21 @@ export class McpDirectoryRpcHandlers {
 
         return { results };
       } catch (error) {
-        this.sentryService.captureException(
-          error instanceof Error ? error : new Error(String(error)),
-          { errorSource: 'McpDirectoryRpcHandlers.registerUninstall' },
-        );
-        this.logger.error('RPC: mcpDirectory:uninstall failed', {
-          error: String(error),
+        // degradation-audit: reported - the cause goes to Sentry and the log;
+        // the UI gets a coded failure with fixed copy, never an empty success
+        // that reads as "nothing to remove" (an unreadable intent store
+        // throws McpIntentPersistError here).
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerUninstall',
         });
-        return { results: [] };
+        this.logger.error('RPC: mcpDirectory:uninstall failed', err);
+        const code = callFailureCode(error, 'uninstall-failed');
+        return {
+          results: [],
+          code,
+          error: MCP_DIRECTORY_CALL_FAILURE_COPY[code],
+        };
       }
     });
   }
@@ -668,14 +699,20 @@ export class McpDirectoryRpcHandlers {
 
         return { servers: this.withInstallScope(rows, workspaceRoot) };
       } catch (error) {
-        this.sentryService.captureException(
-          error instanceof Error ? error : new Error(String(error)),
-          { errorSource: 'McpDirectoryRpcHandlers.registerListInstalled' },
-        );
-        this.logger.error('RPC: mcpDirectory:listInstalled failed', {
-          error: String(error),
+        // degradation-audit: reported - the cause goes to Sentry and the log;
+        // the UI gets a coded failure with fixed copy instead of an empty
+        // list that reads as "no servers installed".
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.sentryService.captureException(err, {
+          errorSource: 'McpDirectoryRpcHandlers.registerListInstalled',
         });
-        return { servers: [] };
+        this.logger.error('RPC: mcpDirectory:listInstalled failed', err);
+        const code = callFailureCode(error, 'list-failed');
+        return {
+          servers: [],
+          code,
+          error: MCP_DIRECTORY_CALL_FAILURE_COPY[code],
+        };
       }
     });
   }
@@ -1534,4 +1571,17 @@ function classifyOAuthFailure(error: Error): McpOAuthFailureReason {
     error.name === OAUTH_DISCOVERY_ERROR_NAME
     ? 'no-oauth-discovery'
     : 'other';
+}
+
+/**
+ * The coded failure for a whole listInstalled/uninstall call: an unreadable
+ * intent store gets its own copy, anything else the call's generic one.
+ */
+function callFailureCode(
+  error: unknown,
+  fallback: McpDirectoryCallFailureCode,
+): McpDirectoryCallFailureCode {
+  return error instanceof McpIntentPersistError
+    ? 'intent-unreadable'
+    : fallback;
 }

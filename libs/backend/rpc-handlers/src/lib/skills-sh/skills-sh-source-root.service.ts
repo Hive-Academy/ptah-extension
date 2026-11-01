@@ -122,6 +122,15 @@ export interface SkillsShMakeGlobalHooks {
    * (`discoverSkillsShPluginPaths()`) lists `globalRootDir`.
    */
   isDiscovered(globalRootDir: string): boolean | Promise<boolean>;
+  /**
+   * Step 8, before the workspace root is removed: keep `slugs` selected in the
+   * converting workspace. A workspace's own skills.sh root is exempt from its
+   * skill selection (D-D4) and a global root is not, so without this a
+   * workspace in `'selected'` mode would stop propagating — and reap — the
+   * skills it just made global. True when the selection now admits them (or
+   * the mode is `'all'`); false or a rejection keeps the workspace root.
+   */
+  keepSelected(slugs: readonly string[]): boolean | Promise<boolean>;
 }
 
 export type SkillsShMakeGlobalFailureCode =
@@ -162,7 +171,9 @@ export type SkillsShMakeGlobalOutcome =
       /**
        * Steps 6–7 only: false when the just-written global root could not be
        * removed again. It is left owned and complete, so the next call
-       * resumes at step 6. The workspace install is intact either way.
+       * resumes at step 6. True also when the global root already existed
+       * before the call; rollback keeps it. The workspace install is intact
+       * either way.
        */
       rollbackComplete?: boolean;
     };
@@ -454,8 +465,8 @@ export class SkillsShSourceRootService {
    *      or an unrefreshed user layer is a failure;
    *   7. validate: the global root is owned, global, has identical hashes,
    *      and the plugin loader discovers it;
-   *   8. only then remove the workspace root (re-proven first) and
-   *      re-propagate.
+   *   8. only then keep the moved slugs selected in this workspace, remove the
+   *      workspace root (re-proven first) and re-propagate.
    *
    * Steps 2–5 failing discard staging. Steps 6–7 failing remove the global
    * root again (only while it is still provably this conversion's), restore
@@ -580,6 +591,7 @@ export class SkillsShSourceRootService {
         files,
         null,
         hooks,
+        !resumed,
       );
       return fail('registration-failed', { rootId, rollbackComplete });
     }
@@ -606,6 +618,7 @@ export class SkillsShSourceRootService {
         files,
         clearedEntry,
         hooks,
+        !resumed,
       );
       return fail('propagation-failed', { rootId, rollbackComplete });
     }
@@ -623,6 +636,7 @@ export class SkillsShSourceRootService {
         files,
         clearedEntry,
         hooks,
+        !resumed,
       );
       return fail('validation-failed', { rootId, rollbackComplete });
     }
@@ -636,6 +650,9 @@ export class SkillsShSourceRootService {
       sameFileHashes(finalProof.metadata.files, files)
     ) {
       try {
+        if (!(await hooks.keepSelected(source.slugs))) {
+          throw new Error('the skill selection could not be recorded');
+        }
         await this.removeRootDir(source.dir);
         workspaceRootRemoved = true;
       } catch (error: unknown) {
@@ -776,9 +793,13 @@ export class SkillsShSourceRootService {
   }
 
   /**
-   * Undo steps 5–6. The global root is removed only while it is still owned
-   * and lists exactly the converted hashes — i.e. still this conversion's
-   * output. Returns true when the global root is gone.
+   * Undo steps 5–6. The global root is removed only when this call staged it
+   * (`stagedThisCall`) and it is still owned and lists exactly the converted
+   * hashes — i.e. still this conversion's output. A global root that already
+   * existed when the call began (resumed) is never removed: it may be an
+   * earlier global install the user relies on. Returns true when the global
+   * root is back in its pre-call state (gone when staged here, kept when
+   * resumed).
    */
   private async rollbackGlobal(
     rootId: string,
@@ -786,16 +807,24 @@ export class SkillsShSourceRootService {
     files: Readonly<Record<string, string>>,
     clearedEntry: SkillsShRetiredRegistry['roots'][string] | null,
     hooks: SkillsShMakeGlobalHooks,
+    stagedThisCall: boolean,
   ): Promise<boolean> {
-    let removed = false;
-    const proof = await verifyOwnedRoot(globalDir);
-    if (
+    let restored = false;
+    const proof = stagedThisCall ? await verifyOwnedRoot(globalDir) : null;
+    if (proof === null) {
+      // Pre-existing global root: leave it in place; the pre-call state holds.
+      restored = true;
+      this.logger.warn(
+        '[skills.sh] Make global rollback: the global root existed before this call; kept',
+        { rootId },
+      );
+    } else if (
       proof.status === 'owned' &&
       sameFileHashes(proof.metadata.files, files)
     ) {
       try {
         await this.removeRootDir(globalDir);
-        removed = true;
+        restored = true;
       } catch (error: unknown) {
         this.logger.error(
           '[skills.sh] Make global rollback: could not remove the global root; the next Make global resumes from it',
@@ -803,7 +832,7 @@ export class SkillsShSourceRootService {
         );
       }
     } else if (proof.status === 'unproven' && proof.reason === 'root-missing') {
-      removed = true;
+      restored = true;
     } else {
       this.logger.warn(
         '[skills.sh] Make global rollback: global root no longer matches; kept',
@@ -822,7 +851,7 @@ export class SkillsShSourceRootService {
       }
     }
     await this.propagateQuietly(hooks, 'rollback', rootId);
-    return removed;
+    return restored;
   }
 
   private async propagateQuietly(
@@ -919,7 +948,7 @@ export class SkillsShSourceRootService {
     workspaceRoot?: string | null,
   ): Promise<InstalledSkill[]> {
     const skills: InstalledSkill[] = [];
-    for (const root of await this.listRoots(workspaceRoot)) {
+    for (const root of await this.listLoadableRoots(workspaceRoot)) {
       for (const slug of root.slugs) {
         const skillDir = path.join(root.dir, 'skills', slug);
         const frontmatter = await this.readFrontmatter(
@@ -941,10 +970,40 @@ export class SkillsShSourceRootService {
   /** Lowercased slugs of every installed skill — the install-badge lookup. */
   async installedSlugs(workspaceRoot?: string | null): Promise<Set<string>> {
     const slugs = new Set<string>();
-    for (const root of await this.listRoots(workspaceRoot)) {
+    for (const root of await this.listLoadableRoots(workspaceRoot)) {
       for (const slug of root.slugs) slugs.add(slug.toLowerCase());
     }
     return slugs;
+  }
+
+  /**
+   * `listRoots` minus every global root whose id is in the retired registry —
+   * the roots the plugin loader actually loads
+   * (`PluginLoaderService.discoverSkillsShPluginPaths`). A retired root kept
+   * on disk is not an install the user has any more. Workspace roots are
+   * never filtered by the registry. An unreadable registry hides nothing.
+   */
+  private async listLoadableRoots(
+    workspaceRoot?: string | null,
+  ): Promise<SkillsShRoot[]> {
+    const roots = await this.listRoots(workspaceRoot);
+    let registry: SkillsShRetiredRegistry | null;
+    try {
+      registry = await this.readRetiredRegistry();
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged; listing every root is the
+      // safe side (nothing the user installed disappears from the list).
+      this.logger.warn('[skills.sh] Could not read the retired registry', {
+        error: toError(error).message,
+      });
+      return roots;
+    }
+    if (registry === null) return roots;
+    const retired = registry;
+    return roots.filter(
+      (root) =>
+        root.scope !== 'global' || !isRetiredSkillsShRoot(root.id, retired),
+    );
   }
 
   // ---------------------------------------------------------------- migration

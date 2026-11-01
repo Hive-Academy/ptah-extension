@@ -514,6 +514,30 @@ describe('HarnessManifestBuilder retirement and workspace skills.sh roots (TASK_
     ).not.toContain(join(root, 'skills', 'retired-skill'));
   });
 
+  it('[D-2] a retired or disabled clone left out by the selection does not make missing sources read as ok', async () => {
+    const retiredRoot = join(
+      root,
+      'home',
+      '.ptah',
+      'plugins',
+      'ptah-skillssh-anthropics-skills',
+    );
+    writeClone('retired-skill', 'skills-sh:ptah-skillssh-anthropics-skills');
+    writeClone('disabled-skill');
+    const state: HarnessSourceState = {
+      ...emptyState(root),
+      disabledSkillIds: ['disabled-skill'],
+      retired: { skillSourceRoots: [retiredRoot], mcpServerKeys: [] },
+    };
+
+    const desired = await builder.build(state, {
+      skillSync: { mode: 'selected', slugs: [] },
+    });
+
+    expect(desired.skills).toHaveLength(0);
+    expect(desired.sources).toBe('sources-missing');
+  });
+
   it('[D-2] absent or empty retired sources retire nothing, and a prefix-only or malformed sidecar fails open (decision #56)', async () => {
     writeClone('was-retired', 'skills-sh:ptah-skillssh-anthropics-skills');
     writeClone('prefix-only', 'skills-sh:');
@@ -674,6 +698,41 @@ describe('HarnessManifestBuilder retirement and workspace skills.sh roots (TASK_
     it('without a workspaceRoot nothing is exempt', async () => {
       const desired = await builder.build(state, { skillSync: empty });
       expect(desired.skills).toHaveLength(0);
+    });
+
+    it('a skill moved to a global root and excluded by the selection is not "sources not installed yet"', async () => {
+      // After Make global: the slug left the (exempt) workspace root for a
+      // global root, which the empty selection excludes.
+      const globalPlugins = join(root, 'home', '.ptah', 'plugins');
+      const moved: HarnessSourceState = {
+        ...emptyState(join(root, 'empty-layer')),
+        overlayPluginPaths: [
+          writePlugin(globalPlugins, 'ptah-skillssh-moved', 'moved-skill'),
+        ],
+      };
+
+      const desired = await builder.build(moved, {
+        skillSync: empty,
+        workspaceRoot: wsA,
+      });
+
+      expect(desired.skills).toHaveLength(0);
+      expect(desired.sources).toBe('ok');
+
+      const selected = await builder.build(moved, {
+        skillSync: { mode: 'selected', slugs: ['moved-skill'] },
+        workspaceRoot: wsA,
+      });
+      expect(slugs(selected.skills)).toEqual(['moved-skill']);
+      expect(selected.sources).toBe('ok');
+    });
+
+    it('an empty selection over an empty user layer is still sources-missing', async () => {
+      const desired = await builder.build(
+        { ...emptyState(join(root, 'empty-layer')), overlayPluginPaths: [] },
+        { skillSync: empty, workspaceRoot: wsA },
+      );
+      expect(desired.sources).toBe('sources-missing');
     });
 
     it('the exempt root still honours disabledSkillIds and disabledPluginIds', async () => {

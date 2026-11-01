@@ -23,11 +23,23 @@
  * resolver reports their keys so the reconciler removes only proven copies.
  * The mapping happens on read, and the first write persists the v2 shape.
  *
+ * ## Config per scope bucket
+ *
+ * The same key can be installed in two workspaces with different arguments or
+ * credentials, so each bucket (`global`, and each `workspaces[key]`) carries its
+ * own `config`. A v2 file written by earlier commits of this branch kept one
+ * top-level `config` per server; it is read as every bucket's config and never
+ * written again.
+ *
  * ## Failure behaviour
  *
- * Validated with zod at the file boundary. A missing, corrupt or unknown-version
- * file reads as EMPTY — never as global intent, which is the one reading that
- * would widen an install to every workspace.
+ * Validated with zod at the file boundary. A missing (ENOENT), corrupt or
+ * unknown-version file reads as EMPTY — never as global intent, which is the
+ * one reading that would widen an install to every workspace. Any other read
+ * error (EACCES, EIO, ...) and every failed write throw
+ * {@link McpIntentPersistError}: reading an unreadable file as empty would let
+ * the next write replace the intent it holds, and a swallowed write would let a
+ * caller reconcile as if the request were saved.
  */
 
 import { readFileSync } from 'fs';
@@ -69,18 +81,25 @@ const McpIntentFileV1Schema = z.object({
   servers: z.record(z.string(), McpIntentEntryV1Schema),
 });
 
-const TargetsBucketSchema = z.object({ targets: z.array(z.string()) });
-
-const WorkspaceBucketSchema = z.object({
-  /** The canonical root as resolved, kept for display and diagnostics. */
-  root: z.string(),
+/**
+ * `config` is optional only on read, for a v2 file from earlier commits of this
+ * branch (top-level config); {@link normalizeV2} fills it. Every write sets it.
+ */
+const TargetsBucketSchema = z.object({
   targets: z.array(z.string()),
+  config: McpServerConfigSchema.optional(),
 });
 
-const McpIntentServerV2Schema = z.object({
+const WorkspaceBucketSchema = TargetsBucketSchema.extend({
+  /** The canonical root as resolved, kept for display and diagnostics. */
+  root: z.string(),
+});
+
+const McpIntentServerV2StoredSchema = z.object({
   /** Registry name, e.g. `io.github.user/server`. Diagnostic + display only. */
   registryName: z.string(),
-  config: McpServerConfigSchema,
+  /** Read-only fallback for every bucket; see "Config per scope bucket". */
+  config: McpServerConfigSchema.optional(),
   installedAt: z.string(),
   global: TargetsBucketSchema.optional(),
   workspaces: z.record(z.string(), WorkspaceBucketSchema).optional(),
@@ -95,7 +114,7 @@ const McpRetiredServerSchema = z.object({
 
 const McpIntentFileV2Schema = z.object({
   version: z.literal(2),
-  servers: z.record(z.string(), McpIntentServerV2Schema),
+  servers: z.record(z.string(), McpIntentServerV2StoredSchema),
   retired: z.record(z.string(), McpRetiredServerSchema),
 });
 
@@ -104,8 +123,30 @@ const McpIntentFileSchema = z.discriminatedUnion('version', [
   McpIntentFileV2Schema,
 ]);
 
-type McpIntentFileV2 = z.infer<typeof McpIntentFileV2Schema>;
-type McpIntentServerV2 = z.infer<typeof McpIntentServerV2Schema>;
+type McpServerConfigStored = z.infer<typeof McpServerConfigSchema>;
+
+/** A bucket after {@link normalizeV2}: its config is always present. */
+interface TargetsBucket {
+  targets: string[];
+  config: McpServerConfigStored;
+}
+
+interface WorkspaceBucket extends TargetsBucket {
+  root: string;
+}
+
+interface McpIntentServerV2 {
+  registryName: string;
+  installedAt: string;
+  global?: TargetsBucket;
+  workspaces?: Record<string, WorkspaceBucket>;
+}
+
+interface McpIntentFileV2 {
+  version: 2;
+  servers: Record<string, McpIntentServerV2>;
+  retired: z.infer<typeof McpIntentFileV2Schema>['retired'];
+}
 
 export const MCP_INTENT_VERSION = 2;
 
@@ -143,9 +184,31 @@ export interface McpIntentForgetInput {
   targets?: McpInstallTarget[];
 }
 
+export type McpIntentPersistErrorCode = 'read-failed' | 'write-failed';
+
+/**
+ * The intent file could not be read (other than "missing") or written. Thrown
+ * so no caller reconciles, or reports success, as if the request were saved.
+ * The message is fixed; the filesystem error is `cause` and `path` says where.
+ */
+export class McpIntentPersistError extends Error {
+  constructor(
+    readonly code: McpIntentPersistErrorCode,
+    readonly path: string,
+    options: { cause: unknown },
+  ) {
+    super(
+      code === 'read-failed'
+        ? 'The MCP intent store could not be read.'
+        : 'The MCP intent store could not be written.',
+      options,
+    );
+    this.name = 'McpIntentPersistError';
+  }
+}
+
 export type McpIntentScopeErrorCode =
-  | 'workspace-root-required'
-  | 'not-recorded';
+  'workspace-root-required' | 'not-recorded';
 
 /**
  * A scoped call the store refuses: a workspace record with no workspace, or a
@@ -209,9 +272,16 @@ export class McpIntentStore {
   ) {}
 
   /**
-   * Every server that applies to this workspace: global targets merged with
-   * this workspace's own, sorted by key so the desired state is stable. An
-   * empty root yields only the global entries.
+   * Every server that applies to this workspace, sorted by key so the desired
+   * state is stable. An empty root yields only the global entries.
+   *
+   * Each bucket brings its own config. When this workspace's bucket and the
+   * global one agree, they merge into one intent; when they differ, this
+   * workspace's config applies to its own targets and the global config to the
+   * remaining global targets, so one key yields two intents with disjoint
+   * targets (the manifest builder filters desired servers per target).
+   *
+   * @throws {@link McpIntentPersistError} when the file exists but cannot be read.
    */
   listFor(workspaceRoot: string): HarnessMcpIntent[] {
     const file = this.read();
@@ -222,17 +292,31 @@ export class McpIntentStore {
     for (const serverKey of Object.keys(file.servers).sort()) {
       const entry = file.servers[serverKey];
       const local = key === undefined ? undefined : entry.workspaces?.[key];
-      const targets = union(
-        entry.global?.targets ?? [],
-        local?.targets ?? [],
+      const global = entry.global;
+      const push = (config: McpServerConfig, targets: McpInstallTarget[]) => {
+        if (targets.length === 0) return;
+        intents.push({
+          serverKey,
+          registryName: entry.registryName,
+          config,
+          targets,
+        });
+      };
+      if (local === undefined || global === undefined) {
+        const bucket = local ?? global;
+        if (bucket !== undefined) push(bucket.config, union(bucket.targets));
+        continue;
+      }
+      if (sameConfig(local.config, global.config)) {
+        push(local.config, union(global.targets, local.targets));
+        continue;
+      }
+      const localTargets = new Set(local.targets);
+      push(local.config, union(local.targets));
+      push(
+        global.config,
+        union(global.targets.filter((target) => !localTargets.has(target))),
       );
-      if (targets.length === 0) continue;
-      intents.push({
-        serverKey,
-        registryName: entry.registryName,
-        config: entry.config,
-        targets,
-      });
     }
     return intents;
   }
@@ -308,6 +392,12 @@ export class McpIntentStore {
    * A retired entry for the same key is left in place: retirement only guards
    * how stale v1 copies are removed elsewhere, and an active record wins
    * wherever it applies.
+   *
+   * `config` replaces the config of THIS scope's bucket only; the global
+   * bucket and other workspaces keep theirs.
+   *
+   * @throws {@link McpIntentPersistError} when the file cannot be read or the
+   *   new state cannot be written; the caller must not reconcile.
    */
   record(input: McpIntentRecordInput): void {
     const root =
@@ -318,7 +408,6 @@ export class McpIntentStore {
     const existing = file.servers[input.serverKey];
     const next: McpIntentServerV2 = {
       registryName: input.registryName,
-      config: input.config,
       installedAt: new Date().toISOString(),
       ...(existing?.global === undefined ? {} : { global: existing.global }),
       ...(existing?.workspaces === undefined
@@ -329,6 +418,7 @@ export class McpIntentStore {
     if (root === undefined) {
       next.global = {
         targets: union(existing?.global?.targets ?? [], input.targets),
+        config: input.config,
       };
     } else {
       const key = mcpIntentWorkspaceKey(root);
@@ -336,6 +426,7 @@ export class McpIntentStore {
       workspaces[key] = {
         root: resolveHarnessWorkspaceRoot(root),
         targets: union(workspaces[key]?.targets ?? [], input.targets),
+        config: input.config,
       };
       next.workspaces = workspaces;
     }
@@ -348,6 +439,9 @@ export class McpIntentStore {
    * Drop targets from one scope's record, deleting that record when none
    * remain and the server when no record remains. Other workspaces' records
    * and the global record are untouched unless named.
+   *
+   * @throws {@link McpIntentPersistError} when the file cannot be read or
+   *   written.
    */
   forget(serverKey: string, input: McpIntentForgetInput): void {
     const root =
@@ -370,7 +464,7 @@ export class McpIntentStore {
       if (existing.global === undefined) return;
       const remaining = drop(existing.global.targets);
       if (remaining.length === 0) delete next.global;
-      else next.global = { targets: remaining };
+      else next.global = { ...existing.global, targets: remaining };
     } else {
       const key = mcpIntentWorkspaceKey(root);
       const bucket = existing.workspaces?.[key];
@@ -397,8 +491,12 @@ export class McpIntentStore {
    * other workspaces' records stay, so forgetting the global record later
    * leaves them as they were. Returns the global targets after the change.
    *
+   * The global bucket takes this workspace's config when it had a record: the
+   * user is promoting THIS install. Otherwise the global config stays.
+   *
    * Throws {@link McpIntentScopeError} without a root, and when neither this
-   * workspace nor the global scope recorded the key.
+   * workspace nor the global scope recorded the key, and
+   * {@link McpIntentPersistError} when the file cannot be read or written.
    */
   makeGlobal(
     serverKey: string,
@@ -427,11 +525,12 @@ export class McpIntentStore {
     );
     const workspaces = { ...existing.workspaces };
     delete workspaces[key];
+    // One of the two is defined (checked above); the local one wins.
+    const config = (local ?? existing.global)?.config as McpServerConfigStored;
     const next: McpIntentServerV2 = {
       registryName: existing.registryName,
-      config: existing.config,
       installedAt: existing.installedAt,
-      global: { targets },
+      global: { targets, config },
     };
     if (Object.keys(workspaces).length > 0) next.workspaces = workspaces;
     file.servers[serverKey] = next;
@@ -443,9 +542,14 @@ export class McpIntentStore {
     let raw: string;
     try {
       raw = readFileSync(this.path, 'utf-8');
-    } catch {
-      // Missing file: nothing recorded yet. Not a degradation.
-      return emptyFile();
+    } catch (error: unknown) {
+      // Missing file: nothing recorded yet. Not a degradation. Any other read
+      // error must not look empty, or the next write would replace the intent
+      // the unreadable file still holds.
+      if (errorCode(error) === 'ENOENT') return emptyFile();
+      throw new McpIntentPersistError('read-failed', this.path, {
+        cause: error,
+      });
     }
     let parsed: z.infer<typeof McpIntentFileSchema>;
     try {
@@ -461,7 +565,9 @@ export class McpIntentStore {
       );
       return emptyFile();
     }
-    return parsed.version === 2 ? parsed : retireV1(parsed.servers);
+    return parsed.version === 2
+      ? normalizeV2(parsed)
+      : retireV1(parsed.servers);
   }
 
   /**
@@ -469,20 +575,73 @@ export class McpIntentStore {
    *
    * Losing this file is losing the DESIRED STATE for every MCP server the user
    * installed, so a transient Windows sharing violation must not be the end of
-   * the attempt. Failure stays a warning rather than a throw: the config file
-   * the facet writes is the thing the CLI actually reads, and an install whose
-   * bookkeeping failed is better than an install that threw halfway.
+   * the attempt. A final failure THROWS {@link McpIntentPersistError}: this
+   * file is what the reconciler applies, so a caller that went on to reconcile
+   * would write nothing for the request (or undo it), report the target as
+   * fine, and lose the request at the next pass.
    */
   private write(file: McpIntentFileV2): void {
     try {
       atomicWriteWithRetry(this.path, `${JSON.stringify(file, null, 2)}\n`);
     } catch (error: unknown) {
-      this.warn('[harness-sync] Failed to persist the MCP intent store', {
-        path: this.path,
-        error: error instanceof Error ? error.message : String(error),
+      throw new McpIntentPersistError('write-failed', this.path, {
+        cause: error,
       });
     }
   }
+}
+
+function errorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return undefined;
+  }
+  const { code } = error as { code: unknown };
+  return typeof code === 'string' ? code : undefined;
+}
+
+/**
+ * Structural equality by serialization. Two equal configs spelled with a
+ * different key order compare unequal; that only splits one intent into two
+ * with disjoint targets and the same effective config, which writes the same.
+ */
+function sameConfig(
+  a: McpServerConfigStored,
+  b: McpServerConfigStored,
+): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Give every bucket its config. A bucket without one takes the server's
+ * top-level config (a v2 file from earlier commits of this branch); a bucket
+ * with neither is dropped, since nothing could be written for it.
+ */
+function normalizeV2(
+  parsed: z.infer<typeof McpIntentFileV2Schema>,
+): McpIntentFileV2 {
+  const servers: Record<string, McpIntentServerV2> = {};
+  for (const [serverKey, entry] of Object.entries(parsed.servers)) {
+    const fallback = entry.config;
+    const next: McpIntentServerV2 = {
+      registryName: entry.registryName,
+      installedAt: entry.installedAt,
+    };
+    const globalConfig = entry.global?.config ?? fallback;
+    if (entry.global !== undefined && globalConfig !== undefined) {
+      next.global = { targets: entry.global.targets, config: globalConfig };
+    }
+    const workspaces: Record<string, WorkspaceBucket> = {};
+    for (const [key, bucket] of Object.entries(entry.workspaces ?? {})) {
+      const config = bucket.config ?? fallback;
+      if (config === undefined) continue;
+      workspaces[key] = { root: bucket.root, targets: bucket.targets, config };
+    }
+    if (Object.keys(workspaces).length > 0) next.workspaces = workspaces;
+    if (next.global !== undefined || next.workspaces !== undefined) {
+      servers[serverKey] = next;
+    }
+  }
+  return { version: 2, servers, retired: parsed.retired };
 }
 
 /** Every v1 server becomes retired; no v1 server is active anywhere (D-D3). */

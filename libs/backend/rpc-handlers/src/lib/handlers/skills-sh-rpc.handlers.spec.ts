@@ -180,6 +180,11 @@ interface Harness {
   propagation: StubPropagation;
   localItems: StubLocalItems;
   pluginLoader: StubPluginLoader;
+  skillSyncGate: StubSkillSyncGate;
+}
+
+class StubSkillSyncGate {
+  keepSelected = jest.fn((_cwd: string, _slugs: readonly string[]) => true);
 }
 
 function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
@@ -190,6 +195,7 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
   const propagation = new StubPropagation();
   const localItems = new StubLocalItems();
   const pluginLoader = new StubPluginLoader();
+  const skillSyncGate = new StubSkillSyncGate();
   const handlers = new SkillsShRpcHandlers(
     logger as unknown as never,
     rpc as unknown as never,
@@ -199,6 +205,7 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
     propagation as unknown as never,
     localItems as unknown as never,
     pluginLoader as unknown as never,
+    skillSyncGate as unknown as never,
   );
   handlers.register();
   return {
@@ -210,6 +217,7 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
     propagation,
     localItems,
     pluginLoader,
+    skillSyncGate,
   };
 }
 
@@ -788,6 +796,7 @@ describe('SkillsShRpcHandlers — makeGlobal delegates to the proven service', (
       expect.objectContaining({
         propagate: expect.any(Function),
         isDiscovered: expect.any(Function),
+        keepSelected: expect.any(Function),
       }),
     );
     expect(h.api.invalidateInstallCaches).toHaveBeenCalled();
@@ -895,6 +904,20 @@ describe('SkillsShRpcHandlers — makeGlobal delegates to the proven service', (
     h.pluginLoader.discoverSkillsShPluginPaths.mockReturnValue([dir]);
     expect(await hooks.isDiscovered(dir)).toBe(true);
   });
+
+  it('keepSelected hook records the moved slugs in this workspace\'s selection', async () => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+    await h.rpc.call('skillsSh:makeGlobal', { name: 'frontend-design' });
+    const hooks = h.sourceRoots.makeGlobal.mock.calls[0][2];
+
+    expect(await hooks.keepSelected(['frontend-design'])).toBe(true);
+    expect(h.skillSyncGate.keepSelected).toHaveBeenCalledWith(HARNESS_ROOT, [
+      'frontend-design',
+    ]);
+
+    h.skillSyncGate.keepSelected.mockReturnValueOnce(false);
+    expect(await hooks.keepSelected(['frontend-design'])).toBe(false);
+  });
 });
 
 /**
@@ -1001,6 +1024,7 @@ describe('SkillsShRpcHandlers — real source roots (D-3 acceptance)', () => {
       propagation as unknown as never,
       new StubLocalItems() as unknown as never,
       loader as unknown as never,
+      new StubSkillSyncGate() as unknown as never,
     ).register();
     return { rpc, propagation, loader };
   }

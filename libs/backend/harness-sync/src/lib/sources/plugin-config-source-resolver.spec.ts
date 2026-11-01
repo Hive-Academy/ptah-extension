@@ -18,7 +18,13 @@
  *     the read-failure and frozen states included.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { homedir, tmpdir } from 'os';
 import { dirname, join } from 'path';
 import {
@@ -29,7 +35,10 @@ import {
 } from '@ptah-extension/shared';
 import { HarnessManifestBuilder } from '../manifest/harness-manifest.builder';
 import type { HarnessSourceLayout } from './harness-source.port';
-import { McpIntentStore } from './mcp-intent-store';
+import { McpIntentPersistError, McpIntentStore } from './mcp-intent-store';
+import { ManagedManifestStore } from '../manifest-store/managed-manifest';
+import { HarnessReconcilerService } from '../reconciler/harness-reconciler.service';
+import { ClaudeTarget } from '../targets/claude-target';
 import {
   PluginConfigSourceResolver,
   createPluginConfigSourceResolver,
@@ -384,6 +393,77 @@ describe('PluginConfigSourceResolver — workspace scope and retirement', () => 
     const state = await resolverFor(syncReader).resolve(nested);
 
     expect(state.mcpIntents?.map((i) => i.serverKey)).toEqual(['only-a']);
+  });
+
+  describe('an unreadable intent store fails the pass safe (Phase D review)', () => {
+    const readMcpJson = (root: string): Record<string, unknown> =>
+      JSON.parse(readFileSync(join(root, '.mcp.json'), 'utf-8')).mcpServers;
+
+    const reconcilerFor = (
+      warn: jest.Mock = jest.fn(),
+    ): HarnessReconcilerService => {
+      const manifests = new ManagedManifestStore();
+      return new HarnessReconcilerService(
+        { debug: jest.fn(), info: jest.fn(), warn, error: jest.fn() } as never,
+        new HarnessManifestBuilder(),
+        manifests,
+        resolverFor(syncReader),
+        [new ClaudeTarget(manifests)],
+      );
+    };
+
+    /** A directory at the store path: reading it fails with EISDIR, not ENOENT. */
+    const breakStore = (): void => {
+      rmSync(storePath, { force: true });
+      mkdirSync(storePath, { recursive: true });
+    };
+
+    beforeEach(async () => {
+      store.record({
+        serverKey: 'github',
+        registryName: 'io.test/github',
+        config: stdio,
+        targets: ['claude'],
+        scope: 'workspace',
+        workspaceRoot: wsA,
+      });
+      await reconcilerFor().reconcile(wsA, { mode: 'full', reason: 'seed' });
+      expect(Object.keys(readMcpJson(wsA))).toEqual(['github']);
+    });
+
+    it('resolve throws the typed read failure instead of an empty intent list', () => {
+      breakStore();
+      expect(() => resolverFor(syncReader).resolve(wsA)).toThrow(
+        McpIntentPersistError,
+      );
+    });
+
+    it('a reconcile over the unreadable store removes and writes nothing', async () => {
+      const manifestBefore = new ManagedManifestStore().load(wsA, 'claude');
+      const mcpBefore = readFileSync(join(wsA, '.mcp.json'), 'utf-8');
+      breakStore();
+
+      await expect(
+        reconcilerFor().reconcile(wsA, { mode: 'full', reason: 'broken' }),
+      ).rejects.toMatchObject({
+        name: 'McpIntentPersistError',
+        code: 'read-failed',
+        message: 'The MCP intent store could not be read.',
+      });
+
+      expect(readFileSync(join(wsA, '.mcp.json'), 'utf-8')).toBe(mcpBefore);
+      expect(new ManagedManifestStore().load(wsA, 'claude')).toEqual(
+        manifestBefore,
+      );
+    });
+
+    it('control: a store that truly records nothing does remove the entry', async () => {
+      rmSync(storePath, { force: true });
+
+      await reconcilerFor().reconcile(wsA, { mode: 'full', reason: 'empty' });
+
+      expect(readMcpJson(wsA)).toEqual({});
+    });
   });
 
   describe('retired sources', () => {

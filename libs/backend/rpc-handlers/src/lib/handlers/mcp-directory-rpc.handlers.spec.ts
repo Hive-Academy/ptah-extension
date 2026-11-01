@@ -93,9 +93,11 @@ import {
 } from '@ptah-extension/cli-agent-runtime';
 import { McpIntentStore } from '@ptah-extension/harness-sync';
 import { PluginLoaderService, SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import type {
-  ICapabilityResolver,
-  McpInstallResult,
+import {
+  MCP_DIRECTORY_CALL_FAILURE_COPY,
+  MCP_INSTALL_RESULT_COPY,
+  type ICapabilityResolver,
+  type McpInstallResult,
 } from '@ptah-extension/shared';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -1337,7 +1339,9 @@ describe('McpDirectoryRpcHandlers — install scope and Make global (D-4)', () =
     new McpDirectoryRpcHandlers(
       createMockLogger() as unknown as Logger,
       rpc as never,
-      createMockWorkspaceProvider({ folders: root === undefined ? [] : [root] }),
+      createMockWorkspaceProvider({
+        folders: root === undefined ? [] : [root],
+      }),
       createMockSentryService() as unknown as SentryService,
       createMockAuthSecretsService(),
       createMockUserInteraction(),
@@ -1380,7 +1384,9 @@ describe('McpDirectoryRpcHandlers — install scope and Make global (D-4)', () =
   });
 
   it('declares makeGlobal in the METHODS tuple', () => {
-    expect(McpDirectoryRpcHandlers.METHODS).toContain('mcpDirectory:makeGlobal');
+    expect(McpDirectoryRpcHandlers.METHODS).toContain(
+      'mcpDirectory:makeGlobal',
+    );
   });
 
   it('defaults to workspace scope: the intent is recorded for workspace A only and is absent from B', async () => {
@@ -1484,6 +1490,74 @@ describe('McpDirectoryRpcHandlers — install scope and Make global (D-4)', () =
     expect(store().targetsIn('gamma', 'global')).toEqual(['codex']);
   });
 
+  it('never returns an install exception message: fixed copy per target, cause logged', async () => {
+    const { a } = workspaces();
+    const logger = createMockLogger();
+    rpc = createMockRpcHandler();
+    new McpDirectoryRpcHandlers(
+      logger as unknown as Logger,
+      rpc as never,
+      createMockWorkspaceProvider({ folders: [a] }),
+      createMockSentryService() as unknown as SentryService,
+      createMockAuthSecretsService(),
+      createMockUserInteraction(),
+      createMockHttpServerProvider(),
+      makeContainerStub(),
+    ).register();
+    const SECRET = 'SECRET-SENTINEL-ghp_abcdef';
+    jest
+      .spyOn(McpInstallService.prototype, 'install')
+      .mockRejectedValue(new Error(`EACCES /home/u/.mcp.json token=${SECRET}`));
+
+    const res = await call(
+      'mcpDirectory:install',
+      installParams('alpha', ['claude', 'cursor']),
+    );
+
+    expect(res.success).toBe(true);
+    const results = (res.data as { results: unknown[] }).results;
+    expect(results).toEqual(
+      ['claude', 'cursor'].map((target) =>
+        expect.objectContaining({
+          target,
+          success: false,
+          code: 'install-failed',
+          error: MCP_INSTALL_RESULT_COPY['install-failed'],
+        }),
+      ),
+    );
+    expect(JSON.stringify(res)).not.toContain(SECRET);
+    const logged = logger.error.mock.calls.find(
+      ([message]: unknown[]) => message === 'RPC: mcpDirectory:install failed',
+    );
+    expect((logged?.[1] as unknown as Error).message).toContain(SECRET);
+  });
+
+  it('fails every target with fixed copy when the intent store cannot be read', async () => {
+    const { a } = workspaces();
+    buildFor(a);
+    // A directory at the store path: the read fails with EISDIR, not ENOENT.
+    fs.mkdirSync(intentPath, { recursive: true });
+    try {
+      const res = await call(
+        'mcpDirectory:install',
+        installParams('alpha', ['claude']),
+      );
+
+      expect(res.success).toBe(true);
+      expect((res.data as { results: unknown[] }).results).toEqual([
+        expect.objectContaining({
+          target: 'claude',
+          success: false,
+          code: 'intent-not-saved',
+          error: MCP_INSTALL_RESULT_COPY['intent-not-saved'],
+        }),
+      ]);
+    } finally {
+      fs.rmSync(intentPath, { recursive: true, force: true });
+    }
+  });
+
   it('listInstalled reports the install scope of each Ptah-managed row', async () => {
     const { a } = workspaces();
     buildFor(a);
@@ -1526,6 +1600,81 @@ describe('McpDirectoryRpcHandlers — install scope and Make global (D-4)', () =
     expect(scopeOf('local')).toBe('workspace');
     expect(scopeOf('shared')).toBe('global');
     expect(scopeOf('handwritten')).toBe('workspace');
+  });
+
+  describe('an unreadable intent store is a coded failure, not an empty success', () => {
+    it('uninstall reports intent-unreadable instead of an empty result list', async () => {
+      const { a } = workspaces();
+      buildFor(a);
+      // A directory at the store path: the read fails with EISDIR, not ENOENT.
+      fs.mkdirSync(intentPath, { recursive: true });
+      try {
+        const res = await call('mcpDirectory:uninstall', {
+          serverKey: 'alpha',
+          targets: ['claude'],
+        });
+
+        expect(res.success).toBe(true);
+        expect(res.data).toEqual({
+          results: [],
+          code: 'intent-unreadable',
+          error: MCP_DIRECTORY_CALL_FAILURE_COPY['intent-unreadable'],
+        });
+        expect(JSON.stringify(res)).not.toContain(intentPath);
+      } finally {
+        fs.rmSync(intentPath, { recursive: true, force: true });
+      }
+    });
+
+    it('listInstalled reports intent-unreadable instead of zero servers', async () => {
+      const { a } = workspaces();
+      buildFor(a);
+      jest
+        .spyOn(McpInstallService.prototype, 'listInstalled')
+        .mockResolvedValue([
+          {
+            serverKey: 'managed',
+            target: 'claude',
+            configPath: path.join(a, '.mcp.json'),
+            config: stdio,
+            managedByPtah: true,
+            origin: 'harness-config',
+            originLabel: 'Claude',
+            removal: 'ptah-managed',
+            scope: 'workspace',
+          },
+        ]);
+      fs.mkdirSync(intentPath, { recursive: true });
+      try {
+        const res = await call('mcpDirectory:listInstalled', {});
+
+        expect(res.success).toBe(true);
+        expect(res.data).toEqual({
+          servers: [],
+          code: 'intent-unreadable',
+          error: MCP_DIRECTORY_CALL_FAILURE_COPY['intent-unreadable'],
+        });
+      } finally {
+        fs.rmSync(intentPath, { recursive: true, force: true });
+      }
+    });
+
+    it('any other listInstalled failure is list-failed with fixed copy', async () => {
+      const { a } = workspaces();
+      buildFor(a);
+      jest
+        .spyOn(McpInstallService.prototype, 'listInstalled')
+        .mockRejectedValue(new Error('EIO /home/u/secret-path'));
+
+      const res = await call('mcpDirectory:listInstalled', {});
+
+      expect(res.data).toEqual({
+        servers: [],
+        code: 'list-failed',
+        error: MCP_DIRECTORY_CALL_FAILURE_COPY['list-failed'],
+      });
+      expect(JSON.stringify(res)).not.toContain('secret-path');
+    });
   });
 
   it('Make global promotes the workspace install and adds only the opted-in home targets', async () => {

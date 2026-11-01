@@ -41,6 +41,7 @@ import {
   type HarnessWriteFailure,
 } from '@ptah-extension/shared';
 import type { ReapResult } from '@ptah-extension/agent-generation';
+import { McpIntentPersistError } from '@ptah-extension/harness-sync';
 
 import {
   InstallScopeMigrationService,
@@ -66,6 +67,8 @@ let logger: {
 let recent: string[];
 let openFolders: string[];
 let retiredMcp: Array<{ serverKey: string; retiredAt: string }>;
+/** When set, the MCP intent store's `listRetired` throws it. */
+let mcpReadError: Error | null;
 let reconcile: jest.Mock<
   Promise<HarnessHealth>,
   Parameters<InstallScopeReconciler['reconcile']>
@@ -85,6 +88,7 @@ beforeEach(async () => {
   recent = [];
   openFolders = [];
   retiredMcp = [];
+  mcpReadError = null;
   reconcile = jest.fn<
     Promise<HarnessHealth>,
     Parameters<InstallScopeReconciler['reconcile']>
@@ -105,7 +109,12 @@ function makeService(
     { getWorkspaceFolders: () => openFolders },
     fakeHome,
     reaper,
-    { listRetired: () => retiredMcp },
+    {
+      listRetired: () => {
+        if (mcpReadError !== null) throw mcpReadError;
+        return retiredMcp;
+      },
+    },
   );
 }
 
@@ -679,6 +688,133 @@ describe('InstallScopeMigrationService — workspace pass and ledger', () => {
     const ledger = await readLedger();
     expect(ledger.workspaces[w1].missingAt).toEqual(expect.any(String));
     expect(ledger.items['mcp:S'].failedPaths).toEqual({});
+  });
+});
+
+describe('InstallScopeMigrationService — unreadable MCP intent store', () => {
+  const unreadable = (): McpIntentPersistError =>
+    new McpIntentPersistError('read-failed', '/home/x/.ptah/mcp-installed.json', {
+      cause: Object.assign(new Error('EACCES'), { code: 'EACCES' }),
+    });
+
+  it('listRetired failing during retire: the run resolves failed, nothing completes, the next start retries and completes', async () => {
+    const w1 = await makeWorkspace('w1');
+    recent = [w1];
+    mcpReadError = unreadable();
+    const service = makeService();
+
+    await expect(service.run()).resolves.toMatchObject({ status: 'failed' });
+    expect(reconcile).not.toHaveBeenCalled();
+    const ledger = await readLedger().catch(() => null);
+    expect(ledger?.completedAt).toBeUndefined();
+    expect(ledger?.discoveredAt).toBeUndefined();
+    expect(logger.error).toHaveBeenCalledWith(
+      '[install-scope] Migration stopped; it resumes on the next start',
+      expect.any(McpIntentPersistError),
+    );
+
+    mcpReadError = null;
+    retiredMcp = [{ serverKey: 'S', retiredAt: '2026-02-02T00:00:00Z' }];
+    const second = await service.run();
+    expect(second.status).toBe('completed');
+    expect((await readLedger()).items['mcp:S']).toBeDefined();
+  });
+
+  it('a reconcile rejected by the unreadable store leaves the workspace and the ledger incomplete', async () => {
+    const w1 = await makeWorkspace('w1');
+    recent = [w1];
+    reconcile.mockRejectedValueOnce(unreadable());
+    const service = makeService();
+
+    await expect(service.run()).resolves.toMatchObject({
+      status: 'incomplete',
+    });
+    const ledger = await readLedger();
+    expect(ledger.completedAt).toBeUndefined();
+    expect(ledger.workspaces[w1].passedAt).toBeUndefined();
+    expect(ledger.workspaces[w1].lastError).toBe(
+      'The MCP intent store could not be read.',
+    );
+
+    expect((await service.run()).status).toBe('completed');
+  });
+});
+
+describe('InstallScopeMigrationService — workspace stat errors', () => {
+  // The service reads `stat` off the real module object at call time.
+  const fsModule: typeof fs = jest.requireActual('fs/promises');
+
+  function failStatOf(target: string, code: string): jest.SpyInstance {
+    const realStat = fsModule.stat;
+    const spy = jest.spyOn(fsModule, 'stat');
+    type StatArgs = Parameters<typeof fsModule.stat>;
+    spy.mockImplementation(((p: StatArgs[0], opts?: StatArgs[1]) => {
+      if (String(p) === target) {
+        return Promise.reject(
+          Object.assign(new Error(`${code}: stat '${target}'`), { code }),
+        );
+      }
+      return realStat(p, opts);
+    }) as typeof fsModule.stat);
+    return spy;
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('EACCES on a known workspace keeps the run incomplete; the next start visits it and completes', async () => {
+    const w1 = await makeWorkspace('w1');
+    recent = [w1];
+    const service = makeService();
+    const spy = failStatOf(w1, 'EACCES');
+
+    const first = await service.run();
+
+    expect(first.status).toBe('incomplete');
+    expect(reconcile).not.toHaveBeenCalled();
+    expect((await readLedger()).completedAt).toBeUndefined();
+
+    spy.mockRestore();
+    const second = await service.run();
+
+    expect(second.status).toBe('completed');
+    expect(reconcile.mock.calls.map(([cwd]) => cwd)).toEqual([w1]);
+    expect((await readLedger()).workspaces[w1].passedAt).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it('EACCES on an unfinished ledger workspace never marks it missing', async () => {
+    const w1 = await makeWorkspace('w1');
+    recent = [w1];
+    reconcile.mockRejectedValueOnce(new Error('lock timeout'));
+    const service = makeService();
+    expect((await service.run()).status).toBe('incomplete');
+
+    recent = [];
+    failStatOf(w1, 'EIO');
+    const second = await service.run();
+
+    expect(second.status).toBe('incomplete');
+    const ledger = await readLedger();
+    expect(ledger.workspaces[w1].missingAt).toBeUndefined();
+    expect(ledger.completedAt).toBeUndefined();
+  });
+
+  it('ENOENT on a known workspace skips it and the run completes', async () => {
+    const w1 = await makeWorkspace('w1');
+    const gone = path.join(tempBase, 'gone-ws');
+    recent = [w1, gone];
+    failStatOf(gone, 'ENOENT');
+
+    const result = await makeService().run();
+
+    expect(result.status).toBe('completed');
+    expect(reconcile.mock.calls.map(([cwd]) => cwd)).toEqual([w1]);
+    const ledger = await readLedger();
+    expect(ledger.completedAt).toEqual(expect.any(String));
+    expect(ledger.workspaces[gone]).toBeUndefined();
   });
 });
 

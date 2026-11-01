@@ -318,13 +318,19 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
    * keeps its manifest on, so a sub-directory and its root read the same
    * records. No root yields the global records only — never every
    * workspace's, which is the leak v2 exists to close.
+   *
+   * NOT caught. An unreadable store (`McpIntentPersistError` 'read-failed')
+   * used to come back as `[]`, which is an AUTHORITATIVE "no Ptah-managed MCP
+   * servers here": the MCP facet then plans a removal for every owned entry.
+   * Thrown, it fails `resolve`, and the reconciler reads its source before it
+   * takes the lock or plans a target, so the pass writes and removes nothing.
+   * Every reconcile caller already catches that rejection and logs a warning
+   * (`HarnessPropagationService.propagate`, the preflight, host activation,
+   * `McpInstallService` maps it to fixed copy). The error's message is fixed;
+   * the filesystem cause stays on `cause`.
    */
   private readMcpIntents(workspaceRoot?: string): HarnessMcpIntent[] {
-    try {
-      return this.mcpIntents.listFor(workspaceRoot ?? '');
-    } catch {
-      return [];
-    }
+    return this.mcpIntents.listFor(workspaceRoot ?? '');
   }
 
   /** Both registries, re-read on every pass and sorted so a pass is stable. */

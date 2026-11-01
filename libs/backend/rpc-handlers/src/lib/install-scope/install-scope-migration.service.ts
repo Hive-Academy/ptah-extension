@@ -799,8 +799,15 @@ export class InstallScopeMigrationService {
     // directory exists, even if it dropped off the recent list since.
     for (const [key, workspace] of Object.entries(ledger.workspaces)) {
       if (workspace.passedAt !== undefined || roots.has(key)) continue;
-      if (await isDirectory(workspace.root)) {
+      const probe = await probeDirectory(workspace.root);
+      if (probe === 'directory') {
         roots.set(key, workspace.root);
+      } else if (probe === 'unreadable') {
+        // Not proven gone: it keeps no passedAt/missingAt, so the run stays
+        // incomplete and the next start retries it.
+        this.logger.warn('[install-scope] Workspace could not be checked', {
+          root: workspace.root,
+        });
       } else if (workspace.missingAt === undefined) {
         this.forgetMissingWorkspace(ledger, key, workspace);
         this.writeLedger(ledger);
@@ -872,7 +879,9 @@ export class InstallScopeMigrationService {
 
   /**
    * Recent workspaces ∪ open folders, existing directories only, keyed by the
-   * canonical harness root (the key the reconciler locks on).
+   * canonical harness root (the key the reconciler locks on). A candidate
+   * whose stat fails for any reason other than absence (EACCES, EIO, …) makes
+   * the set incomplete, so the run cannot complete without visiting it.
    */
   private async knownWorkspaceRoots(): Promise<{
     roots: Map<string, string>;
@@ -905,7 +914,15 @@ export class InstallScopeMigrationService {
     const roots = new Map<string, string>();
     for (const candidate of candidates) {
       if (!candidate || !path.isAbsolute(candidate)) continue;
-      if (!(await isDirectory(candidate))) continue;
+      const probe = await probeDirectory(candidate);
+      if (probe === 'unreadable') {
+        complete = false;
+        this.logger.warn('[install-scope] Workspace could not be checked', {
+          root: candidate,
+        });
+        continue;
+      }
+      if (probe === 'absent') continue;
       const root = resolveHarnessWorkspaceRoot(candidate);
       if (!roots.has(root)) roots.set(root, root);
     }
@@ -1099,12 +1116,21 @@ async function pathIsAbsent(target: string): Promise<boolean> {
   }
 }
 
-async function isDirectory(target: string): Promise<boolean> {
+/**
+ * `absent` only when the path is proven not to be a directory (ENOENT,
+ * ENOTDIR, or a non-directory entry); any other stat failure is `unreadable`
+ * and must not count as absent.
+ */
+async function probeDirectory(
+  target: string,
+): Promise<'directory' | 'absent' | 'unreadable'> {
   try {
-    return (await fs.stat(target)).isDirectory();
-  } catch {
-    // degradation-audit: optional-capability - a recent workspace that is gone
-    // or unreadable is not a known workspace (plan: existing directories only).
-    return false;
+    return (await fs.stat(target)).isDirectory() ? 'directory' : 'absent';
+  } catch (error: unknown) {
+    // degradation-audit: optional-capability - only ENOENT/ENOTDIR prove a
+    // workspace is gone; any other error is reported as unreadable so the
+    // caller keeps the run incomplete and retries it.
+    const code = (error as NodeJS.ErrnoException | null)?.code;
+    return code === 'ENOENT' || code === 'ENOTDIR' ? 'absent' : 'unreadable';
   }
 }

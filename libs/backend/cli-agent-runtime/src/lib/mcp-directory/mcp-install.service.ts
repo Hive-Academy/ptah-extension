@@ -58,6 +58,7 @@
 
 import {
   createAllMcpFacets,
+  McpIntentPersistError,
   McpIntentStore,
   type HarnessReconcilerService,
   type IHarnessMcpFacet,
@@ -65,10 +66,12 @@ import {
 } from '@ptah-extension/harness-sync';
 import {
   classifyMcpScope,
+  MCP_INSTALL_RESULT_COPY,
   type CapabilityScope,
   type HarnessTargetHealth,
   type InstalledMcpServer,
   type McpInstallResult,
+  type McpInstallResultCode,
   type McpInstallTarget,
   type McpOAuthConnectedRecord,
   type McpServerConfig,
@@ -130,6 +133,17 @@ export interface McpInstallServiceOptions {
   smithery?: SmitheryInstalledReader;
   /** The handler's own OAuth manifest store. Omitted = no OAuth rows. */
   oauth?: McpOAuthInstalledReader;
+  /**
+   * Where the raw cause of a failed target goes (the host logger). Results
+   * carry only fixed copy per {@link McpInstallResultCode}; omitted = the
+   * cause is dropped.
+   */
+  warn?: (message: string, detail?: unknown) => void;
+}
+
+/** The detail logged for a caught cause: never sent to the UI. */
+function causeDetail(error: unknown): { error: string } {
+  return { error: error instanceof Error ? error.message : String(error) };
 }
 
 /** How reading one harness MCP config file went. */
@@ -214,15 +228,22 @@ export class McpInstallService {
     scope: CapabilityScope = 'workspace',
   ): Promise<McpInstallResult[]> {
     // Intent first: the reconciler's desired state IS this file, so recording
-    // after reconciling would make the pass a no-op.
-    this.intents.record({
-      serverKey,
-      registryName: serverName,
-      config,
-      targets,
-      scope,
-      workspaceRoot,
-    });
+    // after reconciling would make the pass a no-op. An intent that could not
+    // be saved fails every target BEFORE any write: reconciling without it
+    // would write nothing and report the targets as fine.
+    try {
+      this.intents.record({
+        serverKey,
+        registryName: serverName,
+        config,
+        targets,
+        scope,
+        workspaceRoot,
+      });
+    } catch (error: unknown) {
+      if (!(error instanceof McpIntentPersistError)) throw error;
+      return this.intentNotSaved(targets, workspaceRoot, serverKey, error);
+    }
     return this.reconcileTargets(
       targets,
       workspaceRoot,
@@ -235,7 +256,9 @@ export class McpInstallService {
    * Promote this workspace's install of `serverKey` to global, adding the
    * opt-in home targets, then reconcile the current workspace for every
    * global target. Throws `McpIntentScopeError` before writing when there is
-   * no workspace root or this workspace never recorded the server.
+   * no workspace root or this workspace never recorded the server, and
+   * `McpIntentPersistError` when the change could not be saved; nothing is
+   * reconciled in either case.
    */
   async makeGlobal(
     serverKey: string,
@@ -308,8 +331,13 @@ export class McpInstallService {
       return this.removeUnowned(visited, workspaceRoot, serverKey);
     }
 
-    for (const scope of scopes) {
-      this.intents.forget(serverKey, { scope, workspaceRoot, targets });
+    try {
+      for (const scope of scopes) {
+        this.intents.forget(serverKey, { scope, workspaceRoot, targets });
+      }
+    } catch (error: unknown) {
+      if (!(error instanceof McpIntentPersistError)) throw error;
+      return this.intentNotSaved(visited, workspaceRoot, serverKey, error);
     }
     const results = await this.reconcileTargets(
       visited,
@@ -575,12 +603,7 @@ export class McpInstallService {
       const facet = this.facets.get(target);
       const configPath = this.getConfigPath(target, workspaceRoot) ?? '';
       if (facet === undefined || configPath === '') {
-        results.push({
-          target,
-          configPath,
-          success: false,
-          error: `No MCP config file could be resolved for target "${target}"`,
-        });
+        results.push(this.failed(target, configPath, 'config-unresolved'));
         continue;
       }
 
@@ -588,12 +611,14 @@ export class McpInstallService {
         await facet.remove(workspaceRoot ?? '', serverKey);
         results.push({ target, configPath, success: true });
       } catch (error: unknown) {
-        results.push({
+        // degradation-audit: reported - the target fails with fixed copy and
+        // the cause goes to the host log.
+        this.options.warn?.('[mcp-install] Removing an unowned entry failed', {
+          serverKey,
           target,
-          configPath,
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
+          ...causeDetail(error),
         });
+        results.push(this.failed(target, configPath, 'remove-failed'));
       }
     }
     return results;
@@ -637,9 +662,58 @@ export class McpInstallService {
     };
   }
 
+  /** A failed target with the fixed copy for `code`. */
+  private failed(
+    target: McpInstallTarget,
+    configPath: string,
+    code: McpInstallResultCode,
+  ): McpInstallResult {
+    return {
+      target,
+      configPath,
+      success: false,
+      code,
+      error: MCP_INSTALL_RESULT_COPY[code],
+    };
+  }
+
+  /** Every target fails: the intent change was not saved, nothing was written. */
+  private intentNotSaved(
+    targets: readonly McpInstallTarget[],
+    workspaceRoot: string | undefined,
+    serverKey: string,
+    error: McpIntentPersistError,
+  ): McpInstallResult[] {
+    this.options.warn?.('[mcp-install] The MCP intent change was not saved', {
+      serverKey,
+      ...causeDetail(error),
+      cause: causeDetail(error.cause).error,
+    });
+    return targets.map((target) =>
+      this.failed(
+        target,
+        this.getConfigPath(target, workspaceRoot) ?? '',
+        'intent-not-saved',
+      ),
+    );
+  }
+
   /**
    * Run one reconcile pass restricted to the affected targets and translate the
    * health report back into the per-target results the RPC contract returns.
+   *
+   * With no folder open nothing can be reconciled, home targets included: the
+   * ownership manifest lives in the workspace (`{ws}/.ptah/harness`), and a
+   * home config entry written without one would read as the user's own at the
+   * next pass and be blocked for good. The saved intent is applied by the
+   * reconcile of the next opened folder, so every target is DEFERRED, not
+   * failed. A workspace-scoped call never gets here without a root: the store
+   * refuses it first.
+   *
+   * The no-folder branch runs before the reconciler check, so a host without
+   * a reconciler still defers every target (decision #79).
+   *
+   * Every failure carries fixed copy; the raw cause goes to `options.warn`.
    */
   private async reconcileTargets(
     targets: McpInstallTarget[],
@@ -647,22 +721,25 @@ export class McpInstallService {
     serverKey: string,
     reason: string,
   ): Promise<McpInstallResult[]> {
-    if (this.reconciler === null) {
-      return targets.map((target) => ({
-        target,
-        configPath: this.getConfigPath(target, workspaceRoot) ?? '',
-        success: false,
-        error: 'Harness reconciler is not available in this host',
-      }));
-    }
-
     if (workspaceRoot === undefined || workspaceRoot === '') {
       return targets.map((target) => ({
         target,
         configPath: this.getConfigPath(target, workspaceRoot) ?? '',
         success: false,
-        error: 'No workspace folder open',
+        deferred: true,
+        code: 'deferred-no-workspace',
+        error: MCP_INSTALL_RESULT_COPY['deferred-no-workspace'],
       }));
+    }
+
+    if (this.reconciler === null) {
+      return targets.map((target) =>
+        this.failed(
+          target,
+          this.getConfigPath(target, workspaceRoot) ?? '',
+          'reconciler-unavailable',
+        ),
+      );
     }
 
     let health: HarnessTargetHealth[];
@@ -674,13 +751,20 @@ export class McpInstallService {
       });
       health = report.targets;
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      return targets.map((target) => ({
-        target,
-        configPath: this.getConfigPath(target, workspaceRoot) ?? '',
-        success: false,
-        error: message,
-      }));
+      // degradation-audit: reported - every target fails with fixed copy and
+      // the cause goes to the host log.
+      this.options.warn?.('[mcp-install] Reconcile failed', {
+        serverKey,
+        reason,
+        ...causeDetail(error),
+      });
+      return targets.map((target) =>
+        this.failed(
+          target,
+          this.getConfigPath(target, workspaceRoot) ?? '',
+          'reconcile-failed',
+        ),
+      );
     }
 
     return targets.map((target) => {
@@ -691,9 +775,13 @@ export class McpInstallService {
       const failure = reported?.writeFailed.find((entry) =>
         entry.relPath.endsWith(`#${serverKey}`),
       );
-      return failure === undefined
-        ? { target, configPath, success: true }
-        : { target, configPath, success: false, error: failure.reason };
+      if (failure === undefined) return { target, configPath, success: true };
+      this.options.warn?.('[mcp-install] Config write failed', {
+        serverKey,
+        target,
+        error: failure.reason,
+      });
+      return this.failed(target, configPath, 'write-failed');
     });
   }
 }

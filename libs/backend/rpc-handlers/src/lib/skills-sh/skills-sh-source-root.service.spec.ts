@@ -345,6 +345,46 @@ describe('SkillsShSourceRootService — reading', () => {
     await expect(service.installedSlugs()).resolves.toEqual(new Set());
   });
 
+  it('hides a retired global root kept on disk, as the plugin loader does', async () => {
+    await seed('legacy');
+    await writeRetired();
+
+    await expect(service.listInstalled()).resolves.toEqual([]);
+    await expect(service.installedSlugs()).resolves.toEqual(new Set());
+    // The raw root listing still sees it (uninstall can still reach it).
+    expect((await service.listRoots()).map((r) => r.id)).toEqual([ROOT_ID]);
+  });
+
+  it('never hides a workspace root whose id is in the retired registry', async () => {
+    await installWorkspace(['a']);
+    await writeRetired();
+
+    const listed = await service.listInstalled(workspaceDir());
+
+    expect(listed.map((s) => [s.name, s.scope])).toEqual([['a', 'workspace']]);
+    await expect(service.installedSlugs(workspaceDir())).resolves.toEqual(
+      new Set(['a']),
+    );
+  });
+
+  it('an unreadable retired registry hides nothing and is logged', async () => {
+    await seed('legacy');
+    // A directory at the registry path makes the read fail with EISDIR.
+    await fs.mkdir(path.join(globalPlugins(), SKILLS_SH_RETIRED_FILE), {
+      recursive: true,
+    });
+
+    const listed = await service.listInstalled();
+
+    expect(listed.map((s) => [s.name, s.scope])).toEqual([
+      ['legacy', 'global'],
+    ]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[skills.sh] Could not read the retired registry',
+      expect.objectContaining({ error: expect.any(String) }),
+    );
+  });
+
   it('lower-cases the install-badge lookup', async () => {
     await seed('Frontend-Design');
 
@@ -450,17 +490,26 @@ async function stagingLeftovers(): Promise<string[]> {
 
 interface RecordingHooks extends SkillsShMakeGlobalHooks {
   phases: SkillsShMakeGlobalPhase[];
+  /** Every `keepSelected` call, in order. */
+  kept: string[][];
 }
 
 function hooks(
   overrides: {
     register?: () => Promise<{ userLayerRefreshed: boolean }>;
     discovered?: boolean;
+    keepSelected?: () => Promise<boolean>;
   } = {},
 ): RecordingHooks {
   const phases: SkillsShMakeGlobalPhase[] = [];
+  const kept: string[][] = [];
   return {
     phases,
+    kept,
+    keepSelected: async (slugs) => {
+      kept.push([...slugs]);
+      return overrides.keepSelected ? overrides.keepSelected() : true;
+    },
     propagate: async (phase) => {
       phases.push(phase);
       if (phase === 'register' && overrides.register) {
@@ -1033,6 +1082,49 @@ describe('SkillsShSourceRootService.makeGlobal — D-D9 order, rollback and resu
     ).resolves.toBe('edited mid-conversion');
   });
 
+  it('keeps the moved slugs selected in the workspace before removing the workspace root', async () => {
+    const h = hooks({
+      keepSelected: async () => {
+        // Called while the workspace root still exists (step 8, before removal).
+        await expectWorkspaceIntact();
+        return true;
+      },
+    });
+
+    const outcome = await service.makeGlobal('a', workspaceDir(), h);
+
+    expect(outcome).toEqual(
+      expect.objectContaining({ success: true, workspaceRootRemoved: true }),
+    );
+    // The whole root converts, so every slug it holds stays selected.
+    expect(h.kept).toEqual([['a', 'b']]);
+    expect(h.phases).toEqual(['register', 'workspace-removed']);
+  });
+
+  it('a selection that cannot be recorded keeps the workspace root; the retry finishes', async () => {
+    const h = hooks({ keepSelected: async () => false });
+
+    const outcome = await service.makeGlobal('a', workspaceDir(), h);
+
+    expect(outcome).toEqual(
+      expect.objectContaining({ success: true, workspaceRootRemoved: false }),
+    );
+    expect(h.phases).toEqual(['register']);
+    await expectWorkspaceIntact();
+    await expect(
+      verifyOwnedRoot(globalRootDir()),
+    ).resolves.toEqual(expect.objectContaining({ status: 'owned' }));
+
+    const retry = await service.makeGlobal('a', workspaceDir(), hooks());
+    expect(retry).toEqual(
+      expect.objectContaining({
+        success: true,
+        resumed: true,
+        workspaceRootRemoved: true,
+      }),
+    );
+  });
+
   it('refuses when a different owned global install exists, changing nothing', async () => {
     stageWrites(['a'], 'a different global body');
     await service.install({ source: 'anthropics/skills' });
@@ -1080,6 +1172,58 @@ describe('SkillsShSourceRootService.makeGlobal — D-D9 order, rollback and resu
         workspaceRootRemoved: true,
       }),
     );
+  });
+
+  it('propagation failure over a pre-existing matching global root keeps that global root', async () => {
+    await fs.mkdir(globalPlugins(), { recursive: true });
+    await fs.cp(workspaceRootDir(), globalRootDir(), { recursive: true });
+    const meta = await readMeta(globalRootDir());
+    await writeMeta(globalRootDir(), { ...meta, scope: 'global' });
+    const globalBefore = await readMeta(globalRootDir());
+    const h = hooks({
+      register: async () => {
+        throw new Error('reconcile crashed at /secret/path');
+      },
+    });
+
+    const outcome = await service.makeGlobal('a', workspaceDir(), h);
+
+    expect(outcome).toEqual({
+      success: false,
+      code: 'propagation-failed',
+      error: 'Could not change where a is installed.',
+      rootId: ROOT_ID,
+      rollbackComplete: true,
+    });
+    expect(h.phases).toEqual(['register', 'rollback']);
+    await expect(verifyOwnedRoot(globalRootDir())).resolves.toEqual(
+      expect.objectContaining({ status: 'owned' }),
+    );
+    expect(await readMeta(globalRootDir())).toEqual(globalBefore);
+    await expectWorkspaceIntact();
+  });
+
+  it('validation failure over a pre-existing matching global root keeps that global root', async () => {
+    await fs.mkdir(globalPlugins(), { recursive: true });
+    await fs.cp(workspaceRootDir(), globalRootDir(), { recursive: true });
+    const meta = await readMeta(globalRootDir());
+    await writeMeta(globalRootDir(), { ...meta, scope: 'global' });
+
+    const outcome = await service.makeGlobal(
+      'a',
+      workspaceDir(),
+      hooks({ discovered: false }),
+    );
+
+    expect(outcome).toEqual(
+      expect.objectContaining({
+        success: false,
+        code: 'validation-failed',
+        rollbackComplete: true,
+      }),
+    );
+    await expect(exists(globalRootDir())).resolves.toBe(true);
+    await expectWorkspaceIntact();
   });
 
   it('refuses an unproven workspace root (extra file) and writes nothing', async () => {

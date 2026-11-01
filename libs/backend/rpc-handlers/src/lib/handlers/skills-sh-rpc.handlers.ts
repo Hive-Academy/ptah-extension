@@ -29,6 +29,7 @@ import {
   HARNESS_SYNC_TOKENS,
   resolveHarnessWorkspaceRoot,
   type HarnessPropagationService,
+  type SkillSyncGate,
 } from '@ptah-extension/harness-sync';
 import { isSafePathToken } from '@ptah-extension/shared';
 import type {
@@ -206,6 +207,13 @@ export class SkillsShRpcHandlers {
      */
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
+    /**
+     * Make global's step 8 keeps the moved slugs selected in this workspace:
+     * its own skills.sh root is exempt from the selection, a global root is
+     * not.
+     */
+    @inject(HARNESS_SYNC_TOKENS.SKILL_SYNC_GATE)
+    private readonly skillSyncGate: SkillSyncGate,
   ) {}
 
   register(): void {
@@ -627,6 +635,11 @@ export class SkillsShRpcHandlers {
         return this.pluginLoader
           .discoverSkillsShPluginPaths()
           .some((dir) => path.resolve(dir) === target);
+      },
+      keepSelected: (slugs) => {
+        const harnessRoot = this.getHarnessRoot();
+        if (harnessRoot === '') return false;
+        return this.skillSyncGate.keepSelected(harnessRoot, slugs);
       },
     };
   }

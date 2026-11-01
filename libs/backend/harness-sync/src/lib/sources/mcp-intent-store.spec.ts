@@ -7,6 +7,7 @@
  */
 
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -20,6 +21,7 @@ import { dirname, join } from 'path';
 import type { McpServerConfig } from '@ptah-extension/shared';
 import {
   MCP_INTENT_VERSION,
+  McpIntentPersistError,
   McpIntentScopeError,
   McpIntentStore,
   mcpIntentWorkspaceKey,
@@ -27,6 +29,12 @@ import {
 
 const stdio: McpServerConfig = { type: 'stdio', command: 'node' };
 const http: McpServerConfig = { type: 'http', url: 'https://example.test' };
+const stdioWith = (token: string): McpServerConfig => ({
+  type: 'stdio',
+  command: 'node',
+  args: ['server.js'],
+  env: { TOKEN: token },
+});
 
 describe('McpIntentStore (v2)', () => {
   let tmp: string;
@@ -83,12 +91,12 @@ describe('McpIntentStore (v2)', () => {
         servers: {
           github: {
             registryName: 'io.github/github',
-            config: stdio,
             installedAt: expect.any(String),
             workspaces: {
               [mcpIntentWorkspaceKey(wsA)]: {
                 root: wsA,
                 targets: ['claude', 'vscode'],
+                config: stdio,
               },
             },
           },
@@ -117,9 +125,8 @@ describe('McpIntentStore (v2)', () => {
       const servers = readRaw()['servers'] as Record<string, unknown>;
       expect(servers['fetch']).toEqual({
         registryName: 'r/fetch',
-        config: http,
         installedAt: expect.any(String),
-        global: { targets: ['codex'] },
+        global: { targets: ['codex'], config: http },
       });
     });
 
@@ -155,7 +162,7 @@ describe('McpIntentStore (v2)', () => {
         { workspaces: Record<string, { root: string }> }
       >;
       expect(Object.values(servers['k'].workspaces)).toEqual([
-        { root: wsA, targets: ['claude'] },
+        { root: wsA, targets: ['claude'], config: stdio },
       ]);
     });
   });
@@ -454,5 +461,246 @@ describe('McpIntentStore (v2)', () => {
       expect(store.listFor(wsA)).toEqual([]);
       expect(warnings).toEqual([]);
     });
+  });
+  describe('config per scope bucket', () => {
+    it('keeps each workspace its own config for the same key', () => {
+      store.record({
+        serverKey: 'github',
+        registryName: 'io.github/github',
+        config: stdioWith('token-a'),
+        targets: ['claude'],
+        scope: 'workspace',
+        workspaceRoot: wsA,
+      });
+      store.record({
+        serverKey: 'github',
+        registryName: 'io.github/github',
+        config: stdioWith('token-b'),
+        targets: ['claude'],
+        scope: 'workspace',
+        workspaceRoot: wsB,
+      });
+
+      const reread = new McpIntentStore(storePath);
+      expect(reread.listFor(wsA)).toEqual([
+        expect.objectContaining({
+          config: stdioWith('token-a'),
+          targets: ['claude'],
+        }),
+      ]);
+      expect(reread.listFor(wsB)).toEqual([
+        expect.objectContaining({
+          config: stdioWith('token-b'),
+          targets: ['claude'],
+        }),
+      ]);
+    });
+
+    it('gives the global config to global-only targets and the local one to local targets', () => {
+      store.record({
+        serverKey: 'k',
+        registryName: 'r',
+        config: stdioWith('global'),
+        targets: ['claude', 'codex'],
+        scope: 'global',
+      });
+      store.record({
+        serverKey: 'k',
+        registryName: 'r',
+        config: stdioWith('local'),
+        targets: ['claude', 'cursor'],
+        scope: 'workspace',
+        workspaceRoot: wsA,
+      });
+
+      expect(store.listFor(wsA)).toEqual([
+        expect.objectContaining({
+          config: stdioWith('local'),
+          targets: ['claude', 'cursor'],
+        }),
+        expect.objectContaining({
+          config: stdioWith('global'),
+          targets: ['codex'],
+        }),
+      ]);
+      expect(store.listFor(wsB)).toEqual([
+        expect.objectContaining({
+          config: stdioWith('global'),
+          targets: ['claude', 'codex'],
+        }),
+      ]);
+    });
+
+    it('makeGlobal promotes this workspace config and keeps the others', () => {
+      for (const [root, token] of [
+        [wsA, 'token-a'],
+        [wsB, 'token-b'],
+      ] as const) {
+        store.record({
+          serverKey: 'k',
+          registryName: 'r',
+          config: stdioWith(token),
+          targets: ['claude'],
+          scope: 'workspace',
+          workspaceRoot: root,
+        });
+      }
+
+      store.makeGlobal('k', wsA, ['codex']);
+
+      expect(store.listFor(wsB)).toEqual([
+        expect.objectContaining({
+          config: stdioWith('token-b'),
+          targets: ['claude'],
+        }),
+        expect.objectContaining({
+          config: stdioWith('token-a'),
+          targets: ['codex'],
+        }),
+      ]);
+      expect(store.listFor(join(tmp, 'elsewhere'))).toEqual([
+        expect.objectContaining({
+          config: stdioWith('token-a'),
+          targets: ['claude', 'codex'],
+        }),
+      ]);
+    });
+
+    it('reads a top-level config from an earlier v2 file as every bucket config', () => {
+      writeRaw(
+        JSON.stringify({
+          version: 2,
+          servers: {
+            k: {
+              registryName: 'r',
+              config: stdio,
+              installedAt: 'x',
+              global: { targets: ['codex'] },
+              workspaces: {
+                [mcpIntentWorkspaceKey(wsA)]: {
+                  root: wsA,
+                  targets: ['claude'],
+                },
+              },
+            },
+          },
+          retired: {},
+        }),
+      );
+
+      expect(store.listFor(wsA)).toEqual([
+        expect.objectContaining({
+          config: stdio,
+          targets: ['codex', 'claude'],
+        }),
+      ]);
+      store.record({
+        serverKey: 'k',
+        registryName: 'r',
+        config: http,
+        targets: ['cursor'],
+        scope: 'workspace',
+        workspaceRoot: wsB,
+      });
+      const entry = (
+        readRaw()['servers'] as Record<string, Record<string, unknown>>
+      )['k'];
+      expect(entry['config']).toBeUndefined();
+      expect(entry['global']).toEqual({ targets: ['codex'], config: stdio });
+    });
+  });
+
+  describe('persistence failures throw', () => {
+    // Permission bits do not stop the owner on Windows, nor root anywhere.
+    const posixOnly =
+      process.platform === 'win32' || process.getuid?.() === 0 ? it.skip : it;
+
+    it('treats a non-ENOENT read error (EISDIR) as read-failed, not empty', () => {
+      // A directory where the file should be: reading it fails with EISDIR.
+      mkdirSync(storePath, { recursive: true });
+
+      let thrown: unknown;
+      try {
+        store.record({
+          serverKey: 'k',
+          registryName: 'r',
+          config: stdio,
+          targets: ['claude'],
+          scope: 'workspace',
+          workspaceRoot: wsA,
+        });
+      } catch (error: unknown) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(McpIntentPersistError);
+      expect((thrown as McpIntentPersistError).code).toBe('read-failed');
+    });
+
+    posixOnly(
+      'throws write-failed from record and makeGlobal when the atomic write fails',
+      () => {
+        store.record({
+          serverKey: 'k',
+          registryName: 'r',
+          config: stdio,
+          targets: ['claude'],
+          scope: 'workspace',
+          workspaceRoot: wsA,
+        });
+        const before = readFileSync(storePath, 'utf-8');
+        // The temp file lives beside the target; a read-only parent fails it.
+        const parent = dirname(storePath);
+        chmodSync(parent, 0o500);
+        try {
+          expect(() =>
+            store.record({
+              serverKey: 'k2',
+              registryName: 'r',
+              config: stdio,
+              targets: ['claude'],
+              scope: 'global',
+            }),
+          ).toThrow(expect.objectContaining({ code: 'write-failed' }));
+          expect(() => store.makeGlobal('k', wsA, [])).toThrow(
+            McpIntentPersistError,
+          );
+        } finally {
+          chmodSync(parent, 0o700);
+        }
+        expect(readFileSync(storePath, 'utf-8')).toBe(before);
+      },
+    );
+
+    posixOnly(
+      'throws read-failed for an unreadable (EACCES) file instead of reading it as empty',
+      () => {
+        store.record({
+          serverKey: 'k',
+          registryName: 'r',
+          config: stdio,
+          targets: ['claude'],
+          scope: 'global',
+        });
+        const before = readFileSync(storePath, 'utf-8');
+        chmodSync(storePath, 0o000);
+        try {
+          expect(() => store.listFor(wsA)).toThrow(
+            expect.objectContaining({ code: 'read-failed' }),
+          );
+          expect(() =>
+            store.record({
+              serverKey: 'other',
+              registryName: 'r',
+              config: stdio,
+              targets: ['claude'],
+              scope: 'global',
+            }),
+          ).toThrow(McpIntentPersistError);
+        } finally {
+          chmodSync(storePath, 0o600);
+        }
+        expect(readFileSync(storePath, 'utf-8')).toBe(before);
+      },
+    );
   });
 });

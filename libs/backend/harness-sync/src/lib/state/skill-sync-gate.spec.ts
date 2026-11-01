@@ -164,4 +164,48 @@ describe('SkillSyncGate', () => {
       });
     });
   });
+
+  describe('keepSelected() — Make global keeps moved slugs selected (TASK_2026_853 V5)', () => {
+    it('adds the slugs to a recorded `selected` allowlist and keeps skillSelectionAt', () => {
+      state.save(ws, {
+        version: 1,
+        skillSyncMode: 'selected',
+        enabledSkillSlugs: ['other'],
+        skillSelectionAt: '2026-10-01T00:00:00.000Z',
+      });
+
+      expect(gate.keepSelected(ws, ['moved', 'other'])).toBe(true);
+
+      const saved = state.load(ws);
+      expect(saved.skillSyncMode).toBe('selected');
+      expect(saved.enabledSkillSlugs).toEqual(['moved', 'other']);
+      expect(saved.skillSelectionAt).toBe('2026-10-01T00:00:00.000Z');
+      expect(gate.resolve(ws)).toEqual({
+        mode: 'selected',
+        slugs: ['moved', 'other'],
+        derived: false,
+      });
+    });
+
+    it('persists a derived `selected` decision together with the slugs', () => {
+      manifests.save(ws, 'claude', {
+        '.claude/skills/owned': managedEntry('h', '/src/owned', 'skill'),
+      });
+
+      expect(gate.keepSelected(ws, ['moved'])).toBe(true);
+
+      expect(state.load(ws).skillSyncMode).toBe('selected');
+      expect(state.load(ws).enabledSkillSlugs).toEqual(['moved', 'owned']);
+      expect(state.load(ws).skillSelectionAt).toBeUndefined();
+    });
+
+    it('writes nothing under a recorded `all`', () => {
+      state.save(ws, { version: 1, skillSyncMode: 'all' });
+
+      expect(gate.keepSelected(ws, ['moved'])).toBe(true);
+
+      expect(state.load(ws).skillSyncMode).toBe('all');
+      expect(state.load(ws).enabledSkillSlugs).toBeUndefined();
+    });
+  });
 });

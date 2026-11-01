@@ -178,6 +178,35 @@ export class SkillSyncGate {
   }
 
   /**
+   * Make global (TASK_2026_853 D-D9): add `slugs` to this workspace's
+   * allowlist so skills leaving its own skills.sh root — exempt from the
+   * selection (D-D4) — for a global root — subject to it — keep propagating
+   * here instead of being reaped.
+   *
+   * Under `'all'` nothing is written: every skill is admitted already. Under
+   * `'selected'`, recorded or derived, the allowlist becomes the resolved one
+   * plus `slugs`; a derived decision is persisted with them, as the reconciler
+   * would have persisted it. `skillSelectionAt` is left as it was: this keeps
+   * what the user already had rather than recording a new choice. Writes
+   * nothing when the recorded allowlist already holds every slug.
+   */
+  keepSelected(cwd: string, slugs: readonly string[]): boolean {
+    const workspaceRoot = resolveHarnessWorkspaceRoot(cwd);
+    const decision = this.resolve(workspaceRoot);
+    if (decision.mode === 'all') return true;
+    const merged = normalizeSlugs([...decision.slugs, ...slugs]);
+    if (!decision.derived && merged.length === decision.slugs.length) {
+      return true;
+    }
+    const state = this.stateStore.load(workspaceRoot);
+    return this.stateStore.save(workspaceRoot, {
+      ...state,
+      skillSyncMode: 'selected',
+      enabledSkillSlugs: merged,
+    });
+  }
+
+  /**
    * The "just give me everything here" escape hatch.
    *
    * Clears the allowlist rather than keeping it: a stale list surviving a
