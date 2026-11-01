@@ -322,9 +322,50 @@ export interface McpInstallResult {
   success: boolean;
   /** Absolute path of the config file that was written */
   configPath: string;
-  /** Error message if install failed */
+  /**
+   * Fixed copy for a result that is not a plain success. Never a caught
+   * exception's text: the host logs the cause and sends the copy for `code`.
+   */
   error?: string;
+  /** Why the result is not a plain success; see {@link MCP_INSTALL_RESULT_COPY}. */
+  code?: McpInstallResultCode;
+  /**
+   * The request was saved, but nothing was written yet: a global change with
+   * no folder open is applied at the next reconcile of an opened folder.
+   * `success` stays `false` (no file was written), but this is not a failure.
+   */
+  deferred?: boolean;
 }
+
+/** Fixed reasons a per-target MCP install, uninstall or make-global result carries. */
+export type McpInstallResultCode =
+  | 'deferred-no-workspace'
+  | 'intent-not-saved'
+  | 'reconciler-unavailable'
+  | 'reconcile-failed'
+  | 'write-failed'
+  | 'config-unresolved'
+  | 'remove-failed'
+  | 'install-failed';
+
+/**
+ * The one copy per {@link McpInstallResultCode}. Hosts send it as `error`, and
+ * the webview renders it by `code`, so host diagnostics (paths, config values,
+ * provider text) never reach the UI.
+ */
+export const MCP_INSTALL_RESULT_COPY: Readonly<
+  Record<McpInstallResultCode, string>
+> = {
+  'deferred-no-workspace':
+    'Saved for all workspaces. Config files are written when you open a folder.',
+  'intent-not-saved': 'Ptah could not save this change. Nothing was written.',
+  'reconciler-unavailable': 'This app cannot write MCP config files.',
+  'reconcile-failed': 'The config file could not be updated.',
+  'write-failed': 'The config file could not be written.',
+  'config-unresolved': 'No config file was found for this tool.',
+  'remove-failed': 'The entry could not be removed from the config file.',
+  'install-failed': 'The install did not finish.',
+};
 
 /**
  * Where an installed MCP server was read from.
@@ -891,7 +932,32 @@ export interface McpDirectoryUninstallParams {
 /** Result for mcpDirectory:uninstall */
 export interface McpDirectoryUninstallResult {
   results: McpInstallResult[];
+  /**
+   * Set when the whole call failed and nothing was attempted; `results` is
+   * then empty and must not be read as "nothing to remove".
+   */
+  code?: McpDirectoryCallFailureCode;
+  /** Fixed copy for `code`; never a caught exception's text. */
+  error?: string;
 }
+
+/**
+ * Why a whole `mcpDirectory:listInstalled` or `mcpDirectory:uninstall` call
+ * failed. The host logs the cause; the UI shows
+ * {@link MCP_DIRECTORY_CALL_FAILURE_COPY} for the code.
+ */
+export type McpDirectoryCallFailureCode =
+  'intent-unreadable' | 'list-failed' | 'uninstall-failed';
+
+/** The one copy per {@link McpDirectoryCallFailureCode}. */
+export const MCP_DIRECTORY_CALL_FAILURE_COPY: Readonly<
+  Record<McpDirectoryCallFailureCode, string>
+> = {
+  'intent-unreadable':
+    'Ptah could not read its record of installed MCP servers. Check that Ptah can read the .ptah folder in your home folder.',
+  'list-failed': 'Could not load the installed MCP servers.',
+  'uninstall-failed': 'The MCP server could not be removed.',
+};
 
 /** Params for mcpDirectory:listInstalled (no params needed) */
 export type McpDirectoryListInstalledParams = Record<string, never>;
@@ -899,6 +965,13 @@ export type McpDirectoryListInstalledParams = Record<string, never>;
 /** Result for mcpDirectory:listInstalled */
 export interface McpDirectoryListInstalledResult {
   servers: InstalledMcpServer[];
+  /**
+   * Set when the list could not be read; `servers` is then empty and must not
+   * be shown as "no servers installed".
+   */
+  code?: McpDirectoryCallFailureCode;
+  /** Fixed copy for `code`; never a caught exception's text. */
+  error?: string;
 }
 
 /** Params for mcpDirectory:getPopular */

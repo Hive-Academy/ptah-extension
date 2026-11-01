@@ -112,6 +112,8 @@ export {
 } from './lib/register-shared-rpc-handlers';
 /** Registered by `registerSharedRpcHandlers`; exported for the DI guards. */
 export { RecentWorkspacesService } from './lib/services/recent-workspaces.service';
+export { InstallScopeMigrationService } from './lib/install-scope/install-scope-migration.service';
+export { InstallScopeNoticeRpcHandlers } from './lib/install-scope/install-scope-notice-rpc.handlers';
 /**
  * Key prefix of the per-session turn change sets. Exported for the Electron
  * worker storage, which keeps keys with this prefix out of its startup cache.

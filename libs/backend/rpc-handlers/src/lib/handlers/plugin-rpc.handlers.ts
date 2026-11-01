@@ -90,6 +90,7 @@ import type {
   PluginsResolveConfigHomeResult,
   ExternalMarketplace,
   ExternalMarketplaceBrowseResult,
+  CapabilityScope,
   ExternalPluginMcpServer,
   ExternalSkillCollision,
   ExternalUninstallResult,
@@ -726,6 +727,7 @@ export class PluginRpcHandlers {
         plugin: string;
         consentToken?: string;
         localItemDecisions?: Record<string, FileDecision>;
+        mcpScope?: CapabilityScope;
       },
       ExternalInstallResponse
     >('plugins:install-external', async (params) => {
@@ -771,7 +773,12 @@ export class PluginRpcHandlers {
         // trigger fired.
         const { planLocalItems, ...result } = confirmed;
         const harnessRoot = this.harnessRoot();
-        const mcp = await this.installDeclaredMcpServers(result.pluginId);
+        // `mcpScope` is read here, on the consented call, and nowhere else:
+        // the plan call above returns before it and writes nothing.
+        const mcp = await this.installDeclaredMcpServers(
+          result.pluginId,
+          parsed.mcpScope,
+        );
         const activation = await this.activateExternalPlugin(
           result.pluginId,
           harnessRoot,
@@ -834,10 +841,13 @@ export class PluginRpcHandlers {
    *
    * Non-fatal throughout. A plugin whose files landed is installed; an MCP
    * server that could not be recorded is a warning on the result, not a failed
-   * install the user has to retry.
+   * install the user has to retry. That includes a workspace-scope choice made
+   * with no folder open: the plugin files are a user-wide cache and still
+   * install, only the servers are skipped (with a warning).
    */
   private async installDeclaredMcpServers(
     pluginId: string,
+    scope: CapabilityScope,
   ): Promise<ExternalMcpOutcome> {
     try {
       const record = this.externalState.findInstalled(pluginId);
@@ -847,6 +857,7 @@ export class PluginRpcHandlers {
         pluginId,
         servers,
         this.workspaceProvider.getWorkspaceRoot() ?? undefined,
+        scope,
       );
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -902,7 +913,8 @@ export class PluginRpcHandlers {
    *
    * Runs only after the tree and the record are actually gone (`removed`), and
    * before `deactivateExternalPlugin` reconciles — so the same pass that reaps
-   * the plugin's skills also reaps its MCP entries.
+   * the plugin's skills also reaps its MCP entries. Each server is forgotten in
+   * the scope it was recorded in (see {@link ExternalPluginMcpService.uninstall}).
    */
   private async uninstallDeclaredMcpServers(
     pluginId: string,

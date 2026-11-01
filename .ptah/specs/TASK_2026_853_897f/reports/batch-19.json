@@ -1,0 +1,97 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": 19,
+  "title": "D-1/D-2 source resolver boundary: scoped MCP intents and permanent retirement state",
+  "status": "COMPLETE",
+  "filesChanged": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/backend/harness-sync/src/lib/sources/harness-source.port.ts",
+      "change": "MODIFIED: HarnessSourceState gains optional `retired?: HarnessRetiredSources` (Batch 21 type, imported from ../targets/harness-target.port); absent = nothing retired so static resolvers/spec fakes stay valid. mcpIntents doc now states global + this workspace's records only (D-1)."
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.ts",
+      "change": "MODIFIED: resolve(ws) reads `retired` once before the plugin reader and carries it on every state (sync success, reader null/throws, sync read failure, effective success, policy-unknown, effective failure). New readRetiredSources(): skillSourceRoots = <pluginsRoot>/<rootId> for each rootId of ~/.ptah/plugins/SKILLS_SH_RETIRED_FILE parsed with parseSkillsShRetiredRegistry (non-basename ids dropped, sorted; absent/unparseable/malformed -> []); mcpServerKeys = McpIntentStore.listRetired() keys. New exported defaultSkillsShPluginsRoot(homeDir) and an optional 5th constructor param skillsShPluginsRoot (defaults to it; hosts unchanged). readMcpIntents keeps the Batch 18 listFor(ws ?? '') call, documented as canonical-root, global-only when unscoped. No list() shim; no second source-port writer."
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/backend/harness-sync/src/lib/sources/plugin-config-source-resolver.spec.ts",
+      "change": "MODIFIED: new describe 'workspace scope and retirement': install in A absent from B's resolved mcpIntents AND from HarnessManifestBuilder.build(stateB).mcp (present for A); global ∪ local target merge (A: claude+codex, B: claude, unscoped: claude); sub-directory resolves its canonical root's records; retired sources equal on all 7 resolution paths (incl. read-failure and policy-unknown), with '..' and 'nested/escape' ids dropped and v1 server never desired; absent/non-JSON/wrong-version registry retires no skill root; both registries re-read each pass."
+    }
+  ],
+  "behaviour": {
+    "mcpScope": "resolve(ws).mcpIntents = McpIntentStore.listFor(ws): global targets ∪ the canonical workspace's targets; unscoped resolve = global only, never every workspace.",
+    "retired": "resolve(ws).retired: HarnessRetiredSources = { skillSourceRoots: absolute '<~/.ptah/plugins>/<rootId>' sorted, mcpServerKeys: retired v1 keys sorted }, on every resolution. Threading into reconcile options/planner stays Batch 22+ work per batch-21 contract.portInputs."
+  },
+  "verify": {
+    "command": "npm run verify -- -p @ptah-extension/harness-sync,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview (log /tmp/tpd-b19-verify.log)",
+    "perTarget": {
+      "result": "68 tasks: 66 succeeded (27 cached), 2 failed",
+      "failed": {
+        "@ptah-extension/harness-sync:test": "2 environmental failures in agent-workspace-scope.spec.ts only. The preceding run, `npm run verify -- -t test -p @ptah-extension/harness-sync -- --output-style=static` (/tmp/tpd-b19-hs.log), reported 'Tests: 2 failed, 648 passed, 650 total'. Its only FAIL file was src/lib/state/agent-workspace-scope.spec.ts.",
+        "ptah-extension-webview:lint": "pre-existing on main"
+      }
+    },
+    "diagnostics": "ptah_get_diagnostics on the three files: 0 errors"
+  },
+  "environmentalFailures": [
+    {
+      "spec": "libs/backend/harness-sync/src/lib/state/agent-workspace-scope.spec.ts",
+      "tests": [
+        "the writer half — resolveAgentMirrorSource › names the source directory and the root, for a consented workspace",
+        "the writer half — resolveAgentMirrorSource › mirrors when the gate is absent, because absent is a wiring gap"
+      ],
+      "classification": "environmental, pre-existing",
+      "cause": "Fixed path /home/amun/projects/alpha resolves to /home/amun/projects because /home/amun/projects/.ptah exists (user data, untouched). Batch 19 does not touch this spec or its source."
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "HarnessSourceState.retired is optional (absent = nothing retired); PluginConfigSourceResolver always sets it.",
+      "options": [
+        "required field",
+        "optional field filled by the one producer"
+      ],
+      "evidence": "harness-source.port.ts makes mcpIntents/disabledAgentIds/agentModels optional so createStaticSourceResolver and spec fakes (reconciler/*.spec.ts, health/harness-destination-scanner.spec.ts) stay assignable; a required field would force edits outside this batch.",
+      "reversible": true
+    },
+    {
+      "decision": "The skills.sh plugins root is an optional 5th resolver constructor param defaulting to defaultSkillsShPluginsRoot() = ~/.ptah/plugins; HarnessSourceLayout is unchanged.",
+      "options": [
+        "new layout field",
+        "constructor param with home default"
+      ],
+      "evidence": "Hosts (apps/ptah-electron, apps/ptah-extension-vscode phase-2-libraries.ts, cli-engine container.ts) call createPluginConfigSourceResolver without a layout and with the default McpIntentStore at the home path; a param with a home default needs no host change, matching the mcpIntents default.",
+      "reversible": true
+    },
+    {
+      "decision": "Registry root ids that are not a plain basename ('.', '..', anything with a separator) are dropped.",
+      "options": [
+        "join every id",
+        "drop non-basename ids"
+      ],
+      "evidence": "Batch 21 contract: skillSourceRoots item id = skillsShRetiredItemId(basename(root)); a non-basename id would not round-trip and could name a directory outside ~/.ptah/plugins.",
+      "reversible": true
+    },
+    {
+      "decision": "An absent, unparseable or malformed retired registry retires no skill root.",
+      "options": [
+        "treat as nothing retired",
+        "fail the resolve"
+      ],
+      "evidence": "parseSkillsShRetiredRegistry contract: 'reader decides (absent file = nothing retired)'. IHarnessSourceResolver must never throw. Without a retired mark, a copy is still manifest-owned and removed only under the ordinary hash rule, so this keeps files rather than deleting them.",
+      "reversible": true
+    },
+    {
+      "decision": "mcpServerKeys lists every retired v1 key, including keys that were recorded again in v2.",
+      "options": [
+        "exclude keys active in listFor(ws)",
+        "all retired keys"
+      ],
+      "evidence": "The planner consults it only for removals (HarnessPlanRemove.retiredItemId, batch-21 contract.portInputs). An active key is desired and never removed for its active targets; a copy of the same key on a target that is no longer desired is a v1 leftover and should go through the proof policy. mcp-intent-store.ts record() keeps the retired entry beside an active one by design.",
+      "reversible": true
+    }
+  ],
+  "coordinatorFix": {
+    "change": "Root-id filter also drops the empty id: join(pluginsRoot, \"\") is the plugins root itself. Spec fixture adds an empty key.",
+    "verify": "harness-sync lint + typecheck pass (/tmp/tpd-b19-fix2.log)"
+  }
+}

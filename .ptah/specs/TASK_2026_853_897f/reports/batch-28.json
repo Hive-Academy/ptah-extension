@@ -1,0 +1,29 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": "28",
+  "title": "D-4 MCP directory and harness apply RPC",
+  "executor": "claude backend-developer subagents (first killed; second finished)",
+  "changed": [
+    "libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.ts",
+    "libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.schema.ts",
+    "libs/backend/rpc-handlers/src/lib/handlers/mcp-directory-rpc.handlers.spec.ts",
+    "libs/backend/rpc-handlers/src/lib/harness/io/harness-mcp-install.service.ts",
+    "libs/backend/rpc-handlers/src/lib/harness/io/harness-mcp-install.service.spec.ts (new)",
+    "libs/shared/src/lib/types/rpc.types.ts (mcpDirectory:makeGlobal join only, decision #63)"
+  ],
+  "contract": {
+    "install": "scope defaults to workspace; WORKSPACE_NOT_OPEN and home-target INVALID_PARAMS RpcUserErrors raised before any write.",
+    "makeGlobal": "homeTargets opt-in (codex, copilot, antigravity); fixed safe error text, cause logged; degradation-audit: reported marker.",
+    "listInstalled": "Ptah-managed rows report recorded intent scope via installService.intentScopeOf; unmanaged rows keep file scope.",
+    "harnessApply": "records workspace intent explicitly; home targets skipped with a warning.",
+    "recordInstalledCapability": "unchanged (argument rename only)."
+  },
+  "openItems": [
+    "Pre-existing: unexpected install exceptions and per-target error fields still carry raw error text; not changed in this batch.",
+    "isHomeTarget one-line wrapper exists in handler and harness-mcp-install.service.ts."
+  ],
+  "verification": {
+    "scopedTest": "--testPathPatterns='mcp-directory-rpc|harness-mcp-install': 2 suites, 70/70, exit 0 (/tmp/tpd-b28-test.log)",
+    "combinedVerify": "shared, agent-sdk, rpc-handlers, ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui, cli-engine, ptah-extension-webview: 74 tasks, 73 ok, only known ptah-extension-webview:lint failed (/tmp/tpd-b26-29-verify.log); degradation-audit:lint exit 0"
+  }
+}

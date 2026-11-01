@@ -7,9 +7,10 @@ import {
   McpIntentStore,
   type HarnessReconcilerService,
 } from '@ptah-extension/harness-sync';
-import type {
-  McpOAuthConnectedRecord,
-  SmitheryInstalledRecord,
+import {
+  MCP_INSTALL_RESULT_COPY,
+  type McpOAuthConnectedRecord,
+  type SmitheryInstalledRecord,
 } from '@ptah-extension/shared';
 import { McpInstallService } from './mcp-install.service';
 
@@ -108,9 +109,13 @@ describe('McpInstallService', () => {
 
     it('marks a recorded key as ptah-managed', async () => {
       writeMcpJson({ owned: { command: 'node' } });
-      intents.record('owned', 'io.github.x/owned', ['claude'], {
-        type: 'stdio',
-        command: 'node',
+      intents.record({
+        serverKey: 'owned',
+        registryName: 'io.github.x/owned',
+        targets: ['claude'],
+        config: { type: 'stdio', command: 'node' },
+        scope: 'workspace',
+        workspaceRoot: tmp,
       });
 
       const rows = await service().listInstalled(tmp);
@@ -453,9 +458,13 @@ describe('McpInstallService', () => {
 
     it('force on a key Ptah DOES own still goes through the reconciler', async () => {
       writeMcpJson({ other: { command: 'x' } });
-      intents.record('owned', 'io.github.x/owned', ['claude'], {
-        type: 'stdio',
-        command: 'node',
+      intents.record({
+        serverKey: 'owned',
+        registryName: 'io.github.x/owned',
+        targets: ['claude'],
+        config: { type: 'stdio', command: 'node' },
+        scope: 'workspace',
+        workspaceRoot: tmp,
       });
 
       const results = await service().uninstall('owned', ['claude'], tmp, {
@@ -472,8 +481,266 @@ describe('McpInstallService', () => {
       const results = await service().uninstall('handwritten', ['claude'], '', {
         force: true,
       });
-      expect(results[0].success).toBe(false);
-      expect(results[0].error).toContain('claude');
+      expect(results[0]).toMatchObject({
+        success: false,
+        code: 'config-unresolved',
+        error: MCP_INSTALL_RESULT_COPY['config-unresolved'],
+      });
+    });
+  });
+
+  describe('scoped intent (TASK_2026_853 D-1)', () => {
+    let otherWs: string;
+    const stdio = { type: 'stdio' as const, command: 'node' };
+
+    // Outside `tmp`: the intent store's `tmp/.ptah` is a workspace-root
+    // marker, so a directory under `tmp` would canonicalise to `tmp` itself.
+    beforeEach(() => {
+      otherWs = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-install-other-'));
+      fs.mkdirSync(path.join(otherWs, '.git'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(otherWs, { recursive: true, force: true });
+    });
+
+    it('records a workspace install by default, invisible to another workspace', async () => {
+      await service().install('r/k', 'k', stdio, ['claude'], tmp);
+
+      expect(intents.scopeOf('k', tmp)).toBe('workspace');
+      expect(intents.listFor(tmp).map((i) => i.serverKey)).toEqual(['k']);
+      expect(intents.listFor(otherWs)).toEqual([]);
+      expect(service().intentScopeOf('k', otherWs)).toBeUndefined();
+    });
+
+    it('refuses a workspace install with no root before writing or reconciling', async () => {
+      await expect(
+        service().install('r/k', 'k', stdio, ['claude'], undefined),
+      ).rejects.toMatchObject({ code: 'workspace-root-required' });
+      expect(intents.has('k')).toBe(false);
+      expect(reconcileCalls).toBe(0);
+    });
+
+    it('records an explicit global install for every workspace', async () => {
+      const results = await service().install(
+        'r/k',
+        'k',
+        stdio,
+        ['claude'],
+        tmp,
+        'global',
+      );
+
+      expect(results[0]).toMatchObject({ target: 'claude', success: true });
+      expect(intents.scopeOf('k', otherWs)).toBe('global');
+      expect(intents.targetsIn('k', 'workspace', tmp)).toEqual([]);
+    });
+
+    it('merges a second install into the same workspace record', async () => {
+      await service().install('r/k', 'k', stdio, ['claude'], tmp);
+      await service().install('r/k', 'k', stdio, ['cursor'], tmp);
+      expect(intents.listFor(tmp)[0].targets).toEqual(['claude', 'cursor']);
+    });
+
+    it('makeGlobal promotes the record, adds opt-in home targets and reconciles them', async () => {
+      await service().install('r/k', 'k', stdio, ['claude'], tmp);
+      reconcileCalls = 0;
+
+      const results = await service().makeGlobal('k', tmp, ['codex']);
+
+      expect(results.map((r) => r.target)).toEqual(['claude', 'codex']);
+      expect(reconcileCalls).toBe(1);
+      expect(intents.scopeOf('k', otherWs)).toBe('global');
+      expect(intents.listFor(otherWs)[0].targets).toEqual(['claude', 'codex']);
+    });
+
+    it('makeGlobal refuses a server this workspace never installed', async () => {
+      await service().install('r/k', 'k', stdio, ['claude'], otherWs);
+      await expect(service().makeGlobal('k', tmp, [])).rejects.toMatchObject({
+        code: 'not-recorded',
+      });
+      expect(intents.scopeOf('k', otherWs)).toBe('workspace');
+    });
+
+    it('a bare uninstall drops this workspace only, leaving another workspace installed', async () => {
+      await service().install('r/k', 'k', stdio, ['claude'], tmp);
+      await service().install('r/k', 'k', stdio, ['claude'], otherWs);
+
+      await service().uninstall('k', undefined, tmp);
+
+      expect(intents.listFor(tmp)).toEqual([]);
+      expect(intents.listFor(otherWs).map((i) => i.serverKey)).toEqual(['k']);
+    });
+
+    it('a bare uninstall drops both the global and this workspace record', async () => {
+      await service().install('r/k', 'k', stdio, ['claude'], tmp);
+      await service().install('r/k', 'k', stdio, ['codex'], tmp, 'global');
+
+      const results = await service().uninstall('k', undefined, tmp);
+
+      expect(results.map((r) => r.target).sort()).toEqual(['claude', 'codex']);
+      expect(intents.has('k')).toBe(false);
+    });
+
+    it('an explicit workspace uninstall with no root throws before writing', async () => {
+      await service().install('r/k', 'k', stdio, ['claude'], tmp);
+      await expect(
+        service().uninstall('k', undefined, undefined, { scope: 'workspace' }),
+      ).rejects.toMatchObject({ code: 'workspace-root-required' });
+      expect(intents.scopeOf('k', tmp)).toBe('workspace');
+    });
+  });
+  describe('failure results carry fixed copy (Phase D review L2, L5, L6)', () => {
+    const stdio = { type: 'stdio' as const, command: 'node' };
+    const SECRET = 'SECRET-SENTINEL-sk-live-1234';
+
+    const withReconciler = (
+      reconcile: HarnessReconcilerService['reconcile'],
+      warn?: (message: string, detail?: unknown) => void,
+    ): McpInstallService =>
+      new McpInstallService(
+        { reconcile } as unknown as HarnessReconcilerService,
+        intents,
+        { homeDir: tmp, ...(warn === undefined ? {} : { warn }) },
+      );
+
+    /** A store whose path is a directory: every read fails with EISDIR. */
+    const brokenStore = (): McpIntentStore => {
+      const dir = path.join(tmp, 'broken-store');
+      fs.mkdirSync(dir, { recursive: true });
+      return new McpIntentStore(dir);
+    };
+
+    it('fails every target before reconciling when the intent cannot be saved', async () => {
+      const warnings: unknown[] = [];
+      const svc = new McpInstallService(cleanReconciler(), brokenStore(), {
+        homeDir: tmp,
+        warn: (_message, detail) => warnings.push(detail),
+      });
+
+      const results = await svc.install(
+        'r/k',
+        'k',
+        stdio,
+        ['claude', 'codex'],
+        tmp,
+        'global',
+      );
+
+      expect(reconcileCalls).toBe(0);
+      expect(results).toEqual([
+        expect.objectContaining({
+          target: 'claude',
+          success: false,
+          code: 'intent-not-saved',
+          error: MCP_INSTALL_RESULT_COPY['intent-not-saved'],
+        }),
+        expect.objectContaining({ target: 'codex', code: 'intent-not-saved' }),
+      ]);
+      expect(warnings).toHaveLength(1);
+    });
+
+    it('makeGlobal rejects with the persistence error and does not reconcile', async () => {
+      const svc = new McpInstallService(cleanReconciler(), brokenStore(), {
+        homeDir: tmp,
+      });
+      await expect(svc.makeGlobal('k', tmp, ['codex'])).rejects.toMatchObject({
+        name: 'McpIntentPersistError',
+        code: 'read-failed',
+      });
+      expect(reconcileCalls).toBe(0);
+    });
+
+    it('defers every target of a global install with no folder open, saving the intent', async () => {
+      const results = await service().install(
+        'r/k',
+        'k',
+        stdio,
+        ['claude', 'codex'],
+        undefined,
+        'global',
+      );
+
+      expect(reconcileCalls).toBe(0);
+      expect(results).toEqual(
+        ['claude', 'codex'].map((target) =>
+          expect.objectContaining({
+            target,
+            success: false,
+            deferred: true,
+            code: 'deferred-no-workspace',
+            error: MCP_INSTALL_RESULT_COPY['deferred-no-workspace'],
+          }),
+        ),
+      );
+      expect(intents.targetsIn('k', 'global')).toEqual(['claude', 'codex']);
+    });
+
+    it('defers every target with no folder open even when the host has no reconciler', async () => {
+      const svc = new McpInstallService(null, intents, { homeDir: tmp });
+
+      const results = await svc.install(
+        'r/k',
+        'k',
+        stdio,
+        ['claude', 'codex'],
+        undefined,
+        'global',
+      );
+
+      expect(results).toEqual(
+        ['claude', 'codex'].map((target) =>
+          expect.objectContaining({
+            target,
+            success: false,
+            deferred: true,
+            code: 'deferred-no-workspace',
+          }),
+        ),
+      );
+      expect(JSON.stringify(results)).not.toContain('reconciler-unavailable');
+      expect(intents.targetsIn('k', 'global')).toEqual(['claude', 'codex']);
+    });
+
+    it('never puts a reconcile exception message in a result, and logs it', async () => {
+      const warnings: unknown[] = [];
+      const svc = withReconciler(
+        () => Promise.reject(new Error(`EACCES /home/u/.codex ${SECRET}`)),
+        (_message, detail) => warnings.push(detail),
+      );
+
+      const results = await svc.install('r/k', 'k', stdio, ['claude'], tmp);
+
+      expect(results[0]).toMatchObject({
+        success: false,
+        code: 'reconcile-failed',
+        error: MCP_INSTALL_RESULT_COPY['reconcile-failed'],
+      });
+      expect(JSON.stringify(results)).not.toContain(SECRET);
+      expect(JSON.stringify(warnings)).toContain(SECRET);
+    });
+
+    it('never puts a write-failure reason in a result, and logs it', async () => {
+      const warnings: unknown[] = [];
+      const svc = withReconciler(
+        (_root, opts) =>
+          Promise.resolve({
+            targets: (opts.targets ?? []).map((target) => ({
+              target,
+              writeFailed: [{ relPath: '.mcp.json#k', reason: SECRET }],
+            })),
+          }) as unknown as ReturnType<HarnessReconcilerService['reconcile']>,
+        (_message, detail) => warnings.push(detail),
+      );
+
+      const results = await svc.install('r/k', 'k', stdio, ['claude'], tmp);
+
+      expect(results[0]).toMatchObject({
+        success: false,
+        code: 'write-failed',
+      });
+      expect(JSON.stringify(results)).not.toContain(SECRET);
+      expect(JSON.stringify(warnings)).toContain(SECRET);
     });
   });
 });

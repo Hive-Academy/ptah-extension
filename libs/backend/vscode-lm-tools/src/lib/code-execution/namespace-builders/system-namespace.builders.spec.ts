@@ -461,6 +461,31 @@ describe('HELP_DOCS — system CLI list drift (Batch 34)', () => {
   });
 });
 
+// TASK_2026_853 Batch 31: the harness help matches the workspace-scope default
+// that Batch 30 gave createSkill and installMcpServer.
+describe('HELP_DOCS — harness install scope', () => {
+  const doc = HELP_DOCS['harness'];
+
+  it('names workspace as the createSkill default and user as the global choice', () => {
+    expect(doc).toContain("scope 'workspace' (default)");
+    expect(doc).toContain(
+      "scope 'user'                -> ~/.ptah/plugins, installs for every workspace.",
+    );
+    expect(doc).not.toContain("scope 'user' (default)");
+  });
+
+  it('documents the installMcpServer scope parameter and the home-target rule', () => {
+    expect(doc).toContain(
+      'installMcpServer(serverName, config, serverKey?, targets?, scope?)',
+    );
+    expect(doc).toContain(
+      "scope 'workspace'; scope 'user' installs for every workspace",
+    );
+    expect(doc).toContain('for codex/copilot/antigravity');
+    expect(doc).toContain('The result includes the scope.');
+  });
+});
+
 describe('profile-aware help', () => {
   const codingHelp = buildHelpMethod({ getCallerToolProfile: () => 'coding' });
   it.each([undefined, 'overview'])(
