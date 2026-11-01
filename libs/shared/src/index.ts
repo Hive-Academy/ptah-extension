@@ -41,6 +41,7 @@ export type * from './mcp-apps-contracts/artifact.types';
 export * from './lib/types/ptah-cli.types';
 export * from './lib/types/agent-permission.types';
 export * from './lib/types/mcp-directory.types';
+export * from './lib/types/mcp-registry-config.mapper';
 export * from './lib/types/task-spec.types';
 export * from './lib/types/session-organization.types';
 export * from './lib/types/task-spec.contract';

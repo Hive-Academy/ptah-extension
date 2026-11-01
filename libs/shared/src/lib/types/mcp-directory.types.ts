@@ -88,6 +88,126 @@ export interface McpSseConfig extends McpServerConfigBase {
 /** Discriminated union of all MCP server transport configs */
 export type McpServerConfig = McpStdioConfig | McpHttpConfig | McpSseConfig;
 
+/** A value accepted by a registry package argument, environment variable, or header. */
+export interface McpRegistryInput {
+  /** Human-readable description of the input. */
+  description?: string;
+  /** Whether the server requires this input. */
+  isRequired?: boolean;
+  /** Expected value format. */
+  format?: 'string' | 'number' | 'boolean' | 'filepath';
+  /** Literal value supplied by the registry. */
+  value?: string;
+  /** Whether the value is sensitive and must not be logged. */
+  isSecret?: boolean;
+  /** Default value used when no literal value is supplied. */
+  default?: string;
+  /** Placeholder text for a user-supplied value. */
+  placeholder?: string;
+  /** Allowed values for this input. */
+  choices?: string[];
+}
+
+/** A named environment variable or HTTP header from the registry. */
+export interface McpRegistryKeyValueInput extends McpRegistryInput {
+  /** Environment variable or HTTP header name. */
+  name: string;
+  /** Values referenced by placeholders in the input value. */
+  variables?: Record<string, McpRegistryInput>;
+}
+
+interface McpRegistryPackageArgumentBase extends McpRegistryInput {
+  /** Values referenced by placeholders in the argument value. */
+  variables?: Record<string, McpRegistryInput>;
+  /** Whether the argument can occur more than once. */
+  isRepeated?: boolean;
+  /** Hint describing the expected argument value. */
+  valueHint?: string;
+}
+
+/** A positional package or runtime argument. */
+export type McpRegistryPackageArgument =
+  | (McpRegistryPackageArgumentBase & {
+      type: 'positional';
+      /** Optional positional argument label. */
+      name?: string;
+    })
+  | (McpRegistryPackageArgumentBase & {
+      type: 'named';
+      /** Flag or option name, for example `--port`. */
+      name: string;
+    });
+
+/** Transport used to connect to a registry package. */
+export type McpRegistryPackageTransport =
+  | {
+      /** Standard input/output transport. */
+      type: 'stdio';
+    }
+  | {
+      /** Remote transport type; unknown values remain representable. */
+      type: 'streamable-http' | 'sse' | (string & {});
+      /** Remote endpoint URL or URL template. */
+      url: string;
+      /** HTTP headers accepted by the remote endpoint. */
+      headers?: McpRegistryKeyValueInput[];
+    };
+
+/** Package deployment info in the 2025-12-11 server.json schema. */
+export interface McpRegistryServerPackage {
+  /** Package registry type, for example `npm`, `pypi`, `oci`, or `nuget`. */
+  registryType: string;
+  /** Package identifier in its registry. */
+  identifier: string;
+  /** Transport used to connect to the package. */
+  transport: McpRegistryPackageTransport;
+  /** Base URL of a non-default package registry. */
+  registryBaseUrl?: string;
+  /** Exact package version. */
+  version?: string;
+  /** SHA-256 digest for package formats that require verification. */
+  fileSha256?: string;
+  /** Suggested runtime command. */
+  runtimeHint?: string;
+  /** Arguments placed before the package identifier. */
+  runtimeArguments?: McpRegistryPackageArgument[];
+  /** Arguments placed after the package identifier. */
+  packageArguments?: McpRegistryPackageArgument[];
+  /** Environment variables accepted by the package. */
+  environmentVariables?: McpRegistryKeyValueInput[];
+}
+
+/** Remote endpoint in the 2025-12-11 server.json schema. */
+export interface McpRegistryRemote {
+  /** Remote transport type; unknown values remain representable. */
+  type: 'streamable-http' | 'sse' | (string & {});
+  /** Remote endpoint URL or URL template. */
+  url: string;
+  /** HTTP headers accepted by the remote endpoint. */
+  headers?: McpRegistryKeyValueInput[];
+  /** Values referenced by placeholders in the URL. */
+  variables?: Record<string, McpRegistryInput>;
+}
+
+/** Coded registry failures that have a user-safe explanation. */
+export type McpRegistryErrorCode =
+  | 'MCP_REGISTRY_SHAPE_UNKNOWN'
+  | 'MCP_NO_INSTALL_SOURCE'
+  | 'MCP_PACKAGE_TYPE_UNSUPPORTED'
+  | 'MCP_PACKAGE_TRANSPORT_UNSUPPORTED';
+
+/** User-safe messages for registry failures; these contain no server data or secrets. */
+export const MCP_REGISTRY_ERROR_MESSAGES: Record<McpRegistryErrorCode, string> = {
+  MCP_REGISTRY_SHAPE_UNKNOWN:
+    'The registry returned a server format that Ptah does not recognize.',
+  MCP_NO_INSTALL_SOURCE:
+    'This server does not provide an installable package or remote endpoint.',
+  MCP_PACKAGE_TYPE_UNSUPPORTED:
+    'This server uses a package type that Ptah does not support.',
+  MCP_PACKAGE_TRANSPORT_UNSUPPORTED:
+    'This server uses a package transport that Ptah does not support.',
+};
+
 /** Package deployment info from the registry */
 export interface McpRegistryPackage {
   /** Package registry type (e.g., "npm", "pypi", "docker") */
@@ -171,7 +291,9 @@ export interface McpRegistryConnection {
 
 /**
  * A single MCP server entry from an MCP registry source.
- * Maps to GET /v0.1/servers response items (official) and Smithery /servers.
+ * Official entries contain the `server` object returned in the `{server,_meta}` envelope by
+ * GET /v0.1/servers?version=latest and the versions/latest detail endpoint. Smithery entries
+ * keep their source-specific fields on the same shared contract.
  */
 export interface McpRegistryEntry {
   /** Fully qualified server name (e.g., "io.github.user/server-name") */
@@ -180,6 +302,16 @@ export interface McpRegistryEntry {
   displayName?: string;
   /** Human-readable description */
   description?: string;
+  /** Latest server.json version. */
+  version?: string;
+  /** Display title supplied by the official registry. */
+  title?: string;
+  /** Server website supplied by the official registry. */
+  websiteUrl?: string;
+  /** Package install options in the server.json schema. */
+  packages?: McpRegistryServerPackage[];
+  /** Remote endpoints in the server.json schema. */
+  remotes?: McpRegistryRemote[];
   /** Server icons */
   icons?: McpRegistryIcon[];
   /** Popularity signal — number of recorded uses (Smithery `useCount`). */
@@ -733,6 +865,10 @@ export interface McpDirectorySearchParams {
 export interface McpDirectorySearchResult {
   servers: McpRegistryEntry[];
   nextCursor?: string;
+  /** Coded registry failure, when the source returned an unrecognized shape. */
+  errorCode?: McpRegistryErrorCode;
+  /** User-safe explanation for {@link errorCode}. */
+  error?: string;
 }
 
 /** Params for mcpDirectory:getDetails */
@@ -809,6 +945,10 @@ export interface McpDirectoryGetPopularParams {
 /** Result for mcpDirectory:getPopular */
 export interface McpDirectoryGetPopularResult {
   servers: McpRegistryEntry[];
+  /** Coded registry failure, when the source returned an unrecognized shape. */
+  errorCode?: McpRegistryErrorCode;
+  /** User-safe explanation for {@link errorCode}. */
+  error?: string;
 }
 
 /**
