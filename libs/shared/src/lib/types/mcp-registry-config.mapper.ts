@@ -141,7 +141,7 @@ function resolvePlaceholders(
   location: InputLocation,
   state: MappingState,
   leaveWithoutVariables: boolean,
-  keyPrefix = location,
+  keyPrefix: string = location,
 ): ResolvedValue {
   if (
     leaveWithoutVariables &&
@@ -204,7 +204,7 @@ function resolveRegistryInput(
   name: string,
   location: InputLocation,
   state: MappingState,
-  nestedKeyPrefix = location,
+  nestedKeyPrefix: string = location,
 ): ResolvedValue | undefined {
   const key = `${location}:${name}`;
   if (
