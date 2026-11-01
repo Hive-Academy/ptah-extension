@@ -106,7 +106,13 @@ export type DecisionOptionProvider = keyof typeof PROVIDER_OPTION_LIMIT;
 /** Q. Questions in one decision-model request. */
 export const QUESTIONS_PER_REQUEST = 32;
 
-/** Per decision-model request, then the margin kept for the return path. */
+/**
+ * Per decision-model request, then the margin kept for the return path.
+ * A System One call uses its target's `timeoutMs` instead: the
+ * `agentOrchestration.decisionModelTimeoutMs` setting when set, else this
+ * value (local) or `DECISION_REQUEST_TIMEOUT_REMOTE_MS` (remote). A
+ * structured-output call always uses this value.
+ */
 export const DECISION_REQUEST_TIMEOUT_MS = 3000;
 export const DECISION_RETURN_MARGIN_MS = 250;
 
@@ -130,7 +136,10 @@ export const MAX_DECISION_REQUESTS = 2;
 
 /**
  * `GATHER_BUDGET_MS + MAX_DECISION_REQUESTS * (timeout + margin)`, with the
- * larger of the local and remote request timeouts.
+ * larger of the local and remote request timeouts. Documents the default
+ * only; no code enforces it. A System One target's `timeoutMs` comes from
+ * the `agentOrchestration.decisionModelTimeoutMs` setting when it is set
+ * (`decision-model.target.ts`), and the budget grows with it.
  */
 export const OVERALL_CALL_BUDGET_MS =
   GATHER_BUDGET_MS +

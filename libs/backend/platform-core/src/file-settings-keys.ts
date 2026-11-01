@@ -131,6 +131,9 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // object written by `DecisionModelConfig.setSelection`. VS Code has no schema
   // for it, so without this entry every save is rejected there.
   'agentOrchestration.decisionModel',
+  // Per-request timeout of a System One decision-model call, in ms
+  // (`DECISION_MODEL_TIMEOUT_SETTING_KEY`); clamped by lane-routing on read.
+  'agentOrchestration.decisionModelTimeoutMs',
   'agentOrchestration.hostRouting',
   // Compaction budgets (TASK_2026_597 Wave D). `compaction.threshold` is NOT
   // here: it is still VS Code-contributed and moves with its migration.
@@ -355,6 +358,8 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   // `null` reads as `{ kind: 'unset' }` in DecisionModelConfig.getSelection,
   // with no invalid-value warning.
   'agentOrchestration.decisionModel': null,
+  // `null`: the built-in per-locality decision request timeout applies.
+  'agentOrchestration.decisionModelTimeoutMs': null,
   'agentOrchestration.hostRouting': true,
   // Compaction budgets: see ADVANCED_SETTINGS_DEFAULTS.
   'agentOrchestration.disabledClis': [],
