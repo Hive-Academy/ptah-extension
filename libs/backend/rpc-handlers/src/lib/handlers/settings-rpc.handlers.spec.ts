@@ -263,10 +263,40 @@ describe('SettingsRpcHandlers', () => {
         [
           'settings:get',
           'settings:set',
+          'settings:getMotion',
+          'settings:setMotion',
           'settings:export',
           'settings:import',
         ].sort(),
       );
+    });
+  });
+
+  describe('Motion preference', () => {
+    const originalElectron = Object.getOwnPropertyDescriptor(process.versions, 'electron');
+    beforeEach(() => {
+      Object.defineProperty(process.versions, 'electron', { configurable: true, value: '44' });
+    });
+    afterEach(() => {
+      if (originalElectron) Object.defineProperty(process.versions, 'electron', originalElectron);
+      else Reflect.deleteProperty(process.versions, 'electron');
+    });
+
+    it('reads the default and validates writes', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      expect(await call(h, 'settings:getMotion')).toEqual({ success: true, preference: 'always' });
+      expect(await call(h, 'settings:setMotion', { preference: 'invalid' })).toEqual({ success: false, error: 'Invalid Motion setting' });
+      expect(h.workspaceProvider.setConfiguration).not.toHaveBeenCalled();
+      expect(await call(h, 'settings:setMotion', { preference: 'reduce' })).toEqual({ success: true });
+      expect(h.workspaceProvider.setConfiguration).toHaveBeenCalledWith('ptah', 'motionPreference', 'reduce');
+    });
+
+    it('reports unsupported outside Electron', async () => {
+      Reflect.deleteProperty(process.versions, 'electron');
+      const h = makeHarness();
+      h.handlers.register();
+      expect(await call(h, 'settings:getMotion')).toEqual({ success: false, error: 'unsupported' });
     });
   });
 
