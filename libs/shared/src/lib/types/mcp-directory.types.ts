@@ -208,26 +208,6 @@ export const MCP_REGISTRY_ERROR_MESSAGES: Record<McpRegistryErrorCode, string> =
     'This server uses a package transport that Ptah does not support.',
 };
 
-/** Package deployment info from the registry */
-export interface McpRegistryPackage {
-  /** Package registry type (e.g., "npm", "pypi", "docker") */
-  registry_name: string;
-  /** Package name on that registry */
-  name: string;
-  /** Package version */
-  version?: string;
-  /** Runtime environment (e.g., "node", "python", "docker") */
-  runtime?: string;
-}
-
-/** Transport info from the registry */
-export interface McpRegistryTransport {
-  /** Transport type: "stdio" | "http" | "sse" */
-  type: string;
-  /** For remote transports, the default URL template */
-  url?: string;
-}
-
 /** Icon metadata from the registry */
 export interface McpRegistryIcon {
   /** Icon URL */
@@ -246,30 +226,6 @@ export interface McpRegistryRepository {
   source?: string;
   /** Repository identifier (e.g., "owner/repo") */
   id?: string;
-}
-
-/** A version detail from the registry */
-export interface McpRegistryVersionDetail {
-  /** Semantic version string */
-  version: string;
-  /** Release date ISO string */
-  release_date?: string;
-  /** Package deployment options */
-  packages: McpRegistryPackage[];
-  /** Supported transports */
-  transports: McpRegistryTransport[];
-}
-
-/** Input argument that a server may require */
-export interface McpRegistryArgument {
-  /** Argument name (used as env var name typically) */
-  name: string;
-  /** Human-readable description */
-  description?: string;
-  /** Whether this argument is required */
-  required?: boolean;
-  /** Default value if not provided */
-  default?: string;
 }
 
 /**
@@ -322,8 +278,6 @@ export interface McpRegistryEntry {
   homepage?: string;
   /** Source code repository */
   repository?: McpRegistryRepository;
-  /** Latest version detail (populated on detail fetch) */
-  version_detail?: McpRegistryVersionDetail;
   /** Server creation timestamp */
   created_at?: string;
   /** Last update timestamp */

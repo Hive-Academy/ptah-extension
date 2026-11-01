@@ -265,6 +265,45 @@ describe('registryEntryToInstallConfig', () => {
     });
   });
 
+  it('derived from detail-package-npm.json: ignores a runtimeHint for another registry type', () => {
+    const entry = readEntry('detail-package-npm.json');
+    entry.packages![0].runtimeHint = 'uvx';
+
+    const result = expectSuccess(registryEntryToInstallConfig(entry));
+    expect(result.config).toEqual({
+      type: 'stdio',
+      command: 'npx',
+      args: ['-y', 'pretrip-mcp@1.0.1'],
+    });
+  });
+
+  it('derived from detail-pypi.json: ignores a runtimeHint for another registry type', () => {
+    const entry = readEntry('detail-pypi.json');
+    entry.packages![0].runtimeHint = 'npx';
+
+    const result = expectSuccess(registryEntryToInstallConfig(entry));
+    expect(result.config).toEqual({
+      type: 'stdio',
+      command: 'uvx',
+      args: ['contextburn@0.2.1', 'mcp'],
+    });
+    expect(result.config.type === 'stdio' && result.config.args).not.toContain(
+      '-y',
+    );
+  });
+
+  it('derived from detail-package-npm.json: honors a matching runtimeHint', () => {
+    const entry = readEntry('detail-package-npm.json');
+    entry.packages![0].runtimeHint = 'npx';
+
+    const result = expectSuccess(registryEntryToInstallConfig(entry));
+    expect(result.config).toEqual({
+      type: 'stdio',
+      command: 'npx',
+      args: ['-y', 'pretrip-mcp@1.0.1'],
+    });
+  });
+
   it('derived from detail-package-npm.json: ignores a hostile runtimeHint', () => {
     const entry = readEntry('detail-package-npm.json');
     entry.packages![0].runtimeHint = 'sh -c';

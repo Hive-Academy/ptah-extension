@@ -1,6 +1,6 @@
 # Batches - TASK_2026_859_b561
 
-Total tasks: 12 | Batches: 5 | Complete: 4/5
+Total tasks: 13 | Batches: 5 | Complete: 5/5
 
 Flow: BUGFIX, plan-free. Inputs: task.md, context.md, decisions.md (D3-D10 binding),
 research-report.md, fixtures/. Worktree for every path, command and commit:
@@ -351,7 +351,7 @@ Edge cases:
   by user instruction; CI is the gate (a run in progress was stopped). Report:
   batch-4-report.md.
 
-## Batch 5: Remove old-shape types and stale fixtures; host verification — PENDING
+## Batch 5: Remove old-shape types and stale fixtures; host verification — COMPLETE (commit: subject "fix(shared): batch 5 - drop old registry types, per-type runtimeHint"; the batches.md update rides in that commit, so its SHA is the one in git log)
 
 - Recommended executor: CLI lane, backend capability (agent shape: backend-developer); host
   checks may be run by senior-tester when a lane is not available.
@@ -362,11 +362,11 @@ Edge cases:
 - Review family: different from implementer (phase review on codex)
 - Rationale: deletion is only safe after Batches 2-4 moved every consumer; it is the phase's
   last batch and carries the dependent-host checks.
-- Tasks: 3 | Depends on: Batches 2, 3, 4
+- Tasks: 4 (5.4 added by the orchestrator) | Depends on: Batches 2, 3, 4
 - Phase: registry-fix | Phase review: code-logic over `<parent of Batch 1 commit>..HEAD`
 - Order: 5.1, then 5.3, then 5.2 (host checks run last over both).
 
-### Task 5.1: Delete old registry types and update remaining references — PENDING
+### Task 5.1: Delete old registry types and update remaining references — COMPLETE
 
 - Files:
   - `/home/amun/ptah-extension/.claude-worktrees/mcp-registry-api/libs/shared/src/lib/types/mcp-directory.types.ts`
@@ -383,7 +383,7 @@ Edge cases:
   and report zero hits outside `.ptah/`.
 - Validation notes: R3.
 
-### Task 5.3: runtimeHint must match the package's registry type — PENDING
+### Task 5.3: runtimeHint must match the package's registry type — COMPLETE
 
 - Files:
   - `/home/amun/ptah-extension/.claude-worktrees/mcp-registry-api/libs/shared/src/lib/types/mcp-registry-config.mapper.ts`
@@ -407,7 +407,14 @@ Edge cases:
 - Validation notes: R6 (args array, no shell); pure function, no zod import (A2).
 - Verify: CI only (Task 5.2).
 
-### Task 5.2: Dependent-host verification — PENDING
+### Task 5.4: Remove the unread `installConfigResult` signal — COMPLETE
+
+- Added by the orchestrator after Batch 3.
+- File: `/home/amun/ptah-extension/.claude-worktrees/mcp-registry-api/libs/frontend/chat-ui/src/lib/molecules/setup-plugins/mcp-directory-browser.component.ts`
+- Quality requirements: delete the private signal, its writes and the now-unused
+  `McpInstallConfigResult` import; no change to target selection or `confirmInstall`.
+
+### Task 5.2: Dependent-host verification — COMPLETE (local part is a no-op under D11; CI gate open)
 
 - Depends on: Task 5.1
 - Files: none (verification only).
@@ -423,6 +430,17 @@ Edge cases:
 - Zero old-shape hits (Task 5.1 grep).
 - Local verify: CI only (user instruction); the PR's CI jobs pass.
 - Then return NEEDS REVIEW for the phase (code-logic on codex, combined diff).
+- Result (team-leader, 2026-11-01): implementer kimi-code (CLI lane). Diff read on disk:
+  old types (`McpRegistryPackage`, `McpRegistryTransport`, `McpRegistryVersionDetail`,
+  `McpRegistryArgument`, `McpRegistryEntry.version_detail`) deleted; harness fixture on the
+  `version` + `packages[]` shape; brand-slugs JSDoc only; mapper allowlist is
+  `Record<SupportedRegistryType, ReadonlySet<string>>` with one runner per type, cross-type
+  and hostile hints fall back to `DEFAULT_COMMANDS`; 3 new derived spec cases; Task 5.4
+  removes the signal, 4 writes and the import only. Team-leader re-ran the 5.1 grep: zero
+  hits; `installConfigResult|McpRegistryArgument\b`: zero hits; no TODO/STUB markers in the
+  changed files. No install-scope code touched (R8). Local verify not run (D11); CI is the
+  gate and its result is still open. Batch 1 note (a) is resolved by Task 5.3.
+  Report: batch-5-report.md.
 
 ## Completion requirements (Mode 3)
 

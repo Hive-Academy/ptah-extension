@@ -55,7 +55,15 @@ const DEFAULT_COMMANDS: Record<SupportedRegistryType, string> = {
   nuget: 'dnx',
 };
 
-const ALLOWED_RUNTIME_HINTS = new Set(['npx', 'uvx', 'docker', 'dnx']);
+const ALLOWED_RUNTIME_HINTS: Record<
+  SupportedRegistryType,
+  ReadonlySet<string>
+> = {
+  npm: new Set(['npx']),
+  pypi: new Set(['uvx']),
+  oci: new Set(['docker']),
+  nuget: new Set(['dnx']),
+};
 
 function inputValue(input: McpRegistryInput): string | undefined {
   const value = input.value ?? input.default;
@@ -133,7 +141,7 @@ function mapPackage(
   const registryType = registryPackage.registryType as SupportedRegistryType;
   const command =
     registryPackage.runtimeHint !== undefined &&
-    ALLOWED_RUNTIME_HINTS.has(registryPackage.runtimeHint)
+    ALLOWED_RUNTIME_HINTS[registryType].has(registryPackage.runtimeHint)
       ? registryPackage.runtimeHint
       : DEFAULT_COMMANDS[registryType];
   const runtimeArguments = mapArguments(registryPackage.runtimeArguments);

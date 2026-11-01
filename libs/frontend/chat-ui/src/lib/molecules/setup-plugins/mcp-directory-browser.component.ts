@@ -17,7 +17,6 @@ import {
   MCP_REGISTRY_ERROR_MESSAGES,
   registryEntryToInstallConfig,
   type McpRegistryEntry,
-  type McpInstallConfigResult,
   type McpInstallTarget,
   type McpRequiredInput,
   type McpServerConfig,
@@ -396,9 +395,6 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   readonly requiredInputs = signal<McpRequiredInput[]>([]);
   readonly installable = signal(true);
   readonly configError = signal<string | null>(null);
-  private readonly installConfigResult = signal<McpInstallConfigResult | null>(
-    null,
-  );
   readonly selectedTargets = signal<Set<McpInstallTarget>>(
     new Set(ALL_TARGETS),
   );
@@ -477,7 +473,6 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
   async toggleInstallPanel(server: McpRegistryEntry): Promise<void> {
     const showFallback = (): void => {
-      this.installConfigResult.set(null);
       this.suggestedConfig.set(null);
       this.requiredInputs.set([]);
       this.installable.set(false);
@@ -487,7 +482,6 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     };
     const applyOfficialConfig = (entry: McpRegistryEntry): void => {
       const result = registryEntryToInstallConfig(entry);
-      this.installConfigResult.set(result);
       if (result.ok) {
         this.suggestedConfig.set(result.config);
         this.requiredInputs.set(result.requiredInputs);
@@ -505,7 +499,6 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
     if (this.expandedServerName() === server.name) {
       this.expandedServerName.set(null);
-      this.installConfigResult.set(null);
       this.suggestedConfig.set(null);
       this.requiredInputs.set([]);
       this.installable.set(true);
@@ -515,7 +508,6 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
 
     this.expandedServerName.set(server.name);
     this.selectedTargets.set(new Set(ALL_TARGETS));
-    this.installConfigResult.set(null);
     this.suggestedConfig.set(null);
     this.requiredInputs.set([]);
     this.installable.set(true);
