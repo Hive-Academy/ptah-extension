@@ -26,7 +26,7 @@ export function installHostGlobals(postMessage: (message: ReplayMessage) => void
   host.ptahConfig = {
     isVSCode: false, isElectron: true, theme: 'dark',
     workspaceRoot: '/workspace/acme-app', workspaceName: 'acme-app',
-    extensionUri: '', baseUri: '', iconUri: './images/ptah-icon.png',
+    extensionUri: '', baseUri: '', iconUri: './images/ptah-icon.webp',
     userIconUri: './images/user-icon.png', panelId: 'electron-main',
     platform: 'linux', initialView: 'chat', zoneChangeDetectionFallback: false,
     ...safeConfig,
