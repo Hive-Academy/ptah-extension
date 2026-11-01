@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { MCP_REGISTRY_ERROR_MESSAGES } from '@ptah-extension/shared';
 import type {
   McpRegistryEntry,
   McpRegistryListResponse,
@@ -13,6 +14,7 @@ import type {
 import type { IMcpRegistrySource } from './mcp-registry-source.interface';
 
 const REGISTRY_BASE_URL = 'https://registry.modelcontextprotocol.io/v0.1';
+const OFFICIAL_META_KEY = 'io.modelcontextprotocol.registry/official';
 
 /** Default page size for listing servers */
 const DEFAULT_PAGE_SIZE = 20;
@@ -28,23 +30,143 @@ interface CachedResponse<T> {
   cachedAt: number;
 }
 
-/**
- * Minimal Zod schema for a registry entry. The registry server is third-
- * party, so we validate the boundary defensively: `name` must be a non-empty
- * string, everything else is optional + permissive. Schema is intentionally
- * loose (`.passthrough()`) — we drop entries that are obviously malformed
- * (missing `name`) but pass through unknown fields so the downstream
- * `McpRegistryEntry` consumers still see new schema additions.
- */
+export class McpRegistryShapeError extends Error {
+  readonly code = 'MCP_REGISTRY_SHAPE_UNKNOWN' as const;
+
+  constructor() {
+    super(MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_SHAPE_UNKNOWN);
+    this.name = 'McpRegistryShapeError';
+  }
+}
+
+const McpRegistryInputSchema = z
+  .object({
+    description: z.string().optional(),
+    isRequired: z.boolean().optional(),
+    format: z.enum(['string', 'number', 'boolean', 'filepath']).optional(),
+    value: z.string().optional(),
+    isSecret: z.boolean().optional(),
+    default: z.string().optional(),
+    placeholder: z.string().optional(),
+    choices: z.array(z.string()).optional(),
+  })
+  .passthrough();
+
+const McpRegistryKeyValueInputSchema = McpRegistryInputSchema.extend({
+  name: z.string().min(1),
+  variables: z.record(z.string(), McpRegistryInputSchema).optional(),
+}).passthrough();
+
+const McpRegistryPackageArgumentBaseSchema = McpRegistryInputSchema.extend({
+  variables: z.record(z.string(), McpRegistryInputSchema).optional(),
+  isRepeated: z.boolean().optional(),
+  valueHint: z.string().optional(),
+});
+
+const McpRegistryPackageArgumentSchema = z.discriminatedUnion('type', [
+  McpRegistryPackageArgumentBaseSchema.extend({
+    type: z.literal('positional'),
+    name: z.string().optional(),
+  }).passthrough(),
+  McpRegistryPackageArgumentBaseSchema.extend({
+    type: z.literal('named'),
+    name: z.string().min(1),
+  }).passthrough(),
+]);
+
+const McpRegistryPackageTransportSchema = z
+  .object({
+    type: z.string().min(1),
+    url: z.string().optional(),
+    headers: z.array(McpRegistryKeyValueInputSchema).optional(),
+  })
+  .passthrough();
+
+const McpRegistryServerPackageSchema = z
+  .object({
+    registryType: z.string().min(1),
+    identifier: z.string().min(1),
+    // The shared mapper reads transport.type without a guard.
+    transport: McpRegistryPackageTransportSchema,
+    registryBaseUrl: z.string().optional(),
+    version: z.string().optional(),
+    fileSha256: z.string().optional(),
+    runtimeHint: z.string().optional(),
+    runtimeArguments: z.array(McpRegistryPackageArgumentSchema).optional(),
+    packageArguments: z.array(McpRegistryPackageArgumentSchema).optional(),
+    environmentVariables: z.array(McpRegistryKeyValueInputSchema).optional(),
+  })
+  .passthrough();
+
+const McpRegistryRemoteSchema = z
+  .object({
+    type: z.string().min(1),
+    url: z.string(),
+    headers: z.array(McpRegistryKeyValueInputSchema).optional(),
+    variables: z.record(z.string(), McpRegistryInputSchema).optional(),
+  })
+  .passthrough();
+
 const McpRegistryEntrySchema = z
   .object({
     name: z.string().min(1),
-    description: z.string().optional(),
-    repository: z.unknown().optional(),
-    icons: z.unknown().optional(),
-    version_detail: z.unknown().optional(),
-    created_at: z.string().optional(),
-    updated_at: z.string().optional(),
+    description: z.string(),
+    version: z.string().min(1),
+    title: z.string().optional(),
+    websiteUrl: z.string().optional(),
+    repository: z
+      .object({
+        url: z.string(),
+        source: z.string().optional(),
+        id: z.string().optional(),
+        subfolder: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+    icons: z
+      .array(
+        z
+          .object({
+            src: z.string(),
+            mimeType: z.string().optional(),
+            sizes: z.array(z.string()).optional(),
+            theme: z.enum(['light', 'dark']).optional(),
+          })
+          .passthrough(),
+      )
+      .optional(),
+    packages: z.array(McpRegistryServerPackageSchema).optional(),
+    remotes: z.array(McpRegistryRemoteSchema).optional(),
+  })
+  .passthrough();
+
+const McpRegistryEnvelopeSchema = z
+  .object({
+    server: McpRegistryEntrySchema,
+    _meta: z
+      .object({
+        [OFFICIAL_META_KEY]: z
+          .object({
+            publishedAt: z.string().optional(),
+            updatedAt: z.string().optional(),
+          })
+          .passthrough()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+
+const McpRegistryListSchema = z
+  .object({
+    servers: z.array(z.unknown()),
+    metadata: z
+      .object({
+        nextCursor: z.string().optional(),
+        count: z.number().optional(),
+      })
+      .passthrough(),
   })
   .passthrough();
 
@@ -53,56 +175,40 @@ export interface RegistryLogger {
   warn(message: string, context?: Record<string, unknown>): void;
 }
 
-/**
- * Unwrap a registry entry, tolerating both the legacy flat shape
- * (`{ name, description, ... }`) and the current envelope shape
- * (`{ server: { ... }, _meta: { ... } }`) defined by the
- * MCP Registry 2025-09 schema. Returns null if the entry fails schema
- * validation (no usable `name` after unwrapping or wrong field types).
- *
- * Why: the registry schema gained a `_meta` envelope which silently
- * caused all list rows to render blank. Future schema additions that
- * keep wrapping the payload under `server` will continue to work.
- *
- * When `logger` is supplied, malformed entries are audited with a warn
- * line — including the extracted `name` if available — so we can spot
- * upstream schema drift in production logs.
- */
+/** Parse one current `{ server, _meta }` envelope without exposing wire values. */
 function unwrapRegistryEntry(
   item: unknown,
   logger?: RegistryLogger,
 ): McpRegistryEntry | null {
-  if (!item || typeof item !== 'object') return null;
-  const obj = item as Record<string, unknown>;
-  const inner =
-    obj['server'] && typeof obj['server'] === 'object'
-      ? (obj['server'] as Record<string, unknown>)
-      : obj;
-
-  const parsed = McpRegistryEntrySchema.safeParse(inner);
+  const parsed = McpRegistryEnvelopeSchema.safeParse(item);
   if (!parsed.success) {
+    const server =
+      item && typeof item === 'object'
+        ? (item as Record<string, unknown>)['server']
+        : undefined;
     const maybeName =
-      typeof inner['name'] === 'string' ? (inner['name'] as string) : undefined;
+      server && typeof server === 'object'
+        ? (server as Record<string, unknown>)['name']
+        : undefined;
     logger?.warn('MCP registry: dropping malformed entry', {
-      name: maybeName,
+      name: typeof maybeName === 'string' ? maybeName : undefined,
       issues: parsed.error.issues.map(
-        (i) => `${i.path.join('.')}: ${i.message}`,
+        (issue) => `${issue.path.join('.')}: ${issue.message}`,
       ),
     });
     return null;
   }
 
-  return parsed.data as unknown as McpRegistryEntry;
+  const officialMeta = parsed.data._meta?.[OFFICIAL_META_KEY];
+  return {
+    ...parsed.data.server,
+    created_at: officialMeta?.publishedAt,
+    updated_at: officialMeta?.updatedAt,
+    source: 'official',
+  } as unknown as McpRegistryEntry;
 }
 
-/**
- * Keep the first entry per server name.
- *
- * `version=latest` is the primary defence against the same server occupying
- * several rows; this is the second, because the registry has shipped more than
- * one row for a name before (differing descriptions, same id) and a caller
- * asking for 10 results should get 10 distinct servers.
- */
+/** Keep the first entry per server name. */
 function dedupeByName(entries: McpRegistryEntry[]): McpRegistryEntry[] {
   const seen = new Set<string>();
   const unique: McpRegistryEntry[] = [];
@@ -123,17 +229,9 @@ export class McpRegistryProvider implements IMcpRegistrySource {
 
   private popularCache: CachedResponse<McpRegistryEntry[]> | null = null;
 
-  /**
-   * @param logger Optional audit logger for malformed registry entries. When
-   *   supplied (e.g. by the RPC handler), entries that fail Zod validation
-   *   are emitted as `warn` lines instead of being silently dropped.
-   */
   constructor(private readonly logger?: RegistryLogger) {}
 
-  /**
-   * Search/list servers from the Official MCP Registry.
-   * When query is empty, returns all servers paginated.
-   */
+  /** Search or list the latest version of each server. */
   async listServers(options?: {
     query?: string;
     limit?: number;
@@ -141,75 +239,62 @@ export class McpRegistryProvider implements IMcpRegistrySource {
   }): Promise<McpRegistryListResponse> {
     const params = new URLSearchParams();
     params.set('limit', String(options?.limit ?? DEFAULT_PAGE_SIZE));
-    // Without this the registry returns EVERY published version of every
-    // server, so one server occupies four rows of a scarce result window.
     params.set('version', 'latest');
 
     if (options?.cursor) {
       params.set('cursor', options.cursor);
     }
     if (options?.query) {
-      // `search`, not `q`. An unrecognized parameter is ignored rather than
-      // rejected, so the wrong name does not fail — it silently returns the
-      // alphabetical head of the whole catalogue, which reads like a working
-      // search returning irrelevant results. Pinned by the spec.
       params.set('search', options.query);
     }
 
     const url = `${REGISTRY_BASE_URL}/servers?${params.toString()}`;
     const response = await this.fetch(url);
+    const parsedBody = McpRegistryListSchema.safeParse(
+      await this.readJson(response),
+    );
+    if (!parsedBody.success) {
+      throw new McpRegistryShapeError();
+    }
 
-    const body = (await response.json()) as Record<string, unknown>;
+    const entries = parsedBody.data.servers
+      .map((item) => unwrapRegistryEntry(item, this.logger))
+      .filter((entry): entry is McpRegistryEntry => entry !== null);
+    if (parsedBody.data.servers.length > 0 && entries.length === 0) {
+      throw new McpRegistryShapeError();
+    }
 
-    const servers: McpRegistryEntry[] = Array.isArray(body['servers'])
-      ? dedupeByName(
-          (body['servers'] as unknown[])
-            .map((item) => unwrapRegistryEntry(item, this.logger))
-            .filter((entry): entry is McpRegistryEntry => entry !== null),
-        )
-      : [];
-
-    const nextCursor =
-      typeof body['next_cursor'] === 'string'
-        ? (body['next_cursor'] as string)
-        : typeof (body['metadata'] as Record<string, unknown> | undefined)?.[
-              'next_cursor'
-            ] === 'string'
-          ? ((body['metadata'] as Record<string, unknown>)[
-              'next_cursor'
-            ] as string)
-          : undefined;
-
-    return { servers, next_cursor: nextCursor };
+    return {
+      servers: dedupeByName(entries),
+      next_cursor: parsedBody.data.metadata.nextCursor,
+    };
   }
 
-  /**
-   * Get detailed information for a specific server by its fully qualified name.
-   * e.g., "io.github.user/server-name"
-   */
+  /** Get the latest server.json document by its fully qualified name. */
   async getServerDetails(name: string): Promise<McpRegistryEntry | null> {
-    const url = `${REGISTRY_BASE_URL}/servers/${encodeURIComponent(name)}`;
+    const url = `${REGISTRY_BASE_URL}/servers/${encodeURIComponent(name)}/versions/latest`;
 
     try {
       const response = await this.fetch(url);
       if (response.status === 404) return null;
 
-      const body = (await response.json()) as Record<string, unknown>;
-
-      return unwrapRegistryEntry(body, this.logger);
-      // degradation-audit: optional-capability - the interface contract
-      // (`McpRegistrySource.getServerDetails`) documents null for "not found or
-      // unreachable"; a network failure here collapses to the same null as the
-      // explicit 404 case above, pinned by "returns null when getServerDetails
-      // throws" in the spec.
-    } catch {
+      const entry = unwrapRegistryEntry(
+        await this.readJson(response),
+        this.logger,
+      );
+      if (!entry) {
+        throw new McpRegistryShapeError();
+      }
+      return entry;
+      // degradation-audit: optional-capability - null covers not found and
+      // unreachable. Shape errors remain visible to the RPC boundary.
+    } catch (error: unknown) {
+      if (error instanceof McpRegistryShapeError) throw error;
       return null;
     }
   }
 
-  /**
-   * Get popular/trending servers. Results are cached for 10 minutes.
-   */
+  /** Get popular/trending servers. Results are cached for 10 minutes. */
   async getPopular(): Promise<McpRegistryEntry[]> {
     if (
       this.popularCache &&
@@ -230,6 +315,14 @@ export class McpRegistryProvider implements IMcpRegistrySource {
   /** Clear the popular servers cache */
   clearCache(): void {
     this.popularCache = null;
+  }
+
+  private async readJson(response: Response): Promise<unknown> {
+    try {
+      return await response.json();
+    } catch {
+      throw new McpRegistryShapeError();
+    }
   }
 
   private async fetch(url: string): Promise<Response> {

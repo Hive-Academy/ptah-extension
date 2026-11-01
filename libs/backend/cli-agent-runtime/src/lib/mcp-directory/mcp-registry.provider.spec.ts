@@ -1,4 +1,51 @@
-import { McpRegistryProvider } from './mcp-registry.provider';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { McpRegistryEntry } from '@ptah-extension/shared';
+import {
+  McpRegistryProvider,
+  McpRegistryShapeError,
+} from './mcp-registry.provider';
+
+interface DetailFixture {
+  server: McpRegistryEntry;
+  _meta?: Record<string, unknown>;
+}
+
+interface ListFixture {
+  servers: DetailFixture[];
+  metadata: { nextCursor?: string; count?: number };
+}
+
+interface NotFoundFixture {
+  http_status: number;
+  body: unknown;
+}
+
+const readFixture = <T>(fileName: string): T =>
+  JSON.parse(
+    readFileSync(
+      join(__dirname, '__fixtures__/mcp-registry', fileName),
+      'utf8',
+    ),
+  ) as T;
+
+const envelope = (
+  name = 'io.github.acme/server',
+  overrides: Record<string, unknown> = {},
+) => ({
+  server: {
+    name,
+    description: 'Test server',
+    version: '1.0.0',
+    ...overrides,
+  },
+  _meta: {},
+});
+
+const listResponse = (servers: unknown[], nextCursor?: string) => ({
+  servers,
+  metadata: nextCursor === undefined ? {} : { nextCursor },
+});
 
 describe('McpRegistryProvider response shape handling', () => {
   let provider: McpRegistryProvider;
@@ -23,140 +70,185 @@ describe('McpRegistryProvider response shape handling', () => {
     jest.restoreAllMocks();
   });
 
-  it('parses the current envelope shape ({ servers: [{ server, _meta }] })', async () => {
-    mockFetchOnce({
-      servers: [
-        {
-          server: {
-            name: 'io.github.acme/server-a',
-            description: 'Server A',
-          },
-          _meta: { 'io.modelcontextprotocol.registry/official': {} },
-        },
-        {
-          server: {
-            name: 'io.github.acme/server-b',
-            description: 'Server B',
-          },
-          _meta: {},
-        },
-      ],
-      metadata: { next_cursor: 'cursor-xyz' },
-    });
+  it('parses the recorded list envelope and maps cursor, timestamps, and source', async () => {
+    const fixture = readFixture<ListFixture>('list-page.json');
+    mockFetchOnce(fixture);
 
     const result = await provider.listServers();
 
-    expect(result.servers).toHaveLength(2);
-    expect(result.servers[0]?.name).toBe('io.github.acme/server-a');
-    expect(result.servers[0]?.description).toBe('Server A');
-    expect(result.next_cursor).toBe('cursor-xyz');
-  });
-
-  it('still parses the legacy flat shape ({ servers: [{ name, description }] })', async () => {
-    mockFetchOnce({
-      servers: [{ name: 'io.github.acme/legacy', description: 'Legacy entry' }],
-      next_cursor: 'top-level-cursor',
-    });
-
-    const result = await provider.listServers();
-
-    expect(result.servers).toHaveLength(1);
-    expect(result.servers[0]?.name).toBe('io.github.acme/legacy');
-    expect(result.next_cursor).toBe('top-level-cursor');
-  });
-
-  it('drops entries that lack a usable name instead of rendering blanks', async () => {
-    mockFetchOnce({
-      servers: [
-        { server: { description: 'no name here' } },
-        null,
-        { server: { name: '', description: 'empty name' } },
-        { server: { name: 'io.github.acme/ok', description: 'ok' } },
+    expect(result.servers).toHaveLength(5);
+    expect(result.servers[0]).toMatchObject({
+      name: 'ac.inference.sh/mcp',
+      version: '2.0.1',
+      source: 'official',
+      created_at: '2026-07-27T10:44:51.359634Z',
+      updated_at: '2026-07-27T10:44:51.359634Z',
+      remotes: [
+        { type: 'streamable-http', url: 'https://api.inference.sh/mcp' },
       ],
     });
-
-    const result = await provider.listServers();
-
-    expect(result.servers).toHaveLength(1);
-    expect(result.servers[0]?.name).toBe('io.github.acme/ok');
+    expect(result.next_cursor).toBe(fixture.metadata.nextCursor);
   });
 
-  it('unwraps server details from { server: {...} } envelope', async () => {
-    mockFetchOnce({
-      server: {
-        name: 'io.github.acme/details',
-        description: 'Details entry',
-      },
-      _meta: {},
-    });
-
-    const detail = await provider.getServerDetails('io.github.acme/details');
-    expect(detail?.name).toBe('io.github.acme/details');
-  });
-
-  it('returns flat detail body when no { server } wrapper is present', async () => {
-    mockFetchOnce({
-      name: 'io.github.acme/flat-detail',
-      description: 'Flat detail entry',
-    });
-
-    const detail = await provider.getServerDetails(
-      'io.github.acme/flat-detail',
-    );
-    expect(detail?.name).toBe('io.github.acme/flat-detail');
-  });
-
-  it('returns null when getServerDetails hits 404', async () => {
-    globalThis.fetch = jest.fn().mockResolvedValue({
-      ok: false,
-      status: 404,
-      statusText: 'Not Found',
-      json: async () => ({}),
-    } as unknown as Response);
-
-    const detail = await provider.getServerDetails('io.github.acme/missing');
-    expect(detail).toBeNull();
-  });
-
-  it('returns null when getServerDetails throws (e.g. network error)', async () => {
-    globalThis.fetch = jest.fn().mockRejectedValue(new Error('boom'));
-
-    const detail = await provider.getServerDetails('io.github.acme/broken');
-    expect(detail).toBeNull();
-  });
-
-  it('returns empty list when body has no servers field', async () => {
-    mockFetchOnce({});
-
-    const result = await provider.listServers();
-    expect(result.servers).toEqual([]);
-    expect(result.next_cursor).toBeUndefined();
-  });
-
-  it('drops primitive items that are not objects', async () => {
-    mockFetchOnce({
-      servers: [
-        42,
-        'not-an-object',
-        { server: { name: 'io.github.acme/only-one' } },
-      ],
-    });
-
-    const result = await provider.listServers();
-    expect(result.servers).toHaveLength(1);
-    expect(result.servers[0]?.name).toBe('io.github.acme/only-one');
-  });
-
-  it('sends the query as `search`, never `q`, and asks for latest versions only', async () => {
-    // The registry ignores an unrecognized parameter instead of rejecting it,
-    // so `q=` returned 200 with the alphabetical head of the entire catalogue —
-    // a search that looked like it worked and matched nothing the caller asked
-    // for. `version=latest` is what stops one server occupying four rows.
+  it('uses the encoded versions/latest detail URL and preserves remotes', async () => {
+    const fixture = readFixture<DetailFixture>('detail-remote-only.json');
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
       statusText: 'OK',
-      json: async () => ({ servers: [] }),
+      json: async () => fixture,
+    } as unknown as Response);
+    globalThis.fetch = fetchMock;
+
+    const detail = await provider.getServerDetails(
+      'academy.apexai/apex-ai-academy',
+    );
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      'https://registry.modelcontextprotocol.io/v0.1/servers/academy.apexai%2Fapex-ai-academy/versions/latest',
+    );
+    expect(detail?.name).toBe('academy.apexai/apex-ai-academy');
+    expect(detail?.remotes).toEqual(fixture.server.remotes);
+    expect(detail?.source).toBe('official');
+  });
+
+  it('preserves package transport and environment variables from the detail fixture', async () => {
+    const fixture = readFixture<DetailFixture>('detail-env-vars.json');
+    mockFetchOnce(fixture);
+
+    const detail = await provider.getServerDetails('ai.2kw/mcp-server');
+
+    expect(detail?.packages).toEqual(fixture.server.packages);
+    expect(detail?.packages?.[0]?.transport).toEqual({ type: 'stdio' });
+    expect(detail?.packages?.[0]?.environmentVariables?.[0]).toMatchObject({
+      name: 'AI_2KW_API_KEY',
+      isRequired: true,
+      isSecret: true,
+    });
+  });
+
+  it('throws a coded shape error when the list envelope is unknown', async () => {
+    mockFetchOnce({ items: [] });
+
+    await expect(provider.listServers()).rejects.toMatchObject({
+      name: 'McpRegistryShapeError',
+      code: 'MCP_REGISTRY_SHAPE_UNKNOWN',
+    });
+  });
+
+  it('throws a coded shape error when every non-empty list item is invalid', async () => {
+    mockFetchOnce(
+      listResponse([
+        null,
+        { server: { name: 'io.github.acme/missing-fields' } },
+        envelope('io.github.acme/missing-transport', {
+          packages: [{ registryType: 'npm', identifier: 'package' }],
+        }),
+      ]),
+    );
+
+    await expect(provider.listServers()).rejects.toBeInstanceOf(
+      McpRegistryShapeError,
+    );
+  });
+
+  it('throws a coded shape error for invalid JSON', async () => {
+    globalThis.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => {
+        throw new SyntaxError('invalid JSON');
+      },
+    } as unknown as Response);
+
+    await expect(provider.listServers()).rejects.toMatchObject({
+      code: 'MCP_REGISTRY_SHAPE_UNKNOWN',
+    });
+  });
+
+  it('drops a malformed item when another item is valid and logs no wire values', async () => {
+    const warn = jest.fn();
+    const loggingProvider = new McpRegistryProvider({ warn });
+    mockFetchOnce(
+      listResponse([
+        envelope('io.github.acme/good'),
+        envelope('io.github.acme/bad', { description: 42 }),
+      ]),
+    );
+
+    const result = await loggingProvider.listServers();
+
+    expect(result.servers.map((entry) => entry.name)).toEqual([
+      'io.github.acme/good',
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('dropping malformed entry'),
+      expect.objectContaining({ name: 'io.github.acme/bad' }),
+    );
+  });
+
+  it('rejects the legacy flat list shape instead of returning a silent empty list', async () => {
+    mockFetchOnce(
+      listResponse([
+        {
+          name: 'io.github.acme/legacy',
+          description: 'Legacy entry',
+          version: '1.0.0',
+        },
+      ]),
+    );
+
+    await expect(provider.listServers()).rejects.toMatchObject({
+      code: 'MCP_REGISTRY_SHAPE_UNKNOWN',
+    });
+  });
+
+  it('throws a coded shape error for malformed detail data', async () => {
+    mockFetchOnce({ server: { name: 'io.github.acme/details' }, _meta: {} });
+
+    await expect(
+      provider.getServerDetails('io.github.acme/details'),
+    ).rejects.toMatchObject({ code: 'MCP_REGISTRY_SHAPE_UNKNOWN' });
+  });
+
+  it('returns null when the detail endpoint returns the recorded 404', async () => {
+    const fixture = readFixture<NotFoundFixture>('detail-404.json');
+    globalThis.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: fixture.http_status,
+      statusText: 'Not Found',
+      json: async () => fixture.body,
+    } as unknown as Response);
+
+    await expect(
+      provider.getServerDetails('does.not/exist'),
+    ).resolves.toBeNull();
+  });
+
+  it('returns null when the detail request has a network failure', async () => {
+    globalThis.fetch = jest.fn().mockRejectedValue(new Error('network down'));
+
+    await expect(
+      provider.getServerDetails('io.github.acme/broken'),
+    ).resolves.toBeNull();
+  });
+
+  it('returns an empty list for a valid empty page', async () => {
+    mockFetchOnce(listResponse([]));
+
+    const result = await provider.listServers();
+
+    expect(result.servers).toEqual([]);
+    expect(result.next_cursor).toBeUndefined();
+  });
+
+  it('sends search, latest-version, limit, and cursor parameters', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => listResponse([]),
     } as unknown as Response);
     globalThis.fetch = fetchMock;
 
@@ -175,15 +267,13 @@ describe('McpRegistryProvider response shape handling', () => {
   });
 
   it('keeps one row per server name when the registry repeats a name', async () => {
-    mockFetchOnce({
-      servers: [
-        { server: { name: 'ac.inference.sh/mcp', description: 'Run AI apps' } },
-        {
-          server: { name: 'ac.inference.sh/mcp', description: 'run any model' },
-        },
-        { server: { name: 'ac.tandem/docs-mcp', description: 'Docs' } },
-      ],
-    });
+    mockFetchOnce(
+      listResponse([
+        envelope('ac.inference.sh/mcp', { description: 'Run AI apps' }),
+        envelope('ac.inference.sh/mcp', { description: 'run any model' }),
+        envelope('ac.tandem/docs-mcp', { description: 'Docs' }),
+      ]),
+    );
 
     const result = await provider.listServers({ query: 'ai' });
 
@@ -207,42 +297,12 @@ describe('McpRegistryProvider response shape handling', () => {
     );
   });
 
-  it('drops entries that fail Zod validation and audits via the supplied logger', async () => {
-    const warn = jest.fn();
-    const loggingProvider = new McpRegistryProvider({ warn });
-
-    mockFetchOnce({
-      servers: [
-        // Valid entry.
-        { server: { name: 'io.github.acme/good', description: 'ok' } },
-        // Wrong field type — description is a number, fails the schema.
-        {
-          server: {
-            name: 'io.github.acme/bad',
-            description: 42,
-          },
-        },
-      ],
-    });
-
-    const result = await loggingProvider.listServers();
-
-    expect(result.servers).toHaveLength(1);
-    expect(result.servers[0]?.name).toBe('io.github.acme/good');
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('dropping malformed entry'),
-      expect.objectContaining({ name: 'io.github.acme/bad' }),
-    );
-  });
-
   it('caches popular servers and returns the cached list on a second call', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
       statusText: 'OK',
-      json: async () => ({
-        servers: [{ server: { name: 'io.github.acme/popular' } }],
-      }),
+      json: async () => listResponse([envelope('io.github.acme/popular')]),
     } as unknown as Response);
     globalThis.fetch = fetchMock;
 

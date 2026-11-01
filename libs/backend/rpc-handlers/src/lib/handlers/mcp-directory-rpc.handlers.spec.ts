@@ -93,6 +93,7 @@ import {
 } from '@ptah-extension/cli-agent-runtime';
 import { McpIntentStore } from '@ptah-extension/harness-sync';
 import { PluginLoaderService, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { MCP_REGISTRY_ERROR_MESSAGES } from '@ptah-extension/shared';
 import type {
   ICapabilityResolver,
   McpInstallResult,
@@ -171,7 +172,18 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
   it('routes search to the official registry by default', async () => {
     mockFetch((url) => {
       expect(url).toContain('registry.modelcontextprotocol.io');
-      return { servers: [{ server: { name: 'io.github/official' } }] };
+      return {
+        servers: [
+          {
+            server: {
+              name: 'io.github/official',
+              description: 'Official server',
+              version: '1.0.0',
+            },
+          },
+        ],
+        metadata: {},
+      };
     });
     build();
 
@@ -180,6 +192,21 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
     expect((res.data as { servers: { name: string }[] }).servers[0].name).toBe(
       'io.github/official',
     );
+  });
+
+  it('returns a coded search result when the registry shape is unknown', async () => {
+    mockFetch(() => ({ items: [] }));
+    build();
+
+    const res = await call('mcpDirectory:search', { query: 'x' });
+
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({
+      servers: [],
+      errorCode: 'MCP_REGISTRY_SHAPE_UNKNOWN',
+      error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_SHAPE_UNKNOWN,
+    });
+    expect(sentry.captureException).toHaveBeenCalled();
   });
 
   it('routes search to Smithery when source=smithery (key configured)', async () => {
@@ -239,6 +266,25 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
     };
     expect(data.scanPassed).toBe(true);
     expect(data.connections?.[0].configSchema).toBeDefined();
+  });
+
+  it('logs the shape code and keeps the details fallback result', async () => {
+    mockFetch(() => ({
+      server: { name: 'io.github.acme/invalid' },
+      _meta: {},
+    }));
+    build();
+
+    const res = await call('mcpDirectory:getDetails', {
+      name: 'io.github.acme/invalid',
+    });
+
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({ name: 'io.github.acme/invalid' });
+    expect(logger.error).toHaveBeenCalledWith(
+      'RPC: mcpDirectory:getDetails failed',
+      expect.objectContaining({ errorCode: 'MCP_REGISTRY_SHAPE_UNKNOWN' }),
+    );
   });
 
   it('resolveSmithery returns an http config when key present', async () => {
@@ -428,7 +474,18 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
   it('getPopular with an unknown source falls back to the official registry and never throws', async () => {
     mockFetch((url) => {
       expect(url).toContain('registry.modelcontextprotocol.io');
-      return { servers: [{ name: 'official-popular' }] };
+      return {
+        servers: [
+          {
+            server: {
+              name: 'official-popular',
+              description: 'Official popular server',
+              version: '1.0.0',
+            },
+          },
+        ],
+        metadata: {},
+      };
     });
     build();
 
@@ -438,6 +495,21 @@ describe('McpDirectoryRpcHandlers — Smithery source routing', () => {
     expect(res.success).toBe(true);
     const data = res.data as { servers: { name: string }[] };
     expect(data.servers[0].name).toBe('official-popular');
+  });
+
+  it('returns a coded popular result when the registry shape is unknown', async () => {
+    mockFetch(() => ({ items: [] }));
+    build();
+
+    const res = await call('mcpDirectory:getPopular', {});
+
+    expect(res.success).toBe(true);
+    expect(res.data).toEqual({
+      servers: [],
+      errorCode: 'MCP_REGISTRY_SHAPE_UNKNOWN',
+      error: MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_SHAPE_UNKNOWN,
+    });
+    expect(sentry.captureException).toHaveBeenCalled();
   });
 });
 

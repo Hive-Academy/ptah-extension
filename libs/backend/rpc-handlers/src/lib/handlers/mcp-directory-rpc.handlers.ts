@@ -49,7 +49,10 @@ import {
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import { classifyMcpScope } from '@ptah-extension/shared';
+import {
+  classifyMcpScope,
+  MCP_REGISTRY_ERROR_MESSAGES,
+} from '@ptah-extension/shared';
 import {
   HARNESS_SYNC_TOKENS,
   type HarnessReconcilerService,
@@ -150,6 +153,17 @@ import {
 
 /** How long the resolved Smithery namespace is trusted without a re-fetch. */
 const NAMESPACE_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function isMcpRegistryShapeError(
+  error: unknown,
+): error is { code: 'MCP_REGISTRY_SHAPE_UNKNOWN' } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'MCP_REGISTRY_SHAPE_UNKNOWN'
+  );
+}
 
 @injectable()
 export class McpDirectoryRpcHandlers {
@@ -396,6 +410,13 @@ export class McpDirectoryRpcHandlers {
         this.logger.error('RPC: mcpDirectory:search failed', {
           error: String(error),
         });
+        if (isMcpRegistryShapeError(error)) {
+          return {
+            servers: [],
+            errorCode: error.code,
+            error: MCP_REGISTRY_ERROR_MESSAGES[error.code],
+          };
+        }
         return { servers: [] };
       }
     });
@@ -431,6 +452,7 @@ export class McpDirectoryRpcHandlers {
         );
         this.logger.error('RPC: mcpDirectory:getDetails failed', {
           error: String(error),
+          errorCode: isMcpRegistryShapeError(error) ? error.code : undefined,
         });
         return { name: params.name };
       }
@@ -599,6 +621,13 @@ export class McpDirectoryRpcHandlers {
           'RPC: mcpDirectory:getPopular failed',
           error instanceof Error ? error : new Error(String(error)),
         );
+        if (isMcpRegistryShapeError(error)) {
+          return {
+            servers: [],
+            errorCode: error.code,
+            error: MCP_REGISTRY_ERROR_MESSAGES[error.code],
+          };
+        }
         return { servers: [] };
       }
     });
