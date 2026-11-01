@@ -208,6 +208,148 @@ describe('ProviderSetupWizardComponent', () => {
   });
 
   describe('opening and step machine', () => {
+    it('keeps step direction and panel wrappers for Continue, Back, and a direct jump', () => {
+      const fixture = createComponent();
+      const element = fixture.nativeElement as HTMLElement;
+      const stage = element.querySelector<HTMLElement>('.ptah-motion-stage');
+      expect(query(fixture, 'wizard-step-provider')?.classList.contains('ptah-motion-panel')).toBe(true);
+
+      selectProvider(fixture, 'requesty');
+      click(fixture, 'wizard-continue');
+      expect(stage?.getAttribute('data-motion-dir')).toBe('forward');
+      expect(query(fixture, 'wizard-step-credential')?.classList.contains('ptah-motion-panel')).toBe(true);
+      expect(query(fixture, 'wizard-step-credential')?.querySelector('.ptah-motion-stage > .ptah-motion-panel')).not.toBeNull();
+      expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+
+      typeInto(fixture, 'wizard-api-key', 'sk-test-123');
+      click(fixture, 'wizard-continue');
+      expect(query(fixture, 'wizard-step-verify')?.classList.contains('ptah-motion-panel')).toBe(true);
+      click(fixture, 'wizard-step-link');
+      expect(stage?.getAttribute('data-motion-dir')).toBe('back');
+      expect(query(fixture, 'wizard-step-provider')).not.toBeNull();
+      expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+    });
+
+    it('settles a rapid Provider to Credential to Provider switch on one backward panel', () => {
+      const fixture = createComponent();
+      const stage = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.ptah-motion-stage');
+      selectProvider(fixture, 'requesty');
+      click(fixture, 'wizard-continue');
+      expect(stage?.getAttribute('data-motion-dir')).toBe('forward');
+      click(fixture, 'wizard-back');
+      expect(stage?.getAttribute('data-motion-dir')).toBe('back');
+      expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+      expect(query(fixture, 'wizard-step-provider')).not.toBeNull();
+    });
+
+    it('skips the nested enter on credential step entry and enables it for a directional mode switch', () => {
+      const fixture = createComponent();
+      selectProvider(fixture, 'kimi-code');
+      click(fixture, 'wizard-continue');
+      const modeStage = query(fixture, 'wizard-step-credential')?.querySelector<HTMLElement>('.ptah-motion-stage');
+      expect(fixture.componentInstance['credentialModeSwitch']()).toBe(false);
+      expect(fixture.componentInstance['credentialModeEnterClass']()).toBe('');
+      expect(modeStage?.getAttribute('data-motion-dir')).toBe('forward');
+      expect(modeStage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+
+      click(fixture, 'wizard-use-api-key');
+      expect(fixture.componentInstance['credentialModeSwitch']()).toBe(true);
+      expect(fixture.componentInstance['credentialModeEnterClass']()).toBe('ptah-motion-enter');
+      expect(modeStage?.getAttribute('data-motion-dir')).toBe('back');
+      click(fixture, 'wizard-use-sign-in');
+      expect(modeStage?.getAttribute('data-motion-dir')).toBe('forward');
+      expect(modeStage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+
+      click(fixture, 'wizard-back');
+      click(fixture, 'wizard-continue');
+      expect(fixture.componentInstance['credentialModeSwitch']()).toBe(false);
+      expect(fixture.componentInstance['credentialModeEnterClass']()).toBe('');
+    });
+
+    it('has no function-valued leave callbacks in the Credential subtree', () => {
+      const fixture = createComponent();
+      // This fails with the callback-based mode leaves that retained the outer step in Electron.
+      expect(Reflect.has(fixture.componentInstance, 'leaveCredentialModePanel')).toBe(false);
+      expect(Reflect.has(fixture.componentInstance, 'leaveSensitivePanel')).toBe(false);
+    });
+
+    it('removes the old Credential step through Continue, Back, Continue with no animations', () => {
+      const fixture = createComponent();
+      const stage = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+        '.ptah-motion-stage',
+      );
+      selectProvider(fixture, 'requesty');
+      click(fixture, 'wizard-continue');
+      const oldCredential = query(fixture, 'wizard-step-credential');
+      if (!oldCredential) throw new Error('missing credential step');
+      Object.defineProperty(oldCredential, 'getAnimations', { value: () => [] });
+
+      click(fixture, 'wizard-back');
+      expect(stage?.getAttribute('data-motion-dir')).toBe('back');
+      expect(oldCredential.hasAttribute('inert')).toBe(true);
+      expect(oldCredential.getAttribute('aria-hidden')).toBe('true');
+      expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+      expect(query(fixture, 'wizard-step-credential')).toBeNull();
+
+      click(fixture, 'wizard-continue');
+      expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+      expect(query(fixture, 'wizard-step-provider')).toBeNull();
+      expect(query(fixture, 'wizard-step-credential')).not.toBe(oldCredential);
+    });
+
+    it('marks the outgoing mode inert and lets Angular remove its class-based leave', () => {
+      const fixture = createComponent();
+      selectProvider(fixture, 'kimi-code');
+      click(fixture, 'wizard-continue');
+      const credential = query(fixture, 'wizard-step-credential');
+      const oldMode = credential?.querySelector<HTMLElement>('.ptah-motion-stage > .ptah-motion-panel');
+      if (!oldMode) throw new Error('missing credential mode panel');
+
+      click(fixture, 'wizard-use-api-key');
+      expect(oldMode.hasAttribute('inert')).toBe(true);
+      expect(oldMode.getAttribute('aria-hidden')).toBe('true');
+      expect(credential?.querySelectorAll('.ptah-motion-stage > .ptah-motion-panel')).toHaveLength(1);
+      expect(query(fixture, 'wizard-use-sign-in')).not.toBeNull();
+
+      click(fixture, 'wizard-use-sign-in');
+      expect(query(fixture, 'wizard-use-api-key')).not.toBeNull();
+      expect(credential?.querySelectorAll('.ptah-motion-stage > .ptah-motion-panel')).toHaveLength(1);
+    });
+
+    it('clears the mode-switch gate on close and reopens with one Credential panel', () => {
+      const fixture = createComponent();
+      selectProvider(fixture, 'kimi-code');
+      click(fixture, 'wizard-continue');
+      click(fixture, 'wizard-use-api-key');
+      expect(fixture.componentInstance['credentialModeSwitch']()).toBe(true);
+
+      fixture.componentRef.setInput('open', false);
+      fixture.detectChanges();
+      expect(fixture.componentInstance['credentialModeSwitch']()).toBe(false);
+      fixture.componentRef.setInput('open', true);
+      fixture.detectChanges();
+      selectProvider(fixture, 'requesty');
+      click(fixture, 'wizard-continue');
+      expect(query(fixture, 'wizard-step-credential')).not.toBeNull();
+      expect((fixture.nativeElement as HTMLElement).querySelectorAll('[data-testid="wizard-step-credential"]')).toHaveLength(1);
+      expect(fixture.componentInstance['credentialModeSwitch']()).toBe(false);
+    });
+
+    it('moves focus to the matching control after a credential mode switch', async () => {
+      const fixture = createComponent();
+      selectProvider(fixture, 'kimi-code');
+      click(fixture, 'wizard-continue');
+      await Promise.resolve();
+      button(fixture, 'wizard-use-api-key')?.focus();
+      click(fixture, 'wizard-use-api-key');
+      await Promise.resolve();
+      expect(document.activeElement).toBe(button(fixture, 'wizard-use-sign-in'));
+
+      click(fixture, 'wizard-use-sign-in');
+      await Promise.resolve();
+      expect(document.activeElement).toBe(button(fixture, 'wizard-use-api-key'));
+    });
+
     it('opens on the Provider step with five steps and a disabled Continue', () => {
       const fixture = createComponent();
       expect(query(fixture, 'wizard-title')?.textContent?.trim()).toBe('Connect provider');

@@ -293,8 +293,12 @@ function findAgentNode(
   styleUrl: './chat-transcript.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    '[class.hidden]': '!active()',
-    class: 'flex-1 flex flex-col min-h-0 relative',
+    '[class.hidden]': '!active() && !leaving()',
+    '[class.ptah-pane-switch-leave]': 'leaving()',
+    '[class.ptah-pane-switch-overlap]': 'leaving() && overlapping()',
+    '[attr.inert]': "leaving() ? '' : null",
+    '[attr.aria-hidden]': "leaving() ? 'true' : null",
+    class: 'ptah-motion-panel flex-1 flex flex-col min-h-0 relative',
     // Agent-output surface: file links in rendered markdown route into Ptah's
     // viewer, and `data-ptah-tab-id` tells the router which workspace a
     // relative path belongs to (this transcript may render a BACKGROUND
@@ -346,6 +350,13 @@ export class ChatTranscriptComponent {
   readonly active = input.required<boolean>();
   /** True for one session-switch entrance window. */
   readonly entering = input(false);
+  /**
+   * True while this inactive transcript stays visible during a tab switch.
+   * Its frozen view model keeps the last content, and it takes no input.
+   */
+  readonly leaving = input(false);
+  /** The next transcript has content and its entrance has started. */
+  readonly overlapping = input(false);
   private readonly surfaceActive = inject(SURFACE_ACTIVE);
   protected readonly workActive = computed(
     () => this.active() && this.surfaceActive(),

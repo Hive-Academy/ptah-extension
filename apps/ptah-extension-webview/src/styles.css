@@ -40,10 +40,20 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   /* Shared motion timing for page and session transitions. */
   --ptah-ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
   --ptah-ease-gentle-in: cubic-bezier(0.4, 0, 0.2, 1);
-  --ptah-motion-out: 120ms;
-  --ptah-motion-in: 200ms;
-  --ptah-motion-switch: 260ms;
-  --ptah-stagger-step: 28ms;
+  --ptah-motion-out: 180ms;
+  --ptah-motion-in: 320ms;
+  --ptah-motion-switch: 380ms;
+  --ptah-stagger-step: 36ms;
+  /* Rise is the default when data-motion-style is absent. */
+  --ptah-motion-enter-x: 0px;
+  --ptah-motion-enter-y: 18px;
+  --ptah-motion-enter-scale: 1;
+  --ptah-motion-enter-opacity: 0;
+  --ptah-motion-leave-x: 0px;
+  --ptah-motion-leave-y: -10px;
+  --ptah-motion-leave-scale: 1;
+  --ptah-motion-leave-opacity: 0;
+  --ptah-motion-back-sign: 1;
 
   /* Brand gold — theme-aware (overridden for light theme below) */
   --ptah-gold: #d4af37; /* primary brand gold */
@@ -782,19 +792,12 @@ html.ptah-vt-none * {
   view-transition-name: none !important;
 }
 
-html.ptah-vt-active:not(.ptah-vt-entering) .ptah-vt-surface {
-  view-transition-name: ptah-surface;
-}
-
-html.ptah-vt-entering .ptah-vt-surface {
-  animation: ptahPageRiseIn var(--ptah-motion-in) var(--ptah-ease-soft) both;
-}
-
-/* Electron: keep the navbar, rail and git dock hit-testable during transitions. */
-html.ptah-vt-active:has(.ptah-vt-surface) {
-  view-transition-name: none;
-}
-
+/* A surface change crossfades the whole window (the root snapshot). No element
+   inside the window gets a view-transition-name: a named element, or one with
+   opacity below 1, is a Backdrop Root, so the glass panes' backdrop-filter
+   would stop sampling the scene during the transition and snap back at its
+   end. The root is already the Backdrop Root, so the glass stays the same.
+   The navbar, rails and dock are the same in both snapshots and do not move. */
 ::view-transition {
   pointer-events: none;
 }
@@ -811,49 +814,197 @@ html.ptah-vt-active:has(.ptah-vt-surface) {
   animation-name: none;
 }
 
-html.ptah-vt-active::view-transition-group(root) {
-  animation-duration: 180ms;
-  animation-timing-function: var(--ptah-ease-soft);
-}
-
-html.ptah-vt-active::view-transition-group(ptah-surface) {
-  animation-duration: var(--ptah-motion-in);
-  animation-timing-function: var(--ptah-ease-soft);
-}
-
-html.ptah-vt-active::view-transition-old(root) {
-  animation: ptahPageOut 180ms var(--ptah-ease-soft) both;
+/* The old window stays opaque under the new one, and the new one fades in.
+   The new snapshot must have its own animation: it is painted above the old
+   one, so with no animation it covers it at once (a hard cut). */
+html.ptah-vt-active::view-transition-old(root),
+html.ptah-vt-active::view-transition-new(root) {
+  mix-blend-mode: normal;
 }
 
 html.ptah-vt-active::view-transition-new(root) {
-  animation: ptahPageIn 180ms var(--ptah-ease-soft) both;
-}
-
-html.ptah-vt-active::view-transition-old(ptah-surface) {
-  animation: ptahPageOut var(--ptah-motion-out) var(--ptah-ease-gentle-in) both;
-}
-
-@keyframes ptahPageOut {
-  to {
-    opacity: 0;
-  }
+  animation: ptahPageIn var(--ptah-motion-switch) var(--ptah-ease-soft) both;
 }
 
 @keyframes ptahPageIn {
   from {
     opacity: 0;
   }
-}
-
-@keyframes ptahPageRiseIn {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
+}
+
+/* The root snapshot owns the entire surface change. Its entering content must
+   be still, including native animate.enter panels and chat pane switches. */
+html.ptah-vt-active :is(.ptah-motion-enter, .ptah-pane-switch-enter, .inspector-stats-enter) {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+}
+
+/* Child routes and panel switches use the selected preset. Root snapshots
+   above always use the same whole-window crossfade. */
+[data-motion-style='fade'] {
+  --ptah-motion-enter-x: 0px;
+  --ptah-motion-enter-y: 0px;
+  --ptah-motion-enter-scale: 1;
+  --ptah-motion-enter-opacity: 0;
+  --ptah-motion-leave-x: 0px;
+  --ptah-motion-leave-y: 0px;
+  --ptah-motion-leave-scale: 1;
+  --ptah-motion-leave-opacity: 0;
+  --ptah-motion-back-sign: 1;
+}
+
+[data-motion-style='rise'] {
+  --ptah-motion-enter-x: 0px;
+  --ptah-motion-enter-y: 18px;
+  --ptah-motion-enter-scale: 1;
+  --ptah-motion-enter-opacity: 0;
+  --ptah-motion-leave-x: 0px;
+  --ptah-motion-leave-y: -10px;
+  --ptah-motion-leave-scale: 1;
+  --ptah-motion-leave-opacity: 0;
+  --ptah-motion-back-sign: 1;
+}
+
+[data-motion-style='slide-left'] {
+  --ptah-motion-enter-x: 32px;
+  --ptah-motion-enter-y: 0px;
+  --ptah-motion-enter-scale: 1;
+  --ptah-motion-enter-opacity: 0;
+  --ptah-motion-leave-x: -32px;
+  --ptah-motion-leave-y: 0px;
+  --ptah-motion-leave-scale: 1;
+  --ptah-motion-leave-opacity: 0;
+  --ptah-motion-back-sign: 1;
+}
+
+[data-motion-style='slide-right'] {
+  --ptah-motion-enter-x: -32px;
+  --ptah-motion-enter-y: 0px;
+  --ptah-motion-enter-scale: 1;
+  --ptah-motion-enter-opacity: 0;
+  --ptah-motion-leave-x: 32px;
+  --ptah-motion-leave-y: 0px;
+  --ptah-motion-leave-scale: 1;
+  --ptah-motion-leave-opacity: 0;
+  --ptah-motion-back-sign: 1;
+}
+
+[data-motion-style='scale'] {
+  --ptah-motion-enter-x: 0px;
+  --ptah-motion-enter-y: 0px;
+  --ptah-motion-enter-scale: 0.94;
+  --ptah-motion-enter-opacity: 0;
+  --ptah-motion-leave-x: 0px;
+  --ptah-motion-leave-y: 0px;
+  --ptah-motion-leave-scale: 1.04;
+  --ptah-motion-leave-opacity: 0;
+  --ptah-motion-back-sign: 1;
+}
+
+[data-motion-style='directional'] {
+  --ptah-motion-enter-x: 32px;
+  --ptah-motion-enter-y: 0px;
+  --ptah-motion-enter-scale: 1;
+  --ptah-motion-enter-opacity: 0;
+  --ptah-motion-leave-x: -32px;
+  --ptah-motion-leave-y: 0px;
+  --ptah-motion-leave-scale: 1;
+  --ptah-motion-leave-opacity: 0;
+  --ptah-motion-back-sign: -1;
+}
+
+:where(.ptah-motion-stage) {
+  position: relative;
+  --ptah-motion-sign: 1;
+}
+
+.ptah-motion-stage[data-motion-dir='back'] {
+  --ptah-motion-sign: var(--ptah-motion-back-sign);
+}
+
+@keyframes ptahMotionEnter {
+  from {
+    opacity: var(--ptah-motion-enter-opacity);
+    transform: translate(calc(var(--ptah-motion-enter-x) * var(--ptah-motion-sign, 1)), var(--ptah-motion-enter-y)) scale(var(--ptah-motion-enter-scale));
+  }
+  28% {
+    opacity: 0.8;
+  }
+  56.25% {
+    opacity: 0.94;
+  }
+}
+
+@keyframes ptahMotionEnterGlass {
+  from {
+    transform: translate(calc(var(--ptah-motion-enter-x) * var(--ptah-motion-sign, 1)), var(--ptah-motion-enter-y)) scale(var(--ptah-motion-enter-scale));
+  }
+}
+
+@keyframes ptahMotionLeave {
+  75% {
+    opacity: 1;
+  }
+  to {
+    opacity: var(--ptah-motion-leave-opacity);
+    transform: translate(calc(var(--ptah-motion-leave-x) * var(--ptah-motion-sign, 1)), var(--ptah-motion-leave-y)) scale(var(--ptah-motion-leave-scale));
+  }
+}
+
+.ptah-motion-enter {
+  animation: ptahMotionEnter var(--ptah-motion-in) var(--ptah-ease-soft) backwards;
+}
+
+.ptah-motion-leave {
+  overflow: hidden;
+  pointer-events: none;
+  animation: ptahMotionLeave var(--ptah-motion-out) var(--ptah-ease-gentle-in) forwards;
+}
+
+.ptah-motion-stage > .ptah-motion-leave {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+/* The native drawer host has display: contents. Its manual popover stays open
+   during Angular's host leave; animate only the panel, never its blur backdrop. */
+ptah-native-drawer.ptah-motion-leave .ptah-drawer-panel {
+  animation: ptahMotionLeave var(--ptah-motion-out) var(--ptah-ease-gentle-in) forwards;
+}
+
+:root[data-glass='on'] ptah-native-drawer.ptah-motion-leave .ptah-drawer-panel {
+  animation: none;
+  display: none;
+}
+
+[data-motion-clone='pending'] {
+  animation-play-state: paused;
+}
+
+/* A backdrop-filter descendant must never acquire an opacity Backdrop Root.
+   Glass panels enter with transform only and their exit is an immediate cut. */
+:root[data-glass='on'] .ptah-motion-panel.ptah-motion-enter:is([data-glass-surface], [class*='backdrop-blur'], :has([data-glass-surface], [class*='backdrop-blur'])) {
+  animation-name: ptahMotionEnterGlass;
+}
+
+:root[data-glass='on'][data-motion-style='fade'] .ptah-motion-panel.ptah-motion-enter:is([data-glass-surface], [class*='backdrop-blur'], :has([data-glass-surface], [class*='backdrop-blur'])),
+:root[data-glass='on'] [data-motion-style='fade'] .ptah-motion-panel.ptah-motion-enter:is([data-glass-surface], [class*='backdrop-blur'], :has([data-glass-surface], [class*='backdrop-blur'])) {
+  --ptah-motion-enter-y: 18px;
+}
+
+:root[data-glass='on'][data-motion-style='scale'] .ptah-motion-panel.ptah-motion-enter:is([data-glass-surface], [class*='backdrop-blur'], :has([data-glass-surface], [class*='backdrop-blur'])),
+:root[data-glass='on'] [data-motion-style='scale'] .ptah-motion-panel.ptah-motion-enter:is([data-glass-surface], [class*='backdrop-blur'], :has([data-glass-surface], [class*='backdrop-blur'])) {
+  --ptah-motion-enter-y: 6px;
+}
+
+:root[data-glass='on'] .ptah-motion-panel.ptah-motion-leave:not(ptah-native-drawer):is([data-glass-surface], [class*='backdrop-blur'], :has([data-glass-surface], [class*='backdrop-blur'])) {
+  animation: none;
+  display: none;
 }
 
 /* ============================================================================
@@ -862,10 +1013,10 @@ ACCESSIBILITY STYLES
 
 /* Respect user's motion preferences */
 @media (prefers-reduced-motion: reduce) {
-  html.ptah-vt-entering .ptah-vt-surface {
-    animation: none !important;
+  .ptah-motion-leave,
+  [data-motion-clone] {
+    display: none;
   }
-
   ::view-transition-group(*),
   ::view-transition-old(*),
   ::view-transition-new(*) {

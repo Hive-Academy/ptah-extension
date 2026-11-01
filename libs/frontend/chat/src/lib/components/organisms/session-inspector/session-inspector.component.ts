@@ -2,6 +2,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   afterRenderEffect,
   computed,
@@ -39,6 +40,15 @@ export type SessionInspectorPresentation =
   'docked' | 'sheet' | 'embedded' | 'rail';
 type InspectorFocusSection = 'session' | 'agents' | 'todos';
 
+function statsSwitchWindowMs(element: HTMLElement): number {
+  const value = typeof getComputedStyle === 'function'
+    ? getComputedStyle(element).getPropertyValue('--ptah-motion-switch').trim()
+    : '';
+  const match = /^(\d+(?:\.\d+)?)(ms|s)$/.exec(value);
+  const durationMs = match ? Number(match[1]) * (match[2] === 's' ? 1000 : 1) : 380;
+  return durationMs + 40;
+}
+
 /**
  * `ptah-session-inspector`: the "This session" body (design 4, D45). One
  * component serves the chat-view (docked or sheet) and the Rail board aside;
@@ -74,6 +84,35 @@ type InspectorFocusSection = 'session' | 'agents' | 'todos';
     :host-context([data-glass='on']) aside[data-inspector-pane] {
       background: transparent;
     }
+    .inspector-stats-switch { position: relative; }
+    .inspector-stats-leave {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      animation: ptahMotionLeave var(--ptah-motion-out) var(--ptah-ease-gentle-in) forwards;
+    }
+    .inspector-stats-enter {
+      animation: ptahMotionEnter var(--ptah-motion-switch) var(--ptah-ease-soft) backwards;
+    }
+    :host-context([data-glass='on']) .inspector-stats-enter {
+      animation-name: ptahMotionEnterGlass;
+    }
+    :host-context([data-glass='on'][data-motion-style='fade']) .inspector-stats-enter {
+      --ptah-motion-enter-y: 18px;
+    }
+    :host-context([data-glass='on'][data-motion-style='scale']) .inspector-stats-enter {
+      --ptah-motion-enter-y: 6px;
+    }
+    :host-context([data-glass='on']) .inspector-stats-leave {
+      animation: none;
+      display: none;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .inspector-stats-leave { display: none; }
+      .inspector-stats-enter {
+        animation: none;
+      }
+    }
   `,
 })
 export class SessionInspectorComponent {
@@ -82,6 +121,10 @@ export class SessionInspectorComponent {
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   /** Provided by the chat-view host only; the Rail board has no sheet. */
   private readonly shell = inject(InspectorShellController, { optional: true });
+  private readonly destroyRef = inject(DestroyRef);
+  private statsSwitchTimer: ReturnType<typeof setTimeout> | null = null;
+  protected readonly leavingStats = signal<SessionStatsInputs | null>(null);
+  protected readonly statsSwitching = signal(false);
 
   readonly tabId = input.required<string>();
   readonly presentation = input<SessionInspectorPresentation>('docked');
@@ -186,6 +229,38 @@ export class SessionInspectorComponent {
   );
 
   constructor() {
+    let previousSessionId: string | null = null;
+    let previousStats: SessionStatsInputs | null = null;
+    effect(() => {
+      const stats = this.stats();
+      if (stats === null) {
+        if (this.statsSwitchTimer !== null) clearTimeout(this.statsSwitchTimer);
+        this.statsSwitchTimer = null;
+        this.leavingStats.set(null);
+        this.statsSwitching.set(false);
+        // Keep the last session snapshot across one empty interval. A new
+        // session can then leave from it; the same session does not replay.
+        return;
+      }
+      const sessionId = stats?.sessionId ?? null;
+      const changed = previousSessionId !== null &&
+        sessionId !== null && sessionId !== previousSessionId;
+      if (changed && stats && previousStats) {
+        if (this.statsSwitchTimer !== null) clearTimeout(this.statsSwitchTimer);
+        this.leavingStats.set(previousStats);
+        this.statsSwitching.set(true);
+        this.statsSwitchTimer = setTimeout(() => {
+          this.statsSwitchTimer = null;
+          this.leavingStats.set(null);
+          this.statsSwitching.set(false);
+        }, statsSwitchWindowMs(this.element.nativeElement));
+      }
+      if (sessionId !== null) previousSessionId = sessionId;
+      if (stats) previousStats = stats;
+    });
+    this.destroyRef.onDestroy(() => {
+      if (this.statsSwitchTimer !== null) clearTimeout(this.statsSwitchTimer);
+    });
     let previous: SessionInspectorPresentation | undefined;
     afterRenderEffect(() => {
       const presentation = this.presentation();

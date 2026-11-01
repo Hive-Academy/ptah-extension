@@ -364,7 +364,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
            welcome, pre-workspace configuration, or workspace layout. -->
       @if (!layout.workspaceResolved()) {
         <ptah-workspace-loading-state
-          class="flex-1 min-h-0 ptah-vt-surface"
+          class="flex-1 min-h-0" data-shell-surface
           [workspaceName]="layout.pendingWorkspaceName()"
         />
       } @else if (
@@ -379,10 +379,10 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
              nor re-exported by the chat barrel, or the compiler and esbuild
              keep it eager (electron-welcome.lazy-boundary.spec.ts). -->
         @defer (on immediate) {
-          <ptah-electron-welcome class="flex-1 ptah-vt-surface" />
+          <ptah-electron-welcome class="flex-1" data-shell-surface />
         } @placeholder {
           <div
-            class="flex-1 ptah-vt-surface"
+            class="flex-1" data-shell-surface
             data-testid="electron-welcome-placeholder"
             aria-hidden="true"
           ></div>
@@ -391,7 +391,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
                loader, so a remount would fail again: Reload restarts the
                renderer instead. -->
           <div
-            class="flex-1 ptah-vt-surface flex flex-col items-center justify-center gap-3 p-6 text-center"
+            class="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center" data-shell-surface
             data-testid="electron-welcome-error"
             role="alert"
           >
@@ -414,7 +414,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
           </div>
         }
       } @else if (!layout.hasWorkspaceFolders()) {
-        <div class="flex-1 min-h-0 overflow-hidden ptah-vt-surface"><router-outlet /></div>
+        <div class="flex-1 min-h-0 overflow-hidden" data-shell-surface><router-outlet /></div>
       } @else {
         <!-- 3-Panel Content Area -->
         <div class="electron-shell-body flex flex-1 min-h-0 overflow-hidden">
@@ -442,7 +442,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             data-test="configuration-surface-host"
             data-glass-surface="chrome"
             tabindex="-1"
-            class="flex-1 min-h-0 min-w-[400px] overflow-hidden outline-none ptah-vt-surface"
+            class="flex-1 min-h-0 min-w-[400px] overflow-hidden outline-none" data-shell-surface
           >
             <ptah-app-shell class="h-full w-full" />
           </div>

@@ -57,6 +57,7 @@ import {
 } from '@ptah-extension/core';
 import type { ConfigGetScopesResult } from '@ptah-extension/shared';
 import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
+import { MotionStageDirective } from '@ptah-extension/ui';
 import { SettingsComponent } from './settings.component';
 import { OrchestrationSettingsComponent } from './ptah-ai/orchestration-settings.component';
 import { AgentsRoutingSettingsComponent } from './providers/agents-routing-settings.component';
@@ -142,7 +143,7 @@ describe('SettingsComponent deep-link', () => {
       ],
     });
     TestBed.overrideComponent(SettingsComponent, {
-      set: { imports: [], template: '' },
+      set: { imports: [MotionStageDirective], template: '' },
     });
     appState = TestBed.inject(AppStateManager);
   });
@@ -345,7 +346,7 @@ describe('SettingsComponent agents-routing landing', () => {
     });
     TestBed.overrideComponent(SettingsComponent, {
       set: {
-        imports: [AgentsRoutingSettingsComponent],
+        imports: [AgentsRoutingSettingsComponent, MotionStageDirective],
         schemas: [CUSTOM_ELEMENTS_SCHEMA],
       },
     });
@@ -408,7 +409,7 @@ describe('SettingsComponent agents-routing landing', () => {
     });
     TestBed.overrideComponent(SettingsComponent, {
       set: {
-        imports: [AgentsRoutingSettingsComponent],
+        imports: [AgentsRoutingSettingsComponent, MotionStageDirective],
         schemas: [CUSTOM_ELEMENTS_SCHEMA],
       },
     });
@@ -476,7 +477,7 @@ describe('SettingsComponent agents-routing landing', () => {
       ],
     });
     TestBed.overrideComponent(SettingsComponent, {
-      set: { imports: [AgentsRoutingStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+      set: { imports: [AgentsRoutingStub, MotionStageDirective], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
     const appState = TestBed.inject(AppStateManager);
     appState.requestSettingsTab({ tab: 'orchestration', section: 'enhancement' });
@@ -531,12 +532,12 @@ describe('SettingsComponent agents-routing landing', () => {
     });
     TestBed.overrideComponent(SettingsComponent, {
       set: {
-        imports: [OrchestrationSettingsComponent],
+        imports: [OrchestrationSettingsComponent, MotionStageDirective],
         schemas: [CUSTOM_ELEMENTS_SCHEMA],
       },
     });
     TestBed.overrideComponent(OrchestrationSettingsComponent, {
-      set: { imports: [], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+      set: { imports: [MotionStageDirective], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
     TestBed.inject(AppStateManager).requestSettingsTab({
       tab: 'orchestration',
@@ -579,7 +580,7 @@ describe('SettingsComponent header', () => {
       ],
     });
     TestBed.overrideComponent(SettingsComponent, {
-      set: { imports: [], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+      set: { imports: [MotionStageDirective], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
     const fixture = TestBed.createComponent(SettingsComponent);
     fixture.detectChanges();
@@ -676,7 +677,7 @@ describe('SettingsComponent security copy', () => {
       ],
     });
     TestBed.overrideComponent(SettingsComponent, {
-      set: { imports: [], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+      set: { imports: [MotionStageDirective], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
     const fixture = TestBed.createComponent(SettingsComponent);
     fixture.detectChanges();
@@ -795,6 +796,7 @@ describe('SettingsComponent deferred tabs', () => {
     TestBed.overrideComponent(SettingsComponent, {
       set: {
         imports: [
+          MotionStageDirective,
           AdvancedStub,
           SearchVoiceStub,
           OrchestrationStub,
@@ -807,6 +809,42 @@ describe('SettingsComponent deferred tabs', () => {
   }
 
   afterEach(() => TestBed.resetTestingModule());
+
+  it('keeps a directional stage across deferred tab changes and animates the loaded body', async () => {
+    const fixture = create(DeferBlockBehavior.Manual);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    const stage = element.querySelector<HTMLElement>('.ptah-motion-stage');
+    expect(stage).not.toBeNull();
+
+    fixture.componentInstance.setActiveTab('pro-features');
+    fixture.detectChanges();
+    expect(stage?.getAttribute('data-motion-dir')).toBe('forward');
+    expect(stage?.querySelector('.ptah-motion-panel')).not.toBeNull();
+    expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+
+    const [block] = await fixture.getDeferBlocks();
+    await block.render(DeferBlockState.Complete);
+    expect(element.querySelector('ptah-advanced-settings')?.parentElement?.classList.contains('ptah-motion-panel')).toBe(true);
+
+    fixture.componentInstance.setActiveTab('claude-auth');
+    fixture.detectChanges();
+    expect(stage?.getAttribute('data-motion-dir')).toBe('back');
+    expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+  });
+
+  it('settles a rapid Providers to Advanced to Providers switch on one backward panel', () => {
+    const fixture = create(DeferBlockBehavior.Manual);
+    fixture.detectChanges();
+    const stage = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.ptah-motion-stage');
+    fixture.componentInstance.setActiveTab('pro-features');
+    fixture.detectChanges();
+    expect(stage?.getAttribute('data-motion-dir')).toBe('forward');
+    fixture.componentInstance.setActiveTab('claude-auth');
+    fixture.detectChanges();
+    expect(stage?.getAttribute('data-motion-dir')).toBe('back');
+    expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+  });
 
   it('shows an aria-busy placeholder until the Advanced chunk renders, then wires modelChanged', async () => {
     const fixture = create(DeferBlockBehavior.Manual);
@@ -971,7 +1009,7 @@ describe('SettingsComponent deep-linked provider request', () => {
       ],
     });
     TestBed.overrideComponent(SettingsComponent, {
-      set: { imports: [ProvidersPageStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+      set: { imports: [ProvidersPageStub, MotionStageDirective], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
     const appState = TestBed.inject(AppStateManager);
     appState.requestSettingsTab({

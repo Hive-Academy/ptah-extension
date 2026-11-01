@@ -43,6 +43,7 @@ import { LucideAngularModule, Check, Loader2, Server } from 'lucide-angular';
 import type { LucideIconData } from 'lucide-angular';
 import {
   NativeDrawerComponent,
+  MotionStageDirective,
   ProviderMarkComponent,
   ProviderModelPickerComponent,
 } from '@ptah-extension/ui';
@@ -180,6 +181,7 @@ interface ProbeCopyContext {
 }
 
 const STEP_ORDER: readonly WizardStepId[] = ['provider', 'credential', 'verify', 'models', 'scope'];
+const AUTH_MODE_ORDER: readonly WizardAuthMode[] = ['apiKey', 'oauth', 'cli', 'local-native', 'local-proxy', 'custom'];
 
 const STEP_DEFS = [
   { id: 'provider', label: 'Provider' },
@@ -285,7 +287,7 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
   selector: 'ptah-provider-setup-wizard',
   standalone: true,
   imports: [
-    LucideAngularModule, NativeDrawerComponent, ProviderMarkComponent, ProviderModelPickerComponent,
+    LucideAngularModule, NativeDrawerComponent, MotionStageDirective, ProviderMarkComponent, ProviderModelPickerComponent,
     KimiCodeLoginProgressComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -434,9 +436,10 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
         }
 
         @if (externalMessage()) { <p role="status">{{ externalMessage() }}</p> }
+      <div ptahMotionStage [motionIndex]="stepIndex()">
       @switch (step()) {
           @case ('provider') {
-            <div data-testid="wizard-step-provider">
+            <div class="ptah-motion-panel" animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave" data-testid="wizard-step-provider">
               <h3
                 #stepHeading
                 tabindex="-1"
@@ -634,7 +637,7 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
             </div>
           }
           @case ('credential') {
-            <div data-testid="wizard-step-credential">
+            <div class="ptah-motion-panel" animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave" data-testid="wizard-step-credential">
               <h3
                 #stepHeading
                 tabindex="-1"
@@ -643,8 +646,10 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
               >
                 Credential
               </h3>
+              <div ptahMotionStage [motionIndex]="authModeIndex()">
               @switch (authMode()) {
                 @case ('apiKey') {
+                   <div class="ptah-motion-panel" [animate.enter]="credentialModeEnterClass()" animate.leave="ptah-motion-leave">
                   <p class="text-xs">A stored key is verified on this machine without re-entering it. Nothing is saved until you confirm.</p>
                   @if (existingCredentialPresent() && !replacingKey()) {
                     <p
@@ -721,13 +726,16 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                       type="button"
                       class="btn btn-link btn-sm mt-1 min-h-9 !px-0 text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
                       (click)="setUseKeyInstead(false)"
+                      #signInModeToggle
                       data-testid="wizard-use-sign-in"
                     >
                       Sign in with {{ displayName() }} CLI instead
                     </button>
                   }
+                  </div>
                 }
                 @case ('oauth') {
+                   <div class="ptah-motion-panel" [animate.enter]="credentialModeEnterClass()" animate.leave="ptah-motion-leave">
                   @if (signInState() === 'signed-in') {
                     <p class="mt-3 text-sm text-base-content" data-testid="wizard-sign-in-ok">
                       {{ accountLabel() ? 'Signed in as ' + accountLabel() : 'Signed in' }}
@@ -777,14 +785,17 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                         type="button"
                         class="btn btn-link btn-sm mt-2 block min-h-9 !px-0 text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
                         (click)="setUseKeyInstead(true)"
+                        #apiKeyModeToggle
                         data-testid="wizard-use-api-key"
                       >
                         Use an API key instead
                       </button>
                     }
                   }
+                  </div>
                 }
                 @case ('cli') {
+                   <div class="ptah-motion-panel" [animate.enter]="credentialModeEnterClass()" animate.leave="ptah-motion-leave">
                   @if (cliInstalled() === false) {
                     <p
                       class="mt-3 text-sm text-base-content"
@@ -819,8 +830,10 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                       Open login
                     </button>
                   }
+                  </div>
                 }
                 @case ('local-native') {
+                   <div class="ptah-motion-panel" [animate.enter]="credentialModeEnterClass()" animate.leave="ptah-motion-leave">
                   <label class="mt-3 flex flex-col gap-1">
                     <span
                       id="wizard-base-url-label"
@@ -880,8 +893,10 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                       </p>
                     }
                   }
+                  </div>
                 }
                 @case ('local-proxy') {
+                   <div class="ptah-motion-panel" [animate.enter]="credentialModeEnterClass()" animate.leave="ptah-motion-leave">
                   <label class="mt-3 flex flex-col gap-1">
                     <span
                       id="wizard-base-url-label"
@@ -941,8 +956,10 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                       </p>
                     }
                   }
+                  </div>
                 }
                 @case ('custom') {
+                   <div class="ptah-motion-panel" [animate.enter]="credentialModeEnterClass()" animate.leave="ptah-motion-leave">
                   <label class="mt-3 flex flex-col gap-1">
                     <span
                       id="wizard-base-url-label"
@@ -1003,8 +1020,10 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                   <p class="text-xs text-base-content-muted" data-testid="wizard-custom-protocol-note">
                     Compatibility: {{ customProtocol() === 'anthropic' ? 'Anthropic-compatible' : 'OpenAI-compatible' }}
                   </p>
+                  </div>
                 }
               }
+              </div>
               @if (credentialReady()) {
                 <p
                   class="mt-3 text-xs font-medium text-base-content"
@@ -1016,7 +1035,7 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
             </div>
           }
           @case ('verify') {
-            <div data-testid="wizard-step-verify">
+            <div class="ptah-motion-panel" animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave" data-testid="wizard-step-verify">
               <h3
                 #stepHeading
                 tabindex="-1"
@@ -1153,7 +1172,7 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
             </div>
           }
           @case ('models') {
-            <div data-testid="wizard-step-models">
+            <div class="ptah-motion-panel" animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave" data-testid="wizard-step-models">
               <h3
                 #stepHeading
                 tabindex="-1"
@@ -1204,7 +1223,7 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
             </div>
           }
           @case ('scope') {
-            <div data-testid="wizard-step-scope">
+            <div class="ptah-motion-panel" animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave" data-testid="wizard-step-scope">
               <h3
                 #stepHeading
                 tabindex="-1"
@@ -1354,6 +1373,7 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
           }
         }
       </div>
+      </div>
 
       <div
         drawer-footer
@@ -1484,6 +1504,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   // ------------------------------------------------------------ draft state
 
   private readonly _step = signal<WizardStepId>('provider');
+  private readonly _credentialModeSwitch = signal(false);
   private readonly _selection = signal<WizardSelection | null>(null);
   private readonly _search = signal('');
   private readonly _customName = signal('');
@@ -1533,6 +1554,8 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   private readonly providerChangeHeading = viewChild<ElementRef<HTMLElement>>(
     'providerChangeHeading',
   );
+  private readonly apiKeyModeToggle = viewChild<ElementRef<HTMLButtonElement>>('apiKeyModeToggle');
+  private readonly signInModeToggle = viewChild<ElementRef<HTMLButtonElement>>('signInModeToggle');
 
   protected readonly step = this._step.asReadonly();
   protected readonly search = this._search.asReadonly();
@@ -1547,6 +1570,10 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   protected readonly closeReview = this._closeReview.asReadonly();
 
   protected readonly stepIndex = computed<number>(() => STEP_ORDER.indexOf(this._step()));
+  protected readonly credentialModeSwitch = this._credentialModeSwitch.asReadonly();
+  protected readonly credentialModeEnterClass = computed(() =>
+    this._credentialModeSwitch() ? 'ptah-motion-enter' : '',
+  );
 
   protected readonly currentLabel = computed<string>(
     () => STEP_DEFS[this.stepIndex()]?.label ?? 'Provider',
@@ -1581,6 +1608,16 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     if (entry && this.keyFallbackAvailable() && this._useKeyInstead()) return 'apiKey';
     return entry ? deriveAuthMode(entry) : 'apiKey';
   });
+  protected readonly authModeIndex = computed<number>(() => AUTH_MODE_ORDER.indexOf(this.authMode()));
+
+  /** Hide the old mode's controls before its class-based leave overlaps the new mode. */
+  private markLeavingCredentialModePanel(): void {
+    const panel = this.hostElement().nativeElement.querySelector<HTMLElement>(
+      '[data-testid="wizard-step-credential"]:not([inert]) .ptah-motion-stage > .ptah-motion-panel:not([inert])',
+    );
+    panel?.setAttribute('inert', '');
+    panel?.setAttribute('aria-hidden', 'true');
+  }
 
   /** A sign-in provider that also takes a stored key (`apiKeyFallback`): the Credential step offers both. */
   protected readonly keyFallbackAvailable = computed<boolean>(
@@ -1977,6 +2014,8 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     effect(() => {
       if (!this.open()) return;
       void this._step();
+      void this.authMode();
+      void this._credentialModeSwitch();
       void this._closeReview();
       void this._providerChangeReview();
       queueMicrotask(() => {
@@ -1985,7 +2024,11 @@ export class ProviderSetupWizardComponent implements OnDestroy {
             ? this.closeReviewHeading()?.nativeElement
             : this._providerChangeReview()
               ? this.providerChangeHeading()?.nativeElement
-              : this.stepHeading()?.nativeElement;
+              : this._step() === 'credential' && this._credentialModeSwitch()
+                ? (this.authMode() === 'apiKey'
+                    ? this.signInModeToggle()?.nativeElement
+                    : this.apiKeyModeToggle()?.nativeElement) ?? this.stepHeading()?.nativeElement
+                : this.stepHeading()?.nativeElement;
         if (target && document.activeElement !== target) target.focus();
       });
     });
@@ -2012,6 +2055,18 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     if (this.probeChecking() || this.commitBusy()) return;
     if (!this.canVisitStep(target)) return;
     if (target === 'scope') this.applyScopeDefaults();
+    if (target !== this._step()) {
+      if (this._step() === 'credential') {
+        // Angular owns the class-based step leave, including zero-duration exits.
+        // Hide its controls before the old and new switch cases overlap.
+        const panel = this.hostElement().nativeElement.querySelector<HTMLElement>(
+          '[data-testid="wizard-step-credential"]:not([inert])',
+        );
+        panel?.setAttribute('inert', '');
+        panel?.setAttribute('aria-hidden', 'true');
+      }
+      this._credentialModeSwitch.set(false);
+    }
     this._step.set(target);
   }
 
@@ -2149,6 +2204,10 @@ export class ProviderSetupWizardComponent implements OnDestroy {
    */
   protected setUseKeyInstead(useKey: boolean): void {
     if (!this.keyFallbackAvailable() || this._useKeyInstead() === useKey) return;
+    if (this._step() === 'credential') {
+      this.markLeavingCredentialModePanel();
+      this._credentialModeSwitch.set(true);
+    }
     this._useKeyInstead.set(useKey);
     this._apiKeyDraft.set('');
     this._showApiKey.set(false);
@@ -2419,6 +2478,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
 
   private resetDraft(): void {
     this.stopElapsedTimer();
+    this._credentialModeSwitch.set(false);
     this._step.set('provider');
     this._selection.set(null);
     this._search.set('');

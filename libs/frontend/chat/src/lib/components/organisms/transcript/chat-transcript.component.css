@@ -1,22 +1,46 @@
-@keyframes ptahPaneSwitchEnter {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 .ptah-pane-switch-enter {
-  animation: ptahPaneSwitchEnter var(--ptah-motion-switch) var(--ptah-ease-soft)
+  animation: ptahMotionEnter var(--ptah-motion-switch) var(--ptah-ease-soft)
     backwards;
 }
 
+:host-context([data-glass='on']) .ptah-pane-switch-enter:has([data-glass-surface], [class*='backdrop-blur']) {
+  animation-name: ptahMotionEnterGlass;
+}
+
+:host-context([data-glass='on'][data-motion-style='fade']) .ptah-pane-switch-enter:has([data-glass-surface], [class*='backdrop-blur']) {
+  --ptah-motion-enter-y: 18px;
+}
+
+:host-context([data-glass='on'][data-motion-style='scale']) .ptah-pane-switch-enter:has([data-glass-surface], [class*='backdrop-blur']) {
+  --ptah-motion-enter-y: 6px;
+}
+
+/* Keep the previous tab visible while the next tab loads. Once its entrance
+   starts, the old panel uses the selected preset. */
+:host(.ptah-pane-switch-leave) {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+:host(.ptah-pane-switch-overlap) {
+  animation: ptahMotionLeave var(--ptah-motion-out) var(--ptah-ease-gentle-in) forwards;
+}
+
+:host-context([data-glass='on']) :host(.ptah-pane-switch-overlap):has([data-glass-surface], [class*='backdrop-blur']) {
+  animation: none;
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .ptah-pane-switch-enter {
-    animation: none !important;
+  .ptah-pane-switch-enter,
+  :host(.ptah-pane-switch-overlap) {
+    animation: none;
+  }
+
+  :host(.ptah-pane-switch-leave) {
+    display: none;
   }
 }
 

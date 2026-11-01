@@ -1,7 +1,10 @@
+<div ptahMotionStage [motionIndex]="fullPageDetail() ? 1 : 0" class="min-h-full">
 @if (fullPageDetail()) {
   <!-- Wide: the detail takes the page; the list is removed (plan C9). -->
   <div
-    class="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6"
+    class="ptah-motion-panel mx-auto flex w-full max-w-5xl flex-col gap-4 p-6"
+    [animate.enter]="hasRendered() ? 'ptah-motion-enter' : ''"
+    animate.leave="ptah-motion-leave"
     data-testid="connectors-full-detail"
   >
     <a
@@ -13,10 +16,12 @@
       <lucide-angular [img]="BackIcon" class="h-4 w-4" aria-hidden="true" />
       Back to connectors
     </a>
-    <router-outlet />
+    <div ptahMotionRouteStage [motionRouteKey]="detailMotionKey" [motionLeaveClone]="motionLeaveClone">
+      <router-outlet />
+    </div>
   </div>
 } @else {
-  <div class="mx-auto flex w-full max-w-[1600px] flex-col gap-8 p-4 sm:p-6">
+  <div class="ptah-motion-panel mx-auto flex w-full max-w-[1600px] flex-col gap-8 p-4 sm:p-6" [animate.enter]="hasRendered() ? 'ptah-motion-enter' : ''" animate.leave="ptah-motion-leave">
     @if (wide()) {
       <ptah-storefront-hero
         eyebrow="One-click connectors"
@@ -284,9 +289,11 @@
     </section>
   </div>
 
-  @if (placement() === 'drawer') {
+  @if (placement() === 'drawer' && detailOpen()) {
     <ptah-native-drawer
-      [isOpen]="detailOpen()"
+      class="ptah-motion-panel"
+      animate.leave="ptah-motion-leave"
+      [isOpen]="true"
       ariaLabel="Connector details"
       widthClass="w-full max-w-lg"
       (closed)="closeDetail()"
@@ -294,9 +301,10 @@
       <span drawer-header class="text-sm font-semibold text-base-content"
         >Connector details</span
       >
-      @if (detailOpen()) {
+      <div ptahMotionRouteStage [motionRouteKey]="detailMotionKey" [motionLeaveClone]="motionLeaveClone" [animate.enter]="hasRendered() ? 'ptah-motion-enter' : ''">
         <router-outlet />
-      }
+      </div>
     </ptah-native-drawer>
   }
 }
+</div>
