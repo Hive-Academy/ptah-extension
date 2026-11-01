@@ -1,0 +1,24 @@
+{
+  "batch": 36,
+  "status": "COMPLETE",
+  "files": [
+    "libs/frontend/chat-ui/src/lib/molecules/setup-plugins/install-scope-field.component.ts",
+    "libs/frontend/chat-ui/src/lib/molecules/setup-plugins/install-scope-field.component.spec.ts",
+    "libs/frontend/chat-ui/src/lib/molecules/setup-plugins/mcp-directory-browser.component.ts",
+    "libs/frontend/chat-ui/src/lib/molecules/setup-plugins/mcp-directory-browser.component.spec.ts",
+    "libs/frontend/marketplace/src/lib/data/marketplace-inventory.store.ts",
+    "libs/frontend/marketplace/src/lib/data/marketplace-inventory.store.spec.ts",
+    "libs/frontend/chat-ui/src/index.ts"
+  ],
+  "verification": {
+    "scoped": "/tmp/tpd-b36-scoped.log: chat-ui 2 suites/27 tests, marketplace 1 suite/78 tests passed",
+    "typecheckLint": "/tmp/tpd-b36-tc.log: 4/4 tasks ok (fixed real TS2345 in mcp-directory-browser selectedTargets)",
+    "cohort36_40": "/tmp/tpd-b36-40-verify.log: 21 tasks, 19 ok + 4 cached; failed ptah-extension-webview:lint (known) and @ptah-extension/chat:test (did not reproduce: rerun /tmp/tpd-chat-test.log 311/311 suites, 5490 passed, 2 skipped)",
+    "degradationAudit": "/tmp/tpd-b36-40-audit.log exit 0"
+  },
+  "apiHandoff": {
+    "field": "ptah-install-scope-field from @ptah-extension/chat-ui; inputs legend, itemKind, workspaceName, disabled, noFolderHelp; [(scope)] InstallScopeChoice; helpers defaultInstallScope, effectiveInstallScope, installScopeButtonLabel, INSTALL_SCOPE_NO_FOLDER_HELP",
+    "store": "serverGroupScope, canMakeServerGlobal, canMakeSkillGlobal, removalIdOf; signals installed, community, marketplaces, plugins, counts, pendingIds, convertingIds; makeServerGlobal(group, homeTargets), makeSkillGlobal(skill) -> InventoryConversionOutcome converted|failed|refused; retry/reload/ensure for slices"
+  },
+  "deferred": ["Keyboard/focus-ring check in real Electron -> Phase D visual review"]
+}

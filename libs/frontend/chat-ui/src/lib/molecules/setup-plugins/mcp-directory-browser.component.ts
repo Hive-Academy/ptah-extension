@@ -12,9 +12,10 @@ import {
   DestroyRef,
 } from '@angular/core';
 import { LucideAngularModule, Search } from 'lucide-angular';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import type {
   McpRegistryEntry,
+  McpHomeInstallTarget,
   McpInstallTarget,
   McpServerConfig,
   InstalledMcpServer,
@@ -31,6 +32,12 @@ import {
 // Its own declaration, used only inside @defer: the compiler then emits a
 // dynamic import, keeping the vendored logo table out of the eager chunk (R7).
 import { BrandMarkComponent } from '@ptah-extension/ui/brand-mark';
+import {
+  InstallScopeFieldComponent,
+  defaultInstallScope,
+  effectiveInstallScope,
+  type InstallScopeChoice,
+} from './install-scope-field.component';
 import { mcpTargetLabel } from './installed-mcp-groups';
 import { MARKETPLACE_RPC_TIMEOUTS } from './marketplace-rpc-timeouts';
 
@@ -43,6 +50,26 @@ const ALL_TARGETS: McpInstallTarget[] = [
   'antigravity',
   'opencode',
 ];
+
+/**
+ * Targets whose config lives in the user's home folder. A workspace-scope
+ * install never writes them (the server refuses one that names them), so they
+ * are offered only for All workspaces (design-spec §2, decision #15).
+ */
+const HOME_TARGETS: readonly McpHomeInstallTarget[] = [
+  'copilot',
+  'codex',
+  'antigravity',
+];
+
+function isHomeTarget(target: McpInstallTarget): target is McpHomeInstallTarget {
+  return (HOME_TARGETS as readonly McpInstallTarget[]).includes(target);
+}
+
+/** The project-file targets a workspace install preselects. */
+const WORKSPACE_TARGETS: readonly McpInstallTarget[] = ALL_TARGETS.filter(
+  (target) => !isHomeTarget(target),
+);
 
 const INSTALLED_BADGE: CatalogCardBadge = {
   label: 'Installed',
@@ -71,6 +98,11 @@ interface RegistryCardView {
  *
  * Results render as storefront catalog cards (plan C13); the install step for
  * the expanded result is a storefront panel spanning the grid row under it.
+ * The panel asks for the install scope first (design-spec §2): This
+ * workspace preselects the four project-file targets and disables the three
+ * home-folder ones; an explicit All workspaces checks all seven (decision
+ * #15). Each home target keeps its own choice across scope switches, and the
+ * install sends the chosen `scope`.
  * A result's mark comes from `resolveListingBrandSlug`: a listing's name is
  * chosen by its publisher, so it never earns a vendor mark on its own.
  */
@@ -85,6 +117,7 @@ interface RegistryCardView {
     CatalogGridComponent,
     MonogramTileComponent,
     StorefrontPanelComponent,
+    InstallScopeFieldComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -233,7 +266,22 @@ interface RegistryCardView {
                           </p>
                         </div>
 
-                        <fieldset class="space-y-1.5">
+                        <ptah-install-scope-field
+                          legend="Install for"
+                          itemKind="server"
+                          [workspaceName]="workspaceName()"
+                          [disabled]="
+                            installingServerNames().has(card.server.name)
+                          "
+                          [(scope)]="scopeChoice"
+                        />
+
+                        <fieldset
+                          class="space-y-1.5"
+                          [attr.aria-describedby]="
+                            homeTargetsLocked() ? 'mcp-targets-help' : null
+                          "
+                        >
                           <legend
                             class="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-base-content-muted"
                           >
@@ -242,20 +290,40 @@ interface RegistryCardView {
                           <div class="flex flex-wrap gap-x-3 gap-y-1">
                             @for (target of allTargets; track target) {
                               <label
-                                class="flex cursor-pointer items-center gap-1"
+                                class="flex items-center gap-1"
+                                [class.cursor-pointer]="!isTargetLocked(target)"
+                                [class.cursor-not-allowed]="
+                                  isTargetLocked(target)
+                                "
                               >
                                 <input
                                   type="checkbox"
                                   class="checkbox checkbox-xs checkbox-primary"
                                   [checked]="selectedTargets().has(target)"
+                                  [disabled]="isTargetLocked(target)"
                                   (change)="toggleTarget(target)"
                                 />
                                 <span class="text-xs">{{
                                   getTargetLabel(target)
                                 }}</span>
+                                @if (isTargetLocked(target)) {
+                                  <span
+                                    class="badge badge-warning badge-outline badge-xs"
+                                    >Global only</span
+                                  >
+                                }
                               </label>
                             }
                           </div>
+                          @if (homeTargetsLocked()) {
+                            <p
+                              id="mcp-targets-help"
+                              class="text-xs text-base-content-muted"
+                            >
+                              Global-only targets are greyed out while This
+                              workspace is selected.
+                            </p>
+                          }
                         </fieldset>
                       </div>
                     } @else {
@@ -271,7 +339,7 @@ interface RegistryCardView {
                         <button
                           class="btn btn-primary btn-sm"
                           [disabled]="
-                            selectedTargets().size === 0 ||
+                            !canInstall() ||
                             installingServerNames().has(card.server.name)
                           "
                           (click)="confirmInstall(card.server)"
@@ -324,6 +392,7 @@ interface RegistryCardView {
 })
 export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly appState = inject(AppStateManager);
   private readonly destroyRef = inject(DestroyRef);
   private destroyed = false;
 
@@ -353,8 +422,54 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
   readonly error = signal<string | null>(null);
   readonly expandedServerName = signal<string | null>(null);
   readonly suggestedConfig = signal<McpServerConfig | null>(null);
-  readonly selectedTargets = signal<Set<McpInstallTarget>>(
-    new Set(ALL_TARGETS),
+
+  /** The open folder's name for the scope help, `null` with no folder open. */
+  readonly workspaceName = computed<string | null>(() => {
+    const info = this.appState.workspaceInfo();
+    if (!info) return null;
+    return info.name || this.lastPathSegment(info.path);
+  });
+
+  /** The scope radios of the open panel; reset to the default per panel. */
+  readonly scopeChoice = signal<InstallScopeChoice>(null);
+
+  /** The scope an install would send; `null` keeps the install disabled. */
+  readonly installScope = computed(() =>
+    effectiveInstallScope(this.scopeChoice(), this.workspaceName() !== null),
+  );
+
+  /** The user's project-file target choices, kept whatever the scope. */
+  private readonly workspaceTargetChoices = signal<
+    ReadonlySet<McpInstallTarget>
+  >(new Set(WORKSPACE_TARGETS));
+
+  /**
+   * Each home target's own choice. It applies only under All workspaces and
+   * survives a switch to This workspace and back (design-spec §2).
+   */
+  private readonly homeTargetChoices = signal<
+    ReadonlySet<McpHomeInstallTarget>
+  >(new Set(HOME_TARGETS));
+
+  /** True while the home targets are disabled: any scope but All workspaces. */
+  readonly homeTargetsLocked = computed(() => this.installScope() !== 'global');
+
+  /** The targets the install would write, in display order. */
+  readonly selectedTargets = computed<ReadonlySet<McpInstallTarget>>(() => {
+    const workspace = this.workspaceTargetChoices();
+    const homeLocked = this.homeTargetsLocked();
+    const home = this.homeTargetChoices();
+    return new Set(
+      ALL_TARGETS.filter((target) =>
+        isHomeTarget(target)
+          ? !homeLocked && home.has(target)
+          : workspace.has(target),
+      ),
+    );
+  });
+
+  readonly canInstall = computed(
+    () => this.installScope() !== null && this.selectedTargets().size > 0,
   );
 
   readonly displayServers = computed(() =>
@@ -439,7 +554,9 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     }
 
     this.expandedServerName.set(server.name);
-    this.selectedTargets.set(new Set(ALL_TARGETS));
+    this.scopeChoice.set(defaultInstallScope(this.workspaceName() !== null));
+    this.workspaceTargetChoices.set(new Set(WORKSPACE_TARGETS));
+    this.homeTargetChoices.set(new Set(HOME_TARGETS));
     this.suggestedConfig.set(null);
     if (server.version_detail) {
       this.suggestedConfig.set(this.generateConfig(server));
@@ -468,21 +585,24 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** A home target is locked (disabled, "Global only") outside All workspaces. */
+  isTargetLocked(target: McpInstallTarget): boolean {
+    return isHomeTarget(target) && this.homeTargetsLocked();
+  }
+
   toggleTarget(target: McpInstallTarget): void {
-    this.selectedTargets.update((set) => {
-      const next = new Set(set);
-      if (next.has(target)) {
-        next.delete(target);
-      } else {
-        next.add(target);
-      }
-      return next;
-    });
+    if (isHomeTarget(target)) {
+      if (this.homeTargetsLocked()) return;
+      this.homeTargetChoices.update((set) => this.toggled(set, target));
+      return;
+    }
+    this.workspaceTargetChoices.update((set) => this.toggled(set, target));
   }
 
   async confirmInstall(server: McpRegistryEntry): Promise<void> {
     const config = this.suggestedConfig();
-    if (!config || this.selectedTargets().size === 0) return;
+    const scope = this.installScope();
+    if (!config || scope === null || !this.canInstall()) return;
     if (this.installingServerNames().has(server.name)) return;
 
     this.addToSet(this.installingServerNames, server.name);
@@ -494,6 +614,7 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
         serverKey: this.deriveServerKey(server.name),
         config,
         targets: Array.from(this.selectedTargets()),
+        scope,
       });
 
       if (this.destroyed) return;
@@ -565,6 +686,18 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
       return `${config.command} ${config.args?.join(' ') || ''}`.trim();
     }
     return config.url;
+  }
+
+  private toggled<T>(set: ReadonlySet<T>, value: T): ReadonlySet<T> {
+    const next = new Set(set);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    return next;
+  }
+
+  private lastPathSegment(path: string): string {
+    const parts = path.split(/[\\/]/).filter((part) => part.length > 0);
+    return parts[parts.length - 1] ?? path;
   }
 
   private deriveServerKey(name: string): string {

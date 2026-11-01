@@ -10,17 +10,29 @@
  *     item, with the "Installed" badge from the view's own `listInstalled`.
  *   - **A listing's name never earns a vendor mark**: only an allowlisted
  *     namespace or a catalogue URL does; everything else is a monogram.
- *   - **The install path is unchanged**: the same `mcpDirectory:install` call
- *     with the same arguments, from a storefront panel under the card.
+ *   - **The install path**: one `mcpDirectory:install` call from a storefront
+ *     panel under the card, now carrying the chosen `scope`.
+ *   - **Install scope (design-spec §2, decision #15)**: the shared scope field
+ *     sits above the targets; This workspace (default) checks the four
+ *     project-file targets and disables the three home targets with a
+ *     "Global only" badge; an explicit All workspaces checks all seven; each
+ *     home target remembers its choice across switches; with no folder open
+ *     nothing is selected and the install stays disabled.
+ *
+ * `AppStateManager` is a stub whose writable `workspaceInfo` is the open
+ * folder (`null` = none).
  */
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import type {
   InstalledMcpServer,
+  McpInstallTarget,
   McpRegistryEntry,
+  WorkspaceInfo,
 } from '@ptah-extension/shared';
 import { McpDirectoryBrowserComponent } from './mcp-directory-browser.component';
 
@@ -80,9 +92,33 @@ interface RpcCall {
   params: unknown;
 }
 
+const WORKSPACE: WorkspaceInfo = {
+  name: 'acme-app',
+  path: '/home/dev/acme-app',
+  type: 'workspace',
+};
+
+const WORKSPACE_TARGETS: McpInstallTarget[] = [
+  'vscode',
+  'claude',
+  'cursor',
+  'opencode',
+];
+
+const ALL_SEVEN: McpInstallTarget[] = [
+  'vscode',
+  'claude',
+  'cursor',
+  'copilot',
+  'codex',
+  'antigravity',
+  'opencode',
+];
+
 describe('mcp directory browser — registry discovery', () => {
   let calls: RpcCall[];
   let responders: Map<string, () => unknown>;
+  let workspaceInfo: ReturnType<typeof signal<WorkspaceInfo | null>>;
 
   const setResponder = (method: string, factory: () => unknown): void => {
     responders.set(method, factory);
@@ -160,8 +196,15 @@ describe('mcp directory browser — registry discovery', () => {
     calls = [];
     responders = new Map();
     rpcMock.call.mockClear();
+    workspaceInfo = signal<WorkspaceInfo | null>(WORKSPACE);
     TestBed.configureTestingModule({
-      providers: [{ provide: ClaudeRpcService, useValue: rpcMock }],
+      providers: [
+        { provide: ClaudeRpcService, useValue: rpcMock },
+        {
+          provide: AppStateManager,
+          useValue: { workspaceInfo: workspaceInfo.asReadonly() },
+        },
+      ],
     });
   });
 
@@ -244,7 +287,7 @@ describe('mcp directory browser — registry discovery', () => {
     ).not.toBeNull();
   });
 
-  it('installs through the same RPC and arguments from the storefront panel', async () => {
+  it('installs from the storefront panel into this workspace by default', async () => {
     const fixture = await mount([entry()]);
     const emitted: unknown[] = [];
     fixture.componentInstance.serverInstalled.subscribe((e) => emitted.push(e));
@@ -282,15 +325,8 @@ describe('mcp directory browser — registry discovery', () => {
         command: 'npx',
         args: ['-y', '@acme/weather-mcp'],
       },
-      targets: [
-        'vscode',
-        'claude',
-        'cursor',
-        'copilot',
-        'codex',
-        'antigravity',
-        'opencode',
-      ],
+      targets: WORKSPACE_TARGETS,
+      scope: 'workspace',
     });
     expect(emitted).toEqual([
       { serverName: 'io.github.acme/weather', targets: ['claude'] },
@@ -328,6 +364,191 @@ describe('mcp directory browser — registry discovery', () => {
     await clickConfirm(fixture);
 
     expect(errorText(fixture)).toContain('workspace policy blocks new servers');
+  });
+
+  describe('install scope', () => {
+    const panel = (fixture: ComponentFixture<unknown>): HTMLElement =>
+      host(fixture).querySelector<HTMLElement>('ptah-storefront-panel')!;
+
+    const scopeRadio = (
+      fixture: ComponentFixture<unknown>,
+      label: 'This workspace' | 'All workspaces',
+    ): HTMLInputElement =>
+      Array.from(
+        panel(fixture).querySelectorAll<HTMLInputElement>(
+          'ptah-install-scope-field input[type=radio]',
+        ),
+      ).find((radio) => radio.closest('label')?.textContent?.trim() === label)!;
+
+    const targetBoxes = (
+      fixture: ComponentFixture<unknown>,
+    ): Map<string, HTMLInputElement> =>
+      new Map(
+        Array.from(
+          panel(fixture).querySelectorAll<HTMLInputElement>(
+            'input[type=checkbox]',
+          ),
+        ).map((box) => [
+          box.closest('label')?.querySelector('span')?.textContent?.trim() ??
+            '',
+          box,
+        ]),
+      );
+
+    const checkedLabels = (fixture: ComponentFixture<unknown>): string[] =>
+      Array.from(targetBoxes(fixture))
+        .filter(([, box]) => box.checked)
+        .map(([label]) => label);
+
+    const confirmButton = (
+      fixture: ComponentFixture<unknown>,
+    ): HTMLButtonElement =>
+      panel(fixture).querySelector<HTMLButtonElement>('[panel-footer] button')!;
+
+    const choose = async (
+      fixture: ComponentFixture<unknown>,
+      label: 'This workspace' | 'All workspaces',
+    ): Promise<void> => {
+      scopeRadio(fixture, label).click();
+      await settle(fixture);
+    };
+
+    const toggle = async (
+      fixture: ComponentFixture<unknown>,
+      label: string,
+    ): Promise<void> => {
+      targetBoxes(fixture).get(label)?.click();
+      await settle(fixture);
+    };
+
+    const installOk = (): void =>
+      setResponder('mcpDirectory:install', () =>
+        ok({
+          results: [{ target: 'claude', success: true, configPath: '.mcp.json' }],
+        }),
+      );
+
+    it('puts the scope field above the targets fieldset', async () => {
+      const fixture = await mount([entry()]);
+      await clickInstall(fixture);
+
+      const fieldsets = Array.from(
+        panel(fixture).querySelectorAll('fieldset'),
+      ).map((set) => set.querySelector('legend')?.textContent?.trim());
+      expect(fieldsets).toEqual(['Install for', 'Install to']);
+      expect(scopeRadio(fixture, 'This workspace').checked).toBe(true);
+    });
+
+    it('This workspace checks the workspace targets and locks the home targets as Global only', async () => {
+      const fixture = await mount([entry()]);
+      await clickInstall(fixture);
+
+      expect(checkedLabels(fixture)).toEqual([
+        'VS Code',
+        'Claude Code',
+        'Cursor',
+        'OpenCode',
+      ]);
+      for (const label of ['Copilot CLI', 'Codex CLI', 'Antigravity CLI']) {
+        const box = targetBoxes(fixture).get(label)!;
+        expect(box.disabled).toBe(true);
+        expect(box.checked).toBe(false);
+        expect(box.closest('label')?.textContent).toContain('Global only');
+      }
+      expect(
+        targetBoxes(fixture).get('Cursor')?.closest('label')?.textContent,
+      ).not.toContain('Global only');
+      expect(confirmButton(fixture).textContent).toContain('Install to 4');
+    });
+
+    it('an explicit All workspaces keeps the seven-target preselection and sends scope global', async () => {
+      const fixture = await mount([entry()]);
+      installOk();
+      await clickInstall(fixture);
+
+      await choose(fixture, 'All workspaces');
+      expect(checkedLabels(fixture)).toHaveLength(7);
+      expect(
+        Array.from(targetBoxes(fixture).values()).some((box) => box.disabled),
+      ).toBe(false);
+      expect(panel(fixture).textContent).not.toContain('Global only');
+
+      await clickConfirm(fixture);
+      expect(installCalls()[0].params).toMatchObject({
+        targets: ALL_SEVEN,
+        scope: 'global',
+      });
+    });
+
+    it('remembers each home target and the workspace choices across scope switches', async () => {
+      const fixture = await mount([entry()]);
+      installOk();
+      await clickInstall(fixture);
+
+      await toggle(fixture, 'Cursor');
+      await choose(fixture, 'All workspaces');
+      await toggle(fixture, 'Codex CLI');
+      await choose(fixture, 'This workspace');
+
+      expect(checkedLabels(fixture)).toEqual([
+        'VS Code',
+        'Claude Code',
+        'OpenCode',
+      ]);
+
+      await choose(fixture, 'All workspaces');
+      expect(checkedLabels(fixture)).toEqual([
+        'VS Code',
+        'Claude Code',
+        'Copilot CLI',
+        'Antigravity CLI',
+        'OpenCode',
+      ]);
+
+      await clickConfirm(fixture);
+      expect(installCalls()[0].params).toMatchObject({
+        targets: ['vscode', 'claude', 'copilot', 'antigravity', 'opencode'],
+        scope: 'global',
+      });
+    });
+
+    it('with no folder open: nothing is selected and install stays disabled until All workspaces', async () => {
+      workspaceInfo.set(null);
+      const fixture = await mount([entry()]);
+      installOk();
+      await clickInstall(fixture);
+
+      expect(scopeRadio(fixture, 'This workspace').disabled).toBe(true);
+      expect(scopeRadio(fixture, 'This workspace').checked).toBe(false);
+      expect(scopeRadio(fixture, 'All workspaces').checked).toBe(false);
+      expect(
+        panel(fixture).querySelector('[role="status"]')?.textContent,
+      ).toContain('Open a folder to install into a workspace');
+      expect(confirmButton(fixture).disabled).toBe(true);
+
+      await clickConfirm(fixture);
+      expect(installCalls()).toHaveLength(0);
+
+      await choose(fixture, 'All workspaces');
+      expect(confirmButton(fixture).disabled).toBe(false);
+      await clickConfirm(fixture);
+      expect(installCalls()[0].params).toMatchObject({
+        targets: ALL_SEVEN,
+        scope: 'global',
+      });
+    });
+
+    it('drops a remembered workspace choice when the folder closes mid-panel', async () => {
+      const fixture = await mount([entry()]);
+      await clickInstall(fixture);
+      expect(confirmButton(fixture).disabled).toBe(false);
+
+      workspaceInfo.set(null);
+      await settle(fixture);
+
+      expect(scopeRadio(fixture, 'This workspace').checked).toBe(false);
+      expect(confirmButton(fixture).disabled).toBe(true);
+    });
   });
 
   it('does not use innerHTML in the component source', () => {

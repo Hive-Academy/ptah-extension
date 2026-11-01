@@ -128,6 +128,15 @@ export type {
 export { StatsTileExpansionState } from './lib/molecules/session/plan-limits/stats-tile-expansion.state';
 export { McpDirectoryBrowserComponent } from './lib/molecules/setup-plugins/mcp-directory-browser.component';
 export {
+  InstallScopeFieldComponent,
+  INSTALL_SCOPE_NO_FOLDER_HELP,
+  defaultInstallScope,
+  effectiveInstallScope,
+  installScopeButtonLabel,
+  type InstallScopeChoice,
+  type InstallScopeItemKind,
+} from './lib/molecules/setup-plugins/install-scope-field.component';
+export {
   groupInstalledServers,
   mcpTargetLabel,
   type InstalledServerGroup,

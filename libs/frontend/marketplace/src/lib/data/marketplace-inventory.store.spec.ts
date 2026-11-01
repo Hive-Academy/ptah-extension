@@ -21,6 +21,11 @@
  * needs confirmation, `removeMany` partial failure, `removalFixCommand` read on
  * blocked rows only, stale generations dropped, no late publish after destroy.
  *
+ * Install scope (TASK_2026_853 F-D1): row scope for MCP groups (including
+ * external-plugin intent rows) and skills, which rows may be made global, and
+ * the `mcpDirectory:makeGlobal` / `skillsSh:makeGlobal` conversions with their
+ * fixed copy, opt-in home targets, in-flight refusal and reload on success.
+ *
  * `ClaudeRpcService` is mocked per method. `PluginCatalogService` is stubbed to
  * the four members the store reads; its own caching is covered in `core`.
  * `WorkspaceScopeService` and `SessionMcpStatusRegistry` are the real root
@@ -63,8 +68,11 @@ import {
 import { LibraryChangeFeed } from '../services/library-change-feed';
 import {
   MarketplaceInventoryStore,
+  canMakeServerGlobal,
+  canMakeSkillGlobal,
   removalIdOf,
   removalLockOf,
+  serverGroupScope,
   type InventorySliceId,
 } from './marketplace-inventory.store';
 
@@ -1566,6 +1574,222 @@ describe('MarketplaceInventoryStore', () => {
         store.recordLibraryPass('failed', scope.generation());
 
         expect(store.libraryPassFailed()).toBe(false);
+      });
+    });
+  });
+
+  describe('install scope and Make global (F-D1)', () => {
+    const workspaceServer = (serverKey: string): InstalledMcpServer => ({
+      ...diskServer(serverKey),
+      scope: 'workspace',
+    });
+    const globalServer = (serverKey: string): InstalledMcpServer => ({
+      ...diskServer(serverKey),
+      configPath: 'C:\\Users\\me\\.ptah\\mcp.json',
+      scope: 'global',
+    });
+    const workspaceSkill = (name: string): InstalledSkill => ({
+      ...skill(name),
+      scope: 'workspace',
+    });
+
+    const loadServers = async (
+      servers: InstalledMcpServer[],
+    ): Promise<void> => {
+      responders.set('mcpDirectory:listInstalled', () => ok({ servers }));
+      await store.ensure('installed');
+      await settle();
+    };
+
+    const callsOf = (method: string): RpcCall[] =>
+      calls.filter((c) => c.method === method);
+
+    it('reports each group scope, workspace first, null when the payload names none', async () => {
+      await loadServers([
+        workspaceServer('acme'),
+        globalServer('home'),
+        diskServer('legacy'),
+        { ...globalServer('mixed'), target: 'codex' },
+        workspaceServer('mixed'),
+      ]);
+
+      expect(serverGroupScope(groupFor('acme'))).toBe('workspace');
+      expect(serverGroupScope(groupFor('home'))).toBe('global');
+      expect(serverGroupScope(groupFor('legacy'))).toBeNull();
+      expect(serverGroupScope(groupFor('mixed'))).toBe('workspace');
+    });
+
+    it('offers Make global only for a Ptah-managed workspace harness install', async () => {
+      await loadServers([
+        workspaceServer('acme'),
+        globalServer('home'),
+        { ...directServer('hand'), scope: 'workspace' },
+        { ...smitheryServer('smith'), scope: 'workspace' },
+      ]);
+
+      expect(canMakeServerGlobal(groupFor('acme'))).toBe(true);
+      expect(canMakeServerGlobal(groupFor('home'))).toBe(false);
+      expect(canMakeServerGlobal(groupFor('hand'))).toBe(false);
+      expect(canMakeServerGlobal(groupFor('smith'))).toBe(false);
+      expect(canMakeSkillGlobal(workspaceSkill('a'))).toBe(true);
+      expect(canMakeSkillGlobal(skill('b'))).toBe(false);
+    });
+
+    it('makes a server global with only the ticked home targets, then reloads', async () => {
+      await loadServers([workspaceServer('acme')]);
+      responders.set('mcpDirectory:makeGlobal', () =>
+        ok({
+          success: true,
+          results: [
+            { target: 'claude', success: true, configPath: '.mcp.json' },
+            {
+              target: 'codex',
+              success: false,
+              error: 'raw EACCES /home/me/.codex',
+            },
+          ],
+        }),
+      );
+      const listsBefore = callsOf('mcpDirectory:listInstalled').length;
+
+      const outcome = await store.makeServerGlobal(groupFor('acme'), [
+        'codex',
+      ]);
+      await settle();
+
+      expect(paramsOf('mcpDirectory:makeGlobal')).toEqual({
+        serverKey: 'acme',
+        homeTargets: ['codex'],
+      });
+      expect(outcome).toEqual({
+        status: 'converted',
+        message: 'acme is now available in all workspaces.',
+        convertedSkills: [],
+        failedTargets: ['codex'],
+      });
+      expect(callsOf('mcpDirectory:listInstalled').length).toBe(
+        listsBefore + 1,
+      );
+      expect(clearCache).toHaveBeenCalled();
+    });
+
+    it('sends an empty home-target list when none were ticked', async () => {
+      await loadServers([workspaceServer('acme')]);
+      responders.set('mcpDirectory:makeGlobal', () =>
+        ok({ success: true, results: [] }),
+      );
+
+      await store.makeServerGlobal(groupFor('acme'), []);
+
+      expect(paramsOf('mcpDirectory:makeGlobal')).toEqual({
+        serverKey: 'acme',
+        homeTargets: [],
+      });
+    });
+
+    it('answers a refused or thrown conversion with the fixed copy and no reload', async () => {
+      await loadServers([workspaceServer('acme')]);
+      const listsBefore = callsOf('mcpDirectory:listInstalled').length;
+
+      responders.set('mcpDirectory:makeGlobal', () =>
+        ok({ success: false, results: [], error: 'raw /home/me detail' }),
+      );
+      const refused = await store.makeServerGlobal(groupFor('acme'), []);
+
+      responders.set('mcpDirectory:makeGlobal', () => {
+        throw new Error('socket closed /home/me');
+      });
+      const thrown = await store.makeServerGlobal(groupFor('acme'), []);
+      await settle();
+
+      for (const outcome of [refused, thrown]) {
+        expect(outcome).toEqual({
+          status: 'failed',
+          message: 'Could not change where acme is installed.',
+        });
+      }
+      expect(callsOf('mcpDirectory:listInstalled').length).toBe(listsBefore);
+      expect(store.convertingIds().size).toBe(0);
+    });
+
+    it('refuses a row that cannot be made global without calling the host', async () => {
+      await loadServers([globalServer('home')]);
+
+      const outcome = await store.makeServerGlobal(groupFor('home'), []);
+      const skillOutcome = await store.makeSkillGlobal(skill('shared'));
+
+      expect(outcome).toMatchObject({
+        status: 'refused',
+        reason: 'not-convertible',
+      });
+      expect(skillOutcome).toMatchObject({
+        status: 'refused',
+        reason: 'not-convertible',
+      });
+      expect(callsOf('mcpDirectory:makeGlobal')).toHaveLength(0);
+      expect(callsOf('skillsSh:makeGlobal')).toHaveLength(0);
+    });
+
+    it('marks the row converting while in flight and refuses a second conversion or a removal', async () => {
+      await loadServers([workspaceServer('acme')]);
+      const gate = deferred<unknown>();
+      responders.set('mcpDirectory:makeGlobal', () => gate.promise);
+      const group = groupFor('acme');
+      const id = removalIdOf({ kind: 'server', group });
+
+      const first = store.makeServerGlobal(group, []);
+      expect(store.convertingIds().has(id)).toBe(true);
+      expect(store.pendingIds().has(id)).toBe(false);
+
+      const second = await store.makeServerGlobal(group, []);
+      const removal = await store.removeServer(group);
+      expect(second).toMatchObject({ status: 'refused', reason: 'in-progress' });
+      expect(removal).toMatchObject({
+        status: 'refused',
+        reason: 'in-progress',
+      });
+      expect(callsOf('mcpDirectory:makeGlobal')).toHaveLength(1);
+
+      gate.resolve(ok({ success: true, results: [] }));
+      expect((await first).status).toBe('converted');
+      expect(store.convertingIds().has(id)).toBe(false);
+    });
+
+    it('makes a skills.sh root global and lists every converted skill', async () => {
+      responders.set('skillsSh:listInstalled', () =>
+        ok({ skills: [workspaceSkill('lint'), workspaceSkill('format')] }),
+      );
+      await store.ensure('community');
+      await settle();
+      responders.set('skillsSh:makeGlobal', () =>
+        ok({ success: true, convertedSkills: ['lint', 'format'] }),
+      );
+      const listsBefore = callsOf('skillsSh:listInstalled').length;
+
+      const target = store.community().data[0];
+      const outcome = await store.makeSkillGlobal(target);
+      await settle();
+
+      expect(paramsOf('skillsSh:makeGlobal')).toEqual({ name: 'lint' });
+      expect(outcome).toEqual({
+        status: 'converted',
+        message: 'lint is now available in all workspaces.',
+        convertedSkills: ['lint', 'format'],
+        failedTargets: [],
+      });
+      expect(callsOf('skillsSh:listInstalled').length).toBe(listsBefore + 1);
+    });
+
+    it('answers a failed skills conversion with the fixed copy', async () => {
+      responders.set('skillsSh:makeGlobal', () =>
+        ok({ success: false, error: 'raw /home/me/.ptah detail' }),
+      );
+
+      const outcome = await store.makeSkillGlobal(workspaceSkill('lint'));
+
+      expect(outcome).toEqual({
+        status: 'failed',
+        message: 'Could not change where lint is installed.',
       });
     });
   });
