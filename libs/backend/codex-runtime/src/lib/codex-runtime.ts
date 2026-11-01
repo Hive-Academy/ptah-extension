@@ -1,11 +1,13 @@
 import { redactCodexDiagnostics } from './codex-stderr-tail';
 import {
+  CodexAppServerProcess,
   CodexHomeMismatchError,
   CodexProcessFailureError,
   CodexRequestRejectedError,
 } from './codex-app-server-process';
 import { buildCodexThreadConfig } from './codex-mcp-config';
 import { CodexResumeProfileChangedError } from './codex-resume-profile-error';
+import { CodexSessionHistoryError, readCodexSessionHistory } from './codex-session-history';
 import { CodexPermissionRuleStore } from './codex-permission-rule-store';
 import { CodexProtocolError } from './codex-protocol-validator';
 import { RuntimeContext, type CodexRuntimeOptions } from './codex-context';
@@ -15,6 +17,8 @@ import type {
   CodexMcpSecrets,
   CodexRuntime as RuntimePort,
   CodexThreadIdentity,
+  CodexSessionHistory,
+  CodexHistoryReader,
 } from './codex-runtime.types';
 
 /** Safe, pre-model signal that a lane's thread config was refused. */
@@ -43,13 +47,69 @@ function isPreTurnConfigRejection(stderr: string): boolean {
 }
 
 /** Host-owned instance; contexts share only the scoped, in-memory permission rules. */
-export class CodexRuntime implements RuntimePort {
+export class CodexRuntime implements RuntimePort, CodexHistoryReader {
   private readonly contexts = new Map<string, RuntimeContext>();
   private readonly generations = new Map<string, number>();
   private readonly rules = new CodexPermissionRuleStore();
+  private readonly historyReads = new Map<AbortController, Promise<void>>();
   private closed = false;
 
   constructor(private readonly options: CodexRuntimeOptions) {}
+
+  async readHistory(
+    profile: CodexExecutionProfile,
+    resume: CodexThreadIdentity,
+    signal?: AbortSignal,
+  ): Promise<CodexSessionHistory> {
+    if (this.closed) throw new Error('Codex runtime is closed');
+    if (signal?.aborted) throw new Error('Codex history read aborted');
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) controller.abort();
+    const read = this.readHistoryProcess(profile, resume, controller.signal);
+    this.historyReads.set(controller, read.then(() => undefined, () => undefined));
+    try {
+      return await read;
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+      this.historyReads.delete(controller);
+    }
+  }
+
+  private async readHistoryProcess(
+    profile: CodexExecutionProfile,
+    resume: CodexThreadIdentity,
+    signal: AbortSignal,
+  ): Promise<CodexSessionHistory> {
+    if (profile.normalizedHome !== resume.normalizedHome)
+      throw new CodexSessionHistoryError('homeMismatch');
+    const process = new CodexAppServerProcess(
+      this.options.spawner,
+      this.options.executable,
+      this.options.binary,
+      profile,
+      {
+        onNotification: () => undefined,
+        onRequest: async () => { throw new Error('History reader rejects server requests'); },
+      },
+      this.options.logger,
+    );
+    try {
+      await process.start(signal);
+      if (process.verifiedCodexHome !== profile.normalizedHome)
+        throw new CodexHomeMismatchError();
+      return await readCodexSessionHistory(
+        resume.threadId,
+        (method, params) => process.request(method, params),
+        () => { if (this.closed || signal.aborted) throw new Error('Codex history read aborted'); },
+      );
+    } catch (error) {
+      throw CodexSessionHistoryError.from(error);
+    } finally {
+      await process.close();
+    }
+  }
 
   async open(
     profile: CodexExecutionProfile,
@@ -163,8 +223,12 @@ export class CodexRuntime implements RuntimePort {
 
   async close(): Promise<void> {
     this.closed = true;
+    for (const controller of this.historyReads.keys()) controller.abort();
     await Promise.all(
-      [...this.contexts.values()].map((context) => context.close()),
+      [
+        ...[...this.contexts.values()].map((context) => context.close()),
+        ...this.historyReads.values(),
+      ],
     );
     this.rules.dispose();
   }

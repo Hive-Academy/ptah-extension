@@ -17,7 +17,7 @@
  * - Non-proxy providers (direct Anthropic, Ollama / Ollama Cloud, Z.AI, and
  *   other api-key passthroughs) get a fully isolated snapshot — these
  *   work concurrently across workspaces after this change.
- * - Proxy-based providers (Copilot/Codex OAuth proxies, OpenRouter/Sakana/LM
+ * - Proxy-based providers (Copilot OAuth, OpenRouter/Sakana/LM
  *   Studio translation proxies) require a running local proxy. Phase 3: this
  *   resolver acquires a pooled proxy from {@link ProviderProxyPool} (one
  *   instance per provider configuration, shared by the workspaces on it,
@@ -265,6 +265,13 @@ export class WorkspaceProviderProfileResolver {
         },
       };
     }
+    if (
+      this.activeProviderResolver.resolveActiveAuthForPath(workspacePath)
+        .providerId === 'openai-codex' ||
+      existingIdentity?.providerId === 'openai-codex'
+    ) {
+      this.rejectLegacyCodexProfile();
+    }
     const model = input.requestedModelIsStored
       ? this.resolveStoredModel(workspacePath, requestedModel)
       : requestedModel;
@@ -459,6 +466,9 @@ export class WorkspaceProviderProfileResolver {
     workspacePath: string,
     requestedModel: string,
   ): Promise<ProviderProfile | undefined> {
+    // This also protects callers that bypass resolveExecutionProfile, including
+    // hosts whose AGENT_ADAPTER alias points directly at SdkAgentAdapter.
+    if (providerId === 'openai-codex') this.rejectLegacyCodexProfile();
     try {
       if (authMethod === 'claudeCli') {
         return this.buildNativeAnthropicProfile(requestedModel);
@@ -501,6 +511,16 @@ export class WorkspaceProviderProfileResolver {
       );
       return undefined;
     }
+  }
+
+  private rejectLegacyCodexProfile(): never {
+    throw new AuthRequiredError(
+      'Codex chat requires a host with the native Codex runtime.',
+      {
+        providerId: 'openai-codex',
+        recoveryHint: 'Use the Ptah desktop app (Electron) with native Codex enabled.',
+      },
+    );
   }
 
   /**

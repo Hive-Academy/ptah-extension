@@ -488,6 +488,18 @@ export const thread = z.object({
   section: object.nullish(),
   threadSource: string.nullish(),
 });
+export const historyPage = z.object({
+  nextCursor: string.nullish(),
+  backwardsCursor: string.nullish(),
+});
+export const historySortDirection = z.enum(['asc', 'desc']);
+export const historyLimit = integer.min(0).max(4_294_967_295).nullish();
+export const threadItemEntry = z.object({
+  turnId: string,
+  item,
+  startedAtMs: integer.nullish(),
+  completedAtMs: integer.nullish(),
+});
 export const threadOptions = {
   approvalPolicy: approvalPolicy.nullish(),
   approvalsReviewer: reviewer.nullish(),

@@ -23,7 +23,14 @@ export type {
   CodexRuntimeEvent,
   CodexContext,
   CodexModelInfo,
+  CodexSessionHistory,
+  CodexHistoryReader,
+  CodexHistoryThread,
+  CodexHistoryTurn,
+  CodexHistoryItemEntry,
 } from './lib/codex-runtime.types';
+export { CodexSessionHistoryError } from './lib/codex-session-history';
+export { CodexEventTranslator } from './lib/codex-event-translator';
 export type { CodexRuntime as CodexRuntimePort } from './lib/codex-runtime.types';
 export type {
   CodexUsageEligibility,

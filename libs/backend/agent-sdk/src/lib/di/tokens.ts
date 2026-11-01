@@ -59,6 +59,9 @@ export const SDK_TOKENS = {
   HOST_ATTENTION_COORDINATOR: Symbol.for('HostAttentionCoordinator'),
   SDK_SESSION_IMPORTER: Symbol.for('SdkSessionImporter'),
   SDK_SESSION_HISTORY_READER: Symbol.for('SdkSessionHistoryReader'),
+  SESSION_HISTORY_ROUTER: Symbol.for('SessionHistoryRouter'),
+  /** Optional host binding; SESSION_HISTORY_ROUTER resolves it on each native read. */
+  NATIVE_SESSION_HISTORY_PORT: Symbol.for('NativeSessionHistoryPort'),
   /**
    * Stats-only transcript projection behind `session:stats-batch`
    * (TASK_2026_411 B4). Never replays history.

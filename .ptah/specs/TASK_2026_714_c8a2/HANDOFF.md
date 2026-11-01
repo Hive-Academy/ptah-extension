@@ -1,129 +1,126 @@
-# Session handoff — TASK_2026_714_c8a2 (session 38)
+# Session handoff — TASK_2026_714_c8a2 (session 40)
 
-Written 2026-11-01. Replaces the session 37 handoff (`git show 5c91fa977:.ptah/specs/TASK_2026_714_c8a2/HANDOFF.md`);
-session 36 `16218ed0a` (its Goal, Routing facts and Rules stay valid). Older: session 35 `85a7c64bd`, 34 `805991a08`, 24 `44e3b1102` (full
-goal, PR table), Electron live-test procedure `e10bb860a`.
+Written 2026-11-02. Replaces the session 39 handoff (committed in 54e98c057).
 
-W = `D:\projects\ptah-extension\.claude-worktrees\codex-runtime-integration`
-(branch `feat/codex-runtime-integration`, DRAFT PR #823 https://github.com/Hive-Academy/ptah-extension/pull/823,
-do not merge). T = `W\.ptah\specs\TASK_2026_714_c8a2\`. Work ONLY in W; the main checkout stays clean on `main`.
+W = `D:\projects\ptah-extension\.claude-worktrees\codex-removal-a` (branch `feat/codex-removal-a`,
+DRAFT PR #881 https://github.com/Hive-Academy/ptah-extension/pull/881, head `da18f9abb`).
+T = `W\.ptah\specs\TASK_2026_714_c8a2\`. `W\node_modules` is a JUNCTION to the main checkout's
+node_modules: never `npm install` in W; remove it with `cmd /c rmdir W\node_modules` before any
+`git worktree remove` (only when the user authorizes). Main checkout `D:\projects\ptah-extension`
+stays clean on `main`.
 
-## Goal (short)
+Second task started this session (parallel, user decision U4):
+U = `D:\projects\ptah-extension\.claude-worktrees\codex-usage-pricing` (branch
+`feat/codex-usage-pricing` from origin/main b84d0e2f6, NO commits, NO PR yet; node_modules junction
+created). Task folder `U\.ptah\specs\TASK_2026_codex_usage_pricing\` (untracked).
 
-One Codex App Server runtime (`@ptah-extension/codex-runtime`) for Ptah main chat, gateways and CLI lanes; then
-Removal B (P10: 10e/10f, `@openai/codex-sdk` lanes) and Removal A (P15). Electron first. Native UI contracts
-identical to Claude's; gaps fixed only in the backend translation layer; no frontend Codex special case; no second
-proxy; NEVER strip/revert/comment out MCP. 10e/10f only after the user signs the 10d.P parity proof
-(T\p10-lane-parity-proof.md); then P14 (incl. GAP-3), D9, P15.
+## Goal
 
-Routing: codex (model `gpt-6-sol`, never `gpt-6.1-terra`) implements. The `claude` CLI lane is DISABLED; codex code
-is reviewed by the in-process `code-logic-reviewer` subagent. Code the coordinator writes is reviewed by a codex
-lane. The coordinator runs verify, commit, push. Lane limits at end of session 37: codex weekly ~73% (resets
-2026-11-04 07:03 UTC); Glm and opencode at limit; grok unknown; Kimi unknown, do not use.
+PR #881: Electron-only, Codex main chat and Codex CLI lanes on the native Codex App Server runtime.
+Finish D9 (native Codex chat history after reload via `thread/read`) and then Removal A (remove
+only the Codex translation proxy and the Codex path through the Claude Agent SDK; other providers
+untouched; `@openai/codex-sdk` stays in package.json but Ptah source must not import/resolve it).
+Decisions: T\decisions.md (D29-D31).
 
-## Done in session 38 (pushed; PR head 6c0bd87d7, CI all green)
+Usage task (U): make Codex pricing, token accounting, plan usage/limits advanced and predictable on
+the native runtime. User decisions in `U\...\decisions.md`: U1 subscription sessions show the
+published-rate value labeled "covered by subscription" (shared `pricing.utils.ts` design); U2
+API-key sessions show an estimate in the existing cost chip, marked as estimate, "unavailable" when
+any used token class has no exact rate; U3 session totals include child threads, pre-compaction
+usage and failed/interrupted turns; U4 separate task/PR in parallel with #881.
 
-| Commit | Subject | Verify / CI |
+## Done in session 40 (all pushed to PR #881)
+
+| Commit | Subject | Verify |
 | --- | --- | --- |
-| 910906b31 | docs: sign the 10d.P proof (user, Electron scope) | docs |
-| 6c0bd87d7 | feat(cli-agent-runtime,electron): remove legacy Codex SDK lane (10e + 10e.G + 10f) | see commit body; CI green |
+| 54e98c057 | feat(agent-sdk,codex-runtime): project native Codex history (D9 12c-1) | agent-sdk tc/lint; codex-app-server specs 543/543 |
+| aec49bd78 | feat(agent-sdk): route session history to native Codex reader (D9 12c-2) | agent-sdk+rpc-handlers tc/lint; specs pass. CI green |
+| 426790bc7 | feat(electron,codex-runtime): bind native Codex history in Electron (D9 12d-1) | tc/lint 14/14 (7 projects); DI/composition specs pass. CI: degradation-audit FAIL (fixed in da18f9abb) |
+| da18f9abb | feat(rpc-handlers,agent-sdk): route chat history via native reader (D9 12d-2) | tc/lint 8 projects + webview; history/DI specs pass except known Windows symlink specs; degradation-audit OK |
 
-- User signed p10-lane-parity-proof.md (Electron scope). D29: packaged Electron admits native lanes on win32/x64
-  via `isElectronCodexLaneAdmitted` (apps/ptah-electron/src/di/codex-lane-composition.ts); shared CodexParityGate
-  stays closed, so packaged CLI/TUI and production VS Code have NO Codex lane until their proof (user decision).
-- Reviews: code-logic-review-10e.md (8), -10e-G.md (8.5), -10e-G-r1.md (9), -10f.md (codex, 9).
-- Open minor follow-ups: 10e-G-r1 #1 (log not-called assertions), #2 (win32/x64 literal duplicates gate table);
-  10e #2 agent-sdk codex-native-binary-path.ts:145 SDK probe empty catch (P15); 10e #3 no reason field in detect.
-- Local lint: auth-providers @nx/dependency-checks reports persistence-sqlite unused (false positive, same on main;
-  CI checks green). auth-providers real-SDK integration spec EPERM temp cleanup on Windows (environment).
+da18f9abb commit message lists 5 new error codes; the commit actually adds 6 (also
+`HISTORY_CANCELLED`). Code is correct; not amended.
 
-## Next steps (session 38 -> 39, in order)
+Reviews (in-process code-logic-reviewer): T\code-logic-review-D9-12c1.md (final APPROVE 8.5),
+-12c2.md (APPROVE 8), -12d1.md (APPROVE 8.5), -12d2.md (APPROVE 8). Release-gate items recorded in
+T\plan-d9-history.md (12a/12b M1, M2, M4; sibling-thread cycle; includeBlockOwners ignored on
+native route; router failure `cause` not logged; projector user-id format spec).
 
-1. P14 14a (codex lane): parity-gate ledger update (batches.md:3795-3804); gate stays `enabled: false`.
-2. GAP-3 (D24(4)): Codex chat gets user MCP servers from ~/.claude.json via claude-user-mcp.reader.ts.
-3. D9 history after reload (batches.md:2651) before P15.
-4. 14b live Electron parity run: needs explicit user authorization with a turn cap.
-5. P15 Removal A after the P14 proof.
+Research: T\research-codex-usage-pricing.md (copied to U). Usage plan:
+`U\.ptah\specs\TASK_2026_codex_usage_pricing\implementation-plan.md` (8 batches).
 
-## Done in session 37 (all pushed; PR head 065b4fb5e, clean, in sync with origin)
+## CI state of PR #881 (head da18f9abb)
 
-| Commit | Subject | Verify / CI |
-| --- | --- | --- |
-| ad3805f09 | docs: third Electron live run (r3) | docs |
-| 2d1c69dd2 | fix(cli-agent-runtime,lane-outcomes,electron): record native lane usage (10d.L5 + rev 1) | tc/lint 20/20; test 53/55 (known Windows-only only); CI green |
-| c056a0f5f | docs: fourth Electron live run (r4) | docs |
-| 792491e49 | fix(lane-outcomes): resolve the outcome recorder on first use (10d.L5 rev 2) | tc/lint 12/12; test 51/51; CI green (all required jobs) |
-| 374a06db3 | docs: fifth Electron live run (r5) | docs |
-| 065b4fb5e | docs: classify G6 per-turn lane completion as parity | docs |
+16 checks SUCCESS (incl. `checks` = degradation-audit, typecheck). `test (shard 2/4)` failed once
+in `libs/backend/platform-cli` `cli-workspace-watcher.spec.ts` (nestedRepoDetection, real forked
+@parcel/watcher) — branch does not touch platform-cli, judged flaky; a rerun of run 41354695251
+(`gh run rerun --failed`) was IN_PROGRESS at handoff; `main` depends on it. Check it first.
 
-Reviews: T\code-logic-review-10d-L5.md (REVISE 6), -r1.md (APPROVED 8), -r2.md (APPROVED 8). Lane reports:
-T\batch-10d-L5-report.md, T\batch-10d-L5-r2-report.md.
+## Open problems and decisions (waiting on the user)
 
-Live results (all Electron, settings.json restored, `cmp` 0 every run):
-- r3 (8/8 turns): G2-B PASS (completion for a resumed lane queued while the chat is busy, delivered after the report
-  turn; 0 busy / 0 delivery-failed). G1, G3 PASS.
-- r4 (7/8 turns): G5 token columns PASS. Gate S FAIL, cause found (recorder chain needs WorkspaceScopeResolver,
-  registered only once ACTIVE_WORKSPACE_SOURCE exists) -> fixed in 792491e49. Scenario C was a test design error
-  (lane told to wait inside its turn; queued message never started).
-- r5 (**5 turns against an authorized cap of 4** — guard polled every 250 ms and two turns started 65 ms apart; the
-  user was told): gate S PASS, G5 PASS, G3 PASS, a queued `ptah_agent_message` to a running lane started lane turn 2.
-  Resume not tested (gate chose `fresh`: idle 5240 s > 600 s). G6 (completion signalled per lane turn) is shared
-  manager behavior for all continuation-capable lanes (agent-process-manager.service.ts:3078-3117) = parity.
-
-## Open problems and decisions
-
-- SIGNED in session 38 (see above).
-- Minor, non-blocking: spawn result gave the main agent no usable agentId (first message call isError, r5 app.log
-  1670); resume gate said "host holds no record" for a row with `workspace_root NULL` (r5, copied DB); stale comment
-  `apps/ptah-electron/src/di/container.ts:46` (start-after-phase-4 move no longer needed; smoke spec guards an order
-  that no longer matters); events before workspace settings exist are lost (no retry); no spec for a recorder throw
-  inside a callback; cost_usd NULL; reasoning segments not stored; a resume replaces the earlier lane output; old
-  app-server exit logged as "Codex process failure"; stale "needs you" banner; G4 never observed live.
-- CLI, TUI and VS Code proof rows stay PENDING-LIVE unless the user authorizes runs there.
+1. D9 live release-gate check (paid): needs explicit authorization with a turn cap. Proposed: cap 3
+   turns; back up ~/.ptah/settings.json; one native Codex chat in Electron incl. one sub-agent;
+   reload; confirm history (and older pages) renders like Claude; capture one real `thread/read`;
+   restore settings.json and `cmp`. Procedure: Electron live-test procedure (session 24 handoff,
+   commit e10bb860a). Asked; no answer yet.
+2. Usage plan approval: asked "do you approve the 8-batch plan?" — no answer yet. Do not start U
+   implementation before approval.
+3. U contains a foreign change `task-tracking/landing-live-demo/HANDOFF.md` (+81/-130) written by
+   another session; never commit or revert it; asked the user whose it is.
+4. Known local-only failures (ignore): rpc-handlers session-folder/symlink specs (Windows), agent-sdk
+   2 plugin-loader specs, auth-providers dependency-checks/EPERM, Jest "worker failed to exit"
+   warning in ptah-electron src/di (inherited process kill timer).
+5. A Playwright-driven Electron (PID 904, user-data-dir ptah-stagger-udd) was running from another
+   session; not ours.
 
 ## Key files
 
-- T\p10-lane-parity-proof.md — the proof to sign; corrective batches and live results r2-r5.
-- T\live-test-p10dP-r3.md, -r4.md, -r5.md — live run reports (procedure, evidence, app.log line numbers).
-- T\plan-p10.md — 10e/10f definition (after 10d.P). T\decisions.md — D26-D28.
-- libs/backend/lane-outcomes/src/lib/di/start.ts — lazy recorder (792491e49).
+- T\plan-d9-history.md — D9 batches, release gate list.
+- T\removal-a-codex-inventory.md — Removal A batches A1-A8 (A6-A8 limited by D31).
+- W\libs\backend\agent-sdk\src\lib\codex-app-server\codex-history-projector.ts — snapshot -> events.
+- W\libs\backend\agent-sdk\src\lib\codex-app-server\session-history-router.ts — native/Claude route.
+- W\apps\ptah-electron\src\di\codex-runtime-composition.ts — Electron history port binding.
+- W\libs\backend\rpc-handlers\src\lib\chat\session\chat-history-read.service.ts — RPC delegation.
+- W\tools\degradation-audit\check-degradation.ts — CI swallow ratchet; valid suppression forms only
+  `// degradation-audit: reported — <reason>` or `// degradation-audit: optional-capability — <reason>`.
+- U\.ptah\specs\TASK_2026_codex_usage_pricing\implementation-plan.md and decisions.md.
 
 ## Background work
 
-- None for this task. All lanes (c61b4698, 760145d3, 360c3795) and subagents finished. Lanes from other worktrees
-  (agent dock, Motion, surface-session-motion, streaming-composer) are not ours; ignore them.
-- Live run folders in %TEMP%: ptah-live-p10dL3-20261031-234219, ptah-live-p10dL4-20261101-012450,
-  ptah-live-p10dL5-20261101-030143 (app.log, ptah.db, shots, settings backups).
+None. No lane, subagent, verify or watcher runs. All lanes of this session completed.
 
-## Next steps of session 37 (history; steps 1-2 done in session 38)
+## Next steps
 
-1. Ask the user (if not already answered) to sign T\p10-lane-parity-proof.md for Electron, or to name a gap to fix.
-   On "sign": update the Signature line (`Signed: <user> <date>, Electron scope`), commit, push.
-2. Only after signing: 10e, then 10f (Removal B) per T\plan-p10.md — codex lane implements, code-logic-reviewer
-   reviews, coordinator verifies/commits/pushes, watches CI. Then P14 (incl. GAP-3), D9, P15.
-3. Optional cheap fix (codex lane): stale container.ts:46 comment / remove the now-unneeded order assertion; spec for a
-   recorder throw inside a callback.
+1. `gh pr checks 881 --json name,state --jq '.[]|"\(.state) \(.name)"'` — if shard 2/4 failed
+   again in platform-cli, inspect; otherwise CI is green for da18f9abb.
+2. Commit this HANDOFF.md in W (docs, `git commit -F`, trailer
+   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`), push in the background.
+3. Ask/await the user: D9 live check (turn cap) and usage plan approval.
+4. Removal A A2-A5 in W (retire Codex fallback selection, remove proxy consumers, delete
+   `providers/codex/codex-translation-proxy.ts` and Codex-only proxy symbols), then A6 per D31.
+   Re-run the reference search for proxy symbols before A3-A5. Can start before the live check.
+5. After approval: usage batch 1 in U, same loop; open a draft PR after the first verified batch.
+6. Update PR #881 body; mark ready only when D9 + Removal A are done and verified.
 
-Verify (background, timeout >= 90 min, read rc and "N tasks:"; typecheck,lint first, tests second):
-`npm run verify -- -t typecheck,lint -p cli-agent-runtime,codex-runtime,agent-sdk,lane-outcomes,cli-engine,rpc-handlers,ptah-electron,ptah-cli,ptah-extension-vscode,degradation-audit,di-lint`
-then the same with `-t test`. Expected: 20/20, then 53/55 with only the known Windows-only failures
-(rpc-handlers 17 session-folder/symlink tests, agent-sdk 2 plugin-loader tests). The verify queue is often full
-(waits of 10+ min are normal; `node scripts/verify.mjs --status`).
+Verify per batch (background, timeout >= 90 min, never while a lane edits): typecheck,lint first,
+tests second, in SEPARATE commands (Jest flags after `--` break lint/typecheck):
+`npm run verify -- -t typecheck,lint -p <projects>` then
+`npm run verify -- -t test -p <projects> -- --testPathPatterns=<pattern>`. Read rc and "N tasks:";
+read the `full log:` paths. For shared-lib changes include every dependent host in typecheck.
+Lanes may run `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts`.
 
 ## Rules (repeat to every lane)
 
-CLAUDE.md applies. Scoped `npm run verify -- -p ...` only, under the FIFO lock, in the background, timeout
->= 90 min; read rc and the "N tasks:" line; failed task logs are in
-`C:\Users\abdal\.nx\8b7110c7390b9603\cache\terminalOutputs\<id>`. Never build/serve/e2e except an approved Electron
-live run. Never npm ci/install in a worktree. No `any`, `as unknown as`, `@ts-ignore`, `eslint-disable`; bracket
-`process.env['X']`; swallowing catches need `// degradation-audit: optional-capability|reported - <reason>`. Specs
-must pass on Windows and Linux. Lanes never verify, commit, push or call ptah_get_diagnostics (first lines of each
-lane task); deliverable paths absolute; lanes write LF and never convert line endings (check
-`tr -cd '\r' < file | wc -c` on every lane-written file). Never commit, push or merge while a lane edits W or a
-verify runs; never edit W while a verify runs. Commit in the foreground (commitlint scopes from .commitlintrc.json,
-subject <= 72, body lines <= 100, no BOM, message file + `git commit -F`, trailer
-`Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`); push in the background. No PR merge, force push, history
-rewrite, branch deletion or worktree removal. Do not edit ~/.codex/config.toml; ~/.ptah/settings.json only via the
-approved live-test backup/restore with `cmp`. NEVER strip MCP. jq is not installed: use `gh --jq`. A live or paid
-run needs explicit user authorization with a turn cap; a turn guard must stop the app BEFORE the cap can be passed
-(stop when count reaches cap-1 and a turn is active, not after), and the resume gate refuses lanes idle > 600 s.
+CLAUDE.md applies. Lanes never verify/test/lint/typecheck/build/nx/npm, never commit/push, never
+call ptah_get_diagnostics, never npm install; deliverables absolute; LF, no BOM, CR check. Codex
+lanes use model `gpt-6-sol` (codex weekly quota reset: 0% until 2026-11-08). claude CLI lane
+disabled; Glm/opencode/grok at limit; do not use Kimi. Codex code is reviewed by the in-process
+`code-logic-reviewer` subagent. Strict TS incl. noPropertyAccessFromIndexSignature; specs are
+type-checked by ts-jest: branded ids via `SessionId.from`, real enum members (PlatformType.CLI),
+win32 drive-letter paths, `import 'reflect-metadata'` first when tsyringe libs load, no `as never`;
+no `any`, `as unknown as`, `@ts-ignore`, `eslint-disable`, non-null `!`. Native UI contracts
+identical to Claude's; fixes in the backend translation layer; no frontend Codex special case;
+NEVER strip MCP. Commit in the foreground, push in the background, watch CI with `gh --jq`.
+No merge, force push, history rewrite, branch deletion or worktree removal without the user. Paid
+live runs need explicit authorization with a turn cap. The user wants light verify load (other
+sessions share the 2-slot lock): keep runs scoped, stop leftover verify processes.

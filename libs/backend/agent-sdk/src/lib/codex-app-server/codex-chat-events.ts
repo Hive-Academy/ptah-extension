@@ -6,6 +6,8 @@ import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 import { CodexChatAdapterError } from './codex-chat-adapter-error';
 import { presentCodexTool, presentCodexToolResult } from './codex-tool-presentation';
 
+export const CODEX_FAILURE_NOTICE = 'Codex reported a runtime error.';
+
 /** Convert a whole-turn OpenAI snapshot into Ptah's disjoint token buckets. */
 export function tokenUsage(usage: CodexReportedUsage) {
   return {
@@ -302,7 +304,7 @@ export class CodexChatEvents {
           status: failed ? 'failed' : event.status,
           text: [...this.text.values()].join(''),
           ...(usage === undefined ? {} : { usage }),
-          ...(failed ? { error: 'Codex reported a runtime error.' } : {}),
+          ...(failed ? { error: CODEX_FAILURE_NOTICE } : {}),
         };
         this.text.clear();
         this.blocks.clear();
@@ -351,6 +353,6 @@ export class CodexChatEvents {
   private error(): void {
     if (this.errorEmitted) return;
     this.errorEmitted = true;
-    this.track(this.callbacks.error('Codex reported a runtime error.'));
+    this.track(this.callbacks.error(CODEX_FAILURE_NOTICE));
   }
 }

@@ -290,6 +290,32 @@ export interface CodexRuntime {
     secrets?: CodexMcpSecrets,
   ): Promise<CodexContext>;
 }
+/** Optional read-only capability, separate from the lane runtime contract. */
+export interface CodexHistoryReader {
+  readHistory(
+    profile: CodexExecutionProfile,
+    resume: CodexThreadIdentity,
+    signal?: AbortSignal,
+  ): Promise<CodexSessionHistory>;
+}
+export interface CodexSessionHistory {
+  readonly rootThreadId: string;
+  /** Root first, then children in creation order. Turns and items are ascending. */
+  readonly threads: readonly CodexHistoryThread[];
+}
+export type CodexHistoryItemEntry =
+  import('./codex-protocol-validator').CodexRequestResult<'thread/items/list'>['data'][number];
+export type CodexHistoryTurn =
+  import('./codex-protocol-validator').CodexRequestResult<'thread/turns/list'>['data'][number] & {
+    /** Item timestamps when the paged endpoint reported them. */
+    readonly itemEntries?: readonly CodexHistoryItemEntry[];
+  };
+export type CodexHistoryThread = Omit<
+  import('./codex-protocol-validator').CodexRequestResult<'thread/read'>['thread'],
+  'turns'
+> & {
+  readonly turns: readonly CodexHistoryTurn[];
+};
 export interface CodexModelInfo {
   /** Catalog key; use model for thread/start and turn/start. */
   readonly id: string;

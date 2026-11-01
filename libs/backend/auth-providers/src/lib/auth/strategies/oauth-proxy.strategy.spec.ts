@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OAuthProxyStrategy — unit specs.
  *
  * The OAuth proxy strategy multiplexes two sub-providers:
@@ -9,15 +9,13 @@
  *         auth-token placeholder.
  *       * Stops codexProxy before configuring (cross-contamination guard).
  *   - 'openai-codex':
- *       * isAuthenticated() → false returns a "run codex login" hint.
- *       * ensureTokensFresh() → false returns an "expired, re-auth" hint.
- *         This is the strategy's only real "expiry" branch; we cover both.
- *       * Starts codexProxy, stops copilotProxy first.
+ *       * Native intent returns control to the runtime.
+ *       * Other intents fail explicitly without starting the Codex proxy.
  *
  * teardown() stops both proxies and clears the codex auth cache.
  *
  * Source-under-test:
- *   `libs/backend/agent-sdk/src/lib/auth/strategies/oauth-proxy.strategy.ts`
+ *   `libs/backend/auth-providers/src/lib/auth/strategies/oauth-proxy.strategy.ts`
  */
 
 import 'reflect-metadata';
@@ -39,7 +37,6 @@ import type {
 } from '../../providers/copilot/copilot-provider.types';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../../providers/copilot/copilot-provider.types';
 import type { ICodexAuthService } from '../../providers/codex/codex-provider.types';
-import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../../providers/codex/codex-provider.types';
 import type { ITranslationProxy } from '../../translation';
 import type {
   IKimiCodeAuthService,
@@ -445,137 +442,53 @@ describe('OAuthProxyStrategy', () => {
       { reason: 'legacy-session-start', hostNativeCodex: true },
       { reason: 'legacy-session-start', hostNativeCodex: false },
       { reason: 'startup' },
-    ])('keeps the translation proxy flow for %j', async (operation) => {
+    ])('rejects non-native Codex configuration for %j', async (operation) => {
       const harness = makeStrategy();
-      harness.copilotProxy.isRunning.mockReturnValue(true);
-      harness.codexAuth.isAuthenticated.mockResolvedValue(true);
-      harness.codexAuth.ensureTokensFresh.mockResolvedValue(true);
-      harness.codexProxy.start.mockResolvedValue({
-        port: 9401,
-        url: 'http://127.0.0.1:9401',
-      });
+      harness.codexProxy.isRunning.mockReturnValue(true);
       const context = makeContext('openai-codex');
       context.operationContext = authOperationContextSchema.parse({
         providerId: 'openai-codex',
         ...operation,
       });
+      const envBefore = { ...process.env };
+      const authBefore = { ...context.authEnv };
 
-      const result = await harness.strategy.configure(context);
-
-      expect(result.configured).toBe(true);
-      expect(harness.copilotProxy.stop).toHaveBeenCalledTimes(1);
-      expect(harness.codexAuth.startWatchingAuthFile).toHaveBeenCalledTimes(1);
-      expect(harness.codexAuth.isAuthenticated).toHaveBeenCalledTimes(1);
-      expect(harness.codexAuth.ensureTokensFresh).toHaveBeenCalledTimes(1);
-      expect(harness.codexProxy.start).toHaveBeenCalledTimes(1);
-      expect(context.authEnv).toEqual({
-        ANTHROPIC_BASE_URL: 'http://127.0.0.1:9401',
-        ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER,
+      await expect(harness.strategy.configure(context)).resolves.toEqual({
+        configured: false,
+        details: [],
+        errorMessage:
+          'Codex chat requires a host with the native Codex runtime.',
       });
-      expect(process.env['ANTHROPIC_BASE_URL']).toBe(
-        context.authEnv.ANTHROPIC_BASE_URL,
-      );
-      expect(process.env['ANTHROPIC_AUTH_TOKEN']).toBe(
-        CODEX_PROXY_TOKEN_PLACEHOLDER,
-      );
-      expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
-        'openai-codex',
-      );
-    });
-
-    it('happy path: authed + tokens fresh → starts codex proxy and sets env', async () => {
-      const harness = makeStrategy();
-      harness.codexAuth.isAuthenticated.mockResolvedValueOnce(true);
-      harness.codexAuth.ensureTokensFresh.mockResolvedValueOnce(true);
-      harness.codexProxy.isRunning.mockReturnValue(false);
-      harness.codexProxy.start.mockResolvedValueOnce({
-        port: 9401,
-        url: 'http://127.0.0.1:9401',
-      });
-
-      const ctx = makeContext('openai-codex');
-      const result = await harness.strategy.configure(ctx);
-
-      expect(harness.codexAuth.isAuthenticated).toHaveBeenCalledTimes(1);
-      expect(harness.codexAuth.ensureTokensFresh).toHaveBeenCalledTimes(1);
-      expect(harness.codexProxy.start).toHaveBeenCalledTimes(1);
-      expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:9401');
-      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe(
-        CODEX_PROXY_TOKEN_PLACEHOLDER,
-      );
-      expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
-        'openai-codex',
-      );
-      expect(result.configured).toBe(true);
-      expect(result.details[0]).toContain('OpenAI Codex');
-
-      delete process.env['ANTHROPIC_BASE_URL'];
-      delete process.env['ANTHROPIC_AUTH_TOKEN'];
-    });
-
-    it('auth-required: not authenticated → returns `codex login` hint', async () => {
-      const harness = makeStrategy();
-      harness.codexAuth.isAuthenticated.mockResolvedValueOnce(false);
-
-      const result = await harness.strategy.configure(
-        makeContext('openai-codex'),
-      );
-
-      expect(result.configured).toBe(false);
-      expect(result.errorMessage).toContain('`codex login`');
-      // ensureTokensFresh short-circuited.
+      expect(context.authEnv).toEqual(authBefore);
+      expect(process.env).toEqual(envBefore);
+      expect(harness.codexProxy.start).not.toHaveBeenCalled();
+      expect(harness.codexProxy.getUrl).not.toHaveBeenCalled();
+      expect(harness.codexAuth.isAuthenticated).not.toHaveBeenCalled();
       expect(harness.codexAuth.ensureTokensFresh).not.toHaveBeenCalled();
-      expect(harness.codexProxy.start).not.toHaveBeenCalled();
+      expect(harness.codexAuth.startWatchingAuthFile).not.toHaveBeenCalled();
+      expect(harness.providerModels.switchActiveProvider).not.toHaveBeenCalled();
     });
 
-    it('expiry: authed but tokens stale → returns re-auth hint', async () => {
+    it('rejects Codex with no operation context', async () => {
       const harness = makeStrategy();
-      harness.codexAuth.isAuthenticated.mockResolvedValueOnce(true);
-      harness.codexAuth.ensureTokensFresh.mockResolvedValueOnce(false);
-
-      const result = await harness.strategy.configure(
-        makeContext('openai-codex'),
-      );
-
-      expect(result.configured).toBe(false);
-      expect(result.errorMessage).toContain('token has expired');
+      await expect(harness.strategy.configure(makeContext('openai-codex')))
+        .resolves.toMatchObject({
+          configured: false,
+          errorMessage:
+            'Codex chat requires a host with the native Codex runtime.',
+        });
       expect(harness.codexProxy.start).not.toHaveBeenCalled();
     });
 
-    it('stops a running copilot proxy before configuring Codex', async () => {
+    it('stops a running Copilot proxy before rejecting non-native Codex', async () => {
       const harness = makeStrategy();
       harness.copilotProxy.isRunning.mockReturnValue(true);
-      harness.codexAuth.isAuthenticated.mockResolvedValueOnce(true);
-      harness.codexAuth.ensureTokensFresh.mockResolvedValueOnce(true);
-      harness.codexProxy.isRunning.mockReturnValue(false);
-      harness.codexProxy.start.mockResolvedValueOnce({
-        port: 1,
-        url: 'http://127.0.0.1:1',
-      });
 
-      await harness.strategy.configure(makeContext('openai-codex'));
+      await expect(harness.strategy.configure(makeContext('openai-codex')))
+        .resolves.toMatchObject({ configured: false });
 
       expect(harness.copilotProxy.stop).toHaveBeenCalledTimes(1);
-
-      delete process.env['ANTHROPIC_BASE_URL'];
-      delete process.env['ANTHROPIC_AUTH_TOKEN'];
-    });
-
-    it('returns a port-availability error when codex proxy fails to start', async () => {
-      const harness = makeStrategy();
-      harness.codexAuth.isAuthenticated.mockResolvedValueOnce(true);
-      harness.codexAuth.ensureTokensFresh.mockResolvedValueOnce(true);
-      harness.codexProxy.isRunning.mockReturnValue(false);
-      harness.codexProxy.start.mockRejectedValueOnce(new Error('EADDRINUSE'));
-
-      const result = await harness.strategy.configure(
-        makeContext('openai-codex'),
-      );
-
-      expect(result.configured).toBe(false);
-      expect(result.errorMessage).toContain(
-        'Failed to start Codex translation proxy',
-      );
+      expect(harness.codexProxy.start).not.toHaveBeenCalled();
     });
   });
 

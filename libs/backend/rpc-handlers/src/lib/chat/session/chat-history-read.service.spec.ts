@@ -3,14 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import 'reflect-metadata';
 
-import type { FlatStreamEventUnion, SessionId } from '@ptah-extension/shared';
+import { SessionId, type FlatStreamEventUnion, type SubagentRecord } from '@ptah-extension/shared';
+import { SessionHistoryRouter, type SessionMetadata } from '@ptah-extension/agent-sdk';
+import { PlatformType } from '@ptah-extension/platform-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
-import type {
-  Logger,
-  SubagentRegistryService,
-} from '@ptah-extension/vscode-core';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
 import { ChatHistoryReadService } from './chat-history-read.service';
 
@@ -18,8 +15,20 @@ const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-policy-fixture-'));
 afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
 mkdirSync(join(TEST_ROOT, 'repo/.claude/worktrees/task'), { recursive: true });
 mkdirSync(join(TEST_ROOT, 'other'), { recursive: true });
-const SESSION_ID = '11111111-1111-4111-8111-111111111111' as SessionId;
-const WORKSPACE = `${TEST_ROOT}/repo`;
+const SESSION_ID = SessionId.from('11111111-1111-4111-8111-111111111111');
+const WORKSPACE = join(TEST_ROOT, 'repo');
+const resumableSubagent: SubagentRecord = {
+  toolCallId: 'tool-1', agentType: 'Explore', agentId: 'agent-1',
+  status: 'interrupted', startedAt: 0,
+};
+
+function sessionMetadata(workspaceId: string, workingDirectory?: string): SessionMetadata {
+  return {
+    sessionId: SESSION_ID, name: 'Fixture', workspaceId, workingDirectory,
+    createdAt: 0, lastActiveAt: 0, totalCost: 0,
+    totalTokens: { input: 0, output: 0 },
+  };
+}
 
 function makeHarness(
   options: {
@@ -35,34 +44,34 @@ function makeHarness(
       .mockResolvedValue({ events: [], stats: null }),
     readSessionEvents: jest.fn().mockResolvedValue([]),
   };
+  const initialMetadata = options.metadata === null
+    ? null
+    : sessionMetadata(
+      options.metadata?.workspaceId ?? WORKSPACE,
+      options.metadata?.workingDirectory,
+    );
   const metadataStore = {
-    get: jest
-      .fn()
-      .mockResolvedValue(
-        options.metadata === undefined
-          ? { workspaceId: WORKSPACE }
-          : options.metadata,
-      ),
+    get: jest.fn(async (_id: string): Promise<SessionMetadata | null> => initialMetadata),
   };
   const subagentRegistry = {
-    getResumableBySession: jest.fn().mockReturnValue([]),
-  } as unknown as SubagentRegistryService;
+    getResumableBySession: jest.fn((): SubagentRecord[] => []),
+  };
   const workspaceProvider = createMockWorkspaceProvider({
     folders: options.folders ?? [WORKSPACE],
   });
   const service = new ChatHistoryReadService(
-    logger as unknown as Logger,
-    historyReader as never,
-    metadataStore as never,
+    logger,
+    new SessionHistoryRouter(() => metadataStore, () => historyReader, () => null),
+    metadataStore,
     subagentRegistry,
-    workspaceProvider as unknown as IWorkspaceProvider,
+    workspaceProvider,
     {
-      type: 'cli',
-      extensionPath: '/tmp/ptah-app',
-      globalStoragePath: '/tmp/ptah-storage',
-      workspaceStoragePath: '/tmp/ptah-workspace-storage',
-    } as never,
-    options.lifecycle as never,
+      type: PlatformType.CLI,
+      extensionPath: join(TEST_ROOT, 'ptah-app'),
+      globalStoragePath: join(TEST_ROOT, 'ptah-storage'),
+      workspaceStoragePath: join(TEST_ROOT, 'ptah-workspace-storage'),
+    },
+    options.lifecycle,
   );
   return {
     service,
@@ -73,7 +82,7 @@ function makeHarness(
 }
 
 describe('ChatHistoryReadService', () => {
-  const OTHER_PROJECT = `${TEST_ROOT}/other`;
+  const OTHER_PROJECT = join(TEST_ROOT, 'other');
 
   it('passes the ownership option through for resume reads', async () => {
     const harness = makeHarness();
@@ -104,7 +113,7 @@ describe('ChatHistoryReadService', () => {
   });
 
   it('uses the saved worktree cwd for resume', async () => {
-    const persisted = `${WORKSPACE}/.claude/worktrees/task`;
+    const persisted = join(WORKSPACE, '.claude', 'worktrees', 'task');
     const harness = makeHarness({
       metadata: { workspaceId: WORKSPACE, workingDirectory: persisted },
     });
@@ -144,7 +153,7 @@ describe('ChatHistoryReadService', () => {
   });
 
   it('resolves a live session addressed by its tab id through its real id', async () => {
-    const TAB_ID = 'bdf3aa78-499e-416d-b7de-f0345568f8eb' as SessionId;
+    const TAB_ID = SessionId.from('bdf3aa78-499e-416d-b7de-f0345568f8eb');
     const lifecycle = {
       find: jest.fn((id: string) =>
         id === TAB_ID
@@ -154,7 +163,7 @@ describe('ChatHistoryReadService', () => {
     };
     const harness = makeHarness({ lifecycle });
     harness.metadataStore.get.mockImplementation(async (id: string) =>
-      id === SESSION_ID ? { workspaceId: WORKSPACE } : null,
+      id === SESSION_ID ? sessionMetadata(WORKSPACE) : null,
     );
 
     await expect(harness.service.resolveSessionFolder(TAB_ID)).resolves.toBe(
@@ -180,9 +189,7 @@ describe('ChatHistoryReadService', () => {
     ] as FlatStreamEventUnion[];
     const harness = makeHarness();
     harness.historyReader.readSessionEvents.mockResolvedValue(events);
-    (
-      harness.subagentRegistry.getResumableBySession as jest.Mock
-    ).mockReturnValue([{ toolCallId: 'tool-1' }]);
+    harness.subagentRegistry.getResumableBySession.mockReturnValue([resumableSubagent]);
 
     await expect(
       harness.service.readPage({
@@ -194,7 +201,7 @@ describe('ChatHistoryReadService', () => {
     ).resolves.toEqual({
       events: events.slice(0, 2),
       olderCursor: null,
-      resumableSubagents: [{ toolCallId: 'tool-1' }],
+      resumableSubagents: [resumableSubagent],
     });
     expect(harness.historyReader.readSessionEvents).toHaveBeenCalledWith(
       SESSION_ID,
