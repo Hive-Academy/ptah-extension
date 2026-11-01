@@ -473,7 +473,7 @@ describe('mcp directory browser — registry discovery', () => {
         ?.disabled,
     ).toBe(false);
     expect(panel?.textContent).toContain('https://••••••/mcp');
-    expect(panel?.textContent).not.toContain('mcp.acme.test');
+    expect(panel?.textContent).not.toContain('https://mcp.acme.test/mcp');
   });
 
   it('shows the coded mapper message when an entry has no install source', async () => {

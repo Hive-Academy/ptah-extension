@@ -467,11 +467,11 @@ describe('registryEntryToInstallConfig', () => {
     expect(supplied.installable).toBe(true);
     expect(
       supplied.config.type !== 'stdio' &&
-        supplied.config.headers?.Authorization,
+        supplied.config.headers?.['Authorization'],
     ).toBe('Bearer supplied-secret');
     expect(
       supplied.preview.type !== 'stdio' &&
-        supplied.preview.headers?.Authorization,
+        supplied.preview.headers?.['Authorization'],
     ).toBe('••••••');
   });
 
@@ -540,10 +540,10 @@ describe('registryEntryToInstallConfig', () => {
     const result = expectSuccess(registryEntryToInstallConfig(entry));
     expect(result.installable).toBe(true);
     expect(
-      result.config.type !== 'stdio' && result.config.headers?.Authorization,
+      result.config.type !== 'stdio' && result.config.headers?.['Authorization'],
     ).toBe('Bearer registry-secret');
     expect(
-      result.preview.type !== 'stdio' && result.preview.headers?.Authorization,
+      result.preview.type !== 'stdio' && result.preview.headers?.['Authorization'],
     ).toBe('Bearer ••••••');
   });
 
@@ -562,7 +562,7 @@ describe('registryEntryToInstallConfig', () => {
     const result = expectSuccess(registryEntryToInstallConfig(entry));
     expect(result.installable).toBe(false);
     expect(
-      result.config.type !== 'stdio' && result.config.headers?.Authorization,
+      result.config.type !== 'stdio' && result.config.headers?.['Authorization'],
     ).toBe('Bearer {token}');
     expect(result.requiredInputs).toContainEqual(
       expect.objectContaining({ key: 'header:Authorization:token', name: 'token' }),
@@ -680,11 +680,12 @@ describe('registryEntryToInstallConfig', () => {
       }),
     );
     expect(result.installable).toBe(true);
-    const args = result.config.type === 'stdio' ? result.config.args : [];
+    const args = (result.config.type === 'stdio' ? result.config.args : undefined) ?? [];
     expect(args).toContain('id-1');
     expect(args).toContain('secret-2');
     expect(args.indexOf('id-1')).toBeLessThan(args.indexOf('secret-2'));
-    const previewArgs = result.preview.type === 'stdio' ? result.preview.args : [];
+    const previewArgs =
+      (result.preview.type === 'stdio' ? result.preview.args : undefined) ?? [];
     expect(previewArgs).not.toContain('secret-2');
     expect(previewArgs).not.toContain('id-1');
   });
