@@ -270,8 +270,8 @@ describe('Ptah backdrop scenes', () => {
 
   it.each(['ptah-glass', 'ptah-glass-light'])('limits $theme pane and overlay blur', (theme) => {
     const body = block(new RegExp(`:root\\[data-theme='${theme}'\\]\\[data-glass='on'\\]`));
-    expect(body).toContain('--glass-blur: 7px;');
-    expect(body).toContain('--glass-blur-overlay: 12px;');
+    expect(body).toContain('--glass-blur: 2px;');
+    expect(body).toContain('--glass-blur-overlay: 6px;');
     expect(body).toContain('--glass-saturation: 1.08;');
   });
 

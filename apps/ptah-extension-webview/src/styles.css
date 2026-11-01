@@ -2854,8 +2854,8 @@ END OF ANUBIS DESIGN SYSTEM
 /* Ptah Glass scenes: let more of each backdrop through, with denser local
    backing on chrome and reading surfaces where text needs contrast. */
 :root[data-theme='ptah-glass'][data-glass='on'] {
-  --glass-blur: 7px;
-  --glass-blur-overlay: 12px;
+  --glass-blur: 2px;
+  --glass-blur-overlay: 6px;
   --glass-saturation: 1.08;
   --glass-under: oklch(var(--b1) / 0.3);
   --glass-scene-aurora: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%232b2e34%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%2317191d%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%2326292f%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%2711%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%200.85%200%200%200%200%200.87%200%200%200%200%200.9%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27150%27%20cy%3D%27600%27%20rx%3D%27320%27%20ry%3D%27340%27%20fill%3D%27%23b43fc4%27%20opacity%3D%270.85%27%2F%3E%3Cellipse%20cx%3D%27560%27%20cy%3D%27320%27%20rx%3D%27430%27%20ry%3D%27280%27%20fill%3D%27%238a9bd0%27%20opacity%3D%270.38%27%2F%3E%3Cellipse%20cx%3D%271000%27%20cy%3D%27610%27%20rx%3D%27380%27%20ry%3D%27170%27%20fill%3D%27%23f07a1a%27%20opacity%3D%270.7%27%2F%3E%3Cellipse%20cx%3D%271400%27%20cy%3D%27220%27%20rx%3D%27300%27%20ry%3D%27250%27%20fill%3D%27%2314b2d8%27%20opacity%3D%270.95%27%2F%3E%3Cellipse%20cx%3D%271430%27%20cy%3D%27650%27%20rx%3D%27300%27%20ry%3D%27190%27%20fill%3D%27%23f07a1a%27%20opacity%3D%270.85%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.07%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%2334373d%27%20opacity%3D%270.8%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%2324262b%27%20opacity%3D%270.9%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%2317191d%27%20opacity%3D%270.96%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E");
@@ -2874,8 +2874,8 @@ END OF ANUBIS DESIGN SYSTEM
   --glass-tint-alpha: var(--glass-tint-alpha-aurora);
 }
 :root[data-theme='ptah-glass-light'][data-glass='on'] {
-  --glass-blur: 7px;
-  --glass-blur-overlay: 12px;
+  --glass-blur: 2px;
+  --glass-blur-overlay: 6px;
   --glass-saturation: 1.08;
   --glass-fill: oklch(var(--b1) / 0.6);
   --glass-scrim-text: oklch(var(--b1) / 0.6);
