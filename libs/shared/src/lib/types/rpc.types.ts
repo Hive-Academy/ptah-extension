@@ -1761,7 +1761,7 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     };
   };
   'workspace:addFolder': {
-    params: Record<string, never>;
+    params: { mode?: 'open' | 'create' };
     result: { path: string | null; name: string | null; error?: string };
   };
   'workspace:removeFolder': {

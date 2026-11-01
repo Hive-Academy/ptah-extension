@@ -200,6 +200,7 @@ function buildSuite(folders: string[] = ['/ws']): Suite {
     }),
     getAvailableAgents: jest.fn().mockReturnValue([]),
     discoverAvailableSkills: jest.fn().mockReturnValue([]),
+    isWorkspaceEffectivelyEmpty: jest.fn().mockResolvedValue(false),
   } as unknown as Mocked<HarnessWorkspaceContextService>;
 
   const suggestion = {
@@ -614,7 +615,23 @@ describe('HarnessRpcHandlers (thin facade)', () => {
         workspaceContext: { projectName: 'demo' },
         existingPresets: [],
         workspaceRoot: '/ws',
+        workspaceEffectivelyEmpty: false,
       });
+      expect(
+        suite.workspaceContext.isWorkspaceEffectivelyEmpty,
+      ).toHaveBeenCalledWith('/ws');
+    });
+
+    it('harness:initialize reports non-empty if the emptiness hint fails', async () => {
+      const suite = buildSuite();
+      suite.workspaceContext.isWorkspaceEffectivelyEmpty.mockRejectedValue(
+        new Error('cannot read workspace'),
+      );
+      suite.handlers.register();
+
+      const result = await getHandler(suite.rpc, 'harness:initialize')({});
+
+      expect(result).toMatchObject({ workspaceEffectivelyEmpty: false });
     });
 
     it('harness:initialize rejects a pinned root outside the open folders', async () => {
@@ -684,6 +701,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       expect(
         suite.workspaceContext.resolveWorkspaceContext,
       ).toHaveBeenCalledWith(pinnedRoot);
+      expect(suite.workspaceContext.isWorkspaceEffectivelyEmpty).toHaveBeenCalledWith(pinnedRoot);
       expect(result).toMatchObject({
         workspaceRoot: pinnedRoot,
         workspaceContext: pinnedContext,

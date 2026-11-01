@@ -20,6 +20,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { join, relative } from 'path';
+import { AnalysisClaudeMdLinker } from '../analysis-claude-md-linker';
 import {
   PLATFORM_TOKENS,
   type IFileSystemProvider,
@@ -57,7 +58,11 @@ import type {
   StreamEvent,
 } from '@ptah-extension/agent-sdk';
 import type { AnalysisStorageService } from '../analysis-storage.service';
-import { hashFileOrNull, sha256Hex } from '../analysis-fingerprint';
+import {
+  hashFileOrNull,
+  normalizeEolBytes,
+  sha256Hex,
+} from '../analysis-fingerprint';
 import { AGENT_GENERATION_TOKENS } from '../../di/tokens';
 import type {
   MultiPhaseManifest,
@@ -170,6 +175,8 @@ export class MultiPhaseAnalysisService {
     private readonly workspaceLlm: IWorkspaceLlmResolver,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fs: IFileSystemProvider,
+    @inject(AGENT_GENERATION_TOKENS.ANALYSIS_CLAUDE_MD_LINKER)
+    private readonly claudeMdLinker: AnalysisClaudeMdLinker,
   ) {}
 
   /**
@@ -263,6 +270,7 @@ export class MultiPhaseAnalysisService {
           priorPhaseSha256 = await hashFileOrNull(
             this.fs,
             join(slugDir, PHASE_CONFIGS[i - 1].file),
+            manifest.workspaceFingerprint.algorithm === 'sha256-v2',
           );
         }
         const input = checkpoint.input(promptSha256, priorPhaseSha256);
@@ -413,6 +421,11 @@ export class MultiPhaseAnalysisService {
 
       if (!paused) {
         await checkpoint.finish();
+        if (manifest.lifecycle === 'completed') {
+          await this.storageService.ensureSharingFiles(workspacePath);
+          const linked = await this.claudeMdLinker.link(workspacePath);
+          if (linked.error) this.logger.warn(`${SERVICE_TAG} ${linked.error}`);
+        }
       }
 
       this.logger.info(
@@ -641,9 +654,18 @@ export class MultiPhaseAnalysisService {
       return;
     }
     try {
-      const outputSha256 = sha256Hex(
-        await this.fs.readFileBytes(join(checkpoint.slugDir, filename)),
+      const bytes = await this.fs.readFileBytes(
+        join(checkpoint.slugDir, filename),
       );
+      const normalized = normalizeEolBytes(bytes);
+      if (!Buffer.from(bytes).equals(Buffer.from(normalized))) {
+        await this.storageService.writePhaseFile(
+          checkpoint.slugDir,
+          filename,
+          Buffer.from(normalized).toString('utf8'),
+        );
+      }
+      const outputSha256 = sha256Hex(normalized);
       await checkpoint.markCompleted(
         phaseId,
         durationMs,

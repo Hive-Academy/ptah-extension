@@ -123,6 +123,9 @@ export const ANALYSIS_FRESHNESS_SERVICE = Symbol.for(
   'AnalysisFreshnessService',
 );
 
+/** Maintains the workspace root CLAUDE.md analysis import block. */
+export const ANALYSIS_CLAUDE_MD_LINKER = Symbol.for('AnalysisClaudeMdLinker');
+
 /**
  * MultiPhaseAnalysisService - Multi-phase workspace analysis orchestrator
  * Responsibilities: Execute 4 LLM phases + 1 deterministic synthesis, write markdown outputs, manage manifests
@@ -194,6 +197,7 @@ export const AGENT_GENERATION_TOKENS = {
   AGENTIC_ANALYSIS_SERVICE,
   ANALYSIS_STORAGE_SERVICE,
   ANALYSIS_FRESHNESS_SERVICE,
+  ANALYSIS_CLAUDE_MD_LINKER,
   MULTI_PHASE_ANALYSIS_SERVICE,
   PROMPT_DESIGNER_AGENT,
   PROMPT_CACHE_SERVICE,

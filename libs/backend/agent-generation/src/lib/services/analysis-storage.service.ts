@@ -227,7 +227,29 @@ export class AnalysisStorageService {
     content: string,
   ): Promise<void> {
     await this.fs.createDirectory(slugDir);
-    await this.fs.writeFile(join(slugDir, filename), content);
+    await this.fs.writeFile(join(slugDir, filename), content.replace(/\r\n/g, '\n'));
+  }
+
+  /** Create sharing rules once, preserving user-maintained versions. */
+  async ensureSharingFiles(workspacePath: string): Promise<void> {
+    const analysisDir = this.getAnalysisDir(workspacePath);
+    const files = [
+      ['.gitignore', '*/generation-manifest.json\n*/enhanced-prompt.*\ngeneration-manifest.json\nenhanced-prompt.*\n'],
+      ['.gitattributes', 'manifest.json text eol=lf\n*.md text eol=lf\n'],
+    ] as const;
+    for (const [name, content] of files) {
+      const file = join(analysisDir, name);
+      try {
+        if (!(await this.fs.exists(file))) {
+          await this.fs.createDirectory(analysisDir);
+          await this.fs.writeFile(file, content);
+        }
+      } catch (error) {
+        // degradation-audit: reported — sharing metadata is optional to the
+        // completed analysis; warn so the user can repair the file manually.
+        this.logger.warn(`${SERVICE_TAG} Could not write ${name}`, error);
+      }
+    }
   }
 
   /**
