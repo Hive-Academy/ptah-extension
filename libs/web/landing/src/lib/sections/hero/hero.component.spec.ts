@@ -108,6 +108,11 @@ describe('HeroComponent', () => {
     expect(Array.from(root.querySelectorAll('video')).every((video) =>
       video.hasAttribute('poster') && video.hasAttribute('muted') && video.getAttribute('preload') === 'none'
     )).toBe(true);
+    const firstSources = Array.from(root.querySelectorAll('video')[0].querySelectorAll('source'));
+    expect(firstSources.map((source) => [source.getAttribute('src'), source.getAttribute('type')])).toEqual([
+      ['/assets/live-demo/orchestration.mp4', 'video/mp4'],
+      ['/assets/live-demo/orchestration.webm', 'video/webm'],
+    ]);
     expect(root.querySelectorAll('.artifact[alt=""][aria-hidden]')).toHaveLength(0);
     expect(root.querySelectorAll('.artifacts[aria-hidden] img[alt=""]')).toHaveLength(4);
     expect(root.querySelector('.artifacts canvas[aria-hidden="true"]')).not.toBeNull();

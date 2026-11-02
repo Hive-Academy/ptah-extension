@@ -83,7 +83,6 @@ const SNAP_STOPS = [0, ...CHAPTER_STOPS, 1];
             <div class="scene-frame" data-scene-frame>
               <video
                 class="scene-video"
-                [src]="demo.video"
                 [poster]="demo.poster"
                 [attr.aria-label]="'PtahCode ' + demo.label + ' session clip'"
                 [attr.controls]="cinematic() ? null : ''"
@@ -96,6 +95,8 @@ const SNAP_STOPS = [0, ...CHAPTER_STOPS, 1];
                 (pause)="onVideoPause(i)"
                 (play)="onVideoPlay(i)"
               >
+                <source [src]="demo.video" type="video/mp4" />
+                <source [src]="demo.videoWebm" type="video/webm" />
                 Your browser cannot play this PtahCode video.
               </video>
             </div>
