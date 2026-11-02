@@ -49,11 +49,6 @@ export type {
 } from './lib/auth/workspace-provider-profile-resolver';
 export { WorkspaceProviderProfileResolver } from './lib/auth/workspace-provider-profile-resolver';
 export { CodexHomeAuthService } from './lib/providers/codex/codex-home-auth.service';
-export {
-  resolveCodexProxyPolicy,
-  type CodexProxyPolicy,
-} from './lib/auth/codex-proxy-policy';
-export type { ICodexOwnerKeySource } from './lib/providers/codex/codex-provider.types';
 export { WorkspaceLlmResolver } from './lib/auth/workspace-llm-resolver';
 export {
   ProviderProxyPool,

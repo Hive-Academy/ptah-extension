@@ -21,7 +21,6 @@ import { CodexHomeResolver } from './codex-home-resolver';
 import type {
   ICodexAccountUsageService,
   ICodexAuthService,
-  ICodexOwnerKeySource,
   CodexAccountUsageResult,
 } from './codex-provider.types';
 import {
@@ -113,9 +112,7 @@ function joinWithCallerAbort<T>(
 }
 
 @injectable()
-export class CodexAccountUsageService
-  implements ICodexAccountUsageService, ICodexOwnerKeySource
-{
+export class CodexAccountUsageService implements ICodexAccountUsageService {
   private cached: CodexAccountUsageResult | null = null;
   private ownerKey: string | null = null;
   /**

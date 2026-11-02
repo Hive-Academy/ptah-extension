@@ -16,7 +16,6 @@ const request = { requestKey: 'req', anchorAt: 0, ttl: '1h' as const };
 const initial: IdleSessionState = {
   sessionId: 's',
   runToken: 'run',
-  codexProxy: false,
   lastTurn: null,
   reading: null,
   activitySinceTurnEnd: false,
@@ -126,11 +125,6 @@ describe('reduceIdleSession', () => {
       step(step(initial, turn()).state, sig('input')).state,
       context(),
     ],
-    [
-      'codex-proxy',
-      { ...step(initial, turn()).state, codexProxy: true },
-      context(),
-    ],
     ['in-flight', precompact(), context()],
   ] as const)('refuses %s with one debug reason', (reason, state, signal) => {
     expect(step(state, signal).effects).toEqual([
@@ -175,7 +169,6 @@ describe('reduceIdleSession', () => {
         type: 'session-bound',
         sessionId: 's',
         runToken: 'new',
-        codexProxy: false,
       } as const,
     ]) {
       expect(step(armed(), signal).state.timer).toBeNull();
@@ -428,7 +421,6 @@ describe('reduceIdleSession', () => {
         type: 'session-bound',
         sessionId: 's',
         runToken: 'run',
-        codexProxy: false,
       });
       expect(rebound.state).toEqual(state);
       const atBoundary = step(rebound.state, {
@@ -472,7 +464,6 @@ describe('reduceIdleSession', () => {
         type: 'session-bound',
         sessionId: 's',
         runToken: 'manual',
-        codexProxy: false,
       } as const,
       sig('pre-compact'),
     ]) {

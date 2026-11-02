@@ -18,7 +18,7 @@ import type {
   AuthConfigureResult,
   AuthConfigureContext,
 } from '../auth-strategy.types';
-import { resolveCodexProxyPolicy } from '../codex-proxy-policy';
+import { isNativeCodexAuthIntent } from '../codex-native-runtime-refusal';
 import { CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE } from '../codex-native-runtime-refusal';
 import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
 import type { ProviderModelsService } from '../../provider-models.service';
@@ -267,7 +267,7 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     context: AuthConfigureContext,
   ): Promise<AuthConfigureResult> {
     const { operationContext } = context;
-    if (resolveCodexProxyPolicy(operationContext) === 'native-return') {
+    if (isNativeCodexAuthIntent(operationContext)) {
       return {
         configured: false,
         details: ['Codex authentication is owned by the native runtime.'],

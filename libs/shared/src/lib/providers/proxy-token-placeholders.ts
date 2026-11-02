@@ -2,13 +2,12 @@
  * Placeholder tokens written into AuthEnv.ANTHROPIC_AUTH_TOKEN when a
  * translation proxy is managing real authentication internally.
  *
- * Shared between `@ptah-extension/agent-sdk` (writes the placeholder into
- * SDK Options.env) and `@ptah-extension/auth-providers` (the proxies
- * recognise their own placeholder when checking whether they are the
- * active route).
+ * Shared between SDK route readers and provider authentication. The retired
+ * Codex marker remains so persisted proxy environments are refused explicitly.
  */
 
 export const COPILOT_PROXY_TOKEN_PLACEHOLDER = 'copilot-proxy-managed';
+/** Historical marker for retired Codex proxy routes; no new route writes it. */
 export const CODEX_PROXY_TOKEN_PLACEHOLDER = 'codex-proxy-managed';
 export const KIMI_CODE_PROXY_TOKEN_PLACEHOLDER = 'kimi-code-proxy-managed';
 export const OPENROUTER_PROXY_TOKEN_PLACEHOLDER = 'openrouter-proxy-token';

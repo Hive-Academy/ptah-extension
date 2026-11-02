@@ -772,7 +772,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
     const native = makeHarness('ask', {} as AuthEnv, { idle });
     const nativeRun = await native.executor.executeQuery(makeConfig('native-route'));
     feed(nativeRun, { type: 'system', subtype: 'init', session_id: 'native-sdk' } as SDKMessage);
-    expect(bound).toHaveBeenCalledWith('native-sdk', nativeRun.sessionToken, false, true);
+    expect(bound).toHaveBeenCalledWith('native-sdk', nativeRun.sessionToken, true);
     nativeRun.beforeLiveStatsDispose?.();
     nativeRun.onStreamEnd();
     nativeRun.abortController.abort();
@@ -786,7 +786,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
       },
     }));
     feed(proxyRun, { type: 'system', subtype: 'init', session_id: 'proxy-sdk' } as SDKMessage);
-    expect(bound).toHaveBeenCalledWith('proxy-sdk', proxyRun.sessionToken, false, false);
+    expect(bound).toHaveBeenCalledWith('proxy-sdk', proxyRun.sessionToken, false);
     proxyRun.abortController.abort();
   });
   const noTimers: CompactionTimers = {
@@ -842,7 +842,7 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
     jest
       .spyOn(coordinator, 'register')
       .mockImplementation((id) =>
-        register(id, { codexProxy: false, e2Passed: true }),
+        register(id, { e2Passed: true }),
       );
     return coordinator;
   }
@@ -864,7 +864,6 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
 
     expect(registerSpy).toHaveBeenCalledTimes(1);
     expect(registerSpy).toHaveBeenCalledWith(REAL, {
-      codexProxy: false,
       e2Passed: null,
     });
     // No E2 has passed yet, so the session only observes.
@@ -1283,7 +1282,6 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
       await flush();
 
       expect(registerSpy).toHaveBeenCalledWith(REAL, {
-        codexProxy: false,
         e2Passed: null,
       });
       expect(statusSpy).toHaveBeenCalledWith(REAL);

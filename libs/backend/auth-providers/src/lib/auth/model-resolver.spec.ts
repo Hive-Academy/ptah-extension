@@ -5,11 +5,11 @@
  * What these lock in:
  *
  *   - Billing policy is read off the ACTIVE PROVIDER, never off the model id.
- *     `gpt-5.4` is a Codex model AND an OpenRouter one; the id alone cannot
+ *     a model may be available through multiple providers; the id alone cannot
  *     say whether the user is on a flat fee.
  *   - A subscription provider is costed at the SAME published rates as a
  *     usage-billed one. Ptah reports what the tokens are worth, the way
- *     `claude /usage` and the Codex CLI do — `subscriptionCovered` labels the
+ *     `claude /usage` does — `subscriptionCovered` labels the
  *     figure, it never changes it. A previous revision zeroed these; the
  *     regression test below is what stops that coming back.
  *   - The id handed to the pricing map is the RESOLVED provider model, not the
@@ -20,7 +20,6 @@ import 'reflect-metadata';
 
 import {
   ANTHROPIC_PROVIDERS,
-  CODEX_PROXY_TOKEN_PLACEHOLDER,
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
   getAnthropicProvider,
@@ -31,7 +30,6 @@ import type { ConfigManager, Logger } from '@ptah-extension/vscode-core';
 import { createMockConfigManager } from '@ptah-extension/vscode-core/testing';
 import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
 import { ModelResolver } from './model-resolver';
-import { getActiveProviderId } from '@ptah-extension/agent-sdk';
 import { ProviderModelsService } from '../provider-models.service';
 import { ActiveProviderResolver } from './active-provider-resolver';
 
@@ -55,33 +53,22 @@ function makeResolver(env: AuthEnv): ModelResolver {
   return new ModelResolver(makeLogger(), env);
 }
 
-/** Historical proxy env retained for pricing and classification reads. */
-function codexEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
+function copilotEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
   return {
-    ANTHROPIC_BASE_URL: 'http://127.0.0.1:51001',
-    ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER,
+    ANTHROPIC_BASE_URL: 'http://127.0.0.1:51002',
+    ANTHROPIC_AUTH_TOKEN: COPILOT_PROXY_TOKEN_PLACEHOLDER,
     ...overrides,
   } as AuthEnv;
 }
 
 describe('ModelResolver', () => {
-  it('classifies historical Codex proxy env without launching an SDK query', () => {
-    expect(getActiveProviderId(codexEnv())).toBe('openai-codex');
-  });
-
   beforeEach(() => {
     updatePricingMap({ ...CATALOG });
   });
 
   describe('isSubscriptionCovered', () => {
-    it('is true for the two flat-fee proxy providers', () => {
-      expect(makeResolver(codexEnv()).isSubscriptionCovered()).toBe(true);
-      expect(
-        makeResolver({
-          ANTHROPIC_BASE_URL: 'http://127.0.0.1:51002',
-          ANTHROPIC_AUTH_TOKEN: COPILOT_PROXY_TOKEN_PLACEHOLDER,
-        } as AuthEnv).isSubscriptionCovered(),
-      ).toBe(true);
+    it('is true for a flat-fee proxy provider', () => {
+      expect(makeResolver(copilotEnv()).isSubscriptionCovered()).toBe(true);
     });
 
     it('is false for a usage-billed proxy provider', () => {
@@ -110,18 +97,18 @@ describe('ModelResolver', () => {
         ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
       } as AuthEnv);
 
-      expect(resolver.isSubscriptionCovered(codexEnv())).toBe(true);
+      expect(resolver.isSubscriptionCovered(copilotEnv())).toBe(true);
     });
   });
 
   describe('resolveForCost', () => {
-    it('prices a Codex turn at published rates, not zero', () => {
-      // The regression this exists for. Codex models are absent from the
+    it('prices a subscription turn at published rates, not zero', () => {
+      // Subscription models are absent from the
       // pricing map by design (seedStaticModelPricing skips subscription
       // providers, so their $0 statics cannot pin a shared slug), and their
       // rates come from the catalog like everyone else's.
       const resolver = makeResolver(
-        codexEnv({ ANTHROPIC_DEFAULT_SONNET_MODEL: 'gpt-5.3-codex' }),
+        copilotEnv({ ANTHROPIC_DEFAULT_SONNET_MODEL: 'gpt-5.3-codex' }),
       );
 
       const priced = resolver.resolveForCost('claude-sonnet-4-5');
@@ -135,10 +122,9 @@ describe('ModelResolver', () => {
     });
 
     it('gives a subscription and a usage provider the same rate for one slug', () => {
-      // `gpt-5.6-sol` is sold per token on OpenRouter and covered by a ChatGPT
-      // subscription. Both report the same dollar figure; only the label moves.
-      const onCodex = makeResolver(
-        codexEnv({ ANTHROPIC_DEFAULT_OPUS_MODEL: 'gpt-5.6-sol' }),
+      // Both providers report the same dollar figure; only the label moves.
+      const onCopilot = makeResolver(
+        copilotEnv({ ANTHROPIC_DEFAULT_OPUS_MODEL: 'gpt-5.6-sol' }),
       ).resolveForCost('opus');
       const onOpenRouter = makeResolver({
         ANTHROPIC_BASE_URL: 'http://127.0.0.1:51003',
@@ -146,10 +132,10 @@ describe('ModelResolver', () => {
         ANTHROPIC_DEFAULT_OPUS_MODEL: 'gpt-5.6-sol',
       } as AuthEnv).resolveForCost('opus');
 
-      expect(onCodex.modelId).toBe('gpt-5.6-sol');
+      expect(onCopilot.modelId).toBe('gpt-5.6-sol');
       expect(onOpenRouter.modelId).toBe('gpt-5.6-sol');
-      expect(onCodex.pricing).toEqual(onOpenRouter.pricing);
-      expect(onCodex.subscriptionCovered).toBe(true);
+      expect(onCopilot.pricing).toEqual(onOpenRouter.pricing);
+      expect(onCopilot.subscriptionCovered).toBe(true);
       expect(onOpenRouter.subscriptionCovered).toBe(false);
     });
 
@@ -169,7 +155,7 @@ describe('ModelResolver', () => {
       // CostBadgeComponent renders null as "cost unavailable" and 0 as
       // "$0.00" — an unpriced model must not claim to be free.
       const priced =
-        makeResolver(codexEnv()).resolveForCost('gpt-9.9-unreleased');
+        makeResolver(copilotEnv()).resolveForCost('gpt-9.9-unreleased');
 
       expect(priced.pricing).toBeNull();
     });
