@@ -237,6 +237,7 @@ export interface HarnessInitializeParams {
   workspaceRoot?: string;
 }
 export interface HarnessInitializeResponse {
+  workspaceEffectivelyEmpty: boolean;
   workspaceContext: HarnessWorkspaceContext;
   availableAgents: AvailableAgent[];
   availableSkills: SkillSummary[];

@@ -66,6 +66,27 @@
         }
       }
     },
+    "build-demo": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "build",
+        {
+          "projects": ["ptah-extension-webview"],
+          "target": "build"
+        }
+      ],
+      "inputs": [
+        "production",
+        "^production",
+        "{workspaceRoot}/scripts/landing/**",
+        "{workspaceRoot}/libs/web/landing/src/lib/live-demo/**",
+        "{workspaceRoot}/libs/frontend/webview-e2e-harness/src/lib/fonts/**"
+      ],
+      "outputs": ["{workspaceRoot}/dist/ptah-landing-page/browser/demo"],
+      "options": {
+        "command": "node scripts/landing/build-live-demo.mjs"
+      }
+    },
     "serve": {
       "continuous": true,
       "executor": "@angular/build:dev-server",

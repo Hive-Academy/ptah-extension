@@ -13,6 +13,9 @@ export {
   type ThemeName,
   type ThemeInfo,
   DAISYUI_THEMES,
+  type MotionStyleName,
+  MOTION_STYLES,
+  DEFAULT_MOTION_STYLE,
 } from './theme.service';
 export { ModelStateService } from './model-state.service';
 export { PluginCatalogService } from './plugin-catalog.service';

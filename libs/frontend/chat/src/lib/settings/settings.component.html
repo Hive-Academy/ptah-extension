@@ -102,10 +102,13 @@
       </nav>
     </header>
 
+    <div ptahMotionStage [motionIndex]="settingsTabIndex()">
     <!-- ============================================ -->
     <!-- Tab 1: Providers (tab id remains claude-auth) -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'claude-auth') {
+      <div class="ptah-motion-panel space-y-8" animate.leave="ptah-motion-leave">
+      <div class="ptah-motion-panel" animate.enter="ptah-motion-enter">
       <!--
         Two mutually exclusive security statements (TASK_2026_236). The built-in
         line asserts something auditable about endpoints that ship in Ptah's
@@ -159,10 +162,12 @@
           </p>
         </div>
       }
+      </div>
       <!-- Deferred like tabs 2-4: the Providers page (with its named-accounts UI) and the agents routing below it
            (CLI matrix, background model roles) are one chunk, so the eager route stays inside its bundle budget and
            one load failure shows one recovery. Deep links apply once the page renders. -->
       @defer (on immediate) {
+        <div class="ptah-motion-panel space-y-8" animate.enter="ptah-motion-enter">
         <ptah-providers-settings
           class="block"
           [focusTarget]="providersTarget()"
@@ -174,6 +179,7 @@
           [focusTarget]="agentsRoutingTarget()"
           (focusTargetConsumed)="agentsRoutingTarget.set(null)"
         />
+        </div>
       } @placeholder {
         <div class="min-h-24" aria-busy="true"></div>
       } @error {
@@ -202,6 +208,7 @@
           </button>
         </div>
       }
+      </div>
     }
 
     <!-- ============================================ -->
@@ -211,19 +218,26 @@
          the aria-busy placeholder keeps the harness waitForSettled waiting until they load.
          It owns no deep-link section: the CLI matrix and the background roles moved to Providers. -->
     @if (activeSettingsTab() === 'orchestration') {
+      <div class="ptah-motion-panel space-y-8" animate.leave="ptah-motion-leave">
       @defer (on immediate) {
+        <div class="ptah-motion-panel" animate.enter="ptah-motion-enter">
         <ptah-orchestration-settings />
+        </div>
       } @placeholder {
         <div class="min-h-24" aria-busy="true"></div>
       }
+      </div>
     }
 
     <!-- ============================================ -->
     <!-- Tab 3: Advanced (membership, agent behaviour, output style, MCP, VS Code LM) -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'pro-features') {
+      <div class="ptah-motion-panel space-y-8" animate.leave="ptah-motion-leave">
       @defer (on immediate) {
+        <div class="ptah-motion-panel" animate.enter="ptah-motion-enter">
         <ptah-advanced-settings (modelChanged)="onModelChanged()" />
+        </div>
       } @placeholder {
         <div class="min-h-24" aria-busy="true"></div>
       }
@@ -253,18 +267,24 @@
           }
         </div>
       </section>
+      </div>
     }
 
     <!-- ============================================ -->
     <!-- Tab 4: Search & Voice (web search + voice transcription) -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'tools') {
+      <div class="ptah-motion-panel space-y-8" animate.leave="ptah-motion-leave">
       @defer (on immediate) {
+        <div class="ptah-motion-panel" animate.enter="ptah-motion-enter">
         <ptah-search-voice-settings />
+        </div>
       } @placeholder {
         <div class="min-h-24" aria-busy="true"></div>
       }
+      </div>
     }
+    </div>
   </div>
 
   <!-- Save-on-selection feedback (SettingsSaveFeedbackService) -->

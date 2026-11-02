@@ -1867,6 +1867,72 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   // TASK_2026_515: the orchestrator hears from a lane on EVERY ending. A path
   // that forgets this call puts the session back to polling with no notice.
   describe('lane completion signal', () => {
+    it('flushes the final output before signalling a normal completion', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      const order: string[] = [];
+      manager.events.on('agent:output', () => order.push('output'));
+      laneCompletion.signal.mockImplementation(() => {
+        order.push('completion');
+        return Promise.resolve({ delivered: false, reason: 'chat-runtime-unavailable' });
+      });
+
+      sdkControls.emitOutput('final delta');
+      sdkControls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(order).toEqual(['output', 'completion']);
+      expect(manager.readOutput(result.agentId).stdout).toContain('final delta');
+    });
+
+    it('flushes buffered output before signalling a stop', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      const order: string[] = [];
+      manager.events.on('agent:output', () => order.push('output'));
+      laneCompletion.signal.mockImplementation(() => {
+        order.push('completion');
+        return Promise.resolve({ delivered: false, reason: 'chat-runtime-unavailable' });
+      });
+
+      sdkControls.emitOutput('last words');
+      const stopped = manager.stop(result.agentId);
+      jest.advanceTimersByTime(600);
+      await stopped;
+
+      expect(order).toEqual(['output', 'completion']);
+    });
+
+    it('flushes buffered output before signalling a timeout or emitting exit', async () => {
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        timeout: 5000,
+      });
+      const order: string[] = [];
+      manager.events.on('agent:output', () => order.push('output'));
+      manager.events.on('agent:exited', () => order.push('exit'));
+      laneCompletion.signal.mockImplementation(() => {
+        order.push('completion');
+        return Promise.resolve({ delivered: false, reason: 'chat-runtime-unavailable' });
+      });
+
+      jest.advanceTimersByTime(4999);
+      sdkControls.emitOutput('last words');
+      jest.advanceTimersByTime(1);
+
+      expect(order).toEqual(['output', 'completion', 'exit']);
+      expect(manager.getStatus(result.agentId)).toHaveProperty('status', 'timeout');
+    });
+
     it('signals a normal completion with the terminal status', async () => {
       const result = await manager.spawn({
         task: 'Task',

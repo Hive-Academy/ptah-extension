@@ -42,6 +42,7 @@ import { effectiveCanvasLaneKind } from '../canvas-detail/canvas-lane-view.compo
 import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { CanvasInspectorDockComponent, injectCanvasInspectorDockState, isCanvasInspectorTabbable } from './canvas-inspector-dock.component';
 import { CanvasRailComponent } from './canvas-rail.component';
+import { groupRailTiles, neighbouringVisibleId, sameGroupMoveIds } from './canvas-rail-grouping.util';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
 import { focusNeighbourCard, restoreBoardFocus } from './canvas-board-focus';
 import { LucideAngularModule, RotateCw, TriangleAlert, X } from 'lucide-angular';
@@ -50,7 +51,6 @@ import { LucideAngularModule, RotateCw, TriangleAlert, X } from 'lucide-angular'
 import { CanvasEmptyBoardComponent } from './canvas-empty-board.component';
 import {
   checkRailGeometry,
-  railAnchorScrollTop,
   railCardHeight,
   type RailGeometryBaseline,
 } from './canvas-rail-geometry';
@@ -641,6 +641,17 @@ export class CanvasRailBoardComponent {
         ...(this.list()?.querySelectorAll<HTMLElement>('[data-rail-card]') ??
           []),
       ];
+      if (!this.restoredScroll) {
+        const list = this.list();
+        if (list) {
+          this.restoredScroll = true;
+          list.scrollTop = Math.min(
+            this.board().railScrollTop,
+            Math.max(0, list.scrollHeight - list.clientHeight),
+          );
+        }
+      }
+      if (cards.length !== tiles.length) return;
       const sample = {
         key: `${density}|${collapsed}`,
         order: cards.map((card) => card.dataset['tabId'] ?? ''),
@@ -650,7 +661,6 @@ export class CanvasRailBoardComponent {
             Number(card.dataset['attentionExtra'] ?? 0),
         ),
       };
-      if (cards.length !== tiles.length) return;
       const result = checkRailGeometry(
         this.geometryBaseline,
         sample,
@@ -658,15 +668,6 @@ export class CanvasRailBoardComponent {
       );
       this.geometryBaseline = result.baseline;
       if (result.shifts) this.metrics.increment('railShifts', result.shifts);
-      if (!this.restoredScroll) {
-        this.restoredScroll = true;
-        const list = this.list();
-        if (list)
-          list.scrollTop = Math.min(
-            this.board().railScrollTop,
-            Math.max(0, list.scrollHeight - list.clientHeight),
-          );
-      }
     });
   }
   private list(): HTMLElement | null {
@@ -686,29 +687,12 @@ export class CanvasRailBoardComponent {
             element.dataset['tabId'] === (targetId ?? this.focusedId()),
         );
         if (list && card) {
-          const hasAttention = !!list.querySelector(
-            '[data-attention-count]:not([data-attention-count="0"])',
-          );
-          if (!hasAttention) {
-            const index = this.orderedTiles().findIndex(
-              (tile) => tile.tabId === (targetId ?? this.focusedId()),
-            );
-            list.scrollTop = railAnchorScrollTop(
-              index,
-              railCardHeight(
-                this.board().railDensity,
-                this.effectiveCollapsed(),
-              ),
-              list.clientHeight,
-              list.scrollTop,
-            );
-            return;
-          }
+          const cardBounds = card.getBoundingClientRect();
           const top =
-            card.getBoundingClientRect().top -
+            cardBounds.top -
             list.getBoundingClientRect().top +
             list.scrollTop;
-          const bottom = top + card.getBoundingClientRect().height;
+          const bottom = top + cardBounds.height;
           if (top < list.scrollTop) list.scrollTop = top;
           else if (bottom > list.scrollTop + list.clientHeight)
             list.scrollTop = bottom - list.clientHeight;
@@ -869,14 +853,14 @@ export class CanvasRailBoardComponent {
 
   move(id: string, direction: -1 | 1): void {
     const tiles = this.orderedTiles();
-    const index = tiles.findIndex((tile) => tile.tabId === id);
-    const destination = index + direction;
-    if (index < 0 || destination < 0 || destination >= tiles.length) {
+    const storedIds = tiles.map(tile => tile.tabId);
+    const ids = sameGroupMoveIds(storedIds, this.railStates(), id, direction);
+    if (!ids) {
       this.announce('This session cannot move in that direction.');
       return;
     }
-    const ids = tiles.map((tile) => tile.tabId);
-    [ids[index], ids[destination]] = [ids[destination], ids[index]];
+    const destination = groupRailTiles(ids.map(tabId => ({ tabId })), this.railStates())
+      .displayedIds.indexOf(id);
     this.geometryBaseline = {
       key: `${this.board().railDensity}|${this.effectiveCollapsed()}`,
       order: ids,
@@ -951,9 +935,16 @@ export class CanvasRailBoardComponent {
     this.focus(id);
   }
   async close(id: string): Promise<void> {
-    const ids = this.orderedTiles().map((tile) => tile.tabId);
-    const index = ids.indexOf(id);
-    const neighbour = ids[index + 1] ?? ids[index - 1] ?? null;
+    const list = this.list();
+    const visibleIds = list
+      ? [...list.querySelectorAll<HTMLElement>('[data-rail-card]')]
+          .map((card) => card.dataset['tabId'] ?? '')
+      : groupRailTiles(this.orderedTiles(), this.railStates()).displayedIds;
+    const neighbour = neighbouringVisibleId(
+      visibleIds,
+      visibleIds.filter((candidate) => candidate !== id),
+      id,
+    );
     const active = this.activeId();
     const wasFocused = active === id;
     const wasSplit = this.splitDisplayed();
@@ -980,11 +971,11 @@ export class CanvasRailBoardComponent {
     focusNeighbourCard(this.host.nativeElement, neighbour, this.injector);
   }
   jumpTo(state: CompactRailState): void {
-    const tiles = this.orderedTiles();
-    const start = tiles.findIndex((tile) => tile.tabId === this.focusedId());
-    for (let step = 1; step <= tiles.length; step++) {
-      const id = tiles[(start + step) % tiles.length]?.tabId;
-      if (this.railStates().get(id) === state) {
+    const ids = groupRailTiles(this.orderedTiles(), this.railStates()).displayedIds;
+    const start = ids.indexOf(this.focusedId() ?? '');
+    for (let step = 1; step <= ids.length; step++) {
+      const id = ids[(start + step) % ids.length];
+      if ((this.railStates().get(id) ?? 'idle') === state) {
         this.focus(id);
         return;
       }

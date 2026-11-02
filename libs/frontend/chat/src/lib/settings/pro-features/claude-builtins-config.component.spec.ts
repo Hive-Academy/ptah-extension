@@ -153,6 +153,9 @@ describe('ClaudeBuiltinsConfigComponent', () => {
   describe('Load', () => {
     it('renders groups 1 and 2 from the catalog, unchecked by default, with costs and the applies note', async () => {
       await render();
+      expect(
+        element.querySelector('section')?.getAttribute('data-glass-surface'),
+      ).toBe('content');
 
       expect(call).toHaveBeenCalledWith('agent:getClaudeBuiltins', {});
       expect(element.querySelectorAll('[data-testid^="settings-toggle-claude-tool-"]')).toHaveLength(6);

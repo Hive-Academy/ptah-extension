@@ -105,6 +105,9 @@ describe('HostRoutingSettingComponent', () => {
 
   it('reads the default (no stored value) as on when a decision model is configured', async () => {
     await create();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('section')?.getAttribute('data-glass-surface'),
+    ).toBe('content');
     expect(host.call).toHaveBeenCalledWith(
       'settings:get',
       { key: KEY },

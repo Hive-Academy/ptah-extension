@@ -1,0 +1,33 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": "33",
+  "title": "D-6 migration service and durable ledger",
+  "executor": "claude backend-developer subagent",
+  "changed": [
+    "libs/backend/rpc-handlers/src/lib/install-scope/install-scope-migration.service.ts (new)",
+    "libs/backend/rpc-handlers/src/lib/install-scope/install-scope-migration.service.spec.ts (new, 23 tests)",
+    "libs/backend/agent-generation/src/index.ts (export UserLayerOrphanReaper + reap row types, decision #65)"
+  ],
+  "api": {
+    "class": "InstallScopeMigrationService (@injectable, registered by class, no token). Injects TOKENS.LOGGER, HARNESS_SYNC_TOKENS.RECONCILER, RecentWorkspacesService, PLATFORM_TOKENS.WORKSPACE_PROVIDER; homeDir/reaper/mcpIntents default.",
+    "methods": "run(): Promise<{status: completed|already-completed|incomplete|failed; counts}> never rejects; readNotice(): Promise<InstallScopeMigrationNotice|null> never rejects; dismissNotice(): Promise<boolean> rejects only on ledger write failure; readLedger(); ledgerPath.",
+    "notice": "{completedAt, counts:{retired,removed,kept,onDisk}, keptPaths:[{path,reason,itemId}], onDisk:[{itemId,path,reason?}]}"
+  },
+  "ledger": {
+    "path": "~/.ptah/migrations/install-scope.json (atomicWriteWithRetry)",
+    "schema": "{version:1, discoveredAt?, clonesPassedAt?, items:{[skills-sh:<rootId>|mcp:<key>]:{kind, retired, retiredAt?, onDisk?, onDiskReason?, outcome?, removedPaths:{[p]:iso}, keptPaths:{[p]:reason}, failedPaths:{[p]:err}}}, workspaces:{[canonicalRoot]:{root, passedAt?, lastError?, failedPaths?, missingAt?}}, completedAt?, noticeSeenAt?}",
+    "trace": "1 retire: registry merge-write, then ledger items + discoveredAt. 2 roots: verifyOwnedRoot -> delete only if owned; ledger write after each root. 3 clones: reapRetired with ledger root ids; merge; one write; clonesPassedAt. 4 workspaces: reconcile(root,{mode:'full',reason:'install-scope-migration'}) per unpassed workspace; ledger write before next workspace. 5 finish: completedAt only when discovered, clones passed, workspace list read, every item has an outcome, every workspace passed or missing."
+  },
+  "deviations": [
+    "v1 MCP intents are retired in the ledger from listRetired(); the intent file is rewritten as v2 by the store on its next record/forget (McpIntentStore has no public persist).",
+    "The service merge-writes .ptah-skillssh-retired.json itself (only other writer is private in SkillsShSourceRootService); the migration runs at boot before UI, so the clearRetired race is theoretical.",
+    "Item set fixed at first run; malformed ledger renamed to install-scope.json.corrupt-<ts>; stale failures of missing/passed workspaces dropped.",
+    "Service file ~795 non-comment lines: max-lines lint warning (not error)."
+  ],
+  "handoffBatch34": "harness:get-install-migration-notice -> readNotice(); harness:dismiss-install-migration-notice -> dismissNotice() (map rejection to fixed error). Fixtures: new InstallScopeMigrationService(logger, reconciler, {list}, {getWorkspaceFolders}, tempHome, reaper?, {listRetired}?) with os.homedir + workspace-intelligence mocks; mark fixture workspaces with .ptah or .git.",
+  "handoffBatch35": "container.registerSingleton(InstallScopeMigrationService) in register-shared-rpc-handlers.ts; add to VS Code expected-resolvable (Batch 41); Electron boot-heavy-services: void container.resolve(InstallScopeMigrationService).run() after window creation, before refreshUserLayer, inside the existing try/catch.",
+  "verification": {
+    "scopedTest": "--testPathPatterns='install-scope-migration': 1 suite, 23/23, exit 0 (/tmp/tpd-b33-test.log); agent-generation typecheck exit 0 (/tmp/tpd-b33-tc.log)",
+    "combinedVerify": "PASS: npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/vscode-lm-tools,@ptah-extension/agent-generation,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine -> NX 71 tasks: 71 succeeded (27 cached), exit 0 (/tmp/tpd-b31-33-verify.log); degradation-audit:lint --skip-nx-cache exit 0 (/tmp/tpd-b31-33-audit.log)"
+  }
+}

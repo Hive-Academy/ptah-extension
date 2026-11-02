@@ -13,12 +13,13 @@ import {
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { LucideAngularModule, Search } from 'lucide-angular';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import {
   CatalogCardComponent,
   CatalogCardSkeletonComponent,
   CatalogGridComponent,
   MonogramTileComponent,
+  StorefrontPanelComponent,
   type CatalogCardBadge,
 } from '@ptah-extension/ui';
 import type {
@@ -27,6 +28,13 @@ import type {
   SkillDetectionResult,
 } from '@ptah-extension/shared';
 import { MARKETPLACE_RPC_TIMEOUTS } from './marketplace-rpc-timeouts';
+import {
+  InstallScopeFieldComponent,
+  defaultInstallScope,
+  effectiveInstallScope,
+  installScopeButtonLabel,
+  type InstallScopeChoice,
+} from './install-scope-field.component';
 
 /** SkillShEntry enriched with its card meta line for template use */
 interface DisplaySkillEntry extends SkillShEntry {
@@ -43,6 +51,17 @@ interface DisplaySkillEntry extends SkillShEntry {
 /** The identity skills.sh actually keys a skill by. */
 function skillKey(skill: SkillShEntry): string {
   return `${skill.source}@${skill.skillId}`;
+}
+
+/** The install panel id of one card: grid plus the skills.sh identity. */
+function panelId(grid: SkillGrid, skill: SkillShEntry): string {
+  return `${grid}:${skillKey(skill)}`;
+}
+
+/** Folder name of a workspace path, for a workspace without a display name. */
+function lastPathSegment(path: string): string {
+  const parts = path.split(/[\\/]/).filter((part) => part.length > 0);
+  return parts[parts.length - 1] ?? path;
 }
 
 function formatInstallCount(count: number): string {
@@ -67,6 +86,18 @@ const INSTALLED_BADGE: CatalogCardBadge = {
 const SKELETON_SLOTS = [1, 2, 3] as const;
 
 /**
+ * Which grid a card sits in. The same skill can be both recommended and
+ * popular, so an open install panel is keyed by grid and skill.
+ */
+type SkillGrid = 'recommended' | 'results';
+
+/** Scope badge text of an installed skill (design-spec §2). */
+const SCOPE_BADGE_LABELS: Readonly<Record<InstalledSkill['scope'], string>> = {
+  workspace: 'This workspace',
+  global: 'All workspaces',
+};
+
+/**
  * SkillShBrowserComponent - Browse, search and install skills from skills.sh
  *
  * Discovery only: browse, search and install. The user's installed skills are
@@ -75,6 +106,12 @@ const SKELETON_SLOTS = [1, 2, 3] as const;
  *
  * Results render as storefront catalog cards (`ptah-catalog-grid`), each with
  * an artwork-free monogram tile — skills.sh entries have no vendor brand.
+ *
+ * Install opens a storefront panel under the card (design-spec §2) holding
+ * the shared install-scope field: This workspace by default, All workspaces
+ * only as an explicit choice, and nothing selectable but All workspaces with
+ * no folder open. The install sends the chosen `scope`. An installed card
+ * shows its scope badge; "Make global" lives on the Installed page.
  *
  * Patterns: Signal-based state, debounced search
  */
@@ -88,6 +125,8 @@ const SKELETON_SLOTS = [1, 2, 3] as const;
     CatalogCardSkeletonComponent,
     CatalogGridComponent,
     MonogramTileComponent,
+    StorefrontPanelComponent,
+    InstallScopeFieldComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -147,7 +186,10 @@ const SKELETON_SLOTS = [1, 2, 3] as const;
               @for (skill of recommendedDisplaySkills(); track skill.key) {
                 <ng-container
                   [ngTemplateOutlet]="skillCard"
-                  [ngTemplateOutletContext]="{ $implicit: skill }"
+                  [ngTemplateOutletContext]="{
+                    $implicit: skill,
+                    grid: 'recommended',
+                  }"
                 />
               }
             </ptah-catalog-grid>
@@ -182,7 +224,10 @@ const SKELETON_SLOTS = [1, 2, 3] as const;
               @for (skill of displaySkills(); track skill.key) {
                 <ng-container
                   [ngTemplateOutlet]="skillCard"
-                  [ngTemplateOutletContext]="{ $implicit: skill }"
+                  [ngTemplateOutletContext]="{
+                    $implicit: skill,
+                    grid: 'results',
+                  }"
                 />
               }
             </ptah-catalog-grid>
@@ -204,8 +249,9 @@ const SKELETON_SLOTS = [1, 2, 3] as const;
       </div>
     </div>
 
-    <!-- One result card; shared by the recommended and the results grids. -->
-    <ng-template #skillCard let-skill>
+    <!-- One result card, and its install panel spanning the grid row under
+         it when open; shared by the recommended and the results grids. -->
+    <ng-template #skillCard let-skill let-grid="grid">
       <ptah-catalog-card
         role="listitem"
         [heading]="skill.name"
@@ -215,7 +261,13 @@ const SKELETON_SLOTS = [1, 2, 3] as const;
       >
         <ptah-monogram-tile card-mark [label]="skill.name" />
         <div card-actions>
-          @if (isSkillInstalled(skill)) {
+          @if (installedRecord(skill); as record) {
+            <span
+              class="badge badge-outline badge-sm"
+              [class.border-warning]="record.scope === 'global'"
+              data-testid="skill-scope-badge"
+              >{{ scopeBadgeLabel(record) }}</span
+            >
             <button
               class="btn btn-ghost btn-sm text-error"
               [disabled]="uninstallingSkillIds().has(skill.key)"
@@ -233,12 +285,15 @@ const SKELETON_SLOTS = [1, 2, 3] as const;
             <button
               class="btn btn-primary btn-sm"
               [disabled]="installingSkillIds().has(skill.key)"
-              (click)="installSkill(skill)"
+              (click)="toggleInstallPanel(grid, skill)"
               type="button"
+              [attr.aria-expanded]="isPanelOpen(grid, skill)"
               [attr.aria-label]="'Install ' + skill.name"
             >
               @if (installingSkillIds().has(skill.key)) {
                 <span class="loading loading-spinner loading-xs"></span>
+              } @else if (isPanelOpen(grid, skill)) {
+                Cancel
               } @else {
                 Install
               }
@@ -246,6 +301,41 @@ const SKELETON_SLOTS = [1, 2, 3] as const;
           }
         </div>
       </ptah-catalog-card>
+
+      @if (isPanelOpen(grid, skill) && !isSkillInstalled(skill)) {
+        <div role="listitem" class="col-span-full">
+          <ptah-storefront-panel
+            [heading]="'Install ' + skill.name"
+            [subtitle]="skill.source"
+          >
+            <div class="space-y-3">
+              <ptah-install-scope-field
+                legend="Install to"
+                itemKind="skill"
+                [workspaceName]="workspaceName()"
+                [disabled]="installingSkillIds().has(skill.key)"
+                [(scope)]="scopeChoice"
+              />
+              <button
+                class="btn btn-primary btn-sm"
+                type="button"
+                data-testid="skill-install-confirm"
+                [disabled]="
+                  installScope() === null || installingSkillIds().has(skill.key)
+                "
+                (click)="installSkill(skill)"
+              >
+                @if (installingSkillIds().has(skill.key)) {
+                  <span class="loading loading-spinner loading-xs"></span>
+                  Installing...
+                } @else {
+                  {{ primaryLabel() }}
+                }
+              </button>
+            </div>
+          </ptah-storefront-panel>
+        </div>
+      }
     </ng-template>
   `,
   styles: [
@@ -258,6 +348,7 @@ const SKELETON_SLOTS = [1, 2, 3] as const;
 })
 export class SkillShBrowserComponent implements OnInit, OnDestroy {
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly appState = inject(AppStateManager);
   private readonly destroyRef = inject(DestroyRef);
   private destroyed = false;
 
@@ -291,6 +382,33 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   readonly installingSkillIds = signal<Set<string>>(new Set());
   readonly uninstallingSkillIds = signal<Set<string>>(new Set());
   readonly error = signal<string | null>(null);
+
+  /** `{grid}:{skill key}` of the open install panel, or `null`. */
+  readonly expandedPanel = signal<string | null>(null);
+
+  /** The scope radios of the open panel; reset to the default per panel. */
+  readonly scopeChoice = signal<InstallScopeChoice>(null);
+
+  /** The open folder's name for the scope help, `null` with no folder open. */
+  readonly workspaceName = computed<string | null>(() => {
+    const info = this.appState.workspaceInfo();
+    if (!info) return null;
+    return info.name || lastPathSegment(info.path);
+  });
+
+  /** The scope an install would send; `null` keeps the install disabled. */
+  readonly installScope = computed(() =>
+    effectiveInstallScope(this.scopeChoice(), this.workspaceName() !== null),
+  );
+
+  /**
+   * "Install to this workspace" / "Install to all workspaces". With nothing
+   * chosen (no folder open) the disabled button keeps the workspace wording:
+   * it names what the user cannot do yet, never a global install.
+   */
+  protected readonly primaryLabel = computed(() =>
+    installScopeButtonLabel(this.installScope() ?? 'workspace'),
+  );
 
   readonly displaySkills = computed(() =>
     this.searchQuery() ? this.searchResults() : this.popularSkills(),
@@ -358,7 +476,25 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     this.searchTimeout = setTimeout(() => this.performSearch(query), 300);
   }
 
+  /** Open the install panel under this card, or close it when it is open. */
+  toggleInstallPanel(grid: SkillGrid, skill: SkillShEntry): void {
+    const id = panelId(grid, skill);
+    if (this.expandedPanel() === id) {
+      this.expandedPanel.set(null);
+      return;
+    }
+    this.expandedPanel.set(id);
+    this.scopeChoice.set(defaultInstallScope(this.workspaceName() !== null));
+  }
+
+  isPanelOpen(grid: SkillGrid, skill: SkillShEntry): boolean {
+    return this.expandedPanel() === panelId(grid, skill);
+  }
+
+  /** Install with the panel's chosen scope; nothing is sent without one. */
   async installSkill(skill: SkillShEntry): Promise<void> {
+    const scope = this.installScope();
+    if (scope === null) return;
     // Keyed by `owner/repo@skill-id`, matching the template's `skill.key`. On
     // `skillId` alone, installing one `threejs` row lit the spinner and
     // disabled the button on every other repo's `threejs` too.
@@ -371,13 +507,14 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     try {
       const result = await this.rpcService.call(
         'skillsSh:install',
-        { source: skill.source, skillId: skill.skillId },
+        { source: skill.source, skillId: skill.skillId, scope },
         { timeout: MARKETPLACE_RPC_TIMEOUTS.SKILL_INSTALL_MS },
       );
 
       if (this.destroyed) return;
 
       if (result.isSuccess() && result.data.success) {
+        this.expandedPanel.set(null);
         await this.loadInstalled();
         this.refreshInstalledStatus();
         this.skillInstalled.emit(skill);
@@ -428,10 +565,19 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
   }
 
   isSkillInstalled(skill: SkillShEntry): boolean {
-    return this.installedSkills().some(
+    return this.installedRecord(skill) !== undefined;
+  }
+
+  /** The installed record behind a result card, for its scope badge. */
+  installedRecord(skill: SkillShEntry): InstalledSkill | undefined {
+    return this.installedSkills().find(
       (installed) =>
         installed.name === skill.skillId || installed.name === skill.name,
     );
+  }
+
+  protected scopeBadgeLabel(record: InstalledSkill): string {
+    return SCOPE_BADGE_LABELS[record.scope];
   }
 
   /**

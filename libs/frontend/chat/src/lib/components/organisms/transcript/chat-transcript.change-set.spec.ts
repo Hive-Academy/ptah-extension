@@ -150,7 +150,9 @@ describe('ChatTranscriptComponent change-set cards (VS Code)', () => {
     const content: HTMLElement = fixture.nativeElement.querySelector(
       '.chat-scroll-content',
     );
-    return Array.from(content.children).map(
+      return Array.from(content.children).flatMap((child) =>
+        child.classList.contains('chat-msg-item') ? Array.from(child.children) : [child],
+      ).map(
       (child) =>
         child.getAttribute('data-ptah-transcript-message-id') ??
         child.getAttribute('data-testid') ??

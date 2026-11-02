@@ -1,0 +1,20 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": 41,
+  "title": "D-6 minimal VS Code DI compatibility continuation",
+  "executor": "claude backend-developer subagent",
+  "changed": [
+    "apps/ptah-extension-vscode/src/di/expected-resolvable.ts: import + EXPECTED_RESOLVABLE entries for InstallScopeMigrationService and InstallScopeNoticeRpcHandlers",
+    "apps/ptah-extension-vscode/src/di/container.smoke.spec.ts: stubs for HARNESS_SYNC_TOKENS.RECONCILER and PLATFORM_TOKENS.STATE_STORAGE, each naming its real VS Code binding (ownership added by decision #69)"
+  ],
+  "compatibility": "No VS Code feature or polish, no migration invocation. Resolution stays strict: nothing optional, no services registered by hand.",
+  "tests": [
+    "VS Code DI — shared RPC handler resolution > resolves InstallScopeMigrationService",
+    "VS Code DI — shared RPC handler resolution > resolves InstallScopeNoticeRpcHandlers"
+  ],
+  "history": "Round 1 found the missing reconciler (decisions #68, #69); round 2 found the decorator-metadata Object failure (decisions #70, #71), fixed in Batch 35.",
+  "verification": {
+    "scoped": "ptah-extension-vscode container.smoke + rpc-surface 62/62 after Batch 35 round 2 (/tmp/tpd-b35-fix2.log)",
+    "combinedVerify": "Cohort 35+41: npm run verify -- -p @ptah-extension/shared,@ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview -> NX 71 tasks: 70 succeeded (41 cached), 1 failed = known pre-existing ptah-extension-webview:lint (/tmp/tpd-b35-41-verify.log); degradation-audit:lint --skip-nx-cache exit 0 (/tmp/tpd-b35-41-audit.log); di-lint OK"
+  }
+}

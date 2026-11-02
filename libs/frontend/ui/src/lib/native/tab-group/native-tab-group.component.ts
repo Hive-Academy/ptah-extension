@@ -42,10 +42,12 @@ import {
   ElementRef,
   computed,
   input,
+  linkedSignal,
   model,
   output,
   viewChildren,
 } from '@angular/core';
+import { MotionStageDirective } from '../../motion';
 
 /** One entry in a {@link NativeTabGroupComponent} strip. */
 export interface NativeTab {
@@ -70,6 +72,7 @@ let instanceCounter = 0;
 @Component({
   selector: 'ptah-native-tab-group',
   standalone: true,
+  imports: [MotionStageDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -111,6 +114,8 @@ let instanceCounter = 0;
     </div>
 
     <div
+      ptahMotionStage
+      [motionIndex]="activeIndex() < 0 ? null : activeIndex()"
       role="tabpanel"
       class="outline-none"
       [id]="panelDomId()"
@@ -164,6 +169,24 @@ export class NativeTabGroupComponent {
     if (match) return match.id;
     return list.find((t) => t.disabled !== true)?.id ?? null;
   });
+
+  private readonly motionPosition = linkedSignal<
+    { id: string | null; tabs: readonly NativeTab[] },
+    { id: string | null; index: number }
+  >({
+    source: () => ({ id: this.activeTabId(), tabs: this.tabs() }),
+    computation: ({ id, tabs }, previous) => {
+      const current = tabs.findIndex((tab) => tab.id === id);
+      if (current < 0) return { id, index: -1 };
+      if (!previous || previous.value.index < 0) return { id, index: current };
+      if (previous.value.id === id) return previous.value;
+      const prior = tabs.findIndex((tab) => tab.id === previous.value.id);
+      if (prior < 0) return { id, index: previous.value.index };
+      return { id, index: previous.value.index + (current > prior ? 1 : -1) };
+    },
+  });
+
+  readonly activeIndex = computed(() => this.motionPosition().index);
 
   protected readonly activeTabDomId = computed(() => {
     const id = this.activeTabId();

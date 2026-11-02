@@ -21,7 +21,6 @@ import {
   GitBranch,
   Zap,
   Square,
-  X,
   ImageIcon,
   Paperclip,
   ImagePlus,
@@ -32,9 +31,6 @@ import {
 } from 'lucide-angular';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import {
-  InlineImageAttachment,
-  MAX_IMAGE_SIZE_BYTES,
-  resolveImageMediaType,
   type EffortLevel,
 } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
@@ -54,13 +50,11 @@ import { ComposerTypeToExpandDirective } from './composer-type-to-expand.directi
 import {
   ComposerDraftStore,
   type ComposerDraft,
-  type ComposerDraftImage,
 } from '../../../services/composer-draft.store';
 import {
   AuthStateService,
   AutopilotStateService,
   CommandDiscoveryFacade,
-  ClaudeRpcService,
   AppStateManager,
   VSCodeService,
 } from '@ptah-extension/core';
@@ -87,7 +81,8 @@ import {
   UnifiedSuggestionsDropdownComponent,
   type SuggestionItem,
 } from '../../file-suggestions/unified-suggestions-dropdown.component';
-import { FileTagComponent } from '../../file-suggestions/file-tag.component';
+import { AttachmentTrayComponent } from '../attachment-tray/attachment-tray.component';
+import { ComposerAttachmentsService, type ComposerImage } from '../../../services/composer-attachments.service';
 import {
   AtTriggerDirective,
   type AtTriggerEvent,
@@ -104,15 +99,6 @@ import {
   MAX_CACHED_TRIGGER_QUERIES,
   TRIGGER_PROJECTION_DEBOUNCE_MS,
 } from '../../../services/composer-trigger-scheduler';
-
-/** Pasted image data for UI display */
-interface PastedImage extends ComposerDraftImage {
-  id: string;
-  data: string; // base64 (no prefix)
-  mediaType: string;
-  dataUrl: string; // for thumbnail display
-  name: string;
-}
 
 type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
 type CommandSuggestionItem = Extract<SuggestionItem, { type: 'command' }>;
@@ -162,7 +148,7 @@ function folderName(root: string): string {
     ModelSelectorComponent,
     AutopilotPopoverComponent,
     UnifiedSuggestionsDropdownComponent,
-    FileTagComponent,
+    AttachmentTrayComponent,
     AtTriggerDirective,
     SlashTriggerDirective,
     EffortSelectorComponent,
@@ -173,7 +159,7 @@ function folderName(root: string): string {
     ComposerCompactBarComponent,
     ComposerTypeToExpandDirective,
   ],
-  providers: [VoiceInputService, ComposerCompactStore],
+  providers: [VoiceInputService, ComposerCompactStore, ComposerAttachmentsService],
   template: `
     <div
       class="ptah-composer relative flex flex-col px-3 pt-2 pb-2 bg-surface-0"
@@ -194,16 +180,7 @@ function folderName(root: string): string {
           </button>
         </div>
       }
-      @if (imageAttachmentError()) {
-        <div
-          class="flex items-center gap-1.5 text-xs text-error px-2 pb-1.5"
-          role="alert"
-          aria-live="polite"
-        >
-          <span>{{ imageAttachmentError() }}</span>
-        </div>
-      }
-
+      <ptah-attachment-tray [showPickButtons]="false" [showChips]="false" />
       <!-- Two-state streaming composer. Both states share one grid cell and
            fold by animating grid-template-rows 0fr <-> 1fr, so no height is
            measured in script. The folded state is inert (no tab stops, hidden
@@ -302,43 +279,7 @@ function folderName(root: string): string {
           </div>
         }
 
-        <!-- File Tags + Image Thumbnails Row (above textarea) -->
-        @if (selectedFiles().length > 0 || pastedImages().length > 0) {
-          <div class="ptah-fold-fade flex flex-wrap gap-2 px-3 pt-3">
-            @for (file of selectedFiles(); track file.path) {
-              <ptah-file-tag
-                [file]="file"
-                (removeFile)="removeFile(file.path)"
-              />
-            }
-            @for (img of pastedImages(); track img.id) {
-              <div class="relative group">
-                <div
-                  class="w-16 h-16 rounded-lg border border-base-300 bg-cover bg-center"
-                  [style.background-image]="'url(' + img.dataUrl + ')'"
-                  [attr.aria-label]="img.name"
-                  role="img"
-                ></div>
-                <button
-                  class="absolute -top-1.5 -right-1.5 btn btn-circle btn-xs btn-error opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
-                  (click)="removePastedImage(img.id)"
-                  type="button"
-                  [attr.aria-label]="'Remove ' + img.name"
-                >
-                  <lucide-angular [img]="XIcon" class="w-3 h-3" />
-                </button>
-                <div
-                  class="absolute bottom-0 left-0 right-0 bg-black/50 rounded-b-lg px-1 py-0.5"
-                >
-                  <span class="text-[9px] text-white truncate block">{{
-                    img.name
-                  }}</span>
-                </div>
-              </div>
-            }
-          </div>
-        }
-
+        <ptah-attachment-tray [showPickButtons]="false" [showError]="false" />
         <!-- Textarea + Suggestions Dropdown -->
         <div class="relative">
           <label class="sr-only" [attr.for]="inputId"
@@ -665,7 +606,6 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     optional: true,
   });
   readonly autopilotState = inject(AutopilotStateService);
-  private readonly rpcService = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly gitStore = inject(SessionGitStatsStore);
   readonly voiceInput = inject(VoiceInputService);
@@ -987,7 +927,6 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   readonly GitBranchIcon = GitBranch;
   readonly ZapIcon = Zap;
   readonly SquareIcon = Square;
-  readonly XIcon = X;
   readonly ImageIconRef = ImageIcon;
   readonly PaperclipIcon = Paperclip;
   readonly ImagePlusIcon = ImagePlus;
@@ -1036,8 +975,9 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   private _commandSuggestions: CommandSuggestionItem[] | null = null;
   private _triggerProjectionTimeout: ReturnType<typeof setTimeout> | null =
     null;
-  private readonly _selectedFiles = signal<ChatFile[]>([]);
-  private readonly _pastedImages = signal<PastedImage[]>([]);
+  readonly attachments = inject(ComposerAttachmentsService);
+  private readonly _selectedFiles = this.attachments.files;
+  private readonly _pastedImages = this.attachments.images;
   private draftTabId: string | null = null;
   /** Drafts whose send is still pending, with the tab they were sent from. */
   private readonly sendsInFlight = new Set<{
@@ -1047,16 +987,11 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   private lastDraft: {
     text: string;
     files: ChatFile[];
-    images: PastedImage[];
+    images: ComposerImage[];
   } | null = null;
   private readonly _isDraggingOver = signal(false);
   private readonly _isLoadingSuggestions = signal(false);
-  private readonly _isPickingFiles = signal(false);
-  private readonly _isPickingImages = signal(false);
-  private readonly _imageAttachmentError = signal<string | null>(null);
-  readonly imageAttachmentError = this._imageAttachmentError.asReadonly();
-  private _imageAttachmentErrorTimeout: ReturnType<typeof setTimeout> | null =
-    null;
+  readonly imageAttachmentError = this.attachments.error.asReadonly();
   readonly currentMessage = this._currentMessage.asReadonly();
   readonly suggestionMode = this._suggestionMode.asReadonly();
   readonly selectedFiles = this._selectedFiles.asReadonly();
@@ -1065,9 +1000,11 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   readonly isLoadingSuggestions = this._isLoadingSuggestions.asReadonly();
   readonly canSend = computed(
     () =>
-      this.currentMessage().trim().length > 0 ||
-      this._pastedImages().length > 0 ||
-      this._selectedFiles().length > 0,
+      this.attachments.pendingReads() === 0 && (
+        this.currentMessage().trim().length > 0 ||
+        this._pastedImages().length > 0 ||
+        this._selectedFiles().length > 0
+      ),
   );
 
   /** Expose fetch error only when in @ mode (not stale from previous mode) */
@@ -1088,9 +1025,6 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.saveDraft();
     this.clearTriggerProjectionTimeout();
-    if (this._imageAttachmentErrorTimeout) {
-      clearTimeout(this._imageAttachmentErrorTimeout);
-    }
   }
 
   /**
@@ -1142,77 +1076,15 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * Auto-clears after 4 seconds.
    */
   private showComposerError(message: string): void {
-    if (this._imageAttachmentErrorTimeout) {
-      clearTimeout(this._imageAttachmentErrorTimeout);
-    }
-    this._imageAttachmentError.set(message);
-    this._imageAttachmentErrorTimeout = setTimeout(() => {
-      this._imageAttachmentError.set(null);
-      this._imageAttachmentErrorTimeout = null;
-    }, 4000);
+    this.attachments.showError(message);
   }
 
-  /**
-   * Handle clipboard paste - extract images from clipboard.
-   *
-   * Layer 2 defense-in-depth validation: magic-byte sniffing via
-   * resolveImageMediaType() + 5MB size cap. Unsupported/oversized images
-   * are rejected at the UI boundary before hitting the API.
-   */
   handlePaste(event: ClipboardEvent): void {
-    const items = event.clipboardData?.items;
-    if (!items) return;
-
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith('image/')) {
-        event.preventDefault();
-        const file = item.getAsFile();
-        if (!file) continue;
-        if (file.size > MAX_IMAGE_SIZE_BYTES) {
-          this.showComposerError('Image too large — 5MB max');
-          continue;
-        }
-
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = reader.result as string;
-          const base64 = dataUrl.split(',')[1];
-          const decodedSize = Math.floor(base64.length * 0.75);
-          if (decodedSize > MAX_IMAGE_SIZE_BYTES) {
-            this.showComposerError('Image too large — 5MB max');
-            return;
-          }
-          const mediaType = resolveImageMediaType(item.type, base64);
-          if (!mediaType) {
-            this.showComposerError(
-              'Unsupported image format — use PNG, JPEG, GIF, or WebP',
-            );
-            return;
-          }
-
-          const pastedImage: PastedImage = {
-            id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            data: base64,
-            mediaType,
-            dataUrl,
-            name: `pasted-image.${mediaType.split('/')[1]}`,
-          };
-
-          this._pastedImages.update((imgs) => [...imgs, pastedImage]);
-        };
-        reader.onerror = () => {
-          console.warn('[ChatInput] Failed to read image file');
-        };
-        reader.readAsDataURL(file);
-      }
-    }
+    this.attachments.onPaste(event);
   }
 
-  /**
-   * Remove a pasted image by ID
-   */
   removePastedImage(id: string): void {
-    this._pastedImages.update((imgs) => imgs.filter((img) => img.id !== id));
+    this.attachments.remove(id);
   }
 
   toggleAttachMenu(): void {
@@ -1240,79 +1112,11 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * Uses RPC to bypass webview sandbox limitation.
    */
   async handleAttachFiles(): Promise<void> {
-    if (this._isPickingFiles()) return;
-    this._isPickingFiles.set(true);
-    try {
-      const result = await this.rpcService.call('file:pick', {
-        multiple: true,
-      });
-      if (!result.success || !result.data?.files?.length) return;
-
-      for (const file of result.data.files) {
-        if (this._selectedFiles().some((f) => f.path === file.path)) continue;
-
-        const name =
-          file.path.replace(/\\/g, '/').split('/').pop() || file.path;
-        const isLarge = file.size > 1024 * 1024; // > 1MB
-        const isText = this.filePicker.isFileSupported(file.path);
-
-        const chatFile: ChatFile = {
-          path: file.path,
-          name,
-          size: file.size,
-          type: isText ? 'text' : 'binary',
-          isLarge,
-          tokenEstimate: isText ? Math.ceil(file.size / 4) : 0,
-        };
-
-        this._selectedFiles.update((files) => [...files, chatFile]);
-      }
-    } catch (error) {
-      console.error('[ChatInput] Failed to pick files:', error);
-    } finally {
-      this._isPickingFiles.set(false);
-    }
+    await this.attachments.pickFiles();
   }
 
-  /**
-   * Open native file picker to attach images.
-   * Uses RPC to bypass webview sandbox limitation - reads images as base64.
-   */
   async handleAttachImages(): Promise<void> {
-    if (this._isPickingImages()) return;
-    this._isPickingImages.set(true);
-    try {
-      const result = await this.rpcService.call('file:pick-images', {
-        multiple: true,
-      });
-      if (!result.success || !result.data?.images?.length) return;
-
-      for (const img of result.data.images) {
-        const mediaType = resolveImageMediaType(img.mediaType, img.data);
-        if (!mediaType) {
-          console.warn(
-            '[ChatInput] Picker returned image that failed client-side validation:',
-            img.name,
-            img.mediaType,
-          );
-          continue;
-        }
-
-        const pastedImage: PastedImage = {
-          id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          data: img.data,
-          mediaType,
-          dataUrl: `data:${mediaType};base64,${img.data}`,
-          name: img.name,
-        };
-
-        this._pastedImages.update((imgs) => [...imgs, pastedImage]);
-      }
-    } catch (error) {
-      console.error('[ChatInput] Failed to pick images:', error);
-    } finally {
-      this._isPickingImages.set(false);
-    }
+    await this.attachments.pickImages();
   }
 
   async handleVoiceButton(): Promise<void> {
@@ -1397,47 +1201,8 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * Handle drop - extract images from dropped files
    */
   handleDrop(event: DragEvent): void {
-    event.preventDefault();
-    event.stopPropagation();
     this._isDraggingOver.set(false);
-
-    const files = event.dataTransfer?.files;
-    if (!files) return;
-
-    for (const file of Array.from(files)) {
-      if (!file.type.startsWith('image/')) continue;
-      if (file.size > MAX_IMAGE_SIZE_BYTES) {
-        this.showComposerError('Image too large — 5MB max');
-        continue;
-      }
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        const base64 = dataUrl.split(',')[1];
-        const mediaType = resolveImageMediaType(file.type, base64);
-        if (!mediaType) {
-          this.showComposerError(
-            'Unsupported image format — use PNG, JPEG, GIF, or WebP',
-          );
-          return;
-        }
-
-        const droppedImage: PastedImage = {
-          id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          data: base64,
-          mediaType,
-          dataUrl,
-          name: file.name,
-        };
-
-        this._pastedImages.update((imgs) => [...imgs, droppedImage]);
-      };
-      reader.onerror = () => {
-        console.warn('[ChatInput] Failed to read image file');
-      };
-      reader.readAsDataURL(file);
-    }
+    this.attachments.onDrop(event);
   }
 
   /**
@@ -1726,16 +1491,14 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       tokenEstimate: Math.ceil((file.size || 0) / 4),
     };
 
-    this._selectedFiles.update((files) => [...files, chatFile]);
+    this.attachments.addFile(chatFile);
   }
 
   /**
    * Remove file tag
    */
   removeFile(filePath: string): void {
-    this._selectedFiles.update((files) =>
-      files.filter((f) => f.path !== filePath),
-    );
+    this.attachments.remove(filePath);
   }
 
   /**
@@ -1862,7 +1625,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   async handleSend(): Promise<void> {
     // Composer is read-only while the session is attached to a messaging
     // binding — block sends; the user must "Resolve back to webview" first.
-    if (this.attachedReadOnly() || this.commandCenterHeld()) return;
+    if (this.attachedReadOnly() || this.commandCenterHeld() || this.attachments.pendingReads() > 0) return;
     const content = this.currentMessage().trim();
     const images = this._pastedImages();
     if (!content && images.length === 0) return;
@@ -1892,16 +1655,11 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     this.sendsInFlight.add(inFlight);
 
     try {
-      const filePaths = submitted.files.map((f) => f.path);
-      const inlineImages: InlineImageAttachment[] = images.map((img) => ({
-        data: img.data,
-        mediaType: img.mediaType,
-      }));
+      const sendAttachments = this.attachments.toSendOptions();
       await this.chatStore.sendOrQueueMessage(
         normalizedContent || 'What is in this image?',
         {
-          files: filePaths.length > 0 ? filePaths : undefined,
-          images: inlineImages.length > 0 ? inlineImages : undefined,
+          ...sendAttachments,
           tabId: this._sessionContext?.() ?? undefined,
         },
       );
@@ -1927,8 +1685,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
         )
       ) {
         this._currentMessage.set('');
-        this._selectedFiles.set([]);
-        this._pastedImages.set([]);
+        this.attachments.clear();
       }
       // The emptied `[value]` binding plus `field-sizing: content` shrink the
       // textarea back to its resting height — no manual height reset.
@@ -2051,8 +1808,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   private restoreDraft(tabId: string): void {
     const draft = this.draftStore.get(tabId);
     this._currentMessage.set(draft?.text ?? '');
-    this._selectedFiles.set(draft?.files ?? []);
-    this._pastedImages.set(draft?.images ?? []);
+    this.attachments.restore(draft?.files ?? [], draft?.images ?? []);
     this.lastDraft = {
       text: this._currentMessage(),
       files: this._selectedFiles(),
@@ -2075,8 +1831,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
 
   private clearLocalDraft(): void {
     this._currentMessage.set('');
-    this._selectedFiles.set([]);
-    this._pastedImages.set([]);
+    this.attachments.clear();
     this.lastDraft = null;
   }
 }

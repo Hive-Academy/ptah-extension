@@ -2224,11 +2224,13 @@ async function handleIndividualTool(
           config: mcpConfig,
           serverKey: mcpServerKey,
           targets: mcpTargets,
+          scope: mcpScope,
         } = args as {
           serverName?: string;
           config?: McpServerConfig;
           serverKey?: string;
           targets?: McpInstallTarget[];
+          scope?: 'user' | 'workspace';
         };
 
         if (
@@ -2264,6 +2266,7 @@ async function handleIndividualTool(
           mcpConfig,
           mcpServerKey,
           mcpTargets,
+          mcpScope,
         );
         return await createToolSuccessResponse(
           request,

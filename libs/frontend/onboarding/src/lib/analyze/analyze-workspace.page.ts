@@ -270,6 +270,7 @@ import { PhaseListComponent } from './phase-list.component';
 })
 export class AnalyzeWorkspacePage implements OnInit, OnDestroy {
   readonly analysis = input<string | undefined>();
+  readonly rerun = input<string | undefined>();
   protected readonly store = inject(AnalysisStepStore);
   protected readonly runner = inject(WizardAnalysisRunner);
   private readonly rpc = inject(WizardRpcService);
@@ -320,6 +321,18 @@ export class AnalyzeWorkspacePage implements OnInit, OnDestroy {
     });
   }
   async ngOnInit(): Promise<void> {
+    if (this.rerun() === '1') {
+      // Clear the one-time intent first, so a reload or Back during the run
+      // cannot start another fresh analysis.
+      await this.router.navigate([], {
+        queryParams: { rerun: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+      if (this.destroyed) return;
+      await this.startFresh();
+      return;
+    }
     this.pendingAnalysis = this.analysis() ?? null;
     await this.loadSaved();
     if (this.destroyed) return;

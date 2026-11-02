@@ -6,8 +6,7 @@ import {
   inject,
   DestroyRef,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
-import { LucideAngularModule, CirclePlay, Download } from 'lucide-angular';
+import { LucideAngularModule, CirclePlay } from 'lucide-angular';
 import gsap from 'gsap';
 
 /** The rotating tail of the headline. Article baked in so the line always
@@ -32,13 +31,13 @@ const KEYWORDS = ['the SaaS.', 'the billing.', 'the auth.', 'the audit.'];
 @Component({
   selector: 'ptah-hero-content-overlay',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, LucideAngularModule],
+  imports: [LucideAngularModule],
   template: `
-    <div class="max-w-4xl mx-auto px-6 text-center py-24">
+    <div class="max-w-4xl mx-auto px-6 text-center">
       <h1
         data-headline
         aria-label="It ships the SaaS."
-        class="font-bold uppercase tracking-tight text-white leading-[0.95] text-5xl sm:text-6xl lg:text-7xl"
+        class="font-bold uppercase tracking-tight text-white leading-[0.95] text-4xl sm:text-5xl lg:text-6xl"
       >
         It ships<br />
         <span data-keyword class="text-amber-500">the SaaS.</span>
@@ -46,29 +45,17 @@ const KEYWORDS = ['the SaaS.', 'the billing.', 'the auth.', 'the audit.'];
 
       <p
         data-reveal
-        class="mt-8 text-lg sm:text-xl text-ink-300 max-w-xl mx-auto [text-wrap:balance]"
+        class="mt-6 text-base sm:text-lg text-ink-300 max-w-xl mx-auto [text-wrap:balance]"
       >
         The AI dev team for SaaS you'll actually charge for — nine agents in
         parallel, any model.
       </p>
 
-      <div data-reveal class="mt-10 flex flex-col items-center gap-3">
+      <div data-reveal class="mt-8 flex flex-col items-center gap-3">
         <a
-          routerLink="/download"
-          class="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-lg bg-amber-500 text-ink-950 font-semibold text-base transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber active:bg-amber-600 active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-          aria-label="Download the Ptah desktop app"
-        >
-          <lucide-angular
-            [img]="DownloadIcon"
-            class="w-5 h-5"
-            aria-hidden="true"
-          />
-          Download Ptah — it's free
-        </a>
-        <a
-          href="#demo"
-          class="inline-flex items-center gap-1.5 text-sm text-ink-400 hover:text-white transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded"
-          aria-label="Watch Ptah in action"
+          href="#live-demo"
+          class="inline-flex items-center gap-1.5 text-sm text-ink-300 hover:text-white transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded"
+          aria-label="Watch PtahCode in action"
         >
           <lucide-angular [img]="PlayIcon" class="w-4 h-4" aria-hidden="true" />
           Watch it work
@@ -89,7 +76,6 @@ const KEYWORDS = ['the SaaS.', 'the billing.', 'the auth.', 'the audit.'];
   ],
 })
 export class HeroContentOverlayComponent {
-  public readonly DownloadIcon = Download;
   public readonly PlayIcon = CirclePlay;
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -107,7 +93,7 @@ export class HeroContentOverlayComponent {
     });
   }
 
-  /** Headline lift + staggered reveal of subhead and CTAs. */
+  /** Headline lift + staggered reveal of subhead and CTA. */
   private animateEntrance(el: HTMLElement): void {
     const headline = el.querySelector('[data-headline]');
     if (headline) {

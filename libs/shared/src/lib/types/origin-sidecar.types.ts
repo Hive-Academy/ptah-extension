@@ -116,6 +116,101 @@ export function isOptOutPluginId(pluginId: string): boolean {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Retired skills.sh roots (TASK_2026_853 D-2)
+//
+// A legacy user-global skills.sh root that Ptah cannot prove it wrote is
+// RETIRED rather than deleted (decision #10): it stays on disk, but nothing
+// loads, mirrors or syncs it any more. The registry below is the one record of
+// that, read by the plugin loader (skip the root), the harness manifest builder
+// (skip user-layer clones whose sidecar `sourceRef` names it) and the
+// reconciler (removal policy). It lives here, beside `isOptOutPluginId`, for
+// the same two-readers reason as the sidecar itself.
+// ---------------------------------------------------------------------------
+
+/**
+ * Filename of the retired-root registry, inside the user plugin root
+ * (`~/.ptah/plugins/.ptah-skillssh-retired.json`). The leading dot keeps it
+ * out of every `ptah-skillssh-*` directory scan.
+ */
+export const SKILLS_SH_RETIRED_FILE = '.ptah-skillssh-retired.json';
+
+/**
+ * Owner marker a v2 skills.sh root's metadata carries as `ownerMarker`, next to
+ * `owner: 'ptah'` and per-file hashes (D-D8). Only a root with this exact
+ * marker AND matching hashes is proven Ptah-written and may be deleted; every
+ * other root is retired and kept.
+ */
+export const SKILLS_SH_OWNER_MARKER = 'ptah.skills-sh.root.v2';
+
+/**
+ * `sourceRef` prefix of a clone copied from a skills.sh root:
+ * `skills-sh:<root dir basename>`, e.g. `skills-sh:ptah-skillssh-acme-skills`.
+ * The text after the prefix is the root id the registry is keyed by.
+ */
+export const SKILLS_SH_SOURCE_REF_PREFIX = 'skills-sh:';
+
+/** One retired root. `retiredAt` is ISO-8601, like the stores beside it. */
+export const SkillsShRetiredRootSchema = z.object({
+  retiredAt: z.string(),
+});
+
+/**
+ * The registry file: `{version: 1, roots: {[rootId]: {retiredAt}}}`, where
+ * `rootId` is the root directory's basename (`ptah-skillssh-<owner>-<repo>`).
+ */
+export const SkillsShRetiredRegistrySchema = z.object({
+  version: z.literal(1),
+  roots: z.record(z.string(), SkillsShRetiredRootSchema),
+});
+
+export type SkillsShRetiredRegistry = z.infer<
+  typeof SkillsShRetiredRegistrySchema
+>;
+
+/**
+ * Parse the registry at its file boundary. Returns `null` for anything that is
+ * not a well-formed v1 registry; the reader decides what an unreadable registry
+ * means (an absent file is simply "nothing retired").
+ */
+export function parseSkillsShRetiredRegistry(
+  raw: unknown,
+): SkillsShRetiredRegistry | null {
+  const result = SkillsShRetiredRegistrySchema.safeParse(raw);
+  return result.success ? result.data : null;
+}
+
+/**
+ * True when the skills.sh root with this directory basename is retired.
+ *
+ * Own-property lookup only, so a root id such as `constructor` or `__proto__`
+ * never matches through the prototype chain.
+ */
+export function isRetiredSkillsShRoot(
+  rootId: string,
+  registry: SkillsShRetiredRegistry | null | undefined,
+): boolean {
+  if (!registry || rootId.length === 0) return false;
+  return Object.prototype.hasOwnProperty.call(registry.roots, rootId);
+}
+
+/**
+ * True when a clone's `sourceRef` names a retired skills.sh root.
+ *
+ * Every other ref family (`ptah:`, `external:`, `harness:`), an absent ref and
+ * an absent registry are never retired by this registry.
+ */
+export function isRetiredSourceRef(
+  sourceRef: string | null | undefined,
+  registry: SkillsShRetiredRegistry | null | undefined,
+): boolean {
+  if (!sourceRef?.startsWith(SKILLS_SH_SOURCE_REF_PREFIX)) return false;
+  return isRetiredSkillsShRoot(
+    sourceRef.slice(SKILLS_SH_SOURCE_REF_PREFIX.length),
+    registry,
+  );
+}
+
 /**
  * The sidecar payload.
  *

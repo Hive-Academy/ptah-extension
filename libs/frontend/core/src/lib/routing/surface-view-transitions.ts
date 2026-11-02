@@ -62,16 +62,10 @@ export class SurfaceTransitionTracker {
     }
     this.current = transition;
     this.busyState.set(true);
-    this.document.documentElement.classList.remove('ptah-vt-entering');
+    // Set before the old-state capture, which runs on the next frame. Do not add
+    // classes after updateCallbackDone: the browser captures the new state in
+    // the same step that resolves it, before any then() handler runs.
     this.document.documentElement.classList.add('ptah-vt-active');
-    void transition.updateCallbackDone.then(
-      () => {
-        if (this.current === transition) {
-          this.document.documentElement.classList.add('ptah-vt-entering');
-        }
-      },
-      () => undefined,
-    );
     // Handle both outcomes of finished; a rejected finally() chain would itself
     // be unhandled. Superseded transitions leave callbacks for the latest one.
     void transition.finished.then(
@@ -84,7 +78,7 @@ export class SurfaceTransitionTracker {
     if (this.current !== transition) return;
     this.current = undefined;
     this.busyState.set(false);
-    this.document.documentElement.classList.remove('ptah-vt-active', 'ptah-vt-entering');
+    this.document.documentElement.classList.remove('ptah-vt-active');
     const callbacks = this.callbacks;
     this.callbacks = [];
     for (const callback of callbacks) {

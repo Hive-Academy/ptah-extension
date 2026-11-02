@@ -131,6 +131,7 @@ describe('VscodeLmConfigComponent', () => {
       await render();
 
       const section = element.querySelector('section[aria-labelledby="vscode-lm-heading"]');
+      expect(section?.getAttribute('data-glass-surface')).toBe('content');
       expect(section?.classList).toContain('border-base-content/10');
       expect(section?.classList).not.toContain('card');
       expect(element.textContent).toContain('VS Code Language Model');

@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   ClaudeRpcService,
+  ElectronLayoutService,
   PluginCatalogService,
   VSCodeService,
   WorkspaceScopeService,
@@ -53,8 +54,11 @@ describe('SetupStatusStore', () => {
   const tabs = { activeWorkspacePath: '/workspace' as string | null };
   const launcher = { open: jest.fn().mockResolvedValue({ outcome: 'landed' }) };
   let store: SetupStatusStore;
+  let electron = false;
+  const addFolder = jest.fn().mockResolvedValue('cancelled');
 
   beforeEach(() => {
+    electron = false;
     jest.clearAllMocks();
     scopeKey.set('first');
     loaded.set(false);
@@ -71,11 +75,12 @@ describe('SetupStatusStore', () => {
         { provide: WorkspaceScopeService, useValue: { scopeKey } },
         { provide: PluginCatalogService, useValue: catalog },
         { provide: ClaudeRpcService, useValue: rpc },
+        { provide: ElectronLayoutService, useValue: { addFolder } },
         { provide: TabManagerService, useValue: tabs },
         {
           provide: VSCodeService,
           useValue: {
-            config: () => ({ workspaceRoot: '/workspace', isVSCode: true }),
+            config: () => ({ workspaceRoot: '/workspace', isVSCode: !electron, isElectron: electron }),
           },
         },
         { provide: GenerationWorkflowLauncherService, useValue: launcher },
@@ -285,6 +290,21 @@ describe('SetupStatusStore', () => {
     launcher.open.mockResolvedValue({ outcome: 'failed' });
     await store.launchGeneration('setup-project-prompt');
     expect(store.launchError()).toContain('Could not open generation');
+  });
+
+  it('uses the Electron folder picker instead of a VS Code command', async () => {
+    electron = true;
+    await store.openFolder();
+    expect(addFolder).toHaveBeenCalledTimes(1);
+    expect(rpc.call).not.toHaveBeenCalledWith('command:execute', expect.anything(), expect.anything());
+  });
+
+  it('reports an Electron picker failure without exposing its raw error', async () => {
+    electron = true;
+    addFolder.mockResolvedValueOnce('failed');
+    await store.openFolder();
+    expect(store.folderError()).toBe('Could not open a folder. Please try again.');
+    expect(rpc.call).not.toHaveBeenCalledWith('command:execute', expect.anything(), expect.anything());
   });
 
   it('does not track catalog state in the scope effect or duplicate status reads on retry', async () => {

@@ -168,13 +168,13 @@ test('SHOWCASE — landing page tour (ptah.live)', async ({ page, director }) =>
     },
   });
 
-  // ── S3 DEMO — "one desktop app, real sessions" ─────────────────────────────
-  const demo = '#demo';
+  // ── S3 LIVE DEMO — PtahCode session replay ─────────────────────────────────
+  const demo = '#live-demo';
   await gotoSection(page, demo);
   await director.say(6, {
-    target: titleLoc(page, demo, 'Real Sessions'),
+    target: page.locator('#ptah-live-demo-panel'),
     during: async () => {
-      await scrollToLoc(page, page.locator(demo).locator('img, video, canvas'));
+      await scrollToLoc(page, page.locator('#ptah-live-demo-panel'));
     },
   });
 

@@ -97,6 +97,16 @@ describe('AnalysisStepStore', () => {
     await store.listAnalyses();
     expect(rpc.listAnalyses).toHaveBeenCalledWith({ throwOnError: true });
   });
+  it('discards an analysis load that finishes after a workspace change', async () => {
+    let finishLoad!: (value: MultiPhaseAnalysisResponse) => void;
+    rpc.loadAnalysis.mockReturnValueOnce(new Promise<MultiPhaseAnalysisResponse>((resolve) => { finishLoad = resolve; }));
+    const pending = store.useAnalysis('saved');
+    store.resetForWorkspace();
+    finishLoad(completed);
+    expect(await pending).toBe('not-found');
+    expect(store.selected()).toBeNull();
+    expect(store.loaded()).toBeNull();
+  });
   it('normalizes catalog rows with missing criteria and drops malformed rows', async () => {
     catalogCall.mockResolvedValueOnce({ isSuccess: () => true, data: [
       { agentId: 'a', agentName: 'Agent A', relevanceScore: 75, recommended: true, category: 'development' },

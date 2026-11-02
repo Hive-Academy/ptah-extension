@@ -68,6 +68,7 @@ const LABEL = 'text-xs font-semibold uppercase tracking-wide text-base-content-m
       class="space-y-3 border-t border-base-content/15 pt-4"
       aria-labelledby="cli-instances-heading"
       data-testid="cli-instances"
+      data-glass-surface="content"
     >
       <div class="flex flex-wrap items-start gap-x-3 gap-y-2">
         <div class="min-w-0 flex-[1_1_18rem]">
@@ -400,6 +401,9 @@ const LABEL = 'text-xs font-semibold uppercase tracking-wide text-base-content-m
     </section>
   `,
   styles: `
+    :host-context([data-glass='on']) [data-testid='cli-instances'] {
+      padding: 1.25rem;
+    }
     :host {
       display: block;
       container-type: inline-size;

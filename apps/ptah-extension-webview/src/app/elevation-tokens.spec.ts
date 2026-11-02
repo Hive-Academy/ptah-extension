@@ -26,7 +26,7 @@ describe('semantic elevation tokens', () => {
   it('uses the ThemeService dark marker, which covers every configured dark theme', () => {
     const darkThemes = DAISYUI_THEMES.filter((theme) => theme.isDark);
     expect(darkThemes.map((theme) => theme.name)).toEqual(
-      expect.arrayContaining(['anubis', 'dark']),
+      expect.arrayContaining(['anubis', 'dracula']),
     );
     expect(css).toMatch(
       /\[data-theme-mode='dark'\]\s*\{[\s\S]*?--elev-shadow-raised:/,

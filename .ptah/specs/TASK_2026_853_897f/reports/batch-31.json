@@ -1,0 +1,16 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": "31",
+  "title": "D-4 harness help copy",
+  "executor": "claude backend-developer subagent",
+  "changed": [
+    "libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts (230-235 createSkill, 255-258 installMcpServer)",
+    "libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.spec.ts (HELP_DOCS harness install scope, 2 tests)"
+  ],
+  "contract": "Help says createSkill scope defaults to workspace ({ws}/.ptah/plugins) and 'user' installs for every workspace; installMcpServer(serverName, config, serverKey?, targets?, scope?) defaults to workspace, 'user' required for codex/copilot/antigravity, result includes scope.",
+  "sizeImpact": "Help text +~11 chars net (createSkill 7 -> 4 lines). No budget changed.",
+  "verification": {
+    "scopedTest": "--testPathPatterns='system-namespace|mcp-contract.sweep': 2 suites, 110/110, exit 0 (/tmp/tpd-b31-test.log)",
+    "combinedVerify": "PASS: npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/vscode-lm-tools,@ptah-extension/agent-generation,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine -> NX 71 tasks: 71 succeeded (27 cached), exit 0 (/tmp/tpd-b31-33-verify.log); degradation-audit:lint --skip-nx-cache exit 0 (/tmp/tpd-b31-33-audit.log)"
+  }
+}

@@ -65,6 +65,7 @@ import {
 import { ChatInputComponent } from './chat-input.component';
 import { ComposerDraftStore } from '../../../services/composer-draft.store';
 import { ComposerCompactStore } from '../../../services/composer-compact.store';
+import { ComposerAttachmentsService } from '../../../services/composer-attachments.service';
 import { COMPOSER_TRIGGER_CACHE_ENABLED } from '../../../services/composer-trigger-scheduler';
 import { ChatStore } from '../../../services/chat.store';
 import type { SendOutcome } from '../../../services/message-sender.service';
@@ -221,6 +222,7 @@ describe('ChatInputComponent', () => {
         provideZonelessChangeDetection(),
         // Component-level in production; the class is built directly here.
         ComposerCompactStore,
+        ComposerAttachmentsService,
         { provide: ChangeDetectorRef, useValue: mockChangeDetector },
         { provide: ChatStore, useValue: mockChatStore },
         { provide: TabManagerService, useValue: mockTabManager },
@@ -803,6 +805,7 @@ describe('ChatInputComponent', () => {
         providers: [
           provideZonelessChangeDetection(),
           ComposerCompactStore,
+          ComposerAttachmentsService,
           { provide: ChangeDetectorRef, useValue: mockChangeDetector },
           { provide: ChatStore, useValue: chatStore },
           { provide: TabManagerService, useValue: tabManager },

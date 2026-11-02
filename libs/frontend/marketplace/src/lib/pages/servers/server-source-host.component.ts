@@ -95,7 +95,9 @@ export const SERVER_SOURCE_PAGES: Readonly<
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    class: 'block min-w-0 p-4',
+    class: 'block min-w-0 p-4 ptah-motion-panel',
+    'animate.enter': 'ptah-motion-enter',
+    'animate.leave': 'ptah-motion-leave',
     'data-testid': 'server-source-host',
     '[attr.data-source]': 'source()',
   },

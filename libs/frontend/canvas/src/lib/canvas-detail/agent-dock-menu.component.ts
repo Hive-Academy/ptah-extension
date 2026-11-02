@@ -16,7 +16,6 @@ import {
 import type { SessionAgent } from '@ptah-extension/chat';
 import { AgentAvatarComponent } from '@ptah-extension/chat-ui';
 import { NativeDropdownComponent } from '@ptah-extension/ui';
-import { ChevronRight, LucideAngularModule } from 'lucide-angular';
 import { agentDurationText, agentStatusInk, orderDockMenuAgents } from './dock-overflow';
 
 let nextMenuId = 0;
@@ -28,7 +27,7 @@ let nextMenuId = 0;
 @Component({
   selector: 'ptah-agent-dock-menu',
   standalone: true,
-  imports: [AgentAvatarComponent, LucideAngularModule, NativeDropdownComponent],
+  imports: [AgentAvatarComponent, NativeDropdownComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ptah-native-dropdown
@@ -65,17 +64,10 @@ let nextMenuId = 0;
         @if (compact()) {
           <span
             class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-base-200 px-1 text-[11px] font-medium tabular-nums"
-            >{{ hidden().length }}</span
+            >+{{ hidden().length }}</span
           >
         } @else {
-          <span class="whitespace-nowrap"
-            >{{ hidden().length }} more</span
-          >
-          <lucide-angular
-            [img]="chevronIcon"
-            class="h-3.5 w-3.5"
-            aria-hidden="true"
-          />
+          <span class="whitespace-nowrap">+{{ hidden().length }}</span>
         }
         @if (pipClass(); as pip) {
           <span
@@ -89,16 +81,17 @@ let nextMenuId = 0;
         content
         role="menu"
         aria-label="Agents"
-        class="max-h-[340px] w-64 overflow-y-auto motion-reduce:transition-none"
+        class="max-h-[340px] min-w-56 rounded-lg border border-base-content/10 bg-base-200 p-1 overflow-y-auto motion-reduce:transition-none"
         (keydown)="onMenuKeydown($event)"
       >
         @for (agent of orderedAgents(); track agent.key) {
             <button
               type="button"
               role="menuitemradio"
-              class="relative flex min-h-6 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-base-content hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+              class="relative flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-base-content hover:bg-base-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
               [id]="rowId(agent.key)"
               [attr.aria-checked]="agent.key === selectedKey()"
+              [attr.aria-label]="rowLabel(agent)"
               [tabIndex]="rovingKey() === agent.key ? 0 : -1"
               (click)="choose(agent.key)"
             >
@@ -116,16 +109,8 @@ let nextMenuId = 0;
                 [agentType]="agent.agentType"
               />
               <span class="min-w-0 flex-1 truncate">{{ agent.name }}</span>
-              @if (agent.status; as status) {
-                <span class="shrink-0 {{ statusInk(status) }}">{{
-                  status
-                }}</span>
-              }
-              @if (durationOf(agent); as duration) {
-                <span class="shrink-0 tabular-nums text-base-content-muted">{{
-                  duration
-                }}</span>
-              }
+              <span class="shrink-0 {{ statusInk(agent.status) }}">{{ agent.status ?? 'queued' }}</span>
+              <span class="shrink-0 tabular-nums text-base-content-muted">{{ durationOf(agent) ?? '—' }}</span>
             </button>
         }
       </div>
@@ -142,7 +127,6 @@ export class AgentDockMenuComponent {
 
   protected readonly open = signal(false);
   protected readonly activeKey = signal<string | null>(null);
-  protected readonly chevronIcon = ChevronRight;
   private readonly injector = inject(Injector);
   private readonly menuUid = `agent-dock-menu-${++nextMenuId}`;
   private readonly trigger =
@@ -151,17 +135,12 @@ export class AgentDockMenuComponent {
   protected readonly pile = computed(() => this.hidden().slice(0, 3));
 
   protected readonly triggerLabel = computed(() => {
-    const parts = [
-      `${this.hidden().length} more ${this.hidden().length === 1 ? 'agent' : 'agents'}`,
-    ];
-    let waiting = 0;
-    let failed = 0;
-    for (const agent of this.hidden()) {
-      if (agent.status === 'waiting') waiting += 1;
-      else if (agent.status === 'failed') failed += 1;
-    }
-    if (waiting > 0) parts.push(`${waiting} waiting, needs you`);
-    if (failed > 0) parts.push(`${failed} failed`);
+    const hidden = this.hidden();
+    const parts = [`${hidden.length} more ${hidden.length === 1 ? 'agent' : 'agents'}`];
+    const waiting = hidden.filter((agent) => agent.status === 'waiting').length;
+    const failed = hidden.filter((agent) => agent.status === 'failed').length;
+    if (waiting) parts.push(`${waiting} waiting, needs you`);
+    if (failed) parts.push(`${failed} failed`);
     return parts.join(', ');
   });
 
@@ -207,6 +186,10 @@ export class AgentDockMenuComponent {
     return agentDurationText(agent, this.now());
   }
 
+  protected rowLabel(agent: SessionAgent): string {
+    return `${agent.name}, ${agent.status ?? 'queued'}, ${this.durationOf(agent) ?? 'no duration'}`;
+  }
+
   protected rowId(key: string): string {
     return `${this.menuUid}-${key}`;
   }
@@ -232,13 +215,12 @@ export class AgentDockMenuComponent {
   }
 
   protected choose(key: string): void {
-    this.agentSelect.emit(key);
     this.setOpen(false);
+    this.agentSelect.emit(key);
+    this.returnFocusToTrigger();
   }
 
   protected onMenuKeydown(event: KeyboardEvent): void {
-    const keys = this.orderedAgents().map((agent) => agent.key);
-    if (keys.length === 0) return;
     if (event.key === 'Tab') {
       event.stopPropagation();
       this.setOpen(false);
@@ -248,9 +230,11 @@ export class AgentDockMenuComponent {
       event.preventDefault();
       event.stopPropagation();
       this.setOpen(false);
-      this.trigger()?.nativeElement.focus();
+      this.returnFocusToTrigger();
       return;
     }
+    const keys = this.orderedAgents().map((agent) => agent.key);
+    if (keys.length === 0) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       event.stopPropagation();
@@ -290,5 +274,9 @@ export class AgentDockMenuComponent {
     if (this.open() === open) return;
     this.open.set(open);
     this.openChange.emit(open);
+  }
+
+  private returnFocusToTrigger(): void {
+    afterNextRender(() => this.trigger()?.nativeElement.focus(), { injector: this.injector });
   }
 }

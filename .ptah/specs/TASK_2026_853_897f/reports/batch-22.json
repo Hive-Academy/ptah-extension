@@ -1,0 +1,44 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": 22,
+  "title": "D-2 manifest filtering and D-3 local selection exemption",
+  "executor": "claude backend-developer subagent",
+  "changed": [
+    "libs/backend/harness-sync/src/lib/manifest/harness-manifest.builder.ts",
+    "libs/backend/harness-sync/src/lib/manifest/harness-manifest.builder.spec.ts"
+  ],
+  "acceptance": {
+    "retiredClones": "buildSkills pass 1 skips a user-layer clone whose sidecar sourceRef is skills-sh:<retired root id>, in every selection mode (absent, all, explicit allowlist). Missing/malformed sidecar or bare 'skills-sh:' retires nothing (fail-open).",
+    "retiredOverlay": "An overlay path that IS a retired root contributes no skills and no commands (covers the gap until Batch 26 skips retired ids in the loader).",
+    "workspaceExemption": "New HarnessManifestBuildOptions.workspaceRoot. Only ptah-skillssh-* roots whose parent is workspacePluginsDir(workspaceRoot) bypass the skillSync selection; disabledSkillIds/disabledPluginIds still apply. Other workspaces, global skills.sh roots, harness and bundled plugins stay gated. No workspaceRoot = nothing exempt.",
+    "retiredInput": "Builder reads sources.retired itself (decision #56); absent = nothing retired.",
+    "tests": [
+      "[D-2] a clone whose sourceRef names a retired skills.sh root is inactive under absent, all and an explicit selection of its slug; other refs stay",
+      "[D-2] absent or empty retired sources retire nothing, and a prefix-only or malformed sidecar fails open (decision #56)",
+      "[D-2] an overlay path that IS a retired root contributes no skills or commands; a live global skills.sh root still does",
+      "[D-D4] workspace skills.sh roots bypass the selection: an empty selection in workspace A keeps only A's skills.sh skills, sourced from A; B gets only B's",
+      "[D-D4] other overlays stay subject to the selection",
+      "[D-D4] without a workspaceRoot nothing is exempt",
+      "[D-D4] the exempt root still honours disabledSkillIds and disabledPluginIds",
+      "[D-D4] a bundled plugin outside the enabled overlay keeps its user-layer clone gated per workspace"
+    ]
+  },
+  "verification": {
+    "command": "npm run verify -- -p @ptah-extension/harness-sync,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview",
+    "log": "/tmp/tpd-b22-verify.log",
+    "result": "68 tasks: 61 succeeded (27 cached), 2 failed, 1 stopped, 4 skipped. Failures: harness-sync:test only agent-workspace-scope.spec.ts (2 env failures; 656/658 pass, +8 new tests) and pre-existing ptah-extension-webview:lint. ptah-tui:test was stopped by a background time limit; re-run alone: npm run verify -- -t test -p ptah-tui -> exit 0 (/tmp/tpd-b22-tui-test.log)."
+  },
+  "decisions": [
+    "Set-based skills-sh sourceRef match instead of shared isRetiredSourceRef(ref, registry): the resolver passes retired root dirs, not the registry; same rule (prefix + exact root id).",
+    "Retired overlay skip also covers commands."
+  ],
+  "risks": [
+    "Exemption compares path.resolve output (case-sensitive); the loader must build workspace overlay paths with workspacePluginsDir from the same normalized root.",
+    "deriveSourceRoots still lists a retired overlay path as a source root (containment only)."
+  ],
+  "followUps": {
+    "batch23_planner": "For a HarnessPlanRemove whose manifest source is under retired.skillSourceRoots set retiredItemId = skillsShRetiredItemId(basename(root)); for an MCP removal whose key is in retired.mcpServerKeys set retiredItemId = mcpRetiredItemId(serverKey).",
+    "batch24_reconciler": "Pass workspaceRoot (from resolveHarnessWorkspaceRoot) to both builder.build calls (verify() and runReconcile()). Pass source.retired ?? { skillSourceRoots: [], mcpServerKeys: [] } (HarnessRetiredSources) into reconcile options and per-target plan/apply. Drop manifest entries for keptRetired; merge removedRetired/keptRetired into HarnessTargetHealth; keep writeFailed itemIds owned. Do not re-filter retired skills.",
+    "batch26_loader": "Skip retired ids in discoverSkillsShPluginPaths; add discoverWorkspaceSkillsShPluginPaths(ws) to resolveHarnessOverlayPaths using workspacePluginsDir(ws)."
+  }
+}

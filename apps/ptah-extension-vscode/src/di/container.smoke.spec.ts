@@ -235,6 +235,22 @@ function buildMinimalContainer(): DependencyContainer {
   c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
     useValue: {},
   });
+  // `InstallScopeMigrationService` (TASK_2026_853 D-6) injects the harness
+  // reconciler. The real VS Code container binds it in `phase-2-libraries.ts`
+  // through `registerHarnessSyncServices`.
+  c.register(HARNESS_SYNC_TOKENS.RECONCILER, {
+    useValue: { reconcile: jest.fn() },
+  });
+  // `RecentWorkspacesService` (injected into `InstallScopeMigrationService`)
+  // keeps its list here. The real binding is in platform-vscode
+  // `registration.ts`.
+  c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+    useValue: {
+      get: jest.fn(() => undefined),
+      update: jest.fn(async () => undefined),
+      keys: jest.fn(() => []),
+    },
+  });
   // `EditorRpcHandlers` injects `FileLinkRootPolicy`, which needs
   // GitInfoService to widen the authorized root set to a registered folder's
   // worktrees (TASK_2026_413 Batch 8a). The real VS Code container binds this

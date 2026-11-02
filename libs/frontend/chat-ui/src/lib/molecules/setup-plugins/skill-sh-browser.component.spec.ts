@@ -9,9 +9,17 @@
  *     with a monogram tile, the source repo (and install count when present)
  *     as meta, and an Installed badge from the browser's own
  *     `skillsSh:listInstalled` read.
- *   - **The install path is unchanged.** `skillsSh:install` with
- *     `{ source, skillId }`, then a re-read of the installed list, then
- *     `skillInstalled`; a refusal surfaces its error text.
+ *   - **Install asks for the scope first (design-spec §2).** Install opens a
+ *     storefront panel under the card with the shared scope field; This
+ *     workspace is the default, the primary button reads "Install to this
+ *     workspace" / "Install to all workspaces", and the install sends
+ *     `{ source, skillId, scope }`, then re-reads the installed list and
+ *     emits `skillInstalled`. With no folder open nothing is selected and the
+ *     button stays disabled until the user picks All workspaces. A refusal
+ *     (including a rolled-back install) surfaces its error text and keeps the
+ *     panel open.
+ *   - **Installed cards show their scope badge** ("This workspace" / "All
+ *     workspaces").
  *   - **Remove and search are unchanged.** Remove sends `skillsSh:uninstall`
  *     with `{ name: skillId }` and clears the badge after the re-read; search
  *     sends one `skillsSh:search` after the 300ms debounce.
@@ -19,9 +27,15 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ClaudeRpcService } from '@ptah-extension/core';
-import type { InstalledSkill, SkillShEntry } from '@ptah-extension/shared';
+import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
+import type {
+  CapabilityScope,
+  InstalledSkill,
+  SkillShEntry,
+  WorkspaceInfo,
+} from '@ptah-extension/shared';
 import { MARKETPLACE_RPC_TIMEOUTS } from './marketplace-rpc-timeouts';
 import { SkillShBrowserComponent } from './skill-sh-browser.component';
 
@@ -47,16 +61,25 @@ function entry(over: Partial<SkillShEntry> = {}): SkillShEntry {
   };
 }
 
-function installed(name: string): InstalledSkill {
+function installed(
+  name: string,
+  scope: CapabilityScope = 'global',
+): InstalledSkill {
   return {
     name,
     description: '',
     source: 'vercel-labs/skills',
     path: `C:\\Users\\dev\\.ptah\\plugins\\skills\\${name}`,
-    scope: 'global',
+    scope,
     agents: [],
   };
 }
+
+const WORKSPACE: WorkspaceInfo = {
+  name: 'acme-app',
+  path: '/home/dev/acme-app',
+  type: 'workspace',
+};
 
 interface RpcCall {
   method: string;
@@ -66,6 +89,7 @@ interface RpcCall {
 describe('SkillShBrowserComponent', () => {
   let calls: RpcCall[];
   let responders: Map<string, () => unknown>;
+  let workspaceInfo: ReturnType<typeof signal<WorkspaceInfo | null>>;
 
   const rpcMock = {
     call: jest.fn((method: string, params: unknown) => {
@@ -119,13 +143,50 @@ describe('SkillShBrowserComponent', () => {
     return found;
   };
 
+  const confirmButton = (
+    fixture: ComponentFixture<unknown>,
+  ): HTMLButtonElement | null =>
+    host(fixture).querySelector<HTMLButtonElement>(
+      '[data-testid="skill-install-confirm"]',
+    );
+
+  const scopeRadio = (
+    fixture: ComponentFixture<unknown>,
+    value: CapabilityScope,
+  ): HTMLInputElement => {
+    const radio = host(fixture).querySelector<HTMLInputElement>(
+      `ptah-install-scope-field input[type="radio"][value="${value}"]`,
+    );
+    if (!radio) throw new Error(`no "${value}" scope radio`);
+    return radio;
+  };
+
+  /** Open the first card's install panel and press its primary button. */
+  const installVia = async (
+    fixture: ComponentFixture<unknown>,
+  ): Promise<void> => {
+    const install = button(cards(fixture)[0], 'Install Find Skills');
+    install.click();
+    await settle(fixture);
+    const confirm = confirmButton(fixture);
+    if (!confirm) throw new Error('no install panel');
+    confirm.click();
+  };
+
   beforeEach(() => {
     calls = [];
     responders = new Map();
     rpcMock.call.mockClear();
+    workspaceInfo = signal<WorkspaceInfo | null>(WORKSPACE);
     TestBed.configureTestingModule({
       imports: [SkillShBrowserComponent],
-      providers: [{ provide: ClaudeRpcService, useValue: rpcMock }],
+      providers: [
+        { provide: ClaudeRpcService, useValue: rpcMock },
+        {
+          provide: AppStateManager,
+          useValue: { workspaceInfo: workspaceInfo.asReadonly() },
+        },
+      ],
     });
   });
 
@@ -229,12 +290,16 @@ describe('SkillShBrowserComponent', () => {
     );
     calls = [];
 
-    button(cards(fixture)[0], 'Install Find Skills').click();
+    await installVia(fixture);
     await settle(fixture);
 
     expect(calls[0]).toEqual({
       method: 'skillsSh:install',
-      params: { source: 'vercel-labs/skills', skillId: 'find-skills' },
+      params: {
+        source: 'vercel-labs/skills',
+        skillId: 'find-skills',
+        scope: 'workspace',
+      },
     });
     expect(calls.map((c) => c.method)).toContain('skillsSh:listInstalled');
     expect(emitted).toHaveLength(1);
@@ -251,7 +316,7 @@ describe('SkillShBrowserComponent', () => {
       ok({ success: false, error: 'npx exited with code 1' }),
     );
 
-    button(cards(fixture)[0], 'Install Find Skills').click();
+    await installVia(fixture);
     await settle(fixture);
 
     expect(
@@ -266,7 +331,7 @@ describe('SkillShBrowserComponent', () => {
     const fixture = await mount([entry()]);
     responders.set('skillsSh:install', () => ok({ success: true }));
 
-    button(cards(fixture)[0], 'Install Find Skills').click();
+    await installVia(fixture);
     await settle(fixture);
 
     const installCall = rpcMock.call.mock.calls.find(
@@ -287,12 +352,194 @@ describe('SkillShBrowserComponent', () => {
       isSuccess: (): boolean => false,
     }));
 
-    button(cards(fixture)[0], 'Install Find Skills').click();
+    await installVia(fixture);
     await settle(fixture);
 
     expect(
       host(fixture).querySelector('[role="alert"]')?.textContent,
     ).toContain('RPC timeout: skillsSh:install');
+  });
+
+  describe('install scope panel', () => {
+    it('opens a storefront panel with the scope field, This workspace by default', async () => {
+      const fixture = await mount([entry()]);
+      calls = [];
+      const install = button(cards(fixture)[0], 'Install Find Skills');
+
+      install.click();
+      await settle(fixture);
+
+      expect(calls).toEqual([]);
+      expect(install.getAttribute('aria-expanded')).toBe('true');
+      expect(install.textContent?.trim()).toBe('Cancel');
+      const panel = host(fixture).querySelector<HTMLElement>(
+        'ptah-catalog-grid [role="listitem"].col-span-full ptah-storefront-panel',
+      );
+      expect(panel?.textContent).toContain('Install Find Skills');
+      expect(panel?.querySelector('legend')?.textContent?.trim()).toBe(
+        'Install to',
+      );
+      expect(scopeRadio(fixture, 'workspace').checked).toBe(true);
+      expect(
+        host(fixture).querySelector('[data-testid="install-scope-help"]')
+          ?.textContent,
+      ).toContain('Only acme-app will get this skill.');
+      expect(confirmButton(fixture)?.textContent?.trim()).toBe(
+        'Install to this workspace',
+      );
+      expect(confirmButton(fixture)?.disabled).toBe(false);
+
+      install.click();
+      await settle(fixture);
+      expect(host(fixture).querySelector('ptah-storefront-panel')).toBeNull();
+    });
+
+    it('installs for all workspaces only after the user picks All workspaces', async () => {
+      const fixture = await mount([entry()]);
+      responders.set('skillsSh:install', () =>
+        ok({ success: true, scope: 'global' }),
+      );
+      responders.set('skillsSh:listInstalled', () =>
+        ok({ skills: [installed('find-skills', 'global')] }),
+      );
+      button(cards(fixture)[0], 'Install Find Skills').click();
+      await settle(fixture);
+
+      scopeRadio(fixture, 'global').click();
+      await settle(fixture);
+      expect(confirmButton(fixture)?.textContent?.trim()).toBe(
+        'Install to all workspaces',
+      );
+      calls = [];
+      confirmButton(fixture)?.click();
+      await settle(fixture);
+
+      expect(calls[0]).toEqual({
+        method: 'skillsSh:install',
+        params: {
+          source: 'vercel-labs/skills',
+          skillId: 'find-skills',
+          scope: 'global',
+        },
+      });
+      expect(host(fixture).querySelector('ptah-storefront-panel')).toBeNull();
+      expect(
+        cards(fixture)[0]
+          .querySelector('[data-testid="skill-scope-badge"]')
+          ?.textContent?.trim(),
+      ).toBe('All workspaces');
+    });
+
+    it('with no folder open selects nothing and keeps the install disabled', async () => {
+      workspaceInfo.set(null);
+      const fixture = await mount([entry()]);
+      responders.set('skillsSh:install', () => ok({ success: true }));
+      button(cards(fixture)[0], 'Install Find Skills').click();
+      await settle(fixture);
+
+      expect(scopeRadio(fixture, 'workspace').disabled).toBe(true);
+      expect(scopeRadio(fixture, 'workspace').checked).toBe(false);
+      expect(scopeRadio(fixture, 'global').checked).toBe(false);
+      expect(confirmButton(fixture)?.disabled).toBe(true);
+      expect(
+        host(fixture).querySelector(
+          '[data-testid="install-scope-help"][role="status"]',
+        )?.textContent,
+      ).toContain('Open a folder to install into a workspace');
+
+      calls = [];
+      confirmButton(fixture)?.click();
+      await settle(fixture);
+      expect(calls.map((c) => c.method)).not.toContain('skillsSh:install');
+
+      scopeRadio(fixture, 'global').click();
+      await settle(fixture);
+      expect(confirmButton(fixture)?.disabled).toBe(false);
+      expect(confirmButton(fixture)?.textContent?.trim()).toBe(
+        'Install to all workspaces',
+      );
+    });
+
+    it('sends no workspace install once the folder closes under an open panel', async () => {
+      const fixture = await mount([entry()]);
+      button(cards(fixture)[0], 'Install Find Skills').click();
+      await settle(fixture);
+
+      workspaceInfo.set(null);
+      await settle(fixture);
+
+      expect(confirmButton(fixture)?.disabled).toBe(true);
+      calls = [];
+      await fixture.componentInstance.installSkill(entry());
+      expect(calls).toEqual([]);
+    });
+
+    it('shows a rolled-back install failure and keeps the panel open', async () => {
+      const fixture = await mount([entry()]);
+      const emitted: SkillShEntry[] = [];
+      fixture.componentInstance.skillInstalled.subscribe((s) =>
+        emitted.push(s),
+      );
+      responders.set('skillsSh:install', () =>
+        ok({
+          success: false,
+          error: 'Could not install Find Skills. Nothing was changed.',
+        }),
+      );
+
+      await installVia(fixture);
+      await settle(fixture);
+
+      expect(
+        host(fixture).querySelector('[role="alert"]')?.textContent,
+      ).toContain('Could not install Find Skills. Nothing was changed.');
+      expect(host(fixture).querySelector('ptah-storefront-panel')).not.toBe(
+        null,
+      );
+      expect(confirmButton(fixture)?.disabled).toBe(false);
+      expect(emitted).toEqual([]);
+      expect(
+        cards(fixture)[0].querySelector('[data-testid="catalog-card-badge"]'),
+      ).toBe(null);
+    });
+
+    it('opens the panel only under the grid whose card was pressed', async () => {
+      const fixture = await mount([entry()], [], [entry()]);
+      const [recommended] = cards(fixture);
+
+      button(recommended, 'Install Find Skills').click();
+      await settle(fixture);
+
+      const panels = host(fixture).querySelectorAll('ptah-storefront-panel');
+      expect(panels).toHaveLength(1);
+      const grids = host(fixture).querySelectorAll('ptah-catalog-grid');
+      expect(grids[0].contains(panels[0])).toBe(true);
+    });
+  });
+
+  it('badges an installed card with its scope', async () => {
+    const fixture = await mount(
+      [entry(), entry({ skillId: 'remotion', name: 'Remotion' })],
+      [],
+    );
+    responders.set('skillsSh:listInstalled', () =>
+      ok({
+        skills: [
+          installed('find-skills', 'workspace'),
+          installed('remotion', 'global'),
+        ],
+      }),
+    );
+    fixture.componentRef.setInput('refreshTrigger', 1);
+    await settle(fixture);
+
+    const badges = cards(fixture).map((card) =>
+      card.querySelector('[data-testid="skill-scope-badge"]'),
+    );
+    expect(badges[0]?.textContent?.trim()).toBe('This workspace');
+    expect(badges[0]?.classList.contains('border-warning')).toBe(false);
+    expect(badges[1]?.textContent?.trim()).toBe('All workspaces');
+    expect(badges[1]?.classList.contains('border-warning')).toBe(true);
   });
 
   describe('Remove on an installed result card', () => {

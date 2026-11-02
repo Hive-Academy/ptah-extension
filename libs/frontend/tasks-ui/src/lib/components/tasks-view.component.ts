@@ -449,6 +449,7 @@ interface ExcludedFolderRow extends ExcludedTaskFolder {
           <!-- Empty state with create CTA -->
           <div
             class="flex flex-col items-center justify-center flex-1 text-center gap-3 p-6"
+            data-glass-surface="plate"
           >
             <!-- Decorative and redundant with the sentence below it, so it is
                  hidden from the accessibility tree and exempt from the

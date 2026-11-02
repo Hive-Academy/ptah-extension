@@ -27,6 +27,7 @@ export {
 export { StatusBadgeComponent } from './lib/atoms/status-badge.component';
 export { StreamingQuotesComponent } from './lib/atoms/streaming-quotes.component';
 export { ThemeToggleComponent } from './lib/atoms/theme-toggle.component';
+export { MotionStylePickerComponent } from './lib/atoms/motion-style-picker.component';
 export { TokenBadgeComponent } from './lib/atoms/token-badge.component';
 export { ToolIconComponent } from './lib/atoms/tool-icon.component';
 export { TypingCursorComponent } from './lib/atoms/typing-cursor.component';
@@ -86,6 +87,7 @@ export {
 } from './lib/molecules/compact-session/compact-session-metrics';
 export { CompactSessionStatsComponent } from './lib/molecules/compact-session/compact-session-stats.component';
 export { CompactRailCardComponent } from './lib/molecules/compact-session/compact-rail-card.component';
+export { compactRailStateLabel } from './lib/molecules/compact-session/compact-rail-state-label.util';
 export { COMPACT_RAIL_CARD_HEIGHT } from './lib/molecules/compact-session/compact-lane.types';
 export type {
   CompactCallout,
@@ -127,6 +129,15 @@ export type {
 } from './lib/molecules/session/plan-limits/stats-limit-view-model.types';
 export { StatsTileExpansionState } from './lib/molecules/session/plan-limits/stats-tile-expansion.state';
 export { McpDirectoryBrowserComponent } from './lib/molecules/setup-plugins/mcp-directory-browser.component';
+export {
+  InstallScopeFieldComponent,
+  INSTALL_SCOPE_NO_FOLDER_HELP,
+  defaultInstallScope,
+  effectiveInstallScope,
+  installScopeButtonLabel,
+  type InstallScopeChoice,
+  type InstallScopeItemKind,
+} from './lib/molecules/setup-plugins/install-scope-field.component';
 export {
   groupInstalledServers,
   mcpTargetLabel,

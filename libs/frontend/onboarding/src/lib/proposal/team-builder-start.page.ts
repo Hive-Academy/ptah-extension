@@ -7,8 +7,10 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { AttachmentTrayComponent, ComposerAttachmentsService } from '@ptah-extension/chat';
 import { HarnessBuilderLeaveDialogComponent } from '@ptah-extension/harness-builder';
 import { onboardingStepLink } from '../shell/onboarding-step-link';
+import { WorkspaceHeaderComponent } from '../shell/workspace-header.component';
 import {
   OnboardingStepperComponent,
   type OnboardingStep,
@@ -22,7 +24,10 @@ import { ProposalFlowStore } from './proposal-flow.store';
     HarnessBuilderLeaveDialogComponent,
     OnboardingStepperComponent,
     FormsModule,
+    AttachmentTrayComponent,
+    WorkspaceHeaderComponent,
   ],
+  providers: [ComposerAttachmentsService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -42,6 +47,7 @@ import { ProposalFlowStore } from './proposal-flow.store';
           Describe the team you want.
         </p>
       </header>
+      <ptah-workspace-header [canSwitch]="true" />
       <ptah-onboarding-stepper [steps]="steps" />
       <form
         class="space-y-5 rounded-[22px] border border-base-300 p-5"
@@ -62,9 +68,14 @@ import { ProposalFlowStore } from './proposal-flow.store';
             [ngModel]="intent()"
             (ngModelChange)="intent.set($event)"
             (blur)="touched.set(true)"
+            (paste)="attachments.onPaste($event)"
+            (dragover)="$event.preventDefault()"
+            (drop)="attachments.onDrop($event)"
             [attr.aria-invalid]="invalid() ? true : null"
-            [attr.aria-describedby]="invalid() ? 'team-intent-error' : null"
+            [attr.aria-describedby]="invalid() ? 'team-attachment-hint team-intent-error' : 'team-attachment-hint'"
           ></textarea>
+          <ptah-attachment-tray />
+          <p id="team-attachment-hint" class="mt-1 text-xs text-base-content-muted">Attachments are not saved if you leave this page</p>
           @if (invalid()) {
             <p id="team-intent-error" class="text-sm text-state-err">
               Describe the team you want.
@@ -88,7 +99,7 @@ import { ProposalFlowStore } from './proposal-flow.store';
           <p role="alert" class="text-sm text-state-err">{{ error }}</p>
         }
         <div class="flex flex-wrap gap-2">
-          <button type="submit" class="btn btn-primary" [disabled]="starting()">
+          <button type="submit" class="btn btn-primary" [disabled]="starting() || attachments.pendingReads() > 0">
             {{ starting() ? 'Starting…' : 'Start team builder' }}</button
           ><button type="button" class="btn" (click)="back()">Back</button>
         </div>
@@ -108,6 +119,7 @@ import { ProposalFlowStore } from './proposal-flow.store';
   `,
 })
 export class TeamBuilderStartPage {
+  readonly attachments = inject(ComposerAttachmentsService);
   protected readonly store = inject(ProposalFlowStore);
   protected readonly steps: readonly OnboardingStep[] = [
     { id: 'brief', label: 'Brief', state: 'current' },
@@ -116,6 +128,7 @@ export class TeamBuilderStartPage {
   ];
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private pendingAttachments: ReturnType<ComposerAttachmentsService['snapshotForSend']> | null = null;
   readonly intent = signal('');
   readonly touched = signal(false);
   readonly submitted = signal(false);
@@ -130,14 +143,21 @@ export class TeamBuilderStartPage {
   async submit(event: Event): Promise<void> {
     event.preventDefault();
     this.submitted.set(true);
-    if (this.invalid() || this.starting()) return;
+    if (this.invalid() || this.starting() || this.attachments.pendingReads() > 0) return;
     this.starting.set(true);
+    const snapshot = this.attachments.snapshotForSend();
+    this.pendingAttachments = snapshot;
     try {
       const tab = await this.store.start({
         mode: 'configure-harness',
         workspaceRoot: this.store.workspaceRoot(),
         intent: this.intent().trim(),
+        attachments: snapshot.options,
       });
+      if (tab && this.store.lastStartCreated()) {
+        snapshot.removeSent();
+        this.pendingAttachments = null;
+      }
       if (!this.destroyRef.destroyed && tab)
         await this.open(tab, this.store.lastStartCreated());
     } finally {
@@ -167,6 +187,10 @@ export class TeamBuilderStartPage {
   }
   async resolve(choice: 'save' | 'discard' | 'cancel'): Promise<void> {
     const tab = await this.store.resolveConflict(choice);
+    if (tab && this.store.lastStartCreated()) {
+      this.pendingAttachments?.removeSent();
+      this.pendingAttachments = null;
+    }
     if (!this.destroyRef.destroyed && tab)
       await this.open(tab, this.store.lastStartCreated());
   }

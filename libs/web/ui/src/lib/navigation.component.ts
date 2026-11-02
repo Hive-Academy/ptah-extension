@@ -72,7 +72,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
         (click)="closeMobileMenu()"
       >
         <img
-          ngSrc="/assets/icons/ptah-icon.png"
+          ngSrc="/assets/icons/ptah-icon.webp"
           alt="Ptah logo"
           width="96"
           height="96"

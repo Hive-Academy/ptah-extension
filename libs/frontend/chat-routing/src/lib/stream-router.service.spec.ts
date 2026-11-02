@@ -35,6 +35,7 @@ import {
 import {
   AgentMonitorStore,
   BackgroundAgentStore,
+  BackgroundTaskStore,
   BatchedUpdateService,
   ExecutionTreeBuilderService,
   PermissionHandlerService,
@@ -1496,6 +1497,12 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
     it('unbinds the surface and removes the conversation when no other consumer remains', () => {
       const probe = makeSurfaceProbe();
       const conv = router.onSurfaceCreated(probe.surfaceId, SESSION_A);
+      const taskStore = TestBed.inject(BackgroundTaskStore);
+      taskStore.replace({
+        id: 'snapshot-1', eventType: 'background_tasks_snapshot',
+        timestamp: 1, sessionId: SESSION_A, messageId: 'background-tasks-' + SESSION_A,
+        tasks: [{ taskId: 'bash-1', taskType: 'local_bash', description: 'Compile', status: 'running' }],
+      });
 
       router.onSurfaceClosed(probe.surfaceId);
 
@@ -1508,6 +1515,7 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
       expect(agentMonitorStore.clearSessionAgents).toHaveBeenCalledWith(
         SESSION_A,
       );
+      expect(taskStore.tasksForSession(SESSION_A)).toEqual([]);
       expect(TestBed.inject(SubagentExecutionStore).clearSession).toHaveBeenCalledWith(SESSION_A);
       // Surface adapter unregistered too.
       expect(surfaceRegistry.getAdapter(probe.surfaceId)).toBeNull();

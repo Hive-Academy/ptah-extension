@@ -10,7 +10,7 @@
  * with the wrong slot-3 token across three apps).
  */
 
-import type { DependencyContainer } from 'tsyringe';
+import { instanceCachingFactory, type DependencyContainer } from 'tsyringe';
 
 import {
   AttentionRpcHandlers,
@@ -39,7 +39,12 @@ import { GenerationRunSupervisor } from './handlers/wizard-generation-run.superv
 import { GenerationPreviewService } from './handlers/wizard-generation/generation-preview.service';
 import { GenerationLibraryPassService } from './handlers/wizard-generation/generation-library-pass.service';
 import { PackInstallService } from './handlers/setup/pack-install.service';
-import { AgentPackDownloadService } from '@ptah-extension/platform-core';
+import {
+  AgentPackDownloadService,
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+import { HARNESS_SYNC_TOKENS } from '@ptah-extension/harness-sync';
 import { ProviderAccountRpcHandlers } from './handlers/provider-account-rpc.handlers';
 import { LocalItemApprovals } from './handlers/marketplace/local-item-approvals';
 import { InstallLocalItemsService } from './handlers/marketplace/install-local-items.service';
@@ -47,6 +52,11 @@ import { MarketplaceLocalItemsService } from './handlers/marketplace/marketplace
 import { PluginLocalItemsService } from './handlers/marketplace/plugin-local-items.service';
 import { CloneRebaseService } from './handlers/skill-synthesis/clone-rebase.service';
 import { CloneProvenanceResolver } from './handlers/skill-synthesis/clone-provenance.resolver';
+import {
+  InstallScopeMigrationService,
+  type InstallScopeReconciler,
+} from './install-scope/install-scope-migration.service';
+import { InstallScopeNoticeRpcHandlers } from './install-scope/install-scope-notice-rpc.handlers';
 
 /**
  * Register the shared RPC handler classes that every app wires the same way,
@@ -144,6 +154,28 @@ export function registerSharedRpcHandlers(
   // a repeated requestId. Registration is lazy: only hosts whose profile
   // enables `providerAccounts` (Electron) resolve it through the manifest.
   container.registerSingleton(ProviderAccountRpcHandlers);
+  // Install-scope migration (TASK_2026_853 D-6). One instance: it serialises
+  // every ledger read-modify-write (a run, a dismissal) on one promise chain,
+  // so a second instance could interleave them. Every host resolves it for
+  // the notice handler; only Electron's heavy boot calls `run()` (D-D5).
+  // A factory rather than `registerSingleton`: spec tsconfigs emit decorator
+  // metadata, so auto-wiring would also try to resolve the three defaulted
+  // spec overrides after the injected four (and fail on `Object`), while
+  // di-lint forbids the unregistered tokens an optional `@inject` would need.
+  // The factory passes exactly the four injected dependencies, so the
+  // overrides take their defaults under both settings.
+  container.register(InstallScopeMigrationService, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new InstallScopeMigrationService(
+          c.resolve<Logger>(TOKENS.LOGGER),
+          c.resolve<InstallScopeReconciler>(HARNESS_SYNC_TOKENS.RECONCILER),
+          c.resolve(RecentWorkspacesService),
+          c.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+        ),
+    ),
+  });
+  container.registerSingleton(InstallScopeNoticeRpcHandlers);
 }
 
 /**

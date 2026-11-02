@@ -50,6 +50,7 @@ type SetAnswer = 'acknowledged' | 'refused' | 'unknown';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
+      data-glass-surface="content"
       class="flex flex-col gap-3 text-sm text-base-content"
       aria-labelledby="host-routing-heading"
       data-testid="host-routing-setting"
@@ -130,6 +131,11 @@ type SetAnswer = 'acknowledged' | 'refused' | 'unknown';
         }
       }
     </section>
+  `,
+  styles: `
+    :host-context([data-glass='on']) [data-glass-surface='content'] {
+      padding: 1.25rem;
+    }
   `,
 })
 export class HostRoutingSettingComponent implements OnInit {

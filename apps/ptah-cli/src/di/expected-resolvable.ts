@@ -4,6 +4,8 @@ import {
   LlmRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
+  InstallScopeMigrationService,
+  InstallScopeNoticeRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -38,6 +40,8 @@ export const EXPECTED_RESOLVABLE = [
   WizardGenerationRpcHandlers,
   EnhancedPromptsRpcHandlers,
   LlmRpcHandlers,
+  InstallScopeMigrationService,
+  InstallScopeNoticeRpcHandlers,
 ] as const;
 
 /**

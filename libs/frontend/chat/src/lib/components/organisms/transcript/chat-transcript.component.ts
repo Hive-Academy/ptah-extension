@@ -81,6 +81,7 @@ import {
 import { filterCompactionNoise } from './transcript-filter.utils';
 import { TranscriptOlderHistorySentinelDirective } from './transcript-older-history-sentinel.directive';
 import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
+import { TranscriptMotionDirective } from './transcript-motion.directive';
 import { TranscriptRenderWindow } from './transcript-render-window';
 import { TranscriptSlotDirective } from './transcript-slot.directive';
 import {
@@ -254,6 +255,7 @@ function findAgentNode(
     TranscriptSlotDirective,
     TranscriptOlderHistorySentinelDirective,
     TranscriptPrependAnchorDirective,
+    TranscriptMotionDirective,
     // Used only inside `@defer`, so the compiler loads it lazily.
     ChangeSetCardComponent,
     // Used only inside `@defer`, so the compiler loads it lazily.
@@ -292,8 +294,12 @@ function findAgentNode(
   styleUrl: './chat-transcript.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    '[class.hidden]': '!active()',
-    class: 'flex-1 flex flex-col min-h-0 relative',
+    '[class.hidden]': '!active() && !leaving()',
+    '[class.ptah-pane-switch-leave]': 'leaving()',
+    '[class.ptah-pane-switch-overlap]': 'leaving() && overlapping()',
+    '[attr.inert]': "leaving() ? '' : null",
+    '[attr.aria-hidden]': "leaving() ? 'true' : null",
+    class: 'ptah-motion-panel flex-1 flex flex-col min-h-0 relative',
     // Agent-output surface: file links in rendered markdown route into Ptah's
     // viewer, and `data-ptah-tab-id` tells the router which workspace a
     // relative path belongs to (this transcript may render a BACKGROUND
@@ -345,6 +351,14 @@ export class ChatTranscriptComponent {
   readonly active = input.required<boolean>();
   /** True for one session-switch entrance window. */
   readonly entering = input(false);
+  readonly paneSwitching = input(false);
+  /**
+   * True while this inactive transcript stays visible during a tab switch.
+   * Its frozen view model keeps the last content, and it takes no input.
+   */
+  readonly leaving = input(false);
+  /** The next transcript has content and its entrance has started. */
+  readonly overlapping = input(false);
   private readonly surfaceActive = inject(SURFACE_ACTIVE);
   protected readonly workActive = computed(
     () => this.active() && this.surfaceActive(),
@@ -430,7 +444,7 @@ export class ChatTranscriptComponent {
    * suppress fade keyframes during the finalize burst.
    */
   protected readonly isFinalizingTransition = signal(false);
-  private readonly replayMotionHold = signal(false);
+  protected readonly replayMotionHold = signal(false);
   protected readonly motionSuppressed = computed(
     () =>
       this.historyReplaying() ||

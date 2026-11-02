@@ -145,7 +145,8 @@ function sameLaneSummary(
         [state]="railStateValue()"
         [density]="density()"
         [focused]="focused()"
-        [innerTabbable]="focused()"
+        [tabStop]="tabStop()"
+        [innerTabbable]="tabStop()"
         [holdText]="holdText()"
         [reserveActionCorner]="reserveActionCorner()"
         (selectRequested)="openFullView()"
@@ -238,6 +239,7 @@ export class CompactSessionCardComponent {
   readonly variant = input<'tile' | 'rail'>('tile');
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
+  readonly tabStop = input(false);
   readonly holdText = input(false);
   /** Rail only: the host overlays its actions trigger on the card's top-right corner. */
   readonly reserveActionCorner = input(false);

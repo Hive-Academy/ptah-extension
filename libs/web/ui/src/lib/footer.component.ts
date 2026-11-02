@@ -37,7 +37,7 @@ interface FooterLink {
           <div class="col-span-2 md:col-span-5">
             <div class="flex items-center gap-4 mb-5">
               <img
-                ngSrc="/assets/icons/ptah-icon.png"
+                ngSrc="/assets/icons/ptah-icon.webp"
                 alt="Ptah logo"
                 width="48"
                 height="48"

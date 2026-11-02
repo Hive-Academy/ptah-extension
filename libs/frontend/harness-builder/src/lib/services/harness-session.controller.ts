@@ -9,6 +9,7 @@ import {
   type WritableSignal,
 } from '@angular/core';
 import { ChatStore } from '@ptah-extension/chat';
+import type { SendMessageOptions } from '@ptah-extension/chat-types';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
 import { SessionId, type NewProjectIntake } from '@ptah-extension/shared';
@@ -34,11 +35,13 @@ export type HarnessSessionStart =
       readonly mode: 'new-project';
       readonly workspaceRoot: string;
       readonly intake: NewProjectIntake;
+      readonly attachments?: Pick<SendMessageOptions, 'files' | 'images'>;
     }
   | {
       readonly mode: 'configure-harness';
       readonly workspaceRoot: string;
       readonly intent: string;
+      readonly attachments?: Pick<SendMessageOptions, 'files' | 'images'>;
     };
 export type HarnessSessionStartOutcome =
   | { readonly kind: 'started' | 'reused'; readonly tabId: string }
@@ -66,7 +69,7 @@ export interface HarnessModeSession {
   } | null>;
   start(request: HarnessSessionStart): Promise<HarnessSessionStartOutcome>;
   restore(tabId: string): Promise<HarnessRestoreOutcome>;
-  send(text: string): Promise<boolean>;
+  send(text: string, options?: Pick<SendMessageOptions, 'files' | 'images'>): Promise<boolean>;
   retrySend(): Promise<boolean>;
   stop(): Promise<'stopped' | 'uncertain'>;
   attachView(): () => void;
@@ -117,7 +120,7 @@ export class HarnessSessionController {
       }),
       start: (request) => this.start(mode, request, record, phase, error),
       restore: (tabId) => this.restore(mode, tabId, record, phase),
-      send: (text) => this.send(mode, text, record, phase, error),
+      send: (text, options) => this.send(mode, text, record, phase, error, options),
       retrySend: () => this.retrySend(mode, record, phase, error),
       stop: () => this.stop(record, phase, error),
       attachView: () => {
@@ -284,8 +287,17 @@ export class HarnessSessionController {
       if (saved) {
         record.set(saved);
         if (saved.intakeHash === hash) {
-          this.reconcile(saved, record, phase);
-          return { kind: 'reused', tabId: active.tabId };
+          if (this.reconcile(saved, record, phase)) {
+            if (request.attachments?.files?.length || request.attachments?.images?.length)
+              return {
+                kind: 'failed',
+                error: 'This session already started. Attachments were not sent; add them to a reply.',
+              };
+            return { kind: 'reused', tabId: active.tabId };
+          }
+          if (await this.retrySend(mode, record, phase, error, request.attachments))
+            return { kind: 'started', tabId: active.tabId };
+          return { kind: 'failed', error: error() ?? 'The first message could not be sent. Retry send.' };
         }
         return {
           kind: 'failed',
@@ -344,7 +356,7 @@ export class HarnessSessionController {
         this.records.writeStackProfile(root, tabId, started);
       if (
         content &&
-        !(await this.firstSend(next, content, record, phase, error))
+        !(await this.firstSend(next, content, record, phase, error, request.attachments))
       )
         return {
           kind: 'failed',
@@ -368,6 +380,7 @@ export class HarnessSessionController {
     record: WritableSignal<HarnessSessionRecord | null>,
     phase: WritableSignal<HarnessSessionPhase>,
     error: WritableSignal<string | null>,
+    attachments?: Pick<SendMessageOptions, 'files' | 'images'>,
   ): Promise<boolean> {
     const key = `${current.tabId}\u0000${current.intakeHash}`;
     if (this.inFlight.has(key)) return false;
@@ -389,6 +402,7 @@ export class HarnessSessionController {
       record.set(attempt);
       const result = await this.chat.sendOrQueueMessage(content, {
         tabId: current.tabId,
+        ...attachments,
       });
       if (!result.success) throw new Error('Chat send rejected');
       const accepted = {
@@ -489,6 +503,7 @@ export class HarnessSessionController {
     record: WritableSignal<HarnessSessionRecord | null>,
     phase: WritableSignal<HarnessSessionPhase>,
     error: WritableSignal<string | null>,
+    attachments?: Pick<SendMessageOptions, 'files' | 'images'>,
   ): Promise<boolean> {
     const current = record();
     if (
@@ -520,7 +535,7 @@ export class HarnessSessionController {
       mode === 'new-project' && current.intake
         ? formatIntakeSummary(current.intake)
         : (current.teamIntent ?? '');
-    return !!text && this.firstSend(current, text, record, phase, error);
+    return !!text && this.firstSend(current, text, record, phase, error, attachments);
   }
 
   private async restore(
@@ -579,12 +594,14 @@ export class HarnessSessionController {
     record: WritableSignal<HarnessSessionRecord | null>,
     phase: WritableSignal<HarnessSessionPhase>,
     error: WritableSignal<string | null>,
+    attachments?: Pick<SendMessageOptions, 'files' | 'images'>,
   ): Promise<boolean> {
     const current = record();
     if (!current || current.mode !== mode || !text.trim()) return false;
     try {
       const result = await this.chat.sendOrQueueMessage(text, {
         tabId: current.tabId,
+        ...attachments,
       });
       if (!result.success) throw new Error('Chat send rejected');
       phase.set('busy');

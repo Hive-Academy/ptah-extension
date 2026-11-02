@@ -4,6 +4,8 @@
  * store; only the RPC, the tier and the inventory store are stubbed.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -511,6 +513,29 @@ describe('ConnectorsPageComponent', () => {
   });
 
   describe('detail placement', () => {
+    it.each(['compact', 'wide'] as const)(
+      'starts exactly one connector entrance at %s',
+      async (value) => {
+        tier.set(value);
+        configure();
+        await mount();
+
+        clickIn('sentry', ACTIVATOR);
+        await settle();
+
+        const template = readFileSync(join(__dirname, 'connectors-page.component.html'), 'utf8');
+        const detail = readFileSync(join(__dirname, 'connector-detail.component.ts'), 'utf8');
+        const branch = value === 'wide'
+          ? template.split('} @else {')[0]
+          : template.split("@if (placement() === 'drawer' && detailOpen()) {")[1];
+        expect(branch.match(/animate\.enter/g)).toHaveLength(1);
+        expect(detail).not.toMatch(/['"]animate\.enter['"]/);
+        expect(one(value === 'wide'
+          ? '[data-testid="connectors-full-detail"] ptah-connector-detail'
+          : '[data-testid="native-drawer-panel"] ptah-connector-detail')).not.toBeNull();
+      },
+    );
+
     it('opens the detail in a drawer at compact, keeps the list and ?category=', async () => {
       configure();
       await mount('/marketplace/connectors?category=devops');
@@ -520,6 +545,7 @@ describe('ConnectorsPageComponent', () => {
 
       expect(url()).toBe('/marketplace/connectors/sentry?category=devops');
       const panel = one('[data-testid="native-drawer-panel"]');
+      expect(panel?.querySelector('[data-testid="native-drawer-body"] > .ptah-motion-stage > router-outlet')).not.toBeNull();
       expect(panel?.querySelector('ptah-connector-detail')).not.toBeNull();
       expect(panel?.querySelector('h2')?.textContent).toContain('Sentry');
       expect(one('[data-testid="connectors-grid-section"]')).not.toBeNull();
@@ -537,12 +563,19 @@ describe('ConnectorsPageComponent', () => {
       configure();
       await mount();
 
+        const branchStage = one('ptah-connectors-page > .ptah-motion-stage');
+        expect(branchStage?.children[0]?.classList.contains('ptah-motion-panel')).toBe(true);
+        expect(branchStage?.querySelector(':scope > .ptah-motion-panel.ptah-motion-enter')).toBeNull();
+
       clickIn('sentry', ACTIVATOR);
       await settle();
 
       expect(one('[data-testid="connectors-grid-section"]')).toBeNull();
       expect(one('ptah-storefront-hero')).toBeNull();
       expect(one('[data-testid="connectors-back"]')).not.toBeNull();
+      expect(one('[data-testid="connectors-full-detail"] > .ptah-motion-stage > router-outlet')).not.toBeNull();
+        expect(branchStage?.dataset['motionDir']).toBe('forward');
+        expect(branchStage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
       const heading = one('ptah-connector-detail h1');
       expect(heading?.textContent).toContain('Sentry');
       expect(all('h1')).toHaveLength(1);
@@ -553,6 +586,8 @@ describe('ConnectorsPageComponent', () => {
 
       expect(url()).toBe('/marketplace/connectors');
       expect(one('[data-testid="connectors-grid-section"]')).not.toBeNull();
+        expect(branchStage?.dataset['motionDir']).toBe('back');
+        expect(branchStage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
       expect(document.activeElement).toBe(
         gridCard('sentry').querySelector(
           '[data-testid="catalog-card-activator"]',
@@ -564,6 +599,8 @@ describe('ConnectorsPageComponent', () => {
       tier.set('wide');
       configure();
       await mount('/marketplace/connectors/github');
+
+        expect(one('[data-testid="connectors-full-detail"]')?.classList.contains('ptah-motion-enter')).toBe(false);
 
       const field = one('ptah-connector-detail input');
       expect(field).not.toBeNull();
