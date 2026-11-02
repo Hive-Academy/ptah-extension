@@ -25,7 +25,9 @@ import {
  */
 
 const WORKSPACE = 'C:\\ptah-e2e-ws';
-const SUMMARY = '[data-testid="chat-turn-summary"]';
+// A reopened transcript can still hold the previous rows while they leave.
+const SUMMARY =
+  '.chat-msg-item:not([data-ptah-leaving]) [data-testid="chat-turn-summary"]';
 
 /** Text tokens that identify each transcript message in DOM order. */
 const TOKENS = {
