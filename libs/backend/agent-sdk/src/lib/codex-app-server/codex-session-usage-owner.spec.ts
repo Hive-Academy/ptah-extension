@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import type { CodexUsageCounters, CodexUsageEvidence } from '@ptah-extension/codex-runtime';
-import { SessionId } from '@ptah-extension/shared';
+import { calculateExactMessageCost, SessionId } from '@ptah-extension/shared';
 import { CodexSessionUsageOwner, MAX_USAGE_THREADS, codexUsageCheckpointSchema } from './codex-session-usage-owner';
 
 const SESSION = SessionId.from('12345678-1234-4234-8234-123456789abc');
@@ -22,6 +22,86 @@ function evidence(threadId: string, turnId: string, total: CodexUsageCounters,
 }
 
 describe('CodexSessionUsageOwner', () => {
+  it('restores native model, context and subscription price from the checkpoint', () => {
+    const owner = new CodexSessionUsageOwner(SESSION, ROOT);
+    owner.accept(evidence(ROOT, 'turn-1', totals(7_435, 7, 12_672), {
+      modelId: 'gpt-6-luna', modelContextWindow: 128_000,
+      lastRequestTotalTokens: 10_000, terminalState: 'completed',
+    }));
+    const price = calculateExactMessageCost('gpt-6-luna', {
+      input: 7_435, output: 7, cacheHit: 12_672, cacheCreation: 0,
+    }, { billingMode: 'subscription', cacheSemantics: 'disjoint', usageObserved: true });
+    if (price.totalCost === null) throw new Error('Expected native model price');
+    owner.recordTurnPrice(price);
+    const restored = CodexSessionUsageOwner.restore(SESSION, ROOT, owner.serialize());
+    expect(restored.snapshot()).toMatchObject({
+      model: 'gpt-6-luna', totalCost: price.totalCost,
+      costBasis: 'covered-by-subscription',
+      pricingCoverage: 'full',
+      contextSnapshot: { model: 'gpt-6-luna', contextTokens: 10_000,
+        contextWindow: 128_000 },
+    });
+  });
+
+  it('restores an API-key price as an estimate', () => {
+    const owner = new CodexSessionUsageOwner(SESSION, ROOT);
+    owner.accept(evidence(ROOT, 'turn-1', totals(7_435, 7, 12_672), {
+      modelId: 'gpt-6-luna', terminalState: 'completed',
+    }));
+    const price = calculateExactMessageCost('gpt-6-luna', {
+      input: 7_435, output: 7, cacheHit: 12_672, cacheCreation: 0,
+    }, { billingMode: 'api-key', cacheSemantics: 'disjoint', usageObserved: true });
+    if (price.totalCost === null) throw new Error('Expected native model price');
+    owner.recordTurnPrice(price);
+    const restored = CodexSessionUsageOwner.restore(SESSION, ROOT, owner.serialize());
+    expect(restored.snapshot()).toMatchObject({
+      totalCost: price.totalCost, costBasis: 'estimated', pricingCoverage: 'full',
+    });
+  });
+
+  it('parses a pre-fix checkpoint without model, context or billing mode', () => {
+    const owner = new CodexSessionUsageOwner(SESSION, ROOT);
+    owner.accept(evidence(ROOT, 'old-turn', totals(10)));
+    const checkpoint = owner.serialize();
+    const legacy = { ...checkpoint, threads: checkpoint.threads.map((thread) => ({
+      threadId: thread.threadId, turnId: thread.turnId, epoch: thread.epoch,
+      timestamp: thread.timestamp, terminalState: thread.terminalState,
+      counters: thread.counters, accrued: thread.accrued,
+    })) };
+    expect(codexUsageCheckpointSchema.safeParse(legacy).success).toBe(true);
+    const restored = CodexSessionUsageOwner.restore(SESSION, ROOT, legacy);
+    expect(restored.isRestoredCheckpoint()).toBe(true);
+    expect(restored.snapshot()).toMatchObject({
+      model: null, totalCost: null, costBasis: 'unknown', pricingCoverage: 'none',
+    });
+  });
+
+  it('keeps a new model and window even when usage counters are unchanged', () => {
+    const owner = new CodexSessionUsageOwner(SESSION, ROOT);
+    owner.accept(evidence(ROOT, 'turn', totals(10)));
+    expect(owner.accept(evidence(ROOT, 'turn', totals(10), {
+      modelId: 'gpt-6-luna', modelContextWindow: 128_000,
+      lastRequestTotalTokens: 150_000,
+    }))).toBe(true);
+    const restored = CodexSessionUsageOwner.restore(SESSION, ROOT, owner.serialize());
+    expect(restored.snapshot()).toMatchObject({
+      model: 'gpt-6-luna', contextSnapshot: {
+        contextTokens: 128_000, contextWindow: 128_000,
+      },
+    });
+  });
+
+  it('drops a stale context window when the model changes', () => {
+    const owner = new CodexSessionUsageOwner(SESSION, ROOT);
+    owner.accept(evidence(ROOT, 'one', totals(10), {
+      modelId: 'gpt-4o', modelContextWindow: 100_000,
+    }));
+    owner.accept(evidence(ROOT, 'two', totals(20), {
+      modelId: 'gpt-4o-mini', timestamp: 2,
+    }));
+    expect(owner.serialize().threads[0]?.modelContextWindow).toBeUndefined();
+  });
+
   it('persists child usage observed before its root or parent as partial coverage', () => {
     const owner = new CodexSessionUsageOwner(SESSION, ROOT);
     owner.accept(evidence('child', 'one', totals(7), { parentThreadId: 'parent' }));

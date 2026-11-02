@@ -159,6 +159,8 @@ export class CodexEventTranslator {
   private readonly totals = new Map<string, Usage>();
   private readonly baselines = new Map<string, Usage>();
   private readonly evidence = new Map<string, CodexUsageEvidence>();
+  private readonly threadModels = new Map<string, string>();
+  private readonly turnModels = new Map<string, string>();
   private readonly epochs = new Map<string, number>();
   private readonly epochTurnOffsets = new Map<string, CodexReportedUsage>();
   private rateLimits: RateLimits | undefined;
@@ -174,6 +176,27 @@ export class CodexEventTranslator {
     private readonly processGeneration: number,
     private readonly now: () => number = Date.now,
   ) {}
+
+  /** Effective model returned by a validated native thread/start or resume response. */
+  setThreadModel(threadId: string, model: string): void {
+    if (!this.disposed && model.trim()) this.threadModels.set(threadId, model);
+  }
+
+  threadModel(threadId: string): string | undefined {
+    return this.threadModels.get(threadId);
+  }
+
+  /** Undo a model staged for a turn/start request that the server rejected. */
+  restoreThreadModel(threadId: string, model: string | undefined): void {
+    if (this.disposed) return;
+    if (model === undefined) this.threadModels.delete(threadId);
+    else this.threadModels.set(threadId, model);
+  }
+
+  /** Bind a validated turn/start request to its native turn id. */
+  setTurnModel(threadId: string, turnId: string, model: string): void {
+    if (!this.disposed && model.trim()) this.turnModels.set(this.key({ threadId, turnId }), model);
+  }
 
   /** Params are checked against Batch 2b even when the caller already validated them. */
   translate(notification: {
@@ -194,6 +217,8 @@ export class CodexEventTranslator {
         };
         const total = this.totals.get(identity.threadId);
         const key = this.key(identity);
+        const model = this.threadModels.get(identity.threadId);
+        if (model && !this.turnModels.has(key)) this.turnModels.set(key, model);
         if (total && !this.baselines.has(key) && !this.terminals.has(key))
           this.baselines.set(key, total);
         return [];
@@ -324,13 +349,23 @@ export class CodexEventTranslator {
         if (reset) diagnostics.push('counter-reset');
         const epoch = (this.epochs.get(data.threadId) ?? 0) + (reset ? 1 : 0);
         const terminalState = this.terminals.get(key) ?? 'none';
+        if (data.model) {
+          this.setThreadModel(data.threadId, data.model);
+          this.setTurnModel(data.threadId, data.turnId, data.model);
+        }
+        const modelId = this.turnModels.get(key) ?? this.threadModels.get(data.threadId);
+        if (modelId && !this.turnModels.has(key)) this.turnModels.set(key, modelId);
         const evidence: CodexUsageEvidence = {
           threadId: data.threadId,
           turnId: data.turnId,
           ...(data.parentThreadId == null
             ? {}
             : { parentThreadId: data.parentThreadId }),
-          ...(data.model == null ? {} : { modelId: data.model }),
+          ...(modelId ? { modelId } : {}),
+          ...(typeof data.tokenUsage.modelContextWindow === 'number' &&
+            data.tokenUsage.modelContextWindow > 0
+            ? { modelContextWindow: data.tokenUsage.modelContextWindow } : {}),
+          lastRequestTotalTokens: data.tokenUsage.last.totalTokens,
           total: counters(data.tokenUsage.total),
           last: counters(data.tokenUsage.last),
           timestamp: this.now(),
@@ -441,6 +476,8 @@ export class CodexEventTranslator {
     this.terminals.clear();
     this.usage.clear();
     this.evidence.clear();
+    this.threadModels.clear();
+    this.turnModels.clear();
     this.totals.clear();
     this.baselines.clear();
     this.epochs.clear();

@@ -381,6 +381,52 @@ describe('CodexRuntime', () => {
     return { resumed, identity, child: children[1] };
   }
 
+  it('binds model-less native usage to the accepted model after a mid-session switch', async () => {
+    const context = await runtime.open(profile);
+    const iterator = context.events(new AbortController().signal)[Symbol.asyncIterator]();
+    const nativeCounts = (inputTokens: number, outputTokens: number) => ({
+      inputTokens, cachedInputTokens: 0, outputTokens,
+      reasoningOutputTokens: 0, totalTokens: inputTokens + outputTokens,
+    });
+    await context.startTurn({ text: 'first' });
+    children[0].notify('thread/tokenUsage/updated', {
+      threadId: context.identity.threadId, turnId: 'turn-1',
+      tokenUsage: { last: nativeCounts(8, 2), total: nativeCounts(8, 2) },
+    });
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'usage', evidence: { modelId: 'model' },
+    });
+    children[0].complete();
+    await iterator.next();
+    await context.updateNextTurn({ model: 'gpt-4o' });
+    await context.startTurn({ text: 'second' });
+    children[0].notify('thread/tokenUsage/updated', {
+      threadId: context.identity.threadId, turnId: 'turn-2',
+      tokenUsage: { last: nativeCounts(8, 2), total: nativeCounts(16, 4) },
+    });
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'usage', evidence: { modelId: 'gpt-4o' },
+    });
+    await iterator.return?.();
+  });
+
+  it('seeds model-less native usage from the validated thread/resume result', async () => {
+    const { resumed, child } = await resumeWithProfile('ask');
+    const iterator = resumed.events(new AbortController().signal)[Symbol.asyncIterator]();
+    await resumed.startTurn({ text: 'resumed' });
+    child.notify('thread/tokenUsage/updated', {
+      threadId: resumed.identity.threadId, turnId: 'turn-1',
+      tokenUsage: { last: { inputTokens: 8, cachedInputTokens: 0,
+        outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 10 },
+        total: { inputTokens: 8, cachedInputTokens: 0,
+          outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 10 } },
+    });
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'usage', evidence: { modelId: 'model' },
+    });
+    await iterator.return?.();
+  });
+
   it('preserves the exact open failure and reports its root cause once', async () => {
     const root = new CodexProtocolError('invalidResult', 'thread/start');
     const original = new CodexProcessFailureError(

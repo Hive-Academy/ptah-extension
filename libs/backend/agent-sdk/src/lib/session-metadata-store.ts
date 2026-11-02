@@ -199,8 +199,12 @@ function validCheckpoint(sessionId: string, raw: unknown): CodexUsageCheckpoint 
 
 function nativeCheckpointCost(checkpoint: CodexUsageCheckpoint): number | null {
   const price = checkpoint.pricing;
+  const basis = price?.basis ?? (checkpoint.billingMode === 'subscription'
+    ? 'covered-by-subscription' : checkpoint.billingMode === 'api-key'
+      ? 'estimated' : 'unknown');
   return checkpoint.revision > 0 && checkpoint.threads.length > 0 &&
     checkpoint.coverage === 'complete' && price?.complete &&
+    basis !== 'unknown' &&
     price.throughRevision === checkpoint.revision ? price.knownCost : null;
 }
 

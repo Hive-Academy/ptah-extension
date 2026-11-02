@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { CodexUsageCounters, CodexUsageEvidence } from '@ptah-extension/codex-runtime';
-import type { PriceProvenance, SessionStatsEntry } from '@ptah-extension/shared';
+import { resolveContextCapacity, type PriceProvenance, type SessionCostBasis, type SessionStatsEntry } from '@ptah-extension/shared';
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const MAX_USAGE_THREADS = 256;
@@ -17,6 +17,8 @@ const threadSchema = z.object({
   turnId: z.string().min(1),
   parentThreadId: z.string().min(1).optional(),
   modelId: z.string().min(1).optional(),
+  modelContextWindow: count.positive().optional(),
+  lastRequestTotalTokens: count.optional(),
   epoch: count,
   timestamp: count,
   terminalState: z.enum(['none', 'completed', 'failed', 'interrupted']),
@@ -29,11 +31,19 @@ const provenanceSchema = z.object({
   catalogVersion: z.string().nullable().optional(),
   effectiveDate: z.string().nullable().optional(),
 }).strict();
+const basisSchema = z.enum(['estimated', 'covered-by-subscription', 'unknown']);
+const pricingSegmentSchema = z.object({
+  basis: basisSchema,
+  knownCost: z.number().finite().nonnegative(),
+  turns: count.positive(),
+}).strict();
 const pricingSchema = z.object({
   throughRevision: count,
   knownCost: z.number().finite().nonnegative(),
   complete: z.boolean(),
   provenance: z.array(provenanceSchema).max(MAX_USAGE_THREADS),
+  basis: basisSchema.optional(),
+  segments: z.array(pricingSegmentSchema).max(MAX_USAGE_THREADS).optional(),
 }).strict();
 export const codexUsageCheckpointSchema = z.object({
   version: z.literal(2),
@@ -50,6 +60,7 @@ export const codexUsageCheckpointSchema = z.object({
   childTotal: countersSchema,
   threads: z.array(threadSchema).max(MAX_USAGE_THREADS),
   pricing: pricingSchema.optional(),
+  billingMode: z.enum(['subscription', 'api-key', 'unknown']).optional(),
 }).strict();
 export type CodexUsageCheckpoint = z.infer<typeof codexUsageCheckpointSchema>;
 export type CodexUsageOwnerDiagnostic = 'invalid-checkpoint' | 'unknown-version' | 'session-mismatch' |
@@ -127,6 +138,20 @@ export class CodexSessionUsageOwner {
       else children = next;
     }
     const computedTotal = saved.childInclusion === 'disjoint' ? sum(root, children) : root;
+    const segments = saved.pricing?.segments;
+    if (segments && saved.pricing) {
+      const segmentCost = segments.reduce((total, segment) => total + segment.knownCost, 0);
+      const firstSegment = segments[0];
+      const segmentBasis = firstSegment === undefined ? undefined
+        : segments.every((segment) => segment.basis === firstSegment.basis)
+          ? firstSegment.basis : 'unknown';
+      if (!Number.isFinite(segmentCost) || (saved.pricing.complete && (
+        Math.abs(segmentCost - saved.pricing.knownCost) > 1e-9 ||
+        segmentBasis !== saved.pricing.basis))) {
+        owner.markPartial('invalid-checkpoint');
+        return owner;
+      }
+    }
     if (saved.revision < saved.threads.length ||
       (saved.pricing !== undefined && saved.pricing.throughRevision > saved.revision) ||
       (saved.threads.length > 0 && !seen.has(rootThreadId) && saved.coverage !== 'partial') ||
@@ -149,6 +174,19 @@ export class CodexSessionUsageOwner {
       throughRevision: 0, knownCost: 0,
       complete: saved.total.totalTokens === 0, provenance: [],
     };
+    // Pre-fix checkpoints stored a single mode for all priced turns.
+    if (saved.pricing && !saved.pricing.basis && saved.pricing.throughRevision > 0) {
+      owner.pricing = { ...owner.pricing, basis: saved.billingMode === 'subscription'
+        ? 'covered-by-subscription' : saved.billingMode === 'api-key'
+          ? 'estimated' : 'unknown' };
+    }
+    if (saved.pricing && !saved.pricing.segments && saved.pricing.throughRevision > 0) {
+      owner.pricing = { ...owner.pricing, segments: [{
+        basis: owner.pricing.basis ?? 'unknown',
+        knownCost: owner.pricing.knownCost,
+        turns: 1,
+      }] };
+    }
     owner.restoredCheckpoint = true;
     return owner;
   }
@@ -158,8 +196,10 @@ export class CodexSessionUsageOwner {
 
   recordTurnPrice(price: {
     readonly totalCost: number | null;
+    readonly costBasis: SessionCostBasis;
     readonly priceProvenance?: PriceProvenance;
   }): void {
+    const basis = price.costBasis === 'reported' ? 'unknown' : price.costBasis;
     const addition = price.totalCost !== null && price.totalCost >= 0 &&
       Number.isFinite(price.totalCost) ? price.totalCost : null;
     const nextCost = this.pricing.knownCost + (addition ?? 0);
@@ -172,29 +212,46 @@ export class CodexSessionUsageOwner {
       this.pricing.provenance.length < MAX_USAGE_THREADS
       ? [...this.pricing.provenance, newProvenance]
       : this.pricing.provenance;
+    const previousSegments = this.pricing.segments ?? [];
+    const lastSegment = previousSegments.at(-1);
+    const canAppendSegment = lastSegment?.basis === basis ||
+      previousSegments.length < MAX_USAGE_THREADS;
+    const segments = lastSegment?.basis === basis
+      ? [...previousSegments.slice(0, -1), {
+          basis: lastSegment.basis,
+          knownCost: lastSegment.knownCost + (addition ?? 0),
+          turns: lastSegment.turns + 1,
+        }]
+      : canAppendSegment
+        ? [...previousSegments, { basis,
+            knownCost: addition ?? 0, turns: 1 }]
+        : previousSegments;
     this.pricing = {
       throughRevision: this.revision,
       knownCost: Number.isFinite(nextCost) ? nextCost : this.pricing.knownCost,
       complete: this.pricing.complete && addition !== null &&
         Number.isFinite(nextCost) &&
-        (!newProvenance || provenance.length > this.pricing.provenance.length),
+        (!newProvenance || provenance.length > this.pricing.provenance.length) &&
+        canAppendSegment,
       provenance,
+      segments,
+      basis: this.pricing.basis === undefined ? basis
+        : this.pricing.basis === basis ? this.pricing.basis : 'unknown',
     };
   }
 
-  lifetimePrice(billingMode: 'subscription' | 'api-key' | 'unknown'): {
+  lifetimePrice(): {
     totalCost: number | null;
     costBasis: 'unknown' | 'estimated' | 'covered-by-subscription';
     pricingCoverage: 'none' | 'partial' | 'full';
     priceProvenance?: z.infer<typeof provenanceSchema>[];
   } {
-    const complete = billingMode !== 'unknown' && this.pricing.complete &&
+    const complete = this.pricing.basis !== undefined && this.pricing.basis !== 'unknown' &&
+      this.pricing.complete &&
       this.pricing.throughRevision === this.revision && this.coverage === 'complete';
     return {
       totalCost: complete ? this.pricing.knownCost : null,
-      costBasis: complete
-        ? billingMode === 'subscription' ? 'covered-by-subscription' : 'estimated'
-        : 'unknown',
+      costBasis: complete ? this.pricing.basis ?? 'unknown' : 'unknown',
       pricingCoverage: complete ? 'full' : this.pricing.knownCost > 0 ? 'partial' : 'none',
       ...(this.pricing.provenance.length
         ? { priceProvenance: this.pricing.provenance } : {}),
@@ -255,7 +312,14 @@ export class CodexSessionUsageOwner {
     const terminalState = evidence.terminalState === 'none' && prior?.turnId === evidence.turnId
       ? prior.terminalState : evidence.terminalState;
     const changed = keys.some((key) => delta[key] > 0);
-    if (!changed && prior && !reset && evidence.turnId === prior.turnId && terminalState === prior.terminalState) return false;
+    const modelChanged = !!evidence.modelId && evidence.modelId !== prior?.modelId;
+    const contextChanged = evidence.modelContextWindow !== undefined &&
+      evidence.modelContextWindow !== prior?.modelContextWindow;
+    const requestChanged = evidence.lastRequestTotalTokens !== undefined &&
+      evidence.lastRequestTotalTokens !== prior?.lastRequestTotalTokens;
+    if (!changed && prior && !reset && evidence.turnId === prior.turnId &&
+      terminalState === prior.terminalState && !modelChanged && !contextChanged &&
+      !requestChanged) return false;
     this.total = total;
     this.childTotal = children;
     this.threads.set(evidence.threadId, {
@@ -264,10 +328,18 @@ export class CodexSessionUsageOwner {
         prior?.parentThreadId ? { parentThreadId: prior.parentThreadId } : {}),
       ...(evidence.modelId ? { modelId: evidence.modelId } :
         prior?.modelId ? { modelId: prior.modelId } : {}),
+      ...(evidence.modelContextWindow ? { modelContextWindow: evidence.modelContextWindow } :
+        !modelChanged && prior?.modelContextWindow
+          ? { modelContextWindow: prior.modelContextWindow } : {}),
+      ...(evidence.lastRequestTotalTokens !== undefined
+        ? { lastRequestTotalTokens: evidence.lastRequestTotalTokens }
+        : !modelChanged && prior?.lastRequestTotalTokens !== undefined
+          ? { lastRequestTotalTokens: prior.lastRequestTotalTokens } : {}),
       epoch: evidence.epoch, timestamp: evidence.timestamp,
       terminalState, counters: evidence.total, accrued,
     });
-    this.revision += 1;
+    if (changed || reset || !prior || evidence.turnId !== prior.turnId ||
+      terminalState !== prior.terminalState) this.revision += 1;
     if (!isRoot && (!evidence.parentThreadId ||
       !this.threads.has(evidence.parentThreadId)))
       this.markPartial('missing-parent');
@@ -290,17 +362,32 @@ export class CodexSessionUsageOwner {
   }
 
   snapshot(messageCount = 0): SessionStatsEntry {
-    const model = this.threads.get(this.rootThreadId)?.modelId ??
+    const root = this.threads.get(this.rootThreadId);
+    const model = root?.modelId ??
       [...this.threads.values()].sort((a, b) => a.threadId.localeCompare(b.threadId))[0]?.modelId ?? null;
+    const capacity = model ? resolveContextCapacity({
+      route: { kind: 'native', providerId: null }, model,
+      sdkContextWindow: root?.modelContextWindow,
+    }) : undefined;
+    const contextWindow = capacity?.tokens;
+    const price = this.lifetimePrice();
     return {
       sessionId: this.sessionId, model,
-      totalCost: null, tokens: {
+      totalCost: price.totalCost, costBasis: price.costBasis,
+      pricingCoverage: price.pricingCoverage,
+      ...(price.priceProvenance ? { priceProvenance: price.priceProvenance } : {}),
+      ...(model && capacity && contextWindow && root?.lastRequestTotalTokens !== undefined
+        ? { contextSnapshot: {
+            model, contextTokens: Math.min(root.lastRequestTotalTokens, contextWindow),
+            contextWindow, contextCapacity: capacity,
+          } } : {}),
+      tokens: {
         input: this.total.uncachedInputTokens, output: this.total.outputTokens,
         cacheRead: this.total.cacheReadTokens, cacheCreation: this.total.cacheCreationTokens,
       },
       tokenCount: this.total.uncachedInputTokens + this.total.outputTokens + this.total.cacheReadTokens + this.total.cacheCreationTokens,
       messageCount, status: this.threads.size ? 'ok' : 'empty',
-      coverage: this.coverage, pricingCoverage: 'none', scope: 'session',
+      coverage: this.coverage, scope: 'session',
     };
   }
 

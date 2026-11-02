@@ -213,6 +213,8 @@ export interface CodexUsageEvidence {
   readonly turnId: string;
   readonly parentThreadId?: string;
   readonly modelId?: string;
+  readonly modelContextWindow?: number;
+  readonly lastRequestTotalTokens?: number;
   readonly total: CodexUsageCounters;
   readonly last: CodexUsageCounters;
   readonly timestamp: number;

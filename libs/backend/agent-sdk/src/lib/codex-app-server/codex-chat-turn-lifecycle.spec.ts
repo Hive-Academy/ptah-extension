@@ -5,6 +5,7 @@ import { container } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
   CodexParityGate,
+  CodexEventTranslator,
   type ApprovalSink,
   type CodexContext,
   type CodexDevRouteOverride,
@@ -24,6 +25,7 @@ import { SessionApprovalRouter } from './session-approval-router';
 import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
 import { CodexSessionUsageOwner, type CodexUsageCheckpoint } from
   './codex-session-usage-owner';
+import { codexUsageCheckpointSchema } from './codex-session-usage-owner';
 import { recordTurnPriceOnce } from './codex-chat-turn-stream';
 
 const id = SessionId.from('11111111-1111-4111-8111-111111111111');
@@ -118,7 +120,9 @@ function setup(
     compaction: jest.fn(),
     error: jest.fn(),
   };
-  const persistUsage = jest.fn(async () => undefined);
+  const persistUsage = jest.fn<Promise<void>, [SessionId, CodexUsageCheckpoint]>(
+    async () => undefined,
+  );
   const lifecycle = { opened: jest.fn(), closed: jest.fn() };
   const scope = container.createChildContainer();
   const open = jest.fn(async () => context);
@@ -224,6 +228,62 @@ const delta: CodexRuntimeEvent = {
 };
 
 describe('Codex chat turn lifecycle', () => {
+  it('prices native model-less turns through translator, owner and stream across an auth change', async () => {
+    const translator = new CodexEventTranslator('context', 1);
+    const nativeCounts = (inputTokens: number, outputTokens: number) => ({
+      inputTokens, cachedInputTokens: 0, outputTokens,
+      reasoningOutputTokens: 0, totalTokens: inputTokens + outputTokens,
+    });
+    const nativeEvents = (turnId: string, inputTokens: number, outputTokens: number) => [
+      ...translator.translate({ method: 'thread/tokenUsage/updated', params: {
+        threadId: id, turnId, tokenUsage: {
+          last: nativeCounts(100, 20), total: nativeCounts(inputTokens, outputTokens),
+        },
+      } }),
+      ...translator.translate({ method: 'turn/completed', params: {
+        threadId: id, turn: { id: turnId, items: [], status: 'completed' },
+      } }),
+    ];
+    translator.setThreadModel(id, 'gpt-4o');
+    translator.setTurnModel(id, 'turn', 'gpt-4o');
+    const first = setup(true, 'chat', 'api-key', 'gpt-4o');
+    first.context.events.mockImplementation(() => (async function* () {
+      yield* nativeEvents('turn', 100, 20);
+    })());
+    await collect(await first.adapter.startChatSession({ tabId }));
+    const checkpoint = codexUsageCheckpointSchema.parse(first.persistUsage.mock.lastCall?.[1]);
+    expect(checkpoint.pricing?.basis).toBe('estimated');
+    await first.adapter.dispose();
+
+    translator.setThreadModel(id, 'gpt-4o-mini');
+    translator.setTurnModel(id, 'turn-2', 'gpt-4o-mini');
+    const second = setup(true, 'chat', 'subscription', 'gpt-4o-mini', checkpoint);
+    second.context.startTurn.mockResolvedValue({ threadId: id, turnId: 'turn-2', revision: 2 });
+    const stats = jest.fn();
+    second.adapter.setResultStatsCallback(stats);
+    second.context.events.mockImplementation(() => (async function* () {
+      yield* nativeEvents('turn-2', 200, 40);
+    })());
+    await collect(await second.adapter.resumeSession(id, { tabId }));
+    const result = stats.mock.lastCall?.[0];
+    expect(result).toMatchObject({
+      costBasis: 'covered-by-subscription',
+      sessionStats: { totalCost: null, costBasis: 'unknown', pricingCoverage: 'partial' },
+    });
+    expect(result?.turnCost).toBeGreaterThan(0);
+    const saved = codexUsageCheckpointSchema.parse(second.persistUsage.mock.lastCall?.[1]);
+    expect(saved.pricing?.basis).toBe('unknown');
+    expect(saved.pricing?.segments).toMatchObject([
+      { basis: 'estimated', turns: 1 },
+      { basis: 'covered-by-subscription', turns: 1 },
+    ]);
+    expect(saved.pricing?.provenance).toEqual([
+      expect.objectContaining({ modelIdUsed: 'gpt-4o' }),
+      expect.objectContaining({ modelIdUsed: 'gpt-4o-mini' }),
+    ]);
+    await second.adapter.dispose();
+  });
+
   it.each(['in-turn', 'detached'] as const)(
     'records the %s terminal price once through the real stream', async (path) => {
       const h = setup(true, 'chat', 'api-key', 'gpt-4o');

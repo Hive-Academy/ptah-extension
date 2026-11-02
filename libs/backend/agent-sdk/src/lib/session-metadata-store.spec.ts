@@ -2233,14 +2233,28 @@ describe('Codex metadata identity', () => {
     await reloaded.updateCodexExecution(threadId, () => execution);
     expect((await reloaded.get(threadId))?.totalTokens).toEqual({ input: 9, output: 2 });
     expect((await reloaded.get(threadId))?.totalCost).toBeNull();
-    owner.recordTurnPrice({ totalCost: 0.0001 });
+    owner.recordTurnPrice({ totalCost: 0.0001, costBasis: 'estimated' });
     await reloaded.updateCodexUsageCheckpoint(threadId, owner.serialize());
     expect((await reloaded.get(threadId))?.totalCost).toBe(0.0001);
     const priced = owner.serialize();
     if (!priced.pricing) throw new Error('Expected priced checkpoint');
     await expect(reloaded.updateCodexUsageCheckpoint(threadId, {
-      ...priced, pricing: { ...priced.pricing, knownCost: 0 },
+      ...priced, pricing: { ...priced.pricing, knownCost: 0,
+        segments: priced.pricing.segments?.map((segment) => ({ ...segment, knownCost: 0 })) },
     })).rejects.toMatchObject({ code: 'usage-regression' });
+    const nextCounters = { uncachedInputTokens: 10, outputTokens: 4,
+      cacheReadTokens: 3, cacheCreationTokens: 1,
+      reasoningOutputTokens: 0, totalTokens: 18 };
+    owner.accept({
+      threadId: 'native-root', turnId: 'turn-2', timestamp: 2,
+      terminalState: 'completed', total: nextCounters, last: nextCounters,
+      accepted: true, resetOrStale: false, epoch: 0,
+      cacheSemanticsAmbiguous: false, lastExceedsTotal: false, diagnostics: [],
+    });
+    owner.recordTurnPrice({ totalCost: 0.0002,
+      costBasis: 'covered-by-subscription' });
+    await reloaded.updateCodexUsageCheckpoint(threadId, owner.serialize());
+    expect((await reloaded.get(threadId))?.totalCost).toBeNull();
   });
 
   it('stores a recoverable partial orphan checkpoint without a false regression', async () => {

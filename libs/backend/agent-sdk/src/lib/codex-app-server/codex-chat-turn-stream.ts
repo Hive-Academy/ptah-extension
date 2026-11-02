@@ -229,7 +229,7 @@ export async function* streamCodexChatTurn(
           session.usageOwner.recordTurnPrice(turnPrice),
         );
       }
-      const lifetimePrice = session.usageOwner.lifetimePrice(session.billingMode);
+      const lifetimePrice = session.usageOwner.lifetimePrice();
       try {
         await deps.persistUsage(session.id, session.usageOwner.serialize());
       } catch (error) {

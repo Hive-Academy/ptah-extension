@@ -5,6 +5,7 @@ import { CodexEventTranslator, MAX_TOOL_OUTPUT_CHARS } from './codex-event-trans
 import type { CodexUsageEvidence } from './codex-runtime.types';
 import {
   codexNotificationSchemas,
+  codexRequestSchemas,
   validateCodexFrame,
 } from './codex-protocol-validator';
 const pinnedNotificationMethods = z
@@ -385,6 +386,65 @@ describe('CodexEventTranslator', () => {
       type: 'terminal', usage: { totalTokens: 27 },
       evidence: { terminalState: 'completed', total: { totalTokens: 27 } },
     }]);
+  });
+
+  it('uses the validated thread response model when native usage omits model', () => {
+    const translator = new CodexEventTranslator('context', 1);
+    translator.setThreadModel('thread', 'gpt-6-luna');
+    const events = translator.translate({
+      method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: {
+        last: counts, total: counts, modelContextWindow: 128_000,
+      } },
+    });
+    expect(events[0]).toMatchObject({ type: 'usage', evidence: {
+      modelId: 'gpt-6-luna', modelContextWindow: 128_000,
+      lastRequestTotalTokens: 10,
+    } });
+  });
+
+  it('keeps each turn model across a switch and late model-less usage', () => {
+    const translator = new CodexEventTranslator('context', 1);
+    translator.setThreadModel('thread', 'gpt-4o');
+    translator.setTurnModel('thread', 'first', 'gpt-4o');
+    translator.setThreadModel('thread', 'gpt-4o-mini');
+    translator.setTurnModel('thread', 'second', 'gpt-4o-mini');
+    const usage = (turnId: string) => translator.translate({
+      method: 'thread/tokenUsage/updated', params: {
+        threadId: 'thread', turnId, tokenUsage: { last: counts, total: counts },
+      },
+    });
+    expect(usage('first')[0]).toMatchObject({ evidence: { modelId: 'gpt-4o' } });
+    expect(usage('second')[0]).toMatchObject({ evidence: { modelId: 'gpt-4o-mini' } });
+  });
+
+  it('seeds a resumed root while keeping child models independent', () => {
+    const translator = new CodexEventTranslator('context', 1);
+    const resumed = codexRequestSchemas['thread/resume'].result.parse({
+      thread: {
+        id: 'thread', cliVersion: '0.165.0', createdAt: 1, updatedAt: 1,
+        cwd: '/work', ephemeral: false, modelProvider: 'openai', preview: '',
+        projectId: null, sessionId: 'session', source: 'appServer',
+        status: { type: 'idle' }, turns: [],
+      },
+      approvalPolicy: 'never', approvalsReviewer: 'user', cwd: '/work',
+      model: 'gpt-4o', modelProvider: 'openai', sandbox: { type: 'readOnly' },
+    });
+    translator.setThreadModel(resumed.thread.id, resumed.model);
+    const usage = (threadId: string, turnId: string) => translator.translate({
+      method: 'thread/tokenUsage/updated', params: {
+        threadId, turnId, tokenUsage: { last: counts, total: counts },
+      },
+    });
+    expect(usage('thread', 'resumed')[0]).toMatchObject({
+      evidence: { modelId: 'gpt-4o' },
+    });
+    const unmodeledChild = usage('child', 'child-turn')[0];
+    expect(unmodeledChild).not.toHaveProperty('evidence.modelId');
+    translator.setThreadModel('child-2', 'gpt-4o-mini');
+    expect(usage('child-2', 'other-turn')[0]).toMatchObject({
+      evidence: { modelId: 'gpt-4o-mini' },
+    });
   });
 
   it('marks decreasing and inconsistent equal totals as stale without negative usage', () => {

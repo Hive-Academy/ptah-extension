@@ -254,6 +254,7 @@ class RuntimeContext implements CodexContext {
     if (resume && result.thread.id !== resume.threadId)
       throw new Error('Codex resumed a different thread');
     if (this.isClosed()) throw new Error('Codex context closed');
+    this.translator.setThreadModel(result.thread.id, result.model);
     const identity: CodexThreadIdentity = Object.freeze({
       threadId: result.thread.id,
       contextId: this.profile.contextId,
@@ -530,10 +531,15 @@ class RuntimeContext implements CodexContext {
     this.state = 'running';
     this.turnController = new AbortController();
     this.turnRevision = this.revision;
+    const previousThreadModel = this.translator.threadModel(this.identity.threadId);
     try {
       this.wirePermissionLevel = level;
+      // Usage notifications may arrive before the turn/start response. The
+      // validated request is the effective model for this accepted turn.
+      if (params.model) this.translator.setThreadModel(this.identity.threadId, params.model);
       const result = await this.process.request('turn/start', params);
       const turnId = result.turn.id;
+      if (params.model) this.translator.setTurnModel(this.identity.threadId, turnId, params.model);
       this.sentInitialInput = true;
       this.assertOpen();
       if (!this.terminalTurns.has(turnId)) {
@@ -553,6 +559,9 @@ class RuntimeContext implements CodexContext {
     } catch (error) {
       if (error instanceof CodexRequestRejectedError) {
         if (!this.activeTurn) {
+          // The rejected turn never ran, so later usage must not use its model.
+          if (params.model)
+            this.translator.restoreThreadModel(this.identity.threadId, previousThreadModel);
           this.wirePermissionLevel = previousWirePermissionLevel;
           this.state = 'idle';
           this.activeTurnPermissionLevel = undefined;
