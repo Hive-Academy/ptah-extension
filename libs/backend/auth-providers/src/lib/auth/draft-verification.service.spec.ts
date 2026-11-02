@@ -40,7 +40,6 @@ import { getProviderBaseUrl } from '@ptah-extension/shared';
 import type { CuratorProxyManager } from './curator-proxy-manager';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
-import type { ICodexAuthService } from '../providers/codex/codex-provider.types';
 import type { IOpenRouterAuthService } from '../providers/openrouter/openrouter-provider.types';
 import type { IKimiCodeAuthService } from '../providers/kimi-code/kimi-code-provider.types';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot';
@@ -134,6 +133,30 @@ describe('classifyDraftProbeFailure — the ten-rule table', () => {
       }),
     );
     expect(reason).toBe('credential-rejected');
+  });
+
+  it('rule 3: a native Codex refusal is an auth failure', () => {
+    const reason = classifyDraftProbeFailure(
+      input({
+        thrown: Object.assign(new Error('native runtime required'), {
+          name: 'AuthRequiredError',
+          providerId: 'openai-codex',
+        }),
+      }),
+    );
+    expect(reason).toBe('credential-rejected');
+  });
+
+  it('does not relabel another provider AuthRequiredError as Codex', () => {
+    const reason = classifyDraftProbeFailure(
+      input({
+        thrown: Object.assign(new Error('other provider'), {
+          name: 'AuthRequiredError',
+          providerId: 'github-copilot',
+        }),
+      }),
+    );
+    expect(reason).toBe('unclassified');
   });
 
   it('rule 4: a 401 on the stream result is a credential verdict, never unclassified', () => {
@@ -464,10 +487,6 @@ function createServiceHarness(
     isAuthenticated: jest.fn(async () => true),
     tryRestoreAuth: jest.fn(async () => false),
   } as unknown as ICopilotAuthService;
-  const codexAuth = {
-    isAuthenticated: jest.fn(async () => true),
-    ensureTokensFresh: jest.fn(async () => true),
-  } as unknown as ICodexAuthService;
   const openRouterAuth = {
     isAuthenticated: jest.fn(async () => true),
   } as unknown as IOpenRouterAuthService;
@@ -479,7 +498,6 @@ function createServiceHarness(
     providerModels,
     proxyManager,
     copilotAuth,
-    codexAuth,
     openRouterAuth,
     new ProviderQuotaStore(),
     fakeKimiCodeAuth(),
@@ -533,6 +551,23 @@ function expectNothingWritten(harness: ServiceHarness): void {
 }
 
 describe('DraftVerificationService.verify — a failed probe writes nothing (pin 10)', () => {
+  it('reports the native Codex refusal without starting a probe', async () => {
+    const harness = createServiceHarness();
+    const result = await harness.service.verify({
+      probeId: 'probe-codex',
+      providerId: 'openai-codex',
+      authMode: 'oauth',
+    });
+
+    expect(result).toMatchObject({
+      outcome: 'failed',
+      reason: 'credential-rejected',
+      detail: 'Codex chat requires a host with the native Codex runtime.',
+    });
+    expect(harness.execute).not.toHaveBeenCalled();
+    expectNothingWritten(harness);
+  });
+
   it('answers a rejected credential pre-flight without starting the probe', async () => {
     const harness = createServiceHarness();
     const envBefore = { ...process.env };

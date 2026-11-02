@@ -768,6 +768,42 @@ export class AgentProcessManager {
       .sort((a, b) => a.info.startedAt.localeCompare(b.info.startedAt));
   }
 
+  /** Most recently started record for this provider's CLI conversation. */
+  private previousResumeRecord(
+    cli: CliType,
+    cliSessionId: string | undefined,
+  ): AgentProcessInfo | undefined {
+    if (!cliSessionId) return undefined;
+    let latest: AgentProcessInfo | undefined;
+    for (const tracked of this.agents.values()) {
+      const info = tracked.info;
+      if (info.cli !== cli || info.cliSessionId !== cliSessionId) continue;
+      if (!latest || info.startedAt >= latest.startedAt) latest = info;
+    }
+    return latest;
+  }
+
+  private resumedOwner(
+    requested: string | undefined,
+    previous: AgentProcessInfo | undefined,
+    cli: CliType,
+  ): string | undefined {
+    const parent = this.resolvedParentSessions.get(requested ?? '') ?? requested;
+    if (parent && previous?.parentSessionId && parent !== previous.parentSessionId) {
+      this.logger.warn('[AgentProcessManager] Explicit resume owner differs from prior owner', {
+        cli, previousAgentId: previous.agentId,
+        previousParentSessionId: previous.parentSessionId,
+        requestedParentSessionId: parent,
+      });
+    }
+    if (requested !== undefined) return parent;
+    if (!previous) return undefined;
+    const priorRecord = this.agents.get(String(previous.agentId));
+    return priorRecord && !priorRecord.restored
+      ? previous.parentSessionId
+      : undefined;
+  }
+
   /**
    * Spawn an SDK-based agent using adapter.runSdk() instead of child_process.spawn().
    * SDK agents have process: null and use AbortController for cancellation.
@@ -792,6 +828,7 @@ export class AgentProcessManager {
     } = options;
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
+    const previous = this.previousResumeRecord(cli, request.resumeSessionId);
     const laneModel = this.spawnEnvironment.resolveModel(cli, request.model);
     const resolvedModel = laneModel.model;
     // R9.5: refuse a model known to loop before anything is started — no
@@ -818,9 +855,9 @@ export class AgentProcessManager {
       deliverables: request.deliverables,
       status: 'running',
       startedAt,
-      parentSessionId:
-        this.resolvedParentSessions.get(request.parentSessionId ?? '') ??
-        request.parentSessionId,
+      turnSeq: 1,
+      parentSessionId: this.resumedOwner(request.parentSessionId, previous, cli),
+      ...(previous ? { resumedFromAgentId: previous.agentId } : {}),
       displayName,
       model: resolvedModel,
       ...(request.resumeSessionId
@@ -1020,6 +1057,7 @@ export class AgentProcessManager {
 
       const agentId = meta.agentId ?? AgentId.create();
       const startedAt = new Date().toISOString();
+      const previous = this.previousResumeRecord(meta.cli, meta.resumeSessionId);
 
       const info: AgentProcessInfo = {
         ...meta.accountReference,
@@ -1031,16 +1069,15 @@ export class AgentProcessManager {
         deliverables: meta.deliverables,
         status: 'running',
         startedAt,
-        parentSessionId:
-          this.resolvedParentSessions.get(meta.parentSessionId ?? '') ??
-          meta.parentSessionId,
+        turnSeq: 1,
+        parentSessionId: this.resumedOwner(meta.parentSessionId, previous, meta.cli),
         displayName: meta.ptahCliName,
         ptahCliName: meta.ptahCliName,
         ptahCliId: meta.ptahCliId,
         providerId: sdkHandle.providerId,
         taskKind: meta.taskKind,
         routingSource: meta.routingSource,
-        resumedFromAgentId: meta.resumedFromAgentId,
+        resumedFromAgentId: meta.resumedFromAgentId ?? previous?.agentId,
         ...(meta.resumeSessionId ? { cliSessionId: meta.resumeSessionId } : {}),
         ...(meta.originalTask !== undefined
           ? { originalTask: meta.originalTask }
@@ -1549,6 +1586,7 @@ export class AgentProcessManager {
         // never resolves and would count against the concurrency cap.
         status: ref.status === 'running' ? 'stopped' : ref.status,
         startedAt: ref.startedAt,
+        ...(ref.turnSeq !== undefined ? { turnSeq: ref.turnSeq } : {}),
         ...(ref.cliSessionId ? { cliSessionId: ref.cliSessionId } : {}),
         ...(ref.ptahCliId ? { ptahCliId: ref.ptahCliId } : {}),
         // The owner the run recorded (Gate 2 G3). `getCliSessionsForRestore`
@@ -2270,6 +2308,7 @@ export class AgentProcessManager {
     }
     tracked.info = {
       ...tracked.info,
+      turnSeq: (tracked.info.turnSeq ?? 1) + 1,
       status: 'running',
       completedAt: undefined,
       exitCode: undefined,
@@ -2370,6 +2409,7 @@ export class AgentProcessManager {
       return tracked.info;
     }
 
+    this.flushDelta(agentId);
     // Stamped BEFORE the kill, not after. The kill makes the handle settle,
     // which runs `handleExit` — and that path reads `status === 'running'` and
     // would relabel a user-requested stop as `failed`, both on the record and
@@ -2388,7 +2428,6 @@ export class AgentProcessManager {
     await this.removeInstructionFiles(agentId);
     this.clearIdleRelease(tracked);
     clearTimeout(tracked.timeoutHandle);
-    this.flushDelta(agentId);
     this.outputBuffer.discard(agentId);
 
     this.scheduleCleanup(agentId);
@@ -2619,6 +2658,8 @@ export class AgentProcessManager {
       '[AgentProcessManager] Agent produced no output for the whole inactivity window — treating it as hung',
       { agentId, inactivityTimeoutMs: tracked.inactivityTimeoutMs },
     );
+    this.flushDelta(agentId);
+    clearTimeout(tracked.timeoutHandle);
     tracked.info = {
       ...tracked.info,
       status: 'timeout',
@@ -2641,7 +2682,6 @@ export class AgentProcessManager {
     tracked.subprocessReleased = true;
     await this.removeInstructionFiles(agentId);
     this.clearIdleRelease(tracked);
-    this.flushDelta(agentId);
     this.outputBuffer.discard(agentId);
     this.scheduleCleanup(agentId);
   }
@@ -2799,6 +2839,7 @@ export class AgentProcessManager {
       });
     }
 
+    this.flushDelta(agentId);
     clearTimeout(tracked.timeoutHandle);
     // A continuation-capable lane can start another caller turn on this
     // record, so its guard is kept (and reset by `continueConversation`) until
@@ -2845,14 +2886,13 @@ export class AgentProcessManager {
       };
     }
     this.signalLaneCompletion(tracked);
-    this.flushDelta(agentId);
     this.outputBuffer.discard(agentId);
 
     this.scheduleCleanup(agentId);
     // The turn is over but a continuation-capable handle still owns its
     // subprocess, by design — start the clock on how long that stays true.
     this.scheduleIdleRelease(agentId);
-    const exitInfo = tracked.info;
+    const exitInfo = { ...tracked.info, turnSeq: tracked.info.turnSeq };
     tracked.exitEmitHandle = this.unrefTimer(
       setTimeout(() => {
         const current = this.agents.get(agentId);

@@ -31,7 +31,11 @@ describe('AnalysisFoundCardComponent', () => {
   const clearSelection = jest.fn();
   const navigate = jest.fn();
   const warn = jest.fn();
+  // The card computes ages from Date.now(); pin it to the fixture clock so
+  // relative labels such as "12 days ago" do not drift with the calendar.
+  afterEach(() => jest.restoreAllMocks());
   beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(now);
     activePath.set('/workspace');
     readyForActivePath.set(true);
     getAnalysisStatus.mockReset();

@@ -69,6 +69,7 @@ import {
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SdkError } from './errors';
+import { CodexSessionUsageOwner } from './codex-app-server/codex-session-usage-owner';
 
 function asLogger(mock: MockLogger): Logger {
   return mock as unknown as Logger;
@@ -2207,6 +2208,98 @@ describe('Codex metadata identity', () => {
     };
   }
 
+  it('persists a native usage checkpoint and restores sidebar totals after reload', async () => {
+    const { storage, store } = fixture();
+    await store.updateCodexExecution(threadId, () => execution);
+    expect((await store.get(threadId))?.totalCost).toBeNull();
+    const owner = new CodexSessionUsageOwner(threadId, 'native-root');
+    await store.updateCodexUsageCheckpoint(threadId, owner.serialize());
+    expect((await store.get(threadId))?.totalCost).toBeNull();
+    owner.accept({
+      threadId: 'native-root', turnId: 'turn-1', timestamp: 1, terminalState: 'failed',
+      total: { uncachedInputTokens: 5, outputTokens: 2, cacheReadTokens: 3,
+        cacheCreationTokens: 1, reasoningOutputTokens: 0, totalTokens: 11 },
+      last: { uncachedInputTokens: 5, outputTokens: 2, cacheReadTokens: 3,
+        cacheCreationTokens: 1, reasoningOutputTokens: 0, totalTokens: 11 },
+      accepted: true, resetOrStale: false, epoch: 0,
+      cacheSemanticsAmbiguous: false, lastExceedsTotal: false, diagnostics: [],
+    });
+    await store.updateCodexUsageCheckpoint(threadId, owner.serialize());
+    const reloaded = new SessionMetadataStore(storage, asLogger(createMockLogger()));
+    const row = await reloaded.get(threadId);
+    expect(row?.totalTokens).toEqual({ input: 9, output: 2 });
+    expect(row?.totalCost).toBeNull();
+    expect(row?.codexUsageCheckpoint).toEqual(owner.serialize());
+    await reloaded.updateCodexExecution(threadId, () => execution);
+    expect((await reloaded.get(threadId))?.totalTokens).toEqual({ input: 9, output: 2 });
+    expect((await reloaded.get(threadId))?.totalCost).toBeNull();
+    owner.recordTurnPrice({ totalCost: 0.0001, costBasis: 'estimated' });
+    await reloaded.updateCodexUsageCheckpoint(threadId, owner.serialize());
+    expect((await reloaded.get(threadId))?.totalCost).toBe(0.0001);
+    const priced = owner.serialize();
+    if (!priced.pricing) throw new Error('Expected priced checkpoint');
+    await expect(reloaded.updateCodexUsageCheckpoint(threadId, {
+      ...priced, pricing: { ...priced.pricing, knownCost: 0,
+        segments: priced.pricing.segments?.map((segment) => ({ ...segment, knownCost: 0 })) },
+    })).rejects.toMatchObject({ code: 'usage-regression' });
+    const nextCounters = { uncachedInputTokens: 10, outputTokens: 4,
+      cacheReadTokens: 3, cacheCreationTokens: 1,
+      reasoningOutputTokens: 0, totalTokens: 18 };
+    owner.accept({
+      threadId: 'native-root', turnId: 'turn-2', timestamp: 2,
+      terminalState: 'completed', total: nextCounters, last: nextCounters,
+      accepted: true, resetOrStale: false, epoch: 0,
+      cacheSemanticsAmbiguous: false, lastExceedsTotal: false, diagnostics: [],
+    });
+    owner.recordTurnPrice({ totalCost: 0.0002,
+      costBasis: 'covered-by-subscription' });
+    await reloaded.updateCodexUsageCheckpoint(threadId, owner.serialize());
+    expect((await reloaded.get(threadId))?.totalCost).toBeNull();
+  });
+
+  it('stores a recoverable partial orphan checkpoint without a false regression', async () => {
+    const { store } = fixture();
+    await store.updateCodexExecution(threadId, () => execution);
+    const owner = new CodexSessionUsageOwner(threadId, 'native-root');
+    const counts = { uncachedInputTokens: 5, outputTokens: 0, cacheReadTokens: 0,
+      cacheCreationTokens: 0, reasoningOutputTokens: 0, totalTokens: 5 };
+    owner.accept({ threadId: 'child', parentThreadId: 'missing', turnId: 'turn',
+      total: counts, last: counts, timestamp: 1, terminalState: 'completed',
+      accepted: true, resetOrStale: false, epoch: 0,
+      cacheSemanticsAmbiguous: false, lastExceedsTotal: false, diagnostics: [] });
+    await store.updateCodexUsageCheckpoint(threadId, owner.serialize());
+    expect((await store.get(threadId))?.codexUsageCheckpoint).toEqual(owner.serialize());
+    expect((await store.get(threadId))?.totalCost).toBeNull();
+  });
+
+  it('rejects older checkpoints and preserves a newer checkpoint on stale ordinary save', async () => {
+    const { store } = fixture();
+    await store.updateCodexExecution(threadId, () => execution);
+    const staleRow = await store.get(threadId);
+    if (!staleRow) throw new Error('Missing Codex row');
+    const owner = new CodexSessionUsageOwner(threadId, 'native-root');
+    const base = { uncachedInputTokens: 5, outputTokens: 1, cacheReadTokens: 0,
+      cacheCreationTokens: 0, reasoningOutputTokens: 0, totalTokens: 6 };
+    owner.accept({ threadId: 'native-root', turnId: 'turn', total: base, last: base,
+      timestamp: 1, terminalState: 'none', accepted: true, resetOrStale: false,
+      epoch: 0, cacheSemanticsAmbiguous: false, lastExceedsTotal: false, diagnostics: [] });
+    const older = owner.serialize();
+    await store.updateCodexUsageCheckpoint(threadId, older);
+    const higher = { ...base, uncachedInputTokens: 8, totalTokens: 9 };
+    owner.accept({ threadId: 'native-root', turnId: 'turn', total: higher, last: higher,
+      timestamp: 2, terminalState: 'completed', accepted: true, resetOrStale: false,
+      epoch: 0, cacheSemanticsAmbiguous: false, lastExceedsTotal: false, diagnostics: [] });
+    await store.updateCodexUsageCheckpoint(threadId, owner.serialize());
+    await expect(store.updateCodexUsageCheckpoint(threadId, older)).rejects.toMatchObject({
+      code: 'usage-regression',
+    });
+    await store.save({ ...staleRow, codexUsageCheckpoint: older, name: 'Renamed' });
+    const saved = await store.get(threadId);
+    expect(saved?.name).toBe('Renamed');
+    expect(saved?.codexUsageCheckpoint).toEqual(owner.serialize());
+    expect(saved?.totalTokens).toEqual({ input: 8, output: 1 });
+  });
+
   it.each([false, true])(
     'persists normalized thread identity and preserves it on ordinary save (async=%s)',
     async (asyncStorage) => {
@@ -2455,7 +2548,7 @@ describe('Codex metadata identity', () => {
   });
 
   it.each([false, true])(
-    'preserves resume state and accumulated totals (async=%s)',
+    'preserves resume state and tokens while clearing unverified cost (async=%s)',
     async (asyncStorage) => {
       const { store } = fixture(asyncStorage);
       await store.updateCodexExecution(threadId, () => execution);
@@ -2474,7 +2567,7 @@ describe('Codex metadata identity', () => {
       expect(await store.get(threadId)).toMatchObject({
         workingDirectory: '/work/project/worktree',
         resumableSdkSubagents: [],
-        totalCost: 7,
+        totalCost: null,
         totalTokens: { input: 23, output: 41 },
       });
     },

@@ -1,9 +1,9 @@
 import { inject, injectable } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { codexNativeRuntimeRequired } from './codex-native-runtime-refusal';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { ITranslationProxy } from '../translation';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot';
-import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../providers/codex';
 import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../providers/openrouter';
 import { LOCAL_PROXY_TOKEN_PLACEHOLDER } from '../providers/local';
 import { KIMI_CODE_PROXY_TOKEN_PLACEHOLDER } from '@ptah-extension/shared';
@@ -30,8 +30,6 @@ export class CuratorProxyManager {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_COPILOT_PROXY)
     copilotProxy: ITranslationProxy,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_CODEX_PROXY)
-    codexProxy: ITranslationProxy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_OPENROUTER_PROXY)
     openRouterProxy: ITranslationProxy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_LM_STUDIO_PROXY)
@@ -44,10 +42,6 @@ export class CuratorProxyManager {
       [
         'github-copilot',
         { proxy: copilotProxy, token: COPILOT_PROXY_TOKEN_PLACEHOLDER },
-      ],
-      [
-        'openai-codex',
-        { proxy: codexProxy, token: CODEX_PROXY_TOKEN_PLACEHOLDER },
       ],
       [
         'openrouter',
@@ -69,6 +63,9 @@ export class CuratorProxyManager {
   }
 
   async ensureProxy(providerId: string): Promise<CuratorProxyHandle> {
+    if (providerId === 'openai-codex') {
+      throw codexNativeRuntimeRequired();
+    }
     const entry = this.entries.get(providerId);
     if (!entry) {
       throw new Error(

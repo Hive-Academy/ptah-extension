@@ -20,9 +20,11 @@
 
 import { TestBed } from '@angular/core/testing';
 import {
+  AgentMonitorStore,
   HistoryMessageBuilder,
   SessionManager,
   StreamingHandlerService,
+  SubagentExecutionStore,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { LoggingService } from '@ptah-extension/core';
@@ -48,6 +50,7 @@ describe('SessionHistoryReplayer', () => {
     claudeSessionId: string | null;
     messages?: unknown[];
     streamingState?: unknown;
+    providerId?: string;
   }>;
   let streamingHandler: {
     processStreamEvent: jest.Mock;
@@ -58,6 +61,8 @@ describe('SessionHistoryReplayer', () => {
   let setMessages: jest.Mock;
   let setStreamingState: jest.Mock;
   let replayer: SessionHistoryReplayer;
+  let monitor: { subagents: jest.Mock; onAgentStart: jest.Mock; onTaskToolResult: jest.Mock };
+  let execution: { restoreHistoryChild: jest.Mock };
   let consoleWarn: jest.SpyInstance;
   /** 1-based post that throws, or `null` for none. */
   let failPostAt: number | null;
@@ -109,6 +114,12 @@ describe('SessionHistoryReplayer', () => {
       if (tab) tab.messages = messages;
     });
     setStreamingState = jest.fn();
+    monitor = {
+      subagents: jest.fn(() => new Map()),
+      onAgentStart: jest.fn(),
+      onTaskToolResult: jest.fn(),
+    };
+    execution = { restoreHistoryChild: jest.fn(() => true) };
     consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
 
     TestBed.configureTestingModule({
@@ -127,6 +138,8 @@ describe('SessionHistoryReplayer', () => {
           },
         },
         { provide: StreamingHandlerService, useValue: streamingHandler },
+        { provide: AgentMonitorStore, useValue: monitor },
+        { provide: SubagentExecutionStore, useValue: execution },
         { provide: SessionManager, useValue: { setStatus } },
       ],
     });
@@ -164,6 +177,85 @@ describe('SessionHistoryReplayer', () => {
   function releaseHeld(): void {
     heldDeliveries.splice(0).forEach((deliver) => deliver());
   }
+
+  function completedChildEvents(nativeMarker = true): FlatStreamEventUnion[] {
+    return [
+      {
+        id: nativeMarker
+          ? JSON.stringify(['thread', 'turn', 'item', 'agent_start', 'item/started', 0])
+          : 'claude-agent',
+        source: nativeMarker ? 'history' : 'stream',
+        eventType: 'agent_start', messageId: 'parent',
+        timestamp: 1, sessionId: SESSION, toolCallId: 'spawn-1',
+        agentId: 'child-1', agentType: 'codex',
+      },
+      {
+        id: 'message', eventType: 'message_start', messageId: 'child-message',
+        timestamp: 2, sessionId: SESSION, parentToolUseId: 'spawn-1',
+        role: 'assistant',
+      },
+      {
+        id: 'answer', eventType: 'text_delta', messageId: 'child-message',
+        timestamp: 3, sessionId: SESSION, parentToolUseId: 'spawn-1',
+        blockIndex: 0, delta: 'Synthetic answer',
+      },
+      {
+        id: 'done', eventType: 'message_complete', messageId: 'child-message',
+        timestamp: 4, sessionId: SESSION, parentToolUseId: 'spawn-1',
+      },
+      {
+        id: 'tool-result', eventType: 'tool_result', messageId: 'parent',
+        timestamp: 5, sessionId: SESSION, toolCallId: 'spawn-1',
+        output: 'Synthetic answer', isError: false,
+      },
+    ] satisfies FlatStreamEventUnion[];
+  }
+
+  it('restores a completed native child card transcript and agents entry on resume', async () => {
+    const events = completedChildEvents();
+    await replayer.replay(events, replayer.claim(TAB, SESSION), SESSION, [], 'openai-codex');
+
+    expect(monitor.onAgentStart).toHaveBeenCalledWith(events[0]);
+    expect(monitor.onTaskToolResult).toHaveBeenCalledWith('spawn-1', false, 5);
+    expect(execution.restoreHistoryChild).toHaveBeenCalledWith(
+      'spawn-1', SESSION, 'child-1', events.slice(1, 4),
+    );
+  });
+
+  it('restores projected Codex children when the tab has no provider id', async () => {
+    const events = completedChildEvents();
+    await replayer.replay(events, replayer.claim(TAB, SESSION), SESSION, []);
+    expect(monitor.onAgentStart).toHaveBeenCalledWith(events[0]);
+    expect(execution.restoreHistoryChild).toHaveBeenCalledWith(
+      'spawn-1', SESSION, 'child-1', events.slice(1, 4),
+    );
+  });
+
+  it('uses the supplied provider for Codex history without a native marker', async () => {
+    const events = completedChildEvents(false);
+    await replayer.replay(events, replayer.claim(TAB, SESSION), SESSION, [], 'openai-codex');
+    expect(monitor.onAgentStart).toHaveBeenCalledWith(events[0]);
+    expect(execution.restoreHistoryChild).toHaveBeenCalledWith(
+      'spawn-1', SESSION, 'child-1', events.slice(1, 4),
+    );
+  });
+
+  it('leaves Claude monitor and execution state unchanged', async () => {
+    tabs[0].providerId = 'anthropic';
+    await replayer.replay(completedChildEvents(false), replayer.claim(TAB, SESSION), SESSION, [], 'anthropic');
+    expect(monitor.onAgentStart).not.toHaveBeenCalled();
+    expect(monitor.onTaskToolResult).not.toHaveBeenCalled();
+    expect(execution.restoreHistoryChild).not.toHaveBeenCalled();
+  });
+
+  it('preserves an existing monitor record and a running native child', async () => {
+    tabs[0].providerId = 'openai-codex';
+    monitor.subagents.mockReturnValue(new Map([['spawn-1', { status: 'running' }]]));
+    await replayer.replay(completedChildEvents(), replayer.claim(TAB, SESSION), SESSION, []);
+    expect(monitor.onAgentStart).not.toHaveBeenCalled();
+    expect(monitor.onTaskToolResult).not.toHaveBeenCalled();
+    expect(execution.restoreHistoryChild).not.toHaveBeenCalled();
+  });
 
   describe('chunked replay', () => {
     it('replays 2,000 events in chunks of 250 with one yield after each chunk, then finalizes', async () => {

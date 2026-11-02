@@ -11,6 +11,9 @@ import { SDK_TOKENS } from './tokens';
 import { CodexRuntimeCompositionError } from '../wiring/codex-runtime-composition-error';
 import { SessionMetadataStore } from '../session-metadata-store';
 import { RoutingAgentAdapter } from '../codex-app-server/routing-agent-adapter';
+import { CodexChatAdapter, type CodexChatAdapterPorts } from
+  '../codex-app-server/codex-chat-adapter';
+import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
 
 function mockLogger(): Logger {
   return Object.assign(Object.create(Logger.prototype), createMockLogger());
@@ -19,6 +22,91 @@ const workspace = process.platform === 'win32' ? 'D:/workspace' : '/workspace';
 const home = process.platform === 'win32' ? 'd:\\home' : '/home';
 
 describe('Codex runtime composition', () => {
+  it('passes host checkpoint read and write through the registered adapter', async () => {
+    const scope = container.createChildContainer();
+    const sessionId = SessionId.from('55555555-5555-4555-8555-555555555555');
+    const readUsage = jest.fn(async () => ({ messageCount: 3 }));
+    const persistUsage = jest.fn(async () => undefined);
+    const metadata = {
+      save: jest.fn(async () => undefined),
+      readUsage,
+      persistUsage,
+    };
+    scope.registerInstance(TOKENS.LOGGER, mockLogger());
+    scope.registerInstance(SDK_TOKENS.SDK_PERMISSION_HANDLER, {});
+    scope.registerInstance(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
+      new SessionTurnStateRegistry());
+    scope.registerInstance(SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP, {
+      updateCodexExecution: jest.fn(async () => undefined),
+      incrementCodexMessageCount: jest.fn(async () => undefined),
+    });
+    const unused = (): never => {
+      throw new Error('Unexpected call to an unused Codex adapter port');
+    };
+    const ports: CodexChatAdapterPorts = {
+      logger: mockLogger(),
+      platform: { platform: 'win32', arch: 'x64' },
+      info: {
+        id: 'ptah-cli',
+        name: 'Codex',
+        vendor: 'OpenAI',
+        version: '1',
+        description: 'Native chat',
+        capabilities: {
+          streaming: true,
+          fileAttachments: true,
+          contextManagement: true,
+          sessionPersistence: true,
+          multiTurn: true,
+          codeGeneration: true,
+          imageAnalysis: true,
+          functionCalling: true,
+        },
+      },
+      checkOptions: unused,
+      profile: unused,
+      createScope: unused,
+      metadata,
+      approvals: {
+        register: unused,
+        respond: unused,
+        cancelPrompt: unused,
+      },
+      presentation: {
+        present: unused,
+        dismiss: unused,
+        cancelPrompt: unused,
+      },
+      replacement: {
+        validateReplacement: unused,
+        failed: unused,
+      },
+      callbacks: unused,
+      publish: unused,
+    };
+    scope.registerInstance(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, ports);
+    registerCodexChatServices(scope);
+    const adapter = scope.resolve<CodexChatAdapter>(SDK_TOKENS.CODEX_CHAT_ADAPTER);
+    expect(adapter).toBeInstanceOf(CodexChatAdapter);
+    expect(adapter).toHaveProperty('ports.metadata.readUsage', readUsage);
+    expect(adapter).toHaveProperty('ports.metadata.persistUsage', persistUsage);
+    const registeredPorts: unknown = Reflect.get(adapter, 'ports');
+    if (!registeredPorts || typeof registeredPorts !== 'object' ||
+      !('metadata' in registeredPorts)) {
+      throw new Error('Registered adapter has no metadata port');
+    }
+    const wired: unknown = registeredPorts.metadata;
+    if (!wired || typeof wired !== 'object' ||
+      !('readUsage' in wired) || typeof wired.readUsage !== 'function' ||
+      !('persistUsage' in wired) || typeof wired.persistUsage !== 'function') {
+      throw new Error('Registered adapter has no usage persistence');
+    }
+    await wired.readUsage(sessionId);
+    await wired.persistUsage(sessionId, {});
+    expect(readUsage).toHaveBeenCalledWith(sessionId);
+    expect(persistUsage).toHaveBeenCalledWith(sessionId, {});
+  });
+
   it('persists the native adapter title through the initialized lookup', async () => {
     const store = new SessionMetadataStore(
       createMockStateStorage(),

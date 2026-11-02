@@ -23,8 +23,9 @@ import {
   type CodexRequestResult,
 } from './codex-protocol-validator';
 
-const FRAME_BYTES = 1024 * 1024;
-const QUEUED_BYTES = 4 * FRAME_BYTES;
+const OUTBOUND_FRAME_BYTES = 1024 * 1024;
+const INBOUND_FRAME_BYTES = 16 * 1024 * 1024;
+const QUEUED_BYTES = 4 * OUTBOUND_FRAME_BYTES;
 const MAX_PENDING = 128;
 const MAX_BUFFERED_NOTIFICATIONS = 64;
 const MAX_UNKNOWN_NOTIFICATION_METHODS = 64;
@@ -75,6 +76,7 @@ export class CodexRequestRejectedError extends Error {
     readonly method: string,
     readonly rpcCode: number,
     readonly code: 'codexRequestRejected' | 'codexTurnNoLongerActive',
+    readonly threadNotFound = false,
   ) {
     super(
       code === 'codexTurnNoLongerActive'
@@ -105,6 +107,12 @@ export class CodexProcessFailureError extends Error {
   }
 }
 
+class CodexInboundFrameLimitError extends Error {
+  constructor(readonly byteSize: number) {
+    super('Frame limit');
+  }
+}
+
 export class CodexAppServerProcess {
   private verifiedHome?: string;
   private readonly stderr = new CodexStderrTail();
@@ -130,7 +138,7 @@ export class CodexAppServerProcess {
   private nextId = 0;
   private readonly pending = new Map<number, Pending>();
   private readonly approvals = new Map<string | number, Approval>();
-  private frameBuffer = Buffer.alloc(FRAME_BYTES);
+  private frameBuffer = Buffer.alloc(OUTBOUND_FRAME_BYTES);
   private frameBytes = 0;
   private queuedBytes = 0;
   private killTimer?: Timer;
@@ -274,7 +282,18 @@ export class CodexAppServerProcess {
     this.assertOpen();
     if (!this.ready) throw new Error('Codex process not initialized');
     const result = await this.sendRequest(method, params, REQUEST_TIMEOUT_MS);
-    return validateCodexResult(method, result);
+    try {
+      return validateCodexResult(method, result);
+    } catch (error) {
+      // receive() normally validates first; keep the same safe diagnostic if
+      // a future schema transform makes this second validation fail.
+      if (error instanceof CodexProtocolError && error.code === 'invalidResult')
+        this.logger?.warn('Codex response result rejected', {
+          method: redactCodexDiagnostics(method),
+          issues: JSON.stringify(error.issues),
+        });
+      throw error;
+    }
   }
 
   private sendRequest(
@@ -313,9 +332,15 @@ export class CodexAppServerProcess {
         const newline = chunk.indexOf(10, offset);
         const end = newline < 0 ? chunk.length : newline;
         const length = end - offset;
-        if (this.frameBytes + length > FRAME_BYTES)
-          throw new Error('Frame limit');
-        // Fixed storage also bounds allocation overhead for single-byte fragmentation.
+        const byteSize = this.frameBytes + length;
+        if (byteSize > INBOUND_FRAME_BYTES)
+          throw new CodexInboundFrameLimitError(byteSize);
+        // Grow only when needed; small frames retain the cheap initial buffer.
+        if (byteSize > this.frameBuffer.length)
+          this.frameBuffer = Buffer.concat(
+            [this.frameBuffer],
+            Math.min(INBOUND_FRAME_BYTES, Math.max(byteSize, this.frameBuffer.length * 2)),
+          );
         chunk.copy(this.frameBuffer, this.frameBytes, offset, end);
         this.frameBytes += length;
         if (newline < 0) break;
@@ -324,6 +349,11 @@ export class CodexAppServerProcess {
         const value: unknown = JSON.parse(
           new TextDecoder('utf-8', { fatal: true }).decode(bytes),
         );
+        // The frame is consumed; return a grown buffer to the cheap initial
+        // size so one large response does not stay allocated for the process
+        // lifetime. frameBytes is 0 here, so no partial frame is lost.
+        if (this.frameBuffer.length > OUTBOUND_FRAME_BYTES)
+          this.frameBuffer = Buffer.alloc(OUTBOUND_FRAME_BYTES);
         if (typeof value === 'object' && value !== null) {
           if ('method' in value && typeof value.method === 'string')
             method = value.method;
@@ -398,17 +428,21 @@ export class CodexAppServerProcess {
         }
         return;
       }
-      // Catalog payload drift is request-local. The validator checks the envelope
-      // first, so malformed framing still fails closed in onData.
+      // A known response result is request-local. The validator checks the
+      // envelope first, so malformed framing still fails closed in onData.
       if (
-        pending?.method === 'model/list' &&
+        pending &&
         typeof id === 'number' &&
         error instanceof CodexProtocolError &&
         error.code === 'invalidResult' &&
-        error.method === 'model/list'
+        error.method === pending.method
       ) {
         clearTimeout(pending.timer);
         this.pending.delete(id);
+        this.logger?.warn('Codex response result rejected', {
+          method: redactCodexDiagnostics(pending.method),
+          issues: JSON.stringify(error.issues),
+        });
         pending.reject(error);
         return;
       }
@@ -444,7 +478,6 @@ export class CodexAppServerProcess {
         reason: 'Codex request rejected',
         method: redactCodexDiagnostics(pending.method),
         rpcCode: frame.error.code,
-        stderrTail: this.stderrTail(2048),
       });
       const race =
         (pending.method === 'turn/steer' ||
@@ -457,6 +490,8 @@ export class CodexAppServerProcess {
           pending.method,
           frame.error.code,
           race ? 'codexTurnNoLongerActive' : 'codexRequestRejected',
+          pending.method === 'thread/read' &&
+            /^thread(?: [^\r\n]{1,200})? not found\.?$/i.test(frame.error.message),
         ),
       );
     } else {
@@ -496,7 +531,7 @@ export class CodexAppServerProcess {
     validateCodexFrame(frame, responseMethod);
     const bytes = Buffer.from(JSON.stringify(frame) + '\n');
     if (
-      bytes.length - 1 > FRAME_BYTES ||
+      bytes.length - 1 > OUTBOUND_FRAME_BYTES ||
       this.queuedBytes + bytes.length > QUEUED_BYTES
     )
       throw new Error('Codex outbound queue limit reached');
@@ -561,13 +596,15 @@ export class CodexAppServerProcess {
         ...(cause instanceof CodexRequestRejectedError
           ? { rpcCode: cause.rpcCode }
           : {}),
+        ...(cause instanceof CodexInboundFrameLimitError
+          ? { byteSize: cause.byteSize }
+          : {}),
         ...(initializeTimeout && spawnStartedAt !== undefined
           ? {
               elapsedMs: Date.now() - spawnStartedAt,
               timeoutMs: CODEX_INITIALIZE_TIMEOUT_MS,
             }
           : {}),
-        stderrTail: this.stderrTail(2048),
       };
       if (initializeTimeout)
         this.logger?.warn('Codex process failure', metadata);

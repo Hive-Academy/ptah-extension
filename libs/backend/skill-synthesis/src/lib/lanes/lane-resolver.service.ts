@@ -103,6 +103,7 @@ function readQuotaProviderId(error: Error): string {
 
 /** The one tier scope every lane reads. Q1: one shared scope, not four. */
 const LANE_TIER_SCOPE = 'lane' as const;
+const AUTH_REQUIRED_ERROR_NAME = 'AuthRequiredError';
 
 const JUDGE_MODEL_KEY = 'skillSynthesis.judgeModel';
 const JUDGE_MODEL_DEFAULT = 'inherit';
@@ -223,13 +224,14 @@ export class LaneResolverService {
       });
       return { ok: true, lane: { config, auth: auth ?? undefined, model } };
     } catch (error: unknown) {
-      // Only a provider-auth or provider-quota failure is a lane STALL.
+      // Only a provider-auth, native-runtime, or provider-quota failure is a lane STALL.
       // Anything else is a bug in this process, and swallowing it here would
       // bury it in a queue row's `reason` field instead of surfacing it — the
       // drain's own catch is where a genuine defect belongs.
       if (
         !(error instanceof Error) ||
         (error.name !== PROVIDER_AUTH_ERROR_NAME &&
+          error.name !== AUTH_REQUIRED_ERROR_NAME &&
           error.name !== PROVIDER_QUOTA_ERROR_NAME)
       ) {
         throw error;

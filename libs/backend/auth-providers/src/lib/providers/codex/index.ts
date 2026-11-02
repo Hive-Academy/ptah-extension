@@ -5,7 +5,6 @@
 export { CodexAuthService } from './codex-auth.service';
 export { CodexHomeResolver } from './codex-home-resolver';
 export { CodexAccountUsageService } from './codex-account-usage.service';
-export { CodexTranslationProxy } from './codex-translation-proxy';
 export {
   CODEX_PROVIDER_ENTRY,
   CODEX_DEFAULT_TIERS,

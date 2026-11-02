@@ -88,6 +88,8 @@ export class EventDeduplicationService {
     toolCallId: string,
     eventType: 'tool_start' | 'tool_result' | 'agent_start',
     newSource: EventSource | undefined,
+    agentId?: string,
+    taskId?: string,
   ): FlatStreamEventUnion | undefined {
     let existingEvent: FlatStreamEventUnion | undefined;
 
@@ -110,31 +112,22 @@ export class EventDeduplicationService {
       existingEvent as FlatStreamEventUnion & { source?: EventSource }
     ).source;
 
-    if (this.shouldReplaceEvent(existingSource, newSource)) {
-      state.events.delete(existingEvent.id);
+    const newExecution = existingEvent.eventType === 'agent_start' &&
+      ((!!agentId && !!existingEvent.agentId && agentId !== existingEvent.agentId) ||
+        (!!taskId && !!existingEvent.taskId && taskId !== existingEvent.taskId));
+    if (newExecution || this.shouldReplaceEvent(existingSource, newSource)) {
+      this.removeStoredEvent(state, existingEvent);
       return undefined; // Allow new event to be stored
     }
     return existingEvent;
   }
 
-  /**
-   * Deduplicate agent_start events by agentId (stable key).
-   *
-   * The hook and SDK complete message send agent_start events with DIFFERENT toolCallId formats:
-   * - Hook: UUID format (e.g., "b4139c0d-...")
-   * - Complete: Anthropic format (e.g., "toolu_012W...")
-   *
-   * Using toolCallId for deduplication fails because they don't match.
-   * This method uses agentId (stable across both sources) for deduplication.
-   *
-   * @param state - The streaming state to check
-   * @param agentId - The stable agent identifier (e.g., "adcecb2")
-   * @param newSource - The source of the new event
-   * @returns The existing event if it should NOT be replaced, undefined if new event should be stored
-   */
+  /** Deduplicate only starts for the same agent execution. */
   replaceAgentStartByAgentId(
     state: StreamingState,
     agentId: string | undefined,
+    toolCallId: string,
+    taskId: string | undefined,
     newSource: EventSource | undefined,
   ): FlatStreamEventUnion | undefined {
     if (!agentId) {
@@ -144,10 +137,11 @@ export class EventDeduplicationService {
 
     for (const event of state.events.values()) {
       if (event.eventType === 'agent_start') {
-        const agentEvent = event as FlatStreamEventUnion & {
-          agentId?: string;
-        };
-        if (agentEvent.agentId === agentId) {
+        if (
+          event.agentId === agentId &&
+          event.toolCallId === toolCallId &&
+          (!taskId || !event.taskId || event.taskId === taskId)
+        ) {
           existingEvent = event;
           break;
         }
@@ -161,24 +155,22 @@ export class EventDeduplicationService {
     const existingSource = (
       existingEvent as FlatStreamEventUnion & { source?: EventSource }
     ).source;
-    if (typeof ngDevMode !== 'undefined' && ngDevMode) {
-      console.log(
-        '[EventDeduplication] Agent_start deduplication by agentId:',
-        {
-          agentId,
-          existingSource,
-          newSource,
-          existingEventId: existingEvent.id,
-          willReplace: this.shouldReplaceEvent(existingSource, newSource),
-        },
-      );
-    }
 
     if (this.shouldReplaceEvent(existingSource, newSource)) {
-      state.events.delete(existingEvent.id);
+      this.removeStoredEvent(state, existingEvent);
       return undefined; // Allow new event to be stored
     }
     return existingEvent;
+  }
+
+  private removeStoredEvent(state: StreamingState, event: FlatStreamEventUnion): void {
+    state.events.delete(event.id);
+    if (!event.messageId) return;
+    const bucket = state.eventsByMessage.get(event.messageId);
+    if (!bucket) return;
+    const index = bucket.findIndex((stored) => stored.id === event.id);
+    if (index !== -1) bucket.splice(index, 1);
+    if (bucket.length === 0) state.eventsByMessage.delete(event.messageId);
   }
 
   /**

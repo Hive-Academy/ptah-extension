@@ -11,8 +11,10 @@ import {
   getDiscoveredContextWindow,
   resolveContextCapacity,
   calculateMessageCost,
+  calculateExactMessageCost,
   DEFAULT_MODEL_PRICING,
   findModelPricing,
+  findExactModelPricing,
   formatClaudeModelDisplayName,
   getModelContextWindow,
   getModelPricingDescription,
@@ -25,6 +27,10 @@ import {
   resolveModelDisplayName,
   updatePricingMap,
 } from './pricing.utils';
+import type { SessionStatsEntry } from '../types/rpc/rpc-session.types';
+import type { ResultStatsPayload } from '../types/agent-adapter.types';
+import { SessionId } from '../types/branded.types';
+import { parseSessionStatsLivePayload } from '../types/messages/session-stats-live';
 
 /**
  * Restore the pricing map to its bundled default between tests.
@@ -507,6 +513,439 @@ describe('pricing.utils', () => {
     });
   });
 
+  describe('exact-rate valuation', () => {
+    const rates = {
+      inputCostPerToken: 2e-6,
+      outputCostPerToken: 8e-6,
+      cacheReadCostPerToken: 0.5e-6,
+      cacheCreationCostPerToken: 3e-6,
+      catalogSource: 'fixture-catalog',
+      catalogVersion: 'fixture-1',
+      effectiveDate: '2026-01-01',
+    };
+
+    it('uses only an exact model key and records its provenance', () => {
+      updatePricingMap({ 'gpt-fixture-codex': rates });
+      expect(findExactModelPricing('gpt-fixture-codex')).toEqual({
+        modelIdUsed: 'gpt-fixture-codex', pricing: rates,
+      });
+      expect(calculateExactMessageCost(
+        'gpt-fixture-codex', { input: 1000, output: 500 },
+        { billingMode: 'api-key' },
+      )).toEqual({
+        totalCost: 0.006,
+        costBasis: 'estimated',
+        pricingCoverage: 'full',
+        priceProvenance: {
+          modelIdUsed: 'gpt-fixture-codex',
+          catalogSource: 'fixture-catalog',
+          catalogVersion: 'fixture-1',
+          effectiveDate: '2026-01-01',
+        },
+      });
+    });
+
+    it('requires a distinct rate for the Claude long-context variant', () => {
+      updatePricingMap({
+        'claude-fixture[1m]': { ...rates, inputCostPerToken: 4e-6 },
+        'claude-fixture': rates,
+        'gpt-fixture': rates,
+      });
+      expect(
+        findExactModelPricing('claude-fixture[1m]')?.modelIdUsed,
+      ).toBe('claude-fixture[1m]');
+      updatePricingMap({ 'claude-second': rates });
+      expect(
+        findExactModelPricing('claude-second[1m]')?.modelIdUsed,
+      ).toBe('claude-second');
+      expect(calculateExactMessageCost(
+        'claude-second[1m]', { input: 100, output: 50 },
+        { billingMode: 'api-key' },
+      )).toMatchObject({
+        totalCost: null,
+        costBasis: 'unknown',
+        pricingCoverage: 'none',
+      });
+      expect(calculateExactMessageCost(
+        'claude-fixture[1m]', { input: 100, output: 50 },
+        { billingMode: 'api-key' },
+      ).totalCost).toBe(0.0008);
+      expect(findExactModelPricing('gpt-fixture[1m]')).toBeNull();
+      expect(findExactModelPricing('gpt-fixture-codex')).toBeNull();
+      expect(findExactModelPricing('gpt-fixture-2026-01-01')).toBeNull();
+    });
+
+    it('keeps a tiny non-zero exact cost above zero after rounding', () => {
+      updatePricingMap({
+        'gpt-fixture-tiny': { ...rates, cacheReadCostPerToken: 1e-7 },
+      });
+      const result = calculateExactMessageCost(
+        'gpt-fixture-tiny',
+        { input: 0, output: 0, cacheHit: 1 },
+        { billingMode: 'api-key', cacheSemantics: 'disjoint' },
+      );
+      expect(result.pricingCoverage).toBe('full');
+      expect(result.totalCost).toBeCloseTo(1e-7, 12);
+      expect(result.totalCost).toBeGreaterThan(0);
+    });
+
+    it('makes an unknown model unavailable with no pricing coverage', () => {
+      const result = calculateExactMessageCost(
+        'gpt-unknown-codex', { input: 1000, output: 500 },
+        { billingMode: 'api-key' },
+      );
+      expect(result).toEqual({
+        totalCost: null, costBasis: 'unknown', pricingCoverage: 'none',
+      });
+    });
+
+    it('rejects missing used cache rates with partial coverage', () => {
+      updatePricingMap({ 'partial-cache': {
+        inputCostPerToken: 2e-6, outputCostPerToken: 8e-6,
+      } });
+      for (const tokens of [
+        { input: 100, output: 50, cacheHit: 10 },
+        { input: 100, output: 50, cacheCreation: 10 },
+      ]) {
+        expect(calculateExactMessageCost(
+          'partial-cache', tokens,
+          { billingMode: 'api-key', cacheSemantics: 'disjoint' },
+        )).toMatchObject({
+          totalCost: null,
+          costBasis: 'unknown',
+          pricingCoverage: 'partial',
+        });
+      }
+      expect(calculateExactMessageCost(
+        'partial-cache', { input: 100, output: 50, cacheHit: 0 },
+        { billingMode: 'api-key' },
+      ).totalCost).toBe(0.0006);
+    });
+
+    it('rejects ambiguous cache semantics even when every rate exists', () => {
+      updatePricingMap({ 'ambiguous-cache': rates });
+      expect(calculateExactMessageCost(
+        'ambiguous-cache', { input: 100, output: 50, cacheCreation: 10 },
+        { billingMode: 'subscription' },
+      )).toMatchObject({
+        totalCost: null,
+        costBasis: 'unknown',
+        pricingCoverage: 'partial',
+      });
+    });
+
+    it('requires positive rates and a known billing mode', () => {
+      updatePricingMap({
+        'invalid-rate': { ...rates, outputCostPerToken: NaN },
+      });
+      expect(calculateExactMessageCost(
+        'invalid-rate', { input: 100, output: 50 },
+        { billingMode: 'api-key' },
+      )).toMatchObject({ totalCost: null, pricingCoverage: 'partial' });
+      for (const invalidRate of [0, -1, Infinity, -Infinity]) {
+        updatePricingMap({
+          'placeholder-rate': {
+            inputCostPerToken: invalidRate,
+            outputCostPerToken: invalidRate,
+          },
+        });
+        expect(calculateExactMessageCost(
+          'placeholder-rate', { input: 100, output: 50 },
+          { billingMode: 'subscription' },
+        )).toMatchObject({
+          totalCost: null,
+          costBasis: 'unknown',
+          pricingCoverage: 'none',
+        });
+      }
+      expect(calculateExactMessageCost(
+        'gpt-4o', { input: 100, output: 50 },
+        { billingMode: 'unknown' },
+      )).toMatchObject({
+        totalCost: null, costBasis: 'unknown', pricingCoverage: 'none',
+      });
+    });
+
+    it('distinguishes missing usage from an observed zero-token turn', () => {
+      updatePricingMap({ 'observed-zero': rates });
+      const tokens = { input: 0, output: 0 };
+      expect(calculateExactMessageCost(
+        'observed-zero', tokens, { billingMode: 'api-key' },
+      )).toMatchObject({
+        totalCost: null,
+        costBasis: 'unknown',
+        pricingCoverage: 'none',
+      });
+      expect(calculateExactMessageCost(
+        'observed-zero', tokens,
+        { billingMode: 'api-key', usageObserved: true },
+      )).toMatchObject({
+        totalCost: 0,
+        costBasis: 'estimated',
+        pricingCoverage: 'full',
+      });
+    });
+
+    it('records unknown catalog metadata explicitly for hydrated rates', () => {
+      updatePricingMap({
+        'hydrated-rate': {
+          inputCostPerToken: 2e-6,
+          outputCostPerToken: 8e-6,
+        },
+      });
+      expect(calculateExactMessageCost(
+        'hydrated-rate', { input: 100, output: 50 },
+        { billingMode: 'api-key' },
+      ).priceProvenance).toEqual({
+        modelIdUsed: 'hydrated-rate',
+        catalogSource: null,
+        catalogVersion: null,
+        effectiveDate: null,
+      });
+    });
+
+    it('labels subscription value and API-key estimate', () => {
+      updatePricingMap({ 'priced-model': rates });
+      const tokens = { input: 100, output: 50 };
+      const subscription = calculateExactMessageCost(
+        'priced-model', tokens, { billingMode: 'subscription' },
+      );
+      const apiKey = calculateExactMessageCost(
+        'priced-model', tokens, { billingMode: 'api-key' },
+      );
+      expect(subscription).toMatchObject({
+        totalCost: 0.0006, costBasis: 'covered-by-subscription',
+        pricingCoverage: 'full',
+      });
+      expect(apiKey).toMatchObject({
+        totalCost: subscription.totalCost, costBasis: 'estimated',
+      });
+    });
+
+    it('prices four disjoint classes once with reasoning inside output', () => {
+      updatePricingMap({ 'four-classes': rates });
+      const native = {
+        input: 100, output: 50, cacheHit: 20, cacheCreation: 10,
+        reasoningOutputTokens: 30,
+      };
+      const result = calculateExactMessageCost(
+        'four-classes', native,
+        { billingMode: 'api-key', cacheSemantics: 'disjoint' },
+      );
+      // 100*2 + 50*8 + 20*0.5 + 10*3 = 640 microdollars.
+      expect(result.totalCost).toBe(0.00064);
+      expect(result.pricingCoverage).toBe('full');
+    });
+
+    it('keeps optional fields absent on an existing Claude snapshot', () => {
+      const legacy: SessionStatsEntry = {
+        sessionId: 'claude-session', model: 'claude-model', totalCost: null,
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 0, status: 'ok',
+      };
+      expect(legacy.costBasis).toBeUndefined();
+      expect(legacy.priceProvenance).toBeUndefined();
+      expect(legacy.pricingCoverage).toBeUndefined();
+      const result: ResultStatsPayload = {
+        sessionId: SessionId.create(), turnCost: null,
+        tokens: { input: 0, output: 0 }, duration: 0,
+        sessionStats: legacy,
+      };
+      expect(result.costBasis).toBeUndefined();
+      expect(result.pricingCoverage).toBeUndefined();
+      expect(result.priceProvenance).toBeUndefined();
+    });
+
+    it('carries optional provenance through the live snapshot envelope', () => {
+      const snapshot: SessionStatsEntry = {
+        sessionId: 'priced-session', model: 'priced-model', totalCost: 0.0006,
+        tokens: { input: 100, output: 50, cacheRead: 0, cacheCreation: 0 },
+        messageCount: 1, status: 'ok', revision: 1,
+        costBasis: 'estimated', pricingCoverage: 'full',
+        priceProvenance: [{
+          modelIdUsed: 'priced-model',
+          catalogSource: 'fixture-catalog',
+        }],
+      };
+      const parsed = parseSessionStatsLivePayload({
+        sessionId: 'priced-session', sessionStats: snapshot,
+      });
+      expect(parsed?.sessionStats.costBasis).toBe('estimated');
+      expect(parsed?.sessionStats.pricingCoverage).toBe('full');
+      expect(parsed?.sessionStats.priceProvenance).toEqual(
+        snapshot.priceProvenance,
+      );
+    });
+  });
+
+  describe('bundled Codex API rate card', () => {
+    // The verified rate card (research-codex-rate-card.md, retrieved
+    // 2026-11-02). USD per 1M tokens, Standard short-context prices; the
+    // cache-write price is the published 30-minute rate.
+    const CARD = [
+      ['gpt-6.1-sol', 2, 0.1, 2.5, 10],
+      ['gpt-6-astra', 10, 1, 12.5, 50],
+      ['gpt-6-sol', 2, 0.2, 2.5, 10],
+      ['gpt-6-luna', 0.1, 0.01, 0.125, 0.5],
+      ['gpt-5.6-sol', 4, 0.4, 5, 20],
+      ['gpt-5.6-terra', 2, 0.2, 2.5, 12],
+      ['gpt-5.6-luna', 0.2, 0.02, 0.25, 1.2],
+    ] as const;
+
+    it.each(CARD)(
+      'prices all four token classes exactly (%s)',
+      (modelId, input, cachedRead, cacheWrite, output) => {
+        // 1M tokens per class: the total is the sum of the four published
+        // rates, so one wrong class rate misses by its full value.
+        const all = calculateExactMessageCost(
+          modelId,
+          {
+            input: 1_000_000,
+            output: 1_000_000,
+            cacheHit: 1_000_000,
+            cacheCreation: 1_000_000,
+          },
+          { billingMode: 'api-key', cacheSemantics: 'disjoint' },
+        );
+        expect(all.totalCost).toBeCloseTo(
+          input + cachedRead + cacheWrite + output,
+          9,
+        );
+        expect(all.pricingCoverage).toBe('full');
+        expect(all.costBasis).toBe('estimated');
+
+        // Cache write is its own class: write tokens alone bill exactly the
+        // published write price and are never also charged as input.
+        const writeOnly = calculateExactMessageCost(
+          modelId,
+          { input: 0, output: 0, cacheCreation: 1_000_000 },
+          { billingMode: 'api-key', cacheSemantics: 'disjoint' },
+        );
+        expect(writeOnly.totalCost).toBeCloseTo(cacheWrite, 9);
+        // Every card entry's write price differs from its input price, so
+        // the write-only check cannot pass against the wrong class rate.
+        expect(cacheWrite).not.toBe(input);
+      },
+    );
+
+    it('labels the same value as covered by subscription for plan sessions', () => {
+      const tokens = {
+        input: 500_000,
+        output: 250_000,
+        cacheHit: 100_000,
+        cacheCreation: 50_000,
+      };
+      const subscription = calculateExactMessageCost(
+        'gpt-6.1-sol',
+        tokens,
+        { billingMode: 'subscription', cacheSemantics: 'disjoint' },
+      );
+      const apiKey = calculateExactMessageCost(
+        'gpt-6.1-sol',
+        tokens,
+        { billingMode: 'api-key', cacheSemantics: 'disjoint' },
+      );
+      // A ChatGPT-plan session shows the published-rate value as a
+      // subscription-covered estimate, never as an actual charge.
+      expect(subscription.totalCost).toBe(apiKey.totalCost);
+      expect(subscription.costBasis).toBe('covered-by-subscription');
+      expect(apiKey.costBasis).toBe('estimated');
+    });
+
+    it('records the source URL and retrieval date for every card entry', () => {
+      for (const [modelId] of CARD) {
+        const found = findExactModelPricing(modelId);
+        expect(found?.modelIdUsed).toBe(modelId);
+        expect(found?.pricing.catalogSource).toBe(
+          `https://platform.openai.com/docs/models/${modelId}`,
+        );
+        expect(found?.pricing.catalogVersion).toBe('retrieved 2026-11-02');
+      }
+    });
+
+    it('leaves the effective date null where OpenAI states none', () => {
+      for (const [modelId] of CARD) {
+        if (modelId === 'gpt-5.6-sol') continue;
+        const result = calculateExactMessageCost(
+          modelId,
+          { input: 1000, output: 500 },
+          { billingMode: 'api-key' },
+        );
+        expect(result.priceProvenance).toMatchObject({
+          modelIdUsed: modelId,
+          catalogSource: `https://platform.openai.com/docs/models/${modelId}`,
+          catalogVersion: 'retrieved 2026-11-02',
+          effectiveDate: null,
+        });
+      }
+    });
+
+    it('marks the gpt-5.6-sol promotional rate with its recheck date', () => {
+      const result = calculateExactMessageCost(
+        'gpt-5.6-sol',
+        { input: 1000, output: 500 },
+        { billingMode: 'api-key' },
+      );
+      expect(result.priceProvenance?.effectiveDate).toBe(
+        'promotional through 2026-11-21',
+      );
+    });
+
+    it('keeps every ID outside the card unavailable', () => {
+      for (const modelId of [
+        'gpt-7-nova', // synthetic future-model fixture, never a real rate
+        'gpt-6.2-sol', // a plausible live model absent from the card
+        'gpt-5.4', // a live slug outside the dated seven-ID fallback
+      ]) {
+        expect(findExactModelPricing(modelId)).toBeNull();
+        expect(
+          calculateExactMessageCost(
+            modelId,
+            { input: 1000, output: 500, cacheCreation: 100 },
+            { billingMode: 'api-key', cacheSemantics: 'disjoint' },
+          ),
+        ).toEqual({
+          totalCost: null,
+          costBasis: 'unknown',
+          pricingCoverage: 'none',
+        });
+      }
+    });
+
+    it('never lends a card rate to a -codex variant or a date snapshot', () => {
+      for (const modelId of [
+        'gpt-6.1-sol-codex',
+        'gpt-6-sol-codex',
+        'gpt-5.6-sol-codex',
+        'gpt-5.3-codex', // historical: published base rates, no write rate
+        'gpt-5.6-sol-20261101', // a date suffix is not a documented alias
+      ]) {
+        expect(findExactModelPricing(modelId)).toBeNull();
+        expect(
+          calculateExactMessageCost(
+            modelId,
+            { input: 1000, output: 500, cacheCreation: 100 },
+            { billingMode: 'api-key', cacheSemantics: 'disjoint' },
+          ),
+        ).toEqual({
+          totalCost: null,
+          costBasis: 'unknown',
+          pricingCoverage: 'none',
+        });
+      }
+    });
+
+    it('publishes rates, not context windows, for the card entries', () => {
+      for (const [modelId] of CARD) {
+        const found = findExactModelPricing(modelId);
+        // Context windows stay catalog-only: a card entry never carries a
+        // maxTokens that could shadow the live per-provider discovery.
+        expect(found?.pricing.maxTokens).toBeUndefined();
+        expect(getModelContextWindow(modelId)).toBe(0);
+      }
+    });
+  });
+
   describe('getModelContextWindow', () => {
     it('returns 0 for empty model id', () => {
       expect(getModelContextWindow('')).toBe(0);
@@ -558,14 +997,17 @@ describe('pricing.utils', () => {
       return mod;
     }
 
-    it('unpriced discovered {id:"gpt-5.6-sol", contextLength:400000} → getModelContextWindow 400000', () => {
+    it('unpriced discovered {id:"gpt-6.2-sol", contextLength:400000} → getModelContextWindow 400000', () => {
       const mod = freshModule();
-      expect(mod.getModelContextWindow('gpt-5.6-sol')).toBe(0);
+      // `gpt-6.2-sol` is not in the bundled Codex rate card: a live model
+      // outside the dated seven-ID fallback stays unpriced, and its context
+      // window still comes from provider discovery alone.
+      expect(mod.getModelContextWindow('gpt-6.2-sol')).toBe(0);
       mod.registerModelContextWindows([
-        { id: 'gpt-5.6-sol', contextLength: 400_000 },
+        { id: 'gpt-6.2-sol', contextLength: 400_000 },
       ]);
-      expect(mod.findModelPricing('gpt-5.6-sol')).toBeNull();
-      expect(mod.getModelContextWindow('gpt-5.6-sol')).toBe(400_000);
+      expect(mod.findModelPricing('gpt-6.2-sol')).toBeNull();
+      expect(mod.getModelContextWindow('gpt-6.2-sol')).toBe(400_000);
     });
 
     it('registry beats a partial pricing match', () => {

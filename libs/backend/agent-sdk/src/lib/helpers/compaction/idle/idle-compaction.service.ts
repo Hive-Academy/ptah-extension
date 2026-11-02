@@ -175,7 +175,6 @@ export class IdleCompactionService implements IdleCompactionSignals {
             type: 'session-bound',
             sessionId: key,
             runToken: '',
-            codexProxy: false,
           },
           state: latest,
           effects: [],
@@ -503,8 +502,8 @@ export class IdleCompactionService implements IdleCompactionSignals {
     }
   }
 
-  sessionBound(sessionId: string, runToken: string, codexProxy: boolean, nativeAnthropic?: boolean): void {
-    this.enqueue({ type: 'session-bound', sessionId, runToken, codexProxy, nativeAnthropic });
+  sessionBound(sessionId: string, runToken: string, nativeAnthropic?: boolean): void {
+    this.enqueue({ type: 'session-bound', sessionId, runToken, nativeAnthropic });
   }
   requestStarted(sessionId: string): void {
     this.enqueue({ type: 'request-started', sessionId });

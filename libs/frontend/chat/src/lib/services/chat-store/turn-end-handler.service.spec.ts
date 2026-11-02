@@ -30,6 +30,7 @@ import {
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
 import {
+  AgentMonitorStore,
   BackgroundAgentStore,
   type BackgroundAgentEntry,
 } from '@ptah-extension/chat-streaming';
@@ -128,6 +129,11 @@ describe('TurnEndHandlerService', () => {
     BackgroundAgentEntry | null,
     [BackgroundAgentId]
   >;
+  let adoptRealAgentIdMock: jest.Mock;
+  let findByToolCallIdMock: jest.Mock;
+  let onSubagentEndedMock: jest.Mock;
+  let findKeyByAgentIdMock: jest.Mock;
+  let getSubagentMock: jest.Mock;
   let warn: jest.SpyInstance;
 
   beforeEach(() => {
@@ -141,6 +147,11 @@ describe('TurnEndHandlerService', () => {
     handleChatErrorMock = jest.fn();
     onCompletedMock = jest.fn();
     findByAgentIdMock = jest.fn().mockReturnValue(null);
+    adoptRealAgentIdMock = jest.fn().mockReturnValue(null);
+    findByToolCallIdMock = jest.fn().mockReturnValue(null);
+    onSubagentEndedMock = jest.fn();
+    findKeyByAgentIdMock = jest.fn().mockReturnValue(null);
+    getSubagentMock = jest.fn().mockReturnValue(undefined);
 
     // Snapshot setters ONLY. No `markTabIdle`, `markLoaded`, `markStreaming`,
     // `setStatus` — a status write from this service is a regression and
@@ -161,7 +172,15 @@ describe('TurnEndHandlerService', () => {
     const backgroundAgentStoreMock = {
       onCompleted: onCompletedMock,
       findByAgentId: findByAgentIdMock,
+      findByToolCallId: findByToolCallIdMock,
+      adoptRealAgentId: adoptRealAgentIdMock,
     } as unknown as BackgroundAgentStore;
+
+    const agentMonitorStoreMock = {
+      onSubagentEnded: onSubagentEndedMock,
+      findKeyByAgentId: findKeyByAgentIdMock,
+      getSubagent: getSubagentMock,
+    } as unknown as AgentMonitorStore;
 
     warn = jest.spyOn(console, 'warn').mockImplementation();
 
@@ -171,6 +190,7 @@ describe('TurnEndHandlerService', () => {
         { provide: TabManagerService, useValue: tabManagerMock },
         { provide: ChatLifecycleService, useValue: lifecycleMock },
         { provide: BackgroundAgentStore, useValue: backgroundAgentStoreMock },
+        { provide: AgentMonitorStore, useValue: agentMonitorStoreMock },
       ],
     });
     service = TestBed.inject(TurnEndHandlerService);
@@ -547,6 +567,40 @@ describe('TurnEndHandlerService', () => {
       );
 
       expect(setPendingBackgroundTasksMock).toHaveBeenCalledWith('tab-1', []);
+    });
+
+    it('resolves a placeholder tray entry by the payload Task tool id before agent-id fallback', () => {
+      const placeholder: BackgroundAgentEntry = {
+        ...knownEntry,
+        toolCallId: 'toolu_task_real',
+        agentId: 'toolu_task_real' as BackgroundAgentId,
+        hasRealAgentId: false,
+      };
+      findKeyByAgentIdMock.mockReturnValue('toolu_stale_monitor_key');
+      findByToolCallIdMock.mockReturnValue(placeholder);
+      adoptRealAgentIdMock.mockImplementation((toolCallId: string) =>
+        toolCallId === 'toolu_task_real' ? placeholder : null,
+      );
+
+      service.handleSubagentEnded(
+        makeSubagentEndedPayload({ toolCallId: 'toolu_task_real' }),
+      );
+
+      expect(adoptRealAgentIdMock).toHaveBeenCalledWith(
+        'toolu_task_real',
+        'agent-a',
+      );
+      expect(onSubagentEndedMock).toHaveBeenCalledWith(
+        'toolu_task_real',
+        'sub done',
+        1_700_000_000_000,
+      );
+      expect(onCompletedMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toolCallId: 'toolu_task_real',
+          agentId: 'agent-a',
+        }),
+      );
     });
 
     it('fans out across sibling tabs sharing the session', () => {

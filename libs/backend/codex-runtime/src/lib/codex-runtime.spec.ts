@@ -141,6 +141,8 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
   holdMethod?: string;
   steerResultTurnId?: string;
   modelPages: unknown[] = [{ data: [catalogModel] }];
+  historyThread?: Record<string, unknown>;
+  reportedCodexHome = '/home/codex';
   completeBeforeReply = false;
   turnNumber = 0;
   readonly fixtureErrors: string[] = [];
@@ -228,7 +230,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
         break;
       case 'initialize':
         result = {
-          codexHome: '/home/codex',
+          codexHome: this.reportedCodexHome,
           platformFamily: 'unix',
           platformOs: 'linux',
           userAgent: 'test',
@@ -263,6 +265,20 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
             writableRoots: ['/work'],
           },
         };
+        break;
+      case 'thread/read':
+        result = { thread: this.historyThread ?? {
+          id: this.threadId, cliVersion: '0.165.0', createdAt: 1,
+          updatedAt: 1, cwd: '/work', ephemeral: false,
+          modelProvider: 'openai', preview: '', projectId: null,
+          sessionId: 'session', source: 'appServer', status: { type: 'idle' },
+          turns: [],
+        } };
+        break;
+      case 'thread/list':
+      case 'thread/turns/list':
+      case 'thread/items/list':
+        result = { data: [], nextCursor: null };
         break;
       case 'turn/start': {
         const value = turn(`turn-${++this.turnNumber}`);
@@ -356,6 +372,152 @@ describe('CodexRuntime', () => {
     }
   });
 
+  it('reads saved history while the chat context is open without resuming or persisting', async () => {
+    const context = await runtime.open(profile);
+    const persisted = persist.mock.calls.length;
+    const inactiveBefore = inactive.mock.calls.length;
+    jest.mocked(options.spawner.spawnProcess).mockImplementation(() => {
+      const child = new FakeChild(context.identity.threadId);
+      children.push(child);
+      return child;
+    });
+    const snapshot = await runtime.readHistory(profile, context.identity);
+    expect(snapshot.rootThreadId).toBe(context.identity.threadId);
+    expect(snapshot.threads).toHaveLength(1);
+    expect(children[1].frames.map((frame) => frame['method'])).toContain('thread/read');
+    expect(children[1].frames.map((frame) => frame['method'])).not.toContain('thread/resume');
+    expect(children[1].frames.map((frame) => frame['method'])).not.toContain('turn/start');
+    expect(persist).toHaveBeenCalledTimes(persisted);
+    expect(inactive).toHaveBeenCalledTimes(inactiveBefore);
+    await context.close();
+  });
+
+  it('refuses a history read under a different home before spawning', async () => {
+    const context = await runtime.open(profile);
+    const identity = context.identity;
+    await context.close();
+    await expect(runtime.readHistory({ ...profile, normalizedHome: '/other' }, identity))
+      .rejects.toMatchObject({ code: 'homeMismatch' });
+    expect(children).toHaveLength(1);
+  });
+
+  it('closes an ephemeral history process after a successful read', async () => {
+    const context = await runtime.open(profile);
+    const identity = context.identity;
+    await context.close();
+    runtime = new CodexRuntime({
+      ...options,
+      spawner: { spawnProcess: () => {
+        const child = new FakeChild(identity.threadId);
+        children.push(child);
+        return child;
+      } },
+    });
+    const snapshot = await runtime.readHistory(profile, identity);
+    expect(snapshot.rootThreadId).toBe(identity.threadId);
+    expect(children[1].killed || children[1].exitCode !== null).toBe(true);
+  });
+
+  it('aborts and closes an in-flight history process when its signal fires', async () => {
+    const identity: CodexThreadIdentity = {
+      threadId: 'saved-thread', contextId: profile.contextId,
+      processGeneration: 1, normalizedHome: profile.normalizedHome,
+      providerId: profile.providerId, workspaceId: profile.workspaceId,
+      profileFingerprint: profile.profileFingerprint,
+    };
+    jest.mocked(options.spawner.spawnProcess).mockImplementation(() => {
+      const child = new FakeChild(identity.threadId);
+      child.holdMethod = 'thread/read';
+      children.push(child);
+      return child;
+    });
+    const controller = new AbortController();
+    const pending = runtime.readHistory(profile, identity, controller.signal);
+    await flush();
+    controller.abort();
+    await expect(pending).rejects.toBeDefined();
+    expect(children[0].killed || children[0].exitCode !== null).toBe(true);
+  });
+
+  it('aborts in-flight history reads when the runtime closes', async () => {
+    const identity: CodexThreadIdentity = {
+      threadId: 'saved-thread', contextId: profile.contextId,
+      processGeneration: 1, normalizedHome: profile.normalizedHome,
+      providerId: profile.providerId, workspaceId: profile.workspaceId,
+      profileFingerprint: profile.profileFingerprint,
+    };
+    jest.mocked(options.spawner.spawnProcess).mockImplementation(() => {
+      const child = new FakeChild(identity.threadId);
+      child.holdMethod = 'thread/read';
+      children.push(child);
+      return child;
+    });
+    const pending = runtime.readHistory(profile, identity);
+    const rejection = expect(pending).rejects.toBeDefined();
+    await flush();
+    await runtime.close();
+    await rejection;
+    expect(children[0].killed || children[0].exitCode !== null).toBe(true);
+    await expect(runtime.readHistory(profile, identity)).rejects.toBeDefined();
+    expect(children).toHaveLength(1);
+  });
+
+  it('rejects a history process whose verified Codex home differs', async () => {
+    const identity: CodexThreadIdentity = {
+      threadId: 'saved-thread', contextId: profile.contextId,
+      processGeneration: 1, normalizedHome: profile.normalizedHome,
+      providerId: profile.providerId, workspaceId: profile.workspaceId,
+      profileFingerprint: profile.profileFingerprint,
+    };
+    jest.mocked(options.spawner.spawnProcess).mockImplementation(() => {
+      const child = new FakeChild(identity.threadId);
+      child.reportedCodexHome = '/another-home';
+      children.push(child);
+      return child;
+    });
+    await expect(runtime.readHistory(profile, identity))
+      .rejects.toMatchObject({ code: 'homeMismatch' });
+    expect(children[0].frames.map((frame) => frame['method'])).not.toContain('thread/read');
+  });
+
+  it('reports an unavailable binary as a typed process failure', async () => {
+    const context = await runtime.open(profile);
+    const identity = context.identity;
+    await context.close();
+    runtime = new CodexRuntime({ ...options,
+      binary: { ...options.binary, sha256: 'b'.repeat(64) },
+    });
+    await expect(runtime.readHistory(profile, identity))
+      .rejects.toMatchObject({ code: 'processFailure' });
+  });
+
+  it('keeps an unclassified read rejection distinct from missing thread', async () => {
+    const context = await runtime.open(profile);
+    runtime = new CodexRuntime({ ...options, spawner: { spawnProcess: () => {
+      const child = new FakeChild(context.identity.threadId);
+      child.failMethod = 'thread/read';
+      children.push(child);
+      return child;
+    } } });
+    await expect(runtime.readHistory(profile, context.identity))
+      .rejects.toMatchObject({ code: 'requestRejected' });
+    await context.close();
+  });
+
+  it('classifies only an explicit thread-not-found response', async () => {
+    const context = await runtime.open(profile);
+    runtime = new CodexRuntime({ ...options, spawner: { spawnProcess: () => {
+      const child = new FakeChild(context.identity.threadId);
+      child.failMethod = 'thread/read';
+      child.failMessage = 'Thread not found';
+      children.push(child);
+      return child;
+    } } });
+    await expect(runtime.readHistory(profile, context.identity))
+      .rejects.toMatchObject({ code: 'threadNotFound' });
+    await context.close();
+  });
+
   async function resumeWithProfile(
     permissionLevel: CodexPermissionLevel,
     initialPermissionLevel: CodexPermissionLevel = 'ask',
@@ -380,6 +542,52 @@ describe('CodexRuntime', () => {
     );
     return { resumed, identity, child: children[1] };
   }
+
+  it('binds model-less native usage to the accepted model after a mid-session switch', async () => {
+    const context = await runtime.open(profile);
+    const iterator = context.events(new AbortController().signal)[Symbol.asyncIterator]();
+    const nativeCounts = (inputTokens: number, outputTokens: number) => ({
+      inputTokens, cachedInputTokens: 0, outputTokens,
+      reasoningOutputTokens: 0, totalTokens: inputTokens + outputTokens,
+    });
+    await context.startTurn({ text: 'first' });
+    children[0].notify('thread/tokenUsage/updated', {
+      threadId: context.identity.threadId, turnId: 'turn-1',
+      tokenUsage: { last: nativeCounts(8, 2), total: nativeCounts(8, 2) },
+    });
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'usage', evidence: { modelId: 'model' },
+    });
+    children[0].complete();
+    await iterator.next();
+    await context.updateNextTurn({ model: 'gpt-4o' });
+    await context.startTurn({ text: 'second' });
+    children[0].notify('thread/tokenUsage/updated', {
+      threadId: context.identity.threadId, turnId: 'turn-2',
+      tokenUsage: { last: nativeCounts(8, 2), total: nativeCounts(16, 4) },
+    });
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'usage', evidence: { modelId: 'gpt-4o' },
+    });
+    await iterator.return?.();
+  });
+
+  it('seeds model-less native usage from the validated thread/resume result', async () => {
+    const { resumed, child } = await resumeWithProfile('ask');
+    const iterator = resumed.events(new AbortController().signal)[Symbol.asyncIterator]();
+    await resumed.startTurn({ text: 'resumed' });
+    child.notify('thread/tokenUsage/updated', {
+      threadId: resumed.identity.threadId, turnId: 'turn-1',
+      tokenUsage: { last: { inputTokens: 8, cachedInputTokens: 0,
+        outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 10 },
+        total: { inputTokens: 8, cachedInputTokens: 0,
+          outputTokens: 2, reasoningOutputTokens: 0, totalTokens: 10 } },
+    });
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'usage', evidence: { modelId: 'model' },
+    });
+    await iterator.return?.();
+  });
 
   it('preserves the exact open failure and reports its root cause once', async () => {
     const root = new CodexProtocolError('invalidResult', 'thread/start');

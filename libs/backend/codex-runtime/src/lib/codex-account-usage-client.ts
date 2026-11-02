@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import { normalizeCodexHomeKey } from './codex-home-path';
 import type { CodexExecutionProfile } from './codex-runtime.types';
 import type { IDisposable } from '@ptah-extension/platform-core';
@@ -8,13 +9,13 @@ import type {
 } from './codex-app-server-process';
 import type {
   CodexAccountUsageResult,
+  CodexRateLimitBucket,
   CodexUsageEligibility,
 } from './codex-account-usage.types';
 import type { CodexHomeAuthReader } from './codex-home-auth-reader';
 import {
   codexNotificationSchemas,
   type CodexNotificationMethod,
-  type CodexRequestResult,
 } from './codex-protocol-validator';
 
 const PROVIDER = 'openai-codex';
@@ -68,29 +69,189 @@ function waitForEligibility(
   });
 }
 
-/** No activity counters or identifiers are inferred from quota information. */
-function usageResult(
-  response: CodexRequestResult<'account/rateLimits/read'>,
+const fields = z.object({
+  primary: z.unknown().optional(),
+  secondary: z.unknown().optional(),
+  planType: z.unknown().optional(),
+  rateLimitReachedType: z.unknown().optional(),
+  spendControlReached: z.unknown().optional(),
+  individualLimit: z.unknown().optional(),
+  credits: z.unknown().optional(),
+});
+const responseFields = z.object({
+  rateLimits: z.unknown().optional(),
+  rateLimitsByLimitId: z.unknown().optional(),
+  rateLimitResetCredits: z.unknown().optional(),
+  rateLimitUpsell: z.unknown().optional(),
+});
+const windowFields = z.object({
+  usedPercent: z.unknown(),
+  windowDurationMins: z.unknown().optional(),
+  resetsAt: z.unknown().optional(),
+});
+const individualFields = z.object({
+  limit: z.unknown(),
+  used: z.unknown(),
+  remainingPercent: z.unknown(),
+  resetsAt: z.unknown(),
+});
+const creditsFields = z.object({
+  balance: z.unknown().optional(),
+  hasCredits: z.unknown(),
+  unlimited: z.unknown(),
+});
+const code = z.string().min(1).max(64).regex(/^[a-z][a-z0-9_]*$/);
+const decimal = z.string().regex(/^\d{1,18}(?:\.\d{1,6})?$/);
+const finite = z.number().finite().nonnegative();
+const instant = z.number().int().nonnegative();
+const duration = z.number().int().nonnegative();
+
+function window(value: unknown) {
+  const parsed = windowFields.safeParse(value);
+  if (!parsed.success) return undefined;
+  const usedPercent = finite.safeParse(parsed.data.usedPercent);
+  if (!usedPercent.success) return undefined;
+  const windowDurationMins = parsed.data.windowDurationMins;
+  const resetsAt = parsed.data.resetsAt;
+  const validDuration = duration.safeParse(windowDurationMins);
+  const validReset = instant.safeParse(resetsAt);
+  return Object.freeze({
+    usedPercent: usedPercent.data,
+    ...(windowDurationMins === null
+      ? { windowDurationMins: null }
+      : validDuration.success
+        ? { windowDurationMins: validDuration.data }
+        : {}),
+    ...(resetsAt === null
+      ? { resetsAt: null }
+      : validReset.success
+        ? { resetsAt: validReset.data }
+        : {}),
+  });
+}
+
+function bucket(
+  id: string,
+  label: string,
+  limits: unknown,
+): CodexRateLimitBucket {
+  const data = fields.safeParse(limits);
+  const raw = data.success ? data.data : undefined;
+  const primary = window(raw?.primary);
+  const secondary = window(raw?.secondary);
+  const reachedType = code.safeParse(raw?.rateLimitReachedType);
+  const spendControlReached = z.boolean().safeParse(raw?.spendControlReached);
+  const individual = individualFields.safeParse(raw?.individualLimit);
+  const individualLimit = individual.success ? individual.data : undefined;
+  const individualAmount = individualLimit &&
+    decimal.safeParse(individualLimit.limit);
+  const individualUsed = individualLimit && decimal.safeParse(individualLimit.used);
+  const individualPercent = individualLimit &&
+    finite.safeParse(individualLimit.remainingPercent);
+  const individualReset = individualLimit &&
+    instant.safeParse(individualLimit.resetsAt);
+  const credits = creditsFields.safeParse(raw?.credits);
+  const hasCredits = credits.success && z.boolean().safeParse(credits.data.hasCredits);
+  const unlimited = credits.success && z.boolean().safeParse(credits.data.unlimited);
+  const balance = credits.success ? decimal.safeParse(credits.data.balance) : undefined;
+  return Object.freeze({
+    id,
+    label,
+    ...(primary && { primary }),
+    ...(secondary && { secondary }),
+    ...(reachedType.success && {
+      rateLimitReachedType: reachedType.data,
+    }),
+    ...(spendControlReached.success && {
+      spendControlReached: spendControlReached.data,
+    }),
+    ...(individualAmount?.success && individualUsed?.success &&
+      individualPercent?.success && individualReset?.success && {
+        individualLimit: Object.freeze({
+          limit: individualAmount.data,
+          used: individualUsed.data,
+          remainingPercent: individualPercent.data,
+          resetsAt: individualReset.data,
+        }),
+      }),
+    ...(hasCredits && unlimited && hasCredits.success && unlimited.success && {
+      credits: Object.freeze({
+        hasCredits: hasCredits.data,
+        unlimited: unlimited.data,
+        ...(!unlimited.data && balance?.success && { balance: balance.data }),
+      }),
+    }),
+  });
+}
+
+/** No activity counters or native identifiers are inferred from quota information. */
+export function usageResult(
+  response: unknown,
   fetchedAt: number,
 ): CodexAccountUsageResult {
-  const limits = response.rateLimitsByLimitId?.['codex'] ?? response.rateLimits;
+  const parsed = responseFields.safeParse(response);
+  const data = parsed.success ? parsed.data : undefined;
+  const nativeBuckets = z.record(z.string(), z.unknown()).safeParse(
+    data?.rateLimitsByLimitId,
+  );
+  const byId = nativeBuckets.success ? nativeBuckets.data : undefined;
+  const orderedIds = byId
+    ? Object.keys(byId).sort((a, b) =>
+        a === 'codex' ? -1 : b === 'codex' ? 1 : a < b ? -1 : a > b ? 1 : 0,
+      )
+    : [];
+  const buckets = orderedIds.map((nativeId) => {
+    const id = nativeId === 'codex'
+      ? 'codex'
+      : `bucket-${createHash('sha256')
+          .update(nativeId)
+          .digest('hex')
+          .slice(0, 16)}`;
+    // The hash is stable across bucket insertions and reveals no native ID.
+    return bucket(
+      id,
+      id === 'codex' ? 'Codex' : `Limit ${id.slice(-6)}`,
+      byId?.[nativeId],
+    );
+  }).filter((entry) => Object.keys(entry).length > 2);
+  const defaultBucket = bucket('codex', 'Codex', data?.rateLimits);
+  if (
+    !buckets.some((entry) => entry.id === 'codex') &&
+    Object.keys(defaultBucket).length > 2
+  )
+    buckets.unshift(defaultBucket);
+  const active = buckets.find((entry) => entry.id === 'codex');
+  const activeFields = fields.safeParse(byId?.['codex']);
+  const fallbackFields = fields.safeParse(data?.rateLimits);
+  const planType = code.safeParse(
+    activeFields.success ? activeFields.data.planType : undefined,
+  );
+  const fallbackPlanType = code.safeParse(
+    fallbackFields.success ? fallbackFields.data.planType : undefined,
+  );
+  const quotaPlan = planType.success
+    ? planType.data
+    : fallbackPlanType.success ? fallbackPlanType.data : undefined;
   const quota = {
-    ...(limits.primary
-      ? { primary: Object.freeze({ ...limits.primary }) }
-      : {}),
-    ...(limits.secondary
-      ? { secondary: Object.freeze({ ...limits.secondary }) }
-      : {}),
-    ...(limits.rateLimitReachedType != null
-      ? { rateLimitReachedType: limits.rateLimitReachedType }
-      : {}),
+    ...(active?.primary && { primary: active.primary }),
+    ...(active?.secondary && { secondary: active.secondary }),
+    ...(active?.rateLimitReachedType && {
+      rateLimitReachedType: active.rateLimitReachedType,
+    }),
   };
   return Object.freeze({
     status: 'available',
     providerId: PROVIDER,
     fetchedAt,
-    ...(limits.planType != null
-      ? { account: Object.freeze({ planType: limits.planType }) }
+    ...(buckets.length > 0 && { buckets: Object.freeze(buckets) }),
+    ...(z.record(z.string(), z.unknown()).safeParse(
+      data?.rateLimitResetCredits,
+    ).success && {
+      resetCreditsAvailable: true,
+    }),
+    ...(data?.rateLimitUpsell != null && { upsellAvailable: true }),
+    ...(quotaPlan
+      ? { account: Object.freeze({ planType: quotaPlan }) }
       : {}),
     ...(Object.keys(quota).length > 0 ? { quota: Object.freeze(quota) } : {}),
   });

@@ -349,37 +349,33 @@ describe('CodexAppServerProcess', () => {
     expect(child.stdin.writableEnded).toBe(true);
   });
 
-  it('retains the validator cause and pending method without logging payloads', async () => {
+  it('rejects an invalid thread/start result locally without logging payloads', async () => {
     await start();
+    const timersBeforeRequest = jest.getTimerCount();
     const pending = runtime.request('thread/start', {
       model: 'PRIVATE_REQUEST_SENTINEL',
     });
     const failure = pending.catch((error: unknown) => error);
     child.send({ id: 2, result: { secret: 'PRIVATE_RESPONSE_SENTINEL' } });
     const error = await failure;
-    expect(error).toBeInstanceOf(CodexProcessFailureError);
-    if (!(error instanceof CodexProcessFailureError))
-      throw new Error('Expected process failure');
-    expect(error.message).toBe('Codex invalid protocol frame');
+    expect(error).toBeInstanceOf(CodexProtocolError);
+    if (!(error instanceof CodexProtocolError))
+      throw new Error('Expected protocol error');
     expect(error.method).toBe('thread/start');
-    expect(error.cause).toBeInstanceOf(CodexProtocolError);
-    expect(error.cause).toMatchObject({
+    expect(error).toMatchObject({
       code: 'invalidResult',
       method: 'thread/start',
     });
-    const subsequent = await runtime
-      .request('thread/start', {})
-      .catch((caught: unknown) => caught);
-    expect(subsequent).toBe(error);
-    child.emit('exit', 1, null);
-    expect(logger.debug).toHaveBeenCalledTimes(1);
-    expect(logger.debug).toHaveBeenCalledWith(
-      'Codex process failure',
-      expect.objectContaining({ method: 'thread/start' }),
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Codex response result rejected',
+      { method: 'thread/start', issues: JSON.stringify(error.issues) },
     );
-    expect(JSON.stringify(logger.debug.mock.calls)).not.toMatch(
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toMatch(
       /PRIVATE_REQUEST_SENTINEL|PRIVATE_RESPONSE_SENTINEL/,
     );
+    expect(child.stdin.writableEnded).toBe(false);
+    expect(jest.getTimerCount()).toBe(timersBeforeRequest);
   });
 
   it('records the inbound notification method', async () => {
@@ -418,7 +414,7 @@ describe('CodexAppServerProcess', () => {
     expect(error.method).toBe('turn/completed');
   });
 
-  it('logs rejection code, method and bounded redacted stderr only', async () => {
+  it('logs rejection code and method without stderr content', async () => {
     await start();
     child.stderr.emit('data', 'Bearer secret-bearer\n');
     child.stderr.emit(
@@ -444,9 +440,9 @@ describe('CodexAppServerProcess', () => {
       expect.objectContaining({
         method: 'thread/start',
         rpcCode: -32600,
-        stderrTail: expect.stringContaining('[REDACTED]'),
       }),
     );
+    expect(JSON.stringify(logger.debug.mock.calls)).not.toContain('stderrTail');
     expect(JSON.stringify(logger.debug.mock.calls)).not.toMatch(
       /PRIVATE_REQUEST_SENTINEL|PRIVATE_RESPONSE_SENTINEL|secret-bearer|secret-api|secret-auth|sk-secret-key/,
     );
@@ -659,7 +655,6 @@ describe('CodexAppServerProcess', () => {
     'malformed',
     'invalid-utf8',
     'invalid-unknown-notification-envelope',
-    'invalid-result',
     'unknown-id',
     'wrong-direction',
   ])('fails closed before dispatch for %s', async (kind) => {
@@ -667,7 +662,7 @@ describe('CodexAppServerProcess', () => {
     const pending = runtime.request('turn/interrupt', ids);
     const rejected = expect(pending).rejects.toThrow('invalid protocol frame');
     if (kind === 'oversize')
-      child.stdout.emit('data', Buffer.alloc(1024 * 1024 + 1, 65));
+      child.stdout.emit('data', Buffer.alloc(16 * 1024 * 1024 + 1, 65));
     if (kind === 'malformed')
       child.stdout.emit('data', Buffer.from('secret-invalid-json\n'));
     if (kind === 'invalid-utf8')
@@ -675,9 +670,6 @@ describe('CodexAppServerProcess', () => {
     if (kind === 'invalid-unknown-notification-envelope')
       // Unknown envelope keys are stripped; conflicting routing fields are invalid.
       child.send({ method: 'future/notification', result: {} });
-    if (kind === 'invalid-result')
-      // Extra server-result keys are tolerated; the wrong type still fails.
-      child.send({ id: 2, result: null });
     if (kind === 'unknown-id') child.send({ id: 99, result: {} });
     if (kind === 'wrong-direction')
       child.send({ id: 9, method: 'turn/interrupt', params: ids });
@@ -685,10 +677,52 @@ describe('CodexAppServerProcess', () => {
     expect(onNotification).not.toHaveBeenCalled();
     expect(onRequest).not.toHaveBeenCalled();
     expect(child.stdin.writableEnded).toBe(true);
+    if (kind === 'oversize')
+      expect(logger.debug).toHaveBeenCalledWith('Codex process failure',
+        expect.objectContaining({ byteSize: 16 * 1024 * 1024 + 1 }));
+  });
+
+  it('accepts an inbound notification larger than the outbound frame cap', async () => {
+    await start();
+    const frame = {
+      method: 'item/agentMessage/delta',
+      params: { ...ids, itemId: 'item', delta: 'x'.repeat(2 * 1024 * 1024) },
+    };
+    child.send(frame);
+    expect(onNotification).toHaveBeenCalledWith(frame);
+    expect(child.killed).toBe(false);
+  });
+
+  it('shrinks the frame buffer to the initial size after a large completed frame', async () => {
+    await start();
+    const frameBuffer = (): unknown => Reflect.get(runtime, 'frameBuffer');
+    const initial = frameBuffer();
+    if (!(initial instanceof Buffer)) throw new Error('Expected a frame buffer');
+    expect(initial.length).toBe(1024 * 1024);
+    const large = {
+      method: 'item/agentMessage/delta',
+      params: { ...ids, itemId: 'item', delta: 'x'.repeat(2 * 1024 * 1024) },
+    };
+    child.send(large);
+    expect(onNotification).toHaveBeenCalledWith(large);
+    const shrunk = frameBuffer();
+    if (!(shrunk instanceof Buffer)) throw new Error('Expected a frame buffer');
+    expect(shrunk.length).toBe(1024 * 1024);
+    // Partial bytes of the next frame survive the reallocation.
+    const following = {
+      method: 'item/agentMessage/delta',
+      params: { ...ids, itemId: 'item', delta: 'after' },
+    };
+    const bytes = Buffer.from(JSON.stringify(following) + '\n');
+    child.stdout.emit('data', bytes.subarray(0, 11));
+    child.stdout.emit('data', bytes.subarray(11));
+    expect(onNotification).toHaveBeenLastCalledWith(following);
+    expect(child.stdin.writableEnded).toBe(false);
   });
 
   it('rejects only the invalid catalog result and releases its timer', async () => {
     await start();
+    const timersBeforeRequests = jest.getTimerCount();
     const catalog = runtime.request('model/list', {});
     const other = runtime.request('turn/interrupt', ids);
     child.send({ id: 2, result: { secret: 'credential' } });
@@ -697,12 +731,39 @@ describe('CodexAppServerProcess', () => {
       message: 'Codex protocol validation failed: invalidResult',
     });
     expect(child.stdin.writableEnded).toBe(false);
+    expect(jest.getTimerCount()).toBe(timersBeforeRequests + 1);
     child.send({ id: 3, result: {} });
     await expect(other).resolves.toEqual({});
-    expect(jest.getTimerCount()).toBe(0);
+    expect(jest.getTimerCount()).toBe(timersBeforeRequests);
     const retry = runtime.request('model/list', {});
     child.send({ id: 4, result: { data: [], nextCursor: null } });
     await expect(retry).resolves.toEqual({ data: [], nextCursor: null });
+  });
+
+  it('keeps concurrent and following requests alive after an invalid thread/list result', async () => {
+    await start();
+    const timersBeforeRequests = jest.getTimerCount();
+    const history = runtime.request('thread/list', {});
+    const concurrent = runtime.request('turn/interrupt', ids);
+    child.send({ id: 2, result: { data: 'PRIVATE_HISTORY_SENTINEL' } });
+    await expect(history).rejects.toMatchObject({
+      code: 'invalidResult', method: 'thread/list',
+      issues: [{ path: ['data'], code: 'invalid_type' }],
+    });
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith('Codex response result rejected', {
+      method: 'thread/list',
+      issues: JSON.stringify([{ path: ['data'], code: 'invalid_type' }]),
+    });
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('PRIVATE_HISTORY_SENTINEL');
+    expect(jest.getTimerCount()).toBe(timersBeforeRequests + 1);
+    child.send({ id: 3, result: {} });
+    await expect(concurrent).resolves.toEqual({});
+    expect(jest.getTimerCount()).toBe(timersBeforeRequests);
+    const following = runtime.request('thread/list', {});
+    child.send({ id: 4, result: { data: [], nextCursor: null } });
+    await expect(following).resolves.toEqual({ data: [], nextCursor: null });
+    expect(child.stdin.writableEnded).toBe(false);
   });
 
   it('still fails closed on a malformed catalog response envelope', async () => {
@@ -799,11 +860,8 @@ describe('CodexAppServerProcess', () => {
       method: 'initialize',
       elapsedMs: 60_000,
       timeoutMs: 60_000,
-      stderrTail: expect.stringContaining('Bearer [REDACTED]'),
     });
-    expect(
-      Buffer.byteLength(logger.warn.mock.calls[0][1].stderrTail),
-    ).toBeLessThanOrEqual(2048);
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('stderrTail');
     expect(JSON.stringify(logger.warn.mock.calls)).not.toMatch(
       /secret-bearer|private-env-value/,
     );
