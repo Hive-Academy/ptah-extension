@@ -50,7 +50,7 @@ export class SkillRegistryCatalogService {
     roots: UserLayerRoots,
   ): CatalogSyncResult {
     let upserted = 0;
-    let linked = 0;
+    const linked = 0;
 
     for (const clone of clones) {
       const cloneStatus = this.deriveStatus(clone);

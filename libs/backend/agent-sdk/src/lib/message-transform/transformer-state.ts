@@ -68,7 +68,19 @@ export interface TransformerState {
   hasBackgroundTaskToolUseId(toolUseId: string): boolean;
   /** What the spawning tool_use block knew; undefined when not a tracked spawn. */
   getBackgroundTaskInfo(toolUseId: string): BackgroundTaskInfo | undefined;
-  getTaskParentToolUseId(taskId: string): string | undefined;
+  getTaskParentToolUseId(
+    taskId: string,
+    sessionId?: string,
+  ): string | undefined;
+  /**
+   * True when a terminal was emitted for this task and, when supplied, the
+   * notification parent matches the parent recorded at that terminal.
+   */
+  isTaskTerminalEmitted(
+    taskId: string,
+    sessionId?: string,
+    parentToolUseId?: string,
+  ): boolean;
   isTaskStartedEmitted(toolUseId: string): boolean;
   /**
    * True when this transformer already emitted `background_agent_started`
@@ -125,9 +137,22 @@ export interface TransformerState {
     info?: BackgroundTaskInfo,
   ): void;
   removeBackgroundTaskToolUseId(toolUseId: string): void;
-  setTaskParent(taskId: string, parentToolUseId: string): void;
-  /** Clears the task→tool_use link AND any non-agent mark for `taskId`. */
-  clearTaskParent(taskId: string): void;
+  /**
+   * Records a task parent and opens a new lifecycle by clearing any terminal
+   * dedup mark left by an earlier use of the same task id.
+   */
+  setTaskParent(
+    taskId: string,
+    parentToolUseId: string,
+    sessionId?: string,
+  ): void;
+  /** Clears the session-scoped task→tool_use link AND any non-agent mark. */
+  clearTaskParent(taskId: string, sessionId?: string): void;
+  markTaskTerminalEmitted(
+    taskId: string,
+    sessionId?: string,
+    parentToolUseId?: string,
+  ): void;
   markNonAgentTask(
     taskId: string,
     toolUseId?: string,

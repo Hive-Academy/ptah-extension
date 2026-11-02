@@ -8,7 +8,7 @@ import {
   type CompactionTimers,
 } from './compaction-state.types';
 
-const ACTIVE: CompactionSessionClass = { codexProxy: false, e2Passed: true };
+const ACTIVE: CompactionSessionClass = { e2Passed: true };
 const SID = 'session-1';
 
 /** Manual timer seam: records pending callbacks and fires them on demand. */
@@ -59,23 +59,17 @@ describe('CompactionCoordinator', () => {
       expect(coordinator.getState(SID)).toBe(CompactionState.IDLE);
     });
 
-    it('puts the Codex proxy path in OBSERVE_ONLY', () => {
-      expect(
-        coordinator.register(SID, { codexProxy: true, e2Passed: true }),
-      ).toBe(CompactionState.OBSERVE_ONLY);
-    });
-
     it.each([null, false])(
       'puts a class whose E2 is %p in OBSERVE_ONLY (the default class)',
       (e2Passed) => {
         expect(
-          coordinator.register(SID, { codexProxy: false, e2Passed }),
+          coordinator.register(SID, { e2Passed }),
         ).toBe(CompactionState.OBSERVE_ONLY);
       },
     );
 
     it('never leaves OBSERVE_ONLY, never initiates and never dedupes', () => {
-      coordinator.register(SID, { codexProxy: false, e2Passed: null });
+      coordinator.register(SID, { e2Passed: null });
       expect(arm()).toBe(false);
       expect(coordinator.onPreCompact(SID, 'auto')).toBe(false);
       expect(coordinator.onStatusCompacting(SID)).toBe(false);
@@ -374,7 +368,7 @@ describe('CompactionCoordinator', () => {
     });
 
     it('applies claims and reservations to OBSERVE_ONLY sessions', () => {
-      coordinator.register(SID, { codexProxy: true, e2Passed: null });
+      coordinator.register(SID, { e2Passed: null });
       expect(coordinator.claimIdle(SID, 'idle-1')).toBe('claimed');
       expect(coordinator.requestManualCompact(SID)).toEqual({ action: 'coalesced' });
       coordinator.releaseIdleClaim(SID, 'idle-1');
@@ -442,7 +436,7 @@ describe('CompactionCoordinator', () => {
       expect(coordinator.onPostCompact(SID, SID)).toBe(false);
       coordinator.onPreCompact(SID, 'manual');
       expect(coordinator.requestManualCompact(SID).action).toBe('deduped');
-      coordinator.register(SID, { codexProxy: true, e2Passed: null });
+      coordinator.register(SID, { e2Passed: null });
       expect(coordinator.onPostCompact(SID, SID)).toBe(false);
       expect(coordinator.requestManualCompact(SID)).toEqual({ action: 'send' });
     });

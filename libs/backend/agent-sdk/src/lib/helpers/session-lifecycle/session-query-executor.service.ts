@@ -66,7 +66,6 @@ import {
   isDirectAnthropic,
   getAllAnthropicProviders,
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
-  CODEX_PROXY_TOKEN_PLACEHOLDER,
   KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
   NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
@@ -151,9 +150,6 @@ export function resolveCapacityRoute(authEnv: AuthEnv): ContextCapacityRoute {
           case COPILOT_PROXY_TOKEN_PLACEHOLDER:
             providerId = 'github-copilot';
             break;
-          case CODEX_PROXY_TOKEN_PLACEHOLDER:
-            providerId = 'openai-codex';
-            break;
           case KIMI_CODE_PROXY_TOKEN_PLACEHOLDER:
             providerId = 'kimi-code';
             break;
@@ -224,15 +220,6 @@ function hasContentBlock(
  * the context-usage port for one reading. Every call is fail-open: a
  * coordinator or port failure writes one warn line and the turn goes on.
  */
-type RouteAwareIdleSignals = IdleCompactionSignals & {
-  sessionBound(
-    sessionId: string,
-    runToken: string,
-    codexProxy: boolean,
-    nativeAnthropic?: boolean,
-  ): void;
-};
-
 class CompactionSessionTap {
   private sessionId: string | null = null;
   private readonly trackedIds = new Set<string>();
@@ -258,7 +245,7 @@ class CompactionSessionTap {
      */
     private readonly runOwners: Map<string, number>,
     private readonly subagentMonitor: SubagentBudgetSink | null = null,
-    private readonly idle: RouteAwareIdleSignals | null = null,
+    private readonly idle: IdleCompactionSignals | null = null,
     private readonly nativeAnthropic = false,
   ) {}
 
@@ -502,14 +489,13 @@ class CompactionSessionTap {
       const state = c.register(id, this.sessionClass);
       this.logger.info(
         '[SessionLifecycle] Compaction coordinator tracking session',
-        { sessionId: id, state, codexProxy: this.sessionClass.codexProxy },
+        { sessionId: id, state },
       );
     });
     this.guardIdle('session-bound', (idle) =>
       idle.sessionBound(
         id,
         this.runToken,
-        this.sessionClass.codexProxy,
         this.nativeAnthropic,
       ),
     );
@@ -562,7 +548,7 @@ class CompactionSessionTap {
 
   private guardIdle(
     event: string,
-    fn: (idle: RouteAwareIdleSignals) => void,
+    fn: (idle: IdleCompactionSignals) => void,
   ): void {
     if (!this.idle) return;
     try {
@@ -1622,14 +1608,13 @@ export class SessionQueryExecutor {
     const providerBaseUrl =
       effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
     const providerModel = sessionConfig?.model ?? 'unknown';
-    // The Codex proxy path and every class whose E2 has not passed (all of
-    // them today: `e2Passed` is null) register OBSERVE_ONLY.
+    // Every class whose E2 has not passed (`e2Passed` is null) registers
+    // OBSERVE_ONLY.
     const compactionTap = new CompactionSessionTap(
       this.logger,
       this.compactionCoordinator,
       this.contextUsagePort,
       {
-        codexProxy: rec.capacityRoute?.providerId === 'openai-codex',
         e2Passed: null,
       },
       rec.token,

@@ -99,4 +99,31 @@ describe('StreamingQuotesComponent', () => {
 
     expect(() => fixture.destroy()).not.toThrow();
   });
+
+  it('shows whole quotes without typing when reduced motion is on', async () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: () => ({ matches: true }),
+    });
+    try {
+      await TestBed.configureTestingModule({
+        imports: [StreamingQuotesComponent],
+      }).compileComponents();
+
+      const fixture = TestBed.createComponent(StreamingQuotesComponent);
+      fixture.detectChanges();
+      const text = (): string | null =>
+        fixture.nativeElement.querySelector('.typewriter-text').textContent;
+
+      expect(text()).toBe('Let me think about this...');
+      jest.advanceTimersByTime(1000);
+      expect(text()).toBe('Let me think about this...');
+      jest.advanceTimersByTime(3000);
+      expect(text()).toBe('Analyzing the patterns...');
+
+      fixture.destroy();
+    } finally {
+      delete (window as { matchMedia?: unknown }).matchMedia;
+    }
+  });
 });

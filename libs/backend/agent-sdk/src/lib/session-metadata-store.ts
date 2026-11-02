@@ -58,6 +58,7 @@ import {
   type StateStorageValueProjection,
 } from '@ptah-extension/platform-core';
 import { SdkError } from './errors';
+import { CodexSessionUsageOwner, codexUsageCheckpointSchema, type CodexUsageCheckpoint } from './codex-app-server/codex-session-usage-owner';
 import { parseQuotaOwnerRef } from './helpers/plan-limits/quota-owner-ref.schema';
 import type {
   CliOutputSegment,
@@ -163,6 +164,50 @@ function codexMessageCount(value: unknown): number {
   return parsed.success ? parsed.data ?? 0 : 0;
 }
 
+function checkpointRegresses(next: CodexUsageCheckpoint, current: CodexUsageCheckpoint): boolean {
+  const classes = ['uncachedInputTokens', 'outputTokens', 'cacheReadTokens',
+    'cacheCreationTokens', 'reasoningOutputTokens', 'totalTokens'] as const;
+  if (next.rootThreadId !== current.rootThreadId || next.revision < current.revision ||
+    (current.childInclusion === 'disjoint' && next.childInclusion !== 'disjoint')) return true;
+  if (current.pricing && (!next.pricing ||
+    next.pricing.throughRevision < current.pricing.throughRevision ||
+    next.pricing.knownCost < current.pricing.knownCost ||
+    (next.revision === current.revision && current.pricing.complete &&
+      !next.pricing.complete))) return true;
+  if (next.revision === current.revision &&
+    (next.threads.length !== current.threads.length ||
+      classes.some((key) => next.total[key] !== current.total[key] ||
+        next.childTotal[key] !== current.childTotal[key]))) return true;
+  if (classes.some((key) => next.total[key] < current.total[key] ||
+    next.childTotal[key] < current.childTotal[key])) return true;
+  const byId = new Map(next.threads.map((thread) => [thread.threadId, thread]));
+  return current.threads.some((thread) => {
+    const updated = byId.get(thread.threadId);
+    return !updated || updated.epoch < thread.epoch ||
+      classes.some((key) => updated.accrued[key] < thread.accrued[key]);
+  });
+}
+
+function validCheckpoint(sessionId: string, raw: unknown): CodexUsageCheckpoint | undefined {
+  const parsed = codexUsageCheckpointSchema.safeParse(raw);
+  return parsed.success &&
+    CodexSessionUsageOwner.restore(
+      sessionId, parsed.data.rootThreadId, parsed.data,
+    ).isRestoredCheckpoint()
+    ? parsed.data : undefined;
+}
+
+function nativeCheckpointCost(checkpoint: CodexUsageCheckpoint): number | null {
+  const price = checkpoint.pricing;
+  const basis = price?.basis ?? (checkpoint.billingMode === 'subscription'
+    ? 'covered-by-subscription' : checkpoint.billingMode === 'api-key'
+      ? 'estimated' : 'unknown');
+  return checkpoint.revision > 0 && checkpoint.threads.length > 0 &&
+    checkpoint.coverage === 'complete' && price?.complete &&
+    basis !== 'unknown' &&
+    price.throughRevision === checkpoint.revision ? price.knownCost : null;
+}
+
 export class SessionAccountBindingError extends Error {
   constructor(
     readonly code:
@@ -182,6 +227,7 @@ export class CodexSessionMetadataError extends Error {
     readonly code:
       | 'legacy-conversion'
       | 'invalid-identity'
+      | 'usage-regression'
       | 'binding-change'
       | 'unavailable-storage'
       | 'direct-runtime-write'
@@ -259,6 +305,8 @@ function sameAccountBinding(
  * Session metadata - UI state only, NOT message storage
  */
 export interface SessionMetadata {
+  /** Versioned native usage checkpoint; absent on legacy and Claude sessions. */
+  readonly codexUsageCheckpoint?: CodexUsageCheckpoint;
   /** Native thread binding; rollout history remains owned by Codex. */
   readonly codexExecution?: CodexExecution;
 
@@ -306,7 +354,7 @@ export interface SessionMetadata {
   /**
    * Accumulated cost from result messages (USD)
    */
-  readonly totalCost: number;
+  readonly totalCost: number | null;
 
   /**
    * Accumulated tokens from result messages
@@ -1154,6 +1202,11 @@ export class SessionMetadataStore {
       }
       workspaceId = storedCallerPath ?? proposed.workspaceId;
       const now = Date.now();
+      const checkpoint = validCheckpoint(sessionId, existing?.codexUsageCheckpoint);
+      if (existing?.codexUsageCheckpoint !== undefined && !checkpoint) {
+        // Preserve legacy totals and report corrupt usage data.
+        this.logger.warn('[SessionMetadataStore] Invalid native usage checkpoint', { sessionId });
+      }
       const detail: SessionMetadata = {
         ...existing,
         ...(existing?.pluginConfigAncestorRoots === undefined && startLineage !== undefined
@@ -1164,19 +1217,76 @@ export class SessionMetadataStore {
         workspaceId,
         providerId: execution.providerId,
         codexExecution: execution,
+        ...(existing?.codexUsageCheckpoint
+          ? { codexUsageCheckpoint: existing.codexUsageCheckpoint }
+          : {}),
         ...(threadRecord?.success ? { codexThread: threadRecord.data } : {}),
         ...(threadRecord?.success && threadRecord.data.consumer === 'lane'
           ? { isChildSession: true } : {}),
         createdAt: existing?.createdAt ?? now,
         lastActiveAt: now,
-        totalCost: existing?.totalCost ?? 0,
-        totalTokens: existing?.totalTokens ?? { input: 0, output: 0 },
+        totalCost: checkpoint ? nativeCheckpointCost(checkpoint) :
+          existing?.codexExecution ? null : existing?.totalCost ?? null,
+        totalTokens: checkpoint
+          ? {
+              input: checkpoint.total.uncachedInputTokens +
+                checkpoint.total.cacheReadTokens +
+                checkpoint.total.cacheCreationTokens,
+              output: checkpoint.total.outputTokens,
+            }
+          : existing?.totalTokens ?? { input: 0, output: 0 },
       };
       await this.persistMetadata(detail);
       // Identity is a launch checkpoint, durable even when other writes are queued.
       await this.flush();
     });
     if (!skipped) this.emitChange(kind, sessionId, workspaceId);
+  }
+
+  /** Atomically persist native identity, normalized usage, and sidebar totals. */
+  async updateCodexUsageCheckpoint(
+    sessionId: SessionId,
+    checkpoint: CodexUsageCheckpoint,
+  ): Promise<void> {
+    const validated = codexUsageCheckpointSchema.parse(checkpoint);
+    if (validated.sessionId !== sessionId) {
+      throw new CodexSessionMetadataError('invalid-identity', 'Usage checkpoint session mismatch');
+    }
+    if (!CodexSessionUsageOwner.restore(
+      sessionId, validated.rootThreadId, validated,
+    ).isRestoredCheckpoint()) {
+      throw new CodexSessionMetadataError('invalid-identity', 'Invalid usage checkpoint aggregate');
+    }
+    let workspaceId: string | undefined;
+    await this.enqueueWrite(async () => {
+      const current = await this.get(sessionId);
+      if (current?.codexExecution?.runtime !== 'codex-app-server') {
+        throw new CodexSessionMetadataError('invalid-identity', 'Cannot store native usage for a non-native session');
+      }
+      const stored = validCheckpoint(sessionId, current.codexUsageCheckpoint);
+      if (current.codexUsageCheckpoint !== undefined && !stored) {
+        // A valid replacement can repair corrupt stored usage.
+        this.logger.warn('[SessionMetadataStore] Replacing invalid native usage checkpoint', { sessionId });
+      }
+      if (stored && checkpointRegresses(validated, stored)) {
+        this.logger.warn('[SessionMetadataStore] Rejected regressing native usage checkpoint', { sessionId });
+        throw new CodexSessionMetadataError(
+          'usage-regression', 'Native usage checkpoint regression',
+        );
+      }
+      workspaceId = current.workspaceId;
+      await this.persistMetadata({
+        ...current,
+        codexUsageCheckpoint: validated,
+        totalCost: nativeCheckpointCost(validated),
+        totalTokens: {
+          input: validated.total.uncachedInputTokens + validated.total.cacheReadTokens + validated.total.cacheCreationTokens,
+          output: validated.total.outputTokens,
+        },
+      });
+      await this.flush();
+    });
+    if (workspaceId) this.emitChange('updated', sessionId, workspaceId);
   }
 
   /** Serialize native turn counts with all other metadata writes. Legacy rows start at zero. */
@@ -1257,6 +1367,11 @@ export class SessionMetadataStore {
     ) {
       throw new SessionAccountBindingError('binding-conflict');
     }
+    const checkpoint = validCheckpoint(metadata.sessionId, existing?.codexUsageCheckpoint);
+    if (existing?.codexUsageCheckpoint !== undefined && !checkpoint) {
+      // Keep existing sidebar totals when usage is corrupt.
+      this.logger.warn('[SessionMetadataStore] Invalid native usage checkpoint', { sessionId: metadata.sessionId });
+    }
     const merged: SessionMetadata = {
       ...metadata,
       ...(existing?.codexExecution
@@ -1266,6 +1381,14 @@ export class SessionMetadataStore {
           }
         : {}),
       ...(existing?.codexThread ? { codexThread: existing.codexThread } : {}),
+      ...(existing?.codexUsageCheckpoint
+        ? { codexUsageCheckpoint: existing.codexUsageCheckpoint }
+        : {}),
+      ...(checkpoint ? { totalTokens: {
+        input: checkpoint.total.uncachedInputTokens + checkpoint.total.cacheReadTokens +
+          checkpoint.total.cacheCreationTokens,
+        output: checkpoint.total.outputTokens,
+      }, totalCost: nativeCheckpointCost(checkpoint) } : {}),
       ...(existing?.codexExecution && existing.codexMessageCount !== undefined
         ? { codexMessageCount: existing.codexMessageCount }
         : {}),

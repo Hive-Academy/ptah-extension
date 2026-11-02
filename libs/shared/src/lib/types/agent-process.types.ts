@@ -139,6 +139,8 @@ export interface AgentProcessInfo {
   readonly taskFolder?: string;
   status: AgentStatus;
   readonly startedAt: string; // ISO timestamp
+  /** Monotone turn number for same-record continuation. Absent in older payloads. */
+  turnSeq?: number;
   /** ISO timestamp when agent finished (completed/failed/stopped/timeout). Used to freeze timer display. */
   completedAt?: string;
   exitCode?: number;
@@ -520,6 +522,8 @@ export interface AgentOutputDelta {
  * Stored in SessionMetadata.cliSessions[] for resume capability.
  */
 export interface CliSessionReference {
+  /** Last observed turn number. Absent in older persisted references. */
+  readonly turnSeq?: number;
   /** Immutable run snapshot. Malformed persisted values must refuse resume. */
   readonly accountBinding?: ProviderAccountBinding;
   /** Opaque authoritative registry linkage; canonical paths stay backend-only. */

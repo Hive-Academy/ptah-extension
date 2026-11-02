@@ -28,7 +28,6 @@ import 'reflect-metadata';
 import * as http from 'http';
 import { createHash } from 'node:crypto';
 import { APIError } from '@anthropic-ai/sdk';
-import { CodexTranslationProxy } from '../providers/codex/codex-translation-proxy';
 import { CopilotTranslationProxy } from '../providers/copilot/copilot-translation-proxy';
 import { OpenRouterTranslationProxy } from '../providers/openrouter/openrouter-translation-proxy';
 import { LocalModelTranslationProxy } from '../providers/local/local-model-translation-proxy';
@@ -2286,14 +2285,6 @@ describe('TranslationProxyBase Responses terminal parity', () => {
 });
 
 // These probes invoke the production hook without needing unrelated auth services.
-class CodexLaneProbe extends CodexTranslationProxy {
-  static lane(model: string) {
-    return this.prototype.resolveUpstreamProtocol(model);
-  }
-  static forcedStream(target: URL) {
-    return this.prototype.requiresResponsesStream(target);
-  }
-}
 class CopilotLaneProbe extends CopilotTranslationProxy {
   static lane(model: string) {
     return this.prototype.resolveUpstreamProtocol(model);
@@ -2317,11 +2308,6 @@ class LocalLaneProbe extends LocalModelTranslationProxy {
 }
 
 describe('existing provider protocol lanes', () => {
-  it('pins Codex to Responses for every model', () => {
-    for (const model of ['gpt-5.3-codex', 'gpt-5', 'claude-sonnet-4-6']) {
-      expect(CodexLaneProbe.lane(model)).toBe('responses');
-    }
-  });
   it('pins Copilot to Chat Completions for every model', () => {
     for (const model of ['gpt-5', 'claude-sonnet-4.6', 'gemini-2.5-pro']) {
       expect(CopilotLaneProbe.lane(model)).toBe('chat/completions');
@@ -2336,23 +2322,6 @@ describe('existing provider protocol lanes', () => {
     for (const model of ['llama3.1', 'qwen2.5-coder', 'gpt-oss-20b']) {
       expect(LocalLaneProbe.lane(model)).toBe('chat/completions');
     }
-  });
-  it('keeps Codex forced SSE limited to the subscription Responses endpoint', () => {
-    expect(
-      CodexLaneProbe.forcedStream(
-        new URL('https://chatgpt.com/backend-api/codex/responses'),
-      ),
-    ).toBe(true);
-    expect(
-      CodexLaneProbe.forcedStream(
-        new URL('https://api.openai.com/v1/responses'),
-      ),
-    ).toBe(false);
-    expect(
-      CodexLaneProbe.forcedStream(
-        new URL('https://example.com/backend-api/codex/responses'),
-      ),
-    ).toBe(false);
   });
 });
 

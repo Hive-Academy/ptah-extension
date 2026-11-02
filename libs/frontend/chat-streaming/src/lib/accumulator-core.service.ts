@@ -476,6 +476,8 @@ export class StreamingAccumulatorCore {
         const existingByAgentId = deduplication.replaceAgentStartByAgentId(
           state,
           event.agentId,
+          event.toolCallId,
+          event.taskId,
           event.source,
         );
 
@@ -487,6 +489,8 @@ export class StreamingAccumulatorCore {
           event.toolCallId,
           'agent_start',
           event.source,
+          event.agentId,
+          event.taskId,
         );
 
         if (existingByToolCallId) {

@@ -21,7 +21,7 @@ import { ChatSlashCommandRouterService } from './chat-slash-command-router.servi
 type CoordinatorPort = ManualCompactAdmission & {
   register(
     sessionId: string,
-    sessionClass: { codexProxy: boolean; e2Passed: boolean },
+    sessionClass: { e2Passed: boolean },
   ): unknown;
   claimIdle(sessionId: string, claimId: string): string;
   onPreCompact(sessionId: string, trigger: 'auto' | 'manual'): boolean;
@@ -111,7 +111,7 @@ describe('manual /compact router admission', () => {
     coordinator = child.resolve<CoordinatorPort>(
       SDK_TOKENS.SDK_COMPACTION_COORDINATOR,
     );
-    coordinator.register(sessionId, { codexProxy: false, e2Passed: true });
+    coordinator.register(sessionId, { e2Passed: true });
   });
 
   afterEach(() => coordinator.dispose());

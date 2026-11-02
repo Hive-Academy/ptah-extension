@@ -339,7 +339,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
           routerLink="/download"
           routerLinkActive="bg-amber-400"
           class="inline-flex items-center justify-center gap-2 bg-amber-500 text-ink-950 px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-          aria-label="Download the PtahCode desktop app"
+          aria-label="Download PtahCode desktop app"
         >
           <lucide-angular
             [img]="DownloadIcon"

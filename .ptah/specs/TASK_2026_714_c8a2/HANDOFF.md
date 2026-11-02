@@ -1,129 +1,115 @@
-# Session handoff — TASK_2026_714_c8a2 (session 38)
+# HANDOFF — Codex removal (#881) + Codex usage/pricing (#886)
 
-Written 2026-11-01. Replaces the session 37 handoff (`git show 5c91fa977:.ptah/specs/TASK_2026_714_c8a2/HANDOFF.md`);
-session 36 `16218ed0a` (its Goal, Routing facts and Rules stay valid). Older: session 35 `85a7c64bd`, 34 `805991a08`, 24 `44e3b1102` (full
-goal, PR table), Electron live-test procedure `e10bb860a`.
+Written 2026-11-02 ~16:10 UTC by the coordinating session (session-handoff).
 
-W = `D:\projects\ptah-extension\.claude-worktrees\codex-runtime-integration`
-(branch `feat/codex-runtime-integration`, DRAFT PR #823 https://github.com/Hive-Academy/ptah-extension/pull/823,
-do not merge). T = `W\.ptah\specs\TASK_2026_714_c8a2\`. Work ONLY in W; the main checkout stays clean on `main`.
+## Goal and user decisions
 
-## Goal (short)
+- TASK_2026_714_c8a2 — PR #881 https://github.com/Hive-Academy/ptah-extension/pull/881 (DRAFT),
+  worktree W = `D:\projects\ptah-extension\.claude-worktrees\codex-removal-a`, branch
+  `feat/codex-removal-a`. Remove the Codex translation proxy; Codex runs only through the native
+  App Server runtime. Includes D9: native Codex history + sub-agent cards.
+- TASK_2026_codex_usage_pricing — PR #886 https://github.com/Hive-Academy/ptah-extension/pull/886
+  (DRAFT), worktree U = `D:\projects\ptah-extension\.claude-worktrees\codex-usage-pricing`,
+  branch `feat/codex-usage-pricing`. Native Codex usage, pricing, limits. Plan:
+  `U\.ptah\specs\TASK_2026_codex_usage_pricing\implementation-plan.md`.
+- Latest user instruction (verbatim): "don't do heavy checks locally please lets continue don't
+  stop until we get that live tested and pr merged". So: rely on CI, no local test/lint runs
+  (a single small-lib typecheck before a push was used once, 15 s). Earlier: user authorized all
+  work incl. D9 live check; no force push, history rewrite, branch deletion, worktree removal.
+- Merge: user wants the PRs merged. BLOCKER: the `main` ruleset requires an approving review
+  (`gh pr view 894` → BLOCKED / REVIEW_REQUIRED). Do NOT use `--admin`; ask the user to approve
+  or merge. Merge order: #894 → #881 → rebase/merge-main #886 → #886.
+- Rules: delegate implementation to CLI lanes (codex `gpt-6-sol`; Kimi ptahCliId
+  `pc-10e5a6b5-b237-4c72-a213-3202bd30d1fe`; Glm ptahCliId `pc-355b645d-35af-4974-84cf-9cf961ea0164`)
+  with self-contained prompts; lanes never run verify or git; review each change with an
+  in-process `code-logic-reviewer`; commit foreground, push background. Never commit or revert
+  `U\task-tracking\landing-live-demo\HANDOFF.md` (foreign). Do not edit tools/mcp-bench. Never
+  npm install. Decision D31: keep `@openai/codex-sdk` in root/electron manifests + lockfile.
+- Never commit real Codex session captures (private data). A 1.6 MB `thread/list` capture was
+  moved to `C:\Users\abdal\AppData\Local\Temp\ptah-d9-fix4\` on purpose.
 
-One Codex App Server runtime (`@ptah-extension/codex-runtime`) for Ptah main chat, gateways and CLI lanes; then
-Removal B (P10: 10e/10f, `@openai/codex-sdk` lanes) and Removal A (P15). Electron first. Native UI contracts
-identical to Claude's; gaps fixed only in the backend translation layer; no frontend Codex special case; no second
-proxy; NEVER strip/revert/comment out MCP. 10e/10f only after the user signs the 10d.P parity proof
-(T\p10-lane-parity-proof.md); then P14 (incl. GAP-3), D9, P15.
+## Done (all pushed)
 
-Routing: codex (model `gpt-6-sol`, never `gpt-6.1-terra`) implements. The `claude` CLI lane is DISABLED; codex code
-is reviewed by the in-process `code-logic-reviewer` subagent. Code the coordinator writes is reviewed by a codex
-lane. The coordinator runs verify, commit, push. Lane limits at end of session 37: codex weekly ~73% (resets
-2026-11-04 07:03 UTC); Glm and opencode at limit; grok unknown; Kimi unknown, do not use.
+W / #881 (head 325816509):
+- 0f45b62bb refactor(...): drop proxy Codex code (A5); a51a470ad locate the Codex binary without
+  the SDK (A6, agent-sdk package.json now lists `@openai/codex`).
+- b0e52cf53 test(rpc-handlers,agent-sdk): align specs with A5 and A6 (CI failures fixed).
+- 1a70e28d9 fix(codex-runtime): keep Codex history when thread/list is large (inbound frame cap
+  16 MiB / outbound 1 MiB, ancestorThreadId listing with -32602 retry, pages of 25, child
+  failures degrade to root). Reviews: code-logic-review-D9-fix4.md, -fix5.md (APPROVE 8).
+- 325816509 fix(codex-runtime): log history failures as a JSON string (fixed CI typecheck
+  TS2322 at codex-session-history.ts:252; local `codex-runtime` typecheck passed).
+U / #886 (head 4b257cc7b):
+- ad4a69013 usage 8 (limit cause/display; review r2 APPROVE 8), 2a1411c86 usage 7 (live limit
+  push; review r2 + my registration.ts type fix), 4b257cc7b usage 9 rate card (review APPROVE 8).
+  CI on 2a1411c86: typecheck pass; only failures were onboarding date test (main bug),
+  chat stdout-visibility flake, macOS git-real-git.
+PR #894 https://github.com/Hive-Academy/ptah-extension/pull/894 — branch `fix/onboarding-age-clock`
+(worktree `.claude-worktrees\onboarding-age-clock`), commit 5d4c0c479 pins Date.now in
+`libs/frontend/onboarding/src/lib/home/analysis-found-card.component.spec.ts`. CI ALL GREEN.
+Merge blocked only by required review.
 
-## Done in session 38 (pushed; PR head 6c0bd87d7, CI all green)
+## Live test results (W)
 
-| Commit | Subject | Verify / CI |
-| --- | --- | --- |
-| 910906b31 | docs: sign the 10d.P proof (user, Electron scope) | docs |
-| 6c0bd87d7 | feat(cli-agent-runtime,electron): remove legacy Codex SDK lane (10e + 10e.G + 10f) | see commit body; CI green |
+- `T\live-test-d9-a51a470ad.md` (3/3 paid turns used, model gpt-5.6-luna): sub-agent PARTIAL,
+  history after reload FAIL (thread/list frame > 1 MiB), follow-up after sub-agent PASS, no
+  proxy/legacy logs.
+- `T\live-test-d9-1a70e28d9.md` (0 paid turns, reopened session 01a19cd2-dc3c-7680-ae77-a7c9363246e9
+  from evidence `C:\Users\abdal\AppData\Local\Temp\ptah-live-d9-20261102-170847\` copied to
+  `...\ptah-live-d9b-20261102-174330\`): resume succeeds, no frame errors; card shows but WITHOUT
+  child output; agent lane "unavailable"; agents panel only Orchestrator → PARTIAL/FAIL.
+- Live-test worktree: `D:\projects\ptah-extension\.claude-worktrees\d9-live` (detached at
+  1a70e28d9, node_modules junction). Move it to the new head before the next re-check.
 
-- User signed p10-lane-parity-proof.md (Electron scope). D29: packaged Electron admits native lanes on win32/x64
-  via `isElectronCodexLaneAdmitted` (apps/ptah-electron/src/di/codex-lane-composition.ts); shared CodexParityGate
-  stays closed, so packaged CLI/TUI and production VS Code have NO Codex lane until their proof (user decision).
-- Reviews: code-logic-review-10e.md (8), -10e-G.md (8.5), -10e-G-r1.md (9), -10f.md (codex, 9).
-- Open minor follow-ups: 10e-G-r1 #1 (log not-called assertions), #2 (win32/x64 literal duplicates gate table);
-  10e #2 agent-sdk codex-native-binary-path.ts:145 SDK probe empty catch (P15); 10e #3 no reason field in detect.
-- Local lint: auth-providers @nx/dependency-checks reports persistence-sqlite unused (false positive, same on main;
-  CI checks green). auth-providers real-SDK integration spec EPERM temp cleanup on Windows (environment).
+## In progress
 
-## Next steps (session 38 -> 39, in order)
-
-1. P14 14a (codex lane): parity-gate ledger update (batches.md:3795-3804); gate stays `enabled: false`.
-2. GAP-3 (D24(4)): Codex chat gets user MCP servers from ~/.claude.json via claude-user-mcp.reader.ts.
-3. D9 history after reload (batches.md:2651) before P15.
-4. 14b live Electron parity run: needs explicit user authorization with a turn cap.
-5. P15 Removal A after the P14 proof.
-
-## Done in session 37 (all pushed; PR head 065b4fb5e, clean, in sync with origin)
-
-| Commit | Subject | Verify / CI |
-| --- | --- | --- |
-| ad3805f09 | docs: third Electron live run (r3) | docs |
-| 2d1c69dd2 | fix(cli-agent-runtime,lane-outcomes,electron): record native lane usage (10d.L5 + rev 1) | tc/lint 20/20; test 53/55 (known Windows-only only); CI green |
-| c056a0f5f | docs: fourth Electron live run (r4) | docs |
-| 792491e49 | fix(lane-outcomes): resolve the outcome recorder on first use (10d.L5 rev 2) | tc/lint 12/12; test 51/51; CI green (all required jobs) |
-| 374a06db3 | docs: fifth Electron live run (r5) | docs |
-| 065b4fb5e | docs: classify G6 per-turn lane completion as parity | docs |
-
-Reviews: T\code-logic-review-10d-L5.md (REVISE 6), -r1.md (APPROVED 8), -r2.md (APPROVED 8). Lane reports:
-T\batch-10d-L5-report.md, T\batch-10d-L5-r2-report.md.
-
-Live results (all Electron, settings.json restored, `cmp` 0 every run):
-- r3 (8/8 turns): G2-B PASS (completion for a resumed lane queued while the chat is busy, delivered after the report
-  turn; 0 busy / 0 delivery-failed). G1, G3 PASS.
-- r4 (7/8 turns): G5 token columns PASS. Gate S FAIL, cause found (recorder chain needs WorkspaceScopeResolver,
-  registered only once ACTIVE_WORKSPACE_SOURCE exists) -> fixed in 792491e49. Scenario C was a test design error
-  (lane told to wait inside its turn; queued message never started).
-- r5 (**5 turns against an authorized cap of 4** — guard polled every 250 ms and two turns started 65 ms apart; the
-  user was told): gate S PASS, G5 PASS, G3 PASS, a queued `ptah_agent_message` to a running lane started lane turn 2.
-  Resume not tested (gate chose `fresh`: idle 5240 s > 600 s). G6 (completion signalled per lane turn) is shared
-  manager behavior for all continuation-capable lanes (agent-process-manager.service.ts:3078-3117) = parity.
-
-## Open problems and decisions
-
-- SIGNED in session 38 (see above).
-- Minor, non-blocking: spawn result gave the main agent no usable agentId (first message call isError, r5 app.log
-  1670); resume gate said "host holds no record" for a row with `workspace_root NULL` (r5, copied DB); stale comment
-  `apps/ptah-electron/src/di/container.ts:46` (start-after-phase-4 move no longer needed; smoke spec guards an order
-  that no longer matters); events before workspace settings exist are lost (no retry); no spec for a recorder throw
-  inside a callback; cost_usd NULL; reasoning segments not stored; a resume replaces the earlier lane output; old
-  app-server exit logged as "Codex process failure"; stale "needs you" banner; G4 never observed live.
-- CLI, TUI and VS Code proof rows stay PENDING-LIVE unless the user authorizes runs there.
-
-## Key files
-
-- T\p10-lane-parity-proof.md — the proof to sign; corrective batches and live results r2-r5.
-- T\live-test-p10dP-r3.md, -r4.md, -r5.md — live run reports (procedure, evidence, app.log line numbers).
-- T\plan-p10.md — 10e/10f definition (after 10d.P). T\decisions.md — D26-D28.
-- libs/backend/lane-outcomes/src/lib/di/start.ts — lazy recorder (792491e49).
+- Lane cd92cfd2-2cfb-43b1-a13e-9b94e871c7a5 (codex, CLI session 01a19cf4-fece-7eb0-a9ad-ef28fae55060)
+  RUNNING in W: D9 fix6 — child output/lane/agents panel after resume. Deliverable
+  `T\task-D9-fix6-report.md`. Uncommitted edits so far: `libs/backend/rpc-handlers/src/lib/handlers/subagent-rpc.handlers.ts`,
+  `libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts`, `subagent-execution.store.ts`,
+  `libs/frontend/chat/src/lib/services/chat-store/session-history-replayer.service.ts`.
 
 ## Background work
 
-- None for this task. All lanes (c61b4698, 760145d3, 360c3795) and subagents finished. Lanes from other worktrees
-  (agent dock, Motion, surface-session-motion, streaming-composer) are not ours; ignore them.
-- Live run folders in %TEMP%: ptah-live-p10dL3-20261031-234219, ptah-live-p10dL4-20261101-012450,
-  ptah-live-p10dL5-20261101-030143 (app.log, ptah.db, shots, settings backups).
+- Lane above (cd92cfd2…), running.
+- CI #881 on 325816509: 2 pass / 14 pending at handoff. CI #886 on 4b257cc7b: 12 pass / 5 pending.
+  (The session's gh watchers were stopped; re-check with `gh pr checks 881` / `886`.)
 
-## Next steps of session 37 (history; steps 1-2 done in session 38)
+## Open problems / follow-ups
 
-1. Ask the user (if not already answered) to sign T\p10-lane-parity-proof.md for Electron, or to name a gap to fix.
-   On "sign": update the Signature line (`Signed: <user> <date>, Electron scope`), commit, push.
-2. Only after signing: 10e, then 10f (Removal B) per T\plan-p10.md — codex lane implements, code-logic-reviewer
-   reviews, coordinator verifies/commits/pushes, watches CI. Then P14 (incl. GAP-3), D9, P15.
-3. Optional cheap fix (codex lane): stale container.ts:46 comment / remove the now-unneeded order assertion; spec for a
-   recorder throw inside a callback.
+- Merges need a human approving review (ruleset). Tell the user.
+- #881 review moderates: inbound frame buffer never shrinks after a large frame; ancestorThreadId
+  retry only on -32602; pinned protocol schema lacks ancestorThreadId (experimental).
+- #886 moderates: lenient price matcher now prices gpt-* IDs for Copilot/OpenRouter too
+  (estimate); gpt-5.6-sol promo price has no expiry after 2026-11-21; 12h cache writes priced at
+  30m rate; batch 7 throttle has no trailing refresh, close() uses Promise.all; batch 8 picks
+  first exhausted window, stale reset possible, ledger not updated from error cause.
+- Older follow-ups: batch 4 provisional turnCost gated only on turnUsageObserved; batch 6
+  planType fallback test; A5 dead `not-actable` skip reason (idle-compaction.types.ts:141), no
+  dedicated isNativeCodexAuthIntent spec; A6: add `@openai/codex` direct dep when D31 removal
+  happens; batch 3 D4, batch 4 R3/R4, batch 5/6 minors.
+- Known flaky: electron-e2e hunk-revert-top-layer, chat stdout-visibility spec.
+- Untracked scratch in W, do not commit: T\pr881-body-old.md, pr881-body-new.md, ci-watch-67104d6d9.txt.
 
-Verify (background, timeout >= 90 min, read rc and "N tasks:"; typecheck,lint first, tests second):
-`npm run verify -- -t typecheck,lint -p cli-agent-runtime,codex-runtime,agent-sdk,lane-outcomes,cli-engine,rpc-handlers,ptah-electron,ptah-cli,ptah-extension-vscode,degradation-audit,di-lint`
-then the same with `-t test`. Expected: 20/20, then 53/55 with only the known Windows-only failures
-(rpc-handlers 17 session-folder/symlink tests, agent-sdk 2 plugin-loader tests). The verify queue is often full
-(waits of 10+ min are normal; `node scripts/verify.mjs --status`).
+(T = `W\.ptah\specs\TASK_2026_714_c8a2`)
 
-## Rules (repeat to every lane)
+## Next steps
 
-CLAUDE.md applies. Scoped `npm run verify -- -p ...` only, under the FIFO lock, in the background, timeout
->= 90 min; read rc and the "N tasks:" line; failed task logs are in
-`C:\Users\abdal\.nx\8b7110c7390b9603\cache\terminalOutputs\<id>`. Never build/serve/e2e except an approved Electron
-live run. Never npm ci/install in a worktree. No `any`, `as unknown as`, `@ts-ignore`, `eslint-disable`; bracket
-`process.env['X']`; swallowing catches need `// degradation-audit: optional-capability|reported - <reason>`. Specs
-must pass on Windows and Linux. Lanes never verify, commit, push or call ptah_get_diagnostics (first lines of each
-lane task); deliverable paths absolute; lanes write LF and never convert line endings (check
-`tr -cd '\r' < file | wc -c` on every lane-written file). Never commit, push or merge while a lane edits W or a
-verify runs; never edit W while a verify runs. Commit in the foreground (commitlint scopes from .commitlintrc.json,
-subject <= 72, body lines <= 100, no BOM, message file + `git commit -F`, trailer
-`Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`); push in the background. No PR merge, force push, history
-rewrite, branch deletion or worktree removal. Do not edit ~/.codex/config.toml; ~/.ptah/settings.json only via the
-approved live-test backup/restore with `cmp`. NEVER strip MCP. jq is not installed: use `gh --jq`. A live or paid
-run needs explicit user authorization with a turn cap; a turn guard must stop the app BEFORE the cap can be passed
-(stop when count reaches cap-1 and a turn is active, not after), and the resume gate refuses lanes idle > 600 s.
+1. When lane cd92cfd2 completes: read `T\task-D9-fix6-report.md`; in-process code-logic-reviewer
+   on the uncommitted W diff; fix findings via the lane; then a quick typecheck of only the
+   touched libs before pushing, e.g.
+   `npm run verify -- -t typecheck -p @ptah-extension/rpc-handlers,@ptah-extension/chat-streaming,@ptah-extension/chat`
+   (skip tests locally per user). Commit (explicit paths + T reports/reviews + live-test-d9-1a70e28d9.md), push in background.
+2. Move d9-live to the new head (`git -C .claude-worktrees/d9-live checkout --detach <head>`) and
+   spawn a codex lane for a 0-paid-turn live re-check (same procedure as
+   `T\live-test-d9-1a70e28d9.md`: copy evidence DBs to a new folder, build-dev under
+   `node scripts/verify.mjs --exec --task electron-live-test -- sh node_modules/.bin/nx run ptah-electron:build-dev`,
+   CDP 9335, reopen session 01a19cd2…, settings backup/restore + cmp). Goal: card output, lane,
+   agents panel all PASS.
+3. Watch CI: `gh pr checks 881`, `gh pr checks 886`. Inspect failures with
+   `gh run view --job <id> --log-failed | grep -E "error TS|● .* › |Tests: .*failed"`.
+4. Update PR #881 and #886 bodies (Summary/Test plan with real CI + live results), mark ready
+   (`gh pr ready`), then ask the user to approve/merge #894, #881, then #886 (after merging main
+   into U and fixing conflicts in the overlap files: codex-chat-turn-stream.ts, codex-chat-events.ts,
+   codex-history-projector.ts, session-history-router.ts).
+5. Run `/session-handoff` again when the budget runs low.

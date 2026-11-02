@@ -458,7 +458,9 @@ export const thread = z.object({
   projectId: string.nullable(),
   sessionId: string,
   source: z.union([
-    z.enum(['cli', 'vscode', 'exec', 'appServer', 'unknown']),
+    // Thread source labels are not used by history projection; allow new
+    // server labels while validating the structured source variants.
+    string,
     z.object({ custom: string }),
     z.object({ subAgent: json }),
   ]),
@@ -487,6 +489,18 @@ export const thread = z.object({
   gitInfo: object.nullish(),
   section: object.nullish(),
   threadSource: string.nullish(),
+});
+export const historyPage = z.object({
+  nextCursor: string.nullish(),
+  backwardsCursor: string.nullish(),
+});
+export const historySortDirection = z.enum(['asc', 'desc']);
+export const historyLimit = integer.min(0).max(4_294_967_295).nullish();
+export const threadItemEntry = z.object({
+  turnId: string,
+  item,
+  startedAtMs: integer.nullish(),
+  completedAtMs: integer.nullish(),
 });
 export const threadOptions = {
   approvalPolicy: approvalPolicy.nullish(),
@@ -635,12 +649,27 @@ export const elicitation = z.discriminatedUnion('mode', [
   }),
 ]);
 export const usage = z.object({
-  cachedInputTokens: integer,
-  inputTokens: integer,
-  outputTokens: integer,
-  reasoningOutputTokens: integer,
-  totalTokens: integer,
-  cacheWriteInputTokens: integer.optional(),
+  cachedInputTokens: integer.nonnegative().max(Number.MAX_SAFE_INTEGER),
+  inputTokens: integer.nonnegative().max(Number.MAX_SAFE_INTEGER),
+  outputTokens: integer.nonnegative().max(Number.MAX_SAFE_INTEGER),
+  reasoningOutputTokens: integer.nonnegative().max(Number.MAX_SAFE_INTEGER),
+  totalTokens: integer.nonnegative().max(Number.MAX_SAFE_INTEGER),
+  cacheWriteInputTokens: integer.nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+});
+
+/** Optional attribution fields are retained when a native version supplies them. */
+export const tokenUsageNotification = z.object({
+  threadId: z.string(),
+  turnId: z.string(),
+  parentThreadId: z.string().nullish(),
+  model: z.string().nullish(),
+  tokenUsage: z.object({
+    last: usage,
+    total: usage,
+    modelContextWindow: integer.nullish(),
+    /** Optional future native reset proof; absent in the pinned protocol. */
+    counterReset: z.literal(true).optional(),
+  }),
 });
 export const rateWindow = z.object({
   usedPercent: integer,

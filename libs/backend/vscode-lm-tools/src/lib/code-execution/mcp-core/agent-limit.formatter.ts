@@ -330,18 +330,61 @@ export function formatLimitColumn(limit: AgentLimit, now = Date.now()): string {
 }
 
 function table(headers: readonly string[], rows: readonly string[][]): string {
+  const cell = (value: string): string => value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('\\', '\\\\')
+    .replaceAll('|', '\\|')
+    .replaceAll('`', '\\`')
+    .replace(/[\r\n]+/g, ' ');
   return [
-    `| ${headers.join(' | ')} |`,
+    `| ${headers.map(cell).join(' | ')} |`,
     `| ${headers.map(() => '---').join(' | ')} |`,
-    ...rows.map((row) => `| ${row.join(' | ')} |`),
+    ...rows.map((row) => `| ${row.map(cell).join(' | ')} |`),
   ].join('\n');
 }
 
 function planLimitRows(limit: AgentLimit, now: number): string[][] {
   const name = rowName(limit);
   const { windows, reasons } = limit.state;
+  const allowances = limit.snapshot?.allowances ?? [
+    {
+      label: 'Plan',
+      credits: limit.snapshot?.credits,
+      individual: limit.snapshot?.individualAllowance,
+    },
+  ];
+  const allowanceRows = allowances.flatMap((allowance) => {
+    const rows: string[][] = [];
+    if (allowance.credits) {
+      const credits = allowance.credits;
+      rows.push([
+        name,
+        `${allowance.label} credits`,
+        credits.unlimited ? 'unlimited' : credits.balance === undefined
+          ? credits.hasCredits ? 'available' : 'no credits'
+          : `${credits.balance} remaining`,
+        credits.unlimited ? 'unlimited' : credits.hasCredits ? 'available' : 'none',
+        '-',
+        '-',
+      ]);
+    }
+    if (allowance.individual) {
+      const individual = allowance.individual;
+      rows.push([
+        name,
+        `${allowance.label} allowance`,
+        `${individual.used} of ${individual.limit} used`,
+        `${Math.min(100, Math.max(0, individual.remainingPercent))}% remaining`,
+        individual.resetsAt === undefined ? 'reset unknown' : `resets ${formatToolUtc(individual.resetsAt)}`,
+        '-',
+      ]);
+    }
+    return rows;
+  });
   if (windows.length > 0) {
-    return windows.map(({ window, state }) => [
+    return [...windows.map(({ window, state }) => [
       name,
       window.label,
       window.used === undefined || state === 'reset-usage-unknown'
@@ -350,7 +393,7 @@ function planLimitRows(limit: AgentLimit, now: number): string[][] {
       WINDOW_STATE_CELL[state],
       formatToolResetText(window, now),
       formatToolSourceText(window),
-    ]);
+    ]), ...allowanceRows];
   }
   const evidence = ownerLimitEvidence(limit);
   const noSource = hasNoUsageSource(limit);
@@ -364,8 +407,10 @@ function planLimitRows(limit: AgentLimit, now: number): string[][] {
         evidence ? resetPhrase(evidence.resetsAt, now) : '-',
         evidence ? evidence.source : '-',
       ],
+      ...allowanceRows,
     ];
   }
+  if (allowanceRows.length > 0) return allowanceRows;
   return [
     [
       name,

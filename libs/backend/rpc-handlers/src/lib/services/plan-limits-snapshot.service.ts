@@ -38,8 +38,10 @@
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
+  type ProviderOwnerResolver,
   type PlanLimitLedgerService,
   type PlanOwnerTarget,
   type PlanUsageService,
@@ -58,6 +60,7 @@ import {
   type PlanLimitSessionOwner,
   type PlanLimitsSnapshot,
   type QuotaOwnerRef,
+  type SessionRuntimeIdentity,
 } from '@ptah-extension/shared';
 
 /** The scope of one snapshot: what the view asked for. */
@@ -81,6 +84,10 @@ export type PlanLimitsLedgerReader = Pick<
   PlanLimitLedgerService,
   'snapshotFor' | 'sessionOwners'
 >;
+interface NativeSessionMetadata {
+  get(sessionId: string): Promise<{ codexExecution?: SessionRuntimeIdentity } | null>;
+}
+type CodexHomeOwnerResolver = Pick<ProviderOwnerResolver, 'ownerForCodexHome'>;
 /** Leaves six seconds for RPC transport and rendering (30 second client timeout). */
 const SNAPSHOT_BUDGET_MS = 24_000;
 const RESERVED_READ_MS = SLOW_LIMIT_LOOKUP_DEADLINE_MS;
@@ -98,6 +105,10 @@ export class PlanLimitsSnapshotService {
     private readonly usage: PlanLimitsUsage,
     @inject(AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER)
     private readonly ledger: PlanLimitsLedgerReader,
+    @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { isOptional: true })
+    private readonly metadata?: NativeSessionMetadata,
+    @inject(AUTH_PROVIDERS_TOKENS.PROVIDER_OWNER_RESOLVER, { isOptional: true })
+    private readonly ownerResolver?: CodexHomeOwnerResolver,
   ) {}
 
   /**
@@ -155,7 +166,7 @@ export class PlanLimitsSnapshotService {
       generatedAt: Date.now(),
       owners,
       discoveryIncomplete: entries.discoveryIncomplete === true,
-      sessionOwners: this.sessionOwners(scope.sessionIds ?? []),
+      sessionOwners: await this.sessionOwners(scope.sessionIds ?? [], owners),
     };
   }
 
@@ -241,16 +252,32 @@ export class PlanLimitsSnapshotService {
     };
   }
 
-  /**
-   * Every session the ledger has seen, plus each requested session it has
-   * not seen yet as "owner not resolved".
-   */
-  private sessionOwners(
+  /** Ledger owners plus native Codex sessions bound to a discovered home owner. */
+  private async sessionOwners(
     sessionIds: readonly string[],
-  ): Record<string, PlanLimitSessionOwner> {
+    owners: readonly PlanLimitOwnerSnapshot[],
+  ): Promise<Record<string, PlanLimitSessionOwner>> {
     const known = this.ledger.sessionOwners();
     const result: Record<string, PlanLimitSessionOwner> = { ...known };
+    const codexOwners = new Set(owners.filter((entry) =>
+      entry.owner.providerId === 'openai-codex',
+    ).map((entry) => entry.owner.key));
     for (const sessionId of sessionIds) {
+      if (!result[sessionId]?.ownerKey && this.metadata && this.ownerResolver) {
+        try {
+          const execution = (await this.metadata.get(sessionId))?.codexExecution;
+          if (execution?.runtime === 'codex-app-server') {
+            const owner = this.ownerResolver.ownerForCodexHome(execution.codex.normalizedHome);
+            if (codexOwners.has(owner.key)) {
+              result[sessionId] = { ownerKey: owner.key, modelScope: null };
+            }
+          }
+        } catch (error: unknown) {
+          this.logger.warn('[PlanLimitsSnapshot] native session owner lookup failed', {
+            errorName: error instanceof Error ? error.name : typeof error,
+          });
+        }
+      }
       result[sessionId] ??= { ownerKey: null, modelScope: null };
     }
     return result;

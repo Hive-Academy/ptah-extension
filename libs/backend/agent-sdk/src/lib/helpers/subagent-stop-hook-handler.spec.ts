@@ -370,6 +370,78 @@ describe('SubagentStopHookHandler', () => {
     ]);
   });
 
+  it('resolves a hook-invocation UUID to the unique Task tool id in the registry', async () => {
+    const logger = makeLogger();
+    const events = new SdkAdapterEvents(logger);
+    const captured: Array<{ toolCallId?: string }> = [];
+    events.onSubagentEnded((event) => {
+      captured.push({ toolCallId: event.toolCallId });
+    });
+    const registry = {
+      getToolCallIdsByAgentId: jest.fn().mockReturnValue(['toolu_task_real']),
+    };
+    const handler = Reflect.construct(SubagentStopHookHandler, [
+      logger,
+      events,
+      undefined,
+      registry,
+    ]) as SubagentStopHookHandler;
+    const fn = getHookCallback(handler, 'sess-1', '/workspace');
+
+    await fn(
+      {
+        hook_event_name: 'SubagentStop',
+        agent_id: 'agent-abc',
+        agent_type: 'subagent',
+      } as unknown as HookInput,
+      'c16f6ac0-2b21-47e7-bc21-a0d451b05f25',
+      { signal: new AbortController().signal },
+    );
+
+    expect(registry.getToolCallIdsByAgentId).toHaveBeenCalledWith(
+      'agent-abc',
+      'sess-1',
+    );
+    expect(captured).toEqual([{ toolCallId: 'toolu_task_real' }]);
+  });
+
+  it('does not guess a Task tool id when the registry has multiple matches', async () => {
+    const logger = makeLogger();
+    const events = new SdkAdapterEvents(logger);
+    const captured: Array<{ toolCallId?: string }> = [];
+    events.onSubagentEnded((event) => {
+      captured.push({ toolCallId: event.toolCallId });
+    });
+    const registry = {
+      getToolCallIdsByAgentId: jest
+        .fn()
+        .mockReturnValue(['toolu_task_one', 'toolu_task_two']),
+    };
+    const handler = Reflect.construct(SubagentStopHookHandler, [
+      logger,
+      events,
+      undefined,
+      registry,
+    ]) as SubagentStopHookHandler;
+    const fn = getHookCallback(handler, 'sess-1', '/workspace');
+
+    await fn(
+      {
+        hook_event_name: 'SubagentStop',
+        agent_id: 'agent-abc',
+        agent_type: 'subagent',
+      } as unknown as HookInput,
+      'c16f6ac0-2b21-47e7-bc21-a0d451b05f25',
+      { signal: new AbortController().signal },
+    );
+
+    expect(captured).toEqual([{ toolCallId: undefined }]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[SubagentStopHookHandler] SubagentStop agent id has ambiguous Task tool ids',
+      { sessionId: 'sess-1', agentId: 'agent-abc', matchCount: 2 },
+    );
+  });
+
   it('no-op when sdkAdapterEvents not injected (back-compat for tests)', async () => {
     const logger = makeLogger();
     const handler = new SubagentStopHookHandler(logger);

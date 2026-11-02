@@ -510,7 +510,7 @@ describe('SdkAdapterEvents', () => {
 
     it('logs every coordinator transition at INFO with from, to, trigger and pre/post tokens', () => {
       const { logger, coordinator } = makeWithCoordinator();
-      coordinator.register('real-1', { codexProxy: false, e2Passed: true });
+      coordinator.register('real-1', { e2Passed: true });
 
       coordinator.onPreCompact('real-1', 'auto');
       coordinator.onCompactBoundary('real-1', {
@@ -546,7 +546,7 @@ describe('SdkAdapterEvents', () => {
       const { events, coordinator } = makeWithCoordinator();
       const listener = jest.fn();
       events.onCompactionStateChanged(listener);
-      coordinator.register('real-1', { codexProxy: false, e2Passed: true });
+      coordinator.register('real-1', { e2Passed: true });
 
       coordinator.onPreCompact('real-1', 'manual');
 
@@ -564,9 +564,9 @@ describe('SdkAdapterEvents', () => {
 
     it('logs nothing for an OBSERVE_ONLY session, which never transitions', () => {
       const { logger, coordinator } = makeWithCoordinator();
-      coordinator.register('codex-1', { codexProxy: true, e2Passed: true });
+      coordinator.register('observe-only-1', { e2Passed: null });
 
-      coordinator.onPreCompact('codex-1', 'auto');
+      coordinator.onPreCompact('observe-only-1', 'auto');
 
       expect(logger.info).not.toHaveBeenCalledWith(
         '[SdkAdapterEvents] Compaction state changed',
@@ -579,7 +579,7 @@ describe('SdkAdapterEvents', () => {
       events.onCompactionStateChanged(() => {
         throw new Error('listener boom');
       });
-      coordinator.register('real-1', { codexProxy: false, e2Passed: true });
+      coordinator.register('real-1', { e2Passed: true });
 
       expect(coordinator.onPreCompact('real-1', 'auto')).toBe(true);
 

@@ -21,12 +21,16 @@ import {
   SubagentExecutionStore,
 } from '@ptah-extension/chat-streaming';
 import { formatAgentElapsed } from '@ptah-extension/chat-ui';
-import { SESSION_CARD_ACTIONS, SESSION_CONTEXT } from '../../../tokens/session-context.token';
+import {
+  SESSION_CARD_ACTIONS,
+  SESSION_CONTEXT,
+} from '../../../tokens/session-context.token';
 import { laneKey } from '../../molecules/compact-session/compact-lane-rows';
 import { BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionHistoryReplayer } from '../../../services/chat-store/session-history-replayer.service';
 import { subagentToolCount } from '../../../utils/subagent-tool-count';
+import { subagentActivityText } from '../../../utils/subagent-activity-text';
 
 /** One transcript row for an agent. The full execution tree lives in the selected lane. */
 @Component({
@@ -78,7 +82,10 @@ import { subagentToolCount } from '../../../utils/subagent-tool-count';
             />
           }
           @case ('loading') {
-            <span class="w-3 h-3 rounded-full border border-base-content-muted" aria-hidden="true"></span>
+            <span
+              class="w-3 h-3 rounded-full border border-base-content-muted"
+              aria-hidden="true"
+            ></span>
           }
           @default {
             <lucide-angular
@@ -91,7 +98,9 @@ import { subagentToolCount } from '../../../utils/subagent-tool-count';
         <span class="text-base-content-muted" data-testid="subagent-status">{{
           statusLabel()
         }}</span>
-        <span class="ml-auto whitespace-nowrap text-base-content-muted" title="Current known count"
+        <span
+          class="ml-auto whitespace-nowrap text-base-content-muted"
+          title="Current known count"
           >{{ toolCount() }} tools</span
         >
         @if (duration(); as elapsed) {
@@ -105,9 +114,10 @@ import { subagentToolCount } from '../../../utils/subagent-tool-count';
           aria-hidden="true"
         />
       </button>
-      @if (activity(); as line) {
+      @if (activityText(); as line) {
         <p
           class="truncate text-base-content-muted mt-1"
+          [title]="activity()"
           data-testid="subagent-activity"
         >
           {{ line }}
@@ -139,7 +149,9 @@ export class SubagentTileComponent {
     ((toolCallId: string) => PermissionRequest | null) | undefined
   >();
   private readonly monitor = inject(AgentMonitorStore, { optional: true });
-  private readonly backgroundAgents = inject(BackgroundAgentStore, { optional: true });
+  private readonly backgroundAgents = inject(BackgroundAgentStore, {
+    optional: true,
+  });
   private readonly injector = inject(Injector);
   private readonly context = inject(SESSION_CONTEXT, { optional: true });
   private readonly executions = inject(SubagentExecutionStore);
@@ -183,7 +195,7 @@ export class SubagentTileComponent {
         }
         return undefined;
       };
-      return latest(tree)?.slice(0, 240);
+      return latest(tree);
     }
     return (
       this.record()?.latestSummary ||
@@ -191,6 +203,14 @@ export class SubagentTileComponent {
       this.node().agentDescription ||
       this.node().content
     );
+  });
+  /**
+   * The activity line cleaned for display and cut to 240 characters;
+   * `activity()` stays whole for the hover title.
+   */
+  protected readonly activityText = computed(() => {
+    const raw = this.activity();
+    return raw ? subagentActivityText(raw).slice(0, 240) : undefined;
   });
   protected readonly status = computed(() => {
     const recordStatus = this.record()?.status;
@@ -200,8 +220,12 @@ export class SubagentTileComponent {
     if (recordStatus === 'completed') return 'completed';
     if (this.historyReplaying()) return 'loading';
     const id = this.node().toolCallId;
-    if (this.node().isBackground || recordStatus === 'background' ||
-      (id && this.backgroundAgents?.isBackgroundAgent(id))) return 'background';
+    if (
+      this.node().isBackground ||
+      recordStatus === 'background' ||
+      (id && this.backgroundAgents?.isBackgroundAgent(id))
+    )
+      return 'background';
     if (this.node().status === 'error') return 'error';
     if (
       this.node().status === 'interrupted' ||
@@ -214,8 +238,16 @@ export class SubagentTileComponent {
   private historyReplaying(): boolean {
     // Isolated tile consumers can omit the session services entirely.
     try {
-      const tabId = this.context?.() ?? this.injector.get(TabManagerService, null)?.activeTabId();
-      return !!tabId && !!this.injector.get(SessionHistoryReplayer, null)?.replayingTabIds().has(tabId);
+      const tabId =
+        this.context?.() ??
+        this.injector.get(TabManagerService, null)?.activeTabId();
+      return (
+        !!tabId &&
+        !!this.injector
+          .get(SessionHistoryReplayer, null)
+          ?.replayingTabIds()
+          .has(tabId)
+      );
     } catch {
       // degradation-audit: optional-capability - in a host without the chat
       // session services, building the root TabManagerService or replayer

@@ -935,7 +935,7 @@ describe('CompactionHookHandler — compaction coordinator wiring (TASK_2026_597
 
   beforeEach(() => {
     coordinator = new CompactionCoordinator();
-    coordinator.register('REAL-sdk-id', { codexProxy: false, e2Passed: true });
+    coordinator.register('REAL-sdk-id', { e2Passed: true });
   });
 
   afterEach(() => {
@@ -1183,8 +1183,8 @@ describe('CompactionHookHandler — idle compaction rekey', () => {
     const hooks = handler.createHooks('closure-id', '/repo', jest.fn());
 
     try {
-      coordinator.register('old-id', { codexProxy: false, e2Passed: true });
-      idle.sessionBound('old-id', 'run', false);
+      coordinator.register('old-id', { e2Passed: true });
+      idle.sessionBound('old-id', 'run');
       idle.turnEnded('old-id', 'turn-1', {
         requestKey: 'request-1',
         anchorAt: 0,

@@ -149,6 +149,82 @@ describe('Codex plan-usage reader', () => {
     expect(reading.windows.map((w) => w.key)).toEqual(['other:window-2']);
   });
 
+  it('maps ordered buckets into distinct windows and optional allowances', () => {
+    const reading = mapCodexAccountUsage(result({
+      buckets: [
+        {
+          id: 'codex', label: 'Codex',
+          primary: { usedPercent: 100, resetsAt: RESET_SECONDS },
+          secondary: { usedPercent: 30 },
+          rateLimitReachedType: 'rate_limit_reached',
+          spendControlReached: true,
+          credits: { balance: '12.50', hasCredits: true, unlimited: false },
+          individualLimit: {
+            limit: '100', used: '25', remainingPercent: 75,
+            resetsAt: RESET_SECONDS,
+          },
+        },
+        {
+          id: 'bucket-abc', label: 'Other limit',
+          primary: { usedPercent: 5 },
+          credits: { hasCredits: true, unlimited: true },
+        },
+      ],
+      resetCreditsAvailable: true,
+      upsellAvailable: true,
+    }), NOW);
+    expect(reading.windows.map((window) => window.key)).toEqual([
+      'other:window-1', 'other:window-2',
+      'other:bucket-abc:primary',
+    ]);
+    expect(reading.windows[0].reachedType).toBe('rate_limit_reached');
+    expect(reading.windows[0].spendControlReached).toBe(true);
+    expect(reading.windows[0].exhaustion?.observedAt).toBe(FETCHED);
+    expect(reading.allowances).toEqual([
+      {
+        bucketId: 'codex', label: 'Codex',
+        reachedType: 'rate_limit_reached', spendControlReached: true,
+        credits: { balance: '12.50', hasCredits: true, unlimited: false },
+        individual: {
+          limit: '100', used: '25', remainingPercent: 75,
+          resetsAt: RESET_SECONDS * 1000,
+        },
+      },
+      {
+        bucketId: 'bucket-abc', label: 'Other limit',
+        credits: { hasCredits: true, unlimited: true },
+      },
+    ]);
+    expect(reading.resetCreditsAvailable).toBe(true);
+    expect(reading.upsellAvailable).toBe(true);
+  });
+
+  it('retains duration keys for the active bucket and qualifies other buckets', () => {
+    const reading = mapCodexAccountUsage(result({ buckets: [
+      { id: 'codex', label: 'Codex', primary: { usedPercent: 7, windowDurationMins: 300 },
+        secondary: { usedPercent: 8, windowDurationMins: 10_080 } },
+      { id: 'bucket-abc', label: 'Limit abc123', primary: { usedPercent: 9, windowDurationMins: 300 } },
+    ] }), NOW);
+    expect(reading.windows.map((window) => window.key)).toEqual([
+      'five_hour', 'weekly', 'other:bucket-abc:primary',
+    ]);
+    expect(reading.windows.map((window) => window.bucketId)).toEqual([
+      'codex', 'codex', 'bucket-abc',
+    ]);
+  });
+
+  it('keeps reached and spend-control evidence for a bucket with no windows', () => {
+    const reading = mapCodexAccountUsage(result({ buckets: [{
+      id: 'bucket-abc', label: 'Limit abc123',
+      rateLimitReachedType: 'rate_limit_reached', spendControlReached: false,
+    }] }), NOW);
+    expect(reading.windows).toEqual([]);
+    expect(reading.allowances).toEqual([{
+      bucketId: 'bucket-abc', label: 'Limit abc123',
+      reachedType: 'rate_limit_reached', spendControlReached: false,
+    }]);
+  });
+
   it('a stale answer keeps the original fetch time on every window', () => {
     const reading = mapCodexAccountUsage(
       result({ status: 'stale', staleSince: NOW }),

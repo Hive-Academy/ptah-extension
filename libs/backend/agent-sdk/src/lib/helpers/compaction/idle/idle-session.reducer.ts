@@ -52,7 +52,6 @@ function noArmReason(
 ): IdleNoArmReason | null {
   if (!ctx.settings.enabled || !ctx.settings.autoCompactEnabled)
     return 'disabled';
-  if (state.codexProxy) return 'codex-proxy';
   if (state.attempt?.kind === 'in-flight' || state.compactionOpen)
     return 'in-flight';
   if (
@@ -110,7 +109,6 @@ export function reduceIdleSession(
         ...state,
         sessionId: signal.sessionId,
         runToken: signal.runToken,
-        codexProxy: signal.codexProxy,
         lastTurn: null,
         reading: null,
         activitySinceTurnEnd: false,

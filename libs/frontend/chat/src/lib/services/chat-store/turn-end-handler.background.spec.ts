@@ -173,6 +173,7 @@ describe('TurnEndHandlerService — background fallback', () => {
     const backgroundAgentStoreMock = {
       onCompleted: onCompletedMock,
       findByAgentId: findByAgentIdMock,
+      findByToolCallId: jest.fn().mockReturnValue(null),
       adoptRealAgentId: jest.fn().mockReturnValue(null),
     } as unknown as BackgroundAgentStore;
 

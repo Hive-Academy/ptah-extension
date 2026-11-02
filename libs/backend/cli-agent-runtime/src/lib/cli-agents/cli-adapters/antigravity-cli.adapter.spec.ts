@@ -719,6 +719,31 @@ describe('AntigravityCliAdapter', () => {
       currentChild?.emitClose(0);
     });
 
+    it('emits stdout following a result before settling the turn and still continues', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const order: string[] = [];
+      handle.onOutput((data) => {
+        if (data.includes('trailing stdout')) order.push('output');
+      });
+      void handle.done.then(() => order.push('done'));
+
+      currentChild?.stdout.write(
+        `${JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'first' } })}\n`,
+      );
+      await Promise.resolve();
+      currentChild?.stdout.write('trailing stdout\n');
+      await expect(handle.done).resolves.toBe(0);
+      expect(order).toEqual(['output', 'done']);
+
+      const continuation = await handle.continue?.('second turn');
+      expect(continuation).toBeDefined();
+      currentChild?.stdout.write(
+        `${JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'second' } })}\n`,
+      );
+      await expect(continuation?.done).resolves.toBe(0);
+      currentChild?.emitClose(0);
+    });
+
     it('refuses an invalid queued message before writing it to stdin', async () => {
       const handle = await adapter.runSdk(baseOptions);
       collect(handle);

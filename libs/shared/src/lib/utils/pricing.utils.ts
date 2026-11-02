@@ -12,6 +12,14 @@
  * @see https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json
  */
 
+import type {
+  PriceProvenance,
+  SessionCostBasis,
+  SessionStatsPricingCoverage,
+} from '../types/rpc/rpc-session.types';
+
+import { CODEX_RATE_CARD } from './codex-rate-card';
+
 /**
  * Pricing information for a single model
  */
@@ -28,6 +36,10 @@ export interface ModelPricing {
   readonly maxTokens?: number;
   /** Provider name (anthropic, openai, etc.) */
   readonly provider?: string;
+  /** Optional non-secret catalog evidence supplied with this exact rate. */
+  readonly catalogSource?: string;
+  readonly catalogVersion?: string;
+  readonly effectiveDate?: string;
 }
 
 /**
@@ -51,12 +63,15 @@ export interface TokenBreakdown {
  * models return `null` from {@link findModelPricing} so the UI can render
  * "Pricing unavailable" instead of a fabricated dollar figure.
  *
- * Subscription-covered surfaces (GitHub Copilot, OpenAI Codex) are deliberately
- * ABSENT here. Seeding their models at $0 would publish that price under a bare
- * slug — `gpt-5.4` is a Codex model AND an OpenRouter one — and pin the shared
- * catalog rate to zero for whichever provider looked it up next. Their turns are
- * costed from the same published rates as everyone else's; the flat-fee billing
- * is a labelling concern, carried per call by {@link FindPricingOptions}.
+ * Subscription providers (GitHub Copilot, OpenAI Codex) contribute no STATIC
+ * entries: `seedStaticModelPricing` skips them, because seeding their $0
+ * registry placeholders would publish that price under a bare slug — `gpt-5.4`
+ * is a Codex slug AND an OpenRouter one — and pin the shared catalog rate to
+ * zero for whichever provider looked it up next. Their turns are still
+ * costed from the same published rates as everyone else's: the exact, dated
+ * OpenAI API rate card for Codex's seven fallback IDs is bundled via
+ * {@link CODEX_RATE_CARD}, and the flat-fee billing remains a labelling
+ * concern, carried per call by {@link FindPricingOptions}.
  *
  * @see https://www.anthropic.com/pricing
  * @see https://openrouter.ai/api/v1/models
@@ -106,6 +121,11 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     cacheCreationCostPerToken: 0,
     provider: 'ollama-cloud',
   },
+
+  // The dated OpenAI Codex API rate card: exact published rates with
+  // provenance for the seven static Codex fallback IDs. See
+  // `codex-rate-card.ts` for retrieval dates and per-entry sources.
+  ...CODEX_RATE_CARD,
 };
 
 /**
@@ -433,6 +453,153 @@ export function pricesCacheTokens(
   const writePriced =
     !tokens.cacheCreation || pricing.cacheCreationCostPerToken !== undefined;
   return readPriced && writePriced;
+}
+
+/** Exact catalog key and its rate. No provider prefix or date-family fallback. */
+export interface ExactModelPricing {
+  readonly modelIdUsed: string;
+  readonly pricing: ModelPricing;
+}
+
+/**
+ * Resolve only the exact catalog key, except Claude's documented `[1m]`
+ * context tag: the SDK strips that tag before its API request. A distinct
+ * tagged catalog entry always wins. The base entry is useful for lookup, but
+ * its rate does not establish the price of long-context usage. Valuation
+ * requires a distinct tagged entry. Other tags, snapshots, prefixes and
+ * model families require their own explicit catalog entry.
+ */
+export function findExactModelPricing(
+  modelId: string,
+): ExactModelPricing | null {
+  if (!modelId || modelId.startsWith('<')) return null;
+  const key = modelId.toLowerCase();
+  if (Object.hasOwn(modelPricingMap, key)) {
+    const pricing = modelPricingMap[key];
+    return pricing ? { modelIdUsed: key, pricing } : null;
+  }
+  if (!/^claude-[a-z0-9.-]+\[1m\]$/.test(key)) return null;
+  const baseKey = key.slice(0, -4);
+  if (!Object.hasOwn(modelPricingMap, baseKey)) return null;
+  const pricing = modelPricingMap[baseKey];
+  return pricing ? { modelIdUsed: baseKey, pricing } : null;
+}
+
+export interface ExactCostOptions {
+  readonly billingMode: 'subscription' | 'api-key' | 'unknown';
+  /** Must be verified before cache counters can be treated as disjoint. */
+  readonly cacheSemantics?: 'disjoint' | 'ambiguous';
+  /** Explicit usage evidence permits a real zero-token turn to cost $0. */
+  readonly usageObserved?: boolean;
+}
+
+export interface ExactCostResult {
+  readonly totalCost: number | null;
+  readonly costBasis: SessionCostBasis;
+  readonly pricingCoverage: SessionStatsPricingCoverage;
+  readonly priceProvenance?: PriceProvenance;
+}
+
+function validRate(rate: number | undefined): rate is number {
+  return rate !== undefined && Number.isFinite(rate) && rate > 0;
+}
+
+/**
+ * Opt-in strict valuation. The four token classes are disjoint; reasoning
+ * output is already part of `output` and has no fifth charge. A missing or
+ * ambiguous used class makes the entire total unavailable.
+ */
+export function calculateExactMessageCost(
+  modelId: string,
+  tokens: TokenBreakdown,
+  options: ExactCostOptions,
+): ExactCostResult {
+  const unknown: ExactCostResult = {
+    totalCost: null,
+    costBasis: 'unknown',
+    pricingCoverage: 'none',
+  };
+  if (options.billingMode === 'unknown') return unknown;
+  const found = findExactModelPricing(modelId);
+  if (!found) return unknown;
+  // A base Claude rate does not establish the price of a [1m] request.
+  if (found.modelIdUsed !== modelId.toLowerCase()) return unknown;
+
+  const { pricing } = found;
+  const provenance: PriceProvenance = {
+    modelIdUsed: found.modelIdUsed,
+    catalogSource: pricing.catalogSource ?? null,
+    catalogVersion: pricing.catalogVersion ?? null,
+    effectiveDate: pricing.effectiveDate ?? null,
+  };
+  const availableBasis: SessionCostBasis =
+    options.billingMode === 'subscription'
+      ? 'covered-by-subscription'
+      : 'estimated';
+  const counts = [
+    tokens.input,
+    tokens.output,
+    tokens.cacheHit ?? 0,
+    tokens.cacheCreation ?? 0,
+  ];
+  if (counts.some((count) => !Number.isSafeInteger(count) || count < 0)) {
+    return {
+      totalCost: null,
+      costBasis: 'unknown',
+      pricingCoverage: 'none',
+      priceProvenance: provenance,
+    };
+  }
+  if (counts.every((count) => count === 0) && !options.usageObserved) {
+    return {
+      totalCost: null,
+      costBasis: 'unknown',
+      pricingCoverage: 'none',
+      priceProvenance: provenance,
+    };
+  }
+  const inputPriced = validRate(pricing.inputCostPerToken);
+  const outputPriced = validRate(pricing.outputCostPerToken);
+  const readPriced =
+    !tokens.cacheHit || validRate(pricing.cacheReadCostPerToken);
+  const writePriced =
+    !tokens.cacheCreation || validRate(pricing.cacheCreationCostPerToken);
+  const cacheUnverified =
+    ((tokens.cacheHit ?? 0) > 0 || (tokens.cacheCreation ?? 0) > 0) &&
+    options.cacheSemantics !== 'disjoint';
+  if (
+    !inputPriced ||
+    !outputPriced ||
+    !pricesCacheTokens(pricing, tokens) ||
+    !readPriced ||
+    !writePriced ||
+    cacheUnverified
+  ) {
+    const someUsedRate =
+      (tokens.input > 0 && inputPriced) ||
+      (tokens.output > 0 && outputPriced) ||
+      ((tokens.cacheHit ?? 0) > 0 && readPriced && !cacheUnverified) ||
+      ((tokens.cacheCreation ?? 0) > 0 && writePriced && !cacheUnverified);
+    return {
+      totalCost: null,
+      costBasis: 'unknown',
+      pricingCoverage: someUsedRate ? 'partial' : 'none',
+      priceProvenance: provenance,
+    };
+  }
+  const rounded = calculateMessageCost(modelId, tokens, pricing) ?? 0;
+  const unrounded =
+    tokens.input * pricing.inputCostPerToken +
+    tokens.output * pricing.outputCostPerToken +
+    (tokens.cacheHit ?? 0) * (pricing.cacheReadCostPerToken ?? 0) +
+    (tokens.cacheCreation ?? 0) * (pricing.cacheCreationCostPerToken ?? 0);
+  return {
+    // Rounding to 6 decimals must not turn real non-zero usage into $0.
+    totalCost: rounded === 0 && unrounded > 0 ? unrounded : rounded,
+    costBasis: availableBasis,
+    pricingCoverage: 'full',
+    priceProvenance: provenance,
+  };
 }
 
 /** Non-secret identity of the effective query route, captured at creation. */

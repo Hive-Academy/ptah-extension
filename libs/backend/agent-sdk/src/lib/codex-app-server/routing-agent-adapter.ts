@@ -12,8 +12,10 @@ import {
 export class ChatRuntimeAdmissionError extends Error {
   readonly code = 'runtime-admission-mismatch';
 
-  constructor() {
-    super('Prepared chat runtime disagrees with runtime admission.');
+  constructor(
+    message = 'Prepared chat runtime disagrees with runtime admission.',
+  ) {
+    super(message);
     this.name = 'ChatRuntimeAdmissionError';
   }
 }
@@ -96,9 +98,19 @@ export class RoutingAgentAdapter implements IAgentAdapter {
         preparedRuntime === 'codex-app-server' &&
         (!nativeEnabled || !this.native || !this.admission)
       ) {
-        throw new ChatRuntimeAdmissionError();
+        throw new ChatRuntimeAdmissionError(
+          'Codex chat requires a host with the native Codex runtime.',
+        );
+      }
+      if (!this.admission) {
+        throw new ChatRuntimeAdmissionError('Chat runtime admission is unavailable.');
       }
       const provider = await this.admission.servingProviderId(args[0]);
+      if (provider === 'openai-codex' && (!nativeEnabled || !this.native)) {
+        throw new ChatRuntimeAdmissionError(
+          'Codex chat requires a host with the native Codex runtime.',
+        );
+      }
       const admittedRuntime =
         nativeEnabled && provider === 'openai-codex'
           ? 'codex-app-server'
@@ -111,15 +123,22 @@ export class RoutingAgentAdapter implements IAgentAdapter {
       ).startChatSession(...args);
     }
     // Admission lookup failures propagate: a failed workspace lookup is not consent to switch runtimes.
-    const useNative =
-      nativeEnabled &&
-      (await this.admission.servingProviderId(args[0])) === 'openai-codex';
+    if (!this.admission) {
+      throw new ChatRuntimeAdmissionError('Chat runtime admission is unavailable.');
+    }
+    const provider = await this.admission.servingProviderId(args[0]);
+    const useNative = provider === 'openai-codex';
+    if (useNative && (!nativeEnabled || !this.native)) {
+      throw new ChatRuntimeAdmissionError(
+        'Codex chat requires a host with the native Codex runtime.',
+      );
+    }
     return (useNative ? this.native : this.legacy).startChatSession(...args);
   }
   resumeSession(
     ...args: Parameters<IAgentAdapter['resumeSession']>
   ): ReturnType<IAgentAdapter['resumeSession']> {
-    return this.adapter(args[0]).resumeSession(...args);
+    return this.adapter(args[0], true).resumeSession(...args);
   }
   endSession(...args: Parameters<IAgentAdapter['endSession']>): void {
     this.adapter(args[0]).endSession(...args);
@@ -127,7 +146,7 @@ export class RoutingAgentAdapter implements IAgentAdapter {
   sendMessageToSession(
     ...args: Parameters<IAgentAdapter['sendMessageToSession']>
   ): ReturnType<IAgentAdapter['sendMessageToSession']> {
-    return this.adapter(args[0]).sendMessageToSession(...args);
+    return this.adapter(args[0], true).sendMessageToSession(...args);
   }
   isSessionActive(
     ...args: Parameters<IAgentAdapter['isSessionActive']>
@@ -147,7 +166,7 @@ export class RoutingAgentAdapter implements IAgentAdapter {
   executeSlashCommand(
     ...args: Parameters<IAgentAdapter['executeSlashCommand']>
   ): ReturnType<IAgentAdapter['executeSlashCommand']> {
-    return this.adapter(args[0]).executeSlashCommand(...args);
+    return this.adapter(args[0], true).executeSlashCommand(...args);
   }
   interruptCurrentTurn(
     ...args: Parameters<IAgentAdapter['interruptCurrentTurn']>
@@ -162,17 +181,17 @@ export class RoutingAgentAdapter implements IAgentAdapter {
   setSessionPermissionLevel(
     ...args: Parameters<IAgentAdapter['setSessionPermissionLevel']>
   ): Promise<void> {
-    return this.adapter(args[0]).setSessionPermissionLevel(...args);
+    return this.adapter(args[0], true).setSessionPermissionLevel(...args);
   }
   setSessionModel(
     ...args: Parameters<IAgentAdapter['setSessionModel']>
   ): Promise<void> {
-    return this.adapter(args[0]).setSessionModel(...args);
+    return this.adapter(args[0], true).setSessionModel(...args);
   }
   setSessionEffort(
     ...args: Parameters<IAgentAdapter['setSessionEffort']>
   ): Promise<void> {
-    return this.adapter(args[0]).setSessionEffort(...args);
+    return this.adapter(args[0], true).setSessionEffort(...args);
   }
   setSessionIdResolvedCallback(
     ...args: Parameters<IAgentAdapter['setSessionIdResolvedCallback']>
@@ -215,9 +234,24 @@ export class RoutingAgentAdapter implements IAgentAdapter {
       : this.legacy.getSupportedModels();
   }
 
-  private adapter(id: SessionId): IAgentAdapter {
-    if (this.native.owns(id)) return this.native;
-    const runtime = resolveSessionRuntimeIdentity(this.identities, id)?.runtime;
+  private adapter(id: SessionId, startsOrChangesChat = false): IAgentAdapter {
+    if (this.native?.owns(id)) return this.native;
+    const identity = resolveSessionRuntimeIdentity(this.identities, id);
+    if (
+      startsOrChangesChat &&
+      identity?.providerId === 'openai-codex' &&
+      identity.runtime !== 'codex-app-server'
+    ) {
+      throw new ChatRuntimeAdmissionError(
+        'Codex chat requires a host with the native Codex runtime.',
+      );
+    }
+    if (identity?.runtime === 'codex-app-server' && !this.native) {
+      throw new ChatRuntimeAdmissionError(
+        'Codex chat requires a host with the native Codex runtime.',
+      );
+    }
+    const runtime = identity?.runtime;
     switch (runtime) {
       case 'codex-app-server':
         return this.native;

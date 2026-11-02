@@ -21,6 +21,7 @@ import {
 } from '@ptah-extension/platform-core';
 import {
   AuthEnv,
+  CODEX_PROXY_TOKEN_PLACEHOLDER,
   getStaticModelCapabilities,
   isDirectAnthropic,
 } from '@ptah-extension/shared';
@@ -534,6 +535,10 @@ export class SdkModelService {
       // Throws a refusal when the launch no longer matches the route; the
       // catch below turns that into the unknown catalog before any spawn.
       const env = certifiedNamedEnv(route, launch);
+      if (env['ANTHROPIC_AUTH_TOKEN'] === CODEX_PROXY_TOKEN_PLACEHOLDER) {
+        this.logger.warn('[SdkModelService] Skipping a stale Codex proxy model probe');
+        return [];
+      }
       const cancelled = new Promise<null>((resolve) => {
         onAbort = () => resolve(null);
         controller.signal.addEventListener('abort', onAbort, { once: true });
@@ -1035,6 +1040,10 @@ export class SdkModelService {
   private async fetchModelsViaSdk(
     authEnv: AuthEnv = this.authEnv,
   ): Promise<ModelInfo[]> {
+    if (authEnv.ANTHROPIC_AUTH_TOKEN === CODEX_PROXY_TOKEN_PLACEHOLDER) {
+      this.logger.warn('[SdkModelService] Skipping a stale Codex proxy model probe');
+      return [];
+    }
     const cliJsPath = await this.moduleLoader.getCliJsPath();
     if (!cliJsPath) {
       this.logger.warn(
