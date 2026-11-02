@@ -621,6 +621,46 @@ describe('CodexEventTranslator', () => {
     );
   });
 
+  it('maps a native usage-limit turn error with a validated reset in epoch seconds', () => {
+    const resetsAt = Date.UTC(2030, 0, 1, 12);
+    expect(translator.translate({
+      method: 'account/rateLimits/updated',
+      params: { rateLimits: {
+        rateLimitReachedType: 'rate_limit_reached',
+        primary: { usedPercent: 100, resetsAt: resetsAt / 1_000 },
+      } },
+    })).toEqual([]);
+    const events = translator.translate(terminal('failed', {
+      error: {
+        message: 'account-id=private credential=private',
+        codexErrorInfo: 'usageLimitExceeded',
+      },
+    }));
+    expect(events).toMatchObject([{
+      type: 'terminal', status: 'failed',
+      error: { code: 'turnError', limitReached: {
+        reachedType: 'rate_limit_reached', resetsAt,
+      } },
+    }]);
+    const instant = events[0].type === 'terminal'
+      ? events[0].error?.limitReached?.resetsAt
+      : undefined;
+    expect(new Date(instant ?? 0).getUTCFullYear()).toBe(2030);
+    expect(JSON.stringify(events)).not.toContain('private');
+  });
+
+  it('maps a usage-limit cause without inventing a reset and keeps other errors generic', () => {
+    expect(translator.translate(terminal('failed', {
+      error: { message: 'private', codexErrorInfo: 'usageLimitExceeded' },
+    }))).toMatchObject([{
+      type: 'terminal', error: { limitReached: { reachedType: 'usage_limit_exceeded' } },
+    }]);
+    const other = new CodexEventTranslator('context', 1).translate(terminal('failed', {
+      error: { message: 'private', codexErrorInfo: 'rateLimitExceeded' },
+    }));
+    expect(other[0]).not.toHaveProperty('error.limitReached');
+  });
+
   it('forwards real command and MCP failure detail instead of invented text', () => {
     const events = [
       ...translator.translate(

@@ -26,6 +26,7 @@ import {
   type ClassifiedWindow,
   type LaneStateResult,
   type OwnerLimitEvidence,
+  type PlanLimitAllowance,
   type PlanLimitCooldown,
   type PlanLimitOwnerSnapshot,
   type PlanWindowKey,
@@ -111,6 +112,7 @@ export function sessionPlan(
     ...(snapshot.localUsage ? [localUsageTile(snapshot, caption, ctx)] : []),
     ...statusTiles(snapshot, result.windows.length, caption, ctx),
     ...result.windows.map((entry) => windowTile(snapshot, entry, caption, ctx)),
+    ...allowanceTiles(snapshot, caption, ctx),
     ...limits.ownerEvidence.map((evidence) =>
       evidenceTile(snapshot.owner, evidence, caption, ctx),
     ),
@@ -128,6 +130,60 @@ export function sessionPlan(
     ),
     renderedEvidence: new Set(limits.ownerEvidence),
   };
+}
+
+function allowanceTiles(
+  snapshot: PlanLimitOwnerSnapshot,
+  caption: TileCaption,
+  ctx: Ctx,
+): PlanLimitTileModel[] {
+  const allowances: readonly PlanLimitAllowance[] = snapshot.allowances ?? [
+    {
+      bucketId: 'default',
+      label: 'Plan',
+      ...(snapshot.credits && { credits: snapshot.credits }),
+      ...(snapshot.individualAllowance && { individual: snapshot.individualAllowance }),
+    },
+  ];
+  return allowances.flatMap((allowance) => {
+    const tiles: PlanLimitTileModel[] = [];
+    const prefix = `plan-allowance:${snapshot.owner.key}:${allowance.bucketId}`;
+    if (allowance.credits) {
+      const credits = allowance.credits;
+      tiles.push({
+        id: `${prefix}:credits`,
+        kind: 'status',
+        label: `${allowance.label} credits`,
+        ...caption,
+        value: credits.unlimited
+          ? 'Unlimited'
+          : credits.balance === undefined
+            ? credits.hasCredits ? 'Available' : 'No credits'
+            : `${credits.balance} remaining`,
+        resetLine: 'credit balance',
+        tone: 'neutral',
+        sourceChips: [],
+        detailLines: [],
+      });
+    }
+    if (allowance.individual) {
+      const individual = allowance.individual;
+      tiles.push({
+        id: `${prefix}:individual`,
+        kind: 'status',
+        label: `${allowance.label} allowance`,
+        ...caption,
+        value: `${Math.min(100, Math.max(0, individual.remainingPercent))}% remaining`,
+        resetLine: individual.resetsAt === undefined
+          ? 'reset unknown'
+          : `resets ${formatLocalWithRelative(individual.resetsAt, ctx.now, ctx.time)}`,
+        tone: 'neutral',
+        sourceChips: [],
+        detailLines: [`${individual.used} of ${individual.limit} used`],
+      });
+    }
+    return tiles;
+  });
 }
 
 function localUsageTile(

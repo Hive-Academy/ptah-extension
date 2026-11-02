@@ -3,6 +3,7 @@ import type {
   CodexRuntimeEvent,
 } from '@ptah-extension/codex-runtime';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
+import { z } from 'zod';
 import { CodexChatAdapterError } from './codex-chat-adapter-error';
 import { presentCodexTool, presentCodexToolResult } from './codex-tool-presentation';
 
@@ -28,6 +29,26 @@ export interface CodexChatResult {
   readonly text: string;
   readonly usage?: CodexReportedUsage;
   readonly error?: string;
+  readonly limitReached?: { readonly reachedType: string; readonly resetsAt?: number };
+}
+
+const limitReachedCause = z.object({
+  limitReached: z.object({
+    reachedType: z.string().min(1).max(64).regex(/^[a-z][a-z0-9_]*$/),
+    resetsAt: z.number().int().nonnegative().max(8_640_000_000_000_000).optional(),
+  }),
+});
+
+function reachedCause(error: unknown): CodexChatResult['limitReached'] {
+  const parsed = limitReachedCause.safeParse(error);
+  return parsed.success ? parsed.data.limitReached : undefined;
+}
+
+function failureMessage(cause: CodexChatResult['limitReached']): string {
+  if (!cause) return 'Codex reported a runtime error.';
+  return cause.resetsAt === undefined
+    ? 'Usage limit reached. Check your plan limits before trying again.'
+    : `Usage limit reached. Try again after ${new Date(cause.resetsAt).toISOString()}.`;
 }
 export interface CodexChatEventCallbacks {
   result(result: CodexChatResult): void | Promise<void>;
@@ -296,13 +317,16 @@ export class CodexChatEvents {
       case 'terminal': {
         this.terminal = true;
         const failed = event.status === 'failed' || event.error !== undefined;
-        if (failed) this.error();
+        const limitReached = failed ? reachedCause(event.error) : undefined;
+        const message = failureMessage(limitReached);
+        if (failed) this.error(message);
         const usage = event.usage ?? this.usage;
         const result: CodexChatResult = {
           status: failed ? 'failed' : event.status,
           text: [...this.text.values()].join(''),
           ...(usage === undefined ? {} : { usage }),
-          ...(failed ? { error: 'Codex reported a runtime error.' } : {}),
+          ...(failed ? { error: message } : {}),
+          ...(limitReached && { limitReached }),
         };
         this.text.clear();
         this.blocks.clear();
@@ -348,9 +372,9 @@ export class CodexChatEvents {
     return index;
   }
 
-  private error(): void {
+  private error(message = 'Codex reported a runtime error.'): void {
     if (this.errorEmitted) return;
     this.errorEmitted = true;
-    this.track(this.callbacks.error('Codex reported a runtime error.'));
+    this.track(this.callbacks.error(message));
   }
 }

@@ -102,6 +102,27 @@ function safeError(code: string, retryable = false): CodexRuntimeError {
   };
 }
 
+const usageLimitError = z.object({
+  codexErrorInfo: z.literal('usageLimitExceeded'),
+});
+const resetSeconds = z.number().int().nonnegative().max(8_640_000_000_000);
+type RateLimits = z.infer<
+  (typeof codexNotificationSchemas)['account/rateLimits/updated']
+>['rateLimits'];
+
+function limitCause(error: unknown, limits: RateLimits | undefined): CodexRuntimeError['limitReached'] {
+  if (!usageLimitError.safeParse(error).success) return undefined;
+  const reachedType = limits?.rateLimitReachedType ?? 'usage_limit_exceeded';
+  const exhausted = [limits?.primary, limits?.secondary].find(
+    (window) => window && window.usedPercent >= 100 && window.resetsAt != null,
+  );
+  const reset = resetSeconds.safeParse(exhausted?.resetsAt);
+  return {
+    reachedType,
+    ...(reset.success ? { resetsAt: reset.data * 1_000 } : {}),
+  };
+}
+
 function toolStatus(status: string): 'completed' | 'failed' | 'cancelled' {
   if (status === 'completed') return 'completed';
   if (status === 'declined' || status === 'interrupted') return 'cancelled';
@@ -140,6 +161,7 @@ export class CodexEventTranslator {
   private readonly evidence = new Map<string, CodexUsageEvidence>();
   private readonly epochs = new Map<string, number>();
   private readonly epochTurnOffsets = new Map<string, CodexReportedUsage>();
+  private rateLimits: RateLimits | undefined;
   /** Turn key -> item ids whose reasoning summary deltas were streamed; textDelta stays silent for them. */
   private readonly summaryItems = new Map<string, Set<string>>();
   private readonly asyncMessageItems = new Set<string>();
@@ -178,13 +200,17 @@ export class CodexEventTranslator {
       }
       // Approval correlation and decisions belong to the approval bridge (2g).
       case 'serverRequest/resolved':
-      case 'account/rateLimits/updated':
       case 'thread/status/changed':
       case 'thread/started':
       case 'turn/moderationMetadata':
       case 'mcpServer/startupStatus/updated':
       case 'remoteControl/status/changed':
         return [];
+      case 'account/rateLimits/updated': {
+        const parsed = codexNotificationSchemas[method].safeParse(params);
+        if (parsed.success) this.rateLimits = parsed.data.rateLimits;
+        return [];
+      }
       case 'item/agentMessage/delta': {
         const parsed = codexNotificationSchemas[method].safeParse(params);
         if (!parsed.success) return this.invalid(params);
@@ -375,6 +401,9 @@ export class CodexEventTranslator {
         const usage = this.usage.get(key);
         // Terminal evidence is the last accepted snapshot, not the last observed stale one.
         const evidence = this.evidence.get(key);
+        const limitReached = turn.status === 'failed'
+          ? limitCause(turn.error, this.rateLimits)
+          : undefined;
         const events = this.emit(identity, [
           {
             type: 'terminal',
@@ -383,7 +412,12 @@ export class CodexEventTranslator {
             ...(evidence === undefined ? {} : {
               evidence: { ...evidence, terminalState: turn.status },
             }),
-            ...(turn.error == null ? {} : { error: safeError('turnError') }),
+            ...(turn.error == null ? {} : {
+              error: {
+                ...safeError('turnError'),
+                ...(limitReached === undefined ? {} : { limitReached }),
+              },
+            }),
           },
         ]);
         this.terminals.set(key, turn.status);

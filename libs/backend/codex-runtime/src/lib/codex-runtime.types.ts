@@ -230,6 +230,8 @@ export interface CodexRuntimeError {
   readonly code: string;
   readonly message: string;
   readonly retryable: boolean;
+  /** Safe, normalized usage-limit cause; resetsAt is Unix milliseconds. */
+  readonly limitReached?: { readonly reachedType: string; readonly resetsAt?: number };
 }
 interface CodexEventIdentity {
   readonly contextId: string;
