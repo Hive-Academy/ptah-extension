@@ -24,6 +24,7 @@ import { SessionApprovalRouter } from './session-approval-router';
 import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
 import { CodexSessionUsageOwner, type CodexUsageCheckpoint } from
   './codex-session-usage-owner';
+import { recordTurnPriceOnce } from './codex-chat-turn-stream';
 
 const id = SessionId.from('11111111-1111-4111-8111-111111111111');
 const tabId = SessionId.from('22222222-2222-4222-8222-222222222222');
@@ -223,6 +224,67 @@ const delta: CodexRuntimeEvent = {
 };
 
 describe('Codex chat turn lifecycle', () => {
+  it.each(['in-turn', 'detached'] as const)(
+    'records the %s terminal price once through the real stream', async (path) => {
+      const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+      const stats = jest.fn();
+      h.adapter.setResultStatsCallback(stats);
+      const recordPrice = jest.spyOn(CodexSessionUsageOwner.prototype, 'recordTurnPrice');
+      let finish: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => { finish = resolve; });
+      h.context.events.mockImplementation(() => (async function* () {
+        if (path === 'detached') {
+          yield delta;
+          await gate;
+        }
+        yield { ...terminal, evidence, usage: { inputTokens: 100, outputTokens: 20 } };
+      })());
+      try {
+        const stream = await h.adapter.startChatSession({ tabId });
+        if (path === 'detached') {
+          const iterator = stream[Symbol.asyncIterator]();
+          await iterator.next();
+          await iterator.return?.();
+          finish?.();
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        } else {
+          await collect(stream);
+        }
+        const price = calculateExactMessageCost('gpt-4o', {
+          input: 100, output: 20, cacheHit: 0, cacheCreation: 0,
+        }, { billingMode: 'api-key', cacheSemantics: 'disjoint', usageObserved: true });
+        expect(price.totalCost).not.toBeNull();
+        expect(recordPrice).toHaveBeenCalledTimes(1);
+        expect(stats).toHaveBeenCalledTimes(1);
+        expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+          turnCost: price.totalCost,
+          sessionStats: expect.objectContaining({ totalCost: price.totalCost }),
+        }));
+      } finally {
+        finish?.();
+        recordPrice.mockRestore();
+        await h.adapter.dispose();
+      }
+    },
+  );
+
+  it('retries a failed price write and never adds the same turn twice', () => {
+    const owner = new CodexSessionUsageOwner(id, id);
+    const price = calculateExactMessageCost('gpt-4o', {
+      input: 100, output: 20, cacheHit: 0, cacheCreation: 0,
+    }, { billingMode: 'api-key', cacheSemantics: 'disjoint', usageObserved: true });
+    if (price.totalCost === null) throw new Error('Expected a catalog price');
+    const priced = new Set<string>();
+    const record = jest.spyOn(owner, 'recordTurnPrice');
+    expect(() => recordTurnPriceOnce('turn', priced, () => {
+      throw new Error('temporary price write failure');
+    })).toThrow('temporary price write failure');
+    expect(priced.has('turn')).toBe(false);
+    expect(recordTurnPriceOnce('turn', priced, () => owner.recordTurnPrice(price))).toBe(true);
+    expect(recordTurnPriceOnce('turn', priced, () => owner.recordTurnPrice(price))).toBe(false);
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(owner.serialize().pricing?.knownCost).toBe(price.totalCost);
+  });
   const counters = {
     uncachedInputTokens: 100, outputTokens: 20, cacheReadTokens: 0,
     cacheCreationTokens: 0, reasoningOutputTokens: 0, totalTokens: 120,

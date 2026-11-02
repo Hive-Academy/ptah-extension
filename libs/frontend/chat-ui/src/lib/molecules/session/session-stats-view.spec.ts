@@ -76,6 +76,30 @@ describe('compactSessionMetrics', () => {
     expect(metrics[1]).toMatchObject({ value: '0', unavailable: false });
     expect(metrics[2]).toMatchObject({ value: '$0.0000', unavailable: false });
   });
+  it.each([
+    ['estimated', 'estimated', 'Estimated cost, not a charge.'],
+    ['covered-by-subscription', 'covered by subscription',
+      'Published-rate value covered by the subscription, not a charge.'],
+  ] as const)('uses the shared %s label in compact and inspector text', (basis, label, details) => {
+    const priced = { ...snapshot, totalCost: 0.5, costBasis: basis };
+    const cost = compactSessionMetrics({ ...empty, snapshot: priced })[2];
+    expect(cost.value).toContain(label);
+    expect(cost.ariaLabel).toContain(label);
+    expect(costDetailsText(priced, null)).toContain(details);
+  });
+  it('speaks a provisional estimated cost without repeating estimated', () => {
+    const priced = { ...snapshot, provisional: true, totalCost: 0.5, costBasis: 'estimated' as const };
+    const cost = compactSessionMetrics({ ...empty, snapshot: priced })[2];
+    expect(cost.value).toBe('~$0.50 estimated');
+    expect(cost.ariaLabel).toBe('Cost 0.50 US dollars, estimated');
+  });
+  it('keeps null cost unavailable regardless of basis', () => {
+    const unavailable = { ...snapshot, totalCost: null, costBasis: 'estimated' as const };
+    const cost = compactSessionMetrics({ ...empty, snapshot: unavailable })[2];
+    expect(cost).toMatchObject({ unavailable: true, ariaLabel: 'Cost unavailable' });
+    expect(costDetailsText(unavailable, null)).toContain('Cost unavailable');
+    expect(costDetailsText(unavailable, null)).not.toContain('estimated');
+  });
   it('formats existing totals with partial/estimate markers and full accessible values', () => {
     const metrics = compactSessionMetrics({ ...empty, snapshot: {
       ...snapshot, tokenCount: 12345, coverage: 'partial', provisional: true,

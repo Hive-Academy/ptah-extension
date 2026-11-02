@@ -112,6 +112,18 @@ interface CodexChatTurnDependencies {
   readonly admission?: CodexChatAdmission;
 }
 
+/** Record a native turn's price once; a failed write remains retryable. */
+export function recordTurnPriceOnce(
+  turnId: string,
+  pricedTurnIds: Set<string>,
+  record: () => void,
+): boolean {
+  if (pricedTurnIds.has(turnId)) return false;
+  record();
+  pricedTurnIds.add(turnId);
+  return true;
+}
+
 export async function* streamCodexChatTurn(
   session: CodexChatSession,
   input: CodexTurnInput,
@@ -148,6 +160,7 @@ export async function* streamCodexChatTurn(
   const started = Date.now();
   const startTokens = session.usageOwner.snapshot().tokens;
   let turnUsageObserved = false;
+  let turnTerminalObserved = false;
   let events: AsyncIterator<CodexRuntimeEvent> | undefined;
   let projection: CodexChatEvents | undefined;
   let errorPresented = false;
@@ -178,9 +191,11 @@ export async function* streamCodexChatTurn(
       compactionActive = false;
       callbacks.compaction('failed');
     };
+    const pricedTurnIds = new Set<string>();
     const publishStats = async (result: CodexChatResult): Promise<void> => {
       const usage = result.usage;
-      if (!turnUsageObserved) session.usageOwner.markMissingEvidence();
+      if (turnTerminalObserved && !turnUsageObserved)
+        session.usageOwner.markMissingEvidence();
       const lifetime = session.usageOwner.snapshot(session.messageCount);
       const checkpoint = session.usageOwner.serialize();
       const turnTokens = {
@@ -207,9 +222,13 @@ export async function* streamCodexChatTurn(
         cacheHit: turnTokens.cacheRead,
         cacheCreation: turnTokens.cacheCreation,
       }, pricingOptions);
-      session.usageOwner.recordTurnPrice(
-        turnUsageObserved ? turnPrice : { totalCost: null },
-      );
+      // An early result can precede the terminal's fuller usage. Leave it
+      // unpriced until that terminal arrives, while publishing latest stats.
+      if (turnTerminalObserved && turnUsageObserved) {
+        recordTurnPriceOnce(receipt.turnId, pricedTurnIds, () =>
+          session.usageOwner.recordTurnPrice(turnPrice),
+        );
+      }
       const lifetimePrice = session.usageOwner.lifetimePrice(session.billingMode);
       try {
         await deps.persistUsage(session.id, session.usageOwner.serialize());
@@ -274,8 +293,10 @@ export async function* streamCodexChatTurn(
     const observeUsage = (event: CodexRuntimeEvent): void => {
       if (event.contextId !== session.context.identity.contextId ||
         event.processGeneration !== session.context.identity.processGeneration ||
-        (event.type !== 'usage' && event.type !== 'terminal') ||
-        !event.evidence) return;
+        (event.type !== 'usage' && event.type !== 'terminal')) return;
+      if (event.type === 'terminal' && event.threadId === session.id &&
+        event.turnId === receipt.turnId) turnTerminalObserved = true;
+      if (!event.evidence) return;
       turnUsageObserved = session.usageOwner.accept(event.evidence) || turnUsageObserved;
     };
     drainUsage = { publishStats, observeUsage };
