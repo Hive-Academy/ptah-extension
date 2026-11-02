@@ -37,7 +37,25 @@ describe('hero lightning', () => {
     expect(points.slice(1, -1).some((point) => point.y !== start.y && point.y !== end.y)).toBe(true);
   });
 
-  function createLightning(withContext = true): {
+  it('arcs crossways: top-left with bottom-right, then top-right with bottom-left', () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const { lightning, request, symbols } = createLightning(true, 4);
+    const litPairs: number[][] = [];
+    lightning.start();
+    for (let cycle = 0; cycle < 3; cycle++) {
+      jest.advanceTimersByTime(3000);
+      litPairs.push(symbols.flatMap((symbol, index) => symbol.classList.contains('lightning-lit') ? [index] : []));
+      (request.mock.calls.at(-1)?.[0] as FrameRequestCallback)(0);
+      (request.mock.calls.at(-1)?.[0] as FrameRequestCallback)(360);
+      jest.advanceTimersByTime(110);
+      (request.mock.calls.at(-1)?.[0] as FrameRequestCallback)(1000);
+      (request.mock.calls.at(-1)?.[0] as FrameRequestCallback)(1360);
+    }
+    expect(litPairs).toEqual([[0, 2], [1, 3], [0, 2]]);
+    lightning.destroy();
+  });
+
+  function createLightning(withContext = true, symbolCount = 2): {
     lightning: HeroLightning;
     request: jest.Mock;
     cancel: jest.Mock;
@@ -48,7 +66,7 @@ describe('hero lightning', () => {
   } {
     const artifacts = document.createElement('div');
     const canvas = document.createElement('canvas');
-    const symbols = [document.createElement('img'), document.createElement('img')];
+    const symbols = Array.from({ length: symbolCount }, () => document.createElement('img'));
     artifacts.append(...symbols, canvas);
     const context = Object.assign({} as CanvasRenderingContext2D, {
       clearRect: jest.fn(), setTransform: jest.fn(), beginPath: jest.fn(),

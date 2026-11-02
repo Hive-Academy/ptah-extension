@@ -91,10 +91,15 @@ export class HeroLightning {
     this.arcStart = undefined;
     this.shapeAt = -1;
     const first = this.symbols[this.pairIndex];
-    const second = this.symbols[(this.pairIndex + 1) % this.symbols.length];
+    const second = this.symbols[this.partnerIndex()];
     first.classList.add('lightning-lit');
     second.classList.add('lightning-lit');
     this.frame = this.view.requestAnimationFrame(this.draw);
+  }
+
+  // Symbols run clockwise from top-left, so the opposite symbol is half the ring away (crossways arcs).
+  private partnerIndex(): number {
+    return (this.pairIndex + Math.floor(this.symbols.length / 2)) % this.symbols.length;
   }
 
   private readonly draw = (time: number): void => {
@@ -110,7 +115,7 @@ export class HeroLightning {
         this.timeout = this.view.setTimeout(() => this.beginArc(), REVERSE_PAUSE);
       } else {
         this.direction = 1;
-        this.pairIndex = (this.pairIndex + 1) % this.symbols.length;
+        this.pairIndex = (this.pairIndex + 1) % Math.ceil(this.symbols.length / 2);
         this.scheduleNext();
       }
       return;
@@ -121,8 +126,8 @@ export class HeroLightning {
       this.shapeAt = shape;
       this.path = generateBoltPath({ x: 0, y: 0 }, { x: 1, y: 0 });
     }
-    const fromIndex = this.direction === 1 ? this.pairIndex : (this.pairIndex + 1) % this.symbols.length;
-    const toIndex = this.direction === 1 ? (this.pairIndex + 1) % this.symbols.length : this.pairIndex;
+    const fromIndex = this.direction === 1 ? this.pairIndex : this.partnerIndex();
+    const toIndex = this.direction === 1 ? this.partnerIndex() : this.pairIndex;
     const box = this.artifacts.getBoundingClientRect();
     const from = this.center(this.symbols[fromIndex], box);
     const to = this.center(this.symbols[toIndex], box);
