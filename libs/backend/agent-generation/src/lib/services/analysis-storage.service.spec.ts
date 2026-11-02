@@ -159,6 +159,31 @@ describe('AnalysisStorageService', () => {
     service = new AnalysisStorageService(logger as never, fs);
   });
 
+  it('normalizes phase files to LF and creates sharing rules only when absent', async () => {
+    const slug = join(ANALYSIS_ROOT, 'demo');
+    await service.writePhaseFile(slug, '01-project-profile.md', 'one\r\ntwo\r\n');
+    expect(await fs.readFile(join(slug, '01-project-profile.md'))).toBe('one\ntwo\n');
+    await service.ensureSharingFiles(WORKSPACE);
+    expect(await fs.readFile(join(ANALYSIS_ROOT, '.gitignore'))).toContain('*/generation-manifest.json');
+    expect(await fs.readFile(join(ANALYSIS_ROOT, '.gitattributes'))).toBe('manifest.json text eol=lf\n*.md text eol=lf\n');
+    await fs.writeFile(join(ANALYSIS_ROOT, '.gitignore'), '# user rules\n');
+    await fs.writeFile(join(ANALYSIS_ROOT, '.gitattributes'), '# user attrs\n');
+    await service.ensureSharingFiles(WORKSPACE);
+    expect(await fs.readFile(join(ANALYSIS_ROOT, '.gitignore'))).toBe('# user rules\n');
+    expect(await fs.readFile(join(ANALYSIS_ROOT, '.gitattributes'))).toBe('# user attrs\n');
+  });
+
+  it('logs a sharing-file write failure and continues with the other file', async () => {
+    jest.spyOn(fs, 'writeFile').mockRejectedValueOnce(new Error('denied'));
+
+    await expect(service.ensureSharingFiles(WORKSPACE)).resolves.toBeUndefined();
+
+    expect(logger.warn).toHaveBeenCalled();
+    expect(await fs.readFile(join(ANALYSIS_ROOT, '.gitattributes'))).toBe(
+      'manifest.json text eol=lf\n*.md text eol=lf\n',
+    );
+  });
+
   describe('resolveAuthorizedAnalysisDir', () => {
     it('accepts an absolute slug directory under the analysis root', () => {
       const slugDir = join(ANALYSIS_ROOT, 'demo');

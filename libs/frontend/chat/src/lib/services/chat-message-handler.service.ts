@@ -51,6 +51,7 @@ import {
 } from './agent-session-adoption.service';
 import {
   AgentMonitorStore,
+  BackgroundTaskStore,
   TurnStateApplier,
 } from '@ptah-extension/chat-streaming';
 import {
@@ -74,6 +75,7 @@ export class ChatMessageHandler implements MessageHandler {
   // Eager construction installs the layout declaration effect before streams arrive.
   private readonly streamViewport = inject(StreamViewportController);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly backgroundTaskStore = inject(BackgroundTaskStore);
   private readonly tabManager = inject(TabManagerService);
   private readonly liveness = inject(SessionLivenessRegistry);
   private readonly mcpStatus = inject(SessionMcpStatusRegistry);
@@ -735,9 +737,11 @@ export class ChatMessageHandler implements MessageHandler {
   private handleSessionEnded(payload: unknown): void {
     if (!payload || typeof payload !== 'object') return;
     const { tabId, sessionId } = payload as { tabId?: unknown; sessionId?: unknown };
-    if (typeof tabId === 'string' && typeof sessionId === 'string') {
+    if (typeof sessionId !== 'string') return;
+    if (typeof tabId === 'string') {
       this.chatStore.retireEndedSessionPrompts(tabId, sessionId);
     }
+    this.backgroundTaskStore.clearSession(sessionId);
   }
   private handlePermissionRequest(payload: unknown): void {
     if (!payload) {

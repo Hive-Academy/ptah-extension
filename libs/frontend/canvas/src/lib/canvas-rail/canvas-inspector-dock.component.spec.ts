@@ -42,6 +42,7 @@ class InspectorStub {
   readonly presentation = input('embedded');
   readonly sessionTitle = input('');
   readonly sessionStatus = input('');
+  readonly running = input(false);
   readonly workflow = input<string | null>(null);
   readonly branch = input<string | null>(null);
   readonly selectedAgentKey = input<string | null>();
@@ -221,6 +222,23 @@ describe('CanvasInspectorDockComponent', () => {
     expect(TestBed.inject(CanvasDetailService).selectLaneFor).toHaveBeenCalledWith('a', 'cli:picked');
     // A pick keeps the compact sheet open; only "Open thread" leaves it.
     if (presentation === 'sheet') expect(host.querySelector('[data-compact-sheet]')).not.toBeNull();
+  });
+
+  it.each(['dock', 'sheet'])('passes the displayed session running state to the %s inspector', async (presentation) => {
+    const { fixture } = mount();
+    if (presentation === 'sheet') {
+      fixture.componentRef.setInput('dockShown', false);
+      fixture.componentRef.setInput('compactSheet', true);
+      fixture.componentRef.setInput('detailsOpen', true);
+    }
+    fixture.componentRef.setInput('state', 'running');
+    fixture.detectChanges();
+    await completeDeferBlocks(fixture);
+    const inspector = fixture.debugElement.query(By.directive(InspectorStub)).componentInstance as InspectorStub;
+    expect(inspector.running()).toBe(true);
+    fixture.componentRef.setInput('state', 'idle');
+    fixture.detectChanges();
+    expect(inspector.running()).toBe(false);
   });
 
   it('a key step persists the width, a remount restores it, and a narrow board clamps only the render', () => {

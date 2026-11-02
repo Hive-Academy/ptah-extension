@@ -756,6 +756,8 @@ describe('ProviderSetupWizardComponent', () => {
       click(fixture, 'wizard-continue');
       click(fixture, 'wizard-verify-start');
       expect(query(fixture, 'wizard-verify-checking')).not.toBeNull();
+      const pulse = query(fixture, 'wizard-verify-pulse');
+      expect(pulse?.classList).toContain('loading-spinner');
       jest.advanceTimersByTime(2000);
       fixture.detectChanges();
       expect(query(fixture, 'wizard-verify-elapsed')?.textContent).toContain('2 s elapsed');

@@ -299,6 +299,21 @@ describe('SessionInspectorComponent presentation', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it('places session actions before the panel toggle in expanded and sheet headers', () => {
+    for (const presentation of ['docked', 'sheet'] as const) {
+      const fixture = create();
+      fixture.componentRef.setInput('presentation', presentation);
+      fixture.componentRef.setInput('running', true);
+      fixture.detectChanges();
+      const header = (fixture.nativeElement as HTMLElement).querySelector('header');
+      expect(header?.querySelector('ptah-inspector-session-actions')).not.toBeNull();
+      expect(header?.querySelector('[data-inspector-close]')).not.toBeNull();
+      expect(header?.querySelector('ptah-inspector-session-actions')?.nextElementSibling)
+        .toBe(header?.querySelector('[data-inspector-close]'));
+      expect(fixture.componentInstance.running()).toBe(true);
+    }
+  });
+
   it('crossfades stats only when the session changes', () => {
     jest.useFakeTimers();
     try {

@@ -167,6 +167,9 @@ describe('GoVetConsentConfigComponent', () => {
     routeRpc(rpc, { [GET]: [() => rpcSuccess(getResult({ state: 'on' }))] });
     const { fixture } = mount(rpc);
     await settle(fixture);
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('section')?.getAttribute('data-glass-surface'),
+    ).toBe('content');
 
     expect(text(fixture, 'go-vet-consent-root')).toBe(ROOT_A);
     expect(text(fixture, 'go-vet-consent-binary')).toBe(GO);

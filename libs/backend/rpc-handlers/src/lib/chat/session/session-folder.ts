@@ -15,7 +15,7 @@ export interface ResolveSessionFolderOptions {
   readonly metadataStore: Pick<SessionMetadataStore, 'get'>;
   readonly workspaceProvider: IWorkspaceProvider;
   readonly platformInfo: IPlatformInfo;
-  readonly logger: Logger;
+  readonly logger: Pick<Logger, 'warn'>;
 }
 
 /** Check both the supplied root and its physical directory before policy reads. */

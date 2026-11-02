@@ -30,6 +30,7 @@ import {
 import type { SdkHandle } from '../cli-agents/cli-adapters';
 import {
   SDK_TOKENS,
+  AuthRequiredError,
   HARNESS_PREFLIGHT_TOKEN,
   SdkError,
   SdkModuleLoader,
@@ -502,6 +503,14 @@ export class PtahCliRegistry {
       );
       return undefined;
     }
+    // Codex runs only through the native Codex runtime; the registry has no
+    // Codex translation proxy, so a profile can never serve it.
+    if (agentConfig.providerId === 'openai-codex') {
+      this.logger.warn(
+        `[PtahCliRegistry] getProfile: ${CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE}`,
+      );
+      return undefined;
+    }
 
     const credential = await this.resolveAgentCredential(id, provider);
     if (!credential) {
@@ -550,8 +559,6 @@ export class PtahCliRegistry {
     const startTime = Date.now();
 
     try {
-      const queryFn = await this.moduleLoader.getQueryFunction();
-
       const configs = this.configPersistence.loadConfigs();
       const agentConfig = configs.find((c) => c.id === id);
       if (!agentConfig) {
@@ -563,6 +570,14 @@ export class PtahCliRegistry {
         return {
           success: false,
           error: `Unknown provider: ${agentConfig.providerId}`,
+        };
+      }
+      // Codex runs only through the native Codex runtime; the registry has no
+      // Codex translation proxy, so the connection test can never succeed.
+      if (agentConfig.providerId === 'openai-codex') {
+        return {
+          success: false,
+          error: CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
         };
       }
       const credential = await this.resolveAgentCredential(id, testProvider);
@@ -586,6 +601,15 @@ export class PtahCliRegistry {
       const timeout = setTimeout(() => abortController.abort(), 30000);
 
       try {
+        if (
+          testAuthEnv.ANTHROPIC_AUTH_TOKEN === CODEX_PROXY_TOKEN_PLACEHOLDER
+        ) {
+          return {
+            success: false,
+            error: CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
+          };
+        }
+        const queryFn = await this.moduleLoader.getQueryFunction();
         const testQuery = queryFn({
           prompt: 'Say "ok" and nothing else.',
           options: {
@@ -705,6 +729,14 @@ export class PtahCliRegistry {
       };
     }
     const provider = getAnthropicProvider(agentConfig.providerId);
+    // Codex runs only through the native Codex runtime. Refuse on the
+    // provider id: no Codex proxy factory exists here, so the placeholder
+    // token never appears in a freshly built auth env.
+    if (agentConfig.providerId === 'openai-codex') {
+      throw new AuthRequiredError(CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE, {
+        providerId: 'openai-codex',
+      });
+    }
     const credential = await this.resolveAgentCredential(id, provider);
     if (!credential) {
       this.logger.warn(
@@ -805,6 +837,11 @@ export class PtahCliRegistry {
           hasSystemPrompt: !!assembly.systemPromptContent,
         },
       );
+      if (authEnv.ANTHROPIC_AUTH_TOKEN === CODEX_PROXY_TOKEN_PLACEHOLDER) {
+        throw new AuthRequiredError(CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE, {
+          providerId: 'openai-codex',
+        });
+      }
       const queryFn = await this.moduleLoader.getQueryFunction();
       const abortController = new AbortController();
       const mailbox = createPromptMailbox(task);
@@ -1594,6 +1631,13 @@ type AgentCredential =
 /** Sanitized copy for a Kimi Code agent with no key and no usable connection. */
 const KIMI_CODE_MISSING_CREDENTIAL_MESSAGE =
   'Sign in to Kimi Code or add an API key for this instance';
+
+/**
+ * The refusal for Codex in a Ptah CLI agent: only the native Codex runtime
+ * serves Codex chat. Matches the shared refusal text in auth-providers.
+ */
+const CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE =
+  'Codex chat requires a host with the native Codex runtime.';
 
 /**
  * Tokens the registry and the host proxies use internally for SDK-facing

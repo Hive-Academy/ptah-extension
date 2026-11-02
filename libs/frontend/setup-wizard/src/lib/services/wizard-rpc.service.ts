@@ -4,6 +4,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   AgentPackInfoDto,
   AgentRecommendation,
+  AnalysisStatus,
   EnhancedPromptsRunWizardResponse,
   EnhancedPromptsGetStatusResponse,
   MultiPhaseAnalysisResponse,
@@ -642,6 +643,16 @@ export class WizardRpcService {
    * @param filename - Slug directory name from .ptah/analysis/
    * @returns Multi-phase analysis response with manifest and phase contents
    */
+  public async getAnalysisStatus(): Promise<AnalysisStatus> {
+    const result = await this.rpcService.call(
+      'wizard:analysis-status',
+      {},
+      { timeout: WIZARD_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) return result.data;
+    throw new Error(result.error || 'Failed to check analysis status');
+  }
+
   public async loadAnalysis(
     filename: string,
   ): Promise<MultiPhaseAnalysisResponse> {

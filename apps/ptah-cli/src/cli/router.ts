@@ -1758,13 +1758,29 @@ export function buildRouter(): Command {
       '--target <id>',
       'install target (vscode|claude|cursor|copilot|codex|antigravity)',
     )
-    .action(async (name: string, opts: { target: string }) => {
-      const exit = await mcpCmd.execute(
-        { subcommand: 'install', name, target: opts.target },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
+    .option(
+      '--input <NAME=VALUE>',
+      'required server input; repeat for multiple inputs',
+      (raw: string, previous: string[]) => [...previous, raw],
+      [],
+    )
+    .action(
+      async (
+        name: string,
+        opts: { target: string; input?: string[] },
+      ) => {
+        const exit = await mcpCmd.execute(
+          {
+            subcommand: 'install',
+            name,
+            target: opts.target,
+            input: opts.input,
+          },
+          resolveGlobals(program),
+        );
+        process.exitCode = exit;
+      },
+    );
 
   mcp
     .command('uninstall <key>')

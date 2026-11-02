@@ -105,6 +105,9 @@ describe('McpPortConfigComponent', () => {
         });
 
       await render();
+      expect(
+        element.querySelector('section')?.getAttribute('data-glass-surface'),
+      ).toBe('content');
 
       expect(component.portValue()).toBe(52000);
       expect(component.savedPort()).toBe(52000);

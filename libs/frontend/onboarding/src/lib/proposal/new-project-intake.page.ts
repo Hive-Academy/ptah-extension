@@ -2,13 +2,16 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  effect,
   inject,
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { AttachmentTrayComponent, ComposerAttachmentsService } from '@ptah-extension/chat';
 import {
   HarnessBuilderLeaveDialogComponent,
+  HarnessRpcService,
   NEW_PROJECT_AUDIENCE_OPTIONS,
   NEW_PROJECT_PLATFORM_OPTIONS,
 } from '@ptah-extension/harness-builder';
@@ -21,6 +24,7 @@ import {
   type NewProjectStack,
 } from '@ptah-extension/shared';
 import { onboardingStepLink } from '../shell/onboarding-step-link';
+import { WorkspaceHeaderComponent } from '../shell/workspace-header.component';
 import {
   OnboardingStepperComponent,
   type OnboardingStep,
@@ -34,7 +38,10 @@ import { ProposalFlowStore } from './proposal-flow.store';
     HarnessBuilderLeaveDialogComponent,
     OnboardingStepperComponent,
     FormsModule,
+    AttachmentTrayComponent,
+    WorkspaceHeaderComponent,
   ],
+  providers: [ComposerAttachmentsService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -54,7 +61,24 @@ import { ProposalFlowStore } from './proposal-flow.store';
           Tell the agent what you want to build.
         </p>
       </header>
+      <ptah-workspace-header [canSwitch]="true" />
       <ptah-onboarding-stepper [steps]="steps" />
+      @if (workspaceEmpty() === null) {
+        <div class="rounded-xl border border-base-300 p-3 text-sm" role="status">
+          @if (workspaceCheckError()) {
+            <p>{{ workspaceCheckError() }}</p>
+            <button type="button" class="btn btn-sm mt-2" (click)="retryWorkspaceCheck()">Retry folder check</button>
+          } @else {
+            Checking folder contents…
+          }
+        </div>
+      }
+      @if (workspaceEmpty() === false && !confirmedNonEmpty()) {
+        <div class="rounded-xl border border-warning p-3 text-sm" role="alert">
+          <p>Folder is not empty. Starting a new project here may use existing files.</p>
+          <button type="button" class="btn btn-warning btn-sm mt-2" (click)="confirmedNonEmpty.set(true)">Continue in this folder</button>
+        </div>
+      }
       @if (draftTab()) {
         <div
           class="rounded-[14px] border border-base-300 p-4"
@@ -99,11 +123,16 @@ import { ProposalFlowStore } from './proposal-flow.store';
             [ngModel]="what()"
             (ngModelChange)="what.set($event)"
             (blur)="whatTouched.set(true)"
+            (paste)="attachments.onPaste($event)"
+            (dragover)="$event.preventDefault()"
+            (drop)="attachments.onDrop($event)"
             [attr.aria-invalid]="whatInvalid() ? true : null"
             [attr.aria-describedby]="
-              whatInvalid() ? 'project-what-error' : null
+              whatInvalid() ? 'project-attachment-hint project-what-error' : 'project-attachment-hint'
             "
           ></textarea>
+          <ptah-attachment-tray />
+          <p id="project-attachment-hint" class="mt-1 text-xs text-base-content-muted">Attachments are not saved if you leave this page</p>
           @if (whatInvalid()) {
             <p id="project-what-error" class="text-sm text-state-err">
               Describe what you want to build.
@@ -206,7 +235,7 @@ import { ProposalFlowStore } from './proposal-flow.store';
           <p role="alert" class="text-sm text-state-err">{{ error }}</p>
         }
         <div class="flex flex-wrap gap-2">
-          <button type="submit" class="btn btn-primary" [disabled]="starting()">
+          <button type="submit" class="btn btn-primary" [disabled]="starting() || attachments.pendingReads() > 0 || workspaceEmpty() === null || (workspaceEmpty() === false && !confirmedNonEmpty())">
             {{ starting() ? 'Starting…' : 'Continue' }}</button
           ><button type="button" class="btn" (click)="back()">Back</button>
         </div>
@@ -226,9 +255,12 @@ import { ProposalFlowStore } from './proposal-flow.store';
   `,
 })
 export class NewProjectIntakePage {
+  readonly attachments = inject(ComposerAttachmentsService);
+  private readonly harnessRpc = inject(HarnessRpcService);
   protected readonly store = inject(ProposalFlowStore);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private pendingAttachments: ReturnType<ComposerAttachmentsService['snapshotForSend']> | null = null;
   protected readonly audienceOptions = NEW_PROJECT_AUDIENCE_OPTIONS;
   protected readonly platformOptions = NEW_PROJECT_PLATFORM_OPTIONS;
   protected readonly steps: readonly OnboardingStep[] = [
@@ -246,6 +278,41 @@ export class NewProjectIntakePage {
   readonly whatTouched = signal(false);
   readonly otherTouched = signal(false);
   readonly starting = signal(false);
+  readonly workspaceEmpty = signal<boolean | null>(null);
+  readonly workspaceCheckError = signal<string | null>(null);
+  readonly confirmedNonEmpty = signal(false);
+  private workspaceCheck = 0;
+  private lastRoot = this.store.workspaceRoot();
+  constructor() {
+    void this.checkWorkspace(this.lastRoot);
+    effect(() => {
+      const root = this.store.workspaceRoot();
+      if (root !== this.lastRoot) {
+        this.lastRoot = root;
+        this.workspaceEmpty.set(null);
+        this.workspaceCheckError.set(null);
+        this.confirmedNonEmpty.set(false);
+        void this.checkWorkspace(root);
+      }
+    });
+  }
+  private async checkWorkspace(root: string): Promise<void> {
+    const check = ++this.workspaceCheck;
+    this.workspaceCheckError.set(null);
+    try {
+      const response = await this.harnessRpc.initialize(root);
+      if (!this.destroyRef.destroyed && check === this.workspaceCheck) this.workspaceEmpty.set(response.workspaceEffectivelyEmpty);
+    } catch {
+      // degradation-audit: reported — intake offers a retry when the folder check fails.
+      if (!this.destroyRef.destroyed && check === this.workspaceCheck) {
+        this.workspaceEmpty.set(null);
+        this.workspaceCheckError.set('Could not check this folder. Try again.');
+      }
+    }
+  }
+  retryWorkspaceCheck(): Promise<void> {
+    return this.checkWorkspace(this.store.workspaceRoot());
+  }
   readonly draftTab = () =>
     this.store.records.readDraft(this.store.workspaceRoot(), 'new-project')
       ?.tabId ?? null;
@@ -276,8 +343,10 @@ export class NewProjectIntakePage {
   }
   async submit(event: Event): Promise<void> {
     event.preventDefault();
+    if (this.store.workspaceRoot() !== this.lastRoot) return;
+    if (this.workspaceEmpty() === null || (this.workspaceEmpty() === false && !this.confirmedNonEmpty())) return;
     this.submitted.set(true);
-    if (this.errors().length || this.starting()) return;
+    if (this.errors().length || this.starting() || this.attachments.pendingReads() > 0) return;
     const intake: NewProjectIntake = {
       what: this.what().trim(),
       audience: this.audience(),
@@ -291,12 +360,19 @@ export class NewProjectIntakePage {
         : {}),
     };
     this.starting.set(true);
+    const snapshot = this.attachments.snapshotForSend();
+    this.pendingAttachments = snapshot;
     try {
       const tab = await this.store.start({
         mode: 'new-project',
         workspaceRoot: this.store.workspaceRoot(),
         intake,
+        attachments: snapshot.options,
       });
+      if (tab && this.store.lastStartCreated()) {
+        snapshot.removeSent();
+        this.pendingAttachments = null;
+      }
       if (!this.destroyRef.destroyed && tab)
         await this.open(tab, this.store.lastStartCreated());
     } finally {
@@ -326,6 +402,10 @@ export class NewProjectIntakePage {
   }
   async resolve(choice: 'save' | 'discard' | 'cancel'): Promise<void> {
     const tab = await this.store.resolveConflict(choice);
+    if (tab && this.store.lastStartCreated()) {
+      this.pendingAttachments?.removeSent();
+      this.pendingAttachments = null;
+    }
     if (!this.destroyRef.destroyed && tab)
       await this.open(tab, this.store.lastStartCreated());
   }

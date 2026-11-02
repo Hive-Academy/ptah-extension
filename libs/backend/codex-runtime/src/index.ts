@@ -26,7 +26,14 @@ export type {
   CodexRuntimeEvent,
   CodexContext,
   CodexModelInfo,
+  CodexSessionHistory,
+  CodexHistoryReader,
+  CodexHistoryThread,
+  CodexHistoryTurn,
+  CodexHistoryItemEntry,
 } from './lib/codex-runtime.types';
+export { CodexSessionHistoryError } from './lib/codex-session-history';
+export { CodexEventTranslator } from './lib/codex-event-translator';
 export type { CodexRuntime as CodexRuntimePort } from './lib/codex-runtime.types';
 export type {
   CodexUsageEligibility,
@@ -53,7 +60,6 @@ export {
   type CodexDevRouteOverride,
 } from './lib/codex-dev-route';
 export { CodexRuntime } from './lib/codex-runtime';
-export { CodexEventTranslator } from './lib/codex-event-translator';
 export { CodexContextStateError } from './lib/codex-context-state-error';
 export type { CodexRuntimeOptions } from './lib/codex-context';
 export {

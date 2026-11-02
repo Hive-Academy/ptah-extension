@@ -2,7 +2,7 @@ import { signal, type WritableSignal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { SetupStatusStore } from '@ptah-extension/chat-ui';
-import { AppStateManager } from '@ptah-extension/core';
+import { AppStateManager, LoggingService } from '@ptah-extension/core';
 import type { SetupStatusGetResponse } from '@ptah-extension/shared';
 import {
   OnboardingFlagService,
@@ -14,6 +14,9 @@ import {
   type ClaudeReadinessView,
 } from '../ready/claude-readiness.store';
 import { OnboardingHomeComponent } from './onboarding-home.component';
+import { OnboardingWorkspaceStore } from '../shell/onboarding-workspace.store';
+import { WizardRpcService } from '@ptah-extension/setup-wizard';
+import { AnalysisStepStore } from '../analyze/analysis-step.store';
 import {
   OnboardingResumeStore,
   type OnboardingResumeItem,
@@ -51,9 +54,12 @@ describe('OnboardingHomeComponent', () => {
   let fixture: ComponentFixture<OnboardingHomeComponent>;
   let readiness: ReturnType<typeof createReadinessStore>;
   let flag: WritableSignal<OnboardingFlag>;
+  let workspacePath: WritableSignal<string>;
+  let workspaceReady: WritableSignal<boolean>;
   const resume = {
     items: signal<readonly OnboardingResumeItem[]>([]),
     refresh: jest.fn().mockResolvedValue(undefined),
+    clear: jest.fn(),
   };
 
   function createReadinessStore(available: boolean) {
@@ -94,9 +100,12 @@ describe('OnboardingHomeComponent', () => {
     markDismissed = jest.fn<void, []>();
     setCurrentView = jest.fn<void, [string]>();
     flag = signal<OnboardingFlag>({});
+    workspacePath = signal('/workspace');
+    workspaceReady = signal(true);
     readiness = createReadinessStore(true);
     resume.items.set([]);
     resume.refresh.mockClear();
+    resume.clear.mockClear();
     TestBed.configureTestingModule({
       imports: [OnboardingHomeComponent],
       providers: [
@@ -105,7 +114,11 @@ describe('OnboardingHomeComponent', () => {
         { provide: OnboardingFlagService, useValue: { markDismissed, flag } },
         { provide: ClaudeReadinessStore, useValue: readiness },
         { provide: AppStateManager, useValue: { setCurrentView } },
+        { provide: LoggingService, useValue: { warn: jest.fn() } },
         { provide: OnboardingResumeStore, useValue: resume },
+        { provide: OnboardingWorkspaceStore, useValue: { isElectron: false, active: signal(null), activePath: workspacePath, readyForActivePath: workspaceReady, folders: signal([]), activeIndex: signal(-1) } },
+        { provide: WizardRpcService, useValue: { getAnalysisStatus: jest.fn().mockResolvedValue({ state: 'missing' }) } },
+        { provide: AnalysisStepStore, useValue: { useAnalysis: jest.fn() } },
       ],
     });
   });
@@ -120,6 +133,23 @@ describe('OnboardingHomeComponent', () => {
     expect(headings[0].getAttribute('tabindex')).toBe('-1');
     expect(store.refresh).toHaveBeenCalledTimes(1);
     expect(resume.refresh).toHaveBeenCalledTimes(1);
+  });
+  it('refreshes resume actions when the active folder changes', () => {
+    render();
+    workspacePath.set('/another-workspace');
+    fixture.detectChanges();
+    expect(resume.refresh).toHaveBeenCalledTimes(2);
+  });
+  it('clears resume actions while a folder switch is pending', () => {
+    render();
+    workspaceReady.set(false);
+    workspacePath.set('/another-workspace');
+    fixture.detectChanges();
+    expect(resume.clear).toHaveBeenCalledTimes(1);
+    expect(resume.refresh).toHaveBeenCalledTimes(1);
+    workspaceReady.set(true);
+    fixture.detectChanges();
+    expect(resume.refresh).toHaveBeenCalledTimes(2);
   });
 
   it('places resume banners after the Claude banner and opens their target', () => {

@@ -31,6 +31,7 @@ import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import {
   MCP_DIRECTORY_CALL_FAILURE_COPY,
   MCP_INSTALL_RESULT_COPY,
+  MCP_REGISTRY_ERROR_MESSAGES,
   type InstalledMcpServer,
   type McpInstallTarget,
   type McpRegistryEntry,
@@ -75,11 +76,15 @@ function entry(over: Partial<McpRegistryEntry> = {}): McpRegistryEntry {
     name: 'io.github.acme/weather',
     description: 'Forecasts for any city',
     repository: { url: 'https://github.com/acme/weather', id: 'acme/weather' },
-    version_detail: {
-      version: '1.2.0',
-      packages: [{ registry_name: 'npm', name: '@acme/weather-mcp' }],
-      transports: [{ type: 'stdio' }],
-    },
+    version: '1.2.0',
+    packages: [
+      {
+        registryType: 'npm',
+        identifier: '@acme/weather-mcp',
+        version: '1.2.0',
+        transport: { type: 'stdio' },
+      },
+    ],
     ...over,
   };
 }
@@ -253,6 +258,32 @@ describe('mcp directory browser — registry discovery', () => {
     ).toContain('v1.2.0 · stdio · acme/weather');
   });
 
+  it('renders a remote-only card and its detected HTTP config', async () => {
+    const remote = entry({
+      packages: undefined,
+      remotes: [
+        {
+          type: 'streamable-http',
+          url: 'https://mcp.acme.test/weather',
+        },
+      ],
+    });
+    const fixture = await mount([remote]);
+
+    expect(
+      cards(fixture)[0].querySelector('[data-testid="catalog-card-meta"]')
+        ?.textContent,
+    ).toContain('streamable-http');
+
+    await clickInstall(fixture);
+
+    const panel = host(fixture).querySelector('ptah-storefront-panel');
+    expect(panel?.textContent).toContain('https://mcp.acme.test/weather');
+    expect(
+      panel?.querySelector<HTMLButtonElement>('[panel-footer] button')?.disabled,
+    ).toBe(false);
+  });
+
   it('shows card-shaped skeletons inside the grid while the popular list loads', async () => {
     setResponder('mcpDirectory:getPopular', () => new Promise(() => undefined));
     const fixture = TestBed.createComponent(McpDirectoryBrowserComponent);
@@ -350,7 +381,7 @@ describe('mcp directory browser — registry discovery', () => {
       config: {
         type: 'stdio',
         command: 'npx',
-        args: ['-y', '@acme/weather-mcp'],
+        args: ['-y', '@acme/weather-mcp@1.2.0'],
       },
       targets: WORKSPACE_TARGETS,
       scope: 'workspace',
@@ -364,8 +395,170 @@ describe('mcp directory browser — registry discovery', () => {
     expect(host(fixture).querySelector('ptah-storefront-panel')).toBeNull();
   });
 
+  it('blocks direct confirmInstall when required inputs are unresolved', async () => {
+    const withRequiredInput = entry({
+      packages: [
+        {
+          registryType: 'npm',
+          identifier: '@acme/weather-mcp',
+          transport: { type: 'stdio' },
+          environmentVariables: [{ name: 'TOKEN', isRequired: true }],
+        },
+      ],
+    });
+    const fixture = await mount([withRequiredInput]);
+
+    await clickInstall(fixture);
+    expect(
+      host(fixture).querySelector<HTMLButtonElement>(
+        'ptah-storefront-panel [panel-footer] button',
+      )?.disabled,
+    ).toBe(true);
+
+    await fixture.componentInstance.confirmInstall(withRequiredInput);
+    await settle(fixture);
+
+    expect(installCalls()).toHaveLength(0);
+  });
+
+  it('collects a required secret, redacts preview, and installs the real value', async () => {
+    const withSecret = entry({
+      packages: [
+        {
+          registryType: 'npm',
+          identifier: '@acme/weather-mcp',
+          transport: { type: 'stdio' },
+          packageArguments: [
+            {
+              type: 'named',
+              name: '--token',
+              description: 'API key for the ACME service',
+              isRequired: true,
+              isSecret: true,
+            },
+          ],
+        },
+      ],
+    });
+    const fixture = await mount([withSecret]);
+    setResponder('mcpDirectory:install', () =>
+      ok({
+        results: [
+          { target: 'claude', success: true, configPath: '/tmp/.mcp.json' },
+        ],
+      }),
+    );
+
+    await clickInstall(fixture);
+
+    const panel = host(fixture).querySelector('ptah-storefront-panel');
+    const input = panel?.querySelector<HTMLInputElement>(
+      '[data-testid="mcp-required-inputs"] input',
+    );
+    expect(panel?.textContent).toContain('--token');
+    expect(panel?.textContent).toContain('API key for the ACME service');
+    expect(input?.type).toBe('password');
+    expect(
+      panel?.querySelector(`label[for="${input?.id}"]`)?.textContent,
+    ).toContain('--token');
+    expect(
+      panel?.querySelector<HTMLButtonElement>('[panel-footer] button')
+        ?.disabled,
+    ).toBe(true);
+
+    input!.value = 'super-secret';
+    input!.dispatchEvent(new Event('input'));
+    await settle(fixture);
+
+    expect(
+      panel?.querySelector<HTMLButtonElement>('[panel-footer] button')
+        ?.disabled,
+    ).toBe(false);
+    expect(panel?.textContent).toContain('••••••');
+    expect(panel?.textContent).not.toContain('super-secret');
+
+    await clickConfirm(fixture);
+
+    expect(installCalls()[0].params).toMatchObject({
+      config: {
+        type: 'stdio',
+        command: 'npx',
+        args: [
+          '-y',
+          '@acme/weather-mcp',
+          '--token',
+          'super-secret',
+        ],
+      },
+    });
+  });
+
+  it('renders required URL choices and enables install after selection', async () => {
+    const templated = entry({
+      name: 'io.github.acme/templated',
+      packages: undefined,
+      remotes: [
+        {
+          type: 'streamable-http',
+          url: 'https://{api_host}/mcp',
+          variables: {
+            api_host: {
+              description: 'Hostname of the MCP endpoint',
+              isRequired: true,
+              choices: ['mcp.acme.test'],
+            },
+          },
+        },
+      ],
+    });
+    const fixture = await mount([templated]);
+
+    await clickInstall(fixture);
+
+    const panel = host(fixture).querySelector('ptah-storefront-panel');
+    const select = panel?.querySelector<HTMLSelectElement>(
+      '[data-testid="mcp-required-inputs"] select',
+    );
+    expect(select).not.toBeNull();
+    expect(panel?.textContent).toContain('api_host');
+    expect(panel?.textContent).toContain('Hostname of the MCP endpoint');
+    expect(
+      panel?.querySelector<HTMLButtonElement>('[panel-footer] button')
+        ?.disabled,
+    ).toBe(true);
+
+    select!.value = 'mcp.acme.test';
+    select!.dispatchEvent(new Event('change'));
+    await settle(fixture);
+
+    expect(
+      panel?.querySelector<HTMLButtonElement>('[panel-footer] button')
+        ?.disabled,
+    ).toBe(false);
+    expect(panel?.textContent).toContain('https://••••••/mcp');
+    expect(panel?.textContent).not.toContain('https://mcp.acme.test/mcp');
+  });
+
+  it('shows the coded mapper message when an entry has no install source', async () => {
+    const fixture = await mount([entry({ packages: [], remotes: [] })]);
+
+    await clickInstall(fixture);
+
+    const panel = host(fixture).querySelector('ptah-storefront-panel');
+    expect(panel?.textContent).toContain(
+      `MCP_NO_INSTALL_SOURCE: ${MCP_REGISTRY_ERROR_MESSAGES.MCP_NO_INSTALL_SOURCE}`,
+    );
+    expect(panel?.textContent).not.toContain(
+      'Could not auto-detect configuration for this server.',
+    );
+    expect(panel?.querySelector('[panel-footer] button')).toBeNull();
+    expect(calls.some((c) => c.method === 'mcpDirectory:getDetails')).toBe(
+      false,
+    );
+  });
+
   it('fetches details before installing a result that carries none', async () => {
-    const bare = entry({ version_detail: undefined });
+    const bare = entry({ packages: undefined, remotes: undefined });
     setResponder('mcpDirectory:getDetails', () => ok(entry()));
     const fixture = await mount([bare]);
 
@@ -379,6 +572,66 @@ describe('mcp directory browser — registry discovery', () => {
         'ptah-storefront-panel [panel-footer] button',
       ),
     ).not.toBeNull();
+  });
+
+  it('shows a coded detail error instead of a wrong mapper diagnosis', async () => {
+    const bare = entry({ packages: undefined, remotes: undefined });
+    const message = MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_UNAVAILABLE;
+    setResponder('mcpDirectory:getDetails', () =>
+      ok({
+        name: bare.name,
+        errorCode: 'MCP_REGISTRY_UNAVAILABLE',
+        error: message,
+      }),
+    );
+    const fixture = await mount([bare]);
+
+    await clickInstall(fixture);
+
+    const panel = host(fixture).querySelector('ptah-storefront-panel');
+    expect(panel?.textContent).toContain(`MCP_REGISTRY_UNAVAILABLE: ${message}`);
+    expect(panel?.textContent).not.toContain('MCP_NO_INSTALL_SOURCE');
+    expect(panel?.querySelector('[panel-footer] button')).toBeNull();
+  });
+
+  it('shows a popular availability error instead of an empty-list message', async () => {
+    const message = MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_UNAVAILABLE;
+    setResponder('mcpDirectory:getPopular', () =>
+      ok({
+        servers: [],
+        errorCode: 'MCP_REGISTRY_UNAVAILABLE',
+        error: message,
+      }),
+    );
+    setResponder('mcpDirectory:listInstalled', () => ok({ servers: [] }));
+    const fixture = TestBed.createComponent(McpDirectoryBrowserComponent);
+    await settle(fixture);
+
+    expect(errorText(fixture)).toBe(message);
+    expect(host(fixture).textContent).not.toContain('No servers available');
+  });
+
+  it('shows the coded error returned by search', async () => {
+    const message = MCP_REGISTRY_ERROR_MESSAGES.MCP_REGISTRY_SHAPE_UNKNOWN;
+    const fixture = await mount([]);
+    setResponder('mcpDirectory:search', () =>
+      ok({
+        servers: [],
+        errorCode: 'MCP_REGISTRY_SHAPE_UNKNOWN',
+        error: message,
+      }),
+    );
+    const input = host(fixture).querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    input!.value = 'weather';
+    input!.dispatchEvent(new Event('input'));
+
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await settle(fixture);
+
+    expect(errorText(fixture)).toBe(message);
+    expect(host(fixture).textContent).not.toContain('No servers found for');
   });
 
   it('reports the reason when the backend deliberately refuses an install', async () => {

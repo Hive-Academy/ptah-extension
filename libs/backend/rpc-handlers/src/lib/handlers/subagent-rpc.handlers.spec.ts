@@ -155,10 +155,11 @@ interface Harness {
   dispatcher: MockDispatcher;
   workspace: { getConfiguration: jest.Mock };
   historyReader: { readSubagentEvents: jest.Mock };
-  metadataStore: { dismissResumableSubagents: jest.Mock };
+  metadataStore: { dismissResumableSubagents: jest.Mock; get: jest.Mock };
+  nativeHistory: { readForResume: jest.Mock };
 }
 
-function makeHarness(): Harness {
+function makeHarness(bindNativeHistory = true): Harness {
   const logger = createMockLogger();
   const rpcHandler = createMockRpcHandler();
   const registry = createMockSubagentRegistry();
@@ -176,7 +177,9 @@ function makeHarness(): Harness {
 
   const metadataStore = {
     dismissResumableSubagents: jest.fn().mockResolvedValue(undefined),
+    get: jest.fn().mockResolvedValue(null),
   };
+  const nativeHistory = { readForResume: jest.fn() };
 
   const handlers = new SubagentRpcHandlers(
     logger as unknown as Logger,
@@ -190,6 +193,7 @@ function makeHarness(): Harness {
       'readSubagentEvents'
     > as SessionHistoryReaderService,
     metadataStore as unknown as SessionMetadataStore,
+    bindNativeHistory ? nativeHistory : undefined,
   );
 
   return {
@@ -202,6 +206,7 @@ function makeHarness(): Harness {
     workspace,
     historyReader,
     metadataStore,
+    nativeHistory,
   };
 }
 
@@ -334,6 +339,184 @@ describe('SubagentRpcHandlers', () => {
   });
 
   describe('subagent:history-page', () => {
+    const nativeSession = '44444444-4444-4444-8444-444444444444';
+    const nativeEvents = (sessionId: string, toolCallId = 'spawn') => ([
+      {
+        id: `start-${toolCallId}`, eventType: 'agent_start',
+        messageId: 'parent', timestamp: 1, sessionId, toolCallId,
+        agentId: 'child', agentType: 'codex',
+      },
+      {
+        id: `answer-${toolCallId}`, eventType: 'text_delta',
+        messageId: 'child-message', timestamp: 2, sessionId,
+        parentToolUseId: toolCallId, blockIndex: 0, delta: 'answer',
+      },
+    ] satisfies FlatStreamEventUnion[]);
+    const nativeParams = (sessionId = nativeSession) => ({ sessionId, toolCallId: 'spawn' });
+
+    it('expires native snapshots by absolute age despite frequent cache hits', async () => {
+      jest.useFakeTimers();
+      try {
+        jest.setSystemTime(0);
+        const h = makeHarness();
+        h.metadataStore.get.mockResolvedValue({ codexExecution: { runtime: 'codex-app-server' } });
+        h.nativeHistory.readForResume.mockResolvedValue({ events: nativeEvents(nativeSession) });
+        h.handlers.register();
+        for (const elapsed of [0, 5_000, 10_000, 14_999]) {
+          jest.setSystemTime(elapsed);
+          await call<SubagentHistoryPageResult>(h, 'subagent:history-page', nativeParams());
+        }
+        expect(h.nativeHistory.readForResume).toHaveBeenCalledTimes(1);
+        jest.setSystemTime(15_000);
+        await call<SubagentHistoryPageResult>(h, 'subagent:history-page', nativeParams());
+        expect(h.nativeHistory.readForResume).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('evicts the oldest native snapshot when the cache reaches capacity', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue({ codexExecution: { runtime: 'codex-app-server' } });
+      h.nativeHistory.readForResume.mockImplementation(async (sessionId: string) => ({
+        events: nativeEvents(sessionId),
+      }));
+      h.handlers.register();
+      const sessions = Array.from({ length: 9 }, (_, index) =>
+        `44444444-4444-4444-8444-${String(index).padStart(12, '0')}`);
+      for (const sessionId of sessions)
+        await call<SubagentHistoryPageResult>(h, 'subagent:history-page', nativeParams(sessionId));
+      expect(h.nativeHistory.readForResume).toHaveBeenCalledTimes(9);
+      await call<SubagentHistoryPageResult>(h, 'subagent:history-page', nativeParams(sessions[0]));
+      expect(h.nativeHistory.readForResume).toHaveBeenCalledTimes(10);
+    });
+
+    it('deduplicates concurrent native history reads', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue({ codexExecution: { runtime: 'codex-app-server' } });
+      let complete!: (value: { events: FlatStreamEventUnion[] }) => void;
+      const pending = new Promise<{ events: FlatStreamEventUnion[] }>((resolve) => {
+        complete = resolve;
+      });
+      h.nativeHistory.readForResume.mockReturnValue(pending);
+      h.handlers.register();
+      const first = call<SubagentHistoryPageResult>(h, 'subagent:history-page', nativeParams());
+      const second = call<SubagentHistoryPageResult>(h, 'subagent:history-page', nativeParams());
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(h.nativeHistory.readForResume).toHaveBeenCalledTimes(1);
+      complete({ events: nativeEvents(nativeSession) });
+      const pages = await Promise.all([first, second]);
+      expect(pages.map((page) => page.status)).toEqual(['ok', 'ok']);
+      expect(h.nativeHistory.readForResume).toHaveBeenCalledTimes(1);
+    });
+
+    it('invalidates native history after a stale cursor so retry reads again', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue({ codexExecution: { runtime: 'codex-app-server' } });
+      h.nativeHistory.readForResume.mockResolvedValue({ events: nativeEvents(nativeSession) });
+      h.handlers.register();
+      await call<SubagentHistoryPageResult>(h, 'subagent:history-page', nativeParams());
+      const response = await h.rpcHandler.handleMessage({
+        method: 'subagent:history-page',
+        params: { ...nativeParams(), cursor: historyCursor({
+          id: 'removed', eventType: 'text_delta',
+        }) },
+        correlationId: 'native-stale',
+      });
+      expect(response).toMatchObject({ success: false, errorCode: 'HISTORY_CURSOR_STALE' });
+      await call<SubagentHistoryPageResult>(h, 'subagent:history-page', nativeParams());
+      expect(h.nativeHistory.readForResume).toHaveBeenCalledTimes(2);
+    });
+
+    it('invalidates native history when a child is not found', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue({ codexExecution: { runtime: 'codex-app-server' } });
+      h.nativeHistory.readForResume.mockResolvedValue({ events: [] });
+      h.handlers.register();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const page = await call<SubagentHistoryPageResult>(h, 'subagent:history-page', nativeParams());
+        expect(page.status).toBe('not-found');
+      }
+      expect(h.nativeHistory.readForResume).toHaveBeenCalledTimes(2);
+    });
+
+    it('pages the native child transcript from resumed Codex history', async () => {
+      const h = makeHarness();
+      const sessionId = '22222222-2222-4222-8222-222222222222';
+      h.metadataStore.get.mockResolvedValue({
+        codexExecution: { runtime: 'codex-app-server' },
+      });
+      h.nativeHistory.readForResume.mockResolvedValue({
+        events: [
+          {
+            id: 'start', eventType: 'agent_start', messageId: 'parent',
+            timestamp: 1, sessionId, toolCallId: 'spawn-2',
+            agentId: 'child-2', agentType: 'codex',
+          },
+          {
+            id: 'message-start', eventType: 'message_start',
+            messageId: 'child-message', timestamp: 2, sessionId,
+            parentToolUseId: 'spawn-2', role: 'assistant',
+          },
+          {
+            id: 'answer', eventType: 'text_delta', messageId: 'child-message',
+            timestamp: 3, sessionId, parentToolUseId: 'spawn-2',
+            blockIndex: 0, delta: 'Synthetic answer',
+          },
+          {
+            id: 'done', eventType: 'message_complete', messageId: 'child-message',
+            timestamp: 4, sessionId, parentToolUseId: 'spawn-2',
+          },
+        ] satisfies FlatStreamEventUnion[],
+      });
+      h.handlers.register();
+
+      const page = await call<SubagentHistoryPageResult>(
+        h, 'subagent:history-page',
+        { sessionId, toolCallId: 'spawn-2', agentId: 'child-2' },
+      );
+      expect(page.status).toBe('ok');
+      expect(page.events.map((item) => item.id)).toEqual([
+        'message-start', 'answer', 'done',
+      ]);
+      expect(h.historyReader.readSubagentEvents).not.toHaveBeenCalled();
+      expect(h.nativeHistory.readForResume).toHaveBeenCalledWith(
+        sessionId, { includeCompactedEvents: true },
+      );
+      await call<SubagentHistoryPageResult>(
+        h, 'subagent:history-page',
+        { sessionId, toolCallId: 'spawn-2', agentId: 'child-2' },
+      );
+      expect(h.nativeHistory.readForResume).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses Claude history when the session is not native Codex', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      await call<SubagentHistoryPageResult>(h, 'subagent:history-page', {
+        sessionId: 'claude-session', toolCallId: 'task-1',
+      });
+      expect(h.historyReader.readSubagentEvents).toHaveBeenCalled();
+      expect(h.nativeHistory.readForResume).not.toHaveBeenCalled();
+    });
+
+    it('warns once when native history is unbound', async () => {
+      const h = makeHarness(false);
+      const sessionId = '33333333-3333-4333-8333-333333333333';
+      h.metadataStore.get.mockResolvedValue({ codexExecution: { runtime: 'codex-app-server' } });
+      h.handlers.register();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const page = await call<SubagentHistoryPageResult>(h, 'subagent:history-page', {
+          sessionId, toolCallId: 'spawn-3',
+        });
+        expect(page.status).toBe('not-found');
+      }
+      expect(h.logger.warn).toHaveBeenCalledTimes(1);
+      expect(h.nativeHistory.readForResume).not.toHaveBeenCalled();
+    });
+
     const event = (
       id: string,
       delta = 'x'.repeat(650),
@@ -592,6 +775,64 @@ describe('SubagentRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('chat:subagent-query by toolCallId', () => {
+    it('does not read native history for a Claude session', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      const result = await call<{ subagents: SubagentRecord[] }>(
+        h, 'chat:subagent-query',
+        { toolCallId: 'claude-task', sessionId: 'claude-session' },
+      );
+      expect(result.subagents).toEqual([]);
+      expect(h.nativeHistory.readForResume).not.toHaveBeenCalled();
+    });
+
+    it('logs a native read failure as an Error before returning an empty result', async () => {
+      const h = makeHarness();
+      const sessionId = '44444444-4444-4444-8444-444444444444';
+      const failure = new Error('synthetic native read failure');
+      h.metadataStore.get.mockResolvedValue({ codexExecution: { runtime: 'codex-app-server' } });
+      h.nativeHistory.readForResume.mockRejectedValue(failure);
+      h.handlers.register();
+      const result = await call<{ subagents: SubagentRecord[] }>(
+        h, 'chat:subagent-query', { toolCallId: 'spawn-4', sessionId },
+      );
+      expect(result.subagents).toEqual([]);
+      expect(h.logger.error).toHaveBeenCalledWith('RPC: subagent:query failed', failure);
+    });
+
+    it('recovers a completed native child omitted from the resumable registry', async () => {
+      const h = makeHarness();
+      const sessionId = '11111111-1111-4111-8111-111111111111';
+      h.metadataStore.get.mockResolvedValue({
+        codexExecution: { runtime: 'codex-app-server' },
+      });
+      h.nativeHistory.readForResume.mockResolvedValue({
+        events: [
+          {
+            id: 'start', eventType: 'agent_start', messageId: 'parent',
+            timestamp: 1, sessionId, toolCallId: 'spawn-1',
+            agentId: 'child-1', agentType: 'codex',
+          },
+          {
+            id: 'answer', eventType: 'text_delta', messageId: 'child-message',
+            timestamp: 2, sessionId, parentToolUseId: 'spawn-1',
+            blockIndex: 0, delta: 'Synthetic answer',
+          },
+        ] satisfies FlatStreamEventUnion[],
+      });
+      h.handlers.register();
+
+      const result = await call<{ subagents: SubagentRecord[] }>(
+        h, 'chat:subagent-query', { toolCallId: 'spawn-1', sessionId },
+      );
+      expect(result.subagents).toEqual([
+        expect.objectContaining({
+          toolCallId: 'spawn-1', agentId: 'child-1', status: 'completed',
+          parentSessionId: sessionId,
+        }),
+      ]);
+    });
+
     it('returns [record] when the registry has an entry for the toolCallId', async () => {
       const h = makeHarness();
       const record = makeSubagentRecord({ toolCallId: 'toolu_match' });

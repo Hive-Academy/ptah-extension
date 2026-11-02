@@ -2,8 +2,16 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { AnswerDockComponent } from './answer-dock.component';
 import { ProposalFlowStore } from './proposal-flow.store';
+import { ClaudeRpcService } from '@ptah-extension/core';
+import { FilePickerService } from '@ptah-extension/chat';
 
 describe('AnswerDockComponent', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [
+      { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
+      { provide: FilePickerService, useValue: { isFileSupported: () => true } },
+    ] });
+  });
   afterEach(() => TestBed.resetTestingModule());
   it('traps sheet focus, Escape closes, and returns focus to the bar', async () => {
     TestBed.configureTestingModule({
@@ -75,9 +83,57 @@ describe('AnswerDockComponent', () => {
     fixture.componentInstance.reply.set('Use a smaller team');
     await fixture.componentInstance.send();
     fixture.detectChanges();
-    expect(send).toHaveBeenCalledWith('Use a smaller team');
+    expect(send).toHaveBeenCalledWith('Use a smaller team', { files: undefined, images: undefined });
     expect(fixture.componentInstance.announcement()).toBe('Reply sent');
     expect(fixture.componentInstance.open()).toBe(false);
+    fixture.destroy();
+  });
+  it('keeps attachments when a reply fails', async () => {
+    const send = jest.fn().mockResolvedValue(false);
+    TestBed.configureTestingModule({
+      imports: [AnswerDockComponent],
+      providers: [{ provide: ProposalFlowStore, useValue: {
+        session: { phase: signal('idle'), latestAssistantMessage: signal(null), send },
+      } }],
+    });
+    const fixture = TestBed.createComponent(AnswerDockComponent);
+    fixture.componentInstance.attachments.addFile({
+      path: '/ws/brief.md', name: 'brief.md', size: 12, type: 'text',
+      isLarge: false, tokenEstimate: 3,
+    });
+    fixture.componentInstance.reply.set('Consider the brief');
+    await fixture.componentInstance.send();
+    expect(send).toHaveBeenCalledWith('Consider the brief', { files: ['/ws/brief.md'], images: undefined });
+    expect(fixture.componentInstance.attachments.files()).toHaveLength(1);
+    fixture.destroy();
+  });
+  it('keeps attachments added during a reply and blocks a pending image read', async () => {
+    let finish!: (sent: boolean) => void;
+    const send = jest.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    TestBed.configureTestingModule({
+      imports: [AnswerDockComponent],
+      providers: [{ provide: ProposalFlowStore, useValue: {
+        session: { phase: signal('idle'), latestAssistantMessage: signal(null), send },
+      } }],
+    });
+    const fixture = TestBed.createComponent(AnswerDockComponent);
+    fixture.detectChanges();
+    const dock = fixture.componentInstance;
+    dock.reply.set('Consider these files');
+    dock.attachments.pendingReads.set(1);
+    await dock.send();
+    fixture.detectChanges();
+    expect(send).not.toHaveBeenCalled();
+    expect((fixture.nativeElement.querySelector('button.btn-primary') as HTMLButtonElement).disabled).toBe(true);
+    dock.attachments.pendingReads.set(0);
+    dock.attachments.addFile({ path: '/ws/first.md', name: 'first.md', size: 12, type: 'text', isLarge: false, tokenEstimate: 3 });
+    const pending = dock.send();
+    dock.attachments.addFile({ path: '/ws/later.md', name: 'later.md', size: 12, type: 'text', isLarge: false, tokenEstimate: 3 });
+    finish(true);
+    await pending;
+    expect(send).toHaveBeenCalledWith('Consider these files', { files: ['/ws/first.md'], images: undefined });
+    expect(dock.attachments.files().map((file) => file.path)).toEqual(['/ws/later.md']);
+    expect((fixture.nativeElement.querySelector('#dock-reply') as HTMLTextAreaElement).getAttribute('aria-describedby')).toBe('dock-attachment-hint');
     fixture.destroy();
   });
   it('releases inert background when the viewport widens and Escape works during send', async () => {

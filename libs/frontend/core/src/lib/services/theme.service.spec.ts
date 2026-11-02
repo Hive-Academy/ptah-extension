@@ -97,12 +97,14 @@ describe('ThemeService', () => {
 
   describe('backdrop scenes', () => {
     it.each([
-      [undefined, undefined, 'aurora'],
-      ['retired', 'invalid', 'aurora'],
+      [undefined, undefined, 'pyramid'],
+      ['retired', 'invalid', 'pyramid'],
       ['ember', 'tide', 'ember'],
       ['aurora', 'horizon', 'aurora'],
       [undefined, 'tide', 'tide'],
       ['retired', 'horizon', 'horizon'],
+      ['pyramid', 'temple', 'pyramid'],
+      [undefined, 'temple', 'temple'],
     ])('reads state %s and mirror %s without writing either scene store', (state, hint, expected) => {
       const mock = createMockVscode();
       mock.getState.mockImplementation((key) => key === 'ptah-scene' ? state : undefined);
@@ -111,6 +113,7 @@ describe('ThemeService', () => {
       const service = configure(mock);
       TestBed.inject(ApplicationRef).tick();
       expect(service.scene()).toBe(expected);
+      expect(document.documentElement.getAttribute('data-scene')).toBe(expected);
       expect(mock.setState).not.toHaveBeenCalledWith('ptah-scene', expect.anything());
       expect(mirrorWrite).not.toHaveBeenCalledWith('ptah-scene', expect.anything());
       expect(localStorage.getItem('ptah-scene')).toBe(hint ?? null);
@@ -123,6 +126,11 @@ describe('ThemeService', () => {
       service.setScene('ember');
       expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'ember');
       expect(localStorage.getItem('ptah-scene')).toBe('ember');
+      service.setScene('pyramid');
+      expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'pyramid');
+      service.setScene('temple');
+      expect(localStorage.getItem('ptah-scene')).toBe('temple');
+      service.setScene('ember');
       for (const { name } of DAISYUI_THEMES) {
         service.setTheme(name);
         app.tick();
@@ -134,7 +142,7 @@ describe('ThemeService', () => {
       service.setTheme('ptah-glass');
       service.setScene('aurora');
       app.tick();
-      expect(document.documentElement.hasAttribute('data-scene')).toBe(false);
+      expect(document.documentElement.getAttribute('data-scene')).toBe('aurora');
       expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'aurora');
       expect(localStorage.getItem('ptah-scene')).toBe('aurora');
     });
@@ -144,7 +152,7 @@ describe('ThemeService', () => {
       const service = configure(mock);
       const mirrorWrite = jest.spyOn(Storage.prototype, 'setItem');
       service.setScene('retired' as SceneName);
-      expect(service.scene()).toBe('aurora');
+      expect(service.scene()).toBe('pyramid');
       expect(mock.setState).not.toHaveBeenCalled();
       expect(mirrorWrite).not.toHaveBeenCalled();
     });
@@ -216,6 +224,14 @@ describe('ThemeService', () => {
 
       expect(service.currentTheme()).toBe('dracula');
       expect(mock.getState).toHaveBeenCalledWith('theme-v2');
+    });
+
+    it.each(['state', 'hint'] as const)('migrates a retired dark %s choice to dracula', (source) => {
+      const mock = createMockVscode({ persisted: source === 'state' ? 'dark' : undefined });
+      if (source === 'hint') localStorage.setItem('ptah-theme-v2', 'dark');
+      const service = configure(mock);
+      expect(service.currentTheme()).toBe('dracula');
+      expect(localStorage.getItem('ptah-theme-v2')).toBe('dracula');
     });
 
     it('ignores invalid persisted values and falls back to VS Code theme kind', () => {
@@ -325,6 +341,13 @@ describe('ThemeService', () => {
       const service = configure(createMockVscode({ legacy: 'anubis' }));
 
       expect(service.currentTheme()).toBe('ptah-glass');
+    });
+
+    it.each(['state', 'hint'] as const)('maps a retired legacy dark %s choice to dracula', (source) => {
+      const mock = createMockVscode({ legacy: source === 'state' ? 'dark' : undefined });
+      if (source === 'hint') localStorage.setItem('ptah-theme', 'dark');
+      const service = configure(mock);
+      expect(service.currentTheme()).toBe('dracula');
     });
 
     it('maps a legacy light theme to ptah-glass-light, regardless of theme kind', () => {
@@ -543,7 +566,7 @@ describe('ThemeService', () => {
       const sample: ThemeName[] = [
         'anubis',
         'anubis-light',
-        'dark',
+        'dracula',
         'light',
         'cupcake',
         'sunset',

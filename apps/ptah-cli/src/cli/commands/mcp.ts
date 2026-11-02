@@ -12,7 +12,7 @@
  *   details <name>              RPC `mcpDirectory:getDetails`
  *   install <name> --target X   RPC `mcpDirectory:getDetails` → `mcpDirectory:install`
  *                               (config derived from registry entry's
- *                                `version_detail.transports/packages`)
+ *                                `packages/remotes` via the shared mapper)
  *   uninstall <key> --target X  RPC `mcpDirectory:uninstall`
  *   list                        RPC `mcpDirectory:listInstalled`
  *   popular                     RPC `mcpDirectory:getPopular`
@@ -34,6 +34,10 @@ import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
 import type { CliMessageTransport } from '@ptah-extension/cli-engine';
+import {
+  MCP_REGISTRY_ERROR_MESSAGES,
+  registryEntryToInstallConfig,
+} from '@ptah-extension/shared';
 import type {
   InstalledMcpServer,
   McpDirectoryGetDetailsResult,
@@ -43,7 +47,7 @@ import type {
   McpDirectorySearchResult,
   McpDirectoryUninstallResult,
   McpInstallTarget,
-  McpRegistryEntry,
+  McpRegistryErrorCode,
   McpServerConfig,
 } from '@ptah-extension/shared';
 
@@ -67,6 +71,8 @@ export interface McpOptions {
   target?: string;
   /** For `search`: optional pagination limit. */
   limit?: number;
+  /** For `install`: repeatable NAME=VALUE required-input assignments. */
+  input?: string[];
 }
 
 export interface McpStderrLike {
@@ -111,7 +117,7 @@ export async function execute(
       case 'list':
         return await runList(globals, formatter, engine);
       case 'popular':
-        return await runPopular(globals, formatter, engine);
+        return await runPopular(globals, formatter, stderr, engine);
       default:
         stderr.write(
           `ptah mcp: unknown sub-command '${String(opts.subcommand)}'\n`,
@@ -126,6 +132,22 @@ export async function execute(
     });
     return ExitCode.InternalFailure;
   }
+}
+
+function reportRegistryError(
+  stderr: McpStderrLike,
+  result: {
+    errorCode?: McpRegistryErrorCode;
+    error?: string;
+  } | null,
+): boolean {
+  if (!result?.errorCode) return false;
+  stderr.write(
+    `${result.errorCode}: ${
+      result.error ?? MCP_REGISTRY_ERROR_MESSAGES[result.errorCode]
+    }\n`,
+  );
+  return true;
 }
 
 async function runSearch(
@@ -150,6 +172,7 @@ async function runSearch(
       'mcpDirectory:search',
       params,
     );
+    if (reportRegistryError(stderr, result)) return ExitCode.GeneralError;
     await formatter.writeNotification('mcp.search', {
       query,
       servers: result?.servers ?? [],
@@ -176,6 +199,7 @@ async function runDetails(
       'mcpDirectory:getDetails',
       { name: opts.name },
     );
+    if (reportRegistryError(stderr, result)) return ExitCode.GeneralError;
     await formatter.writeNotification('mcp.details', toRecord(result));
     return ExitCode.Success;
   });
@@ -214,23 +238,73 @@ async function runInstall(
       'mcpDirectory:getDetails',
       { name },
     );
-    if (!entry || !entry.version_detail) {
+    if (!entry) {
+      throw new Error(`mcpDirectory:getDetails returned no entry for "${name}"`);
+    }
+    if (reportRegistryError(stderr, entry)) return ExitCode.GeneralError;
+
+    const initialConfig = registryEntryToInstallConfig(entry);
+    if (!initialConfig.ok) {
+      throw new Error(`${initialConfig.code}: ${initialConfig.message}`);
+    }
+    const values: Record<string, string> = {};
+    for (const rawInput of opts.input ?? []) {
+      const separator = rawInput.indexOf('=');
+      if (separator <= 0) {
+        throw new Error('Each --input must use NAME=VALUE.');
+      }
+      const inputName = rawInput.slice(0, separator);
+      const inputValue = rawInput.slice(separator + 1);
+      const exactMatch = initialConfig.requiredInputs.find(
+        (requiredInput) => requiredInput.key === inputName,
+      );
+      const matches = exactMatch
+        ? [exactMatch]
+        : initialConfig.requiredInputs.filter(
+            (requiredInput) => requiredInput.name === inputName,
+          );
+      if (matches.length === 0) {
+        throw new Error(
+          `Unknown --input "${inputName}". Use a required input name or qualified key.`,
+        );
+      }
+      if (matches.length > 1) {
+        throw new Error(
+          `Ambiguous --input name "${inputName}". Use a qualified key: ${matches
+            .map((requiredInput) => requiredInput.key)
+            .join(', ')}.`,
+        );
+      }
+      values[matches[0].key] = inputValue;
+    }
+
+    const installConfig = registryEntryToInstallConfig(entry, values);
+    if (!installConfig.ok) {
+      throw new Error(`${installConfig.code}: ${installConfig.message}`);
+    }
+    const requiredInputs = installConfig.requiredInputs.map(
+      (input) => input.name,
+    );
+    if (!installConfig.installable) {
+      const missingInputs = installConfig.requiredInputs
+        .filter(
+          (input) =>
+            input.isRequired &&
+            (values[input.key] === undefined || values[input.key] === ''),
+        )
+        .map((input) => input.name);
       throw new Error(
-        `mcpDirectory:getDetails returned no version_detail for "${name}"`,
+        `Cannot install "${name}" without required inputs: ${missingInputs.join(', ')}`,
       );
     }
-    const config = generateConfig(entry);
-    if (!config) {
-      throw new Error(
-        `Cannot derive an MCP server config for "${name}" — no usable transport found in version_detail`,
-      );
-    }
+    const config = installConfig.config;
     if (beforeMatch && configsEqual(beforeMatch.config, config)) {
       await formatter.writeNotification('mcp.installed', {
         serverName: name,
         serverKey,
         target,
         changed: false,
+        requiredInputs,
         results: [
           {
             target,
@@ -266,6 +340,7 @@ async function runInstall(
       serverKey,
       target,
       changed,
+      requiredInputs,
       results,
     });
     return ExitCode.Success;
@@ -352,6 +427,7 @@ async function runList(
 async function runPopular(
   globals: GlobalOptions,
   formatter: Formatter,
+  stderr: McpStderrLike,
   engine: typeof withEngine,
 ): Promise<number> {
   return engine(globals, { mode: 'full' }, async (ctx) => {
@@ -360,6 +436,7 @@ async function runPopular(
       'mcpDirectory:getPopular',
       {},
     );
+    if (reportRegistryError(stderr, result)) return ExitCode.GeneralError;
     await formatter.writeNotification('mcp.popular', {
       servers: result?.servers ?? [],
     });
@@ -386,50 +463,6 @@ function parseTarget(raw: string | undefined): McpInstallTarget | null {
 function deriveServerKey(name: string): string {
   const parts = name.split('/');
   return parts[parts.length - 1] || name;
-}
-
-/**
- * Translate a registry entry's `version_detail` into a concrete `McpServerConfig`.
- * Mirrors `mcp-directory-browser.component.ts#generateConfig` — npm → npx,
- * pypi → uvx, docker → docker run, then http/sse fallback.
- */
-function generateConfig(entry: McpRegistryEntry): McpServerConfig | null {
-  const vd = entry.version_detail;
-  if (!vd) return null;
-
-  const stdioTransport = vd.transports.find((t) => t.type === 'stdio');
-  const httpTransport = vd.transports.find((t) => t.type === 'http');
-  const sseTransport = vd.transports.find((t) => t.type === 'sse');
-
-  if (stdioTransport) {
-    const npmPkg = vd.packages.find((p) => p.registry_name === 'npm');
-    const pypiPkg = vd.packages.find((p) => p.registry_name === 'pypi');
-    const dockerPkg = vd.packages.find((p) => p.registry_name === 'docker');
-
-    if (npmPkg) {
-      return { type: 'stdio', command: 'npx', args: ['-y', npmPkg.name] };
-    }
-    if (pypiPkg) {
-      return { type: 'stdio', command: 'uvx', args: [pypiPkg.name] };
-    }
-    if (dockerPkg) {
-      return {
-        type: 'stdio',
-        command: 'docker',
-        args: ['run', '-i', '--rm', dockerPkg.name],
-      };
-    }
-  }
-
-  if (httpTransport?.url) {
-    return { type: 'http', url: httpTransport.url };
-  }
-
-  if (sseTransport?.url) {
-    return { type: 'sse', url: sseTransport.url };
-  }
-
-  return null;
 }
 
 function findInstalled(

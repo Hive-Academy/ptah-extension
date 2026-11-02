@@ -6,6 +6,7 @@ import { HarnessBuilderStateService } from './harness-builder-state.service';
 import { HarnessRpcService } from './harness-rpc.service';
 
 const response: HarnessInitializeResponse = {
+  workspaceEffectivelyEmpty: true,
   workspaceRoot: '/workspace/a',
   workspaceContext: {
     projectName: 'A',

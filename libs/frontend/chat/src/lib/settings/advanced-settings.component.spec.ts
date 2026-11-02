@@ -86,6 +86,7 @@ class VsCodeLmStub {
 })
 class AdvancedGroupStub {
   readonly groupId = input.required<string>();
+  readonly contentSurface = input(true);
 }
 
 describe('AdvancedSettingsComponent', () => {
@@ -198,6 +199,7 @@ describe('AdvancedSettingsComponent', () => {
     const details = element.querySelector<HTMLDetailsElement>(
       '[data-testid="fine-tuning-details"]',
     );
+    expect(details?.parentElement?.getAttribute('data-glass-surface')).toBe('content');
     expect(details?.open).toBe(false);
     expect(
       element.querySelector('[data-testid="fine-tuning-summary"]')?.textContent,

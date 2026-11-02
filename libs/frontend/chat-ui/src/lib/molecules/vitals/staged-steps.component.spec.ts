@@ -53,7 +53,7 @@ describe('StagedStepsComponent', () => {
     expect(list?.querySelectorAll('li')).toHaveLength(3);
   });
 
-  it('pairs every row with an icon and a state word, not colour alone', () => {
+  it('pairs every row with an icon or the pulse, and a state word, not colour alone', () => {
     render(STEPS);
 
     const words = Array.from(host.querySelectorAll('li .sr-only')).map((node) =>
@@ -62,10 +62,21 @@ describe('StagedStepsComponent', () => {
     expect(words).toEqual([', done', ', in progress', ', pending']);
     for (const item of Array.from(host.querySelectorAll('li'))) {
       const icon = item.querySelector('lucide-angular');
-      expect(icon).toBeTruthy();
-      expect(icon?.getAttribute('aria-hidden')).toBe('true');
+      const pulse = item.querySelector('.ptah-staged-steps__pulse');
+      expect(Boolean(icon) !== Boolean(pulse)).toBe(true);
+      const marker = (icon ?? pulse) as Element;
+      expect(marker.getAttribute('aria-hidden')).toBe('true');
     }
     expect(row(0).getAttribute('data-state')).toBe('done');
+  });
+
+  it('draws the pulse on the active row instead of an icon', () => {
+    render(STEPS);
+
+    expect(row(1).querySelector('.ptah-staged-steps__pulse')).not.toBeNull();
+    expect(row(1).querySelector('lucide-angular')).toBeNull();
+    expect(row(0).querySelector('.ptah-staged-steps__pulse')).toBeNull();
+    expect(row(2).querySelector('.ptah-staged-steps__pulse')).toBeNull();
   });
 
   it('gives the active row a determinate bar when the total is known', () => {
@@ -170,7 +181,7 @@ describe('StagedStepsComponent', () => {
     const keyframes = flat.match(
       /@keyframes [\w-]+ \{(?:[^{}]*\{[^}]*\})+ \}/g,
     );
-    expect(keyframes?.length).toBe(2);
+    expect(keyframes?.length).toBe(1);
     for (const block of keyframes ?? []) {
       const properties = [...block.matchAll(/([a-z-]+):/g)].map((m) => m[1]);
       expect(properties.every((name) => name === 'transform')).toBe(true);

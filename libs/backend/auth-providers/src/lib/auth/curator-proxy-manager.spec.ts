@@ -71,7 +71,6 @@ describe('CuratorProxyManager', () => {
       copilotProxy,
       createIdleProxy(),
       createIdleProxy(),
-      createIdleProxy(),
       kimiCodeProxy,
       50,
     );
@@ -86,6 +85,14 @@ describe('CuratorProxyManager', () => {
     expect(handle.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     expect(handle.token).toBe(COPILOT_PROXY_TOKEN_PLACEHOLDER);
     expect(copilotProxy.isRunning()).toBe(true);
+  });
+
+  it('rejects a Codex proxy request with a coded native-runtime error', async () => {
+    await expect(manager.ensureProxy('openai-codex')).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+      providerId: 'openai-codex',
+      message: 'Codex chat requires a host with the native Codex runtime.',
+    });
   });
 
   it('reuses the same running proxy on the second ensureProxy call', async () => {

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * LocalProxyStrategy — unit specs.
  *
  * Handles LM Studio, which speaks OpenAI protocol and requires a translation
@@ -9,7 +9,7 @@
  *   - Missing URL from a running proxy → restart hint.
  *   - Start failure → "LM Studio is not running" hint (the only auth-required
  *     style negative path the source emits — LM Studio itself has no creds).
- *   - Cross-contamination guard: copilot + codex proxies stopped before start.
+ *   - Cross-contamination guard: the copilot proxy stops before start.
  *   - teardown() stops the LM Studio proxy if running.
  *
  * No retry / expiry logic exists in source.
@@ -32,7 +32,6 @@ import { LocalProxyStrategy } from './local-proxy.strategy';
 import type { AuthConfigureContext } from '../auth-strategy.types';
 import type { LocalModelTranslationProxy } from '../../providers/local/local-model-translation-proxy';
 import type { ICopilotTranslationProxy } from '../../providers/copilot/copilot-provider.types';
-import type { ITranslationProxy } from '../../translation';
 import type {
   ProviderModelsService,
   DynamicModelFetcher,
@@ -87,17 +86,6 @@ function createMockCopilotProxy(): jest.Mocked<ICopilotTranslationProxy> {
   };
 }
 
-function createMockTranslationProxy(): jest.Mocked<ITranslationProxy> {
-  return {
-    start: jest
-      .fn<Promise<{ port: number; url: string }>, []>()
-      .mockResolvedValue({ port: 0, url: '' }),
-    stop: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
-    isRunning: jest.fn<boolean, []>().mockReturnValue(false),
-    getUrl: jest.fn<string | undefined, []>().mockReturnValue(undefined),
-  };
-}
-
 type ProviderModelsSurface = Pick<
   ProviderModelsService,
   'switchActiveProvider' | 'registerDynamicFetcher'
@@ -120,7 +108,6 @@ interface Harness {
   logger: MockLogger;
   lmStudioProxy: jest.Mocked<LmStudioProxySurface>;
   copilotProxy: jest.Mocked<ICopilotTranslationProxy>;
-  codexProxy: jest.Mocked<ITranslationProxy>;
   providerModels: jest.Mocked<ProviderModelsSurface>;
 }
 
@@ -128,7 +115,6 @@ function makeStrategy(): Harness {
   const logger = createMockLogger();
   const lmStudioProxy = createMockLmStudioProxy();
   const copilotProxy = createMockCopilotProxy();
-  const codexProxy = createMockTranslationProxy();
   const providerModels = createMockProviderModels();
   const sentry = createMockSentryService();
 
@@ -137,7 +123,6 @@ function makeStrategy(): Harness {
     lmStudioProxy as unknown as LocalModelTranslationProxy,
     providerModels as unknown as ProviderModelsService,
     copilotProxy,
-    codexProxy,
     sentry as unknown as SentryService,
   );
 
@@ -146,7 +131,6 @@ function makeStrategy(): Harness {
     logger,
     lmStudioProxy,
     copilotProxy,
-    codexProxy,
     providerModels,
   };
 }
@@ -213,10 +197,9 @@ describe('LocalProxyStrategy', () => {
       expect(result.configured).toBe(true);
     });
 
-    it('stops a running copilot proxy and codex proxy before starting LM Studio', async () => {
+    it('stops a running copilot proxy before starting LM Studio', async () => {
       const harness = makeStrategy();
       harness.copilotProxy.isRunning.mockReturnValue(true);
-      harness.codexProxy.isRunning.mockReturnValue(true);
       harness.lmStudioProxy.isRunning.mockReturnValue(false);
       harness.lmStudioProxy.start.mockResolvedValueOnce({
         port: 1,
@@ -226,7 +209,6 @@ describe('LocalProxyStrategy', () => {
       await harness.strategy.configure(makeContext('lm-studio'));
 
       expect(harness.copilotProxy.stop).toHaveBeenCalledTimes(1);
-      expect(harness.codexProxy.stop).toHaveBeenCalledTimes(1);
     });
   });
 

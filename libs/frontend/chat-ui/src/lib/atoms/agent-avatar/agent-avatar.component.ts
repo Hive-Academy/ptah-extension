@@ -9,7 +9,6 @@ import {
   CircleAlert,
   CirclePause,
   Hand,
-  LoaderCircle,
   LucideAngularModule,
   Workflow,
 } from 'lucide-angular';
@@ -27,7 +26,7 @@ import type {
 import { cliMarkFor, roleIconFor } from './agent-marks';
 
 /** How the status ring is drawn; `null` draws none. */
-type RingKind = 'running' | 'waiting' | 'solid';
+type RingKind = 'waiting' | 'solid';
 
 interface StatusBadge {
   readonly icon: LucideIconData;
@@ -76,7 +75,7 @@ const RING_OUTSET_PX = 4;
 const RING_STROKE_PX = 2;
 
 const RING_BY_STATUS: Readonly<Record<AgentStatusWord, RingKind | null>> = {
-  running: 'running',
+  running: 'solid',
   waiting: 'waiting',
   failed: 'solid',
   done: null,
@@ -94,7 +93,7 @@ const RING_INK_BY_STATUS: Readonly<Record<AgentStatusWord, string>> = {
 };
 
 const BADGE_BY_STATUS: Readonly<Record<AgentStatusWord, StatusBadge | null>> = {
-  running: { icon: LoaderCircle, inkClass: 'border-state-run text-state-run' },
+  running: null,
   done: { icon: Check, inkClass: 'border-state-done text-state-done' },
   failed: { icon: CircleAlert, inkClass: 'border-state-err text-state-err' },
   waiting: { icon: Hand, inkClass: 'border-state-need text-state-need' },
@@ -113,12 +112,14 @@ const BADGE_BY_STATUS: Readonly<Record<AgentStatusWord, StatusBadge | null>> = {
  *   background agent gets its role icon (`Bot` when the type is unknown); a
  *   CLI lane gets its provider mark, or a monogram of its id when the id has
  *   no mark.
- * - Ring: `running` spins a 30% arc over a 28% track, `waiting` is a solid
- *   ring with a pulsing halo, `failed` is a solid ring; other states draw
- *   none. Both loops animate `transform` / `opacity` only and stop under
- *   `prefers-reduced-motion`, which keeps the static arc.
- * - Badge: one lucide glyph per status in its state ink; `queued` and no
- *   status draw none.
+ * - Ring: `running` and `failed` draw a solid ring in their state ink,
+ *   `waiting` is that ring with a pulsing halo; other states draw none.
+ *   `running` also draws an 8 px pulse core and ring at the badge corner
+ *   (the TASK_2026_860 pulse language; the old rotating arc is gone). All
+ *   loops animate `transform` / `opacity` only and stop under
+ *   `prefers-reduced-motion`, which keeps a still dot.
+ * - Badge: one lucide glyph per status in its state ink; `queued`,
+ *   `running` (the pulse replaces it) and no status draw none.
  *
  * Decorative: the host is `aria-hidden`, and the surrounding row or chip
  * carries the accessible name (`agentAccessibleLabel`). No outputs.
@@ -163,35 +164,21 @@ const BADGE_BY_STATUS: Readonly<Record<AgentStatusWord, StatusBadge | null>> = {
         fill="none"
         data-testid="agent-avatar-ring"
       >
-        @if (ringKind === 'running') {
-          <circle
-            [attr.cx]="ringCenter()"
-            [attr.cy]="ringCenter()"
-            [attr.r]="ringRadius()"
-            stroke="currentColor"
-            stroke-opacity="0.28"
-            [attr.stroke-width]="ringStroke"
-          />
-          <circle
-            [attr.cx]="ringCenter()"
-            [attr.cy]="ringCenter()"
-            [attr.r]="ringRadius()"
-            stroke="currentColor"
-            [attr.stroke-width]="ringStroke"
-            stroke-linecap="round"
-            pathLength="100"
-            stroke-dasharray="30 70"
-          />
-        } @else {
-          <circle
-            [attr.cx]="ringCenter()"
-            [attr.cy]="ringCenter()"
-            [attr.r]="ringRadius()"
-            stroke="currentColor"
-            [attr.stroke-width]="ringStroke"
-          />
-        }
+        <circle
+          [attr.cx]="ringCenter()"
+          [attr.cy]="ringCenter()"
+          [attr.r]="ringRadius()"
+          stroke="currentColor"
+          [attr.stroke-width]="ringStroke"
+        />
       </svg>
+    }
+
+    @if (status() === 'running') {
+      <span
+        [class]="pulseClass()"
+        data-testid="agent-avatar-pulse"
+      ></span>
     }
 
     @if (badge(); as statusBadge) {
@@ -202,23 +189,37 @@ const BADGE_BY_STATUS: Readonly<Record<AgentStatusWord, StatusBadge | null>> = {
   `,
   styles: [
     `
-      .agent-avatar-spin {
-        transform-origin: center;
-        animation: agent-avatar-spin 1.1s linear infinite;
-      }
-
       .agent-avatar-halo {
         opacity: 0;
         animation: agent-avatar-halo 1.8s ease-out infinite;
       }
 
-      @keyframes agent-avatar-spin {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(360deg);
-        }
+      /* The TASK_2026_860 pulse: an 8 px core breathing inside a 14 px ring
+         that fades out from it. Both use the shared global keyframes, so they
+         stay in step with every other loader; only transform and opacity
+         animate. The span itself is placed by the Tailwind absolute classes
+         in pulseClass, which also makes it the pseudos' containing block. */
+      .agent-avatar-pulse {
+        width: 8px;
+        height: 8px;
+      }
+
+      .agent-avatar-pulse::before {
+        content: '';
+        position: absolute;
+        inset: 1px;
+        border-radius: 9999px;
+        background: currentColor;
+        animation: ptah-pulse-core 1.4s ease-in-out infinite;
+      }
+
+      .agent-avatar-pulse::after {
+        content: '';
+        position: absolute;
+        inset: -3px;
+        border: 1.5px solid currentColor;
+        border-radius: 9999px;
+        animation: ptah-pulse-ring 1.4s ease-out infinite;
       }
 
       @keyframes agent-avatar-halo {
@@ -233,9 +234,16 @@ const BADGE_BY_STATUS: Readonly<Record<AgentStatusWord, StatusBadge | null>> = {
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .agent-avatar-spin,
         .agent-avatar-halo {
           animation: none;
+        }
+
+        .agent-avatar-pulse::after {
+          display: none;
+        }
+
+        .agent-avatar-pulse::before {
+          opacity: 0.8;
         }
 
         :host,
@@ -340,7 +348,15 @@ export class AgentAvatarComponent {
     [
       'pointer-events-none absolute -left-1 -top-1 overflow-visible',
       this.ringInkClass(),
-      this.ring() === 'running' ? 'agent-avatar-spin' : '',
+    ].join(' '),
+  );
+
+  /** The pulse draws its core and ring in the ring's ink through
+   * `currentColor`, so it reads as the running state. */
+  protected readonly pulseClass = computed(() =>
+    [
+      'agent-avatar-pulse pointer-events-none absolute -bottom-0.5 -right-0.5',
+      this.ringInkClass(),
     ].join(' '),
   );
 

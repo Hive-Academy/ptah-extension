@@ -28,6 +28,11 @@ import { History, Plus, Play, LucideAngularModule } from 'lucide-angular';
   standalone: true,
   imports: [MonogramTileComponent, ProviderMarkComponent, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: `
+    :host-context([data-glass='on']) section[data-glass-surface='content'] {
+      margin-block: 1rem;
+    }
+  `,
   template: `
     <section
       class="mx-auto w-full max-w-6xl px-4 py-8 text-base-content sm:px-6 lg:px-8"

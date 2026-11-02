@@ -264,16 +264,50 @@ main {
 }
 
 /* Motion: transform and opacity only, and only when the user allows it. */
-/* Without the spin, a still quarter arc would read as 25 %: show the track only. */
-@media (prefers-reduced-motion: reduce) {
-  .ring[data-mode='indeterminate'] .ring-arc {
-    visibility: hidden;
-  }
+/* Indeterminate: no arc at all — a still or turning quarter arc would read
+   as 25 % done. The figure is a centred 16 px pulse core and ring in the
+   loading gold (this window does not load the webview stylesheet, so the
+   shared keyframes are defined locally below), with the step caption moved
+   under it. */
+.ring[data-mode='indeterminate'] .ring-arc {
+  visibility: hidden;
+}
+
+.ring[data-mode='indeterminate'] .ring-center {
+  justify-content: flex-end;
+  padding-bottom: 32px;
+}
+
+.ring[data-mode='indeterminate']::before,
+.ring[data-mode='indeterminate']::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+}
+
+.ring[data-mode='indeterminate']::before {
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  background: var(--gold);
+}
+
+.ring[data-mode='indeterminate']::after {
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 1.5px solid var(--gold);
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .ring[data-mode='indeterminate'] .ring-svg {
-    animation: ring-spin 1.1s linear infinite;
+  .ring[data-mode='indeterminate']::before {
+    animation: ptah-pulse-core 1.4s ease-in-out infinite;
+  }
+
+  .ring[data-mode='indeterminate']::after {
+    animation: ptah-pulse-ring 1.4s ease-out infinite;
   }
 
   .step[data-state='active'] .step-icon {
@@ -284,9 +318,26 @@ main {
     transition: transform 0.2s ease-out;
   }
 
-  @keyframes ring-spin {
-    to {
-      transform: rotate(360deg);
+  @keyframes ptah-pulse-core {
+    0%,
+    100% {
+      transform: scale(0.6);
+      opacity: 0.5;
+    }
+    50% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  @keyframes ptah-pulse-ring {
+    0% {
+      transform: scale(0.45);
+      opacity: 0.6;
+    }
+    100% {
+      transform: scale(1.15);
+      opacity: 0;
     }
   }
 
@@ -294,5 +345,17 @@ main {
     50% {
       opacity: 0.45;
     }
+  }
+}
+
+/* Reduced motion: the still core stays as a dimmed dot; the ring is
+   hidden, exactly like the webview `.loading-spinner` fallback. */
+@media (prefers-reduced-motion: reduce) {
+  .ring[data-mode='indeterminate']::after {
+    display: none;
+  }
+
+  .ring[data-mode='indeterminate']::before {
+    opacity: 0.8;
   }
 }

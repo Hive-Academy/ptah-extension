@@ -317,6 +317,10 @@ describe('CliOrchestrationMatrixComponent', () => {
   });
 
   describe('structure (prototype section 2, design-spec §3.5)', () => {
+    it('gives the CLI matrix its own glass content section', () => {
+      expect(q('[data-testid="settings-cli-matrix"]')?.getAttribute('data-glass-surface')).toBe('content');
+      expect(q('[data-testid="cli-instances"]')?.closest('[data-testid="settings-cli-matrix"]')).toBeNull();
+    });
     it('is a table-sm with the prototype columns', () => {
       const table = q('[data-testid="cli-matrix"]');
       expect(table?.tagName).toBe('TABLE');

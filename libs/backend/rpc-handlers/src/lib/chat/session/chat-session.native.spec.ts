@@ -574,15 +574,18 @@ describe('chat native session preparation', () => {
     expect(h.publishRuntimeNotices).not.toHaveBeenCalled();
   });
 
-  it('keeps a Claude session model and provider profile after switching the workspace to Codex', async () => {
+  it('refuses a stored Claude session after switching the workspace to Codex', async () => {
     const workspace = resolve(originalWorkspace);
-    const profile = { providerId: 'anthropic', model: 'claude-sonnet', authEnv: {} };
-    const resolveProviderProfileForWorkspace = jest.fn().mockResolvedValue(profile);
+    const resolveProviderProfileForWorkspace = jest.fn();
+    const resolveActiveAuthWithDefault = jest.fn().mockResolvedValue({
+      providerId: 'openai-codex',
+    });
     const resolver: WorkspaceProviderProfileResolver = Object.assign(
       Object.create(WorkspaceProviderProfileResolver.prototype),
       {
         activeProviderResolver: {
           resolveActiveAuthForPath: () => ({ providerId: 'openai-codex' }),
+          resolveActiveAuthWithDefault,
         },
         resolveProviderProfileForWorkspace,
       },
@@ -608,14 +611,19 @@ describe('chat native session preparation', () => {
     });
     await expect(h.service['autoResumeIfInactive'](sessionId, 'tab', 'hello', {
       sessionId, tabId: 'tab',
-    })).resolves.toEqual({ justResumed: true, promptDelivered: false });
-    expect(h.resumeSession).toHaveBeenCalledWith(sessionId, expect.objectContaining({
-      model: 'claude-sonnet', providerProfile: profile,
-    }));
+    })).resolves.toMatchObject({ error: {
+      success: false, sessionId, errorCode: 'AUTH_REQUIRED',
+      error: expect.stringContaining('provider (anthropic) differs'),
+      providerId: 'anthropic',
+    } });
+    expect(h.resumeSession).not.toHaveBeenCalled();
     expect(prepare).toHaveBeenCalledWith(expect.any(Object), {
       version: 1, sessionId, runtime: 'claude-sdk', providerId: 'anthropic', workspaceId: workspace,
     }, true);
-    expect(resolveProviderProfileForWorkspace).toHaveBeenCalledWith(workspace, 'claude-sonnet');
+    expect(resolveActiveAuthWithDefault).toHaveBeenCalledWith(
+      undefined, workspace,
+    );
+    expect(resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
     expect(broadcastMessage).not.toHaveBeenCalled();
   });
 

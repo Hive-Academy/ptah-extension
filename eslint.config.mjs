@@ -170,7 +170,7 @@ const RECURSIVE_FS_WATCH_ALLOWED_JS = [
 ];
 
 /** Apps ship no RPC handler classes; see {@link APP_LOCAL_RPC_HANDLERS_PENDING_MIGRATION}. */
-const APP_RPC_HANDLER_CLASS_SELECTOR = {
+export const APP_RPC_HANDLER_CLASS_SELECTOR = {
   selector: 'ClassDeclaration[id.name=/RpcHandlers$/]',
   message:
     'RPC handler classes belong in libs/backend/rpc-handlers with a RPC_HANDLER_MANIFEST entry, not in an app. Apps ship only their rpc-host-profile.ts.',

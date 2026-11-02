@@ -18,6 +18,7 @@ import type {
   CompactTodoState,
 } from './compact-session-metrics';
 import { gitTitle, linkedTaskTitle, todoTitle } from './compact-session-metrics';
+import { compactRailStateLabel } from './compact-rail-state-label.util';
 import type { CompactSessionSummary } from './compact-session-summary';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
@@ -222,7 +223,7 @@ const EMPTY_LANES: CompactLaneSummary = {
       class="rc-select"
       [attr.aria-label]="selectName()"
       [attr.aria-current]="focused() ? 'true' : null"
-      [tabIndex]="focused() ? 0 : -1"
+      [tabIndex]="tabStop() ? 0 : -1"
       (click)="selectRequested.emit()"
     ></button>
     <div class="rc-body rc-content text-xs">
@@ -235,7 +236,7 @@ const EMPTY_LANES: CompactLaneSummary = {
         <span class="rc-ellipsis flex-1 font-semibold" [title]="title()">{{
           title()
         }}</span>
-        <span class="rc-pill shrink-0 text-[10px]">{{ state() }}</span>
+        <span class="rc-pill shrink-0 text-[10px]">{{ stateLabel() }}</span>
       </div>
       @if (density() === 'comfortable') {
         <div class="rc-line rc-meta text-[11px] text-base-content-muted">
@@ -421,6 +422,7 @@ export class CompactRailCardComponent implements DoCheck {
   readonly state = input<CompactRailState>('idle');
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
+  readonly tabStop = input(false);
   readonly innerTabbable = input(false);
   readonly holdText = input(false);
   /** The host overlays a control on the top-right corner; keep the title clear of it. */
@@ -445,8 +447,9 @@ export class CompactRailCardComponent implements DoCheck {
   );
   readonly selectName = computed(
     () =>
-      `${this.title()}, ${this.state()}${this.branch() ? ', branch ' + this.branch() : ''}${this.linkedTask() ? ', task ' + this.linkedTask()?.taskId : ''}${this.callout()?.kind === 'permission' ? ', asks permission' : ''}${this.focused() ? ', in focus' : ''}`,
+      `${this.title()}, ${this.stateLabel()}${this.branch() ? ', branch ' + this.branch() : ''}${this.linkedTask() ? ', task ' + this.linkedTask()?.taskId : ''}${this.callout()?.kind === 'permission' ? ', asks permission' : ''}${this.focused() ? ', in focus' : ''}`,
   );
+  readonly stateLabel = computed(() => compactRailStateLabel(this.state()));
   /** Every CLI lane of the session, including rows capped into `+N more`. */
   readonly cliCount = computed(() => this.lanes().kinds.cli);
   readonly todoCount = computed(() => {

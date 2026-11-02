@@ -39,7 +39,6 @@ import {
   CodexAccountUsageService,
   CodexAuthService,
   CodexHomeResolver,
-  CodexTranslationProxy,
 } from './codex';
 import {
   KimiCodeAuthService,
@@ -108,12 +107,6 @@ export function registerProviders(container: DependencyContainer): void {
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH,
     { useClass: CodexAuthService },
-    { lifecycle: Lifecycle.Singleton },
-  );
-
-  container.register(
-    AUTH_PROVIDERS_TOKENS.SDK_CODEX_PROXY,
-    { useClass: CodexTranslationProxy },
     { lifecycle: Lifecycle.Singleton },
   );
 

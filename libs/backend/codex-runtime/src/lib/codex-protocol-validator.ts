@@ -43,10 +43,118 @@ export type CodexProtocolErrorCode =
   | 'invalidResult'
   | 'missingResponseMethod';
 
+const MAX_DIAGNOSTIC_ISSUES = 8;
+const MAX_DIAGNOSTIC_PATH_DEPTH = 8;
+const MAX_DIAGNOSTIC_SEGMENT_LENGTH = 64;
+
+export interface CodexProtocolIssue {
+  readonly path: readonly (string | number)[];
+  readonly code: z.core.$ZodIssueCode;
+}
+
+function diagnosticPathSegment(segment: PropertyKey): string | number {
+  if (typeof segment === 'number') return segment;
+  if (
+    typeof segment === 'string' &&
+    segment.length <= MAX_DIAGNOSTIC_SEGMENT_LENGTH &&
+    /^[A-Za-z][A-Za-z0-9_]*$/.test(segment)
+  ) {
+    return segment;
+  }
+  return '[redacted]';
+}
+
+function classifyDiagnosticPath(
+  schema: z.core.$ZodType,
+  path: readonly PropertyKey[],
+  schemaKeys: Set<number>,
+  recordKeys: Set<number>,
+  depth = 0,
+): void {
+  // String segments are retained only when an object schema declares them.
+  // A record's key is always redacted, even if another union arm names it.
+  if (depth >= Math.min(path.length, MAX_DIAGNOSTIC_PATH_DEPTH)) return;
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable)
+    return classifyDiagnosticPath(
+      schema.unwrap(),
+      path,
+      schemaKeys,
+      recordKeys,
+      depth,
+    );
+  if (schema instanceof z.ZodPipe)
+    return classifyDiagnosticPath(
+      schema.out,
+      path,
+      schemaKeys,
+      recordKeys,
+      depth,
+    );
+  if (schema instanceof z.ZodUnion) {
+    for (const option of schema.options)
+      classifyDiagnosticPath(option, path, schemaKeys, recordKeys, depth);
+    return;
+  }
+  if (schema instanceof z.ZodArray) {
+    if (typeof path[depth] === 'number')
+      classifyDiagnosticPath(
+        schema.element,
+        path,
+        schemaKeys,
+        recordKeys,
+        depth + 1,
+      );
+    return;
+  }
+  if (schema instanceof z.ZodObject) {
+    const key = path[depth];
+    if (typeof key !== 'string' || !Object.hasOwn(schema.shape, key))
+      return;
+    const child = schema.shape[key];
+    if (child === undefined) return;
+    schemaKeys.add(depth);
+    classifyDiagnosticPath(child, path, schemaKeys, recordKeys, depth + 1);
+    return;
+  }
+  if (schema instanceof z.ZodRecord) {
+    recordKeys.add(depth);
+    classifyDiagnosticPath(
+      schema.valueType,
+      path,
+      schemaKeys,
+      recordKeys,
+      depth + 1,
+    );
+  }
+}
+
+function diagnosticIssues(
+  schema: z.ZodType,
+  issues: readonly z.core.$ZodIssue[],
+): readonly CodexProtocolIssue[] {
+  return issues.slice(0, MAX_DIAGNOSTIC_ISSUES).map((issue) => {
+    const schemaKeys = new Set<number>();
+    const recordKeys = new Set<number>();
+    classifyDiagnosticPath(schema, issue.path, schemaKeys, recordKeys);
+    return {
+      path: issue.path
+        .slice(0, MAX_DIAGNOSTIC_PATH_DEPTH)
+        .map((segment, index) =>
+          recordKeys.has(index) ||
+          (typeof segment === 'string' && !schemaKeys.has(index))
+            ? '[redacted]'
+            : diagnosticPathSegment(segment),
+        ),
+      code: issue.code,
+    };
+  });
+}
+
 export class CodexProtocolError extends Error {
   constructor(
     readonly code: CodexProtocolErrorCode,
     readonly method?: string,
+    readonly issues: readonly CodexProtocolIssue[] = [],
   ) {
     // Do not retain wire payloads, validation values or remote error text.
     super(`Codex protocol validation failed: ${code}`);
@@ -61,7 +169,12 @@ function parse<T extends z.ZodType>(
   method?: string,
 ): z.output<T> {
   const result = schema.safeParse(value);
-  if (!result.success) throw new CodexProtocolError(code, method);
+  if (!result.success)
+    throw new CodexProtocolError(
+      code,
+      method,
+      diagnosticIssues(schema, result.error.issues),
+    );
   return result.data;
 }
 function isRequest(method: string): method is CodexRequestMethod {

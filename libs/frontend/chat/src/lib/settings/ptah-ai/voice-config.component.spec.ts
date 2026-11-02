@@ -131,6 +131,9 @@ describe('VoiceConfigComponent', () => {
     responses['voice:getProviderConfig'] = () =>
       new Promise((resolve) => { finish = () => resolve(ok({ ok: true, config: currentConfig })); });
     await render();
+    expect(
+      element.querySelector('section')?.getAttribute('data-glass-surface'),
+    ).toBe('content');
     expect(byTestId('voice-config-loading').textContent).toContain('Loading voice providers');
 
     finish();

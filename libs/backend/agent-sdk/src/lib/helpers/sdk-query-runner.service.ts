@@ -42,6 +42,7 @@ import {
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   ANTHROPIC_DIRECT_PROVIDER_ID,
+  CODEX_PROXY_TOKEN_PLACEHOLDER,
   type AuthEnv,
   type EffectiveCapabilitySet,
   type ICapabilityResolver,
@@ -56,7 +57,7 @@ import {
   AUTH_PROVIDERS_TOKENS,
   type ProviderAccountAdmissionPort,
 } from '@ptah-extension/auth-providers-tokens';
-import { SdkError } from '../errors';
+import { AuthRequiredError, SdkError } from '../errors';
 import { SdkModuleLoader } from './sdk-module-loader';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
 import { SdkRuntimeStateService } from './sdk-runtime-state.service';
@@ -343,7 +344,20 @@ export class SdkQueryRunner {
    * because there is nothing async about it — whatever it costs, it costs on
    * this thread.
    */
-  private launch<T>(mode: 'oneShot' | 'interactive', invoke: () => T): T {
+  private launch<T>(
+    mode: 'oneShot' | 'interactive',
+    options: SdkQueryOptions,
+    invoke: () => T,
+  ): T {
+    if (
+      (options.env ?? process.env)['ANTHROPIC_AUTH_TOKEN'] ===
+      CODEX_PROXY_TOKEN_PLACEHOLDER
+    ) {
+      throw new AuthRequiredError(
+        'Codex chat requires a host with the native Codex runtime.',
+        { providerId: 'openai-codex' },
+      );
+    }
     const startedAt = Date.now();
     const result = invoke();
     const blockedMs = Date.now() - startedAt;
@@ -433,7 +447,7 @@ export class SdkQueryRunner {
     });
 
     const queryStartMs = Date.now();
-    const conversation = this.launch('oneShot', () =>
+    const conversation = this.launch('oneShot', options, () =>
       queryFn({
         prompt: input.prompt,
         options,
@@ -472,7 +486,7 @@ export class SdkQueryRunner {
     options: SdkQueryOptions,
   ): InteractiveRunResult {
     this.useOffThreadSpawner(options);
-    const sdkQuery = this.launch('interactive', () =>
+    const sdkQuery = this.launch('interactive', options, () =>
       queryFn({ prompt, options }),
     );
     return { sdkQuery };
@@ -506,7 +520,9 @@ export class SdkQueryRunner {
         return child;
       },
     };
-    const sdkQuery = this.launch('interactive', () => queryFn({ prompt, options: observedOptions }));
+    const sdkQuery = this.launch('interactive', observedOptions, () =>
+      queryFn({ prompt, options: observedOptions }),
+    );
     return { sdkQuery, terminated: termination, childPid };
   }
 
@@ -686,9 +702,10 @@ export class SdkQueryRunner {
 
     this.useOffThreadSpawner(options);
 
-    // Same `authEnv` and `resolvedModel` just written onto `options`.
-    // The tap check is inside `scheduleProvenance`, before any provider read.
-    this.scheduleProvenance(input.dispatch, resolvedModel, authEnv);
+    // A retired Codex proxy env is observable, but its query launch is refused.
+    if (options.env?.['ANTHROPIC_AUTH_TOKEN'] !== CODEX_PROXY_TOKEN_PLACEHOLDER) {
+      this.scheduleProvenance(input.dispatch, resolvedModel, authEnv);
+    }
 
     return options;
   }

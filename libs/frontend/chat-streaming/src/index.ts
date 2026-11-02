@@ -52,6 +52,7 @@ export {
   BackgroundAgentStore,
   type BackgroundAgentEntry,
 } from './lib/background-agent.store';
+export { BackgroundTaskStore } from './lib/background-task.store';
 export {
   AgentMonitorStore,
   subagentUsageView,

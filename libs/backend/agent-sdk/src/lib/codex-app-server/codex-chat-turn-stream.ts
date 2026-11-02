@@ -23,6 +23,7 @@ import {
 import type { CodexChatApprovalSink } from './codex-chat-approval-sink';
 import type { CodexChatAdmission } from './codex-chat-admission';
 import {
+  CODEX_FAILURE_NOTICE,
   CodexChatEvents,
   tokenUsage,
   type CodexChatResult,
@@ -59,8 +60,6 @@ export interface CodexChatSession {
   compacting?: Promise<void>;
 }
 
-const FAILURE_NOTICE = 'Codex reported a runtime error.';
-
 function failureNotice(
   session: CodexChatSession,
   turnId: string | undefined,
@@ -84,7 +83,7 @@ function failureNotice(
       ...base,
       id: `${messageId}:text`,
       eventType: 'text_delta',
-      delta: FAILURE_NOTICE,
+      delta: CODEX_FAILURE_NOTICE,
       blockIndex: 0,
     },
   ];
@@ -138,6 +137,7 @@ export async function* streamCodexChatTurn(
   const abort = () => subscription.abort();
   session.abort.signal.addEventListener('abort', abort, { once: true });
   let terminal = false;
+  let backgroundTimer: ReturnType<typeof setTimeout> | undefined;
   let terminalStatus: CodexChatResult['status'] | undefined;
   let countedCompletedTurn = false;
   let turnSettled = false;
@@ -483,7 +483,13 @@ export async function* streamCodexChatTurn(
         }
       }
       if (terminalError) throw terminalError;
-      if (terminal) return;
+      if (terminal && projection.hasPendingChildren && !backgroundTimer)
+        backgroundTimer = setTimeout(() => subscription.abort(), 30_000);
+      if (terminal && !projection.hasPendingChildren) return;
+    }
+    if (terminal && projection.hasPendingChildren) {
+      for (const unresolved of projection.finishBackground()) yield unresolved;
+      return;
     }
     throw deps.error('runtime-failed', 'stream');
   } catch (error) {
@@ -506,7 +512,7 @@ export async function* streamCodexChatTurn(
       if (!errorPresented) {
         void Promise.resolve()
           .then(() => deps.callbacks(session.id, undefined).error(
-            FAILURE_NOTICE, session.context.identity.workspaceId,
+            CODEX_FAILURE_NOTICE, session.context.identity.workspaceId,
           ))
           .catch((publicationError: unknown) => {
             deps.logger.error(
@@ -533,6 +539,7 @@ export async function* streamCodexChatTurn(
     else if (!admitted) deps.admission?.rejected(reported);
     throw reported;
   } finally {
+    clearTimeout(backgroundTimer);
     finishCompaction?.();
     // A consumer can detach between message_complete and its settlement event.
     if (terminal) settleTurn();

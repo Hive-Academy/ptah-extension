@@ -242,6 +242,8 @@ interface CodexEventIdentity {
   readonly turnId: string;
   /** Monotonic within this process generation, preserving wire order. */
   readonly sequence: number;
+  /** Native child activity is nested under its spawning tool. */
+  readonly parentToolUseId?: string;
 }
 export type CodexRuntimeEvent = CodexEventIdentity &
   (
@@ -271,12 +273,14 @@ export type CodexRuntimeEvent = CodexEventIdentity &
         readonly toolId: string;
         readonly toolName: string;
         readonly input: CodexJsonValue;
+        readonly agentThreadIds?: readonly string[];
       }
     | {
         readonly type: 'toolCompleted';
         readonly toolId: string;
         readonly output: CodexJsonValue;
         readonly status: 'completed' | 'failed' | 'cancelled';
+        readonly agentThreadIds?: readonly string[];
         /** Process exit code the server reported for the item (commandExecution today). Present only when reported: 0 is a real value, wire null/absent stays absent. */
         readonly exitCode?: number;
         /** Server-reported error text of a failed tool call (mcpToolCall.error.message today), length-bounded. Absent when the server reported no error text. */
@@ -338,6 +342,32 @@ export interface CodexRuntime {
     secrets?: CodexMcpSecrets,
   ): Promise<CodexContext>;
 }
+/** Optional read-only capability, separate from the lane runtime contract. */
+export interface CodexHistoryReader {
+  readHistory(
+    profile: CodexExecutionProfile,
+    resume: CodexThreadIdentity,
+    signal?: AbortSignal,
+  ): Promise<CodexSessionHistory>;
+}
+export interface CodexSessionHistory {
+  readonly rootThreadId: string;
+  /** Root first, then children in creation order. Turns and items are ascending. */
+  readonly threads: readonly CodexHistoryThread[];
+}
+export type CodexHistoryItemEntry =
+  import('./codex-protocol-validator').CodexRequestResult<'thread/items/list'>['data'][number];
+export type CodexHistoryTurn =
+  import('./codex-protocol-validator').CodexRequestResult<'thread/turns/list'>['data'][number] & {
+    /** Item timestamps when the paged endpoint reported them. */
+    readonly itemEntries?: readonly CodexHistoryItemEntry[];
+  };
+export type CodexHistoryThread = Omit<
+  import('./codex-protocol-validator').CodexRequestResult<'thread/read'>['thread'],
+  'turns'
+> & {
+  readonly turns: readonly CodexHistoryTurn[];
+};
 export interface CodexModelInfo {
   /** Catalog key; use model for thread/start and turn/start. */
   readonly id: string;

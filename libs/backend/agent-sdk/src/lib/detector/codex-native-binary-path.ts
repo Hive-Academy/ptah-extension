@@ -11,8 +11,9 @@ import { existsSync } from 'fs';
 import path from 'path';
 
 /**
- * Platform binary package names used by the Codex SDK.
- * Maps target triple to npm package name (mirrors PLATFORM_PACKAGE_BY_TARGET in codex-sdk).
+ * Platform binary package names used by the Codex CLI.
+ * Maps target triple to npm package name (mirrors PLATFORM_PACKAGE_BY_TARGET
+ * in `@openai/codex`'s `bin/codex.js`).
  */
 const CODEX_PLATFORM_PACKAGES: Record<string, string> = {
   'x86_64-unknown-linux-musl': '@openai/codex-linux-x64',
@@ -27,7 +28,8 @@ const CODEX_PLATFORM_PACKAGES: Record<string, string> = {
  * Vendor sub-directories that have carried the Codex native binary, newest
  * layout first. `@openai/codex-<platform>` >= 0.147 ships it under
  * `vendor/<triple>/bin/`; earlier releases used `vendor/<triple>/codex/`.
- * The SDK's own resolver probes the same two, in the same order.
+ * The CLI resolver uses the current layout; the legacy layout remains for
+ * compatibility with older installed CLI versions.
  */
 const CODEX_VENDOR_DIRS = ['bin', 'codex'] as const;
 
@@ -73,9 +75,9 @@ function getTargetTriple(): string | undefined {
 /**
  * Cross-platform resolver for the Codex native binary.
  *
- * The Codex SDK spawns a platform-specific Rust executable directly (no shim).
+ * The Codex CLI spawns a platform-specific Rust executable directly (no shim).
  * On Windows, npm installs a `.cmd` wrapper that invokes a `.js` launcher —
- * passing either to the SDK as `codexPathOverride` produces `spawn EFTYPE`.
+ * passing either as the native binary path produces `spawn EFTYPE`.
  * On every OS we must point to the actual native binary inside the
  * `@openai/codex-<platform>` package's vendor directory. Every candidate root
  * below is probed for both vendor layouts — current `vendor/<triple>/bin/`
@@ -84,9 +86,9 @@ function getTargetTriple(): string | undefined {
  * Resolution order (first existing path wins):
  *   1. Electron packaged: `<resourcesPath>/app.asar.unpacked/node_modules/...`
  *   2. `require.resolve('@openai/codex-<platform>/package.json')` → vendor/...
- *      (works when the SDK and its optional-dep platform package are installed
+ *      (works when the CLI and its optional-dep platform package are installed
  *      under the host's node_modules — covers dev/unbundled and most installs)
- *   3. Walk up from `@openai/codex-sdk/package.json`'s node_modules root
+ *   3. Walk up from `@openai/codex/package.json`'s node_modules root
  *      (with app.asar → app.asar.unpacked rewrite, covers older Electron builds)
  *   4. npm global roots (when user did `npm i -g @openai/codex`):
  *      Win  → `%APPDATA%\npm\node_modules\...`
@@ -97,8 +99,8 @@ function getTargetTriple(): string | undefined {
  *      `node_modules/@openai/codex-<platform>/...`) — last-resort heuristic.
  *
  * Returns `undefined` if no candidate exists. Callers must NOT pass the bare
- * `detectedCliPath` (a `.cmd` or `.js` shim) to the SDK in that case — let the
- * SDK's own `findCodexPath()` surface a clearer error than EFTYPE.
+ * `detectedCliPath` (a `.cmd` or `.js` shim) as the native binary path — let
+ * the CLI's own launcher surface a clearer error than EFTYPE.
  */
 export function resolveCodexNativeBinaryPath(
   detectedCliPath?: string,
@@ -142,8 +144,8 @@ export function resolveCodexNativeBinaryPath(
   }
 
   try {
-    const sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
-    const nodeModulesRoot = path.resolve(sdkPkgJsonPath, '..', '..', '..');
+    const cliPkgJsonPath = require.resolve('@openai/codex/package.json');
+    const nodeModulesRoot = path.resolve(cliPkgJsonPath, '..', '..', '..');
     for (const rel of relsFromNodeModules) {
       candidates.push(...withAsarUnpackedTwin(path.join(nodeModulesRoot, rel)));
     }

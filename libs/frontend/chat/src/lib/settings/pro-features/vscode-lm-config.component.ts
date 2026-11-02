@@ -36,7 +36,11 @@ export const COULD_NOT_SET_DEFAULT_PROVIDER = 'Could not set the default provide
   host: { class: 'block' },
   template: `
     @if (vscodeLmProvider(); as provider) {
-      <section class="border-b border-base-content/10 pb-7" aria-labelledby="vscode-lm-heading">
+      <section
+        class="border-b border-base-content/10 pb-7"
+        aria-labelledby="vscode-lm-heading"
+        data-glass-surface="content"
+      >
         <!-- Provider header row -->
         <div class="flex items-center justify-between gap-3 mb-2">
           <div class="flex flex-wrap items-center gap-2">
@@ -139,6 +143,11 @@ export const COULD_NOT_SET_DEFAULT_PROVIDER = 'Could not set the default provide
           Uses models from VS Code's Language Model API. No API key required.
         </p>
       </section>
+    }
+  `,
+  styles: `
+    :host-context([data-glass='on']) [data-glass-surface='content'] {
+      padding: 1.25rem;
     }
   `,
 })

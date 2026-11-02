@@ -1,0 +1,24 @@
+{
+  "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+    "name": "ai.agentrapay/agentra",
+    "description": "Identity oracle and trust layer for autonomous AI agents. Bidirectional KYA and trust scoring.",
+    "repository": {},
+    "version": "1.0.0",
+    "remotes": [
+      {
+        "type": "sse",
+        "url": "https://api.agentrapay.ai/mcp"
+      }
+    ]
+  },
+  "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+      "status": "active",
+      "statusChangedAt": "2026-03-22T18:16:07.628131Z",
+      "publishedAt": "2026-03-22T18:16:07.628131Z",
+      "updatedAt": "2026-03-22T18:16:07.628131Z",
+      "isLatest": true
+    }
+  }
+}

@@ -1,18 +1,68 @@
 .ptah-pane-switch-enter {
-  animation: ptahMotionEnter var(--ptah-motion-switch) var(--ptah-ease-soft)
+  animation: ptahPaneCrossfade var(--ptah-motion-switch) var(--ptah-ease-soft)
     backwards;
 }
 
-:host-context([data-glass='on']) .ptah-pane-switch-enter:has([data-glass-surface], [class*='backdrop-blur']) {
+@keyframes ptahPaneCrossfade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.chat-msg-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.chat-msg-item.ptah-msg-enter {
+  animation: ptahMotionEnter var(--ptah-motion-in) var(--ptah-ease-soft) backwards;
+  animation-delay: calc(min(var(--ptah-msg-i, 0), 5) * var(--ptah-stagger-step));
+}
+
+.ptah-pane-switch-pending .chat-msg-item.ptah-msg-enter {
+  animation-play-state: paused;
+}
+
+:host-context([data-glass='on']) .chat-msg-item.ptah-msg-enter {
   animation-name: ptahMotionEnterGlass;
 }
 
-:host-context([data-glass='on'][data-motion-style='fade']) .ptah-pane-switch-enter:has([data-glass-surface], [class*='backdrop-blur']) {
+:host-context([data-glass='on'][data-motion-style='fade']) .chat-msg-item.ptah-msg-enter {
   --ptah-motion-enter-y: 18px;
 }
 
-:host-context([data-glass='on'][data-motion-style='scale']) .ptah-pane-switch-enter:has([data-glass-surface], [class*='backdrop-blur']) {
+:host-context([data-glass='on'][data-motion-style='scale']) .chat-msg-item.ptah-msg-enter {
   --ptah-motion-enter-y: 6px;
+}
+
+.chat-msg-item.ptah-msg-leave {
+  overflow: hidden;
+  pointer-events: none;
+  interpolate-size: allow-keywords;
+  animation: ptahMotionLeave var(--ptah-motion-out) var(--ptah-ease-gentle-in) forwards,
+    ptahMsgCollapse var(--ptah-motion-out) var(--ptah-ease-gentle-in) forwards;
+}
+
+@keyframes ptahMsgCollapse {
+  from { height: auto; }
+  to { height: 0; margin-block-start: -0.75rem; }
+}
+
+.chat-msg-item.ptah-msg-leave[data-ptah-leave-cut],
+.chat-msg-item.ptah-msg-leave:has(> .chat-msg-slot > .chat-msg-placeholder),
+:host-context([data-glass='on']) .chat-msg-item.ptah-msg-leave {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-msg-item.ptah-msg-enter {
+    animation-duration: 0.01ms;
+    animation-delay: 0s;
+  }
+
+  .chat-msg-item.ptah-msg-leave {
+    display: none;
+  }
 }
 
 /* Keep the previous tab visible while the next tab loads. Once its entrance
@@ -36,7 +86,8 @@
 @media (prefers-reduced-motion: reduce) {
   .ptah-pane-switch-enter,
   :host(.ptah-pane-switch-overlap) {
-    animation: none;
+    animation-duration: 0.01ms;
+    animation-delay: 0s;
   }
 
   :host(.ptah-pane-switch-leave) {

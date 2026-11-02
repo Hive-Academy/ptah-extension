@@ -86,7 +86,6 @@ export function initialState(sessionId: string): IdleSessionState {
   return {
     sessionId,
     runToken: '',
-    codexProxy: false,
     lastTurn: null,
     reading: null,
     activitySinceTurnEnd: false,

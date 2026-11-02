@@ -1,0 +1,236 @@
+{
+  "servers": [
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+        "name": "ai.smithery/Hint-Services-obsidian-github-mcp",
+        "description": "Connect AI assistants to your GitHub-hosted Obsidian vault to seamlessly access, search, and analy\u2026",
+        "repository": {
+          "url": "https://github.com/Hint-Services/obsidian-github-mcp",
+          "source": "github"
+        },
+        "version": "0.4.0",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://server.smithery.ai/@Hint-Services/obsidian-github-mcp/mcp",
+            "headers": [
+              {
+                "description": "Bearer token for Smithery authentication",
+                "isRequired": true,
+                "value": "Bearer {smithery_api_key}",
+                "isSecret": true,
+                "name": "Authorization"
+              }
+            ]
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "statusChangedAt": "2025-09-14T15:20:36.371442Z",
+          "publishedAt": "2025-09-14T15:20:36.371442Z",
+          "updatedAt": "2025-09-14T15:20:36.371442Z",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-16/server.schema.json",
+        "name": "ai.smithery/saidsef-mcp-github-pr-issue-analyser",
+        "description": "A Model Context Protocol (MCP) application for automated GitHub PR analysis and issue management.\u2026",
+        "repository": {
+          "url": "https://github.com/saidsef/mcp-github-pr-issue-analyser",
+          "source": "github"
+        },
+        "version": "1.15.0",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://server.smithery.ai/@saidsef/mcp-github-pr-issue-analyser/mcp",
+            "headers": [
+              {
+                "description": "Bearer token for Smithery authentication",
+                "value": "Bearer {smithery_api_key}",
+                "name": "Authorization"
+              }
+            ]
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "statusChangedAt": "2025-10-05T14:58:08.898007Z",
+          "publishedAt": "2025-10-05T14:58:08.898007Z",
+          "updatedAt": "2025-10-05T14:58:08.898007Z",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+        "name": "ai.smithery/smithery-ai-github",
+        "description": "Access the GitHub API, enabling file operations, repository management, search functionality, and\u2026",
+        "repository": {
+          "url": "https://github.com/smithery-ai/mcp-servers",
+          "source": "github",
+          "subfolder": "github"
+        },
+        "version": "1.0.0",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://server.smithery.ai/@smithery-ai/github/mcp",
+            "headers": [
+              {
+                "description": "Bearer token for Smithery authentication",
+                "isRequired": true,
+                "value": "Bearer {smithery_api_key}",
+                "isSecret": true,
+                "name": "Authorization"
+              }
+            ]
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "statusChangedAt": "2025-09-10T18:22:12.930528Z",
+          "publishedAt": "2025-09-10T18:22:12.930528Z",
+          "updatedAt": "2025-09-10T18:22:12.930528Z",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "com.a2awire/data-github-changelog-platform-change-announcement",
+        "description": "GitHub platform changelog feed. $0.01/query. Register in-session \u2014 free testnet funds.",
+        "title": "GitHub Platform Changelog \u2014 buy per-query in-session (githubchangelog)",
+        "repository": {
+          "url": "https://github.com/ee324/a2awire",
+          "source": "github"
+        },
+        "version": "0.1.0",
+        "websiteUrl": "https://a2awire.com/data/githubchangelog-github-platform-changelog-copilot-actions-security-change-394959",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://a2awire.com/mcp/data/githubchangelog-github-platform-changelog-copilot-actions-security-change-394959/http"
+          }
+        ],
+        "_meta": {
+          "io.modelcontextprotocol.registry/publisher-provided": {
+            "cadence": "Hourly check; GitHub posts ~2 changelog entries most weekdays (weekend gaps normal)",
+            "getting_started": [
+              "connect (no key needed) \u2014 initialize returns buyer-first instructions",
+              "register \u2014 mints your agent identity + wallet in this session, no signup",
+              "request_testnet_usdc \u2014 faucet drips free funds to your wallet",
+              "data_session_open \u2014 open a prepaid $0.01/query session",
+              "data_session_query \u2014 ask; attested hits returned"
+            ],
+            "how_to_buy": "register -> request_testnet_usdc -> data_session_open -> data_session_funding_package -> broadcast -> data_session_attach_escrow -> data_session_query",
+            "listing_page": "https://a2awire.com/data/githubchangelog-github-platform-changelog-copilot-actions-security-change-394959",
+            "mcp_remote": "https://a2awire.com/mcp/data/githubchangelog-github-platform-changelog-copilot-actions-security-change-394959/http",
+            "price": "$0.01/query. Free testnet USDC via in-session faucet.",
+            "product": "The official GitHub changelog feed (github.blog/changelog) as queryable data: platform feature changes and deprecations across Copilot and agent operations, Actions, code security (CodeQL, secret protection, Dependabot), enterprise governance and client apps. Each row carries the",
+            "sample_queries": [
+              "What GitHub platform changes shipped this week?",
+              "Any new GitHub Copilot or agent-operation features announced recently?",
+              "What changed in GitHub code security (CodeQL, secret protection) lately?"
+            ],
+            "search_keywords": [
+              "github-changelog",
+              "platform-change",
+              "change-announcement",
+              "github-platform",
+              "feature-change",
+              "github-release-notes"
+            ],
+            "settlement": "escrow-backed on Base L2; funds never custodied by the platform",
+            "verification": "on-chain corpus-root anchor evidence via /api/v1/anchors/{tx_hash}"
+          }
+        }
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "statusChangedAt": "2026-09-10T01:44:05.217042Z",
+          "publishedAt": "2026-09-10T01:44:05.217042Z",
+          "updatedAt": "2026-09-10T01:44:05.217042Z",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "com.a2awire/data-trending-repository-new-github-repo-discovery",
+        "description": "Trending GitHub repos: new & rising daily. $0.01/query. Register in-session \u2014 free testnet funds.",
+        "title": "Trending Repository Tracker \u2014 new GitHub repo discovery ($0.01/query)",
+        "repository": {
+          "url": "https://github.com/ee324/a2awire",
+          "source": "github"
+        },
+        "version": "0.1.1",
+        "websiteUrl": "https://a2awire.com/data/ghtrend-fast-growing-new-github-repositories-01390c",
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://a2awire.com/mcp/data/ghtrend-fast-growing-new-github-repositories-01390c/http"
+          }
+        ],
+        "_meta": {
+          "io.modelcontextprotocol.registry/publisher-provided": {
+            "cadence": "Continuous refresh; republished on hourly tick (leaderboard deltas: star/fork count changes re-emit rows)",
+            "getting_started": [
+              "connect (no key needed) \u2014 initialize returns buyer-first instructions",
+              "register \u2014 mints your agent identity + wallet in this session, no signup",
+              "request_testnet_usdc \u2014 faucet drips free funds to your wallet",
+              "data_session_open \u2014 open a prepaid $0.01/query session",
+              "data_session_query \u2014 ask; attested hits returned"
+            ],
+            "how_to_buy": "register -> request_testnet_usdc -> data_session_open -> data_session_funding_package -> broadcast -> data_session_attach_escrow -> data_session_query",
+            "listing_page": "https://a2awire.com/data/ghtrend-fast-growing-new-github-repositories-01390c",
+            "mcp_remote": "https://a2awire.com/mcp/data/ghtrend-fast-growing-new-github-repositories-01390c/http",
+            "price": "$0.01/query. Free testnet USDC via in-session faucet.",
+            "product": "Tracks the fastest-growing NEW GitHub repositories: repos created in the last 7 days, ranked by stars gained. Each row carries stars, forks, primary language, topics, license, owner and description. Deltas surface as churn: star/fork counts are part of the content fingerprint, so",
+            "sample_queries": [
+              "What are the fastest-growing new GitHub repositories this week?",
+              "Which new GitHub repos created in the last 24 hours are gaining stars?",
+              "Show trending open-source repositories with language and topics"
+            ],
+            "search_keywords": [
+              "trending-repository",
+              "github-trending",
+              "new-github-repo",
+              "repo-discovery",
+              "open-source"
+            ],
+            "settlement": "escrow-backed on Base L2; funds never custodied by the platform",
+            "verification": "on-chain corpus-root anchor evidence via /api/v1/anchors/{tx_hash}"
+          }
+        }
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "statusChangedAt": "2026-09-09T13:08:36.999053Z",
+          "publishedAt": "2026-09-09T13:08:36.999053Z",
+          "updatedAt": "2026-09-09T13:08:36.999053Z",
+          "isLatest": true
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "nextCursor": "com.a2awire/data-trending-repository-new-github-repo-discovery:0.1.1",
+    "count": 5
+  }
+}

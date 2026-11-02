@@ -1,0 +1,36 @@
+{
+  "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "academy.apexai/apex-ai-academy",
+    "description": "Co-Learn with your Agent: fact-checked AI lessons with Human and Agent views.",
+    "title": "Apex AI Academy",
+    "repository": {
+      "url": "https://github.com/ApexAI-Academy/sample-agents",
+      "source": "github"
+    },
+    "version": "1.0.2",
+    "websiteUrl": "https://apexai.academy/developers/",
+    "remotes": [
+      {
+        "type": "streamable-http",
+        "url": "https://apexai.academy/mcp",
+        "headers": [
+          {
+            "description": "Optional: Bearer <personal apex_ key> for Premium tools. Public tools need no key.",
+            "isSecret": true,
+            "name": "Authorization"
+          }
+        ]
+      }
+    ]
+  },
+  "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+      "status": "active",
+      "statusChangedAt": "2026-10-17T03:25:05.205722Z",
+      "publishedAt": "2026-10-17T03:25:05.205722Z",
+      "updatedAt": "2026-10-17T03:25:05.205722Z",
+      "isLatest": true
+    }
+  }
+}

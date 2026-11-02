@@ -1,0 +1,39 @@
+{
+  "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "cloud.anythink/anythink",
+    "description": "Sick of stitched-together services? Anythink is the all-in-one backend, configured with AI.",
+    "title": "Anythink all-in-one backend: data, auth, files, workflows, payments, APIs",
+    "repository": {
+      "url": "https://github.com/anythink-cloud/anythink-cli",
+      "source": "github"
+    },
+    "version": "0.2.37",
+    "websiteUrl": "https://anythink.cloud",
+    "packages": [
+      {
+        "registryType": "nuget",
+        "identifier": "anythink-mcp",
+        "version": "0.2.37",
+        "transport": {
+          "type": "stdio"
+        }
+      }
+    ],
+    "remotes": [
+      {
+        "type": "streamable-http",
+        "url": "https://mcp.anythink.cloud/mcp"
+      }
+    ]
+  },
+  "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+      "status": "active",
+      "statusChangedAt": "2026-10-11T23:33:32.23028Z",
+      "publishedAt": "2026-10-11T23:33:32.23028Z",
+      "updatedAt": "2026-10-11T23:33:32.23028Z",
+      "isLatest": true
+    }
+  }
+}

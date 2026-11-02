@@ -9,14 +9,13 @@ import type { AnalysisStatus } from '@ptah-extension/shared';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 import { PHASE_CONFIGS } from '../types/multi-phase.types';
-import { computeWorkspaceFingerprint, sha256Hex } from './analysis-fingerprint';
+import { computeWorkspaceFingerprint, isRootGitignored, normalizeEolBytes, readRootGitignore, sha256Hex } from './analysis-fingerprint';
 import {
   AnalysisStorageService,
   isLegacyArchiveDirName,
   type ManifestReadResult,
 } from './analysis-storage.service';
 
-export const ANALYSIS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const SERVICE_TAG = '[AnalysisFreshness]';
 type LatestRun = {
   dir: string;
@@ -48,6 +47,7 @@ export class AnalysisFreshnessService {
   /** Report status with workspace-relative analysisDir and '/' separators. */
   async getStatus(workspaceRoot: string | null): Promise<AnalysisStatus> {
     const checkedAt = new Date().toISOString();
+    let sharing: AnalysisStatus['sharing'];
     const status = (
       state: AnalysisStatus['state'],
       reason: AnalysisStatus['reason'],
@@ -59,8 +59,28 @@ export class AnalysisFreshnessService {
       analysisDir,
       checkedAt,
       analyzedAt,
+      ...(sharing ? { sharing } : {}),
     });
     if (!workspaceRoot) return status('missing', 'no-analysis');
+
+    try {
+      if (!(await this.fs.exists(join(workspaceRoot, '.gitignore')))) {
+        sharing = 'shareable';
+      } else {
+        const rules = await readRootGitignore(workspaceRoot, this.fs);
+        sharing = isRootGitignored('.ptah/analysis/ptah-analysis-probe/manifest.json', false, rules) ||
+          isRootGitignored('.ptah/analysis/ptah-analysis-probe/01-project-profile.md', false, rules)
+          ? 'ignored-by-gitignore' : 'shareable';
+      }
+    } catch (error) {
+      // degradation-audit: reported — an unreadable ignore file cannot prove
+      // whether Git will carry the analysis; freshness remains independent.
+      if (isMissing(error)) sharing = 'shareable';
+      else {
+        sharing = 'unknown';
+        this.logger.warn(`${SERVICE_TAG} Could not inspect root .gitignore`, error);
+      }
+    }
 
     const analysisRoot = this.storage.getAnalysisDir(workspaceRoot);
     const relativeDir = (dir: string): string =>
@@ -70,7 +90,7 @@ export class AnalysisFreshnessService {
       if (!latest) return status('missing', 'no-analysis');
       if ('rejectedDir' in latest)
         return status('stale', 'unreadable', relativeDir(latest.rejectedDir));
-      const result = await this.qualify(latest, workspaceRoot, checkedAt);
+      const result = await this.qualify(latest, workspaceRoot);
       return status(
         result.state,
         result.reason,
@@ -147,7 +167,6 @@ export class AnalysisFreshnessService {
   private async qualify(
     latest: LatestRun,
     workspaceRoot: string,
-    checkedAt: string,
   ): Promise<Pick<AnalysisStatus, 'state' | 'reason'>> {
     const { dir, read } = latest;
     if (read.kind === 'legacy-v3')
@@ -167,15 +186,10 @@ export class AnalysisFreshnessService {
     )
       return { state: 'stale', reason: 'incomplete' };
 
-    const updatedAtMs = Date.parse(manifest.updatedAt);
-    const age = Date.parse(checkedAt) - updatedAtMs;
-    if (!Number.isFinite(age) || age < 0)
-      return { state: 'stale', reason: 'unreadable' };
-    if (age > ANALYSIS_MAX_AGE_MS) return { state: 'stale', reason: 'expired' };
-
     const fingerprint = await computeWorkspaceFingerprint(
       workspaceRoot,
       this.fs,
+      manifest.workspaceFingerprint.algorithm,
     );
     if (fingerprint.digest !== manifest.workspaceFingerprint.digest) {
       return { state: 'stale', reason: 'workspace-changed' };
@@ -199,7 +213,8 @@ export class AnalysisFreshnessService {
           return { state: 'stale', reason: 'output-mismatch' };
         throw error;
       }
-      if (sha256Hex(bytes) !== phase.verification.outputSha256) {
+      if (sha256Hex(bytes) !== phase.verification.outputSha256 &&
+          sha256Hex(normalizeEolBytes(bytes)) !== phase.verification.outputSha256) {
         return { state: 'stale', reason: 'output-mismatch' };
       }
     }

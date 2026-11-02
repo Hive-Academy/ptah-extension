@@ -1,4 +1,4 @@
-﻿/**
+/**
  * LocalNativeStrategy — unit specs.
  *
  * Configures Ollama providers ('ollama' or 'ollama-cloud') which speak the
@@ -18,7 +18,7 @@
  *         is invoked.
  *       * key present + custom baseUrl override → daemon path (escape hatch).
  *       * key absent → daemon path, `cloudMetadata.clearCache()` is invoked.
- *   - Cross-provider guard: copilot / codex / lm-studio proxies stopped
+ *   - Cross-provider guard: copilot / lm-studio proxies stopped
  *     before configuring.
  *   - teardown() clears both caches.
  *
@@ -55,7 +55,6 @@ import type { AuthConfigureContext } from '../auth-strategy.types';
 import type { OllamaModelDiscoveryService } from '../../providers/local/ollama-model-discovery.service';
 import type { OllamaCloudMetadataService } from '../../providers/local/ollama-cloud-metadata.service';
 import type { ICopilotTranslationProxy } from '../../providers/copilot/copilot-provider.types';
-import type { ITranslationProxy } from '../../translation';
 import type { LocalModelTranslationProxy } from '../../providers/local/local-model-translation-proxy';
 import type {
   ProviderModelsService,
@@ -120,17 +119,6 @@ function createMockCopilotProxy(): jest.Mocked<ICopilotTranslationProxy> {
   };
 }
 
-function createMockTranslationProxy(): jest.Mocked<ITranslationProxy> {
-  return {
-    start: jest
-      .fn<Promise<{ port: number; url: string }>, []>()
-      .mockResolvedValue({ port: 0, url: '' }),
-    stop: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
-    isRunning: jest.fn<boolean, []>().mockReturnValue(false),
-    getUrl: jest.fn<string | undefined, []>().mockReturnValue(undefined),
-  };
-}
-
 interface LmStudioProxySurface {
   isRunning(): boolean;
   stop(): Promise<void>;
@@ -166,7 +154,6 @@ interface Harness {
   discovery: jest.Mocked<DiscoverySurface>;
   cloudMetadata: jest.Mocked<CloudMetadataSurface>;
   copilotProxy: jest.Mocked<ICopilotTranslationProxy>;
-  codexProxy: jest.Mocked<ITranslationProxy>;
   lmStudioProxy: jest.Mocked<LmStudioProxySurface>;
   authSecrets: MockAuthSecretsService;
   providerModels: jest.Mocked<ProviderModelsSurface>;
@@ -183,7 +170,6 @@ function makeStrategy(
   const discovery = createMockDiscovery();
   const cloudMetadata = createMockCloudMetadata();
   const copilotProxy = createMockCopilotProxy();
-  const codexProxy = createMockTranslationProxy();
   const lmStudioProxy = createMockLmStudioProxy();
   const authSecrets = createMockAuthSecretsService({
     providerKeys: options.providerKeys,
@@ -197,7 +183,6 @@ function makeStrategy(
     discovery as unknown as OllamaModelDiscoveryService,
     providerModels as unknown as ProviderModelsService,
     copilotProxy,
-    codexProxy,
     lmStudioProxy as unknown as LocalModelTranslationProxy,
     cloudMetadata as unknown as OllamaCloudMetadataService,
     authSecrets as unknown as IAuthSecretsService,
@@ -211,7 +196,6 @@ function makeStrategy(
     discovery,
     cloudMetadata,
     copilotProxy,
-    codexProxy,
     lmStudioProxy,
     authSecrets,
     providerModels,
@@ -287,16 +271,14 @@ describe('LocalNativeStrategy', () => {
       expect(harness.discovery.checkVersion).toHaveBeenCalledWith('ollama');
     });
 
-    it('stops running copilot / codex / lm-studio proxies before configuring', async () => {
+    it('stops running copilot / lm-studio proxies before configuring', async () => {
       const harness = makeStrategy();
       harness.copilotProxy.isRunning.mockReturnValue(true);
-      harness.codexProxy.isRunning.mockReturnValue(true);
       harness.lmStudioProxy.isRunning.mockReturnValue(true);
 
       await harness.strategy.configure(makeContext('ollama'));
 
       expect(harness.copilotProxy.stop).toHaveBeenCalledTimes(1);
-      expect(harness.codexProxy.stop).toHaveBeenCalledTimes(1);
       expect(harness.lmStudioProxy.stop).toHaveBeenCalledTimes(1);
     });
   });

@@ -234,8 +234,9 @@ export class HarnessWorkspaceContextService {
     }
   }
 
-  async isWorkspaceEffectivelyEmpty(): Promise<boolean> {
-    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+  async isWorkspaceEffectivelyEmpty(
+    workspaceRoot = this.workspaceProvider.getWorkspaceRoot(),
+  ): Promise<boolean> {
     if (!workspaceRoot) {
       return true;
     }

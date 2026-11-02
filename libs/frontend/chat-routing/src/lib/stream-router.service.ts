@@ -46,6 +46,7 @@ import {
 import {
   AgentMonitorStore,
   BackgroundAgentStore,
+  BackgroundTaskStore,
   BatchedUpdateService,
   EventDeduplicationService,
   ExecutionTreeBuilderService,
@@ -80,6 +81,7 @@ export class StreamRouter {
   private readonly deduplication = inject(EventDeduplicationService);
   private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
+  private readonly backgroundTaskStore = inject(BackgroundTaskStore);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -951,8 +953,10 @@ export class StreamRouter {
     if (force) {
       this.agentMonitorStore.forceClearSessionAgents(sessionId);
       this.backgroundAgentStore.clearSession(sessionId);
+      this.backgroundTaskStore.clearSession(sessionId);
     } else {
       this.agentMonitorStore.clearSessionAgents(sessionId);
+      this.backgroundTaskStore.clearSession(sessionId);
     }
     this.subagentExecution.clearSession(sessionId);
   }

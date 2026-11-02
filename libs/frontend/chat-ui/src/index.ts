@@ -87,6 +87,7 @@ export {
 } from './lib/molecules/compact-session/compact-session-metrics';
 export { CompactSessionStatsComponent } from './lib/molecules/compact-session/compact-session-stats.component';
 export { CompactRailCardComponent } from './lib/molecules/compact-session/compact-rail-card.component';
+export { compactRailStateLabel } from './lib/molecules/compact-session/compact-rail-state-label.util';
 export { COMPACT_RAIL_CARD_HEIGHT } from './lib/molecules/compact-session/compact-lane.types';
 export type {
   CompactCallout,

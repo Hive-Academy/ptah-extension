@@ -15,10 +15,13 @@ function makeState(): jest.Mocked<TransformerState> {
     hasBackgroundTaskToolUseId: jest.fn().mockReturnValue(false),
     getBackgroundTaskInfo: jest.fn().mockReturnValue(undefined),
     getTaskParentToolUseId: jest.fn().mockReturnValue(undefined),
+    isTaskTerminalEmitted: jest.fn().mockReturnValue(false),
+    markTaskTerminalEmitted: jest.fn(),
     isTaskStartedEmitted: jest.fn().mockReturnValue(false),
     isBackgroundAnnounced: jest.fn().mockReturnValue(false),
     getBackgroundAnnounceOrigin: jest.fn().mockReturnValue(undefined),
     isNonAgentTask: jest.fn().mockReturnValue(false),
+    getBackgroundTaskCommand: jest.fn().mockReturnValue(undefined),
     hasActiveSkillToolUseId: jest.fn().mockReturnValue(false),
     activeSkillToolUseIdsCount: jest.fn().mockReturnValue(0),
     snapshotActiveSkillToolUseIds: jest.fn().mockReturnValue([]),
@@ -39,6 +42,9 @@ function makeState(): jest.Mocked<TransformerState> {
     markBackgroundAnnounced: jest.fn(),
     clearBackgroundAnnounced: jest.fn(),
     markNonAgentTask: jest.fn(),
+    recordBackgroundBashCommand: jest.fn(),
+    retainBackgroundTaskCommands: jest.fn(),
+    cacheBackgroundTasksSnapshot: jest.fn(),
     addActiveSkillToolUseId: jest.fn(),
     clearActiveSkillToolUseIds: jest.fn(),
     clearStreamingState: jest.fn(),
@@ -455,6 +461,30 @@ describe('AssistantMessageTransformer', () => {
       'tool_start',
       'message_complete',
     ]);
+  });
+
+  it('records the full command for a background Bash tool use', () => {
+    const message = {
+      uuid: 'bash-message',
+      message: {
+        id: 'bash-content',
+        model: 'claude-opus',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'bash-tool',
+            name: 'Bash',
+            input: { command: 'npm test -- --watch', run_in_background: true },
+          },
+        ],
+      },
+    } as never;
+    transformer.transform(message, state, helpers, 'session-1' as never);
+    expect(state.recordBackgroundBashCommand).toHaveBeenCalledWith(
+      'session-1',
+      'bash-tool',
+      'npm test -- --watch',
+    );
   });
 
   it('marks background Task tools through the state mutator and registry', () => {

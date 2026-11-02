@@ -1,0 +1,42 @@
+{
+  "generatedAt": "2026-10-15T07:44:43.934Z",
+  "configHash": "",
+  "detectedStack": {
+    "languages": [
+      "JavaScript",
+      "TypeScript"
+    ],
+    "frameworks": [
+      "angular"
+    ],
+    "buildTools": [],
+    "testingFrameworks": [],
+    "additionalTools": [
+      "@agentclientprotocol/sdk",
+      "@angular/cdk-experimental",
+      "@angular/common",
+      "@angular/compiler",
+      "@angular/core",
+      "@angular/forms",
+      "@angular/platform-browser",
+      "@angular/platform-browser-dynamic",
+      "@angular/platform-server",
+      "@angular/router",
+      "@angular/ssr",
+      "@angular/youtube-player",
+      "@anthropic-ai/claude-agent-sdk",
+      "@anthropic-ai/sdk",
+      "@astrojs/starlight"
+    ],
+    "projectType": "monorepo",
+    "configFiles": []
+  },
+  "analysisDirectory": ".ptah/analysis/ptah-extension",
+  "analysisPhaseIds": [
+    "project-profile",
+    "architecture-assessment",
+    "quality-audit",
+    "elevation-plan"
+  ],
+  "promptLength": 6971
+}

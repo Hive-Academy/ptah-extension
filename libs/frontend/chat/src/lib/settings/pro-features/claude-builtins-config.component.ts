@@ -314,6 +314,11 @@ function withItem(list: readonly string[], id: string, on: boolean): string[] {
       }
     </section>
   `,
+  styles: `
+    :host-context([data-glass='on']) [data-glass-surface='content'] {
+      padding: 1.25rem;
+    }
+  `,
 })
 export class ClaudeBuiltinsConfigComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
