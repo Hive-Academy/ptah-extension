@@ -18,7 +18,7 @@ gsap.registerPlugin(ScrollTrigger);
 
 /**
  * One axis of the "Demo vs. Production" comparison. `demo` is the vibe-coding
- * tools reality (recessed, rose baseline); `ptah` is what Ptah Desktop staffs
+ * tools reality (recessed, rose baseline); `ptah` is what PtahCode staffs
  * instead (elevated, amber). One typed array drives the whole meter list.
  */
 interface AxisRow {

@@ -1,6 +1,6 @@
 ---
 title: Changelog
-description: Release notes for the Ptah desktop app.
+description: Release notes for the PtahCode desktop app.
 ---
 
 ## Memory lifecycle update

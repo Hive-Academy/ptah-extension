@@ -104,7 +104,7 @@ be committed. Edit the source in `~/.ptah/user/skills/`, never a copy.
 
 ## Skills Library
 
-Open **Thoth → Skills** in Ptah desktop to manage user-layer copies of skills, agents, and commands. You can edit a copy, review its history, and restore an earlier version. When a copy diverges from its upstream source, you can rebase it or keep your version.
+Open **Thoth → Skills** in PtahCode to manage user-layer copies of skills, agents, and commands. You can edit a copy, review its history, and restore an earlier version. When a copy diverges from its upstream source, you can rebase it or keep your version.
 
 **Enhance now** can propose a change when the action is available. Review the preview before applying it. See the [Skills Library](/skill-synthesis/) for details.
 
