@@ -31,7 +31,7 @@ import {
   type IAuthStrategy,
 } from './auth-strategy.types';
 import { SdkError } from '@ptah-extension/agent-sdk';
-import { resolveCodexProxyPolicy } from './codex-proxy-policy';
+import { isNativeCodexAuthIntent } from './codex-native-runtime-refusal';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { IAuthEnvProvider } from '@ptah-extension/agent-sdk';
@@ -164,7 +164,7 @@ export class AuthManager implements IAuthEnvProvider {
     const resolved = this.resolveProviderAndStrategy(authMethod);
     const providerId = operationContext?.providerId ?? resolved.providerId;
     if (
-      resolveCodexProxyPolicy(operationContext) !== 'native-return' &&
+      !isNativeCodexAuthIntent(operationContext) &&
       authMethod !== 'thirdParty' &&
       providerId !== resolved.providerId
     ) {
@@ -250,8 +250,7 @@ export class AuthManager implements IAuthEnvProvider {
     strategyType: AuthStrategyType,
     operationContext?: AuthOperationContext,
   ): Promise<AuthResult> {
-    const nativeReturn =
-      resolveCodexProxyPolicy(operationContext) === 'native-return';
+    const nativeReturn = isNativeCodexAuthIntent(operationContext);
     if (nativeReturn && !this.activeStrategy) {
       return {
         configured: false,

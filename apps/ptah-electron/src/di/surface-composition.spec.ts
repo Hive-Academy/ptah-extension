@@ -409,13 +409,14 @@ describe('Electron Codex bootstrap composition', () => {
       'RUNTIME_HOST_CAPABILITIES',
       'NATIVE_SESSION_CONTROLS',
       'LEGACY_SESSION_CONTROL_PORTS',
+      'NATIVE_SESSION_HISTORY_PORT',
     ])
       expect(composition).toMatch(
         new RegExp(
           String.raw`container\.register(?:<[\w.]+>)?\(\s*SDK_TOKENS\.${name},\s*\{\s*useValue:`,
         ),
       );
-    expect(ELECTRON_CODEX_BOUND_TOKENS).toHaveLength(6);
+    expect(ELECTRON_CODEX_BOUND_TOKENS).toHaveLength(7);
     const bootstrap = readFileSync(
       join(__dirname, '../activation/bootstrap.ts'),
       'utf8',

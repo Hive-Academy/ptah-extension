@@ -49,7 +49,6 @@ import type { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
 import {
   CODEX_PROXY_TOKEN_PLACEHOLDER,
   type ICodexAccountUsageService,
-  type ICodexOwnerKeySource,
 } from '../providers/codex/codex-provider.types';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot/copilot-provider.types';
 import { CUSTOM_PROXY_TOKEN_PLACEHOLDER } from '../providers/custom/custom-provider.types';
@@ -478,8 +477,7 @@ export class ProviderOwnerResolver {
     @inject(SDK_TOKENS.SDK_SESSION_QUOTA_PROBE)
     private readonly probe: SessionQuotaProbe,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE)
-    private readonly codexAccountUsage: ICodexAccountUsageService &
-      ICodexOwnerKeySource,
+    private readonly codexAccountUsage: ICodexAccountUsageService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER)
     private readonly codexHome: CodexHomeResolver,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH, { isOptional: true })

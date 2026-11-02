@@ -109,6 +109,7 @@ export interface SubagentExecutionEntry {
   lastEventAt: number;
   refs: number;
   idAlias: Map<string, string>;
+  restoredEventIds: Set<string>;
   revision: number;
 }
 
@@ -232,6 +233,7 @@ export class SubagentExecutionStore implements OnDestroy {
         lastEventAt: 0,
         refs: 0,
         idAlias: new Map(),
+        restoredEventIds: new Set(),
         revision: 0,
       };
       this.mutableEntries.set(key, entry);
@@ -446,6 +448,43 @@ export class SubagentExecutionStore implements OnDestroy {
           })
         : []),
     ];
+  }
+
+  /** Recover a completed child from a resume page when live ownership did not retain it. */
+  restoreHistoryChild(
+    key: string,
+    sessionId: string,
+    agentId: string | undefined,
+    events: readonly FlatStreamEventUnion[],
+  ): boolean {
+    const existing = this.mutableEntries.get(key);
+    const record = this.syncedRecords.get(key) ?? this.agentMonitorStore.subagents?.().get(key);
+    if (
+      events.length === 0 ||
+      (record && !TERMINAL_STATUSES.has(record.status)) ||
+      (existing && events.every((event) => existing.restoredEventIds.has(event.id))) ||
+      (existing && (
+        existing.history === 'loading' ||
+        (existing.live && existing.lastEventAt > 0 && !record)
+      ))
+    ) return false;
+    const entry = this.open(key, sessionId);
+    if (agentId) entry.agentId = agentId;
+    // Native history is a complete child snapshot. Replace earlier finalized
+    // fragments; the merger preserves any still-active state by event id.
+    entry.finalized = [];
+    mergeSubagentHistory(
+      key,
+      entry,
+      events,
+      this.accumulator,
+      this.builder,
+      this.context(undefined, true),
+    );
+    entry.restoredEventIds = new Set(events.map((event) => event.id));
+    this.finalize(key);
+    this.publish(entry);
+    return this.treeFor(key).length > 0;
   }
 
   finalize(key: string): void {

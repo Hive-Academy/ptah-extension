@@ -123,7 +123,12 @@ function buildSuite(activeProviderId = 'anthropic'): Suite {
     noop,
     noop,
     noop,
-    { getAccountUsage: jest.fn(), clearCache: jest.fn(), close: jest.fn() },
+    {
+      getAccountUsage: jest.fn(),
+      clearCache: jest.fn(),
+      close: jest.fn(),
+      currentOwnerKey: jest.fn(() => null),
+    },
     { captureException: jest.fn() } as unknown as SentryService,
     store as unknown as CustomProviderStore,
     recorder,

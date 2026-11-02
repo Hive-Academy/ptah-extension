@@ -17,7 +17,7 @@
  * - Non-proxy providers (direct Anthropic, Ollama / Ollama Cloud, Z.AI, and
  *   other api-key passthroughs) get a fully isolated snapshot — these
  *   work concurrently across workspaces after this change.
- * - Proxy-based providers (Copilot/Codex OAuth proxies, OpenRouter/Sakana/LM
+ * - Proxy-based providers (Copilot OAuth, OpenRouter/Sakana/LM
  *   Studio translation proxies) require a running local proxy. Phase 3: this
  *   resolver acquires a pooled proxy from {@link ProviderProxyPool} (one
  *   instance per provider configuration, shared by the workspaces on it,
@@ -81,6 +81,7 @@ import { isStoredModelOffered } from './stored-model-offer';
 import { API_KEY_RECOVERY_HINT } from './auth-method.utils';
 import { ClaudeAmbientLoginStatusReader } from '../accounts/claude-ambient-login-status';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local';
+import { codexNativeRuntimeRequired } from './codex-native-runtime-refusal';
 
 /**
  * Start a workspace snapshot with every tier-scoped key PRESENT and
@@ -265,16 +266,38 @@ export class WorkspaceProviderProfileResolver {
         },
       };
     }
+    // A stored session keeps its own provider; only a new session follows the
+    // workspace's active provider.
+    const servingProviderId = existingIdentity
+      ? existingIdentity.providerId
+      : this.activeProviderResolver.resolveActiveAuthForPath(workspacePath)
+          .providerId;
+    if (servingProviderId === 'openai-codex') {
+      this.rejectLegacyCodexProfile();
+    }
+    if (existingIdentity) {
+      const active = await this.resolveAuthForPath(workspacePath);
+      if (active.providerId !== existingIdentity.providerId) {
+        this.rejectStoredProviderMismatch(
+          existingIdentity.providerId,
+          active.providerId,
+        );
+      }
+    }
     const model = input.requestedModelIsStored
       ? this.resolveStoredModel(workspacePath, requestedModel)
       : requestedModel;
+    const providerProfile = existingIdentity
+      ? await this.resolveProviderProfileForWorkspace(
+          workspacePath,
+          model,
+          existingIdentity.providerId,
+        )
+      : await this.resolveProviderProfileForWorkspace(workspacePath, model);
     return {
       runtime: 'claude-sdk',
       model,
-      providerProfile: await this.resolveProviderProfileForWorkspace(
-        workspacePath,
-        model,
-      ),
+      providerProfile,
     };
   }
 
@@ -347,8 +370,12 @@ export class WorkspaceProviderProfileResolver {
   async resolveProviderProfileForWorkspace(
     workspacePath: string,
     requestedModel: string,
+    expectedProviderId?: string,
   ): Promise<ProviderProfile | undefined> {
     const active = await this.resolveAuthForPath(workspacePath);
+    if (expectedProviderId && active.providerId !== expectedProviderId) {
+      this.rejectStoredProviderMismatch(expectedProviderId, active.providerId);
+    }
     const profile = await this.buildProfile(
       active,
       workspacePath,
@@ -459,6 +486,9 @@ export class WorkspaceProviderProfileResolver {
     workspacePath: string,
     requestedModel: string,
   ): Promise<ProviderProfile | undefined> {
+    // This also protects callers that bypass resolveExecutionProfile, including
+    // hosts whose AGENT_ADAPTER alias points directly at SdkAgentAdapter.
+    if (providerId === 'openai-codex') this.rejectLegacyCodexProfile();
     try {
       if (authMethod === 'claudeCli') {
         return this.buildNativeAnthropicProfile(requestedModel);
@@ -501,6 +531,25 @@ export class WorkspaceProviderProfileResolver {
       );
       return undefined;
     }
+  }
+
+  private rejectLegacyCodexProfile(): never {
+    throw codexNativeRuntimeRequired(
+      'Use the Ptah desktop app (Electron) with native Codex enabled.',
+    );
+  }
+
+  private rejectStoredProviderMismatch(
+    storedProviderId: string,
+    activeProviderId: string,
+  ): never {
+    throw new AuthRequiredError(
+      `Cannot resume this session: its provider (${storedProviderId}) differs from the workspace's active provider (${activeProviderId}). Restore the session's provider in Settings and retry.`,
+      {
+        providerId: storedProviderId,
+        recoveryHint: `Select ${storedProviderId} for this workspace in Settings and retry.`,
+      },
+    );
   }
 
   /**

@@ -84,6 +84,19 @@ describe('AgentMonitorStore', () => {
     mockActiveTab.set(null);
   });
 
+  it('includes the owning session in a child cache query', async () => {
+    store.onAgentStart({
+      id: 'native-child', eventType: 'agent_start', messageId: 'parent',
+      timestamp: 1, sessionId: 'parent-session', toolCallId: 'spawn-native',
+      agentId: 'child-session', agentType: 'codex',
+    });
+    rpcMock.call.mockResolvedValueOnce(rpcSuccess({ subagents: [] }));
+    await store.loadSubagentCacheInfo('spawn-native');
+    expect(rpcMock.call).toHaveBeenCalledWith('chat:subagent-query', {
+      toolCallId: 'spawn-native', sessionId: 'parent-session',
+    });
+  });
+
   describe('CLI turn and resume lifecycle', () => {
     const info = (agentId: string, status: AgentProcessInfo['status'] = 'running'): AgentProcessInfo => ({
       agentId: agentId as AgentId,

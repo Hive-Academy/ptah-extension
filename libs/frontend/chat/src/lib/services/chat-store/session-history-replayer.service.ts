@@ -38,7 +38,7 @@
  *   event-loop turn between them — and so without live events to fence.
  */
 
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, Injector, inject, signal } from '@angular/core';
 import { LoggingService, yieldToMacrotask } from '@ptah-extension/core';
 import { isTerminalTurnPhase } from '@ptah-extension/shared';
 import type {
@@ -48,9 +48,11 @@ import type {
   SubagentRecord,
 } from '@ptah-extension/shared';
 import {
+  AgentMonitorStore,
   HistoryMessageBuilder,
   SessionManager,
   StreamingHandlerService,
+  SubagentExecutionStore,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
@@ -144,6 +146,7 @@ export class SessionHistoryReplayer {
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly sessionManager = inject(SessionManager);
   private readonly historyMessageBuilder = inject(HistoryMessageBuilder);
+  private readonly injector = inject(Injector);
   private readonly logger = inject(LoggingService);
 
   /** History replay chunk size. */
@@ -322,6 +325,7 @@ export class SessionHistoryReplayer {
     claim: ReplayClaim,
     sessionId: SessionId,
     resumableSubagents: SubagentRecord[] | undefined,
+    resumeProviderId?: string,
   ): Promise<HistoryReplayOutcome> {
     const { tabId } = claim;
     const chunkSize = SessionHistoryReplayer.REPLAY_CHUNK_SIZE;
@@ -357,6 +361,8 @@ export class SessionHistoryReplayer {
           return 'superseded';
         }
       }
+
+      this.restoreNativeCompletedChildren(events, tabId, sessionId, resumeProviderId);
 
       const seed = this.seeds.get(claim.claim);
       const historyToolIds = this.historyIndexes.get(claim.claim)?.toolIds;
@@ -563,6 +569,68 @@ export class SessionHistoryReplayer {
     } finally {
       this.markReplayFinished(claim);
       this.releaseReplayAdmission();
+    }
+  }
+
+  /** Restore native completed children from a full replay or a cached tab's resume reply. */
+  restoreNativeCompletedChildren(
+    events: readonly FlatStreamEventUnion[],
+    tabId: string,
+    sessionId: SessionId,
+    resumeProviderId?: string,
+  ): void {
+    // Claude replay owns its own monitor lifecycle, including dismissed records.
+    const hasNativeCodexAgent = events.some((event) =>
+      event.eventType === 'agent_start' &&
+      event.source === 'history' &&
+      event.id.startsWith('[') &&
+      /,"agent_start","item\/(?:started|completed)",\d+\]$/.test(event.id),
+    );
+    if (resumeProviderId !== 'openai-codex' && !hasNativeCodexAgent) return;
+
+    const childrenByParent = new Map<string, FlatStreamEventUnion[]>();
+    const resultsByTool = new Map<string, ToolResultEvent>();
+    for (const event of events) {
+      if (event.parentToolUseId && event.eventType !== 'agent_start') {
+        const children = childrenByParent.get(event.parentToolUseId) ?? [];
+        children.push(event);
+        childrenByParent.set(event.parentToolUseId, children);
+      }
+      if (event.eventType === 'tool_result') {
+        resultsByTool.set(event.toolCallId, event);
+      }
+    }
+    for (const start of events) {
+      if (start.eventType !== 'agent_start' || !start.agentId) continue;
+      const key = start.toolCallId;
+      const children = childrenByParent.get(key) ?? [];
+      const result = resultsByTool.get(key);
+      if (!result || children.length === 0) continue;
+      const monitor = this.injector.get(AgentMonitorStore);
+      const execution = this.injector.get(SubagentExecutionStore);
+      const existingRecord = monitor.subagents().get(key);
+      if (
+        existingRecord &&
+        !['completed', 'failed', 'stopped', 'interrupted'].includes(
+          existingRecord.status,
+        )
+      ) continue;
+      if (!existingRecord) {
+        this.logger.debug(
+          'SessionHistoryReplayer',
+          'Completed history agent missing from monitor; restoring record',
+          { toolCallId: key, sessionId },
+        );
+        monitor.onAgentStart(start);
+        monitor.onTaskToolResult(key, result.isError ?? false, result.timestamp);
+      }
+      if (execution.restoreHistoryChild(key, sessionId, start.agentId, children)) {
+        this.logger.debug(
+          'SessionHistoryReplayer',
+          'Completed history child execution was missing; restored transcript',
+          { toolCallId: key, eventCount: children.length },
+        );
+      }
     }
   }
 

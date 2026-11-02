@@ -458,7 +458,9 @@ export const thread = z.object({
   projectId: string.nullable(),
   sessionId: string,
   source: z.union([
-    z.enum(['cli', 'vscode', 'exec', 'appServer', 'unknown']),
+    // Thread source labels are not used by history projection; allow new
+    // server labels while validating the structured source variants.
+    string,
     z.object({ custom: string }),
     z.object({ subAgent: json }),
   ]),
@@ -487,6 +489,18 @@ export const thread = z.object({
   gitInfo: object.nullish(),
   section: object.nullish(),
   threadSource: string.nullish(),
+});
+export const historyPage = z.object({
+  nextCursor: string.nullish(),
+  backwardsCursor: string.nullish(),
+});
+export const historySortDirection = z.enum(['asc', 'desc']);
+export const historyLimit = integer.min(0).max(4_294_967_295).nullish();
+export const threadItemEntry = z.object({
+  turnId: string,
+  item,
+  startedAtMs: integer.nullish(),
+  completedAtMs: integer.nullish(),
 });
 export const threadOptions = {
   approvalPolicy: approvalPolicy.nullish(),

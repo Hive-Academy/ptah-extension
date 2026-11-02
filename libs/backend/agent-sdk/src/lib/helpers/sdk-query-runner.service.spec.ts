@@ -692,6 +692,22 @@ describe('SdkQueryRunner', () => {
   });
 
   describe('invokeWithLoadedQuery', () => {
+    it('refuses stale Codex auth on the interactive launch path', () => {
+      const h = makeRunner();
+      const queryFn: QueryFunction = () => {
+        throw new Error('query should not run');
+      };
+      expect(() =>
+        h.runner.invokeWithLoadedQuery(
+          queryFn,
+          emptyPrompt(),
+          {
+            env: { ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER },
+          } as SdkQueryOptions,
+        ),
+      ).toThrow('Codex chat requires a host with the native Codex runtime.');
+    });
+
     it('invokes the loaded queryFn with the prompt + options and returns its query', () => {
       const h = makeRunner();
       const freshQuery = createFakeQuery('fresh');
@@ -879,14 +895,14 @@ describe('SdkQueryRunner', () => {
       // The clearing is scoped to the override path. A normal run still
       // inherits process.env exactly as it did before.
       const previous = process.env['ANTHROPIC_AUTH_TOKEN'];
-      process.env['ANTHROPIC_AUTH_TOKEN'] = 'codex-proxy-managed';
+      process.env['ANTHROPIC_AUTH_TOKEN'] = 'ambient-claude-token';
       try {
         const h = makeRunner({ authEnv: {} as AuthEnv });
 
         const options = await capturedOptions(h);
         const env = options.env as Record<string, string | undefined>;
 
-        expect(env['ANTHROPIC_AUTH_TOKEN']).toBe('codex-proxy-managed');
+        expect(env['ANTHROPIC_AUTH_TOKEN']).toBe('ambient-claude-token');
       } finally {
         if (previous === undefined) {
           delete process.env['ANTHROPIC_AUTH_TOKEN'];
@@ -1315,7 +1331,7 @@ describe('SdkQueryRunner — concrete dispatch provenance', () => {
     );
   });
 
-  it('names the provider of the auth env written onto the SDK options', async () => {
+  it('classifies stale Codex auth but refuses it at the query launch gate', async () => {
     const authEnv = {
       ANTHROPIC_BASE_URL: 'http://127.0.0.1:4141',
       ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER,
@@ -1332,36 +1348,22 @@ describe('SdkQueryRunner — concrete dispatch provenance', () => {
       });
     }, authEnv);
 
-    await h.runner.runOneShot({
+    expect(providerOf(authEnv)).toBe('openai-codex');
+    await expect(h.runner.runOneShot({
       mode: 'oneShot',
       cwd: '/work',
       model: 'haiku',
       prompt: 'curate',
       mcpServerRunning: false,
       dispatch: ride('memory-curator', 'memory-curator'),
+    })).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+      providerId: 'openai-codex',
+      message: 'Codex chat requires a host with the native Codex runtime.',
     });
-    await h.runner.runOneShot({
-      mode: 'oneShot',
-      cwd: '/work',
-      model: 'haiku',
-      prompt: 'judge',
-      mcpServerRunning: false,
-      dispatch: ride('skill-lane', 'judge'),
-    });
-
-    expect(seen).toEqual([
-      {
-        provider: 'openai-codex',
-        model: 'claude-haiku-4-5',
-        envProvider: 'openai-codex',
-      },
-      {
-        provider: 'openai-codex',
-        model: 'claude-haiku-4-5',
-        envProvider: 'openai-codex',
-      },
-    ]);
-    expect(seen.every((row) => row.provider === row.envProvider)).toBe(true);
+    await Promise.resolve();
+    expect(h.queryFn).not.toHaveBeenCalled();
+    expect(seen).toEqual([]);
   });
 
   it('reports the provider used after async setup, not the earlier one', async () => {
@@ -1387,13 +1389,16 @@ describe('SdkQueryRunner — concrete dispatch provenance', () => {
 
     expect(providerOf({ ...authEnv })).toBe(ANTHROPIC_DIRECT_PROVIDER_ID);
 
-    await h.runner.runOneShot({
+    await expect(h.runner.runOneShot({
       mode: 'oneShot',
       cwd: '/work',
       model: 'haiku',
       prompt: 'curate',
       mcpServerRunning: false,
       dispatch: ride('memory-curator', 'memory-curator'),
+    })).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+      providerId: 'openai-codex',
     });
     await h.runner.runOneShot({
       mode: 'oneShot',
@@ -1404,17 +1409,14 @@ describe('SdkQueryRunner — concrete dispatch provenance', () => {
       dispatch: ride('skill-lane', 'judge'),
     });
 
-    expect(seen).toEqual([
-      'memory-curator:openai-codex',
-      'skill-lane:openrouter',
-    ]);
+    expect(seen).toEqual(['skill-lane:openrouter']);
     const tokens = h.queryFn.mock.calls.map(
       (args) =>
         (args[0] as { options: SdkQueryOptions }).options.env?.[
           'ANTHROPIC_AUTH_TOKEN'
         ],
     );
-    expect(tokens).toEqual(later);
+    expect(tokens).toEqual([OPENROUTER_PROXY_TOKEN_PLACEHOLDER]);
   });
 
   it('reports the override provider and the concrete model', async () => {

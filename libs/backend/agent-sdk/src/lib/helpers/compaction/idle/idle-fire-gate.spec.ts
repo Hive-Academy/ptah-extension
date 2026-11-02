@@ -15,7 +15,6 @@ const attempt: Extract<IdleAttempt, { kind: 'pending' }> = {
 const state: IdleSessionState = {
   sessionId: 's',
   runToken: 'r',
-  codexProxy: false,
   lastTurn: {
     turnId: 't',
     endedAt: 1,
@@ -104,7 +103,6 @@ describe('evaluateFireGate', () => {
       'compaction-state',
     );
     expect(gate({ ...state, compactionOpen: true })).toBe('compaction-state');
-    expect(gate({ ...state, codexProxy: true })).toBe('not-actable');
     expect(gate()).toBeNull();
   });
   it('AC 3.8: refuses warning or rejected rate limits', () => {

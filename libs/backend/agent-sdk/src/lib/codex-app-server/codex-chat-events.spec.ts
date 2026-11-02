@@ -23,6 +23,75 @@ function setup() {
   };
 }
 describe('CodexChatEvents', () => {
+  it('releases a spawn after every receiver terminal with final child text', () => {
+    const { projection } = setup();
+    const start = projection.map({
+      ...identity, sequence: 1, type: 'toolStarted', toolId: 'spawn',
+      toolName: 'spawnAgent', agentThreadIds: ['a', 'b'],
+      input: { subagent_type: 'codex', description: 'Inspect', prompt: 'Inspect both' },
+    });
+    expect(start).toContainEqual(expect.objectContaining({
+      eventType: 'tool_start', toolCallId: 'spawn', isTaskTool: true,
+      toolName: 'Task',
+    }));
+    expect(start.filter((event) => event.eventType === 'agent_start')).toHaveLength(2);
+    expect(projection.map({
+      ...identity, sequence: 2, type: 'toolCompleted', toolId: 'spawn',
+      status: 'completed', agentThreadIds: ['a', 'b'], output: null,
+    }).some((event) => event.eventType === 'tool_result')).toBe(false);
+    const a = { ...identity, threadId: 'a', turnId: 'a-turn', parentToolUseId: 'spawn' };
+    const b = { ...identity, threadId: 'b', turnId: 'b-turn', parentToolUseId: 'spawn' };
+    projection.map({ ...a, sequence: 3, type: 'textFinal', itemId: 'a-text', text: 'A answer' });
+    expect(projection.map({ ...a, sequence: 4, type: 'terminal', status: 'completed' })
+      .some((event) => event.eventType === 'tool_result')).toBe(false);
+    projection.map({ ...identity, sequence: 5, type: 'terminal', status: 'completed' });
+    expect(projection.hasPendingChildren).toBe(true);
+    projection.map({ ...b, sequence: 6, type: 'textFinal', itemId: 'b-text', text: 'B answer' });
+    const last = projection.map({ ...b, sequence: 7, type: 'terminal', status: 'completed' });
+    expect(last.map((event) => event.eventType)).toEqual([
+      'message_complete', 'tool_result',
+    ]);
+    expect(last[1]).toMatchObject({ output: 'A answer\nB answer', toolCallId: 'spawn' });
+    expect(projection.hasPendingChildren).toBe(false);
+  });
+
+  it('releases a spawn completed after its child already terminated', () => {
+    const { projection } = setup();
+    projection.map({ ...identity, sequence: 1, type: 'toolStarted',
+      toolId: 'spawn', toolName: 'spawnAgent', agentThreadIds: ['child'],
+      input: { subagent_type: 'codex', description: 'Inspect' } });
+    const child = { ...identity, threadId: 'child', turnId: 'child-turn',
+      parentToolUseId: 'spawn' };
+    projection.map({ ...child, sequence: 2, type: 'textFinal', itemId: 'answer', text: 'Done' });
+    projection.map({ ...child, sequence: 3, type: 'terminal', status: 'completed' });
+    expect(projection.map({ ...identity, sequence: 4, type: 'toolCompleted',
+      toolId: 'spawn', status: 'completed', agentThreadIds: ['child'], output: null,
+    })).toContainEqual(expect.objectContaining({
+      eventType: 'tool_result', toolCallId: 'spawn', output: 'Done',
+    }));
+  });
+
+  it('holds a nested spawn until its grandchild completes', () => {
+    const { projection } = setup();
+    const child = { ...identity, threadId: 'child', turnId: 'child-turn',
+      parentToolUseId: 'root-spawn' };
+    projection.map({ ...child, sequence: 1, type: 'toolStarted',
+      toolId: 'nested-spawn', toolName: 'spawnAgent', agentThreadIds: ['grandchild'],
+      input: { subagent_type: 'codex', description: 'Review' } });
+    expect(projection.map({ ...child, sequence: 2, type: 'toolCompleted',
+      toolId: 'nested-spawn', status: 'completed', agentThreadIds: ['grandchild'],
+      output: null,
+    }).some((event) => event.eventType === 'tool_result')).toBe(false);
+    const grandchild = { ...identity, threadId: 'grandchild', turnId: 'grandchild-turn',
+      parentToolUseId: 'nested-spawn' };
+    projection.map({ ...grandchild, sequence: 3, type: 'textFinal',
+      itemId: 'answer', text: 'Reviewed' });
+    const result = projection.map({ ...grandchild, sequence: 4, type: 'terminal',
+      status: 'completed' });
+    expect(result).toContainEqual(expect.objectContaining({
+      eventType: 'tool_result', toolCallId: 'nested-spawn', output: 'Reviewed',
+    }));
+  });
   it('keeps delta-only text at block one after reasoning and does not republish it at terminal', async () => {
     const { projection, callbacks } = setup();
     projection.map({ ...identity, sequence: 1, type: 'reasoning', phase: 'delta', itemId: 'r', text: 'thinking' });

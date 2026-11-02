@@ -82,6 +82,15 @@ function boundJson(value: CodexJsonValue): CodexJsonValue {
   );
 }
 
+function agentInput(item: Extract<Item, { type: 'collabAgentToolCall' }>): CodexJsonValue {
+  const prompt = item.prompt?.trim();
+  return {
+    subagent_type: 'codex',
+    description: prompt ? boundText(prompt.split(/\r?\n/, 1)[0] ?? prompt) : 'Codex sub-agent',
+    ...(prompt ? { prompt: boundText(prompt) } : {}),
+  };
+}
+
 /** One instance per context/process generation. No I/O or routing side effects. */
 export class CodexEventTranslator {
   private sequence = 0;
@@ -479,6 +488,7 @@ export class CodexEventTranslator {
                 toolId: item.id,
                 status: toolStatus(item.status),
                 output: { receiverThreadIds: item.receiverThreadIds },
+                ...(item.tool === 'spawnAgent' ? { agentThreadIds: item.receiverThreadIds } : {}),
               },
             ]
           : [
@@ -486,7 +496,10 @@ export class CodexEventTranslator {
                 type: 'toolStarted',
                 toolId: item.id,
                 toolName: item.tool,
-                input: { receiverThreadIds: item.receiverThreadIds },
+                input: item.tool === 'spawnAgent'
+                  ? agentInput(item)
+                  : { receiverThreadIds: item.receiverThreadIds },
+                ...(item.tool === 'spawnAgent' ? { agentThreadIds: item.receiverThreadIds } : {}),
               },
             ];
       case 'webSearch':

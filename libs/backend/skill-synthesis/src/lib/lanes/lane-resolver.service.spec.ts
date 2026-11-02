@@ -251,6 +251,29 @@ describe('resolveLaneModel — the three-line ladder', () => {
 });
 
 describe('LaneResolverService.resolve — auth-unresolvable stalls (Q2)', () => {
+  it.each(['openai-codex', ''])(
+    'stalls with a readable native-runtime reason for provider %j',
+    async (provider) => {
+      const refusal = Object.assign(
+        new Error('Codex chat requires a host with the native Codex runtime.'),
+        { name: 'AuthRequiredError', providerId: 'openai-codex' },
+      );
+      const resolve = jest.fn().mockRejectedValue(refusal);
+      const ws = makeWorkspace({ [SKILL_LANE_KEYS.judge.provider]: provider });
+      const out = await new LaneResolverService(logger, ws, { resolve }).resolve('judge');
+
+      expect(resolve).toHaveBeenCalledWith(provider, 'lane');
+      expect(out).toMatchObject({
+        ok: false,
+        failure: {
+          kind: 'auth-unresolvable',
+          reason: 'Lane judge: Codex chat requires a host with the native Codex runtime.',
+          retryAfterMs: LANE_AUTH_RETRY_MS,
+        },
+      });
+    },
+  );
+
   it('returns a failure instead of falling back to the active provider', async () => {
     const resolve = jest
       .fn()

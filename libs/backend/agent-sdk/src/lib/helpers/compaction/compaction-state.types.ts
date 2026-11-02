@@ -73,8 +73,6 @@ export type PreCompactTrigger = 'auto' | 'manual';
  * or only observe it.
  */
 export interface CompactionSessionClass {
-  /** The session runs through the Codex proxy path. */
-  readonly codexProxy: boolean;
   /**
    * Result of the E2 experiment for this class: `true` passed, `false`
    * failed, `null` not run. Only `true` lets the coordinator act; the

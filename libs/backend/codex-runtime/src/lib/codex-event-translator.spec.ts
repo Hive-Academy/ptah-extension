@@ -580,6 +580,26 @@ describe('CodexEventTranslator', () => {
     ).toMatchObject([{ type: 'toolCompleted', status: 'failed', exitCode: 2 }]);
   });
 
+  it('carries native spawn metadata and completes a finished wait', () => {
+    const spawn = {
+      type: 'collabAgentToolCall', id: 'spawn-1', senderThreadId: 'thread',
+      receiverThreadIds: ['child'], status: 'inProgress', tool: 'spawnAgent',
+      agentsStates: {}, prompt: 'Inspect parser\nReport findings', model: 'native-model',
+    };
+    expect(translator.translate(itemFrame(spawn))).toMatchObject([{
+      type: 'toolStarted', toolId: 'spawn-1', toolName: 'spawnAgent',
+      agentThreadIds: ['child'],
+      input: { subagent_type: 'codex', description: 'Inspect parser', prompt: 'Inspect parser\nReport findings' },
+    }]);
+    expect(translator.translate(itemFrame({ ...spawn, status: 'completed' }, true))).toMatchObject([{
+      type: 'toolCompleted', toolId: 'spawn-1', agentThreadIds: ['child'], status: 'completed',
+    }]);
+    const wait = { ...spawn, id: 'wait-1', tool: 'wait' };
+    expect(translator.translate(itemFrame(wait))).toMatchObject([{ type: 'toolStarted', toolId: 'wait-1' }]);
+    expect(translator.translate(itemFrame({ ...wait, status: 'completed' }, true)))
+      .toMatchObject([{ type: 'toolCompleted', toolId: 'wait-1', status: 'completed' }]);
+  });
+
   it('passes MCP failure result content with the error text and drops _meta', () => {
     const result = {
       content: [{ type: 'text', text: 'partial' }],

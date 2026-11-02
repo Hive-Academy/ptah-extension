@@ -50,7 +50,6 @@ export function evaluateFireGate(
     state.compactionOpen
   )
     return 'compaction-state';
-  if (state.codexProxy) return 'not-actable';
   if (state.rateLimit === 'allowed_warning' || state.rateLimit === 'rejected')
     return 'rate-limited';
   const phase = lookups.turnPhase(state.sessionId);
