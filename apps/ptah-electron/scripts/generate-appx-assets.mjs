@@ -6,6 +6,10 @@
  * Output: apps/ptah-electron/src/assets/appx/{StoreLogo,Square44x44Logo,
  *         Square150x150Logo,Wide310x150Logo}.png (committed; electron-builder
  *         reads them via buildResources/appx).
+ *         Also Square44x44Logo.targetsize-N_altform-unplated.png variants:
+ *         without them Windows draws the taskbar / Start icon on a plate
+ *         filled with the user's accent colour (often purple or blue).
+ *         Their presence makes electron-builder run makepri.
  *
  * Run once, and again whenever the icon changes:
  *   node apps/ptah-electron/scripts/generate-appx-assets.mjs
@@ -67,4 +71,12 @@ await squareTile('StoreLogo.png', 50);
 await squareTile('Square44x44Logo.png', 44);
 await squareTile('Square150x150Logo.png', 150);
 await wideTile('Wide310x150Logo.png');
+for (const size of [16, 24, 32, 48, 256]) {
+  await sharp(source)
+    .resize(size, size, { fit: 'contain', background: TRANSPARENT })
+    .png()
+    .toFile(
+      join(outDir, `Square44x44Logo.targetsize-${size}_altform-unplated.png`),
+    );
+}
 console.log(`Wrote Store tiles to ${outDir}`);
