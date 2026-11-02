@@ -662,7 +662,7 @@ describe('CodexAppServerProcess', () => {
     const pending = runtime.request('turn/interrupt', ids);
     const rejected = expect(pending).rejects.toThrow('invalid protocol frame');
     if (kind === 'oversize')
-      child.stdout.emit('data', Buffer.alloc(1024 * 1024 + 1, 65));
+      child.stdout.emit('data', Buffer.alloc(16 * 1024 * 1024 + 1, 65));
     if (kind === 'malformed')
       child.stdout.emit('data', Buffer.from('secret-invalid-json\n'));
     if (kind === 'invalid-utf8')
@@ -677,6 +677,20 @@ describe('CodexAppServerProcess', () => {
     expect(onNotification).not.toHaveBeenCalled();
     expect(onRequest).not.toHaveBeenCalled();
     expect(child.stdin.writableEnded).toBe(true);
+    if (kind === 'oversize')
+      expect(logger.debug).toHaveBeenCalledWith('Codex process failure',
+        expect.objectContaining({ byteSize: 16 * 1024 * 1024 + 1 }));
+  });
+
+  it('accepts an inbound notification larger than the outbound frame cap', async () => {
+    await start();
+    const frame = {
+      method: 'item/agentMessage/delta',
+      params: { ...ids, itemId: 'item', delta: 'x'.repeat(2 * 1024 * 1024) },
+    };
+    child.send(frame);
+    expect(onNotification).toHaveBeenCalledWith(frame);
+    expect(child.killed).toBe(false);
   });
 
   it('rejects only the invalid catalog result and releases its timer', async () => {

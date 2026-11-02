@@ -99,6 +99,7 @@ export const codexRequestSchemas = {
   },
   'thread/list': {
     params: z.strictObject({
+      ancestorThreadId: string.nullish(),
       archived: z.boolean().nullish(),
       cursor: string.nullish(),
       cwd: z.union([string, z.array(string)]).nullish(),

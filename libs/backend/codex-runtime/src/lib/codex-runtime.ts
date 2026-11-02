@@ -103,6 +103,7 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
         resume.threadId,
         (method, params) => process.request(method, params),
         () => { if (this.closed || signal.aborted) throw new Error('Codex history read aborted'); },
+        this.options.logger,
       );
     } catch (error) {
       throw CodexSessionHistoryError.from(error);

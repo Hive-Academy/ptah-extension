@@ -23,8 +23,9 @@ import {
   type CodexRequestResult,
 } from './codex-protocol-validator';
 
-const FRAME_BYTES = 1024 * 1024;
-const QUEUED_BYTES = 4 * FRAME_BYTES;
+const OUTBOUND_FRAME_BYTES = 1024 * 1024;
+const INBOUND_FRAME_BYTES = 16 * 1024 * 1024;
+const QUEUED_BYTES = 4 * OUTBOUND_FRAME_BYTES;
 const MAX_PENDING = 128;
 const MAX_BUFFERED_NOTIFICATIONS = 64;
 const MAX_UNKNOWN_NOTIFICATION_METHODS = 64;
@@ -106,6 +107,12 @@ export class CodexProcessFailureError extends Error {
   }
 }
 
+class CodexInboundFrameLimitError extends Error {
+  constructor(readonly byteSize: number) {
+    super('Frame limit');
+  }
+}
+
 export class CodexAppServerProcess {
   private verifiedHome?: string;
   private readonly stderr = new CodexStderrTail();
@@ -131,7 +138,7 @@ export class CodexAppServerProcess {
   private nextId = 0;
   private readonly pending = new Map<number, Pending>();
   private readonly approvals = new Map<string | number, Approval>();
-  private frameBuffer = Buffer.alloc(FRAME_BYTES);
+  private frameBuffer = Buffer.alloc(OUTBOUND_FRAME_BYTES);
   private frameBytes = 0;
   private queuedBytes = 0;
   private killTimer?: Timer;
@@ -325,9 +332,15 @@ export class CodexAppServerProcess {
         const newline = chunk.indexOf(10, offset);
         const end = newline < 0 ? chunk.length : newline;
         const length = end - offset;
-        if (this.frameBytes + length > FRAME_BYTES)
-          throw new Error('Frame limit');
-        // Fixed storage also bounds allocation overhead for single-byte fragmentation.
+        const byteSize = this.frameBytes + length;
+        if (byteSize > INBOUND_FRAME_BYTES)
+          throw new CodexInboundFrameLimitError(byteSize);
+        // Grow only when needed; small frames retain the cheap initial buffer.
+        if (byteSize > this.frameBuffer.length)
+          this.frameBuffer = Buffer.concat(
+            [this.frameBuffer],
+            Math.min(INBOUND_FRAME_BYTES, Math.max(byteSize, this.frameBuffer.length * 2)),
+          );
         chunk.copy(this.frameBuffer, this.frameBytes, offset, end);
         this.frameBytes += length;
         if (newline < 0) break;
@@ -513,7 +526,7 @@ export class CodexAppServerProcess {
     validateCodexFrame(frame, responseMethod);
     const bytes = Buffer.from(JSON.stringify(frame) + '\n');
     if (
-      bytes.length - 1 > FRAME_BYTES ||
+      bytes.length - 1 > OUTBOUND_FRAME_BYTES ||
       this.queuedBytes + bytes.length > QUEUED_BYTES
     )
       throw new Error('Codex outbound queue limit reached');
@@ -577,6 +590,9 @@ export class CodexAppServerProcess {
           : {}),
         ...(cause instanceof CodexRequestRejectedError
           ? { rpcCode: cause.rpcCode }
+          : {}),
+        ...(cause instanceof CodexInboundFrameLimitError
+          ? { byteSize: cause.byteSize }
           : {}),
         ...(initializeTimeout && spawnStartedAt !== undefined
           ? {

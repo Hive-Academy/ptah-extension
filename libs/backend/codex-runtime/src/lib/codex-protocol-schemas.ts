@@ -458,7 +458,9 @@ export const thread = z.object({
   projectId: string.nullable(),
   sessionId: string,
   source: z.union([
-    z.enum(['cli', 'vscode', 'exec', 'appServer', 'unknown']),
+    // Thread source labels are not used by history projection; allow new
+    // server labels while validating the structured source variants.
+    string,
     z.object({ custom: string }),
     z.object({ subAgent: json }),
   ]),

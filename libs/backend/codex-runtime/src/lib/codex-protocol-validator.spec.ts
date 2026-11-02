@@ -61,6 +61,18 @@ const historyThread = {
   historyMode: 'paginated',
   parentThreadId: null,
 };
+describe('synthetic descendant source variants', () => {
+  it.each([
+    'futureClient',
+    { subAgent: { thread_spawn: { parentThreadId: 'parent', depth: 1 } } },
+  ])('validates a thread/list row with source %p', (source) => {
+    const result = validateCodexResult('thread/list', {
+      data: [{ ...historyThread, id: 'child', parentThreadId: 'parent', source }],
+      nextCursor: null,
+    });
+    expect(result.data[0].source).toEqual(source);
+  });
+});
 const historyTurn = {
   id: 'turn', status: 'completed', itemsView: 'summary',
   items: [{ type: 'agentMessage', id: 'item', text: 'summary' }],
