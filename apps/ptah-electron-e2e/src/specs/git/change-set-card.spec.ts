@@ -25,7 +25,9 @@ import {
  */
 
 const WORKSPACE = 'C:\\ptah-e2e-ws';
-const SUMMARY = '[data-testid="chat-turn-summary"]';
+// A reopened transcript can still hold the previous rows while they leave.
+const SUMMARY =
+  '.chat-msg-item:not([data-ptah-leaving]) [data-testid="chat-turn-summary"]';
 
 /** Text tokens that identify each transcript message in DOM order. */
 const TOKENS = {
@@ -150,20 +152,23 @@ async function openSession(
 }
 
 /**
- * The transcript's children in DOM order, each reduced to the message token
+ * The transcript items' children in DOM order, each reduced to the message token
  * it shows or `summary` for a turn summary chip.
  */
 async function transcriptOrder(tile: Locator): Promise<string[]> {
   return tile.evaluate((host, tokens) => {
     const content = host.querySelector('.chat-scroll-content');
     if (!content) return [];
-    return Array.from(content.children).flatMap((child) => {
-      if (child.getAttribute('data-testid') === 'chat-turn-summary') {
-        return ['summary'];
-      }
-      const text = child.textContent ?? '';
-      return tokens.filter((token) => text.includes(token));
-    });
+    return Array.from(content.children)
+      .filter((item) => item.matches('.chat-msg-item:not([data-ptah-leaving])'))
+      .flatMap((item) => Array.from(item.children))
+      .flatMap((child) => {
+        if (child.getAttribute('data-testid') === 'chat-turn-summary') {
+          return ['summary'];
+        }
+        const text = child.textContent ?? '';
+        return tokens.filter((token) => text.includes(token));
+      });
   }, Object.values(TOKENS));
 }
 

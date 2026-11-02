@@ -704,10 +704,6 @@ AGENT STATUS ANIMATION CLASSES
   animation: divine-aura 3s ease-in-out infinite;
 }
 
-.message-enter {
-  animation: fadeIn 200ms ease-out;
-}
-
 .drawer-enter {
   animation: slideInRight 300ms ease-out;
 }
@@ -834,6 +830,12 @@ html.ptah-vt-active::view-transition-new(root) {
 /* The root snapshot owns the entire surface change. Its entering content must
    be still, including native animate.enter panels and chat pane switches. */
 html.ptah-vt-active :is(.ptah-motion-enter, .ptah-pane-switch-enter, .inspector-stats-enter) {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+}
+
+html.ptah-vt-active .ptah-msg-enter {
   animation-duration: 0.01ms !important;
   animation-delay: 0s !important;
   animation-iteration-count: 1 !important;
@@ -3810,13 +3812,13 @@ END OF ANUBIS DESIGN SYSTEM
    frame. Painted only once a message exists, so an empty transcript draws no
    empty card. The user bubble keeps its accent tint, code keeps
    --glass-code and the composer keeps --glass-fill-input. */
-:root[data-theme][data-glass='on'] :is(ptah-chat-transcript, ptah-lane-transcript) .chat-scroll-content:has(> .chat-msg-slot) {
+:root[data-theme][data-glass='on'] :is(ptah-chat-transcript, ptah-lane-transcript) .chat-scroll-content:has(> :is(.chat-msg-slot, .chat-msg-item)) {
   background: var(--glass-scrim-text);
   border-radius: var(--glass-radius);
   padding-inline: var(--sidebar-spacing-md);
   padding-bottom: var(--sidebar-spacing-md);
 }
-:root[data-theme][data-glass='on'] :is(ptah-chat-transcript, ptah-lane-transcript) .chat-scroll-content:has(> .chat-msg-slot) :is([data-glass-surface='content'], .chat-bubble:not(.chat-bubble-primary):not(.cs-user-bubble)) {
+:root[data-theme][data-glass='on'] :is(ptah-chat-transcript, ptah-lane-transcript) .chat-scroll-content:has(> :is(.chat-msg-slot, .chat-msg-item)) :is([data-glass-surface='content'], .chat-bubble:not(.chat-bubble-primary):not(.cs-user-bubble)) {
   background: transparent;
   box-shadow: none;
 }

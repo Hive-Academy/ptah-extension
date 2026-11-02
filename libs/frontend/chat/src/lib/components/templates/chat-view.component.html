@@ -73,6 +73,7 @@
             [attr.data-tab-id]="tabId"
             [tabId]="tabId"
             [entering]="tabId === enteringTabId()"
+            [paneSwitching]="tabId === pendingEntranceTabId() || tabId === enteringTabId()"
             [leaving]="tabId === leavingTabId() && tabId !== resolvedTabId()"
               [overlapping]="tabId === leavingTabId() && enteringTabId() === resolvedTabId()"
             [active]="tabId === resolvedTabId() && mainPanelShowing()"

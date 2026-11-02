@@ -8,6 +8,7 @@ import {
   OnChanges,
   signal,
 } from '@angular/core';
+import { isStrictHeadPrepend } from './transcript-entrance';
 
 const MESSAGE_SLOT_SELECTOR = '[data-ptah-transcript-message-id]';
 const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
@@ -148,16 +149,4 @@ export class TranscriptPrependAnchorDirective implements OnChanges {
     if (delta <= 0 || delta > root.scrollHeight) return;
     root.scrollTop = root.scrollTop + delta;
   }
-}
-
-function isStrictHeadPrepend(
-  previous: readonly TranscriptMessageIdentity[],
-  next: readonly TranscriptMessageIdentity[],
-): boolean {
-  if (previous.length === 0 || next.length <= previous.length) return false;
-  const suffixStart = next.length - previous.length;
-  for (let index = 0; index < previous.length; index++) {
-    if (next[suffixStart + index].id !== previous[index].id) return false;
-  }
-  return true;
 }

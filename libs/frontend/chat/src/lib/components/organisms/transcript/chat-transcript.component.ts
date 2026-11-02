@@ -81,6 +81,7 @@ import {
 import { filterCompactionNoise } from './transcript-filter.utils';
 import { TranscriptOlderHistorySentinelDirective } from './transcript-older-history-sentinel.directive';
 import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
+import { TranscriptMotionDirective } from './transcript-motion.directive';
 import { TranscriptRenderWindow } from './transcript-render-window';
 import { TranscriptSlotDirective } from './transcript-slot.directive';
 import {
@@ -254,6 +255,7 @@ function findAgentNode(
     TranscriptSlotDirective,
     TranscriptOlderHistorySentinelDirective,
     TranscriptPrependAnchorDirective,
+    TranscriptMotionDirective,
     // Used only inside `@defer`, so the compiler loads it lazily.
     ChangeSetCardComponent,
     // Used only inside `@defer`, so the compiler loads it lazily.
@@ -349,6 +351,7 @@ export class ChatTranscriptComponent {
   readonly active = input.required<boolean>();
   /** True for one session-switch entrance window. */
   readonly entering = input(false);
+  readonly paneSwitching = input(false);
   /**
    * True while this inactive transcript stays visible during a tab switch.
    * Its frozen view model keeps the last content, and it takes no input.
@@ -441,7 +444,7 @@ export class ChatTranscriptComponent {
    * suppress fade keyframes during the finalize burst.
    */
   protected readonly isFinalizingTransition = signal(false);
-  private readonly replayMotionHold = signal(false);
+  protected readonly replayMotionHold = signal(false);
   protected readonly motionSuppressed = computed(
     () =>
       this.historyReplaying() ||
