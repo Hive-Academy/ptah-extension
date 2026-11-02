@@ -179,8 +179,11 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
     // The new session took the single pane. Open the first session beside it
     // so both are live: it takes the opposite pane (the invoked, active one)
     // and the new session keeps its pane. Pane sides are stable host ids.
+    // The rail groups cards by status, so pick the first session by its tab id.
     const { opened: firstTile, kept: secondTile } =
-      await ui.openRailCardBeside(cards.first());
+      await ui.openRailCardBeside(
+        cards.and(page.locator(`[data-tab-id="${firstTabId}"]`)),
+      );
     await expect(panes).toHaveCount(2);
 
     await chooseFableModel(secondTile);
