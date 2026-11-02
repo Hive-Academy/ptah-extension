@@ -847,7 +847,12 @@ describe('CodexChatAdapter', () => {
         turnId: 'turn',
       }),
     );
-    expect(stats).not.toHaveBeenCalled();
+    // A terminal without usage publishes unpriced, partial lifetime stats.
+    expect(stats).toHaveBeenCalledTimes(1);
+    expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+      turnCost: null,
+      sessionStats: expect.objectContaining({ coverage: 'partial' }),
+    }));
     expect(lifecycle.opened).toHaveBeenCalledWith(
       id,
       expect.objectContaining({ profile }),

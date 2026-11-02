@@ -238,6 +238,12 @@ export async function* streamCodexChatTurn(
           error instanceof Error ? error : new Error(String(error)),
         );
       }
+      const usageReported = usage?.inputTokens !== undefined &&
+        usage.outputTokens !== undefined;
+      // No usage and no observed terminal: publish nothing rather than
+      // invented zeros. An observed terminal without usage still publishes
+      // the lifetime stats, which the checkpoint marks as partial coverage.
+      if (!usageReported && !turnUsageObserved && !turnTerminalObserved) return;
       const contextCapacity = model
         ? resolveContextCapacity({
             route: { kind: 'native', providerId: null },

@@ -231,7 +231,7 @@ export async function resolveBillingMode(
     return 'unknown';
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      // degradation-audit: optional-capability — auth.json may be absent for this home.
+      // auth.json may be absent for this home; the billing mode is unknown.
       return 'unknown';
     }
     logger.error(

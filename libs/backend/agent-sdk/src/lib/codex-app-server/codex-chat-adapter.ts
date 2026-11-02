@@ -312,7 +312,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
         savedUsage = await this.ports.metadata.readUsage?.(id);
       } catch (error) {
         readUsageFailed = true;
-        // degradation-audit: reported — a failed checkpoint read leaves coverage partial.
+        // A failed checkpoint read leaves coverage partial (marked below).
         this.ports.logger.error(
           '[CodexChatAdapter] Native usage checkpoint read failed.',
           error instanceof Error ? error : new Error(String(error)),
@@ -600,7 +600,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
         if (this.ports.metadata.persistUsage) {
           return this.ports.metadata.persistUsage(id, checkpoint);
         }
-        // degradation-audit: optional-capability — host has no durable usage store.
+        // Optional capability: this host has no durable usage store.
         if (!this.missingUsageStoreReported) {
           this.missingUsageStoreReported = true;
           this.ports.logger.warn(
