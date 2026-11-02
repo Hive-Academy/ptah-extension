@@ -1,5 +1,5 @@
 import { injectable, inject } from 'tsyringe';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type { Logger, SubagentRegistryService } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   HookCallbackMatcher,
@@ -38,6 +38,8 @@ export class SubagentStopHookHandler {
     private readonly sdkAdapterEvents?: SdkAdapterEvents,
     @inject(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY)
     private readonly turnState?: SessionTurnStateRegistry,
+    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+    private readonly subagentRegistry?: SubagentRegistryService,
   ) {}
 
   createHooks(
@@ -93,20 +95,39 @@ export class SubagentStopHookHandler {
                   return { continue: true };
                 }
 
-                // For Subagent hooks the SDK's `toolUseID` is a per-invocation
-                // hook id (a UUID), NOT the Task tool_use id the frontend keys
-                // agents by; `SubagentStopHookInput` has no tool_use_id field.
-                // Forwarding it made the frontend miss every record, so a
-                // UUID is dropped and the frontend resolves the agent by
-                // `agentId`. The registry is not a second source: the
-                // `SubagentHookHandler` twin runs on the same hook and may
-                // already have deleted the record.
-                const toolCallId =
+                // For Subagent hooks the SDK's `toolUseID` is usually a
+                // per-invocation UUID, NOT the Task tool_use id the frontend
+                // keys agents by. Drop that UUID and recover the exact Task
+                // tool_use id from the session's registry. Multiple matches
+                // stay unresolved rather than settling an arbitrary agent.
+                // A real tool_use id passes through in any provider scheme.
+                const hookToolCallId =
                   typeof toolUseId === 'string' &&
                   toolUseId.length > 0 &&
                   !HOOK_INVOCATION_ID.test(toolUseId)
                     ? toolUseId
                     : undefined;
+                const registryToolCallIds = hookToolCallId
+                  ? []
+                  : (this.subagentRegistry?.getToolCallIdsByAgentId(
+                      input.agent_id,
+                      resolvedSessionId,
+                    ) ?? []);
+                if (registryToolCallIds.length > 1) {
+                  this.logger.warn(
+                    '[SubagentStopHookHandler] SubagentStop agent id has ambiguous Task tool ids',
+                    {
+                      sessionId: resolvedSessionId,
+                      agentId: input.agent_id,
+                      matchCount: registryToolCallIds.length,
+                    },
+                  );
+                }
+                const toolCallId =
+                  hookToolCallId ??
+                  (registryToolCallIds.length === 1
+                    ? registryToolCallIds[0]
+                    : undefined);
 
                 sdkAdapterEvents.emitSubagentEnded({
                   sessionId: resolvedSessionId,

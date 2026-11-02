@@ -204,7 +204,8 @@ function wireAgentMonitorListeners(
     // Completion only persists output. It cannot attach an SDK session or
     // authorize a prompt; the adapter awaits its admission checkpoint.
     const current = agentProcessManager.findAgentInfo(info.agentId);
-    if (current && (current.startedAt !== info.startedAt || current.status === 'running')) return;
+    if (current && (current.startedAt !== info.startedAt || current.status === 'running' ||
+      (info.turnSeq !== undefined && current.turnSeq !== undefined && info.turnSeq < current.turnSeq))) return;
     webviewManager
       .broadcastMessage(MESSAGE_TYPES.AGENT_MONITOR_EXITED, info)
       .catch((error) => {
@@ -456,6 +457,7 @@ export function persistCliSessionReference(
       agentId: info.agentId,
       task: info.task,
       startedAt: info.startedAt,
+      ...(info.turnSeq !== undefined ? { turnSeq: info.turnSeq } : {}),
       ...(info.completedAt ? { completedAt: info.completedAt } : {}),
       status: info.status,
       ...(bulkInline && persistedOutput?.stdout

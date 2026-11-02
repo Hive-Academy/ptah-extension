@@ -451,6 +451,8 @@ const CLI_LANE_CACHE_FIELDS = {
 
 export interface MonitoredAgent {
   readonly agentId: string;
+  /** Latest lifecycle turn for a same-id CLI continuation. */
+  turnSeq?: number;
   readonly cli: CliType;
   readonly task: string;
   status: AgentStatus;
@@ -1403,6 +1405,9 @@ export class AgentMonitorStore implements OnDestroy {
     });
   }
   onAgentSpawned(info: AgentProcessInfo): void {
+    const current = this._agents().find((agent) => agent.agentId === info.agentId);
+    if (info.turnSeq !== undefined && current?.turnSeq !== undefined &&
+      info.turnSeq < current.turnSeq) return;
     const hadAgents = this._agents().length > 0;
     const wf = readWorkflowFields(info);
     const parentSessionId = knownSessionId(info.parentSessionId);
@@ -1413,6 +1418,7 @@ export class AgentMonitorStore implements OnDestroy {
         const existing = list[existingIndex];
         const reopened: MonitoredAgent = {
           ...existing,
+          turnSeq: info.turnSeq ?? existing.turnSeq,
           status: info.status,
           completedAt: undefined,
           exitCode: undefined,
@@ -1463,6 +1469,7 @@ export class AgentMonitorStore implements OnDestroy {
         }
         const replacement: MonitoredAgent = {
           agentId: info.agentId,
+          turnSeq: info.turnSeq,
           cli: info.cli,
           task: info.task,
           status: info.status,
@@ -1499,6 +1506,7 @@ export class AgentMonitorStore implements OnDestroy {
 
       const fresh: MonitoredAgent = {
         agentId: info.agentId,
+        turnSeq: info.turnSeq,
         cli: info.cli,
         task: info.task,
         status: info.status,
@@ -1713,6 +1721,9 @@ export class AgentMonitorStore implements OnDestroy {
       if (foundIndex === -1) return list;
 
       const agent = list[foundIndex];
+      if ((info.turnSeq !== undefined && agent.turnSeq !== undefined &&
+          info.turnSeq < agent.turnSeq) ||
+        (info.turnSeq === undefined && (agent.turnSeq ?? 1) > 1)) return list;
       const completedAt = info.completedAt
         ? new Date(info.completedAt).getTime()
         : Date.now();
@@ -1720,6 +1731,7 @@ export class AgentMonitorStore implements OnDestroy {
       const next = [...list];
       next[foundIndex] = {
         ...agent,
+        turnSeq: info.turnSeq ?? agent.turnSeq,
         status: info.status,
         exitCode: info.exitCode,
         cliSessionId: info.cliSessionId || agent.cliSessionId,
@@ -1899,17 +1911,17 @@ export class AgentMonitorStore implements OnDestroy {
       }
     }
     if (info.cliSessionId) {
-      for (const a of list) {
-        if (a.cliSessionId !== info.cliSessionId) continue;
-        if (a.status === 'running') continue;
-        if (
-          a.parentSessionId !== undefined &&
-          parentSessionId !== undefined &&
-          a.parentSessionId !== parentSessionId
-        ) {
-          continue;
-        }
-        return a;
+      const candidates = list.filter((a) =>
+        a.cli === info.cli &&
+        a.cliSessionId === info.cliSessionId &&
+        a.status !== 'running' &&
+        (a.parentSessionId === undefined || parentSessionId === undefined ||
+          a.parentSessionId === parentSessionId),
+      );
+      if (candidates.length > 0) {
+        return candidates.reduce((latest, candidate) =>
+          candidate.startedAt > latest.startedAt ? candidate : latest,
+        );
       }
     }
 

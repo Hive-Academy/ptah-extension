@@ -84,6 +84,56 @@ describe('AgentMonitorStore', () => {
     mockActiveTab.set(null);
   });
 
+  describe('CLI turn and resume lifecycle', () => {
+    const info = (agentId: string, status: AgentProcessInfo['status'] = 'running'): AgentProcessInfo => ({
+      agentId: agentId as AgentId,
+      cli: 'codex', task: 'Follow up', workingDirectory: '/workspace/root',
+      startedAt: '2026-10-01T10:00:00.000Z', status,
+    });
+
+    it('ignores a turn-one exit and spawn after turn two starts', () => {
+      store.onAgentSpawned({ ...info('lane'), turnSeq: 1 });
+      store.onAgentSpawned({ ...info('lane'), turnSeq: 2 });
+      store.onAgentExited({ ...info('lane', 'completed'), turnSeq: 1 });
+      expect(store.agents()[0]).toMatchObject({ status: 'running', turnSeq: 2 });
+      store.onAgentSpawned({ ...info('lane', 'completed'), turnSeq: 1 });
+      store.onAgentExited(info('lane', 'completed'));
+      expect(store.agents()[0].status).toBe('running');
+      store.onAgentExited({ ...info('lane', 'completed'), turnSeq: 2 });
+      expect(store.agents()[0].status).toBe('completed');
+    });
+
+    it('keeps legacy unsequenced lifecycle behavior', () => {
+      store.onAgentSpawned(info('legacy'));
+      store.onAgentExited(info('legacy', 'completed'));
+      expect(store.agents()[0].status).toBe('completed');
+    });
+
+    it('links a unique terminal predecessor and carries its owner', () => {
+      store.onAgentSpawned({ ...info('old'), cliSessionId: 'thread', parentSessionId: 'owner' });
+      store.onAgentExited({ ...info('old', 'completed'), cliSessionId: 'thread', parentSessionId: 'owner' });
+      store.onAgentSpawned({ ...info('new'), cliSessionId: 'thread' });
+      expect(store.agents()).toHaveLength(1);
+      expect(store.agents()[0]).toMatchObject({ agentId: 'new', parentSessionId: 'owner' });
+    });
+
+    it('replaces the latest card when a twice-resumed lane lacks a predecessor id', () => {
+      for (const [agentId, startedAt] of [
+        ['old-one', '2026-10-01T10:00:00.000Z'],
+        ['old-two', '2026-10-01T11:00:00.000Z'],
+      ]) {
+        store.onAgentSpawned({ ...info(agentId), cliSessionId: 'thread', startedAt });
+      }
+      for (const agentId of ['old-one', 'old-two']) {
+        store.onAgentExited({ ...info(agentId, 'completed'), cliSessionId: 'thread' });
+      }
+      store.onAgentSpawned({ ...info('new'), cliSessionId: 'thread',
+        startedAt: '2026-10-01T12:00:00.000Z' });
+      expect(store.agents()).toHaveLength(2);
+      expect(store.agents().map((agent) => agent.agentId)).toEqual(['new', 'old-one']);
+    });
+  });
+
   describe('monotonic background and history settlement', () => {
     const base = {
       id: 'lane',

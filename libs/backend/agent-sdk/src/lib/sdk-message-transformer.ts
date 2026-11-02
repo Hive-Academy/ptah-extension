@@ -111,6 +111,7 @@ export class SdkMessageTransformer implements TransformerState {
   private readonly backgroundTaskToolUseIds: Map<string, BackgroundTaskInfo> =
     new Map();
   private readonly taskIdToParentToolUseId: Map<string, string> = new Map();
+  private readonly terminalTaskParents = new Map<string, string | undefined>();
   private readonly taskStartedEmitted: Set<string> = new Set();
   private readonly backgroundAnnouncedToolUseIds = new Map<
     string,
@@ -530,12 +531,15 @@ export class SdkMessageTransformer implements TransformerState {
     // background_agent_completed/stopped event and leave the tray entry
     // `running` forever. Each mark is removed per id when that terminal
     // event fires. For the same reason an announced task keeps its
-    // task → parent mapping: a task_notification may omit tool_use_id and
-    // then resolves its parent through this map (task_notification clears
-    // the entry per task, so nothing leaks).
-    for (const [taskId, parent] of this.taskIdToParentToolUseId) {
+    // task → parent mapping. Keys contain the session id, so identical SDK
+    // task ids in concurrent sessions cannot resolve each other's rows. A
+    // task_notification may omit tool_use_id and then resolves its parent
+    // through this map (task_notification clears the entry per task, so
+    // nothing leaks). Terminal task keys also survive compaction to suppress
+    // a duplicate notification; the set is bounded to 1000 entries.
+    for (const [key, parent] of this.taskIdToParentToolUseId) {
       if (!this.backgroundAnnouncedToolUseIds.has(parent)) {
-        this.taskIdToParentToolUseId.delete(taskId);
+        this.taskIdToParentToolUseId.delete(key);
       }
     }
     this.taskStartedEmitted.clear();
@@ -567,8 +571,26 @@ export class SdkMessageTransformer implements TransformerState {
     return this.backgroundTaskToolUseIds.get(toolUseId);
   }
 
-  getTaskParentToolUseId(taskId: string): string | undefined {
-    return this.taskIdToParentToolUseId.get(taskId);
+  getTaskParentToolUseId(
+    taskId: string,
+    sessionId?: string,
+  ): string | undefined {
+    return this.taskIdToParentToolUseId.get(
+      this.taskLifecycleKey(taskId, sessionId),
+    );
+  }
+
+  isTaskTerminalEmitted(
+    taskId: string,
+    sessionId?: string,
+    parentToolUseId?: string,
+  ): boolean {
+    const key = this.taskLifecycleKey(taskId, sessionId);
+    return (
+      this.terminalTaskParents.has(key) &&
+      (parentToolUseId === undefined ||
+        this.terminalTaskParents.get(key) === parentToolUseId)
+    );
   }
 
   isTaskStartedEmitted(toolUseId: string): boolean {
@@ -657,13 +679,42 @@ export class SdkMessageTransformer implements TransformerState {
     this.backgroundTaskToolUseIds.delete(toolUseId);
   }
 
-  setTaskParent(taskId: string, parentToolUseId: string): void {
-    this.taskIdToParentToolUseId.set(taskId, parentToolUseId);
+  setTaskParent(
+    taskId: string,
+    parentToolUseId: string,
+    sessionId?: string,
+  ): void {
+    const key = this.taskLifecycleKey(taskId, sessionId);
+    this.taskIdToParentToolUseId.set(key, parentToolUseId);
+    // A start or progress event after a terminal begins a new task lifecycle.
+    this.terminalTaskParents.delete(key);
   }
 
-  clearTaskParent(taskId: string): void {
-    this.taskIdToParentToolUseId.delete(taskId);
+  clearTaskParent(taskId: string, sessionId?: string): void {
+    this.taskIdToParentToolUseId.delete(
+      this.taskLifecycleKey(taskId, sessionId),
+    );
     this.nonAgentTaskIds.delete(taskId);
+  }
+
+  markTaskTerminalEmitted(
+    taskId: string,
+    sessionId?: string,
+    parentToolUseId?: string,
+  ): void {
+    const key = this.taskLifecycleKey(taskId, sessionId);
+    if (
+      !this.terminalTaskParents.has(key) &&
+      this.terminalTaskParents.size >= 1000
+    ) {
+      const oldest = this.terminalTaskParents.keys().next().value;
+      if (oldest) this.terminalTaskParents.delete(oldest);
+    }
+    this.terminalTaskParents.set(key, parentToolUseId);
+  }
+
+  private taskLifecycleKey(taskId: string, sessionId?: string): string {
+    return JSON.stringify([sessionId ?? null, taskId]);
   }
 
   markNonAgentTask(

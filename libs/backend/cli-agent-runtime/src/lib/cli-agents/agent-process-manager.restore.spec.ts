@@ -147,6 +147,11 @@ function agentsOf(manager: AgentProcessManager): Map<
 }
 
 describe('AgentProcessManager.restoreAgents', () => {
+  it('preserves a persisted turn sequence', () => {
+    const manager = makeManager({ providerRoot: ROOT_A });
+    manager.restoreAgents([makeRef({ turnSeq: 3 })], ROOT_A);
+    expect((manager.getStatus(RESTORED_ID) as AgentProcessInfo).turnSeq).toBe(3);
+  });
   it('readOutput returns an empty stdout buffer for a lean restored reference', () => {
     const manager = makeManager({ providerRoot: ROOT_A });
 
