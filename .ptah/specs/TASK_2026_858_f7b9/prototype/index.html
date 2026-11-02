@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en" data-theme="ptah-glass">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Machines view prototype - TASK_2026_858_f7b9</title>
+<link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+<!-- Prototype chrome (not part of the app): state + theme switcher -->
+<nav class="proto-bar" aria-label="Prototype state switcher">
+  <strong>Prototype</strong>
+  <div id="stateLinks"></div>
+  <button id="themeBtn" class="btn btn-ghost btn-xs" type="button">Theme: dark</button>
+</nav>
+
+<div class="app" id="app">
+  <!-- Global navbar: mirrors electron-shell.component.ts tab strip. "Machines" is the new tab. -->
+  <header class="navbar" role="banner">
+    <span class="logo" aria-hidden="true">Ptah</span>
+    <div role="tablist" aria-label="Main views" class="tabs">
+      <button role="tab" class="tab" aria-selected="false">Chat</button>
+      <button role="tab" class="tab" aria-selected="false">Voice</button>
+      <button role="tab" class="tab" aria-selected="false">Apps</button>
+      <button role="tab" class="tab" aria-selected="false">Tasks</button>
+      <button role="tab" class="tab tab-active" aria-selected="true" id="machinesTab">Machines
+        <span class="badge badge-attn" id="navAttn" aria-label="1 approval waiting">1</span></button>
+      <button role="tab" class="tab" aria-selected="false">Analytics</button>
+      <button role="tab" class="tab" aria-selected="false">Setup hub</button>
+    </div>
+    <span class="spacer"></span>
+    <span class="chip chip-note">Theme / notifications</span>
+  </header>
+
+  <div class="body" id="body"><!-- filled per state --></div>
+</div>
+
+<script src="prototype.js"></script>
+</body>
+</html>

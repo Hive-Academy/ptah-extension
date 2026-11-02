@@ -1,0 +1,20 @@
+{
+  "name": "@ptah-extension/worker-runtime",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "libs/backend/worker-runtime/src",
+  "tags": ["scope:extension", "type:feature"],
+  "targets": {
+    "test": {
+      "options": {
+        "passWithNoTests": true
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/worker-runtime/tsconfig.lib.json"
+      }
+    }
+  }
+}

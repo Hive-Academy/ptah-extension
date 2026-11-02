@@ -110,6 +110,18 @@
         "./libs/frontend/skill-synthesis-ui/src/services.ts"
       ],
       "@ptah-extension/tasks-ui": ["./libs/frontend/tasks-ui/src/index.ts"],
+      "@ptah-extension/worker-protocol": [
+        "./libs/worker-protocol/src/index.ts"
+      ],
+      "@ptah-extension/worker-runtime": [
+        "./libs/backend/worker-runtime/src/index.ts"
+      ],
+      "@ptah-extension/remote-machines": [
+        "./libs/backend/remote-machines/src/index.ts"
+      ],
+      "@ptah-extension/machines-ui": [
+        "./libs/frontend/machines-ui/src/index.ts"
+      ],
       "@ptah-extension/tasks-ui/services": [
         "./libs/frontend/tasks-ui/src/services.ts"
       ],
