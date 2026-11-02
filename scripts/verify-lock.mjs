@@ -48,8 +48,8 @@ const POLL_MS = 1000;
 const TICKET_TTL_MS = 5 * 60_000;
 const UNREADABLE_GRACE_MS = 30_000;
 const DEFAULT_MAX_AGE_MIN = 120;
-const DEFAULT_SLOTS = 2;
-const DEFAULT_MIN_FREE_GB = 8;
+const DEFAULT_SLOTS = 3;
+const DEFAULT_MIN_FREE_GB = 5;
 const DEFAULT_SETTLE_SEC = 30;
 const GB = 1024 ** 3;
 // Marks tickets and holders of this (multi-slot) version. See the header.
@@ -82,7 +82,7 @@ function envNumber(name) {
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-/** Number of slots: PTAH_VERIFY_SLOTS, an integer >= 1 (default 2). */
+/** Number of slots: PTAH_VERIFY_SLOTS, an integer >= 1 (default 3). */
 export function slotCount() {
   const value = envNumber('PTAH_VERIFY_SLOTS');
   return Number.isInteger(value) && value >= 1 ? value : DEFAULT_SLOTS;
