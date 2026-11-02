@@ -51,6 +51,7 @@ function installBrowserMocks(reduced: boolean): { removeListener: jest.Mock } {
 function mount(platform: 'server' | 'browser'): {
   component: HeroComponent;
   root: HTMLElement;
+  detectChanges: () => void;
   destroy: () => void;
 } {
   TestBed.configureTestingModule({
@@ -62,6 +63,7 @@ function mount(platform: 'server' | 'browser'): {
   return {
     component: fixture.componentInstance,
     root: fixture.nativeElement as HTMLElement,
+    detectChanges: () => fixture.detectChanges(),
     destroy: () => fixture.destroy(),
   };
 }
@@ -137,6 +139,10 @@ describe('HeroComponent', () => {
     expect(media[0].pause).toHaveBeenCalledTimes(1);
     expect(media[1].play).toHaveBeenCalledTimes(1);
 
+    void videos[0].play(); // An inactive clip cannot run beside the active one.
+    expect(videos[0].paused).toBe(true);
+    expect(videos[1].paused).toBe(false);
+
     videos[1].pause(); // Native controls, not the component, initiated this pause.
     document.dispatchEvent(new Event('visibilitychange'));
     ObserverStub.instances[0].emit(root.querySelector('[data-story-stage]')!, 1);
@@ -152,6 +158,46 @@ describe('HeroComponent', () => {
     expect(title.hasAttribute('inert')).toBe(true);
     component['updateChapter'](0);
     expect(title.hasAttribute('inert')).toBe(false);
+    destroy();
+  });
+
+  it('offers four chapter buttons and marks the snapped chapter as current', () => {
+    installBrowserMocks(true);
+    const { component, root, detectChanges, destroy } = mount('browser');
+    const buttons = root.querySelectorAll<HTMLButtonElement>('.chapter-button');
+    expect(buttons).toHaveLength(4);
+    component.cinematic.set(true);
+    component['updateChapter'](component.chapterStops[2]);
+    detectChanges();
+    expect(buttons[2].getAttribute('aria-current')).toBe('step');
+    expect(Array.from(buttons).filter((button) => button.hasAttribute('aria-current'))).toHaveLength(1);
+    destroy();
+  });
+
+  it('scrolls chapter buttons to their exact snap points', () => {
+    installBrowserMocks(false);
+    const { component, root, destroy } = mount('browser');
+    const scrollTo = jest.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+    component.cinematic.set(true);
+    Object.defineProperty(component, 'storyTrigger', { configurable: true, value: { start: 100, end: 6300, kill: jest.fn() } });
+    root.querySelectorAll<HTMLButtonElement>('.chapter-button')[1].click();
+    expect(scrollTo).toHaveBeenCalledWith({ top: expect.closeTo(2400, 5), behavior: 'smooth' });
+    destroy();
+  });
+
+  it('changes chapters at the midpoint between snap stops', () => {
+    installBrowserMocks(true);
+    const { component, destroy } = mount('browser');
+    const cases: Array<[number, number]> = [
+      [0.94 / 6.2, -1], [1 / 6.2, 0],
+      [1.64 / 6.2, 0], [1.66 / 6.2, 1],
+      [2.94 / 6.2, 1], [2.96 / 6.2, 2],
+      [4.24 / 6.2, 2], [4.26 / 6.2, 3],
+    ];
+    for (const [progress, chapter] of cases) {
+      component['updateChapter'](progress);
+      expect(component.activeChapter()).toBe(chapter);
+    }
     destroy();
   });
 

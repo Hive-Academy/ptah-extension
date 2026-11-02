@@ -23,6 +23,9 @@ const CAPTIONS = [
   'Every session in one view.',
   'Parallel agents, one workspace.',
 ] as const;
+const STORY_VIEWPORTS = 6.2;
+const CHAPTER_STOPS = [1, 2.3, 3.6, 4.9].map((distance) => distance / STORY_VIEWPORTS);
+const SNAP_STOPS = [0, ...CHAPTER_STOPS, 1];
 
 @Component({
   selector: 'ptah-hero',
@@ -71,6 +74,8 @@ const CAPTIONS = [
       </div>
 
         <div class="story-atmosphere" aria-hidden="true"></div>
+        <div class="story-layout">
+        <div class="story-window" data-story-window>
         <div class="scene-track" data-scene-track>
         @for (demo of catalog; track demo.id; let i = $index) {
           <figure class="story-scene" data-story-scene>
@@ -100,18 +105,18 @@ const CAPTIONS = [
           </figure>
         }
         </div>
-        <div class="stage-vignette" aria-hidden="true"></div>
-        <div class="stage-light" aria-hidden="true"></div>
+        </div>
         <div class="chapter-rail" role="group" aria-label="Four chapters of PtahCode in action" [style.--rail-progress]="(activeChapter() + 1) / 4">
           <div class="rail-progress" aria-hidden="true"><span data-rail-fill></span></div>
           <ol>
             @for (demo of catalog; track demo.id; let i = $index) {
-              <li [class.is-active]="activeChapter() === i" [attr.aria-current]="cinematic() && activeChapter() === i ? 'step' : null">
-                <span class="rail-number">0{{ i + 1 }}</span>
-                <span>{{ demo.label }}</span>
-              </li>
+              <li><button type="button" class="chapter-button" [class.is-active]="activeChapter() === i"
+                [attr.aria-current]="cinematic() && activeChapter() === i ? 'step' : null" (click)="goToChapter(i)">
+                  <span class="rail-number">0{{ i + 1 }}</span><span>{{ demo.label }}</span>
+              </button></li>
             }
           </ol>
+        </div>
         </div>
       </div>
       <div class="story-outro" aria-hidden="true"><span>04 / 04</span><span>Built to ship.</span></div>
@@ -125,6 +130,7 @@ export class HeroComponent {
   readonly captions = CAPTIONS;
   readonly activeChapter = signal(-1);
   readonly cinematic = signal(false);
+  readonly chapterStops = CHAPTER_STOPS;
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly document = inject(DOCUMENT);
@@ -138,6 +144,7 @@ export class HeroComponent {
   private motionMedia?: MediaQueryList;
   private mediaContext?: ReturnType<typeof gsap.matchMedia>;
   private storyTrigger?: ScrollTrigger;
+  private lastSnapIndex = 0;
   private stageVisible = false;
   private reducedMotion = false;
   private saveData = false;
@@ -177,6 +184,7 @@ export class HeroComponent {
       this.cinematic.set(true);
       const title = stage.querySelector<HTMLElement>('[data-title-frame]');
       const track = stage.querySelector<HTMLElement>('[data-scene-track]');
+      const window = stage.querySelector<HTMLElement>('[data-story-window]');
       const captions = Array.from(stage.querySelectorAll<HTMLElement>('[data-scene-caption]'));
       const symbols = Array.from(stage.querySelectorAll<HTMLElement>('[data-float]'));
       const beats = Array.from(stage.querySelectorAll<HTMLElement>('[data-title-beat]'));
@@ -202,27 +210,41 @@ export class HeroComponent {
         scrollTrigger: {
           trigger: stage,
           start: 'top top',
-          end: () => '+=' + Math.round(view.innerHeight * 4),
+          end: () => '+=' + Math.round(view.innerHeight * STORY_VIEWPORTS),
           pin: true,
-          scrub: 0.7,
-          snap: { snapTo: [0, 0.2, 0.45, 0.7, 0.95], inertia: false, duration: { min: 0.28, max: 0.65 }, ease: 'power2.inOut' },
+          scrub: 1,
+          snap: {
+            snapTo: (progress: number) => {
+              const nearest = SNAP_STOPS.reduce((best, stop, index) =>
+                Math.abs(stop - progress) < Math.abs(SNAP_STOPS[best] - progress) ? index : best, 0);
+              return SNAP_STOPS[Math.max(this.lastSnapIndex - 1, Math.min(this.lastSnapIndex + 1, nearest))];
+            },
+            inertia: false,
+            delay: 0.25,
+            duration: { min: 0.6, max: 1 },
+            ease: 'power2.inOut',
+          },
           anticipatePin: 1,
           invalidateOnRefresh: true,
           onUpdate: (self) => this.updateChapter(self.progress),
+          onSnapComplete: (self) => {
+            this.lastSnapIndex = SNAP_STOPS.reduce((best, stop, index) =>
+              Math.abs(stop - self.progress) < Math.abs(SNAP_STOPS[best] - self.progress) ? index : best, 0);
+          },
         },
       });
-      if (title) timeline.to(title, { opacity: 0, yPercent: -8, duration: 0.65 }, 0);
+      if (title) timeline.to(title, { opacity: 0, yPercent: -8, duration: 0.9 }, 0);
       if (track) {
-        timeline.fromTo(track, { opacity: 0 }, { opacity: 1, duration: 0.22 }, 0.42);
-        timeline.to(track, { x: () => -stage.clientWidth, duration: 0.55 }, 1.1);
-        timeline.to(track, { x: () => -stage.clientWidth * 2, duration: 0.55 }, 2.1);
-        timeline.to(track, { x: () => -stage.clientWidth * 3, duration: 0.55 }, 3.1);
+        timeline.fromTo(track, { opacity: 0 }, { opacity: 1, duration: 0.3 }, 0.8);
+        timeline.to(track, { x: () => -(window?.clientWidth ?? 0), duration: 0.45 }, 1.85);
+        timeline.to(track, { x: () => -(window?.clientWidth ?? 0) * 2, duration: 0.45 }, 3.15);
+        timeline.to(track, { x: () => -(window?.clientWidth ?? 0) * 3, duration: 0.45 }, 4.45);
       }
       captions.forEach((caption, index) => {
-        timeline.fromTo(caption, { opacity: 0, y: 22 },
-          { opacity: 1, y: 0, duration: 0.23, ease: 'power2.out' }, index + 0.62);
+        timeline.fromTo(caption, { opacity: 0, y: 18 },
+          { opacity: 1, y: 0, duration: 0.2, ease: 'power2.out' }, 0.75 + index * 1.3);
       });
-      timeline.to({}, { duration: 0.35 }, 3.65);
+      timeline.to({}, { duration: 1.08 }, 5.12);
       this.storyTrigger = timeline.scrollTrigger;
 
       return () => {
@@ -236,6 +258,7 @@ export class HeroComponent {
         this.activeChapter.set(-1);
         this.host.nativeElement.classList.remove('is-in-story');
         this.setTitleInert(false);
+        this.lastSnapIndex = 0;
         this.syncPlayback();
       };
     });
@@ -251,11 +274,31 @@ export class HeroComponent {
         ?.scrollIntoView({ behavior: this.reducedMotion ? 'auto' : 'smooth', block: 'start' });
       return;
     }
-    this.document.defaultView?.scrollTo({ top: this.storyTrigger.start + (this.storyTrigger.end - this.storyTrigger.start) * 0.2, behavior: 'smooth' });
+    this.goToChapter(0);
+  }
+
+  goToChapter(index: number): void {
+    if (index < 0 || index >= CHAPTER_STOPS.length) return;
+    if (!this.cinematic() || !this.storyTrigger) {
+      this.host.nativeElement.querySelectorAll<HTMLElement>('[data-story-scene]')[index]
+        ?.scrollIntoView({ behavior: this.reducedMotion ? 'auto' : 'smooth', block: 'start' });
+      return;
+    }
+    this.lastSnapIndex = index + 1;
+    this.document.defaultView?.scrollTo({
+      top: this.storyTrigger.start + (this.storyTrigger.end - this.storyTrigger.start) * CHAPTER_STOPS[index],
+      behavior: this.reducedMotion ? 'auto' : 'smooth',
+    });
   }
 
   private updateChapter(progress: number): void {
-    const chapter = progress < 0.14 ? -1 : progress < 0.4 ? 0 : progress < 0.65 ? 1 : progress < 0.9 ? 2 : 3;
+    const settled = SNAP_STOPS.findIndex((stop, index) =>
+      Math.abs(stop - progress) < 0.001 && Math.abs(index - this.lastSnapIndex) <= 1);
+    if (settled >= 0) this.lastSnapIndex = settled;
+    const chapter = progress < 0.95 / STORY_VIEWPORTS ? -1
+      : progress < 1.65 / STORY_VIEWPORTS ? 0
+      : progress < 2.95 / STORY_VIEWPORTS ? 1
+      : progress < 4.25 / STORY_VIEWPORTS ? 2 : 3;
     this.host.nativeElement.classList.toggle('is-in-story', chapter >= 0);
     // The title fades out as the story starts; keep its CTAs out of the tab order
     // while they are invisible (WCAG 2.4.7).
@@ -286,10 +329,12 @@ export class HeroComponent {
   onVideoPlay(index: number): void {
     const video = this.videos[index];
     if (!video) return;
-    this.manualPaused.delete(video);
-    if (!this.cinematic()) {
-      for (const other of this.videos) if (other !== video) this.pauseVideo(other);
+    if (this.cinematic() && index !== this.activeChapter()) {
+      this.pauseVideo(video);
+      return;
     }
+    this.manualPaused.delete(video);
+    for (const other of this.videos) if (other !== video) this.pauseVideo(other);
   }
 
   private readonly onIntersection: IntersectionObserverCallback = (entries) => {
