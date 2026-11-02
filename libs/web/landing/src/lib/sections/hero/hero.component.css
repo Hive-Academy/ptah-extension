@@ -51,7 +51,9 @@
 }
 
 .artifacts { position: absolute; z-index: -1; inset: 0; overflow: hidden; pointer-events: none; }
-.lightning-canvas { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* Dim the arc over the centered title copy so the gold eyebrow and headline stay readable. */
+.lightning-canvas { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; pointer-events: none;
+  mask-image: radial-gradient(ellipse 30% 24% at 50% 50%, rgb(0 0 0 / 15%) 55%, #000 100%); }
 .artifact { position: absolute; z-index: 1; width: clamp(4rem, 10vw, 9rem); opacity: .48; object-fit: contain; mask-image: radial-gradient(circle, black 48%, transparent 73%); }
 .artifact.lightning-lit { filter: brightness(1.3) drop-shadow(0 0 12px rgb(245 165 36 / 65%)); }
 .artifact-ankh { top: 19%; left: 7%; }
