@@ -619,6 +619,79 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       expect(onAgentStart).not.toHaveBeenCalled();
     });
 
+    it('forwards a resumed start with the same agentId and a new toolCallId', () => {
+      core.process(state, agentStart({ source: 'history' }), makeCtx());
+      agentMonitorStore.onAgentStart.mockClear();
+
+      const resumed = agentStart({
+        id: 'evt-resumed',
+        toolCallId: 'toolu_agent_2',
+        timestamp: 20,
+        source: 'stream',
+      });
+      const result = core.process(state, resumed, makeCtx());
+
+      expect(result.stateMutated).toBe(true);
+      expect(agentMonitorStore.onAgentStart).toHaveBeenCalledWith(resumed);
+      expect(state.events.has('evt-resumed')).toBe(true);
+    });
+
+    it('forwards a new taskId on a reused toolCallId', () => {
+      core.process(state, agentStart({ taskId: 'task-1', source: 'history' }), makeCtx());
+      agentMonitorStore.onAgentStart.mockClear();
+
+      const resumed = agentStart({
+        id: 'evt-task-2',
+        taskId: 'task-2',
+        timestamp: 20,
+        source: 'stream',
+      });
+      const result = core.process(state, resumed, makeCtx());
+
+      expect(result.stateMutated).toBe(true);
+      expect(agentMonitorStore.onAgentStart).toHaveBeenCalledWith(resumed);
+      expect([...state.events.values()].filter((event) =>
+        event.eventType === 'agent_start' && event.toolCallId === resumed.toolCallId,
+      )).toEqual([resumed]);
+    });
+
+    it('replaces the stored start when a new agentId reuses a toolCallId', () => {
+      core.process(state, agentStart({ agentId: 'old-agent', source: 'history' }), makeCtx());
+      agentMonitorStore.onAgentStart.mockClear();
+
+      const resumed = agentStart({
+        id: 'evt-new-agent',
+        agentId: 'new-agent',
+        timestamp: 20,
+        source: 'stream',
+      });
+      core.process(state, resumed, makeCtx());
+
+      expect(agentMonitorStore.onAgentStart).toHaveBeenCalledWith(resumed);
+      expect([...state.events.values()].filter((event) =>
+        event.eventType === 'agent_start' && event.toolCallId === resumed.toolCallId,
+      )).toEqual([resumed]);
+      expect(state.eventsByMessage.get(MESSAGE_ID)?.filter((event) =>
+        event.eventType === 'agent_start' && event.toolCallId === resumed.toolCallId,
+      )).toEqual([resumed]);
+    });
+
+    it('deduplicates hook and stream starts for the same execution key', () => {
+      core.process(state, agentStart({ taskId: 'task-1' }), makeCtx());
+      agentMonitorStore.onAgentStart.mockClear();
+
+      const duplicate = agentStart({
+        id: 'evt-duplicate',
+        taskId: 'task-1',
+        source: 'stream',
+      });
+      const result = core.process(state, duplicate, makeCtx());
+
+      expect(result.stateMutated).toBe(false);
+      expect(agentMonitorStore.onAgentStart).not.toHaveBeenCalled();
+      expect(state.events.has('evt-duplicate')).toBe(false);
+    });
+
     // TASK_2026_327: a same-id write replaced the object in `events` only, so
     // the two maps disagreed about the same event id. Every builder reads the
     // per-message bucket, which meant the backfilled `toolu_*` id — the whole

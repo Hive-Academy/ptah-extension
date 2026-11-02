@@ -959,6 +959,22 @@ export class AgentMonitorStore implements OnDestroy {
     );
   }
 
+  private isNewAgentStart(
+    existing: SubagentRecord | undefined,
+    event: AgentStartEvent,
+  ): boolean {
+    if (!existing || event.source === 'history') return false;
+    if (this.isNewExecution(existing, event.taskId)) return true;
+    return (
+      this.isTerminal(existing.status) &&
+      existing.completedAt !== undefined &&
+      event.timestamp > existing.completedAt &&
+      !!event.agentId &&
+      !!existing.agentId &&
+      event.agentId !== existing.agentId
+    );
+  }
+
   private settledStatus(
     existing: SubagentRecord | undefined,
     incoming: SubagentRecord['status'],
@@ -2251,8 +2267,27 @@ export class AgentMonitorStore implements OnDestroy {
     this._subagents.update((map) => {
       this.claimHistoryCandidate(key);
       const existing = map.get(key);
-      const restart = this.isNewExecution(existing, event.taskId);
-      const status = this.settledStatus(existing, 'running', event.taskId);
+      if (existing && this.isTerminal(existing.status) && event.source === 'history') {
+        const filled: SubagentRecord = {
+          ...existing,
+          taskId: existing.taskId ?? event.taskId,
+          agentId: existing.agentId ?? event.agentId,
+          teammateName: existing.teammateName ?? event.teammateName,
+          agentType: existing.agentType || event.agentType,
+          description: existing.description ?? event.agentDescription,
+          taskDescription: existing.taskDescription ?? event.agentDescription,
+          parentSessionId: existing.parentSessionId ?? knownSessionId(event.sessionId),
+          workflowRunId: existing.workflowRunId ?? wf.workflowRunId,
+          workflowName: existing.workflowName ?? wf.workflowName,
+        };
+        const next = new Map(map);
+        next.set(key, this.withPendingIdentity(key, filled));
+        return next;
+      }
+      const restart = this.isNewAgentStart(existing, event);
+      const status = existing && this.isTerminal(existing.status) && !restart
+        ? existing.status
+        : 'running';
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
@@ -2268,7 +2303,7 @@ export class AgentMonitorStore implements OnDestroy {
         totalTokens: existing?.totalTokens,
         toolUses: existing?.toolUses,
         durationMs: existing?.durationMs,
-        startedAt: existing?.startedAt ?? event.timestamp,
+        startedAt: restart ? event.timestamp : (existing?.startedAt ?? event.timestamp),
         completedAt: this.isTerminal(status)
           ? restart
             ? event.timestamp
