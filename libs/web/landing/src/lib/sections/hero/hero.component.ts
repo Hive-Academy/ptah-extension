@@ -29,7 +29,7 @@ const CAPTIONS = [
   standalone: true,
   imports: [RouterLink],
   template: `
-    <section class="hero" aria-labelledby="hero-title">
+    <section class="cinematic-hero" aria-labelledby="hero-title">
       <div id="live-demo" class="story-stage" data-story-stage>
       <div class="title-frame" data-title-frame>
         <img

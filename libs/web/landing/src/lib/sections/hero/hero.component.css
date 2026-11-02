@@ -5,7 +5,7 @@
   background: #08090c;
 }
 
-.hero, .story-stage { overflow: clip; background: #08090c; }
+.cinematic-hero, .story-stage { overflow: clip; background: #08090c; }
 .story-stage { position: relative; isolation: isolate; }
 
 .title-frame {
@@ -60,10 +60,10 @@
 .title-content { position: relative; z-index: 1; width: min(100%, 74rem); text-align: center; }
 .title-index, .scroll-cue, .caption-number, .rail-number, .story-outro { font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace; }
 .title-index { margin: 0 0 clamp(1.75rem, 4vw, 3.75rem); color: #ffbb4d; font-size: .7rem; font-weight: 600; letter-spacing: .16em; }
-.title-content h1 { margin: 0; color: #fff; font-size: clamp(2.75rem, 7.2vw, 6rem); font-weight: 800; letter-spacing: -.045em; line-height: 1.03; text-transform: uppercase; text-wrap: balance; }
+.title-content h1 { margin: 0; color: #fff; font-size: clamp(2.25rem, 4.2vw, 3.75rem); font-weight: 700; letter-spacing: -.025em; line-height: .95; text-transform: uppercase; text-wrap: balance; }
 .title-content h1 span { display: inline-block; }
 .title-content h1 span:last-child { color: #ffbb4d; }
-.title-lead { width: min(100%, 66ch); margin: clamp(1.5rem, 3vw, 2.5rem) auto 0; color: #e9ebef; font-size: clamp(1rem, 1.3vw, 1.2rem); line-height: 1.6; text-wrap: balance; }
+.title-lead { width: min(100%, 66ch); margin: clamp(1.5rem, 3vw, 2.5rem) auto 0; color: #e9ebef; font-size: clamp(1rem, 1.2vw, 1.125rem); line-height: 1.6; text-wrap: balance; }
 .title-actions { display: flex; align-items: center; justify-content: center; gap: 1.5rem; margin-top: 2rem; }
 .title-actions a { display: inline-flex; min-height: 3.25rem; align-items: center; justify-content: center; gap: .7rem; border-radius: .5rem; font-size: .9rem; font-weight: 700; text-decoration: none; transition: background .2s, color .2s, transform .2s; }
 .title-actions a:focus-visible, .scene-video:focus-visible { outline: 3px solid #ffbb4d; outline-offset: 4px; }
@@ -85,7 +85,7 @@
 .scene-caption { display: grid; gap: .45rem; padding: 1.25rem 0 0; color: #fff; }
 .caption-number { color: #ffbb4d; font-size: .68rem; letter-spacing: .14em; }
 .caption-title { color: #e9ebef; font-size: .82rem; font-weight: 600; }
-.caption-line { max-width: 25ch; font-size: clamp(1.5rem, 4.5vw, 2.65rem); font-weight: 750; letter-spacing: -.025em; line-height: 1.14; text-wrap: balance; }
+.caption-line { max-width: 25ch; font-size: clamp(1.375rem, 3.5vw, 2rem); font-weight: 750; letter-spacing: -.025em; line-height: 1.14; text-wrap: balance; }
 .stage-vignette, .stage-light, .chapter-rail { display: none; }
 .story-outro { display: flex; justify-content: space-between; gap: 1rem; border-top: 1px solid #3a3f4b; padding: 1.2rem max(1.125rem, calc((100vw - 64rem) / 2)); color: #c5cad3; font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; }
 
@@ -94,7 +94,7 @@
   .artifact-scarab { top: 8%; right: -1rem; }
   .artifact-eye { right: -1.5rem; bottom: 14%; }
   .artifact-sun { left: -1.5rem; bottom: 10%; }
-  .title-content h1 { font-size: clamp(2.75rem, 10vw, 4rem); }
+  .title-content h1 { font-size: clamp(2.25rem, 9vw, 3rem); }
   .title-lead { max-width: 36ch; }
   .title-actions { flex-direction: column; gap: .25rem; }
   .download-link { width: min(100%, 19rem); }
@@ -113,7 +113,7 @@
   :host.is-cinematic .scene-video { object-fit: cover; }
   :host.is-cinematic .scene-caption { position: absolute; z-index: 2; right: 2rem; bottom: 7.5rem; left: 2rem; width: min(calc(100% - 4rem), 43rem); padding: 0; text-shadow: 0 2px 16px #000; }
   :host.is-cinematic .caption-title { font-size: .88rem; }
-  :host.is-cinematic .caption-line { font-size: clamp(2rem, 4vw, 3.3rem); }
+  :host.is-cinematic .caption-line { font-size: clamp(1.75rem, 3vw, 2.5rem); }
   :host.is-cinematic .stage-vignette { position: absolute; z-index: 2; inset: 0; display: block; pointer-events: none; box-shadow: inset 0 0 12vw 5vw rgb(0 0 0 / 35%); }
   :host.is-cinematic .stage-light { position: absolute; z-index: 2; inset: 0; display: block; pointer-events: none; background: radial-gradient(ellipse 18% 55% at 100% 46%, rgb(245 165 36 / 13%), transparent 85%); }
   :host.is-cinematic .chapter-rail { position: absolute; z-index: 4; right: 2rem; bottom: 2rem; left: 2rem; display: block; padding: 1rem 0 0; color: #e9ebef; text-shadow: 0 2px 8px #000; }
