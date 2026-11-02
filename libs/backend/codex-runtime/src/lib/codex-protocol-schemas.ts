@@ -635,12 +635,27 @@ export const elicitation = z.discriminatedUnion('mode', [
   }),
 ]);
 export const usage = z.object({
-  cachedInputTokens: integer,
-  inputTokens: integer,
-  outputTokens: integer,
-  reasoningOutputTokens: integer,
-  totalTokens: integer,
-  cacheWriteInputTokens: integer.optional(),
+  cachedInputTokens: integer.nonnegative().max(Number.MAX_SAFE_INTEGER),
+  inputTokens: integer.nonnegative().max(Number.MAX_SAFE_INTEGER),
+  outputTokens: integer.nonnegative().max(Number.MAX_SAFE_INTEGER),
+  reasoningOutputTokens: integer.nonnegative().max(Number.MAX_SAFE_INTEGER),
+  totalTokens: integer.nonnegative().max(Number.MAX_SAFE_INTEGER),
+  cacheWriteInputTokens: integer.nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+});
+
+/** Optional attribution fields are retained when a native version supplies them. */
+export const tokenUsageNotification = z.object({
+  threadId: z.string(),
+  turnId: z.string(),
+  parentThreadId: z.string().nullish(),
+  model: z.string().nullish(),
+  tokenUsage: z.object({
+    last: usage,
+    total: usage,
+    modelContextWindow: integer.nullish(),
+    /** Optional future native reset proof; absent in the pinned protocol. */
+    counterReset: z.literal(true).optional(),
+  }),
 });
 export const rateWindow = z.object({
   usedPercent: integer,

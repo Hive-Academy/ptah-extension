@@ -42,6 +42,8 @@ import {
   type SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from './di/tokens';
+import { CodexSessionUsageOwner } from './codex-app-server/codex-session-usage-owner';
+import type { SessionMetadataStore } from './session-metadata-store';
 import { aggregateSessionUsage } from './session-stats/session-usage-aggregator';
 import {
   SessionUsageLedgerBuilder,
@@ -303,6 +305,8 @@ export class SessionHistoryReaderService {
     /** Single authority for session stats; a history read seeds its prefix. */
     @inject(SDK_TOKENS.SDK_SESSION_STATS_OWNER)
     private readonly statsOwner: SessionStatsOwnerService,
+    @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { isOptional: true })
+    private readonly metadataStore?: SessionMetadataStore,
   ) {
     this.readTiming = new SessionHistoryReadTiming(logger);
   }
@@ -374,6 +378,37 @@ export class SessionHistoryReaderService {
     const timing = this.readTiming.begin(sessionId);
 
     try {
+      this.validateSessionId(sessionId);
+      let nativeSnapshot: SessionStatsEntry | null = null;
+      try {
+        const metadata = await this.metadataStore?.get(sessionId);
+        if (metadata?.codexExecution?.runtime === 'codex-app-server' &&
+          metadata.codexUsageCheckpoint !== undefined) {
+          const raw = metadata.codexUsageCheckpoint;
+          const owner = CodexSessionUsageOwner.restore(sessionId, raw.rootThreadId, raw);
+          if (owner.getDiagnostics().length) {
+            // Use the same legacy totals as the sidebar.
+            this.logger.warn('[SessionHistoryReader] Native usage checkpoint rejected', {
+              sessionId, diagnostics: owner.getDiagnostics(),
+            });
+            const input = metadata.totalTokens.input;
+            const output = metadata.totalTokens.output;
+            nativeSnapshot = {
+              ...owner.snapshot(metadata.codexMessageCount ?? 0),
+              tokens: { input, output, cacheRead: 0, cacheCreation: 0 },
+              tokenCount: input + output, coverage: 'partial',
+              status: input + output > 0 ? 'ok' : 'empty',
+            };
+          } else {
+            nativeSnapshot = owner.snapshot(metadata.codexMessageCount ?? 0);
+          }
+        }
+      } catch (error: unknown) {
+        // degradation-audit: reported — history remains readable when metadata storage fails.
+        this.logger.warn('[SessionHistoryReader] Native usage metadata read failed', {
+          sessionId, reason: error instanceof Error ? error.name : 'unknown',
+        });
+      }
       if (checkCompactionBoundary) {
         expectation =
           this.compactionBoundaryRegistry.capturePendingExpectation(sessionId);
@@ -398,7 +433,7 @@ export class SessionHistoryReaderService {
         );
         return {
           events: [],
-          stats: null,
+          stats: nativeSnapshot,
           staleSnapshot:
             checkCompactionBoundary && expectation !== undefined
               ? true
@@ -418,7 +453,7 @@ export class SessionHistoryReaderService {
         await this.hydrateMissingPricing(mainMessages, agentSessions);
       }
       timing.begin('project');
-      const stats = this.publishHistoryStats(
+      const stats = nativeSnapshot ?? this.publishHistoryStats(
         sessionId,
         mainMessages,
         agentSessions,

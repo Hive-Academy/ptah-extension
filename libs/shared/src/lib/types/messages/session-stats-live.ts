@@ -24,7 +24,10 @@ export interface SessionStatsLiveWire {
    * Owner snapshot. Only its envelope (`provisional`, `revision`) is checked
    * here; deep snapshot validation is the consumer's job
    * (`isValidSessionStatsSnapshot` in chat-state, which `shared` cannot
-   * import).
+   * import). Optional `costBasis`, `pricingCoverage`, and `priceProvenance`
+   * remain inside this snapshot and pass through unchanged. Missing fields
+    * retain the existing Claude meaning. The consumer's current validation
+    * does not check these optional fields' values.
    */
   readonly sessionStats: SessionStatsEntry;
   /** Present only when `sessionStats.provisional === true`. */
