@@ -395,17 +395,29 @@ describe('subscription-billed providers', () => {
     expect(isSubscriptionCoveredProvider('unknown')).toBe(false);
   });
 
-  it('never publishes their $0 rates under a bare model id', () => {
-    // `gpt-5.4` is a Codex static model AND an OpenRouter usage-billed model.
+  it('never publishes their $0 static rates under a bare model id', () => {
+    // `gpt-5.4` is a Codex-era slug AND an OpenRouter usage-billed model.
     // Seeding it at $0 would make the next OpenRouter session read as free —
     // and would zero out the Codex session's own reference figure.
+    const before = { ...getPricingMap() };
+
     seedStaticModelPricing('openai-codex');
     seedStaticModelPricing('github-copilot');
 
+    // Seeding a subscription provider writes nothing at all.
+    expect(getPricingMap()).toEqual(before);
+
+    // The bundled Codex rate card may publish an exact published rate for
+    // one of the seven fallback IDs. What must never appear under a Codex
+    // slug is the $0 static placeholder or a registry maxTokens window.
     const map = getPricingMap();
     for (const model of getAnthropicProvider('openai-codex')?.staticModels ??
       []) {
-      expect(map[model.id]).toBeUndefined();
+      const entry = map[model.id];
+      if (!entry) continue;
+      expect(entry.inputCostPerToken).toBeGreaterThan(0);
+      expect(entry.outputCostPerToken).toBeGreaterThan(0);
+      expect(entry.maxTokens).toBeUndefined();
     }
   });
 });

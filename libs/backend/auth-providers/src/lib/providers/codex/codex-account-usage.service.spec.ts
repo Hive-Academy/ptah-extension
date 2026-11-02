@@ -16,6 +16,8 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import {
   CODEX_INITIALIZE_TIMEOUT_MS,
   CodexAccountUsageClient,
+  normalizeCodexHomeKey,
+  type CodexAccountUsageResult,
   type CodexHomeAuthReader,
 } from '@ptah-extension/codex-runtime';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -240,23 +242,78 @@ describe('CodexAccountUsageService', () => {
     );
   }
 
-  it('shares the legacy read, activity, owner and cache for omitted and default homes', async () => {
+  function usageResult(
+    fetchedAt: number,
+    usedPercent = 25,
+  ): CodexAccountUsageResult {
+    return {
+      status: 'available',
+      providerId: 'openai-codex',
+      fetchedAt,
+      account: { planType: 'plus' },
+      quota: {
+        primary: { usedPercent, windowDurationMins: 300, resetsAt: 99 },
+      },
+    };
+  }
+
+  it('uses one attached reader and cache for omitted, default and explicit homes', async () => {
     const core = client();
-    const read = jest.spyOn(core, 'read');
+    const result = usageResult(100);
+    const read = jest.spyOn(core, 'read').mockResolvedValue(result);
+    const clear = jest
+      .spyOn(core, 'clearCache')
+      .mockImplementation(() => undefined);
+    const owner = jest.spyOn(core, 'currentOwnerKey').mockReturnValue('owner');
     const h = harness({}, core);
-    const result = await h.service.getAccountUsage({ home: h.syntheticHome });
-    expect(result.status).toBe('available');
-    expect(result.activity).toBeDefined();
-    expect(await h.service.getAccountUsage()).toBe(result);
-    expect(h.service.currentOwnerKey(h.syntheticHome)).toBe(
-      h.service.currentOwnerKey(),
+    expect(await h.service.getAccountUsage({ home: h.syntheticHome })).toBe(
+      result,
     );
-    expect(h.requests).toHaveLength(1);
+    expect(await h.service.getAccountUsage()).toBe(result);
+    const otherHome = resolve('other-codex-home');
+    expect(await h.service.getAccountUsage({ home: otherHome })).toBe(result);
+    expect(read.mock.calls).toEqual([
+      [h.syntheticHome, { refresh: undefined, signal: undefined }],
+      [h.syntheticHome, { refresh: undefined, signal: undefined }],
+      [otherHome, { refresh: undefined, signal: undefined }],
+    ]);
+    expect(h.service.currentOwnerKey()).toBe('owner');
+    expect(h.service.currentOwnerKey(h.syntheticHome)).toBe('owner');
     h.service.clearCache(h.syntheticHome);
+    expect(clear).toHaveBeenCalledWith(h.syntheticHome);
+    expect(h.requests).toHaveLength(0);
+    expect(owner).toHaveBeenCalled();
+  });
+
+  it('uses the legacy read when the attached client cannot serve the default home', async () => {
+    const core = client();
+    const read = jest.spyOn(core, 'read').mockResolvedValue({
+      status: 'service-unavailable',
+      providerId: 'openai-codex',
+    });
+    const h = harness({}, core);
+
+    await expect(h.service.getAccountUsage()).resolves.toMatchObject({
+      status: 'available',
+    });
+    expect(read).toHaveBeenCalledWith(h.syntheticHome, {
+      refresh: undefined,
+      signal: undefined,
+    });
+    expect(h.requests).toHaveLength(1);
+    const fallbackOwner = h.service.currentOwnerKey();
+    expect(fallbackOwner).toMatch(/^openai-codex#account:[0-9a-f]{16}$/);
+    expect(h.service.currentOwnerKey(h.syntheticHome)).toBe(fallbackOwner);
+
+    const otherHome = resolve('other-codex-home');
+    await expect(h.service.getAccountUsage({ home: otherHome })).resolves.toEqual({
+      status: 'service-unavailable',
+      providerId: 'openai-codex',
+    });
+    expect(h.requests).toHaveLength(1);
+    expect(h.service.currentOwnerKey(otherHome)).toBeNull();
+    h.service.clearCache();
     expect(h.service.currentOwnerKey()).toBeNull();
-    await h.service.getAccountUsage();
-    expect(h.requests).toHaveLength(2);
-    expect(read).not.toHaveBeenCalled();
   });
 
   it('treats trailing separators as aliases of the default home', async () => {
@@ -285,22 +342,28 @@ describe('CodexAccountUsageService', () => {
 
   it('forwards explicit-home reads and isolates owner keys and cache invalidation', async () => {
     const core = client();
+    const defaultResult = usageResult(100);
     const result = {
       status: 'unsupported-auth',
       providerId: 'openai-codex',
     } as const;
-    const read = jest.spyOn(core, 'read').mockResolvedValue(result);
+    const home = resolve('other-codex-home');
+    const read = jest
+      .spyOn(core, 'read')
+      .mockImplementation(async (requestedHome) =>
+        requestedHome === home ? result : defaultResult,
+      );
     const owner = jest
       .spyOn(core, 'currentOwnerKey')
-      .mockReturnValue('other-owner');
+      .mockImplementation((requestedHome) =>
+        requestedHome === home ? 'other-owner' : 'default-owner',
+      );
     const clear = jest
       .spyOn(core, 'clearCache')
       .mockImplementation(() => undefined);
     const close = jest.spyOn(core, 'close');
     const h = harness({}, core);
     const cached = await h.service.getAccountUsage();
-    const defaultOwner = h.service.currentOwnerKey();
-    const home = resolve('other-codex-home');
     const signal = new AbortController().signal;
     expect(
       await h.service.getAccountUsage({ home, refresh: true, signal }),
@@ -310,9 +373,9 @@ describe('CodexAccountUsageService', () => {
     expect(owner).toHaveBeenCalledWith(home);
     h.service.clearCache(home);
     expect(clear).toHaveBeenCalledWith(home);
-    expect(h.service.currentOwnerKey()).toBe(defaultOwner);
+    expect(h.service.currentOwnerKey()).toBe('default-owner');
     expect(await h.service.getAccountUsage()).toBe(cached);
-    expect(h.requests).toHaveLength(1);
+    expect(h.requests).toHaveLength(0);
     await h.service.close();
     expect(close).not.toHaveBeenCalled();
   });
@@ -351,8 +414,12 @@ describe('CodexAccountUsageService', () => {
     'refuses invalid homes without delegation or default-cache changes (client=%s)',
     async (hasClient) => {
       const core = client();
-      const read = jest.spyOn(core, 'read');
-      const owner = jest.spyOn(core, 'currentOwnerKey');
+      const read = jest
+        .spyOn(core, 'read')
+        .mockResolvedValue(usageResult(100));
+      const owner = jest
+        .spyOn(core, 'currentOwnerKey')
+        .mockReturnValue('default-owner');
       const clear = jest.spyOn(core, 'clearCache');
       const h = harness({}, hasClient ? core : null);
       const cached = await h.service.getAccountUsage();
@@ -366,14 +433,280 @@ describe('CodexAccountUsageService', () => {
       expect(h.service.currentOwnerKey(home)).toBeNull();
       expect(() => h.service.clearCache(home)).not.toThrow();
 
-      expect(read).not.toHaveBeenCalled();
-      expect(owner).not.toHaveBeenCalled();
+      expect(read).toHaveBeenCalledTimes(hasClient ? 1 : 0);
+      expect(owner).toHaveBeenCalledTimes(hasClient ? 1 : 0);
       expect(clear).not.toHaveBeenCalled();
       expect(h.service.currentOwnerKey()).toBe(defaultOwner);
       expect(await h.service.getAccountUsage()).toBe(cached);
-      expect(h.requests).toHaveLength(1);
+      expect(h.requests).toHaveLength(hasClient ? 0 : 1);
     },
   );
+
+  it('propagates default-home abort through the attached reader', async () => {
+    const core = client(() => new Promise(() => undefined));
+    const h = harness({}, core);
+    const controller = new AbortController();
+    const pending = h.service.getAccountUsage({ signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(h.requests).toHaveLength(0);
+    await core.close();
+  });
+
+  it('keeps live updates for two homes and owners separate', async () => {
+    const core = client();
+    const homeA = resolve('home-a');
+    const homeB = resolve('home-b');
+    const ownerA = accountOwnerKey('openai-codex', 'owner-a');
+    const ownerB = accountOwnerKey('openai-codex', 'owner-b');
+    jest.spyOn(core, 'read').mockImplementation(async (home, options) =>
+      usageResult(options?.refresh ? 200 : 100, home === homeA ? 20 : 80),
+    );
+    jest
+      .spyOn(core, 'currentOwnerKey')
+      .mockImplementation((home) => (home === homeA ? ownerA : ownerB));
+    const h = harness({}, core);
+
+    const a = await h.service.applyRateLimitsUpdated({
+      contextId: 'context-a',
+      home: homeA,
+      observedAt: 150,
+    });
+    const b = await h.service.applyRateLimitsUpdated({
+      contextId: 'context-b',
+      home: homeB,
+      observedAt: 150,
+    });
+
+    expect(a?.owner.key).toBe(ownerA);
+    expect(b?.owner.key).toBe(ownerB);
+    expect(a?.windows[0]).toMatchObject({ used: { percent: 20 } });
+    expect(b?.windows[0]).toMatchObject({ used: { percent: 80 } });
+    expect(a?.result).not.toBe(b?.result);
+  });
+
+  it('delivers fresh evidence from the first read on a cold cache', async () => {
+    const core = client();
+    const read = jest.spyOn(core, 'read').mockResolvedValue(usageResult(200));
+    jest
+      .spyOn(core, 'currentOwnerKey')
+      .mockReturnValue(accountOwnerKey('openai-codex', 'owner'));
+    const h = harness({}, core);
+    await expect(
+      h.service.applyRateLimitsUpdated({
+        contextId: 'context',
+        home: h.syntheticHome,
+        observedAt: 199,
+      }),
+    ).resolves.toMatchObject({ result: { fetchedAt: 200 } });
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledWith(h.syntheticHome);
+  });
+
+  it('rejects a live update when refreshed evidence predates it', async () => {
+    const core = client();
+    const read = jest
+      .spyOn(core, 'read')
+      .mockResolvedValueOnce(usageResult(100))
+      .mockResolvedValueOnce(usageResult(120));
+    jest
+      .spyOn(core, 'currentOwnerKey')
+      .mockReturnValue(accountOwnerKey('openai-codex', 'owner'));
+    const h = harness({}, core);
+    await expect(
+      h.service.applyRateLimitsUpdated({
+        contextId: 'context',
+        home: h.syntheticHome,
+        observedAt: 150,
+      }),
+    ).resolves.toBeNull();
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a context that changes home or owner', async () => {
+    const core = client();
+    const home = resolve('home-a');
+    const ownerA = accountOwnerKey('openai-codex', 'owner-a');
+    const ownerB = accountOwnerKey('openai-codex', 'owner-b');
+    const read = jest
+      .spyOn(core, 'read')
+      .mockImplementation(async (_home, options) =>
+        usageResult(options?.refresh ? 200 : 100),
+      );
+    const owner = jest.spyOn(core, 'currentOwnerKey').mockReturnValue(ownerA);
+    const h = harness({}, core);
+    await expect(
+      h.service.applyRateLimitsUpdated({
+        contextId: 'context',
+        home,
+        observedAt: 150,
+      }),
+    ).resolves.toMatchObject({ owner: { key: ownerA } });
+    await expect(
+      h.service.applyRateLimitsUpdated({
+        contextId: 'context',
+        home: resolve('home-b'),
+        observedAt: 150,
+      }),
+    ).resolves.toBeNull();
+    expect(read).toHaveBeenCalledTimes(2);
+
+    owner.mockReturnValue(ownerB);
+    await expect(
+      h.service.applyRateLimitsUpdated({
+        contextId: 'context',
+        home,
+        observedAt: 150,
+      }),
+    ).resolves.toBeNull();
+    expect(read).toHaveBeenCalledTimes(3);
+  });
+
+  it('coalesces concurrent live refreshes into one read', async () => {
+    const core = client();
+    let finish: ((result: CodexAccountUsageResult) => void) | undefined;
+    const refreshed = new Promise<CodexAccountUsageResult>((resolvePromise) => {
+      finish = resolvePromise;
+    });
+    const read = jest
+      .spyOn(core, 'read')
+      .mockResolvedValueOnce(usageResult(100))
+      .mockReturnValueOnce(refreshed);
+    jest
+      .spyOn(core, 'currentOwnerKey')
+      .mockReturnValue(accountOwnerKey('openai-codex', 'owner'));
+    const h = harness({}, core);
+    const update = {
+      contextId: 'context',
+      home: h.syntheticHome,
+      observedAt: 150,
+    };
+    const first = h.service.applyRateLimitsUpdated(update);
+    const second = h.service.applyRateLimitsUpdated(update);
+    expect(second).toBe(first);
+    await Promise.resolve();
+    finish?.(usageResult(200, 75));
+    await expect(first).resolves.toMatchObject({
+      result: { fetchedAt: 200 },
+    });
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it('limits a notification burst to one forced refresh', async () => {
+    const core = client();
+    const read = jest
+      .spyOn(core, 'read')
+      .mockResolvedValueOnce(usageResult(100))
+      .mockResolvedValueOnce(usageResult(200, 70))
+      .mockResolvedValueOnce(usageResult(200, 70));
+    jest
+      .spyOn(core, 'currentOwnerKey')
+      .mockReturnValue(accountOwnerKey('openai-codex', 'owner'));
+    const h = harness({}, core);
+    const update = {
+      contextId: 'context',
+      home: h.syntheticHome,
+      observedAt: 150,
+    };
+    await expect(
+      h.service.applyRateLimitsUpdated(update),
+    ).resolves.toMatchObject({
+      result: { fetchedAt: 200 },
+    });
+    await expect(
+      h.service.applyRateLimitsUpdated({ ...update, observedAt: 250 }),
+    ).resolves.toMatchObject({ result: { fetchedAt: 200 } });
+    expect(read).toHaveBeenCalledTimes(3);
+    expect(
+      read.mock.calls.filter(([, options]) => options?.refresh),
+    ).toHaveLength(1);
+  });
+
+  it('rejects released and closed contexts without another read', async () => {
+    const core = client();
+    const read = jest.spyOn(core, 'read').mockResolvedValue(usageResult(100));
+    const h = harness({}, core);
+    const update = {
+      contextId: 'context',
+      home: h.syntheticHome,
+      observedAt: 150,
+    };
+    h.service.releaseRateLimitsContext(update.contextId);
+    await expect(h.service.applyRateLimitsUpdated(update)).resolves.toBeNull();
+    await h.service.close();
+    await expect(h.service.applyRateLimitsUpdated(update)).resolves.toBeNull();
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('accepts an update after release and reopen of the same context', async () => {
+    const core = client();
+    const read = jest
+      .spyOn(core, 'read')
+      .mockImplementation(async (_home, options) =>
+        usageResult(options?.refresh ? 200 : 100),
+      );
+    jest
+      .spyOn(core, 'currentOwnerKey')
+      .mockReturnValue(accountOwnerKey('openai-codex', 'owner'));
+    const h = harness({}, core);
+    const update = {
+      contextId: 'context',
+      home: h.syntheticHome,
+      observedAt: 150,
+    };
+    h.service.releaseRateLimitsContext(update.contextId);
+    h.service.openRateLimitsContext(update.contextId);
+    await expect(
+      h.service.applyRateLimitsUpdated(update),
+    ).resolves.toMatchObject({
+      result: { fetchedAt: 200 },
+    });
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  (process.platform === 'win32' ? it : it.skip)(
+    'maps Win32 drive-letter case and alias paths through the shared reader',
+    async () => {
+      const core = client();
+      const read = jest.spyOn(core, 'read').mockResolvedValue(usageResult(100));
+      const h = harness({}, core);
+      const alias = `${h.syntheticHome.toUpperCase()}\\`;
+      await h.service.getAccountUsage({ home: alias });
+      await h.service.getAccountUsage({ home: h.syntheticHome });
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(normalizeCodexHomeKey(alias, process.platform)).toBe(
+        normalizeCodexHomeKey(h.syntheticHome, process.platform),
+      );
+    },
+  );
+
+  it('publishes refreshed provider-neutral windows and reuses them on pull', async () => {
+    const core = client();
+    const cached = usageResult(100, 10);
+    const refreshed = usageResult(200, 70);
+    const read = jest
+      .spyOn(core, 'read')
+      .mockResolvedValueOnce(cached)
+      .mockResolvedValueOnce(refreshed)
+      .mockResolvedValueOnce(refreshed);
+    jest
+      .spyOn(core, 'currentOwnerKey')
+      .mockReturnValue(accountOwnerKey('openai-codex', 'owner'));
+    const h = harness({}, core);
+    const live = await h.service.applyRateLimitsUpdated({
+      contextId: 'context',
+      home: h.syntheticHome,
+      observedAt: 150,
+    });
+    expect(live?.windows[0]).toMatchObject({
+      key: 'five_hour',
+      used: { kind: 'percent', percent: 70 },
+      usedSource: 'provider-api',
+    });
+    expect(live?.windows[0]).not.toHaveProperty('account');
+    expect(await h.service.getAccountUsage()).toBe(refreshed);
+    expect(read).toHaveBeenCalledTimes(3);
+  });
 
   it('propagates abort while an explicit-home core read is pending', async () => {
     const core = client(() => new Promise(() => undefined));

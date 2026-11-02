@@ -696,3 +696,54 @@ it('projects whole-turn snapshots without summing or double-counting cached and 
     tokenUsage({ inputTokens: 1, cachedInputTokens: 3, outputTokens: 2 }).input,
   ).toBe(0);
 });
+
+it('maps one structured usage-limit cause and reset beside the existing failed terminal', async () => {
+  const { projection, callbacks } = setup();
+  const error = {
+    code: 'turnError',
+    message: 'native account-id=secret credential=secret',
+    retryable: true,
+    limitReached: { reachedType: 'primary', resetsAt: Date.UTC(2026, 10, 2, 13) },
+  };
+  const events = projection.map({
+    ...identity,
+    sequence: 1,
+    type: 'terminal',
+    status: 'failed',
+    usage: { inputTokens: 4, outputTokens: 2 },
+    error,
+  });
+  expect(events).toEqual([expect.objectContaining({
+    eventType: 'message_complete',
+    stopReason: 'failed',
+    tokenUsage: expect.objectContaining({ input: 4, output: 2 }),
+  })]);
+  expect(callbacks.result).toHaveBeenCalledWith(expect.objectContaining({
+    status: 'failed',
+    usage: { inputTokens: 4, outputTokens: 2 },
+    limitReached: { reachedType: 'primary', resetsAt: Date.UTC(2026, 10, 2, 13) },
+  }));
+  expect(callbacks.error).toHaveBeenCalledWith(
+    'Usage limit reached. Try again after 2026-11-02T13:00:00.000Z.',
+  );
+  expect(JSON.stringify(callbacks.result.mock.calls)).not.toContain('secret');
+  await expect(projection.settled()).rejects.toBeInstanceOf(CodexChatAdapterError);
+});
+
+it('keeps the generic failure for malformed or absent structured limit evidence', async () => {
+  const { projection, callbacks } = setup();
+  const error = {
+    code: 'turnError',
+    message: 'credential=secret',
+    retryable: false,
+    limitReached: { reachedType: 'account-id=secret', resetsAt: -1 },
+  };
+  projection.map({ ...identity, sequence: 1, type: 'terminal', status: 'failed', error });
+  expect(callbacks.result).toHaveBeenCalledWith({
+    status: 'failed',
+    text: '',
+    error: 'Codex reported a runtime error.',
+  });
+  expect(callbacks.error).toHaveBeenCalledWith('Codex reported a runtime error.');
+  await expect(projection.settled()).rejects.toBeInstanceOf(CodexChatAdapterError);
+});

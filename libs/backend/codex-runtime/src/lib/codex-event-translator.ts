@@ -3,11 +3,15 @@ import {
   codexNotificationSchemas,
   isUnmodeledCodexNotification,
 } from './codex-protocol-validator';
+import { tokenUsageNotification } from './codex-protocol-schemas';
 import type {
   CodexJsonValue,
   CodexRuntimeEvent,
   CodexRuntimeError,
   CodexReportedUsage,
+  CodexUsageCounters,
+  CodexUsageEvidence,
+  CodexUsageDiagnostic,
 } from './codex-runtime.types';
 
 type Item = z.infer<(typeof codexNotificationSchemas)['item/started']>['item'];
@@ -27,9 +31,53 @@ const asyncQuestions = z.array(z.object({
   title: z.string(),
   options: z.array(z.string()).nullish(),
 }));
-type Usage = z.infer<
-  (typeof codexNotificationSchemas)['thread/tokenUsage/updated']
->['tokenUsage']['total'];
+type Usage = z.infer<typeof tokenUsageNotification>['tokenUsage']['total'];
+function counters(value: Usage): CodexUsageCounters {
+  const cacheCreationTokens = value.cacheWriteInputTokens ?? 0;
+  return {
+    uncachedInputTokens: Math.max(
+      0, value.inputTokens - value.cachedInputTokens - cacheCreationTokens,
+    ),
+    outputTokens: value.outputTokens,
+    cacheReadTokens: value.cachedInputTokens,
+    cacheCreationTokens,
+    reasoningOutputTokens: value.reasoningOutputTokens,
+    totalTokens: value.totalTokens,
+  };
+}
+
+const ZERO_USAGE: Usage = {
+  inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0,
+  outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0,
+};
+
+function addUsage(current: Usage, prior: CodexReportedUsage | undefined): Usage {
+  return {
+    inputTokens: current.inputTokens + (prior?.inputTokens ?? 0),
+    cachedInputTokens: current.cachedInputTokens + (prior?.cachedInputTokens ?? 0),
+    cacheWriteInputTokens: (current.cacheWriteInputTokens ?? 0) + (prior?.cacheWriteInputTokens ?? 0),
+    outputTokens: current.outputTokens + (prior?.outputTokens ?? 0),
+    reasoningOutputTokens: current.reasoningOutputTokens + (prior?.reasoningOutputTokens ?? 0),
+    totalTokens: current.totalTokens + (prior?.totalTokens ?? 0),
+  };
+}
+
+function decreased(current: Usage, prior: Usage): boolean {
+  return current.inputTokens < prior.inputTokens ||
+    current.cachedInputTokens < prior.cachedInputTokens ||
+    (current.cacheWriteInputTokens ?? 0) < (prior.cacheWriteInputTokens ?? 0) ||
+    current.outputTokens < prior.outputTokens ||
+    current.reasoningOutputTokens < prior.reasoningOutputTokens ||
+    current.totalTokens < prior.totalTokens;
+}
+
+function changed(current: Usage, prior: Usage): boolean {
+  return current.inputTokens !== prior.inputTokens ||
+    current.cachedInputTokens !== prior.cachedInputTokens ||
+    (current.cacheWriteInputTokens ?? 0) !== (prior.cacheWriteInputTokens ?? 0) ||
+    current.outputTokens !== prior.outputTokens ||
+    current.reasoningOutputTokens !== prior.reasoningOutputTokens;
+}
 function difference(total: Usage, baseline: Usage): Usage {
   return {
     inputTokens: total.inputTokens - baseline.inputTokens,
@@ -51,6 +99,27 @@ function safeError(code: string, retryable = false): CodexRuntimeError {
     code,
     message: 'Codex could not complete this operation.',
     retryable,
+  };
+}
+
+const usageLimitError = z.object({
+  codexErrorInfo: z.literal('usageLimitExceeded'),
+});
+const resetSeconds = z.number().int().nonnegative().max(8_640_000_000_000);
+type RateLimits = z.infer<
+  (typeof codexNotificationSchemas)['account/rateLimits/updated']
+>['rateLimits'];
+
+function limitCause(error: unknown, limits: RateLimits | undefined): CodexRuntimeError['limitReached'] {
+  if (!usageLimitError.safeParse(error).success) return undefined;
+  const reachedType = limits?.rateLimitReachedType ?? 'usage_limit_exceeded';
+  const exhausted = [limits?.primary, limits?.secondary].find(
+    (window) => window && window.usedPercent >= 100 && window.resetsAt != null,
+  );
+  const reset = resetSeconds.safeParse(exhausted?.resetsAt);
+  return {
+    reachedType,
+    ...(reset.success ? { resetsAt: reset.data * 1_000 } : {}),
   };
 }
 
@@ -94,10 +163,16 @@ function agentInput(item: Extract<Item, { type: 'collabAgentToolCall' }>): Codex
 /** One instance per context/process generation. No I/O or routing side effects. */
 export class CodexEventTranslator {
   private sequence = 0;
-  private readonly terminals = new Set<string>();
+  private readonly terminals = new Map<string, 'completed' | 'failed' | 'interrupted'>();
   private readonly usage = new Map<string, CodexReportedUsage>();
   private readonly totals = new Map<string, Usage>();
   private readonly baselines = new Map<string, Usage>();
+  private readonly evidence = new Map<string, CodexUsageEvidence>();
+  private readonly threadModels = new Map<string, string>();
+  private readonly turnModels = new Map<string, string>();
+  private readonly epochs = new Map<string, number>();
+  private readonly epochTurnOffsets = new Map<string, CodexReportedUsage>();
+  private rateLimits: RateLimits | undefined;
   /** Turn key -> item ids whose reasoning summary deltas were streamed; textDelta stays silent for them. */
   private readonly summaryItems = new Map<string, Set<string>>();
   private readonly asyncMessageItems = new Set<string>();
@@ -108,7 +183,29 @@ export class CodexEventTranslator {
   constructor(
     private readonly contextId: string,
     private readonly processGeneration: number,
+    private readonly now: () => number = Date.now,
   ) {}
+
+  /** Effective model returned by a validated native thread/start or resume response. */
+  setThreadModel(threadId: string, model: string): void {
+    if (!this.disposed && model.trim()) this.threadModels.set(threadId, model);
+  }
+
+  threadModel(threadId: string): string | undefined {
+    return this.threadModels.get(threadId);
+  }
+
+  /** Undo a model staged for a turn/start request that the server rejected. */
+  restoreThreadModel(threadId: string, model: string | undefined): void {
+    if (this.disposed) return;
+    if (model === undefined) this.threadModels.delete(threadId);
+    else this.threadModels.set(threadId, model);
+  }
+
+  /** Bind a validated turn/start request to its native turn id. */
+  setTurnModel(threadId: string, turnId: string, model: string): void {
+    if (!this.disposed && model.trim()) this.turnModels.set(this.key({ threadId, turnId }), model);
+  }
 
   /** Params are checked against Batch 2b even when the caller already validated them. */
   translate(notification: {
@@ -129,19 +226,25 @@ export class CodexEventTranslator {
         };
         const total = this.totals.get(identity.threadId);
         const key = this.key(identity);
+        const model = this.threadModels.get(identity.threadId);
+        if (model && !this.turnModels.has(key)) this.turnModels.set(key, model);
         if (total && !this.baselines.has(key) && !this.terminals.has(key))
           this.baselines.set(key, total);
         return [];
       }
       // Approval correlation and decisions belong to the approval bridge (2g).
       case 'serverRequest/resolved':
-      case 'account/rateLimits/updated':
       case 'thread/status/changed':
       case 'thread/started':
       case 'turn/moderationMetadata':
       case 'mcpServer/startupStatus/updated':
       case 'remoteControl/status/changed':
         return [];
+      case 'account/rateLimits/updated': {
+        const parsed = codexNotificationSchemas[method].safeParse(params);
+        if (parsed.success) this.rateLimits = parsed.data.rateLimits;
+        return [];
+      }
       case 'item/agentMessage/delta': {
         const parsed = codexNotificationSchemas[method].safeParse(params);
         if (!parsed.success) return this.invalid(params);
@@ -222,21 +325,94 @@ export class CodexEventTranslator {
         );
       }
       case 'thread/tokenUsage/updated': {
-        const parsed = codexNotificationSchemas[method].safeParse(params);
-        if (!parsed.success) return this.invalid(params);
+        const parsed = tokenUsageNotification.safeParse(params);
+        if (!parsed.success) return this.invalid(
+          params, 'usageNotificationInvalid', true, 'invalid-payload',
+        );
         const data = parsed.data;
-        if (this.terminals.has(this.key(data))) return [];
         // last is one model request; total accumulates all requests in the thread.
         const key = this.key(data);
+        const priorTotal = this.totals.get(data.threadId);
+        const decrease = priorTotal !== undefined && decreased(data.tokenUsage.total, priorTotal);
+        const reset = decrease && data.tokenUsage.counterReset === true;
+        const resetOrStale = priorTotal !== undefined && (
+          decrease ||
+          (data.tokenUsage.total.totalTokens === priorTotal.totalTokens &&
+            changed(data.tokenUsage.total, priorTotal))
+        );
+        const stale = resetOrStale && !reset;
+        const lastExceedsTotal = decreased(data.tokenUsage.total, data.tokenUsage.last);
+        const classesInconsistent = [data.tokenUsage.total, data.tokenUsage.last].some(
+          (value) => value.cachedInputTokens + (value.cacheWriteInputTokens ?? 0) > value.inputTokens ||
+            value.reasoningOutputTokens > value.outputTokens,
+        );
+        // Native cache-write inclusion is not established by the pinned schema.
+        const cacheSemanticsAmbiguous = classesInconsistent ||
+          (data.tokenUsage.total.cacheWriteInputTokens ?? 0) > 0 ||
+          (data.tokenUsage.last.cacheWriteInputTokens ?? 0) > 0;
+        const diagnostics: CodexUsageDiagnostic[] = [];
+        if (cacheSemanticsAmbiguous) diagnostics.push('cache-semantics-ambiguous');
+        if (classesInconsistent) diagnostics.push('classes-inconsistent');
+        if (lastExceedsTotal) diagnostics.push('last-exceeds-total');
+        if (stale) diagnostics.push('stale-cumulative');
+        if (reset) diagnostics.push('counter-reset');
+        const epoch = (this.epochs.get(data.threadId) ?? 0) + (reset ? 1 : 0);
+        const terminalState = this.terminals.get(key) ?? 'none';
+        if (data.model) {
+          this.setThreadModel(data.threadId, data.model);
+          this.setTurnModel(data.threadId, data.turnId, data.model);
+        }
+        const modelId = this.turnModels.get(key) ?? this.threadModels.get(data.threadId);
+        if (modelId && !this.turnModels.has(key)) this.turnModels.set(key, modelId);
+        const evidence: CodexUsageEvidence = {
+          threadId: data.threadId,
+          turnId: data.turnId,
+          ...(data.parentThreadId == null
+            ? {}
+            : { parentThreadId: data.parentThreadId }),
+          ...(modelId ? { modelId } : {}),
+          ...(typeof data.tokenUsage.modelContextWindow === 'number' &&
+            data.tokenUsage.modelContextWindow > 0
+            ? { modelContextWindow: data.tokenUsage.modelContextWindow } : {}),
+          lastRequestTotalTokens: data.tokenUsage.last.totalTokens,
+          total: counters(data.tokenUsage.total),
+          last: counters(data.tokenUsage.last),
+          timestamp: this.now(),
+          terminalState,
+          resetOrStale,
+          accepted: !stale,
+          epoch,
+          cacheSemanticsAmbiguous,
+          lastExceedsTotal,
+          diagnostics,
+        };
+        if (stale) {
+          const current = this.usage.get(key);
+          return current === undefined
+            ? this.emit(data, [{ type: 'usage', usage: {}, evidence }], true)
+            : this.emit(data, [{ type: 'usage', usage: current, evidence }], true);
+        }
+        if (reset) {
+          this.epochs.set(data.threadId, epoch);
+          this.epochTurnOffsets.set(key, this.usage.get(key) ?? {});
+          this.baselines.set(key, ZERO_USAGE);
+        }
         const baseline =
           this.baselines.get(key) ??
-          this.totals.get(data.threadId) ??
-          difference(data.tokenUsage.total, data.tokenUsage.last);
+          priorTotal ??
+          (lastExceedsTotal ? ZERO_USAGE : difference(data.tokenUsage.total, data.tokenUsage.last));
         this.baselines.set(key, baseline);
-        this.totals.set(data.threadId, data.tokenUsage.total);
+        if (
+          reset || priorTotal === undefined ||
+          data.tokenUsage.total.totalTokens > priorTotal.totalTokens
+        )
+          this.totals.set(data.threadId, data.tokenUsage.total);
         const modelContextWindow = data.tokenUsage.modelContextWindow;
         const usage: CodexReportedUsage = {
-          ...difference(data.tokenUsage.total, baseline),
+          ...addUsage(
+            difference(data.tokenUsage.total, baseline),
+            this.epochTurnOffsets.get(key),
+          ),
           lastRequestTotalTokens: data.tokenUsage.last.totalTokens,
           // Only a positive server-reported window is carried; null or absent
           // stays absent so no consumer can mistake a missing window for one.
@@ -245,7 +421,8 @@ export class CodexEventTranslator {
             : {}),
         };
         this.usage.set(this.key(data), usage);
-        return this.emit(data, [{ type: 'usage', usage }]);
+        this.evidence.set(key, evidence);
+        return this.emit(data, [{ type: 'usage', usage, evidence }], true);
       }
       case 'error': {
         const parsed = codexNotificationSchemas[method].safeParse(params);
@@ -266,17 +443,29 @@ export class CodexEventTranslator {
         const key = this.key(identity);
         if (this.terminals.has(key)) return [];
         const usage = this.usage.get(key);
+        // Terminal evidence is the last accepted snapshot, not the last observed stale one.
+        const evidence = this.evidence.get(key);
+        const limitReached = turn.status === 'failed'
+          ? limitCause(turn.error, this.rateLimits)
+          : undefined;
         const events = this.emit(identity, [
           {
             type: 'terminal',
             status: turn.status,
             ...(usage === undefined ? {} : { usage }),
-            ...(turn.error == null ? {} : { error: safeError('turnError') }),
+            ...(evidence === undefined ? {} : {
+              evidence: { ...evidence, terminalState: turn.status },
+            }),
+            ...(turn.error == null ? {} : {
+              error: {
+                ...safeError('turnError'),
+                ...(limitReached === undefined ? {} : { limitReached }),
+              },
+            }),
           },
         ]);
-        this.terminals.add(key);
-        this.usage.delete(key);
-        this.baselines.delete(key);
+        this.terminals.set(key, turn.status);
+        // Keep turn checkpoints for usage notifications that trail the terminal.
         this.summaryItems.delete(key);
         for (const itemKey of this.asyncMessageItems)
           if (itemKey.startsWith(key + ':')) this.asyncMessageItems.delete(itemKey);
@@ -295,8 +484,13 @@ export class CodexEventTranslator {
     this.disposed = true;
     this.terminals.clear();
     this.usage.clear();
+    this.evidence.clear();
+    this.threadModels.clear();
+    this.turnModels.clear();
     this.totals.clear();
     this.baselines.clear();
+    this.epochs.clear();
+    this.epochTurnOffsets.clear();
     this.summaryItems.clear();
     this.asyncMessageItems.clear();
     this.streamedMessageItems.clear();
@@ -310,8 +504,8 @@ export class CodexEventTranslator {
     return this.summaryItems.get(this.key(identity))?.has(itemId) ?? false;
   }
 
-  private emit(identity: Identity, payloads: Payload[]): CodexRuntimeEvent[] {
-    if (this.terminals.has(this.key(identity))) return [];
+  private emit(identity: Identity, payloads: Payload[], allowAfterTerminal = false): CodexRuntimeEvent[] {
+    if (!allowAfterTerminal && this.terminals.has(this.key(identity))) return [];
     return payloads.map((payload) => ({
       ...payload,
       contextId: this.contextId,
@@ -322,12 +516,18 @@ export class CodexEventTranslator {
     }));
   }
 
-  private invalid(params: unknown): CodexRuntimeEvent[] {
+  private invalid(
+    params: unknown,
+    code = 'unsupportedNotification',
+    allowAfterTerminal = false,
+    diagnostic?: CodexUsageDiagnostic,
+  ): CodexRuntimeEvent[] {
     const parsed = correlation.safeParse(params);
     return parsed.success
       ? this.emit(parsed.data, [
-          { type: 'error', error: safeError('unsupportedNotification') },
-        ])
+          { type: 'error', error: safeError(code),
+            ...(diagnostic === undefined ? {} : { diagnostic }) },
+        ], allowAfterTerminal)
       : [];
   }
 

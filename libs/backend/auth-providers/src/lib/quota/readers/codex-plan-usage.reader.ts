@@ -4,14 +4,14 @@
  * Adapts `ICodexAccountUsageService` (the App Server account read, with its
  * own 30 s cache and single flight) to the plan-limit window shape:
  *
- * - `quota.primary` is window position 1 and `quota.secondary` position 2,
- *   always in that order, so `windows[0]`/`windows[1]` keep the primary /
- *   secondary meaning (Req 2.10). The kind comes from `windowDurationMins`
+ * - Each bucket keeps primary before secondary. The active `codex` bucket
+ *   comes first, followed by the other buckets in client-provided order.
+ *   The kind comes from `windowDurationMins`
  *   through `windowKindFromDuration`; an absent or unrecognised duration is
  *   labelled by position only ("Window 1", "Window 2"), never guessed.
  * - `resetsAt` goes through `normaliseInstant` (the App Server reports epoch
  *   seconds).
- * - `account.planType` and `activity` pass through unchanged.
+ * - Safe account plan, activity and optional allowances pass through.
  * - `quota.rateLimitReachedType` is window evidence (Component 7): the
  *   window it names carries `exhaustion {observedAt, source:'provider-api'}`.
  *   No reached type the App Server defines today names a window (they name
@@ -27,6 +27,7 @@
 import {
   normaliseInstant,
   windowKindFromDuration,
+  type PlanLimitAllowance,
   type PlanLimitWindow,
 } from '@ptah-extension/shared';
 import type {
@@ -41,6 +42,7 @@ import type {
 type CodexQuotaWindow = NonNullable<
   NonNullable<CodexAccountUsageResult['quota']>['primary']
 >;
+type CodexBucket = NonNullable<CodexAccountUsageResult['buckets']>[number];
 
 /** The Codex service surface this reader needs. */
 export type CodexPlanUsageSource = Pick<
@@ -73,26 +75,62 @@ export function mapCodexAccountUsage(
     return { status: result.status, windowSetEstablished: false, windows: [] };
   }
   const observedAt = result.fetchedAt ?? readAt;
-  const reached = Boolean(result.quota?.rateLimitReachedType);
-  const windows = [
-    toWindow(result.quota?.primary, 1, observedAt, reached),
-    toWindow(result.quota?.secondary, 2, observedAt, reached),
-  ].filter((window): window is PlanLimitWindow => window !== undefined);
+  const buckets: readonly CodexBucket[] = result.buckets ?? [{
+    id: 'codex',
+    label: 'Codex',
+    ...result.quota,
+  }];
+  const qualified = result.buckets !== undefined;
+  const windows = buckets.flatMap((bucket) => [
+    toWindow(bucket, bucket.primary, 1, observedAt, qualified),
+    toWindow(bucket, bucket.secondary, 2, observedAt, qualified),
+  ]).filter((window): window is PlanLimitWindow => window !== undefined);
+  const individual = (bucket: CodexBucket) => {
+    if (!bucket.individualLimit) return undefined;
+    const resetsAt = normaliseInstant(bucket.individualLimit.resetsAt);
+    return {
+      limit: bucket.individualLimit.limit,
+      used: bucket.individualLimit.used,
+      remainingPercent: bucket.individualLimit.remainingPercent,
+      ...(resetsAt !== undefined && { resetsAt }),
+    };
+  };
+  const allowances: PlanLimitAllowance[] = buckets.flatMap((bucket) => {
+    const mappedIndividual = individual(bucket);
+    return bucket.credits || mappedIndividual || bucket.rateLimitReachedType || bucket.spendControlReached != null
+      ? [{
+          bucketId: bucket.id,
+          label: bucket.label,
+          ...(bucket.rateLimitReachedType && { reachedType: bucket.rateLimitReachedType }),
+          ...(bucket.spendControlReached != null && { spendControlReached: bucket.spendControlReached }),
+          ...(bucket.credits && { credits: bucket.credits }),
+          ...(mappedIndividual && { individual: mappedIndividual }),
+        }]
+      : [];
+  });
+  const active = buckets.find((bucket) => bucket.id === 'codex');
+  const activeIndividual = allowances.find((allowance) => allowance.bucketId === 'codex')?.individual;
   return {
     status: result.status,
     fetchedAt: observedAt,
     windowSetEstablished: true,
     windows,
+    ...(allowances.length > 0 && { allowances }),
+    ...(active?.credits && { credits: active.credits }),
+    ...(activeIndividual && { individualAllowance: activeIndividual }),
+    ...(result.resetCreditsAvailable && { resetCreditsAvailable: true }),
+    ...(result.upsellAvailable && { upsellAvailable: true }),
     ...(result.account && { account: result.account }),
     ...(result.activity && { activity: result.activity }),
   };
 }
 
 function toWindow(
+  bucket: CodexBucket,
   quota: CodexQuotaWindow | undefined,
   position: 1 | 2,
   observedAt: number,
-  limitReached: boolean,
+  qualified: boolean,
 ): PlanLimitWindow | undefined {
   if (!quota) return undefined;
   const atLimit =
@@ -102,6 +140,17 @@ function toWindow(
   const durationMins = quota.windowDurationMins;
   return {
     ...descriptor,
+    ...(qualified && bucket.id !== 'codex' && {
+      key: `other:${bucket.id}:${position === 1 ? 'primary' : 'secondary'}` as const,
+      label: `${bucket.label} ${descriptor.label}`,
+    }),
+    ...(qualified && { bucketId: bucket.id }),
+    ...(qualified && bucket.rateLimitReachedType !== undefined && {
+      reachedType: bucket.rateLimitReachedType,
+    }),
+    ...(qualified && bucket.spendControlReached != null && {
+      spendControlReached: bucket.spendControlReached,
+    }),
     ...(typeof durationMins === 'number' && { durationMins }),
     ...(Number.isFinite(quota.usedPercent) && {
       used: { kind: 'percent', percent: quota.usedPercent },
@@ -112,7 +161,7 @@ function toWindow(
       resetsAt,
       resetSource: 'provider-api',
     }),
-    ...(limitReached &&
+    ...(bucket.rateLimitReachedType !== undefined &&
       atLimit && {
         exhaustion: { observedAt, source: 'provider-api' },
       }),

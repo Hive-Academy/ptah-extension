@@ -204,6 +204,40 @@ function setup(
 }
 
 describe('CodexChatAdapter', () => {
+  it('does not persist usage after a checkpoint read fails', async () => {
+    const h = setup();
+    const persistUsage = jest.fn(async () => undefined);
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.ports.metadata.readUsage = jest.fn().mockRejectedValue(new Error('read failed'));
+    h.ports.metadata.persistUsage = persistUsage;
+
+    const stream = await h.adapter.resumeSession(id, { tabId });
+    for await (const event of stream) void event;
+
+    expect(h.ports.metadata.readUsage).toHaveBeenCalledWith(id);
+    expect(stats).toHaveBeenCalledTimes(1);
+    expect(persistUsage).not.toHaveBeenCalled();
+    expect(h.ports.logger.error).toHaveBeenCalledWith(
+      '[CodexChatAdapter] Native usage checkpoint read failed.',
+      expect.any(Error),
+    );
+    h.adapter.dispose();
+  });
+
+  it('persists usage when the checkpoint read succeeds', async () => {
+    const h = setup();
+    const persistUsage = jest.fn(async () => undefined);
+    h.ports.metadata.readUsage = jest.fn(async () => ({ checkpoint: undefined, messageCount: 0 }));
+    h.ports.metadata.persistUsage = persistUsage;
+
+    const stream = await h.adapter.resumeSession(id, { tabId });
+    for await (const event of stream) void event;
+
+    expect(persistUsage).toHaveBeenCalledWith(id, expect.objectContaining({ sessionId: id }));
+    h.adapter.dispose();
+  });
+
   it('keeps the shared chat gate when the host omits runtime resolution', async () => {
     const h = setup('gateway');
     try {
@@ -847,7 +881,12 @@ describe('CodexChatAdapter', () => {
         turnId: 'turn',
       }),
     );
-    expect(stats).not.toHaveBeenCalled();
+    // A terminal without usage publishes unpriced, partial lifetime stats.
+    expect(stats).toHaveBeenCalledTimes(1);
+    expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+      turnCost: null,
+      sessionStats: expect.objectContaining({ coverage: 'partial' }),
+    }));
     expect(lifecycle.opened).toHaveBeenCalledWith(
       id,
       expect.objectContaining({ profile }),

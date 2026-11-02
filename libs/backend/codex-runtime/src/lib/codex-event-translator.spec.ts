@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { CodexEventTranslator, MAX_TOOL_OUTPUT_CHARS } from './codex-event-translator';
+import type { CodexUsageEvidence } from './codex-runtime.types';
 import {
   codexNotificationSchemas,
+  codexRequestSchemas,
   validateCodexFrame,
 } from './codex-protocol-validator';
 const pinnedNotificationMethods = z
@@ -346,6 +348,239 @@ describe('CodexEventTranslator', () => {
     },
   );
 
+  it('emits typed absolute evidence for two requests and a repeated cumulative update', () => {
+    const clocked = new CodexEventTranslator('context', 4, () => 1_234);
+    const first = clocked.translate({
+      method: 'thread/tokenUsage/updated',
+      params: { ...ids, model: 'codex-model', tokenUsage: { last: counts, total: counts } },
+    });
+    const firstEvidence: CodexUsageEvidence | undefined = first[0]?.type === 'usage'
+      ? first[0].evidence : undefined;
+    expect(firstEvidence).toMatchObject({
+      threadId: 'thread', turnId: 'turn', modelId: 'codex-model',
+      total: { uncachedInputTokens: 7, outputTokens: 3, cacheReadTokens: 0,
+        cacheCreationTokens: 0, reasoningOutputTokens: 1, totalTokens: 10 },
+      last: { totalTokens: 10 }, terminalState: 'none', resetOrStale: false,
+    });
+    expect(firstEvidence?.timestamp).toBe(1_234);
+    const next = {
+      inputTokens: 19, cachedInputTokens: 4, cacheWriteInputTokens: 2,
+      outputTokens: 8, reasoningOutputTokens: 3, totalTokens: 27,
+    };
+    const last = {
+      inputTokens: 12, cachedInputTokens: 4, cacheWriteInputTokens: 2,
+      outputTokens: 5, reasoningOutputTokens: 2, totalTokens: 17,
+    };
+    const update = { method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: { last, total: next } } };
+    expect(clocked.translate(update)).toMatchObject([{
+      type: 'usage', usage: { totalTokens: 27 },
+      evidence: { total: { uncachedInputTokens: 13, cacheReadTokens: 4,
+        cacheCreationTokens: 2, outputTokens: 8, totalTokens: 27 } },
+    }]);
+    expect(clocked.translate(update)).toMatchObject([{
+      type: 'usage', usage: { totalTokens: 27 },
+      evidence: { resetOrStale: false, total: { totalTokens: 27 } },
+    }]);
+    expect(clocked.translate(terminal())).toMatchObject([{
+      type: 'terminal', usage: { totalTokens: 27 },
+      evidence: { terminalState: 'completed', total: { totalTokens: 27 } },
+    }]);
+  });
+
+  it('uses the validated thread response model when native usage omits model', () => {
+    const translator = new CodexEventTranslator('context', 1);
+    translator.setThreadModel('thread', 'gpt-6-luna');
+    const events = translator.translate({
+      method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: {
+        last: counts, total: counts, modelContextWindow: 128_000,
+      } },
+    });
+    expect(events[0]).toMatchObject({ type: 'usage', evidence: {
+      modelId: 'gpt-6-luna', modelContextWindow: 128_000,
+      lastRequestTotalTokens: 10,
+    } });
+  });
+
+  it('keeps each turn model across a switch and late model-less usage', () => {
+    const translator = new CodexEventTranslator('context', 1);
+    translator.setThreadModel('thread', 'gpt-4o');
+    translator.setTurnModel('thread', 'first', 'gpt-4o');
+    translator.setThreadModel('thread', 'gpt-4o-mini');
+    translator.setTurnModel('thread', 'second', 'gpt-4o-mini');
+    const usage = (turnId: string) => translator.translate({
+      method: 'thread/tokenUsage/updated', params: {
+        threadId: 'thread', turnId, tokenUsage: { last: counts, total: counts },
+      },
+    });
+    expect(usage('first')[0]).toMatchObject({ evidence: { modelId: 'gpt-4o' } });
+    expect(usage('second')[0]).toMatchObject({ evidence: { modelId: 'gpt-4o-mini' } });
+  });
+
+  it('seeds a resumed root while keeping child models independent', () => {
+    const translator = new CodexEventTranslator('context', 1);
+    const resumed = codexRequestSchemas['thread/resume'].result.parse({
+      thread: {
+        id: 'thread', cliVersion: '0.165.0', createdAt: 1, updatedAt: 1,
+        cwd: '/work', ephemeral: false, modelProvider: 'openai', preview: '',
+        projectId: null, sessionId: 'session', source: 'appServer',
+        status: { type: 'idle' }, turns: [],
+      },
+      approvalPolicy: 'never', approvalsReviewer: 'user', cwd: '/work',
+      model: 'gpt-4o', modelProvider: 'openai', sandbox: { type: 'readOnly' },
+    });
+    translator.setThreadModel(resumed.thread.id, resumed.model);
+    const usage = (threadId: string, turnId: string) => translator.translate({
+      method: 'thread/tokenUsage/updated', params: {
+        threadId, turnId, tokenUsage: { last: counts, total: counts },
+      },
+    });
+    expect(usage('thread', 'resumed')[0]).toMatchObject({
+      evidence: { modelId: 'gpt-4o' },
+    });
+    const unmodeledChild = usage('child', 'child-turn')[0];
+    expect(unmodeledChild).not.toHaveProperty('evidence.modelId');
+    translator.setThreadModel('child-2', 'gpt-4o-mini');
+    expect(usage('child-2', 'other-turn')[0]).toMatchObject({
+      evidence: { modelId: 'gpt-4o-mini' },
+    });
+  });
+
+  it('marks decreasing and inconsistent equal totals as stale without negative usage', () => {
+    translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: { last: counts, total: counts } } });
+    const stale = translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: { last: { ...counts, inputTokens: 6,
+        totalTokens: 9 }, total: { ...counts, inputTokens: 6, totalTokens: 9 } } } });
+    expect(stale).toMatchObject([{
+      type: 'usage', usage: { totalTokens: 10 },
+      evidence: { resetOrStale: true, total: { totalTokens: 9 } },
+    }]);
+    const inconsistent = translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: { last: counts,
+        total: { ...counts, inputTokens: 8 } } } });
+    expect(inconsistent).toMatchObject([{
+      evidence: { resetOrStale: true }, usage: { totalTokens: 10 },
+    }]);
+    expect(translator.translate(terminal())).toMatchObject([{
+      usage: { totalTokens: 10 }, evidence: { total: { totalTokens: 10 } },
+    }]);
+  });
+
+  it('reports malformed native usage without advancing counters', () => {
+    expect(translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: { last: counts,
+        total: { ...counts, inputTokens: -1 } } } })).toMatchObject([{
+      type: 'error', error: { code: 'usageNotificationInvalid' },
+      diagnostic: 'invalid-payload',
+    }]);
+    expect(translator.translate(terminal())[0]).not.toHaveProperty('usage');
+  });
+
+  it('retains cache-write-heavy counters with a content-free ambiguity diagnostic', () => {
+    const heavy = { inputTokens: 3, cachedInputTokens: 4,
+      cacheWriteInputTokens: 8, outputTokens: 2,
+      reasoningOutputTokens: 1, totalTokens: 5 };
+    expect(translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: { last: heavy, total: heavy } } })).toMatchObject([{
+      type: 'usage', usage: { totalTokens: 5 },
+      evidence: { accepted: true, cacheSemanticsAmbiguous: true,
+        total: { uncachedInputTokens: 0, cacheReadTokens: 4,
+          cacheCreationTokens: 8 },
+        diagnostics: ['cache-semantics-ambiguous', 'classes-inconsistent'] },
+    }]);
+  });
+
+  it('retains a last request larger than total and marks partial evidence', () => {
+    const total = { ...counts, inputTokens: 2, outputTokens: 1,
+      reasoningOutputTokens: 0, totalTokens: 3 };
+    expect(translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: { last: counts, total } } })).toMatchObject([{
+      type: 'usage', usage: { totalTokens: 3 },
+      evidence: { accepted: true, lastExceedsTotal: true,
+        diagnostics: ['last-exceeds-total'] },
+    }]);
+  });
+
+  it('emits empty turn usage and a diagnostic for stale evidence without a snapshot', () => {
+    translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { threadId: 'thread', turnId: 'previous',
+        tokenUsage: { last: counts, total: counts } } });
+    const lower = { ...counts, inputTokens: 6, totalTokens: 9 };
+    expect(translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: { last: lower, total: lower } } })).toMatchObject([{
+      type: 'usage', usage: {}, evidence: { accepted: false, resetOrStale: true,
+        diagnostics: ['stale-cumulative'] },
+    }]);
+  });
+
+  it('rebases only on explicit reset proof and accepts later epoch updates', () => {
+    translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: { last: counts, total: counts } } });
+    const low = { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1,
+      reasoningOutputTokens: 0, totalTokens: 2 };
+    const update = (total: typeof low, counterReset?: true) => ({
+      method: 'thread/tokenUsage/updated', params: { ...ids,
+        tokenUsage: { last: total, total, counterReset } },
+    });
+    expect(translator.translate(update(low))).toMatchObject([{
+      usage: { totalTokens: 10 }, evidence: { accepted: false, epoch: 0,
+        diagnostics: ['stale-cumulative'] },
+    }]);
+    expect(translator.translate(update(low, true))).toMatchObject([{
+      usage: { totalTokens: 12 }, evidence: { accepted: true, epoch: 1,
+        resetOrStale: true, diagnostics: ['counter-reset'] },
+    }]);
+    const higher = { ...low, inputTokens: 3, outputTokens: 2, totalTokens: 5 };
+    expect(translator.translate(update(higher))).toMatchObject([{
+      usage: { totalTokens: 15 }, evidence: { accepted: true, epoch: 1,
+        resetOrStale: false },
+    }]);
+  });
+
+  it('emits late native usage with the failed terminal state', () => {
+    translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: { last: counts, total: counts } } });
+    translator.translate(terminal('failed'));
+    const later = { ...counts, inputTokens: 11, outputTokens: 4,
+      totalTokens: 15 };
+    expect(translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: { last: later, total: later } } })).toMatchObject([{
+      type: 'usage', usage: { totalTokens: 15 },
+      evidence: { accepted: true, terminalState: 'failed',
+        total: { totalTokens: 15 } },
+    }]);
+  });
+
+  it.each(['failed', 'interrupted'] as const)(
+    'retains observed evidence and usage on a %s terminal', (status) => {
+      translator.translate({ method: 'thread/tokenUsage/updated',
+        params: { ...ids, tokenUsage: { last: counts, total: counts } } });
+      expect(translator.translate(terminal(status))).toMatchObject([{
+        type: 'terminal', status, usage: { totalTokens: 10 },
+        evidence: { terminalState: status, total: { totalTokens: 10 } },
+      }]);
+    },
+  );
+
+  it('keeps compaction and child thread evidence separate from the parent', () => {
+    translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { ...ids, tokenUsage: { last: counts, total: counts } } });
+    translator.translate(itemFrame({ type: 'contextCompaction', id: 'compact' }, true));
+    const child = translator.translate({ method: 'thread/tokenUsage/updated',
+      params: { threadId: 'child', turnId: 'child-turn', parentThreadId: 'thread',
+        tokenUsage: { last: counts, total: counts } } });
+    expect(child).toMatchObject([{
+      threadId: 'child', turnId: 'child-turn',
+      evidence: { threadId: 'child', turnId: 'child-turn', parentThreadId: 'thread',
+        total: { totalTokens: 10 } },
+    }]);
+    expect(translator.translate(terminal())).toMatchObject([{
+      threadId: 'thread', evidence: { total: { totalTokens: 10 } },
+    }]);
+  });
+
   it('defaults omitted cache writes to zero on the first turn', () => {
     translator.translate({
       method: 'thread/tokenUsage/updated',
@@ -387,7 +622,7 @@ describe('CodexEventTranslator', () => {
   });
 
   it.each(['completed', 'failed', 'interrupted'])(
-    'emits exactly one %s terminal and ignores late events',
+    'emits exactly one %s terminal and ignores late non-usage events',
     (status) => {
       expect(translator.translate(terminal(status))).toMatchObject([
         { type: 'terminal', status },
@@ -399,7 +634,7 @@ describe('CodexEventTranslator', () => {
           method: 'thread/tokenUsage/updated',
           params: { ...ids, tokenUsage: { last: counts, total: counts } },
         }),
-      ).toEqual([]);
+      ).toMatchObject([{ type: 'usage', evidence: { terminalState: status } }]);
     },
   );
 
@@ -444,6 +679,46 @@ describe('CodexEventTranslator', () => {
     expect(JSON.stringify(events)).not.toMatch(
       /private|hunter2|Users|\/home|sk-/,
     );
+  });
+
+  it('maps a native usage-limit turn error with a validated reset in epoch seconds', () => {
+    const resetsAt = Date.UTC(2030, 0, 1, 12);
+    expect(translator.translate({
+      method: 'account/rateLimits/updated',
+      params: { rateLimits: {
+        rateLimitReachedType: 'rate_limit_reached',
+        primary: { usedPercent: 100, resetsAt: resetsAt / 1_000 },
+      } },
+    })).toEqual([]);
+    const events = translator.translate(terminal('failed', {
+      error: {
+        message: 'account-id=private credential=private',
+        codexErrorInfo: 'usageLimitExceeded',
+      },
+    }));
+    expect(events).toMatchObject([{
+      type: 'terminal', status: 'failed',
+      error: { code: 'turnError', limitReached: {
+        reachedType: 'rate_limit_reached', resetsAt,
+      } },
+    }]);
+    const instant = events[0].type === 'terminal'
+      ? events[0].error?.limitReached?.resetsAt
+      : undefined;
+    expect(new Date(instant ?? 0).getUTCFullYear()).toBe(2030);
+    expect(JSON.stringify(events)).not.toContain('private');
+  });
+
+  it('maps a usage-limit cause without inventing a reset and keeps other errors generic', () => {
+    expect(translator.translate(terminal('failed', {
+      error: { message: 'private', codexErrorInfo: 'usageLimitExceeded' },
+    }))).toMatchObject([{
+      type: 'terminal', error: { limitReached: { reachedType: 'usage_limit_exceeded' } },
+    }]);
+    const other = new CodexEventTranslator('context', 1).translate(terminal('failed', {
+      error: { message: 'private', codexErrorInfo: 'rateLimitExceeded' },
+    }));
+    expect(other[0]).not.toHaveProperty('error.limitReached');
   });
 
   it('forwards real command and MCP failure detail instead of invented text', () => {

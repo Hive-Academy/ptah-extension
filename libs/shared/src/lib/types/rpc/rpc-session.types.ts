@@ -371,6 +371,10 @@ export interface SessionStatsEntry {
    * provider-reported `0` is a known zero.
    */
   readonly totalCost: number | null;
+  /** Absent on legacy snapshots; a covered value or estimate is never an invoice. */
+  readonly costBasis?: SessionCostBasis;
+  /** Catalog evidence for each model contributing to an exact-rate value. */
+  readonly priceProvenance?: ReadonlyArray<PriceProvenance>;
   /**
    * Sum of the contributions whose price IS known. Equal to `totalCost` when
    * pricing is full; a labeled subtotal when pricing is partial; `null` when
@@ -478,6 +482,28 @@ export type SessionStatsCoverage = 'complete' | 'partial';
 
 /** Share of counted tokens whose model has a known rate. */
 export type SessionStatsPricingCoverage = 'full' | 'partial' | 'none';
+
+/**
+ * Meaning of a displayed cost. Absent preserves existing Claude behavior.
+ * New valuations use 'unknown' whenever totalCost is null.
+ */
+export type SessionCostBasis =
+  | 'reported'
+  | 'estimated'
+  | 'covered-by-subscription'
+  | 'unknown';
+
+/**
+ * Non-secret evidence for the model rate used in a cost calculation.
+ * A null catalog field means the rate supplier did not provide it. Hydrated
+ * OpenRouter entries currently have no source, version, or effective date.
+ */
+export interface PriceProvenance {
+  readonly modelIdUsed: string;
+  readonly catalogSource?: string | null;
+  readonly catalogVersion?: string | null;
+  readonly effectiveDate?: string | null;
+}
 
 /**
  * Accounting scope for `session:stats-batch`.

@@ -15,6 +15,8 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
   AUTH_PROVIDERS_TOKENS,
+  CodexAccountUsageService,
+  type PlanLimitLedgerService,
   type CodexHomeResolver,
 } from '@ptah-extension/auth-providers';
 import {
@@ -214,6 +216,10 @@ async function readCodexVersion(executablePath: string): Promise<string> {
   return stdout.trim();
 }
 
+type CodexRateLimitsUpdate = Parameters<
+  CodexAccountUsageService['applyRateLimitsUpdated']
+>[0];
+
 export interface ElectronCodexScopeInput extends ElectronCodexRoutingInput {
   readonly parent: DependencyContainer;
   readonly ports: Omit<
@@ -223,6 +229,14 @@ export interface ElectronCodexScopeInput extends ElectronCodexRoutingInput {
   readonly expectedManifestRow: CodexExecutableManifestRow;
   /** Absolute host-owned node_modules root (app.asar.unpacked when packaged). */
   readonly bundledRoot: string;
+  readonly sharedUsage?: { client: CodexAccountUsageClient | null };
+  readonly usageNotifications?: {
+    readonly onRateLimitsUpdated: (
+      update: CodexRateLimitsUpdate,
+    ) => Promise<void>;
+    readonly onContextClosed: (contextId: string) => void;
+    readonly onContextOpened?: (contextId: string) => void;
+  };
 }
 
 /**
@@ -258,6 +272,9 @@ export function createElectronCodexScopeFactory(
     try {
       registerCodexRuntime(container, {
         ...input.ports,
+        usage: input.ports.usage
+          ? { ...input.ports.usage, ...input.usageNotifications }
+          : null,
         executable,
         sink,
         devRoute: routing.devRoute,
@@ -270,13 +287,21 @@ export function createElectronCodexScopeFactory(
       const usage = container.resolve<CodexAccountUsageClient | null>(
         CodexAccountUsageClient,
       );
+      if (input.sharedUsage && usage && !input.sharedUsage.client) {
+        input.parent
+          .resolve<CodexAccountUsageService>(
+            AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE,
+          )
+          .attachCoreClient(usage);
+        input.sharedUsage.client = usage;
+      }
       let closing: Promise<void> | undefined;
       const close = async () => {
         try {
           await runtime.close();
         } finally {
           try {
-            await usage?.close();
+            if (usage !== input.sharedUsage?.client) await usage?.close();
           } finally {
             await container.dispose();
           }
@@ -354,6 +379,7 @@ interface HostDependencies {
 interface ScopePorts {
   createScope(sink: ApprovalSink): CodexChatScope;
   verifyBinary(): Promise<void>;
+  closeSharedUsage(): Promise<void>;
 }
 
 function createElectronCodexHostDependencies(context: BindingContext): HostDependencies {
@@ -387,6 +413,13 @@ function createElectronCodexHostDependencies(context: BindingContext): HostDepen
 function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
   const { container, input, logger, routing, store, scopes } = context;
   const { profiles } = context.state;
+  const sharedUsage: { client: CodexAccountUsageClient | null } = {
+    client: null,
+  };
+  const usageService = () =>
+    container.resolve<CodexAccountUsageService>(
+      AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE,
+    );
   let verified: {
     pin: CodexExecutableManifestRow;
     binary: CodexRuntimeRegistrationPorts['binary'];
@@ -421,6 +454,24 @@ function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
       ...input,
       parent: container,
       expectedManifestRow: pin,
+      sharedUsage,
+      usageNotifications: {
+        onRateLimitsUpdated: async (update) => {
+          const live = await usageService().applyRateLimitsUpdated(update);
+          if (!live) return;
+          const ledger = container.resolve<PlanLimitLedgerService>(
+            AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER,
+          );
+          for (const window of live.windows)
+            ledger.recordWindowEvidence(live.owner, window);
+        },
+        onContextClosed: (contextId) => {
+          usageService().releaseRateLimitsContext(contextId);
+        },
+        onContextOpened: (contextId) => {
+          usageService().openRateLimitsContext(contextId);
+        },
+      },
       ports: {
         binary,
         store,
@@ -497,7 +548,14 @@ function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
     scopes.add(owned);
     return owned;
   };
-  return { createScope, verifyBinary };
+  const closeSharedUsage = async () => {
+    const client = sharedUsage.client;
+    if (!client) return;
+    sharedUsage.client = null;
+    usageService().detachCoreClient(client);
+    await client.close();
+  };
+  return { createScope, verifyBinary, closeSharedUsage };
 }
 
 export type ElectronCodexHistoryErrorCode =
@@ -722,7 +780,7 @@ function createElectronCodexAdapterPorts(
       },
     },
     // The shared port keeps the native title and counts completed turns (8m-8).
-    metadata: createCodexChatMetadataPort(lookup),
+    metadata: createCodexChatMetadataPort(lookup, metadataStore),
     approvals: {
       register: (...args) =>
         container
@@ -859,6 +917,17 @@ export async function bindElectronCodexChat(
       context, host, scope, lifecycle,
     );
     const admission = createCodexRuntimeAdmission(host.deps);
+    const baseBinding = createElectronCodexBindingHandle(context);
+    binding = {
+      ...baseBinding,
+      dispose: async () => {
+        try {
+          await baseBinding.dispose();
+        } finally {
+          await scope.closeSharedUsage();
+        }
+      },
+    };
     const historyPort = createElectronCodexHistoryPort({
       currentHome: () => container.resolve<CodexHomeResolver>(
         AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER,
@@ -873,7 +942,6 @@ export async function bindElectronCodexChat(
       liveProfiles: context.state.profiles,
       logger,
     });
-    binding = createElectronCodexBindingHandle(context);
     registerElectronCodexBinding(context, adapterPorts, admission, sessionControls, historyPort);
     return binding;
   } catch (error) {

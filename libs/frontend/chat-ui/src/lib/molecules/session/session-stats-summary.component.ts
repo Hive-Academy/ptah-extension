@@ -221,6 +221,9 @@ export class SessionStatsSummaryComponent {
   /** Session cost; `null` renders "cost unavailable" (CostBadge semantics). */
   readonly totalCost = computed(() => this.snapshot()?.totalCost ?? null);
 
+  /** Final price meaning, independent of the live in-turn estimate marker. */
+  readonly costBasis = computed(() => this.snapshot()?.costBasis);
+
   /**
    * The priced part of a partially priced session, shown only as an
    * explicitly labeled subtotal next to the unavailable total. Wrapped so a
