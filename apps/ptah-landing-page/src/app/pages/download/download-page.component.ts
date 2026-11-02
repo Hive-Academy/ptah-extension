@@ -56,7 +56,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
             [viewportConfig]="subheadlineConfig"
             class="text-lg sm:text-xl text-ink-400 max-w-2xl leading-relaxed"
           >
-            Download the Ptah Desktop app for Windows, macOS, or Linux.
+            Download the PtahCode Desktop app for Windows, macOS, or Linux.
             Auto-updates keep you on the latest version.
           </p>
         </div>
@@ -401,11 +401,11 @@ export class DownloadPageComponent {
 
   constructor() {
     inject(SeoService).setPage({
-      title: 'Download Ptah — AI Coding Agent for Windows, macOS & Linux',
+      title: 'Download PtahCode — AI Coding Agent for Windows, macOS & Linux',
       description:
-        'Download Ptah for Windows, macOS, or Linux. Persistent memory, sub-agent orchestration, scheduled agents. Free and open source, no credit card.',
+        'Download PtahCode for Windows, macOS, or Linux. Persistent memory, sub-agent orchestration, scheduled agents. Free and open source, no credit card.',
       url: 'https://ptah.live/download',
-      ogTitle: 'Download Ptah — Windows, macOS & Linux',
+      ogTitle: 'Download PtahCode — Windows, macOS & Linux',
       ogDescription:
         "The desktop AI coding agent that remembers your codebase and works while you're away. Free and open source, no credit card.",
     });

@@ -213,7 +213,7 @@ import { ContentDownloadService } from './content-download.service';
 // ---------------------------------------------------------------------------
 
 const MANIFEST_URL =
-  'https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/content-manifest.json';
+  'https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/content-manifest.json';
 
 const PTAH_DIR = path.join(TEST_HOME, '.ptah');
 const PLUGINS_DIR = path.join(PTAH_DIR, 'plugins');
@@ -235,7 +235,7 @@ function buildManifest(
     generatedAt: '2026-04-24T00:00:00Z',
     baseUrl:
       overrides?.baseUrl ??
-      'https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main',
+      'https://raw.githubusercontent.com/Hive-Academy/PtahCode/main',
     plugins: {
       basePath: 'apps/ptah-extension-vscode/assets/plugins',
       files: overrides?.pluginFiles ?? [

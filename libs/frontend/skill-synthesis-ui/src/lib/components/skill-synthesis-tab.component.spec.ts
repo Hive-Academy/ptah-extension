@@ -142,7 +142,7 @@ describe('SkillSynthesisTabComponent', () => {
 
   it('keeps the desktop notice in VS Code and skips telemetry reads', () => {
     const { root, refreshTelemetryEnabled } = mount(false);
-    expect(root.querySelector('[role="alert"]')?.textContent).toContain('Ptah desktop');
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain('PtahCode desktop');
     expect(root.querySelector('ptah-skill-clones-view')).toBeNull();
     expect(refreshTelemetryEnabled).not.toHaveBeenCalled();
   });

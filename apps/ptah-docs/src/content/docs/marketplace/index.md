@@ -7,7 +7,7 @@ The **Marketplace** is Ptah's in-app hub for extending any workspace with new ca
 
 ## Opening the Marketplace
 
-In the Ptah desktop app, click the **Marketplace** entry in the navigation rail. Pick a provider from the list and its catalog mounts on the right.
+In the PtahCode desktop app, click the **Marketplace** entry in the navigation rail. Pick a provider from the list and its catalog mounts on the right.
 
 ## Providers
 

@@ -737,7 +737,7 @@ git push origin release/electron
 # 3. CI builds Win/Mac/Linux, creates tag + public GitHub Release automatically
 ```
 
-**Downloads**: https://github.com/Hive-Academy/ptah-extension/releases/latest
+**Downloads**: https://github.com/Hive-Academy/PtahCode/releases/latest
 
 ---
 

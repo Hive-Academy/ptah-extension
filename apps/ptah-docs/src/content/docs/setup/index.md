@@ -9,7 +9,7 @@ The **Setup Hub** is Ptah's unified configuration dashboard. It brings workspace
 
 ## Opening the Setup Hub
 
-In the Ptah desktop app, click the **Setup Hub** tab in the left navigation rail. The hub loads your current configuration status (agents, rules, `CLAUDE.md`) and any saved presets.
+In the PtahCode desktop app, click the **Setup Hub** tab in the left navigation rail. The hub loads your current configuration status (agents, rules, `CLAUDE.md`) and any saved presets.
 
 The Setup Hub and all of its builders are free and available to everyone — open any card and launch a builder without restrictions.
 

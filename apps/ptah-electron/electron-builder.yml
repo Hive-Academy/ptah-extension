@@ -177,6 +177,9 @@ win:
 
 linux:
   category: Development
+  desktop:
+    entry:
+      Name: PtahCode
   target:
     - AppImage
     - deb
@@ -198,6 +201,8 @@ linux:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  shortcutName: PtahCode
+  uninstallDisplayName: PtahCode ${version}
   # packElevateHelper copies elevate.exe into resources/ during NSIS packaging.
   # Under the signed-app repack (electron-builder --prepackaged), that copy
   # fails with "ENOENT ... elevate.exe" (electron-builder#7518). The elevate
@@ -209,4 +214,4 @@ nsis:
 publish:
   provider: github
   owner: Hive-Academy
-  repo: ptah-extension
+  repo: PtahCode

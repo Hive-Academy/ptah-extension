@@ -6,12 +6,12 @@
   "publisher": "ptah-extensions",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Hive-Academy/ptah-extension.git"
+    "url": "https://github.com/Hive-Academy/PtahCode.git"
   },
   "bugs": {
-    "url": "https://github.com/Hive-Academy/ptah-extension/issues"
+    "url": "https://github.com/Hive-Academy/PtahCode/issues"
   },
-  "homepage": "https://github.com/Hive-Academy/ptah-extension#readme",
+  "homepage": "https://github.com/Hive-Academy/PtahCode#readme",
   "engines": {
     "vscode": "^1.100.0"
   },

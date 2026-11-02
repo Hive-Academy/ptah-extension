@@ -98,7 +98,7 @@ describe('preparing workspace shell', () => {
     expect(row('verify').dataset['state']).toBe('active');
     expect(row('restore').dataset['state']).toBe('pending');
     expect($('detail').textContent?.trim()).toBe(
-      'Verifying local state before Ptah starts.',
+      'Verifying local state before PtahCode starts.',
     );
     expect($('shell').getAttribute('aria-busy')).toBe('true');
   });

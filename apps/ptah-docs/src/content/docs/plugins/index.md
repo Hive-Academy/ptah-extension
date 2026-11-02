@@ -20,7 +20,7 @@ Out of the box Ptah ships with a lean set of defaults. Plugins let you opt into 
 
 ## How plugins reach your machine
 
-Plugins are **not bundled in the Ptah installer**. On first launch (and on demand thereafter), Ptah's `ContentDownloadService` reads the public [`content-manifest.json`](https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/content-manifest.json) and downloads the plugin tree into `~/.ptah/plugins/`.
+Plugins are **not bundled in the Ptah installer**. On first launch (and on demand thereafter), Ptah's `ContentDownloadService` reads the public [`content-manifest.json`](https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/content-manifest.json) and downloads the plugin tree into `~/.ptah/plugins/`.
 
 ```text
 ~/.ptah/

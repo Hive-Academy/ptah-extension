@@ -554,7 +554,7 @@ describe('ThothShellComponent', () => {
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent ?? '';
-    expect(text).toContain('Ptah desktop');
+    expect(text).toContain('PtahCode desktop');
   });
 
   it('shows desktop-only placeholder for memory tab when not on Electron', () => {
@@ -582,7 +582,7 @@ describe('ThothShellComponent', () => {
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent ?? '';
-    expect(text).toContain('Ptah desktop');
+    expect(text).toContain('PtahCode desktop');
 
     // Confirm the live memory UI is not rendered.
     const search = (fixture.nativeElement as HTMLElement).querySelector(
@@ -617,7 +617,7 @@ describe('ThothShellComponent', () => {
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent ?? '';
-    expect(text).toContain('Ptah desktop');
+    expect(text).toContain('PtahCode desktop');
 
     expect(text).toContain('Skills Library');
   });

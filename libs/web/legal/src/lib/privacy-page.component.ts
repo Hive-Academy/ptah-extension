@@ -484,7 +484,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
 export class PrivacyPageComponent {
   constructor() {
     inject(SeoService).setPage({
-      title: 'Privacy Policy — Ptah',
+      title: 'Privacy Policy — PtahCode',
       description:
         'How Ptah collects, stores, and protects your data across the desktop app, VS Code extension, and CLI.',
       url: 'https://ptah.live/privacy',

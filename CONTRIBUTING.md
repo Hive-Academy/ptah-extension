@@ -1,4 +1,4 @@
-# Contributing to Ptah
+# Contributing to PtahCode
 
 We welcome contributions! Here's how to get started.
 
@@ -14,8 +14,8 @@ We welcome contributions! Here's how to get started.
 ## Development Setup
 
 ```bash
-git clone https://github.com/Hive-Academy/ptah-extension.git
-cd ptah-extension
+git clone https://github.com/Hive-Academy/PtahCode.git
+cd PtahCode
 npm install
 npm run build:all
 ```
@@ -39,7 +39,7 @@ Press F5 in VS Code to launch the Extension Development Host.
 
 ## License
 
-Ptah is licensed under the [MIT License](LICENSE.md).
+PtahCode is licensed under the [MIT License](LICENSE.md).
 
 By submitting a pull request or otherwise contributing to this repository, you agree that your contributions will be licensed under the same MIT license that covers the project. You also represent that you have the right to submit the contribution and that it does not violate any third-party rights.
 

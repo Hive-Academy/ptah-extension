@@ -175,7 +175,7 @@ export const PLUGIN_SETTINGS_POINTER_COPY =
         data-testid="clones-desktop-notice"
       >
         <p class="text-sm font-medium">
-          Skill clones are only available in the Ptah desktop app.
+          Skill clones are only available in the PtahCode desktop app.
         </p>
       </div>
     } @else {

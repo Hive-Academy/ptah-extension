@@ -265,7 +265,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
 export class RefundPageComponent {
   constructor() {
     inject(SeoService).setPage({
-      title: 'Refund Policy — Ptah',
+      title: 'Refund Policy — PtahCode',
       description:
         'Refund terms for Ptah Builders membership billing: a 30-day money-back guarantee on your first charge, processed through Paddle.',
       url: 'https://ptah.live/refund',

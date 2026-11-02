@@ -9,9 +9,9 @@
 
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/apps/ptah-landing-page/public/assets/icons/ptah-icon.png" width="112" alt="Ptah" />
+<img src="https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/apps/ptah-landing-page/public/assets/icons/ptah-icon.png" width="112" alt="PtahCode" />
 
-# Ptah — The Coding Orchestra
+# PtahCode — The Coding Orchestra
 
 **An AI dev team that learns your architecture and keeps shipping.**
 
@@ -48,9 +48,9 @@ Short feature clips:
 
 ---
 
-## What Ptah is
+## What PtahCode is
 
-Ptah is an AI development environment for real projects. It indexes your repository before the first message, keeps the decisions it makes after the last one, and runs a team of specialized agents against that shared map.
+PtahCode is an AI development environment for real projects. It indexes your repository before the first message, keeps the decisions it makes after the last one, and runs a team of specialized agents against that shared map.
 
 One core powers three surfaces:
 
@@ -60,7 +60,7 @@ One core powers three surfaces:
 | **VS Code extension** | Sidebar and full-panel webview           | Work that stays inside the editor              |
 | **CLI**               | Headless JSON-RPC 2.0 over stdio         | CI pipelines, scripts, and agent-to-agent use  |
 
-![Ptah chat with the built-in tool catalog](https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/apps/ptah-docs/public/screenshots/chat-overview.png)
+![PtahCode chat with the built-in tool catalog](https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/apps/ptah-docs/public/screenshots/chat-overview.png)
 
 ---
 
@@ -68,7 +68,7 @@ One core powers three surfaces:
 
 ### 1. It knows your architecture
 
-Ptah builds a map of your codebase and keeps it.
+PtahCode builds a map of your codebase and keeps it.
 
 - **Persistent memory** — hybrid BM25 and vector search, fused with Reciprocal Rank Fusion. The agent that builds feature ten recalls the auth pattern from feature one.
 - **Tree-sitter indexing** — structural AST parsing across JavaScript, TypeScript, Python, and Go. Every function, class, and import gets an exact file position.
@@ -78,12 +78,12 @@ Read more: [Memory](https://docs.ptah.live/memory/) · [Workspace analysis](http
 
 ### 2. A staffed team, not a solo agent
 
-![Execution tree with sub-agent delegation, tokens, and cost](https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/apps/ptah-docs/public/screenshots/chat-execution-tree.png)
+![Execution tree with sub-agent delegation, tokens, and cost](https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/apps/ptah-docs/public/screenshots/chat-execution-tree.png)
 
 - **Sub-agent orchestration** — a main agent delegates to specialists: architect, backend developer, frontend developer, tester, and reviewer. Each specialist can use its own provider, model, and context window.
 - **Orchestra Canvas** — up to nine concurrent sessions in one drag-and-resize grid. Background agents continue while you review a single tile.
 - **Tribunal skill**: ask in the main chat for Council, Forge, Race, Crucible, or Relay. Review the pinned CLI lanes and paid call count before confirming the run.
-- **Skill synthesis** — when a delivery pattern succeeds, Ptah extracts the trajectory, judges its quality, and promotes it to a permanent, shareable skill file.
+- **Skill synthesis** — when a delivery pattern succeeds, PtahCode extracts the trajectory, judges its quality, and promotes it to a permanent, shareable skill file.
 - **Execution tree** — every tool call, sub-agent, token count, and cost, live.
 
 Read more: [Agents](https://docs.ptah.live/agents/) · [Skill synthesis](https://docs.ptah.live/skill-synthesis/) · [Tribunal](https://docs.ptah.live/tribunal/)
@@ -100,12 +100,12 @@ Read more: [Automation](https://docs.ptah.live/automation/)
 
 ## More capabilities
 
-![Setup Hub: workspace analysis, AI team builder, new project](https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/apps/ptah-docs/public/screenshots/setup-hub.png)
+![Setup Hub: workspace analysis, AI team builder, new project](https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/apps/ptah-docs/public/screenshots/setup-hub.png)
 
 - **Setup wizard** — scans the workspace, detects the project type and frameworks, then generates agents, rules, and skills for that project.
 - **New project scaffolding** — plan and scaffold a fresh Nx workspace with a generated roadmap and its own agent team.
 - **Built-in MCP server** — a local server on loopback exposes the `ptah_*` tool catalog: workspace analysis, LSP diagnostics, AST analysis, symbol search, dependency graphs, browser automation, agent spawning, and sandboxed code execution.
-- **Stdio MCP server** (`ptah mcp-serve`) — drive Ptah from any MCP-compliant host. External orchestrators can spawn, monitor, and steer agents, or delegate a whole task.
+- **Stdio MCP server** (`ptah mcp-serve`) — drive PtahCode from any MCP-compliant host. External orchestrators can spawn, monitor, and steer agents, or delegate a whole task.
 - **Browser automation** — navigate, click, type, read content, capture the network, take screenshots, and record sessions.
 - **Marketplace and plugins** — install skills, workflows, and MCP servers. External installs need explicit consent bound to the resolved version and file hashes.
 - **Harness sync** — one reconciler writes your agents, skills, and MCP intents into the harness folders of every supported AI tool.
@@ -117,9 +117,9 @@ Read more: [Automation](https://docs.ptah.live/automation/)
 
 ## Providers
 
-![Provider and orchestration settings](https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/apps/ptah-docs/public/screenshots/agents-orchestration.png)
+![Provider and orchestration settings](https://raw.githubusercontent.com/Hive-Academy/PtahCode/main/apps/ptah-docs/public/screenshots/agents-orchestration.png)
 
-Ptah is provider-agnostic. Bring the vendors you already use:
+PtahCode is provider-agnostic. Bring the vendors you already use:
 
 - Frontier model vendors, through their own SDKs and OAuth sign-in.
 - More than 200 models through OpenRouter.
@@ -161,13 +161,13 @@ ptah session start --task "explain this repo"
 
 The CLI runs standalone. It does not need VS Code or the desktop app.
 
-Read more: [Getting started](https://docs.ptah.live/getting-started/) · [CLI guide](https://github.com/Hive-Academy/ptah-extension/tree/main/apps/ptah-cli)
+Read more: [Getting started](https://docs.ptah.live/getting-started/) · [CLI guide](https://github.com/Hive-Academy/PtahCode/tree/main/apps/ptah-cli)
 
 ---
 
 ## Pricing
 
-Ptah is free and open source under the MIT license. There is no trial and no credit card.
+PtahCode is free and open source under the MIT license. There is no trial and no credit card.
 
 **Ptah Builders** is a paid membership for cohort sessions, private support, and community packs. The product itself stays free. Join the waitlist at [ptah.live](https://ptah.live).
 
@@ -175,7 +175,7 @@ Ptah is free and open source under the MIT license. There is no trial and no cre
 
 ## Development
 
-Ptah is an Nx monorepo. The apps and libraries share one hexagonal core.
+PtahCode is an Nx monorepo. The apps and libraries share one hexagonal core.
 
 ```
 apps/          # desktop app, VS Code extension, webview, CLI, TUI,
@@ -189,8 +189,8 @@ libs/web/      # Angular libraries for the marketing site
 ```
 
 ```bash
-git clone https://github.com/Hive-Academy/ptah-extension.git
-cd ptah-extension
+git clone https://github.com/Hive-Academy/PtahCode.git
+cd PtahCode
 cp .env.example .env
 npm install
 
@@ -214,7 +214,7 @@ Architecture rules, coding standards, and per-project guides are in the instruct
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request. Report a security issue through [SECURITY.md](SECURITY.md).
 
-- [Issues](https://github.com/Hive-Academy/ptah-extension/issues)
+- [Issues](https://github.com/Hive-Academy/PtahCode/issues)
 - [Documentation](https://docs.ptah.live)
 
 ---

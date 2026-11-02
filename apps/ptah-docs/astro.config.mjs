@@ -2,7 +2,7 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
-const GITHUB_REPO = 'https://github.com/Hive-Academy/ptah-extension';
+const GITHUB_REPO = 'https://github.com/Hive-Academy/PtahCode';
 const EDIT_BASE = `${GITHUB_REPO}/edit/main/apps/ptah-docs/`;
 
 export default defineConfig({
@@ -17,9 +17,9 @@ export default defineConfig({
   },
   integrations: [
     starlight({
-      title: 'Ptah Documentation',
+      title: 'PtahCode Documentation',
       description:
-        'The AI dev team that ships production SaaS — user guide for the Ptah Electron desktop app',
+        'The AI dev team that ships production SaaS — user guide for the PtahCode desktop app',
       favicon: '/favicon.svg',
       customCss: ['./src/styles/brand.css'],
       social: [

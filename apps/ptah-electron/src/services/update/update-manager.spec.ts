@@ -104,7 +104,7 @@ function release(version: string, opts: ReleaseOpts = {}) {
   const tag = opts.tag ?? `electron-v${version}`;
   return {
     tag_name: tag,
-    html_url: `https://github.com/Hive-Academy/ptah-extension/releases/tag/${tag}`,
+    html_url: `https://github.com/Hive-Academy/PtahCode/releases/tag/${tag}`,
     published_at: '2026-06-01T00:00:00Z',
     body: opts.body === undefined ? `notes for ${version}` : opts.body,
     draft: opts.draft ?? false,

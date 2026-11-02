@@ -155,7 +155,7 @@ function buildManifest() {
     contentHash: `sha256:${hash.digest('hex')}`,
     generatedAt: new Date().toISOString(),
     baseUrl:
-      'https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main',
+      'https://raw.githubusercontent.com/Hive-Academy/PtahCode/main',
     plugins: {
       basePath: PLUGINS_BASE_PATH,
       files: pluginFiles,

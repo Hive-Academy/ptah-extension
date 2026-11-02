@@ -105,7 +105,7 @@ If you only want to test a `SKILL.md`, skip `~/.ptah/plugins/` altogether and wr
 
 ## Publishing to the official marketplace
 
-Official plugins are maintained in the [ptah-extension repository](https://github.com/Hive-Academy/ptah-extension) under `apps/ptah-extension-vscode/assets/plugins/`. To submit one:
+Official plugins are maintained in the [ptah-extension repository](https://github.com/Hive-Academy/PtahCode) under `apps/ptah-extension-vscode/assets/plugins/`. To submit one:
 
 1. Fork the repository.
 2. Add your plugin folder under `assets/plugins/<your-plugin>/`.

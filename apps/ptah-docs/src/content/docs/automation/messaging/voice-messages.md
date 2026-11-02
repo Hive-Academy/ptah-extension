@@ -25,7 +25,7 @@ Telegram, Discord, and Slack deliver voice messages as compressed audio (Telegra
 
 ## Requirements
 
-- **ffmpeg** ships bundled with the Ptah desktop app via the [`ffmpeg-static`](https://www.npmjs.com/package/ffmpeg-static) npm package — no separate install, no `PATH` setup. The pinned binary is platform-specific (Windows / macOS / Linux) and is selected automatically by `electron-builder` at packaging time.
+- **ffmpeg** ships bundled with the PtahCode desktop app via the [`ffmpeg-static`](https://www.npmjs.com/package/ffmpeg-static) npm package — no separate install, no `PATH` setup. The pinned binary is platform-specific (Windows / macOS / Linux) and is selected automatically by `electron-builder` at packaging time.
 - **whisper** model files are downloaded on first run by `nodejs-whisper` and cached locally under the user data directory.
 
 :::note[Developers running from source]

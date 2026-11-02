@@ -27,7 +27,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
   template: `
     <section
       id="cta"
-      aria-label="Download Ptah"
+      aria-label="Download PtahCode"
       class="relative bg-ink-950 py-24 sm:py-32 overflow-hidden"
     >
       <ptah-console-grid-background [glow]="true" />
@@ -40,7 +40,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
           [viewportConfig]="headlineConfig"
           class="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white mb-6"
         >
-          Download Ptah.
+          Download PtahCode.
         </h2>
 
         <p
@@ -55,14 +55,14 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
           <a
             routerLink="/download"
             class="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-amber-500 text-ink-950 font-semibold text-sm sm:text-base transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber active:bg-amber-600 active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-            aria-label="Download the Ptah desktop app"
+            aria-label="Download PtahCode desktop app"
           >
             <lucide-angular
               [img]="downloadIcon"
               class="w-4 h-4"
               aria-hidden="true"
             />
-            Download Ptah
+            Download PtahCode
           </a>
         </div>
 

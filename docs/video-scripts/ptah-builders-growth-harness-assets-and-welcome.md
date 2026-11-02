@@ -243,10 +243,10 @@ A horizontal 7-step timeline strip styled using `brand.config.ts values`.
 
 - **Type:** End card.
 - **Exact text:**
-  - Header: Ptah Logo + Wordmark
+  - Header: PtahCode logo + wordmark, tagline "The Coding Orchestra"
   - Line 1:
-    - EN: `GitHub: github.com/Hive-Academy/ptah-extension`
-    - AR: `GitHub: github.com/Hive-Academy/ptah-extension`
+    - EN: `GitHub: github.com/Hive-Academy/PtahCode`
+    - AR: `GitHub: github.com/Hive-Academy/PtahCode`
   - Line 2:
     - EN: `Ptah Builders — early access, free → [VERIFY URL]`
     - AR: `Ptah Builders — early access، ببلاش ← [VERIFY URL]`

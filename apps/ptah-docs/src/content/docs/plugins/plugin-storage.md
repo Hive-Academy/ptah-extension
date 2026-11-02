@@ -39,14 +39,14 @@ On Windows the `~` resolves to `%USERPROFILE%` (e.g. `C:\Users\<you>\.ptah\`). O
 
 ## The content manifest
 
-At the root of the [Ptah repository](https://github.com/Hive-Academy/ptah-extension) lives `content-manifest.json`. It is the single source of truth for everything downloadable:
+At the root of the [Ptah repository](https://github.com/Hive-Academy/PtahCode) lives `content-manifest.json`. It is the single source of truth for everything downloadable:
 
 ```json
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
   "contentHash": "sha256:016322ac9c...",
-  "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
+  "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/PtahCode/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
     "files": ["ptah-core/.claude-plugin/plugin.json", "ptah-core/commands/orchestrate.md", "ptah-angular/skills/angular-frontend-patterns/SKILL.md"]

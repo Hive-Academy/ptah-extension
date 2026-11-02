@@ -9,7 +9,7 @@ The first time you open Ptah, you pick a workspace and the app opens straight in
 
 Ptah is free and fully open source. First launch goes straight into the app — there's no account to create, no sign-up, no license prompt, and no trial. Every feature is available immediately.
 
-The first screen is a workspace gate, not an onboarding flow. It shows the Ptah logo, the heading **Welcome to Ptah Desktop**, and a single **Open Folder** button. Nothing else is asked of you. The tab bar stays hidden until a folder is open, so this screen is the whole app until you pick one.
+The first screen is a workspace gate, not an onboarding flow. It shows the PtahCode logo, the heading **Open a workspace**, and a single **Open Folder** button. Nothing else is asked of you. The tab bar stays hidden until a folder is open, so this screen is the whole app until you pick one.
 
 ## Open a workspace
 
