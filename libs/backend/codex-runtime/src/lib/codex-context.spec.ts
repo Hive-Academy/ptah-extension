@@ -111,6 +111,52 @@ describe('native child event admission', () => {
     expect(childEventParent('grandchild', 'root', linked)).toBe('spawn-2');
     expect(childEventParent('foreign', 'root', linked)).toBeNull();
   });
+
+  it('logs the early child buffer overflow once per root turn', () => {
+    const logger = { error: jest.fn() };
+    const context = Object.assign(Object.create(RuntimeContext.prototype), {
+      committedIdentity: { contextId: 'context', processGeneration: 1,
+        threadId: 'root' },
+      state: 'running', activeTurn: 'root-turn',
+      profile: { consumer: 'chat', contextId: 'context' },
+      translator: new CodexEventTranslator('context', 1),
+      childTools: new Map<string, string>(),
+      childTurns: new Map<string, string>(),
+      knownChildParents: new Map<string, string>(),
+      pendingSpawns: new Map<string, Set<string>>(),
+      earlyChildEvents: new Map<string, CodexRuntimeEvent[]>(),
+      earlyChildCount: 0, earlyChildOverflowLogged: false,
+      rootTerminalPending: false,
+      terminalTurns: new Set<string>(), targets: new Map(),
+      asyncQuestionItems: new Set<string>(), subscribers: new Set(),
+      turnController: new AbortController(), sequence: 0,
+      options: { logger },
+    }) as RuntimeContext;
+    const feed = (method: string, params: Record<string, unknown>) => {
+      const validParams = method === 'item/completed'
+        ? { ...params, completedAtMs: 1_000 }
+        : params;
+      Reflect.apply(Reflect.get(context, 'onNotification'), context, [
+        { method, params: validParams },
+      ]);
+    };
+    const feedUnlinked = (count: number) => {
+      for (let index = 0; index < count; index++)
+        feed('item/completed', { threadId: 'child', turnId: 'child-turn',
+          item: { type: 'agentMessage', id: `child-text-${index}`,
+            text: 'early' } });
+    };
+    feedUnlinked(80);
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(Reflect.get(context, 'earlyChildCount')).toBe(64);
+    feed('turn/completed', { threadId: 'root',
+      turn: { id: 'root-turn', status: 'completed', items: [] } });
+    expect(Reflect.get(context, 'earlyChildEvents')).toEqual(new Map());
+    // The cleared buffer lets a later root turn report its own overflow.
+    feedUnlinked(80);
+    expect(logger.error).toHaveBeenCalledTimes(2);
+    expect(Reflect.get(context, 'earlyChildCount')).toBe(64);
+  });
 });
 
 describe('CodexContext thread frame boundary', () => {

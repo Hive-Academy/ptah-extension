@@ -349,6 +349,11 @@ export class CodexAppServerProcess {
         const value: unknown = JSON.parse(
           new TextDecoder('utf-8', { fatal: true }).decode(bytes),
         );
+        // The frame is consumed; return a grown buffer to the cheap initial
+        // size so one large response does not stay allocated for the process
+        // lifetime. frameBytes is 0 here, so no partial frame is lost.
+        if (this.frameBuffer.length > OUTBOUND_FRAME_BYTES)
+          this.frameBuffer = Buffer.alloc(OUTBOUND_FRAME_BYTES);
         if (typeof value === 'object' && value !== null) {
           if ('method' in value && typeof value.method === 'string')
             method = value.method;

@@ -253,6 +253,14 @@ describe('Electron native history binding', () => {
     expect(h.scopes[0]?.dispose).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps a malformed history page on its own code so the client sees HISTORY_MALFORMED', async () => {
+    const h = historyFixture();
+    h.readHistory.mockRejectedValueOnce(new CodexSessionHistoryError('malformedPage'));
+    await expect(createElectronCodexHistoryPort(h.deps).readHistory(h.row))
+      .rejects.toEqual(new ElectronCodexHistoryError('malformedPage'));
+    expect(h.scopes[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
   it('disposes on timeout and abort', async () => {
     const h = historyFixture();
     h.readHistory.mockImplementation(async () => new Promise<CodexSessionHistory>(() => undefined));

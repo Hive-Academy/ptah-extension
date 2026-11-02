@@ -94,6 +94,7 @@ class RuntimeContext implements CodexContext {
   private readonly pendingSpawns = new Map<string, Set<string>>();
   private readonly earlyChildEvents = new Map<string, CodexRuntimeEvent[]>();
   private earlyChildCount = 0;
+  private earlyChildOverflowLogged = false;
   private rootTerminalPending = false;
   private rootTerminalTimer?: ReturnType<typeof setTimeout>;
   private sequence = 0;
@@ -505,10 +506,15 @@ class RuntimeContext implements CodexContext {
     const current = this.earlyChildEvents.get(event.threadId);
     if (this.earlyChildCount >= 64 ||
       (!current && this.earlyChildEvents.size >= 8)) {
-      this.options.logger.error(
-        'Codex early child event buffer overflow',
-        { reason: 'Native child linkage was not reported within the buffer limit' },
-      );
+      // One report per root turn: a still-running unlinked child keeps
+      // dropping events, and per-event logging would flood the log.
+      if (!this.earlyChildOverflowLogged) {
+        this.earlyChildOverflowLogged = true;
+        this.options.logger.error(
+          'Codex early child event buffer overflow',
+          { reason: 'Native child linkage was not reported within the buffer limit' },
+        );
+      }
       return;
     }
     const buffer = current ?? [];
@@ -541,6 +547,7 @@ class RuntimeContext implements CodexContext {
         this.finishCompact?.();
         this.earlyChildEvents.clear();
         this.earlyChildCount = 0;
+        this.earlyChildOverflowLogged = false;
       }
       if (parentToolUseId === undefined && event.type === 'compaction' &&
         event.phase !== 'started')
@@ -1105,6 +1112,7 @@ class RuntimeContext implements CodexContext {
     this.pendingSpawns.clear();
     this.earlyChildEvents.clear();
     this.earlyChildCount = 0;
+    this.earlyChildOverflowLogged = false;
     for (const subscriber of this.subscribers) subscriber.release();
     this.closing = this.finishClose();
     return this.closing;

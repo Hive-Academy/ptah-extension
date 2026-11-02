@@ -503,7 +503,7 @@ function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
 export type ElectronCodexHistoryErrorCode =
   | 'invalidIdentity' | 'homeMismatch' | 'binaryUnavailable'
   | 'threadNotFound' | 'timeout' | 'cancelled' | 'runtimeFailed'
-  | 'pathUnavailable' | 'busy';
+  | 'pathUnavailable' | 'busy' | 'malformedPage';
 
 /** Only fixed text crosses the RPC boundary. */
 export class ElectronCodexHistoryError extends Error {
@@ -518,6 +518,7 @@ export class ElectronCodexHistoryError extends Error {
       runtimeFailed: 'Codex history could not be read.',
       pathUnavailable: 'The saved Codex home or workspace is unavailable.',
       busy: 'Too many Codex history reads are in progress.',
+      malformedPage: 'Saved Codex history has an unsupported format.',
     };
     super(messages[code]);
     this.name = 'ElectronCodexHistoryError';
@@ -667,6 +668,10 @@ export function createElectronCodexHistoryPort(
             throw new ElectronCodexHistoryError('threadNotFound');
           if (error.code === 'homeMismatch')
             throw new ElectronCodexHistoryError('homeMismatch');
+          // Keep the page defect separate: nativeHistoryRpcError maps this
+          // code to HISTORY_MALFORMED instead of the generic HISTORY_FAILED.
+          if (error.code === 'malformedPage')
+            throw new ElectronCodexHistoryError('malformedPage');
           throw new ElectronCodexHistoryError('runtimeFailed');
         }
         throw new ElectronCodexHistoryError('runtimeFailed');

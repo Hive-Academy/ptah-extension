@@ -693,6 +693,33 @@ describe('CodexAppServerProcess', () => {
     expect(child.killed).toBe(false);
   });
 
+  it('shrinks the frame buffer to the initial size after a large completed frame', async () => {
+    await start();
+    const frameBuffer = (): unknown => Reflect.get(runtime, 'frameBuffer');
+    const initial = frameBuffer();
+    if (!(initial instanceof Buffer)) throw new Error('Expected a frame buffer');
+    expect(initial.length).toBe(1024 * 1024);
+    const large = {
+      method: 'item/agentMessage/delta',
+      params: { ...ids, itemId: 'item', delta: 'x'.repeat(2 * 1024 * 1024) },
+    };
+    child.send(large);
+    expect(onNotification).toHaveBeenCalledWith(large);
+    const shrunk = frameBuffer();
+    if (!(shrunk instanceof Buffer)) throw new Error('Expected a frame buffer');
+    expect(shrunk.length).toBe(1024 * 1024);
+    // Partial bytes of the next frame survive the reallocation.
+    const following = {
+      method: 'item/agentMessage/delta',
+      params: { ...ids, itemId: 'item', delta: 'after' },
+    };
+    const bytes = Buffer.from(JSON.stringify(following) + '\n');
+    child.stdout.emit('data', bytes.subarray(0, 11));
+    child.stdout.emit('data', bytes.subarray(11));
+    expect(onNotification).toHaveBeenLastCalledWith(following);
+    expect(child.stdin.writableEnded).toBe(false);
+  });
+
   it('rejects only the invalid catalog result and releases its timer', async () => {
     await start();
     const timersBeforeRequests = jest.getTimerCount();

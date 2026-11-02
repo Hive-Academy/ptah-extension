@@ -153,6 +153,7 @@ function buildHarness(
 
   const configPersistence = {
     loadConfigs: jest.fn().mockReturnValue([config]),
+    ensureMigrated: jest.fn().mockResolvedValue(undefined),
   } as unknown as never;
 
   const spawnOptionsService = {
@@ -225,6 +226,38 @@ describe('PtahCliRegistry.spawnAgent — model override resolution', () => {
       success: false,
       error: 'Codex chat requires a host with the native Codex runtime.',
     });
+    expect(harness.getQueryFunction).not.toHaveBeenCalled();
+  });
+
+  it('refuses an openai-codex agent in spawn before credential, proxy, or SDK work', async () => {
+    const harness = buildHarness({
+      ...BASE_CONFIG,
+      providerId: 'openai-codex',
+    });
+
+    await expect(harness.registry.spawnAgent(BASE_CONFIG.id, 'do work'))
+      .rejects.toMatchObject({
+        name: 'AuthRequiredError',
+        providerId: 'openai-codex',
+      });
+    expect(harness.getQueryFunction).not.toHaveBeenCalled();
+  });
+
+  it('refuses an openai-codex agent in testConnection and getProfile', async () => {
+    const harness = buildHarness({
+      ...BASE_CONFIG,
+      providerId: 'openai-codex',
+    });
+
+    await expect(
+      harness.registry.testConnection(BASE_CONFIG.id),
+    ).resolves.toEqual({
+      success: false,
+      error: 'Codex chat requires a host with the native Codex runtime.',
+    });
+    await expect(
+      harness.registry.getProfile(BASE_CONFIG.id),
+    ).resolves.toBeUndefined();
     expect(harness.getQueryFunction).not.toHaveBeenCalled();
   });
 
