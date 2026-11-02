@@ -361,64 +361,7 @@ export class SessionHistoryReplayer {
         }
       }
 
-      // Only native Codex history needs recovery: Claude replay owns its own
-      // monitor lifecycle, including dismissed and history-settled records.
-      const providerId = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.providerId;
-      // The native projector assigns agent starts a six-part JSON event id
-      // ending in the mapped event type, item phase, and ordinal. This also
-      // identifies Codex history when an older tab has no provider id.
-      const hasNativeCodexAgent = events.some((event) =>
-        event.eventType === 'agent_start' &&
-        event.source === 'history' &&
-        event.id.startsWith('[') &&
-        /,"agent_start","item\/(?:started|completed)",\d+\]$/.test(event.id),
-      );
-      if (providerId === 'openai-codex' || hasNativeCodexAgent) {
-        const childrenByParent = new Map<string, FlatStreamEventUnion[]>();
-        const resultsByTool = new Map<string, ToolResultEvent>();
-        for (const event of events) {
-          if (event.parentToolUseId && event.eventType !== 'agent_start') {
-            const children = childrenByParent.get(event.parentToolUseId) ?? [];
-            children.push(event);
-            childrenByParent.set(event.parentToolUseId, children);
-          }
-          if (event.eventType === 'tool_result') {
-            resultsByTool.set(event.toolCallId, event);
-          }
-        }
-        for (const start of events) {
-          if (start.eventType !== 'agent_start' || !start.agentId) continue;
-          const key = start.toolCallId;
-          const children = childrenByParent.get(key) ?? [];
-          const result = resultsByTool.get(key);
-          if (!result || children.length === 0) continue;
-          const monitor = this.injector.get(AgentMonitorStore);
-          const execution = this.injector.get(SubagentExecutionStore);
-          const existingRecord = monitor.subagents().get(key);
-          if (
-            existingRecord &&
-            !['completed', 'failed', 'stopped', 'interrupted'].includes(
-              existingRecord.status,
-            )
-          ) continue;
-          if (!existingRecord) {
-            this.logger.debug(
-              'SessionHistoryReplayer',
-              'Completed history agent missing from monitor; restoring record',
-              { toolCallId: key, sessionId },
-            );
-            monitor.onAgentStart(start);
-            monitor.onTaskToolResult(key, result.isError ?? false, result.timestamp);
-          }
-          if (execution.restoreHistoryChild(key, sessionId, start.agentId, children)) {
-            this.logger.debug(
-              'SessionHistoryReplayer',
-              'Completed history child execution was missing; restored transcript',
-              { toolCallId: key, eventCount: children.length },
-            );
-          }
-        }
-      }
+      this.restoreNativeCompletedChildren(events, tabId, sessionId);
 
       const seed = this.seeds.get(claim.claim);
       const historyToolIds = this.historyIndexes.get(claim.claim)?.toolIds;
@@ -625,6 +568,70 @@ export class SessionHistoryReplayer {
     } finally {
       this.markReplayFinished(claim);
       this.releaseReplayAdmission();
+    }
+  }
+
+  /** Restore native completed children from a full replay or a cached tab's resume reply. */
+  restoreNativeCompletedChildren(
+    events: readonly FlatStreamEventUnion[],
+    tabId: string,
+    sessionId: SessionId,
+    resumeProviderId?: string,
+  ): void {
+    // Claude replay owns its own monitor lifecycle, including dismissed records.
+    const providerId = resumeProviderId ??
+      this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.providerId;
+    const hasNativeCodexAgent = events.some((event) =>
+      event.eventType === 'agent_start' &&
+      event.source === 'history' &&
+      event.id.startsWith('[') &&
+      /,"agent_start","item\/(?:started|completed)",\d+\]$/.test(event.id),
+    );
+    if (providerId !== 'openai-codex' && !hasNativeCodexAgent) return;
+
+    const childrenByParent = new Map<string, FlatStreamEventUnion[]>();
+    const resultsByTool = new Map<string, ToolResultEvent>();
+    for (const event of events) {
+      if (event.parentToolUseId && event.eventType !== 'agent_start') {
+        const children = childrenByParent.get(event.parentToolUseId) ?? [];
+        children.push(event);
+        childrenByParent.set(event.parentToolUseId, children);
+      }
+      if (event.eventType === 'tool_result') {
+        resultsByTool.set(event.toolCallId, event);
+      }
+    }
+    for (const start of events) {
+      if (start.eventType !== 'agent_start' || !start.agentId) continue;
+      const key = start.toolCallId;
+      const children = childrenByParent.get(key) ?? [];
+      const result = resultsByTool.get(key);
+      if (!result || children.length === 0) continue;
+      const monitor = this.injector.get(AgentMonitorStore);
+      const execution = this.injector.get(SubagentExecutionStore);
+      const existingRecord = monitor.subagents().get(key);
+      if (
+        existingRecord &&
+        !['completed', 'failed', 'stopped', 'interrupted'].includes(
+          existingRecord.status,
+        )
+      ) continue;
+      if (!existingRecord) {
+        this.logger.debug(
+          'SessionHistoryReplayer',
+          'Completed history agent missing from monitor; restoring record',
+          { toolCallId: key, sessionId },
+        );
+        monitor.onAgentStart(start);
+        monitor.onTaskToolResult(key, result.isError ?? false, result.timestamp);
+      }
+      if (execution.restoreHistoryChild(key, sessionId, start.agentId, children)) {
+        this.logger.debug(
+          'SessionHistoryReplayer',
+          'Completed history child execution was missing; restored transcript',
+          { toolCallId: key, eventCount: children.length },
+        );
+      }
     }
   }
 

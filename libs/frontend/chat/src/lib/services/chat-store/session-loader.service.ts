@@ -1849,6 +1849,23 @@ export class SessionLoaderService {
         return;
       }
 
+      // Cached tabs already have their parent messages, but the monitor and
+      // child execution stores are new after a renderer or app restart.
+      // A recovery failure must not skip the tail, stats and CLI updates below.
+      try {
+        this.historyReplayer.restoreNativeCompletedChildren(
+          result.data?.events ?? [],
+          tabId,
+          sessionId,
+          result.data?.providerId,
+        );
+      } catch (error) {
+        console.error(
+          '[SessionLoaderService] Native child recovery failed for cached tab',
+          error,
+        );
+      }
+
       this.historyPaging.recordTail(tabId, result.data);
 
       const stats = result.data?.stats;
