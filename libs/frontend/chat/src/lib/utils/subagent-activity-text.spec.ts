@@ -23,6 +23,22 @@ describe('subagentActivityText', () => {
     ).toBe('See https://github.com/org/repo/pull/1 in src/app/x.ts');
   });
 
+  it('cuts a quoted absolute path that contains spaces', () => {
+    expect(
+      subagentActivityText('Read "C:\\Users\\Jane Doe\\repo\\main.ts" now'),
+    ).toBe('Read "main.ts" now');
+    expect(subagentActivityText('Wrote `/home/a b/c/d.md`')).toBe('Wrote d.md');
+  });
+
+  it('keeps literal double underscores and globs', () => {
+    expect(subagentActivityText('Edit src/__init__.py and **/*.ts')).toBe(
+      'Edit src/__init__.py and **/*.ts',
+    );
+    expect(subagentActivityText('__Done__ with __init__.py')).toBe(
+      'Done with __init__.py',
+    );
+  });
+
   it('removes markdown marks and joins lines', () => {
     expect(
       subagentActivityText('## Verdict\n- **APPROVE** with `2` notes'),

@@ -195,7 +195,7 @@ export class SubagentTileComponent {
         }
         return undefined;
       };
-      return latest(tree)?.slice(0, 240);
+      return latest(tree);
     }
     return (
       this.record()?.latestSummary ||
@@ -204,10 +204,13 @@ export class SubagentTileComponent {
       this.node().content
     );
   });
-  /** The activity line cleaned for display; `activity()` stays as the title. */
+  /**
+   * The activity line cleaned for display and cut to 240 characters;
+   * `activity()` stays whole for the hover title.
+   */
   protected readonly activityText = computed(() => {
     const raw = this.activity();
-    return raw ? subagentActivityText(raw) : undefined;
+    return raw ? subagentActivityText(raw).slice(0, 240) : undefined;
   });
   protected readonly status = computed(() => {
     const recordStatus = this.record()?.status;
