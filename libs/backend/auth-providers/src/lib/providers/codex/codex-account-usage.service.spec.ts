@@ -285,6 +285,37 @@ describe('CodexAccountUsageService', () => {
     expect(owner).toHaveBeenCalled();
   });
 
+  it('uses the legacy read when the attached client cannot serve the default home', async () => {
+    const core = client();
+    const read = jest.spyOn(core, 'read').mockResolvedValue({
+      status: 'service-unavailable',
+      providerId: 'openai-codex',
+    });
+    const h = harness({}, core);
+
+    await expect(h.service.getAccountUsage()).resolves.toMatchObject({
+      status: 'available',
+    });
+    expect(read).toHaveBeenCalledWith(h.syntheticHome, {
+      refresh: undefined,
+      signal: undefined,
+    });
+    expect(h.requests).toHaveLength(1);
+    const fallbackOwner = h.service.currentOwnerKey();
+    expect(fallbackOwner).toMatch(/^openai-codex#account:[0-9a-f]{16}$/);
+    expect(h.service.currentOwnerKey(h.syntheticHome)).toBe(fallbackOwner);
+
+    const otherHome = resolve('other-codex-home');
+    await expect(h.service.getAccountUsage({ home: otherHome })).resolves.toEqual({
+      status: 'service-unavailable',
+      providerId: 'openai-codex',
+    });
+    expect(h.requests).toHaveLength(1);
+    expect(h.service.currentOwnerKey(otherHome)).toBeNull();
+    h.service.clearCache();
+    expect(h.service.currentOwnerKey()).toBeNull();
+  });
+
   it('treats trailing separators as aliases of the default home', async () => {
     const h = harness();
     const result = await h.service.getAccountUsage();

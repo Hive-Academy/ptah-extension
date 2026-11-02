@@ -162,6 +162,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
   private readonly controls: CodexChatSessionControls;
   private readonly peerQueue: CodexChatPeerQueue;
   private missingUsageStoreReported = false;
+  private readonly usagePersistenceDisabled = new WeakSet<CodexSessionUsageOwner>();
 
   constructor(
     private readonly ports: CodexChatAdapterPorts,
@@ -324,6 +325,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       if (readUsageFailed || (resumeId && savedUsage?.checkpoint === undefined)) {
         usageOwner.markMissingCheckpoint();
       }
+      if (readUsageFailed) this.usagePersistenceDisabled.add(usageOwner);
       if (usageOwner.getDiagnostics().length) {
         this.ports.logger.warn('[CodexChatAdapter] Native usage coverage is partial.', {
           sessionId: id,
@@ -597,6 +599,8 @@ export class CodexChatAdapter implements NativeChatAdapter {
       callbacks: (id, turn) => this.ports.callbacks(id, turn),
       stats: (result) => this.stats?.(result),
       persistUsage: (id, checkpoint) => {
+        // An unreadable checkpoint may contain threads absent from this owner.
+        if (this.usagePersistenceDisabled.has(session.usageOwner)) return Promise.resolve();
         if (this.ports.metadata.persistUsage) {
           return this.ports.metadata.persistUsage(id, checkpoint);
         }

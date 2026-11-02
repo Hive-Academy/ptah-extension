@@ -208,11 +208,8 @@ export class CodexAccountUsageService implements ICodexAccountUsageService {
   clearCache(home?: string): void {
     const kind = this.homeKind(home);
     if (kind === 'invalid') return;
-    if (this.coreClient) {
-      this.coreClient.clearCache(home ?? this.codexHome.path);
-      return;
-    }
-    if (home !== undefined && kind === 'explicit') return;
+    if (this.coreClient) this.coreClient.clearCache(home ?? this.codexHome.path);
+    if (kind === 'explicit') return;
     this.cached = null;
     this.ownerKey = null;
     this.generation += 1;
@@ -225,7 +222,8 @@ export class CodexAccountUsageService implements ICodexAccountUsageService {
     const kind = this.homeKind(home);
     if (kind === 'invalid') return null;
     if (this.coreClient) {
-      return this.coreClient.currentOwnerKey(home ?? this.codexHome.path);
+      const coreKey = this.coreClient.currentOwnerKey(home ?? this.codexHome.path);
+      return kind === 'default' ? coreKey ?? this.ownerKey : coreKey;
     }
     if (home !== undefined && kind === 'explicit') return null;
     return this.ownerKey;
@@ -240,10 +238,12 @@ export class CodexAccountUsageService implements ICodexAccountUsageService {
       return { status: 'service-unavailable', providerId: 'openai-codex' };
     }
     if (this.coreClient) {
-      return this.coreClient.read(options.home ?? this.codexHome.path, {
+      const result = await this.coreClient.read(options.home ?? this.codexHome.path, {
         refresh: options.refresh,
         signal: options.signal,
       });
+      if (result.status !== 'service-unavailable' || kind === 'explicit') return result;
+      // A shared client can outlive the last session profile for the default home.
     }
     if (options.home !== undefined && kind === 'explicit') {
       return { status: 'service-unavailable', providerId: 'openai-codex' };
