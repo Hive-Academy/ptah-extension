@@ -169,25 +169,12 @@ const RECURSIVE_FS_WATCH_ALLOWED_JS = [
   'apps/ptah-electron/scripts/watch-renderer.js',
 ];
 
-/** Apps ship no RPC handler classes; see {@link APP_LOCAL_RPC_HANDLERS_PENDING_MIGRATION}. */
+/** Apps ship no RPC handler classes. */
 export const APP_RPC_HANDLER_CLASS_SELECTOR = {
   selector: 'ClassDeclaration[id.name=/RpcHandlers$/]',
   message:
     'RPC handler classes belong in libs/backend/rpc-handlers with a RPC_HANDLER_MANIFEST entry, not in an app. Apps ship only their rpc-host-profile.ts.',
 };
-
-/**
- * RPC handler classes are library code. An app that declares one re-opens the
- * per-host duplication TASK_2026_171 removed: the class is invisible to the
- * manifest, so no other host can serve it and no capability gates it.
- *
- * The files below are the families still awaiting the P3 move into
- * `libs/backend/rpc-handlers`. Each migration deletes its entry; when the list
- * is empty the exception can go with it.
- */
-const APP_LOCAL_RPC_HANDLERS_PENDING_MIGRATION = [
-  'apps/ptah-extension-vscode/src/services/rpc/handlers/file-rpc.handlers.ts',
-];
 
 export default [
   ...nx.configs['flat/base'],
@@ -206,7 +193,7 @@ export default [
     // The extension list is deliberately exhaustive. Scoped to just
     // `**/*.{ts,tsx,js,jsx}` this silently missed `.cjs` and `.mjs`, which is
     // where the first failure actually was
-    // (apps/ptah-cli/scripts/verify-packed-wasm.cjs).
+    // in both application and tooling files.
     files: ['**/*.{ts,tsx,cts,mts,js,jsx,cjs,mjs}'],
     rules: {
       'no-useless-assignment': 'warn',
@@ -236,8 +223,8 @@ export default [
       // The scratch pattern is anchored to an explicit `tmp-scratch-` marker
       // rather than a bare `tmp-` prefix. `tmp-` is a plausible name for real
       // code and it already collided: it silently un-linted the tracked
-      // apps/ptah-cli/tests/e2e/_harness/tmp-home.ts, whose containment check
-      // is exactly the kind of logic that must stay under lint. Name a scratch
+      // real test harnesses, whose containment checks must stay under lint.
+      // Name a scratch
       // harness `tmp-scratch-*` and it is ignored; anything else is source.
       '**/*.bak',
       '**/tmp-scratch-*.{mjs,cjs,js,jsx,ts,tsx}',
@@ -573,7 +560,6 @@ export default [
   },
   {
     files: ['apps/**/*.ts'],
-    ignores: APP_LOCAL_RPC_HANDLERS_PENDING_MIGRATION,
     rules: {
       'no-restricted-syntax': [
         'error',

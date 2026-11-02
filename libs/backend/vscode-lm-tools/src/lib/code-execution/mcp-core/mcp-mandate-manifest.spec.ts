@@ -27,8 +27,7 @@
  * invocation proof is an AST call to the factory with the option as a real
  * object-literal property (comment/string mentions and disabled contexts no
  * longer count); a conditional alias with a constant condition resolves to
- * the branch it selects; `session_submit` maps to its owning app's real
- * oversized-result guard.
+ * the branch it selects.
  */
 import 'reflect-metadata';
 
@@ -207,15 +206,6 @@ const MANDATE_MAP: Readonly<Record<string, Mapping>> = {
   ptah_get_symbol_index: guard(
     'libs/backend/workspace-intelligence/src/testing/mcp-contract/mcp-contract.bench.spec.ts',
     'the real ptah_get_symbol_index text recalls EVERY known symbol (all kinds, Batch 20.2q) EXACTLY per file, and is smaller (tokens) than a native grep for export lines',
-  ),
-  // Not a prompt-mandated tool: the stdio-served `session_submit`, whose
-  // result contract (1 MiB aggregate cap + `truncated` disclosure) lives in
-  // the owning app, which this lib must not import (r3 R3-03). Mapped here
-  // so the served-tool guard is a named, active, runnable test, not the
-  // routing-only stub in mcp-contract.sweep.spec.ts.
-  session_submit: guard(
-    'apps/ptah-cli/src/services/mcp/session-submit.service.spec.ts',
-    'aggregated output over the 1 MiB cap is cut to exactly the cap, keeps the leading text in order, and discloses truncated: true',
   ),
 };
 

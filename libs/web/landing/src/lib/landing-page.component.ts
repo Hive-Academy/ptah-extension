@@ -10,7 +10,6 @@ import { PillarsSpineComponent } from './sections/pillars/pillars-spine.componen
 import { ProviderStripComponent } from './sections/provider-strip/provider-strip.component';
 import { BuildersSectionComponent } from './sections/builders/builders-section.component';
 import { WaitlistFormComponent } from './sections/builders/waitlist-form.component';
-import { AlsoAvailableComponent } from './sections/also-available/also-available.component';
 
 @Component({
   selector: 'ptah-landing-page',
@@ -24,7 +23,6 @@ import { AlsoAvailableComponent } from './sections/also-available/also-available
     ComparisonSectionComponent,
     BuildersSectionComponent,
     WaitlistFormComponent,
-    AlsoAvailableComponent,
     CTASectionComponent,
     FooterComponent,
   ],
@@ -58,9 +56,6 @@ import { AlsoAvailableComponent } from './sections/also-available/also-available
         <!-- Early Adopter apply form — scroll target for #waitlist (this page
              and /#waitlist from any other page, incl. the pricing CTA) -->
         <ptah-waitlist-form source="early-adopter" />
-
-        <!-- S9 Also Available (single VS Code / CLI mention) -->
-        <ptah-also-available />
 
         <!-- S10 Final CTA -->
         <ptah-cta-section />

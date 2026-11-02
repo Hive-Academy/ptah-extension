@@ -706,7 +706,7 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           TAG="${{ needs.prepare.outputs.tag }}"
-          # Renaming this branch requires the same edit in the bump guards of ci.yml, electron-e2e.yml and vscode-e2e.yml.
+          # Renaming this branch requires the same edit in the bump guards of ci.yml and electron-e2e.yml.
           BRANCH="chore/bump-electron-v${VERSION}"
 
           git config user.name "github-actions[bot]"

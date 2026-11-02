@@ -7,7 +7,7 @@ We welcome contributions! Here's how to get started.
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/your-feature`
 3. Make your changes
-4. Run quality gates: `npm run lint:all && npm run typecheck:all`
+4. Run scoped quality gates: `npm run verify -- -p <changed-projects>`
 5. Commit with conventional commits: `git commit -m "feat(scope): description"`
 6. Push and open a pull request
 
@@ -17,10 +17,10 @@ We welcome contributions! Here's how to get started.
 git clone https://github.com/Hive-Academy/PtahCode.git
 cd PtahCode
 npm install
-npm run build:all
+npm run verify -- -p ptah-electron,ptah-extension-webview
 ```
 
-Press F5 in VS Code to launch the Extension Development Host.
+The desktop app is the primary host. Its Angular renderer lives in `apps/ptah-extension-webview`.
 
 ## Code Standards
 

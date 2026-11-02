@@ -309,44 +309,6 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
             </div>
           }
 
-          <!-- VS Code Extension Callout -->
-          <div
-            viewportAnimation
-            [viewportConfig]="calloutConfig"
-            class="mt-12 rounded-2xl border border-secondary/15 bg-base-200/50 p-8 flex flex-col sm:flex-row items-center gap-6"
-          >
-            <div
-              class="w-14 h-14 rounded-2xl bg-secondary/10 border border-secondary/20 flex items-center justify-center shrink-0"
-            >
-              <svg
-                class="w-7 h-7 text-secondary"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path
-                  d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"
-                />
-              </svg>
-            </div>
-            <div class="flex-1 text-center sm:text-left">
-              <h3 class="font-display font-bold text-base-content text-lg mb-1">
-                Looking for the VS Code Extension?
-              </h3>
-              <p class="text-neutral-content text-sm">
-                Install directly from the VS Code Marketplace for seamless IDE
-                integration with automatic updates.
-              </p>
-            </div>
-            <a
-              href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="btn bg-gradient-to-r from-secondary to-accent text-base-100 border-0 font-semibold shadow-lg shadow-secondary/20 hover:shadow-secondary/40 hover:scale-105 transition-all shrink-0"
-            >
-              VS Code Marketplace
-            </a>
-          </div>
         }
       </div>
 
@@ -390,13 +352,6 @@ export class DownloadPageComponent {
     duration: 0.7,
     delay: 0.15,
     threshold: 0.1,
-  };
-
-  readonly calloutConfig: ViewportAnimationConfig = {
-    animation: 'fadeIn',
-    duration: 0.6,
-    delay: 0.2,
-    threshold: 0.2,
   };
 
   constructor() {

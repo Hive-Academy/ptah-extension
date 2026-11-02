@@ -75,14 +75,13 @@ ptah-core/
     ├── ddd-architecture/
     ├── humanize-library/
     ├── orchestration/
-    ├── ptah-cli-usage/
     ├── skill-creator/
     ├── technical-content-writer/
     ├── tribunal/
     └── ui-ux-designer/
 ```
 
-That is nine skills and five slash commands — the counts you see on the `ptah-core` row.
+The catalog lists the skills and slash commands available in each pack.
 
 ## Offline behaviour
 

@@ -33,23 +33,6 @@ Click **Save Configuration** to apply. The selection is saved together with your
 
 Only a genuinely new workspace — one with no prior skill copies to lose — starts with **Only the ones I pick**, empty, waiting for a choice.
 
-## Headless and CI equivalents
-
-The CLI mirrors the desktop picker exactly, going through the same RPC calls, so a headless machine and the desktop app never disagree about what a workspace propagates:
-
-```bash
-# Propagate everything (the "All of them" escape hatch)
-ptah skill select --all
-
-# Propagate only these
-ptah skill select orchestration agent-lanes ui-ux-designer
-
-# See the current mode, the recorded allowlist, and every candidate
-ptah skill selection
-```
-
-`ptah skill select` requires either `--all` or at least one slug — there's no default, because both `'all'` and a narrowed selection are real decisions with real consequences (narrowing removes every skill copy not on the list).
-
 ## Next steps
 
 - [Turn off individual skills](/plugins/skill-toggles/)

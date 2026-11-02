@@ -153,21 +153,6 @@ outside Ptah and want the board to catch up immediately.
 The board also refreshes on its own. An agent writing spec folders pushes a
 change notification, and the board re-reads when it is on screen.
 
-## Working from the CLI
-
-The same task tree is readable and writable from the headless CLI:
-
-```bash
-ptah spec list --status backlog,in_progress
-ptah spec show TASK_2026_104
-ptah spec status TASK_2026_104 --to in_review
-ptah spec new --title "Add voice replies" --type FEATURE
-ptah spec doctor
-ptah execute-spec --id TASK_2026_104
-```
-
-See [Ptah CLI commands](/cli/commands/).
-
 ## Next steps
 
 - [Agent orchestration](/agents/agent-orchestration/) — the workflow that consumes these specs

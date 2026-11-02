@@ -130,16 +130,6 @@ export class FooterComponent {
         { label: 'Download', href: '/download', external: false },
         { label: 'Pricing', href: '/pricing', external: false },
         {
-          label: 'VS Code Extension',
-          href: 'https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra',
-          external: true,
-        },
-        {
-          label: 'CLI Docs',
-          href: 'https://docs.ptah.live/providers/ptah-cli/',
-          external: true,
-        },
-        {
           label: 'Documentation',
           href: 'https://docs.ptah.live',
           external: true,

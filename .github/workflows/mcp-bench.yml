@@ -53,7 +53,6 @@ permissions:
 
 env:
   # 24, not 22: node 22 ships npm 10, which cannot resolve our npm-11 lockfile
-  # (see cli-e2e.yml).
   NODE_VERSION: 24
   NX_TUI: 'false'
   # nx.json caps local runs at one task. CI keeps its previous default of 2.
@@ -112,7 +111,7 @@ jobs:
           fi
 
       # The guarded install skips lifecycle scripts; the bench only needs this
-      # native module rebuilt for the runner Node ABI (see cli-e2e.yml).
+      # native module rebuilt for the runner Node ABI.
       - name: Rebuild required native modules for runner Node ABI
         run: npm rebuild better-sqlite3 esbuild
 

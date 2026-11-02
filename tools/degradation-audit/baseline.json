@@ -1,8 +1,5 @@
 {
-  "apps/ptah-cli": 29,
   "apps/ptah-electron": 4,
-  "apps/ptah-extension-vscode": 9,
-  "apps/ptah-tui": 1,
   "libs/api/admin": 1,
   "libs/api/community": 5,
   "libs/api/identity": 1,
@@ -26,7 +23,6 @@
   "libs/backend/platform-cli": 3,
   "libs/backend/platform-core": 7,
   "libs/backend/platform-electron": 4,
-  "libs/backend/platform-vscode": 1,
   "libs/backend/plugin-marketplace": 2,
   "libs/backend/rpc-handlers": 1,
   "libs/backend/settings-core": 5,

@@ -21,11 +21,6 @@ Complete checklist for deploying Ptah to production across all layers.
 └─────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────┐
-│  VS Code Marketplace                                    │
-│  Ptah Extension (.vsix) — URLs baked in at build time   │
-└─────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────┐
 │  GitHub Releases                                        │
 │  Ptah Desktop App (Electron) — Win/Mac/Linux installers │
 │  Triggered by push to release/electron branch           │
@@ -208,91 +203,9 @@ Output: `dist/ptah-landing-page/browser/` (deploy to App Platform)
 
 ---
 
-## 5. VS Code Extension
+## 5. Electron Desktop App
 
-The extension uses centralized `PtahUrls` constants from `libs/shared`. All production URLs are already set:
-
-| Constant                | Value                       |
-| ----------------------- | --------------------------- |
-| `PtahUrls.API_URL`      | `https://api.ptah.live`     |
-| `PtahUrls.FRONTEND_URL` | `https://ptah.live`         |
-| `PtahUrls.PRICING_URL`  | `https://ptah.live/pricing` |
-| `PtahUrls.SIGNUP_URL`   | `https://ptah.live/signup`  |
-
-**No runtime environment variables needed.** URLs are compiled into the extension bundle.
-
-### Build and Package
-
-```bash
-# Full pipeline (build + package in one command)
-npx nx run ptah-extension-vscode:package
-
-# Output: dist/apps/ptah-extension-vscode/ptah-extension-vscode-<version>.vsix
-```
-
-The `package` target handles the complete pipeline:
-
-1. Builds all library dependencies (shared, vscode-core, agent-sdk, etc.)
-2. Builds the Angular webview (production)
-3. Bundles extension host code with Webpack (main.js + SDK vendor chunks)
-4. Copies `.vscodeignore`, `README.md`, LICENSE, assets, plugins, and templates to dist
-5. Installs runtime `node_modules` in dist (externalized deps: tslib, tree-sitter, etc.)
-6. Runs `@vscode/vsce package` to produce the `.vsix`
-
-### Runtime Dependencies (Externalized by Webpack)
-
-The Webpack config bundles `@ptah-extension/*`, `@anthropic-ai/claude-agent-sdk`, `@github/copilot-sdk`, `tsyringe`, and `reflect-metadata` directly into the JS output. All other packages are externalized to `require()` at runtime and must be listed in the extension's `package.json` `dependencies`:
-
-| Package                                                             | Purpose                                             |
-| ------------------------------------------------------------------- | --------------------------------------------------- |
-| `tslib`                                                             | TypeScript helper library (required by compiled TS) |
-| `async-mutex`                                                       | Concurrency control                                 |
-| `cross-spawn`                                                       | Cross-platform process spawning                     |
-| `eventemitter3`                                                     | Event bus                                           |
-| `gray-matter`                                                       | Frontmatter parsing for templates                   |
-| `json2md`                                                           | JSON to Markdown conversion                         |
-| `jsonrepair`                                                        | JSON repair for LLM outputs                         |
-| `minimatch` / `picomatch`                                           | Glob pattern matching                               |
-| `tree-sitter` / `tree-sitter-javascript` / `tree-sitter-typescript` | Code parsing (workspace intelligence)               |
-| `which`                                                             | CLI tool detection                                  |
-| `rxjs`                                                              | Reactive streams                                    |
-| `uuid`                                                              | ID generation                                       |
-| `zod`                                                               | Schema validation                                   |
-
-> **Important**: `@openai/codex-sdk` is **not** included as a dependency (102 MB). It is loaded dynamically at runtime only when the user has Codex CLI installed. The adapter handles the missing module gracefully.
-
-### Staging / Pre-release Testing
-
-Before publishing to the marketplace, test with a `.vsix` on a separate machine:
-
-```bash
-# On the build machine
-npx nx run ptah-extension-vscode:package
-# Copy the .vsix to the test machine
-
-# On the test machine
-code --install-extension ptah-extension-vscode-0.1.0.vsix
-```
-
-See [INSTALLATION.md](../INSTALLATION.md) for detailed installation instructions.
-
-### VSIX Size Budget
-
-| Component                                  | Compressed Size |
-| ------------------------------------------ | --------------- |
-| Extension bundle (main.js + vendor chunks) | ~1.5 MB         |
-| Webview (Angular SPA)                      | ~1 MB           |
-| Assets + plugins + templates               | ~1.5 MB         |
-| Runtime node_modules                       | ~4.5 MB         |
-| **Total .vsix**                            | **~8.5 MB**     |
-
-> Target: under 10 MB. Extensions over 20 MB may face marketplace scrutiny.
-
----
-
-## 6. Electron Desktop App
-
-The Electron desktop app provides a standalone desktop experience independent of VS Code. Builds are distributed via GitHub Releases.
+The Electron desktop app is distributed via GitHub Releases.
 
 ### Version Management
 
@@ -353,7 +266,7 @@ Code signing will be added in a future phase.
 
 ---
 
-## 7. DNS Configuration
+## 6. DNS Configuration
 
 | Record          | Type       | Value                                          |
 | --------------- | ---------- | ---------------------------------------------- |
@@ -365,7 +278,7 @@ SSL: App Platform handles TLS for `ptah.live` automatically. For `api.ptah.live`
 
 ---
 
-## 8. Deployment Commands
+## 7. Deployment Commands
 
 ### Landing Page (App Platform)
 
@@ -402,46 +315,23 @@ docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml exec license-server npx prisma migrate deploy
 ```
 
-### VS Code Extension (Marketplace)
+## 8. Post-Deployment Verification
 
-```bash
-# Build and package (Nx pipeline)
-npx nx run ptah-extension-vscode:package
-
-# The .vsix is at: dist/apps/ptah-extension-vscode/ptah-extension-vscode-<version>.vsix
-
-# Install locally for testing
-code --install-extension dist/apps/ptah-extension-vscode/ptah-extension-vscode-0.1.0.vsix
-
-# Publish to marketplace (requires Azure DevOps PAT)
-cd dist/apps/ptah-extension-vscode
-npx @vscode/vsce publish --pat <TOKEN>
-
-# Publish as pre-release (use odd minor version: 0.1.0, 0.3.0)
-npx @vscode/vsce publish --pre-release --pat <TOKEN>
-```
-
-> **Prerequisites**: `npm install --save-dev @vscode/vsce` (already in devDependencies). Requires Node.js 20+.
+| Check                  | Command / Action                                              |
+| ---------------------- | ------------------------------------------------------------- |
+| Landing page loads     | Visit `https://ptah.live`                                     |
+| API health             | `curl https://api.ptah.live/api/health`                       |
+| Auth flow              | Click "Login" on landing page, complete OAuth                 |
+| Paddle checkout        | Click "Upgrade to Pro" on pricing page                        |
+| Webhook delivery       | Check Paddle dashboard > Webhooks > Logs                      |
+| Email delivery         | Trigger magic link login, verify email arrives                |
+| Desktop API connection | Launch desktop app and verify it connects to `api.ptah.live`  |
+| Desktop app download   | Visit GitHub Releases, download installer, verify launch      |
+| Logging level          | Verify no debug/verbose output in production logs             |
 
 ---
 
-## 9. Post-Deployment Verification
-
-| Check                   | Command / Action                                         |
-| ----------------------- | -------------------------------------------------------- |
-| Landing page loads      | Visit `https://ptah.live`                                |
-| API health              | `curl https://api.ptah.live/api/health`                  |
-| Auth flow               | Click "Login" on landing page, complete OAuth            |
-| Paddle checkout         | Click "Upgrade to Pro" on pricing page                   |
-| Webhook delivery        | Check Paddle dashboard > Webhooks > Logs                 |
-| Email delivery          | Trigger magic link login, verify email arrives           |
-| Extension license check | Install extension, verify it connects to `api.ptah.live` |
-| Desktop app download    | Visit GitHub Releases, download installer, verify launch |
-| Logging level           | Verify no debug/verbose output in production logs        |
-
----
-
-## 10. Environment Defaults Reference
+## 9. Environment Defaults Reference
 
 Centralized in `libs/shared/src/lib/constants/environment.constants.ts`:
 
@@ -450,12 +340,12 @@ Production:  LOG_LEVEL = 'info',  LOG_TO_CONSOLE = false
 Development: LOG_LEVEL = 'debug', LOG_TO_CONSOLE = true
 ```
 
-The VS Code extension Logger respects `PTAH_LOG_LEVEL` env var for ad-hoc override.
+The desktop Logger respects `PTAH_LOG_LEVEL` env var for ad-hoc override.
 The license server suppresses `debug` and `verbose` NestJS logs when `NODE_ENV=production`.
 
 ---
 
-## 11. Secret Rotation Strategy
+## 10. Secret Rotation Strategy
 
 All secrets in `.env.prod` should be rotated on a regular schedule. Mark your calendar.
 
@@ -515,7 +405,7 @@ curl https://api.ptah.live/api/health
 
 ---
 
-## 12. Cost Summary
+## 11. Cost Summary
 
 | Service                                 | Cost              |
 | --------------------------------------- | ----------------- |

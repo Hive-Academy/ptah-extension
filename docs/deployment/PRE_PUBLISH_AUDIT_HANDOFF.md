@@ -143,7 +143,7 @@ All services using Angular `HttpClient` are correctly handled by the `apiInterce
 
 - **Method**: Ed25519 response signing to prevent MITM attacks
 - **Private key**: `LICENSE_SIGNING_PRIVATE_KEY` env var (base64-encoded DER PKCS8)
-- **Public key**: Embedded in VS Code extension (`libs/shared/src/lib/constants/environment.constants.ts`)
+- **Public key**: Embedded in desktop client (`libs/shared/src/lib/constants/environment.constants.ts`)
 
 ### 4.8 Cookie Cross-Origin Configuration
 
