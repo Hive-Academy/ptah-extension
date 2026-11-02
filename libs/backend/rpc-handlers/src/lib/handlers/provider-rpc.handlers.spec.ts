@@ -468,7 +468,7 @@ async function call<TResult>(
 
 describe('ProviderRpcHandlers', () => {
   describe('provider:getAccountUsage', () => {
-    it('reads the Codex owner through PlanUsageService and keeps every legacy field', async () => {
+    it('reads the Codex owner through PlanUsageService and reuses the filled cache on later pulls', async () => {
       const h = makeHarness();
       const target: PlanOwnerTarget = {
         providerId: 'openai-codex',
@@ -525,6 +525,17 @@ describe('ProviderRpcHandlers', () => {
         ownerEvidence: [],
         windowSetEstablished: true,
       });
+      const repeated = await call<ProviderGetAccountUsageResult>(
+        h,
+        'provider:getAccountUsage',
+        { providerId: 'openai-codex', refresh: false },
+      );
+      expect(repeated).toEqual(result);
+      expect(
+        h.codexAccountUsage.getAccountUsage.mock.calls.every(
+          ([options]) => options?.refresh === false,
+        ),
+      ).toBe(true);
     });
 
     it('waits out a Codex cold start longer than the 3 s plan-limits deadline', async () => {
