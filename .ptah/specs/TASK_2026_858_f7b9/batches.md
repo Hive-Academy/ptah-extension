@@ -219,7 +219,7 @@ phase summary.
 - The verify command passes; output tailed
 - No per-batch review
 
-## Batch 2: P0-1 process sampler tool — PENDING
+## Batch 2: P0-1 process sampler tool — COMPLETE
 
 - Recommended executor: CLI lane backend/tooling capability
 - Execution mode: sequential
@@ -231,7 +231,7 @@ phase summary.
 - Phase: A | Phase review: none — measurement tooling
 - Verify: `npm run verify -- -p process-sampler`
 
-### Task 2.1: `tools/process-sampler` — PENDING
+### Task 2.1: `tools/process-sampler` — COMPLETE
 
 - Files: W/`tools/process-sampler/{project.json,jest.config.ts,tsconfig.json,README.md}`,
   W/`tools/process-sampler/src/sampler.js`, W/`tools/process-sampler/src/sampler.spec.ts`
