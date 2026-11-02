@@ -1,6 +1,6 @@
 # Batches - TASK_2026_858_f7b9
 
-Total tasks: 42 | Batches: 26 | Complete: 6/26
+Total tasks: 42 | Batches: 26 | Complete: 7/26
 
 Scope: Phase 0 tool and Phase 1 (C0-C10) of implementation-plan.md, Round 5. C11 is not built
 (Q1 = (a), decisions.md row 10). The U5 licensing batch is not built (U5 = 1). Phases 2-4 get
@@ -395,7 +395,7 @@ phase summary.
   "mem.liveness.audit" hits the 5 s Jest timeout under load; passes alone (unrelated SQLite
   audit; watch it in CI).
 
-## Batch 7: C3 RPC surface — PENDING
+## Batch 7: C3 RPC surface — COMPLETE
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -408,7 +408,7 @@ phase summary.
 - Phase: B (last) | Phase review: **code-logic + style for Phase B (Batches 3-7)**
 - Verify: `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/vscode-core,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-video-studio,mcp-bench`
 
-### Task 7.1: Capability, manifest, host label, prefix — PENDING
+### Task 7.1: Capability, manifest, host label, prefix — COMPLETE
 
 - Files: W/`libs/backend/rpc-handlers/src/lib/host-profile/{capabilities.ts,manifest.ts,host-profile.ts}`,
   W/`libs/backend/vscode-core/src/messaging/rpc-handler.ts`,
@@ -422,7 +422,7 @@ phase summary.
 - Validation notes: none
 - Implementation details: none beyond the list
 
-### Task 7.2: CLI and VS Code absent lists and baselines — PENDING
+### Task 7.2: CLI and VS Code absent lists and baselines — COMPLETE
 
 - Depends on: Task 7.1
 - Files: W/`libs/backend/cli-engine/src/lib/rpc/{expected-absent.ts,rpc-surface.spec.ts}`,
@@ -432,7 +432,7 @@ phase summary.
 - Validation notes: smallest change to keep VS Code compiling (no VS Code feature work)
 - Implementation details: none
 
-### Task 7.3: Interim Electron surface expectation — PENDING
+### Task 7.3: Interim Electron surface expectation — COMPLETE
 
 - Depends on: Task 7.1
 - File: W/`apps/ptah-electron/src/di/rpc-surface.spec.ts`
@@ -446,6 +446,9 @@ phase summary.
 ### Batch 7 verification
 
 - Every host's surface spec passes; verify passes; then NEEDS REVIEW for Phase B
+- Result: executor backend-developer subagent (Claude). Verify (shared, rpc-handlers, vscode-core,
+  cli-engine, electron, vscode, cli, tui, webview, video-studio, mcp-bench) → 79/79 succeeded.
+  `host.remoteMachines` is host-owned (no lib handler; C9 supplies it via `hostHandlers`).
 
 ---
 

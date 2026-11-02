@@ -50,6 +50,25 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   // Secondary git watcher leases (TASK_2026_855) — `gitRootWatch` capability
   // is Electron-only, see expected-absent.ts.
   'git:watchRoots',
+  // Remote machines (TASK_2026_858) — `remoteMachines` capability is
+  // Electron-only, see expected-absent.ts.
+  'machines:add',
+  'machines:list',
+  'machines:pair',
+  'machines:pairViaSsh',
+  'machines:permission.respond',
+  'machines:readiness',
+  'machines:remove',
+  'machines:retry',
+  'machines:session.attach',
+  'machines:session.continue',
+  'machines:session.detach',
+  'machines:session.replay',
+  'machines:session.start',
+  'machines:session.stop',
+  'machines:sessions',
+  'machines:sshAliases',
+  'machines:workspaces',
   // Claude account management (TASK_2026_712 D30) — `providerAccounts`
   // capability is Electron-only, see expected-absent.ts.
   'provider:addAccount',

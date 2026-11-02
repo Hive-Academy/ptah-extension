@@ -62,8 +62,8 @@ export * from './rpc/rpc-lane-outcome.types';
 
 export * from './rpc/rpc-decision-model-catalog.types';
 
-// Remote machines (`machines:*`, TASK_2026_858 W11). Declared apart from
-// RpcMethodRegistry; see MachinesRpcMethodRegistry for when it joins.
+// Remote machines (`machines:*`, TASK_2026_858 W11). Merged into
+// RpcMethodRegistry through `extends`.
 export * from './rpc/rpc-machines.types';
 
 import type {
@@ -71,6 +71,7 @@ import type {
   AgentGetLanePlanLimitsResult,
 } from './rpc/rpc-lane-plan-limits.types';
 import type { ProviderAccountRpcMethodRegistry } from './rpc/rpc-provider-accounts.types';
+import type { MachinesRpcMethodRegistry } from './rpc/rpc-machines.types';
 import type {
   AttentionGetSnapshotParams,
   AttentionGetSnapshotResult,
@@ -853,8 +854,7 @@ export type McpHomeInstallTarget = Extract<
  * {@link McpHomeInstallTarget}, or that is made with no workspace open, is
  * refused before anything is written.
  */
-export interface McpDirectoryScopedInstallParams
-  extends McpDirectoryInstallParams {
+export interface McpDirectoryScopedInstallParams extends McpDirectoryInstallParams {
   scope?: CapabilityScope;
 }
 
@@ -862,8 +862,7 @@ export interface McpDirectoryScopedInstallParams
  * Result of `mcpDirectory:install`. `scope` echoes the scope the server
  * resolved, so the UI does not have to assume the default.
  */
-export interface McpDirectoryScopedInstallResult
-  extends McpDirectoryInstallResult {
+export interface McpDirectoryScopedInstallResult extends McpDirectoryInstallResult {
   scope?: CapabilityScope;
 }
 
@@ -997,13 +996,15 @@ export interface InstallScopeRpcMethodRegistry {
  * same way, each once its handler serves it.
  *
  * Remote machine methods (`machines:*`, TASK_2026_858) are declared in
- * `rpc/rpc-machines.types.ts` as `MachinesRpcMethodRegistry` and join here
- * (`extends` plus `MACHINES_RPC_METHOD_NAMES` in `RPC_METHOD_ENTRIES`) in the
- * same change that adds their `host.remoteMachines` manifest entry.
+ * `rpc/rpc-machines.types.ts` as `MachinesRpcMethodRegistry` and merged in
+ * through `extends`; their `RPC_METHOD_ENTRIES` keys are listed below. They
+ * are owned by the host-owned `host.remoteMachines` manifest entry, gated on
+ * the `remoteMachines` capability.
  */
 export interface RpcMethodRegistry
   extends
     ProviderAccountRpcMethodRegistry,
+    MachinesRpcMethodRegistry,
     Pick<
       InstallScopeRpcMethodRegistry,
       | 'mcpDirectory:makeGlobal'
@@ -2014,7 +2015,11 @@ export interface RpcMethodRegistry
   };
   'settings:getMotion': {
     params: Record<string, never>;
-    result: { success: boolean; preference?: 'always' | 'system' | 'reduce'; error?: string };
+    result: {
+      success: boolean;
+      preference?: 'always' | 'system' | 'reduce';
+      error?: string;
+    };
   };
   'settings:setMotion': {
     params: { preference: 'always' | 'system' | 'reduce' };
@@ -3872,6 +3877,27 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'surface:select': true,
   'surface:action': true,
   'surface:operation': true,
+
+  // TASK_2026_858 remote machines (registry merged via `extends`), in
+  // `MACHINES_RPC_METHOD_NAMES` order. Capability-gated to Electron in
+  // RPC_HANDLER_MANIFEST (`host.remoteMachines`).
+  'machines:list': true,
+  'machines:sshAliases': true,
+  'machines:add': true,
+  'machines:pair': true,
+  'machines:pairViaSsh': true,
+  'machines:remove': true,
+  'machines:retry': true,
+  'machines:readiness': true,
+  'machines:workspaces': true,
+  'machines:sessions': true,
+  'machines:session.attach': true,
+  'machines:session.detach': true,
+  'machines:session.replay': true,
+  'machines:session.start': true,
+  'machines:session.continue': true,
+  'machines:session.stop': true,
+  'machines:permission.respond': true,
 };
 
 /**

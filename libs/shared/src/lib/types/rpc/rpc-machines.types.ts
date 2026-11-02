@@ -16,12 +16,11 @@
  * so an unknown key is rejected). Results are produced by Electron main and
  * are plain interfaces.
  *
- * Declared apart from `RpcMethodRegistry` on purpose, following the
- * `InstallScopeRpcMethodRegistry` pattern in `rpc.types.ts`: a registry entry
- * is also an `RPC_METHOD_NAMES` entry, and `assertManifestInvariants`
- * (rpc-handlers) requires every name to have a handler owner. The methods
- * join `RpcMethodRegistry` in the same change that adds their
- * `host.remoteMachines` manifest entry.
+ * `MachinesRpcMethodRegistry` is merged into `RpcMethodRegistry` through
+ * `extends` (`rpc.types.ts`), and every name here is an `RPC_METHOD_NAMES`
+ * entry. `assertManifestInvariants` (rpc-handlers) requires each to have an
+ * owner: the host-owned `host.remoteMachines` manifest entry, gated on the
+ * `remoteMachines` capability.
  */
 
 import { z } from 'zod';
