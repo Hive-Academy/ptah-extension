@@ -81,6 +81,7 @@ import { isStoredModelOffered } from './stored-model-offer';
 import { API_KEY_RECOVERY_HINT } from './auth-method.utils';
 import { ClaudeAmbientLoginStatusReader } from '../accounts/claude-ambient-login-status';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local';
+import { codexNativeRuntimeRequired } from './codex-native-runtime-refusal';
 
 /**
  * Start a workspace snapshot with every tier-scoped key PRESENT and
@@ -265,23 +266,38 @@ export class WorkspaceProviderProfileResolver {
         },
       };
     }
-    if (
-      this.activeProviderResolver.resolveActiveAuthForPath(workspacePath)
-        .providerId === 'openai-codex' ||
-      existingIdentity?.providerId === 'openai-codex'
-    ) {
+    // A stored session keeps its own provider; only a new session follows the
+    // workspace's active provider.
+    const servingProviderId = existingIdentity
+      ? existingIdentity.providerId
+      : this.activeProviderResolver.resolveActiveAuthForPath(workspacePath)
+          .providerId;
+    if (servingProviderId === 'openai-codex') {
       this.rejectLegacyCodexProfile();
+    }
+    if (existingIdentity) {
+      const active = await this.resolveAuthForPath(workspacePath);
+      if (active.providerId !== existingIdentity.providerId) {
+        this.rejectStoredProviderMismatch(
+          existingIdentity.providerId,
+          active.providerId,
+        );
+      }
     }
     const model = input.requestedModelIsStored
       ? this.resolveStoredModel(workspacePath, requestedModel)
       : requestedModel;
+    const providerProfile = existingIdentity
+      ? await this.resolveProviderProfileForWorkspace(
+          workspacePath,
+          model,
+          existingIdentity.providerId,
+        )
+      : await this.resolveProviderProfileForWorkspace(workspacePath, model);
     return {
       runtime: 'claude-sdk',
       model,
-      providerProfile: await this.resolveProviderProfileForWorkspace(
-        workspacePath,
-        model,
-      ),
+      providerProfile,
     };
   }
 
@@ -354,8 +370,12 @@ export class WorkspaceProviderProfileResolver {
   async resolveProviderProfileForWorkspace(
     workspacePath: string,
     requestedModel: string,
+    expectedProviderId?: string,
   ): Promise<ProviderProfile | undefined> {
     const active = await this.resolveAuthForPath(workspacePath);
+    if (expectedProviderId && active.providerId !== expectedProviderId) {
+      this.rejectStoredProviderMismatch(expectedProviderId, active.providerId);
+    }
     const profile = await this.buildProfile(
       active,
       workspacePath,
@@ -514,11 +534,20 @@ export class WorkspaceProviderProfileResolver {
   }
 
   private rejectLegacyCodexProfile(): never {
+    throw codexNativeRuntimeRequired(
+      'Use the Ptah desktop app (Electron) with native Codex enabled.',
+    );
+  }
+
+  private rejectStoredProviderMismatch(
+    storedProviderId: string,
+    activeProviderId: string,
+  ): never {
     throw new AuthRequiredError(
-      'Codex chat requires a host with the native Codex runtime.',
+      `Cannot resume this session: its provider (${storedProviderId}) differs from the workspace's active provider (${activeProviderId}). Restore the session's provider in Settings and retry.`,
       {
-        providerId: 'openai-codex',
-        recoveryHint: 'Use the Ptah desktop app (Electron) with native Codex enabled.',
+        providerId: storedProviderId,
+        recoveryHint: `Select ${storedProviderId} for this workspace in Settings and retry.`,
       },
     );
   }

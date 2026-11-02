@@ -7,12 +7,11 @@
  *         return a "not authenticated" error.
  *       * Starts copilotProxy, points SDK at its URL, injects the proxy
  *         auth-token placeholder.
- *       * Stops codexProxy before configuring (cross-contamination guard).
  *   - 'openai-codex':
  *       * Native intent returns control to the runtime.
- *       * Other intents fail explicitly without starting the Codex proxy.
+ *       * Other intents fail explicitly.
  *
- * teardown() stops both proxies and clears the codex auth cache.
+ * teardown() stops the Copilot and Kimi proxies and clears the codex auth cache.
  *
  * Source-under-test:
  *   `libs/backend/auth-providers/src/lib/auth/strategies/oauth-proxy.strategy.ts`
@@ -166,7 +165,6 @@ interface Harness {
   copilotAuth: jest.Mocked<ICopilotAuthService>;
   copilotProxy: jest.Mocked<ICopilotTranslationProxy>;
   codexAuth: jest.Mocked<ICodexAuthService>;
-  codexProxy: jest.Mocked<ITranslationProxy>;
   kimiCodeAuth: jest.Mocked<IKimiCodeAuthService>;
   kimiCodeProxy: jest.Mocked<ITranslationProxy>;
   providerModels: jest.Mocked<ProviderModelsSurface>;
@@ -177,7 +175,6 @@ function makeStrategy(): Harness {
   const copilotAuth = createMockCopilotAuth();
   const copilotProxy = createMockCopilotProxy();
   const codexAuth = createMockCodexAuth();
-  const codexProxy = createMockTranslationProxy();
   const kimiCodeAuth = createMockKimiCodeAuth();
   const kimiCodeProxy = createMockTranslationProxy();
   const providerModels = createMockProviderModels();
@@ -189,7 +186,6 @@ function makeStrategy(): Harness {
     copilotAuth,
     copilotProxy,
     codexAuth,
-    codexProxy,
     providerModelsSurface as ProviderModelsService,
     sentry as SentryService,
     kimiCodeAuth,
@@ -202,7 +198,6 @@ function makeStrategy(): Harness {
     copilotAuth,
     copilotProxy,
     codexAuth,
-    codexProxy,
     kimiCodeAuth,
     kimiCodeProxy,
     providerModels,
@@ -248,9 +243,6 @@ describe('OAuthProxyStrategy', () => {
         }
         const result = await harness.strategy.configure(ctx);
 
-        // Codex proxy stopped first to prevent cross-contamination.
-        // (Guarded by isRunning() → default false, so stop() isn't invoked here.)
-        expect(harness.codexProxy.stop).not.toHaveBeenCalled();
 
         expect(harness.copilotAuth.tryRestoreAuth).not.toHaveBeenCalled();
         expect(harness.copilotProxy.start).toHaveBeenCalledTimes(1);
@@ -360,23 +352,6 @@ describe('OAuthProxyStrategy', () => {
       );
     });
 
-    it('stops a running codex proxy before configuring Copilot', async () => {
-      const harness = makeStrategy();
-      harness.codexProxy.isRunning.mockReturnValue(true);
-      harness.copilotAuth.isAuthenticated.mockResolvedValueOnce(true);
-      harness.copilotProxy.isRunning.mockReturnValue(false);
-      harness.copilotProxy.start.mockResolvedValueOnce({
-        port: 1,
-        url: 'http://127.0.0.1:1',
-      });
-
-      await harness.strategy.configure(makeContext('github-copilot'));
-
-      expect(harness.codexProxy.stop).toHaveBeenCalledTimes(1);
-
-      delete process.env['ANTHROPIC_BASE_URL'];
-      delete process.env['ANTHROPIC_AUTH_TOKEN'];
-    });
   });
 
   // -------------------------------------------------------------------------
@@ -389,7 +364,6 @@ describe('OAuthProxyStrategy', () => {
       async (reason) => {
         const harness = makeStrategy();
         harness.copilotProxy.isRunning.mockReturnValue(true);
-        harness.codexProxy.isRunning.mockReturnValue(true);
         const authEnv: AuthEnv = {
           ANTHROPIC_API_KEY: 'test-claude-key',
           ANTHROPIC_AUTH_TOKEN: 'test-claude-token',
@@ -416,7 +390,7 @@ describe('OAuthProxyStrategy', () => {
         });
         expect(authEnv).toEqual(authBefore);
         expect(process.env).toEqual(envBefore);
-        for (const proxy of [harness.codexProxy, harness.copilotProxy]) {
+        for (const proxy of [harness.copilotProxy]) {
           expect(proxy.start).not.toHaveBeenCalled();
           expect(proxy.stop).not.toHaveBeenCalled();
           expect(proxy.isRunning).not.toHaveBeenCalled();
@@ -444,7 +418,6 @@ describe('OAuthProxyStrategy', () => {
       { reason: 'startup' },
     ])('rejects non-native Codex configuration for %j', async (operation) => {
       const harness = makeStrategy();
-      harness.codexProxy.isRunning.mockReturnValue(true);
       const context = makeContext('openai-codex');
       context.operationContext = authOperationContextSchema.parse({
         providerId: 'openai-codex',
@@ -461,8 +434,6 @@ describe('OAuthProxyStrategy', () => {
       });
       expect(context.authEnv).toEqual(authBefore);
       expect(process.env).toEqual(envBefore);
-      expect(harness.codexProxy.start).not.toHaveBeenCalled();
-      expect(harness.codexProxy.getUrl).not.toHaveBeenCalled();
       expect(harness.codexAuth.isAuthenticated).not.toHaveBeenCalled();
       expect(harness.codexAuth.ensureTokensFresh).not.toHaveBeenCalled();
       expect(harness.codexAuth.startWatchingAuthFile).not.toHaveBeenCalled();
@@ -477,7 +448,6 @@ describe('OAuthProxyStrategy', () => {
           errorMessage:
             'Codex chat requires a host with the native Codex runtime.',
         });
-      expect(harness.codexProxy.start).not.toHaveBeenCalled();
     });
 
     it('stops a running Copilot proxy before rejecting non-native Codex', async () => {
@@ -488,7 +458,6 @@ describe('OAuthProxyStrategy', () => {
         .resolves.toMatchObject({ configured: false });
 
       expect(harness.copilotProxy.stop).toHaveBeenCalledTimes(1);
-      expect(harness.codexProxy.start).not.toHaveBeenCalled();
     });
   });
 
@@ -578,13 +547,11 @@ describe('OAuthProxyStrategy', () => {
       expect(harness.kimiCodeAuth.stopWatching).toHaveBeenCalled();
     });
 
-    it('configuring Kimi stops the Codex proxy and watcher', async () => {
+    it('configuring Kimi stops the Codex auth watcher', async () => {
       const harness = makeStrategy();
-      harness.codexProxy.isRunning.mockReturnValue(true);
 
       await harness.strategy.configure(makeContext('kimi-code'));
 
-      expect(harness.codexProxy.stop).toHaveBeenCalledTimes(1);
       expect(harness.codexAuth.stopWatchingAuthFile).toHaveBeenCalled();
     });
   });
@@ -594,15 +561,13 @@ describe('OAuthProxyStrategy', () => {
   // -------------------------------------------------------------------------
 
   describe('teardown()', () => {
-    it('stops both proxies (when running) and clears the codex auth cache', async () => {
+    it('stops the Copilot proxy (when running) and clears the codex auth cache', async () => {
       const harness = makeStrategy();
       harness.copilotProxy.isRunning.mockReturnValue(true);
-      harness.codexProxy.isRunning.mockReturnValue(true);
 
       await harness.strategy.teardown();
 
       expect(harness.copilotProxy.stop).toHaveBeenCalledTimes(1);
-      expect(harness.codexProxy.stop).toHaveBeenCalledTimes(1);
       expect(harness.codexAuth.clearCache).toHaveBeenCalledTimes(1);
     });
 
@@ -620,12 +585,10 @@ describe('OAuthProxyStrategy', () => {
     it('skips stopping proxies that are not running but still clears codex cache', async () => {
       const harness = makeStrategy();
       harness.copilotProxy.isRunning.mockReturnValue(false);
-      harness.codexProxy.isRunning.mockReturnValue(false);
 
       await harness.strategy.teardown();
 
       expect(harness.copilotProxy.stop).not.toHaveBeenCalled();
-      expect(harness.codexProxy.stop).not.toHaveBeenCalled();
       expect(harness.codexAuth.clearCache).toHaveBeenCalledTimes(1);
     });
   });

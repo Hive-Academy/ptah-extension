@@ -887,6 +887,70 @@ describe('resolveExecutionProfile', () => {
     });
   }
 
+  it('refuses a stored Claude session when the workspace now selects Codex', async () => {
+    const h = nativeHarness();
+    const storedClaude: SessionRuntimeIdentity = {
+      version: 1,
+      sessionId: 'stored-claude' as SessionRuntimeIdentity['sessionId'],
+      runtime: 'claude-sdk',
+      providerId: 'anthropic',
+      workspaceId: WORKSPACE,
+    };
+
+    await expect(
+      h.resolver.resolveExecutionProfile({
+        ...input,
+        existingIdentity: storedClaude,
+      }),
+    ).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+      providerId: 'anthropic',
+      message: expect.stringContaining(
+        'differs from the workspace\'s active provider',
+      ),
+    });
+    expect(h.acquire).not.toHaveBeenCalled();
+  });
+
+  it('refuses a stored legacy Codex identity without a proxy profile', async () => {
+    const h = nativeHarness('kimi-code');
+    const storedLegacyCodex: SessionRuntimeIdentity = {
+      version: 1,
+      sessionId: 'stored-codex' as SessionRuntimeIdentity['sessionId'],
+      runtime: 'claude-sdk',
+      providerId: 'openai-codex',
+      workspaceId: WORKSPACE,
+    };
+
+    await expect(
+      h.resolver.resolveExecutionProfile({
+        ...input,
+        existingIdentity: storedLegacyCodex,
+      }),
+    ).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+      providerId: 'openai-codex',
+      message: 'Codex chat requires a host with the native Codex runtime.',
+    });
+    expect(h.acquire).not.toHaveBeenCalled();
+  });
+
+  it('refuses a new Codex session on a host without native support', async () => {
+    const h = nativeHarness();
+
+    await expect(
+      h.resolver.resolveExecutionProfile({
+        ...input,
+        hostCapabilities: { nativeCodex: false },
+      }),
+    ).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+      providerId: 'openai-codex',
+      message: 'Codex chat requires a host with the native Codex runtime.',
+    });
+    expect(h.acquire).not.toHaveBeenCalled();
+  });
+
   it.each(['chat'] as const)(
     'returns a credential-free %s seed without materialization',
     async (consumer) => {

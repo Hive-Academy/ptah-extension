@@ -37,6 +37,7 @@ import type {
   EffectiveCapabilitySet,
   PtahCliConfig,
 } from '@ptah-extension/shared';
+import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '@ptah-extension/shared';
 import type { DependencyContainer } from 'tsyringe';
 import { PtahCliRegistry } from './ptah-cli-registry';
 import { createFakeSdkProcessSpawner } from './testing/fake-sdk-process-spawner';
@@ -101,12 +102,16 @@ function verifiedPolicyContainer(): DependencyContainer {
 interface SpawnHarness {
   registry: PtahCliRegistry;
   logger: ReturnType<typeof createMockLogger>;
+  getQueryFunction: jest.Mock;
   getCapturedModel: () => string | undefined;
   getCapturedOptions: () => Options | undefined;
   getCapturedPrompt: () => AsyncGenerator<SDKUserMessage> | undefined;
 }
 
-function buildHarness(config: PtahCliConfig): SpawnHarness {
+function buildHarness(
+  config: PtahCliConfig,
+  providerKey = 'sk-test-key',
+): SpawnHarness {
   const logger = createMockLogger();
 
   let capturedOptions: Options | undefined;
@@ -117,8 +122,9 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
     return emptyStream();
   });
 
+  const getQueryFunction = jest.fn().mockResolvedValue(queryFn);
   const moduleLoader = {
-    getQueryFunction: jest.fn().mockResolvedValue(queryFn),
+    getQueryFunction,
     getCliJsPath: jest.fn().mockResolvedValue(undefined),
   } as unknown as SdkModuleLoader;
 
@@ -134,7 +140,7 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
   } as unknown as SdkPermissionHandler;
 
   const authSecrets = {
-    getProviderKey: jest.fn().mockResolvedValue('sk-test-key'),
+    getProviderKey: jest.fn().mockResolvedValue(providerKey),
   } as unknown as IAuthSecretsService;
 
   const providerModels = {
@@ -182,6 +188,7 @@ function buildHarness(config: PtahCliConfig): SpawnHarness {
   return {
     registry,
     logger,
+    getQueryFunction,
     getCapturedModel: () => capturedOptions?.model as string | undefined,
     getCapturedOptions: () => capturedOptions,
     getCapturedPrompt: () => capturedPrompt,
@@ -198,6 +205,29 @@ const BASE_CONFIG: PtahCliConfig = {
 };
 
 describe('PtahCliRegistry.spawnAgent — model override resolution', () => {
+  it('refuses a stale Codex placeholder before loading the SDK query', async () => {
+    const harness = buildHarness(BASE_CONFIG, CODEX_PROXY_TOKEN_PLACEHOLDER);
+
+    await expect(harness.registry.spawnAgent(BASE_CONFIG.id, 'do work'))
+      .rejects.toMatchObject({
+        name: 'AuthRequiredError',
+        providerId: 'openai-codex',
+      });
+    expect(harness.getQueryFunction).not.toHaveBeenCalled();
+  });
+
+  it('skips a connection probe with a stale Codex placeholder', async () => {
+    const harness = buildHarness(BASE_CONFIG, CODEX_PROXY_TOKEN_PLACEHOLDER);
+
+    await expect(
+      harness.registry.testConnection(BASE_CONFIG.id),
+    ).resolves.toEqual({
+      success: false,
+      error: 'Codex chat requires a host with the native Codex runtime.',
+    });
+    expect(harness.getQueryFunction).not.toHaveBeenCalled();
+  });
+
   it('uses the raw model override over selectedModel AND tier', async () => {
     const harness = buildHarness({
       ...BASE_CONFIG,

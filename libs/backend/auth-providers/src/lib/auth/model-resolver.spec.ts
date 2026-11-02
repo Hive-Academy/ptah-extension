@@ -31,6 +31,7 @@ import type { ConfigManager, Logger } from '@ptah-extension/vscode-core';
 import { createMockConfigManager } from '@ptah-extension/vscode-core/testing';
 import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
 import { ModelResolver } from './model-resolver';
+import { getActiveProviderId } from '@ptah-extension/agent-sdk';
 import { ProviderModelsService } from '../provider-models.service';
 import { ActiveProviderResolver } from './active-provider-resolver';
 
@@ -54,7 +55,7 @@ function makeResolver(env: AuthEnv): ModelResolver {
   return new ModelResolver(makeLogger(), env);
 }
 
-/** Auth env as OAuthProxyStrategy leaves it once Codex is active. */
+/** Historical proxy env retained for pricing and classification reads. */
 function codexEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
   return {
     ANTHROPIC_BASE_URL: 'http://127.0.0.1:51001',
@@ -64,6 +65,10 @@ function codexEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
 }
 
 describe('ModelResolver', () => {
+  it('classifies historical Codex proxy env without launching an SDK query', () => {
+    expect(getActiveProviderId(codexEnv())).toBe('openai-codex');
+  });
+
   beforeEach(() => {
     updatePricingMap({ ...CATALOG });
   });

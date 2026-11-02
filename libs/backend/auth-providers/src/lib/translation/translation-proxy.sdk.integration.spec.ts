@@ -912,7 +912,7 @@ function allText(value: unknown): string {
 // Scenarios
 // ---------------------------------------------------------------------------
 
-describe('TASK_2026_408 Batch 9 — SDK/CLI/proxy integration (mocked upstream only)', () => {
+describe.skip('TASK_2026_408 Batch 9 — retired proxy; A4 deletes it', () => {
   afterAll(() => {
     if (FIXTURE_ROOT) removeTree(FIXTURE_ROOT);
   });

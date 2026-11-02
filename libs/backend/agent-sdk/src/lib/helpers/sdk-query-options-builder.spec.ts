@@ -38,7 +38,10 @@ import type {
   ClaudeCertifiedLaunchContext,
 } from '@ptah-extension/auth-providers-tokens';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import { KIMI_CODE_PROXY_TOKEN_PLACEHOLDER } from '@ptah-extension/shared';
+import {
+  CODEX_PROXY_TOKEN_PLACEHOLDER,
+  KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
+} from '@ptah-extension/shared';
 import { ModelNotAvailableError, SdkError } from '../errors';
 import { PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 import type {
@@ -2133,6 +2136,17 @@ describe('getActiveProviderId — Kimi Code behind its local proxy', () => {
         ANTHROPIC_API_KEY: 'fake-kimi-key',
       }),
     ).toBe('kimi-code');
+  });
+});
+
+describe('getActiveProviderId — retired Codex proxy', () => {
+  it('classifies a stale Codex proxy token without launching a query', () => {
+    expect(
+      getActiveProviderId({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:4242',
+        ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER,
+      }),
+    ).toBe('openai-codex');
   });
 });
 

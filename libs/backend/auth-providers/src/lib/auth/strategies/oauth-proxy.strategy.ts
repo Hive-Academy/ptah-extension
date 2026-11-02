@@ -19,6 +19,7 @@ import type {
   AuthConfigureContext,
 } from '../auth-strategy.types';
 import { resolveCodexProxyPolicy } from '../codex-proxy-policy';
+import { CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE } from '../codex-native-runtime-refusal';
 import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
 import type { ProviderModelsService } from '../../provider-models.service';
 import type {
@@ -51,8 +52,6 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     private readonly copilotProxy: ICopilotTranslationProxy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
     private readonly codexAuth: ICodexAuthService,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_PROXY)
-    private readonly codexProxy: ITranslationProxy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
     @inject(TOKENS.SENTRY_SERVICE)
@@ -66,7 +65,6 @@ export class OAuthProxyStrategy implements IAuthStrategy {
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
     const { providerId, authEnv } = context;
     if (providerId === KIMI_CODE_PROVIDER_ID) {
-      await this.stopProxyIfRunning(this.codexProxy, 'Codex');
       this.codexAuth.stopWatchingAuthFile();
       return this.configureKimiCode(providerId, authEnv);
     }
@@ -74,14 +72,12 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     if (providerId === 'openai-codex') {
       return this.configureCodexOAuth(context);
     }
-    await this.stopProxyIfRunning(this.codexProxy, 'Codex');
     this.codexAuth.stopWatchingAuthFile();
     return this.configureCopilotOAuth(providerId, authEnv);
   }
 
   async teardown(): Promise<void> {
     await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
-    await this.stopProxyIfRunning(this.codexProxy, 'Codex');
     this.codexAuth.stopWatchingAuthFile();
     this.codexAuth.clearCache();
     await this.stopKimiCode();
@@ -282,7 +278,7 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     return {
       configured: false,
       details: [],
-      errorMessage: 'Codex chat requires a host with the native Codex runtime.',
+      errorMessage: CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE,
     };
   }
 

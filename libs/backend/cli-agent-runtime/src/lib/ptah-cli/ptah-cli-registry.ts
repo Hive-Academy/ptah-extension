@@ -30,6 +30,7 @@ import {
 import type { SdkHandle } from '../cli-agents/cli-adapters';
 import {
   SDK_TOKENS,
+  AuthRequiredError,
   HARNESS_PREFLIGHT_TOKEN,
   SdkError,
   SdkModuleLoader,
@@ -550,8 +551,6 @@ export class PtahCliRegistry {
     const startTime = Date.now();
 
     try {
-      const queryFn = await this.moduleLoader.getQueryFunction();
-
       const configs = this.configPersistence.loadConfigs();
       const agentConfig = configs.find((c) => c.id === id);
       if (!agentConfig) {
@@ -586,6 +585,15 @@ export class PtahCliRegistry {
       const timeout = setTimeout(() => abortController.abort(), 30000);
 
       try {
+        if (
+          testAuthEnv.ANTHROPIC_AUTH_TOKEN === CODEX_PROXY_TOKEN_PLACEHOLDER
+        ) {
+          return {
+            success: false,
+            error: 'Codex chat requires a host with the native Codex runtime.',
+          };
+        }
+        const queryFn = await this.moduleLoader.getQueryFunction();
         const testQuery = queryFn({
           prompt: 'Say "ok" and nothing else.',
           options: {
@@ -805,6 +813,12 @@ export class PtahCliRegistry {
           hasSystemPrompt: !!assembly.systemPromptContent,
         },
       );
+      if (authEnv.ANTHROPIC_AUTH_TOKEN === CODEX_PROXY_TOKEN_PLACEHOLDER) {
+        throw new AuthRequiredError(
+          'Codex chat requires a host with the native Codex runtime.',
+          { providerId: 'openai-codex' },
+        );
+      }
       const queryFn = await this.moduleLoader.getQueryFunction();
       const abortController = new AbortController();
       const mailbox = createPromptMailbox(task);
