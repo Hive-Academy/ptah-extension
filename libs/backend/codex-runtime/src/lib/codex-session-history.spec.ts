@@ -11,6 +11,9 @@ const root = {
 };
 const child = { ...root, id: 'child', createdAt: 2, parentThreadId: 'root', sessionId: 'child-session' };
 const other = { ...child, id: 'other', createdAt: 3, sessionId: 'other-session' };
+// The plain-cursor fallback lists "other" as a grandchild of the root;
+// thread/read returns the same parent so list and read data agree.
+const grandchild = { ...other, parentThreadId: 'child' };
 const turn = (id: string) => ({ id, status: 'completed', items: [], itemsView: 'summary' });
 const entry = (turnId: string, id: string) => ({
   turnId, startedAtMs: 10, completedAtMs: 11,
@@ -44,7 +47,8 @@ function fixture(overrides: {
     switch (method) {
       case 'thread/read':
         result = { thread: id === 'child' ? overrides.childMismatch
-          ? { ...child, parentThreadId: 'different' } : child : id === 'other' ? other : overrides.legacy
+          ? { ...child, parentThreadId: 'different' } : child
+          : id === 'other' ? (overrides.fallbackPages ? grandchild : other) : overrides.legacy
           ? { ...root, historyMode: 'legacy', turns: 'includeTurns' in params && params.includeTurns
             ? [{ ...turn('r1'), itemsView: undefined, items: [entry('r1', 'embedded').item] }]
             : [] }
@@ -53,7 +57,7 @@ function fixture(overrides: {
       case 'thread/list':
         result = 'archived' in params && params.archived ? { data: [] }
           : overrides.fallbackPages ? 'cursor' in params && params.cursor
-            ? { data: [{ ...other, parentThreadId: 'child' }], nextCursor: null }
+            ? { data: [grandchild], nextCursor: null }
             : { data: [{ ...child, id: 'unrelated', parentThreadId: 'elsewhere' }, child], nextCursor: 'page-2' }
           : {
           data: overrides.orphan
@@ -327,10 +331,29 @@ describe('readCodexSessionHistory', () => {
     [{ conflict: true }, 'malformedPage'],
     [{ duplicateTurn: true }, 'malformedPage'],
     [{ duplicateItem: true }, 'malformedPage'],
-    [{ blankCursor: true }, 'stalledCursor'],
-    [{ endless: true }, 'pageLimitExceeded'],
-  ] as const)('fails explicitly on conflicting or unbounded pages', async (overrides, code) => {
+  ] as const)('fails explicitly on conflicting root history pages', async (overrides, code) => {
     await expect(readCodexSessionHistory('root', fixture(overrides), () => undefined, logger))
       .rejects.toMatchObject({ code });
+  });
+
+  // Listing failures degrade to the root-only history; the root read path
+  // itself must still reject (previous test).
+  it.each([
+    [{ blankCursor: true }, 'stalledCursor'],
+    [{ endless: true }, 'pageLimitExceeded'],
+  ] as const)('keeps root history and warns after listing pages fail', async (overrides, code) => {
+    logger.warn.mockClear();
+    const snapshot = await readCodexSessionHistory('root', fixture(overrides), () => undefined, logger);
+    expect(snapshot.threads.map((thread) => thread.id)).toEqual(['root']);
+    expect(snapshot.threads[0].turns.map((turn) => turn.id)).toEqual(['r1', 'r2']);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn.mock.calls[0]?.[0]).toBe(
+      'Codex descendant discovery incomplete; continuing available history',
+    );
+    expect(warnMeta()).toEqual({
+      partialListing: true, completedLists: 1, failedLists: 1, failures: [
+        { archived: false, reason: code, issues: '[]' },
+      ],
+    });
   });
 });

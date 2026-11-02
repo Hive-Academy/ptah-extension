@@ -1067,6 +1067,14 @@ describe('pinned schema contract', () => {
       ),
     ],
   ] as const;
+  // Experimental params are deliberately absent from the pinned stable schema:
+  // the runtime sends them opportunistically and retries without them when the
+  // server answers JSON-RPC -32602. Keyed by "<group>/<method>"; keep exact.
+  const experimentalParams: Readonly<
+    Partial<Record<string, readonly string[]>>
+  > = {
+    'ClientRequest/thread/list': ['ancestorThreadId'],
+  };
   for (const [group, methods] of groups) {
     const variants = z
       .array(record)
@@ -1087,10 +1095,18 @@ describe('pinned schema contract', () => {
         expect(wire).toBeDefined();
         if (!wire) throw new Error('Missing pinned method');
         const wireParams = record.parse(wire['properties'])['params'];
+        const experimental = experimentalParams[`${group}/${method}`] ?? [];
         const modeledFields = fields(z.toJSONSchema(modeled.params));
         const pinnedFields = wireParams === undefined ? {} : fields(wireParams);
-        for (const name of Object.keys(modeledFields))
+        for (const name of Object.keys(modeledFields)) {
+          if (experimental.includes(name)) continue;
           expect(Object.keys(pinnedFields)).toContain(name);
+        }
+        // Experimental params are checked separately: modeled, never pinned.
+        for (const name of experimental) {
+          expect(Object.keys(modeledFields)).toContain(name);
+          expect(Object.keys(pinnedFields)).not.toContain(name);
+        }
         if (wireParams !== undefined) {
           for (const name of z
             .array(z.string())
