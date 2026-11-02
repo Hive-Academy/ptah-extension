@@ -1,6 +1,6 @@
 # Batches - TASK_2026_858_f7b9
 
-Total tasks: 42 | Batches: 26 | Complete: 5/26
+Total tasks: 42 | Batches: 26 | Complete: 6/26
 
 Scope: Phase 0 tool and Phase 1 (C0-C10) of implementation-plan.md, Round 5. C11 is not built
 (Q1 = (a), decisions.md row 10). The U5 licensing batch is not built (U5 = 1). Phases 2-4 get
@@ -359,7 +359,7 @@ phase summary.
   D-B5-1: the 17 `machines:*` methods are NOT yet in `RpcMethodRegistry`/`RPC_METHOD_ENTRIES`;
   they join in Batch 7 (see Task 7.1). Also touched `messages/payload-map.ts` (push payloads).
 
-## Batch 6: C5 CLI engine hooks — PENDING
+## Batch 6: C5 CLI engine hooks — COMPLETE
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -371,7 +371,7 @@ phase summary.
 - Phase: B | Phase review: at Batch 7
 - Verify: `npm run verify -- -p @ptah-extension/cli-engine,ptah-cli,ptah-tui,mcp-bench`
 
-### Task 6.1: Host profile injection and push tap — PENDING
+### Task 6.1: Host profile injection and push tap — COMPLETE
 
 - Files: W/`libs/backend/cli-engine/src/lib/container.ts`,
   W/`libs/backend/cli-engine/src/lib/bootstrap/with-engine.ts`,
@@ -389,6 +389,11 @@ phase summary.
 ### Batch 6 verification
 
 - Tap order and isolation specs exist; verify passes
+- Result: executor backend-developer subagent (Claude). cli-engine, ptah-cli (1178 tests), ptah-tui
+  pass lint/test/typecheck. Also changed `apps/ptah-cli/src/di/container.smoke.spec.ts` (its
+  source anchor matched the old call text). mcp-bench `snapshot-audits.suite.spec.ts`
+  "mem.liveness.audit" hits the 5 s Jest timeout under load; passes alone (unrelated SQLite
+  audit; watch it in CI).
 
 ## Batch 7: C3 RPC surface — PENDING
 

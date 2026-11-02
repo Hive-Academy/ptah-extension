@@ -22,10 +22,38 @@ import type {
 } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 
+/**
+ * Synchronous observer of every emitted push event, called once per
+ * de-batched event immediately BEFORE that event is emitted to listeners.
+ *
+ * Contract: observe synchronously and return. A tap never performs I/O, never
+ * awaits, and never mutates `payload` — the remote worker's tap only enqueues
+ * the event into its own capture queue, which owns ordering and persistence.
+ * A tap that throws is isolated: the error is logged by name only and the
+ * event (and every later one) is still emitted.
+ */
+export type CliPushTap = (type: string, payload: unknown) => void;
+
+export interface CliWebviewManagerAdapterOptions {
+  /** See {@link CliPushTap}. */
+  readonly tap?: CliPushTap;
+  /** Receives the tap-failure line (error name only — never message or payload). */
+  readonly logger?: Pick<Logger, 'error'>;
+}
+
 export class CliWebviewManagerAdapter
   extends EventEmitter
   implements IHostAttentionObserverHost
 {
+  private readonly tap?: CliPushTap;
+  private readonly tapLogger?: Pick<Logger, 'error'>;
+
+  constructor(options: CliWebviewManagerAdapterOptions = {}) {
+    super();
+    this.tap = options.tap;
+    this.tapLogger = options.logger;
+  }
+
   private attentionRegistration?: {
     observer: IHostAttentionIngress;
     logger?: Pick<Logger, 'error'>;
@@ -111,14 +139,35 @@ export class CliWebviewManagerAdapter
    */
   private dispatch(type: string, payload: unknown): void {
     if (type !== MESSAGE_TYPES.BATCH) {
-      this.emit(type, payload);
+      this.deliver(type, payload);
       return;
     }
     const events = (payload as BatchMessagePayload | undefined)?.events;
     if (!Array.isArray(events)) return;
     for (const event of events) {
       if (!event || typeof event.type !== 'string') continue;
-      this.emit(event.type, event.payload);
+      this.deliver(event.type, event.payload);
+    }
+  }
+
+  /** Tap first, then emit — one concrete (already de-batched) event. */
+  private deliver(type: string, payload: unknown): void {
+    this.observeTap(type, payload);
+    this.emit(type, payload);
+  }
+
+  private observeTap(type: string, payload: unknown): void {
+    if (!this.tap) return;
+    try {
+      this.tap(type, payload);
+    } catch (error: unknown) {
+      // Isolated on purpose: a failing observer must not silence the local
+      // listeners. Only the error name is logged, because a message could
+      // carry payload text.
+      const name = error instanceof Error ? error.name : 'UnknownError';
+      this.tapLogger?.error(
+        `[CliWebviewManagerAdapter] Push tap failed: ${name}`,
+      );
     }
   }
 
