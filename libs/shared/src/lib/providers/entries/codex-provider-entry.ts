@@ -29,7 +29,10 @@ function codexModel(
 
 /**
  * Fallback model IDs for OpenAI Codex. Pricing is 0 since the subscription
- * covers usage (and `seedStaticModelPricing` skips subscription providers).
+ * covers usage (and `seedStaticModelPricing` skips subscription providers),
+ * so these placeholders never reach the shared pricing map. The exact,
+ * dated published rates for the seven IDs live in the bundled rate card
+ * merged into `DEFAULT_MODEL_PRICING` (`utils/codex-rate-card.ts`).
  *
  * This list is display and discovery-filter fallback only. It is NOT kept in
  * sync with anything and is not a source of context windows: every

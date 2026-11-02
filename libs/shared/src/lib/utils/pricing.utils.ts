@@ -18,6 +18,8 @@ import type {
   SessionStatsPricingCoverage,
 } from '../types/rpc/rpc-session.types';
 
+import { CODEX_RATE_CARD } from './codex-rate-card';
+
 /**
  * Pricing information for a single model
  */
@@ -61,12 +63,15 @@ export interface TokenBreakdown {
  * models return `null` from {@link findModelPricing} so the UI can render
  * "Pricing unavailable" instead of a fabricated dollar figure.
  *
- * Subscription-covered surfaces (GitHub Copilot, OpenAI Codex) are deliberately
- * ABSENT here. Seeding their models at $0 would publish that price under a bare
- * slug — `gpt-5.4` is a Codex model AND an OpenRouter one — and pin the shared
- * catalog rate to zero for whichever provider looked it up next. Their turns are
- * costed from the same published rates as everyone else's; the flat-fee billing
- * is a labelling concern, carried per call by {@link FindPricingOptions}.
+ * Subscription providers (GitHub Copilot, OpenAI Codex) contribute no STATIC
+ * entries: `seedStaticModelPricing` skips them, because seeding their $0
+ * registry placeholders would publish that price under a bare slug — `gpt-5.4`
+ * is a Codex slug AND an OpenRouter one — and pin the shared catalog rate to
+ * zero for whichever provider looked it up next. Their turns are still
+ * costed from the same published rates as everyone else's: the exact, dated
+ * OpenAI API rate card for Codex's seven fallback IDs is bundled via
+ * {@link CODEX_RATE_CARD}, and the flat-fee billing remains a labelling
+ * concern, carried per call by {@link FindPricingOptions}.
  *
  * @see https://www.anthropic.com/pricing
  * @see https://openrouter.ai/api/v1/models
@@ -116,6 +121,11 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     cacheCreationCostPerToken: 0,
     provider: 'ollama-cloud',
   },
+
+  // The dated OpenAI Codex API rate card: exact published rates with
+  // provenance for the seven static Codex fallback IDs. See
+  // `codex-rate-card.ts` for retrieval dates and per-entry sources.
+  ...CODEX_RATE_CARD,
 };
 
 /**
