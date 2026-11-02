@@ -180,6 +180,31 @@ describe('ChatHistoryReadService', () => {
     expect(harness.historyReader.readSessionEvents).not.toHaveBeenCalled();
   });
 
+  it.each(['resume', 'page'] as const)(
+    'maps a malformed native history %s to a user-safe code and message',
+    async (readKind) => {
+      const harness = makeHarness();
+      const nativeError = Object.assign(new Error('PRIVATE_HISTORY_SENTINEL'), {
+        name: 'ElectronCodexHistoryError',
+        code: 'malformedPage',
+      });
+      const read =
+        readKind === 'resume'
+          ? harness.historyReader.readSessionHistory
+          : harness.historyReader.readSessionEvents;
+      read.mockRejectedValue(nativeError);
+
+      const result =
+        readKind === 'resume'
+          ? harness.service.readForResume(SESSION_ID)
+          : harness.service.readPage({ sessionId: SESSION_ID, cursor: 'h1:u2' });
+      await expect(result).rejects.toMatchObject({
+        errorCode: 'HISTORY_MALFORMED',
+        message: 'Saved session history has an unsupported format.',
+      });
+    },
+  );
+
   it('reads an older page through the side-effect-free event API', async () => {
     const events = [
       { eventType: 'message_start', messageId: 'u1', role: 'user' },

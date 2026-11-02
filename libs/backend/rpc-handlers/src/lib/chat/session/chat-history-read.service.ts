@@ -52,6 +52,10 @@ export function nativeHistoryRpcError(error: unknown): RpcUserError | null {
     busy: ['HISTORY_BUSY', 'Too many history reads are in progress. Try again.'],
     timeout: ['HISTORY_TIMEOUT', 'Reading session history timed out. Try again.'],
     cancelled: ['HISTORY_CANCELLED', 'Reading session history was cancelled.'],
+    malformedPage: [
+      'HISTORY_MALFORMED',
+      'Saved session history has an unsupported format.',
+    ],
     runtimeFailed: ['HISTORY_FAILED', 'Session history could not be read.'],
     nativeReadFailed: ['HISTORY_FAILED', 'Session history could not be read.'],
   };

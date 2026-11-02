@@ -517,6 +517,68 @@ describe('server extensions and strict client contracts', () => {
 });
 
 describe('Codex protocol validation', () => {
+  it('keeps only bounded paths and codes for a rejected result', () => {
+    const value = {
+      data: Array.from({ length: 20 }, (_, index) => `PRIVATE_REPLY_${index}`),
+    };
+    let caught: unknown;
+    try {
+      validateCodexResult('thread/list', value);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(CodexProtocolError);
+    if (!(caught instanceof CodexProtocolError))
+      throw new Error('Expected protocol error');
+    expect(caught.issues).toHaveLength(8);
+    expect(caught.issues[0]).toEqual({ path: ['data', 0], code: 'invalid_type' });
+    expect(caught.issues.every((issue) => issue.path.length <= 8)).toBe(true);
+    expect(caught.issues.every((issue) =>
+      Object.keys(issue).sort().join(',') === 'code,path')).toBe(true);
+    expect(JSON.stringify(caught.issues)).not.toContain('PRIVATE_REPLY');
+    expect(JSON.stringify(caught)).not.toContain('PRIVATE_REPLY');
+  });
+  it('redacts server-chosen record keys but keeps schema keys and indexes', () => {
+    const secretKey = 'sk_live_PRIVATE_RECORD_KEY';
+    let caught: unknown;
+    try {
+      validateCodexResult('thread/items/list', {
+        data: [
+          {
+            turnId: 'turn',
+            item: {
+              type: 'collabAgentToolCall',
+              id: 'item',
+              senderThreadId: 'parent',
+              receiverThreadIds: [],
+              status: 'completed',
+              tool: 'wait',
+              agentsStates: {
+                [secretKey]: { status: 'invalid', message: null },
+              },
+              model: null,
+              prompt: null,
+              reasoningEffort: null,
+            },
+            startedAtMs: null,
+            completedAtMs: null,
+          },
+        ],
+        nextCursor: null,
+        backwardsCursor: null,
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(CodexProtocolError);
+    if (!(caught instanceof CodexProtocolError))
+      throw new Error('Expected protocol error');
+    expect(caught.issues).toContainEqual({
+      path: ['data', 0, 'item', 'agentsStates', '[redacted]', 'status'],
+      code: 'invalid_value',
+    });
+    expect(JSON.stringify(caught.issues)).not.toContain(secretKey);
+  });
   it('replays every inbound method from spike runs 6e through 6j', () => {
     const methods = new Set<string>();
     for (const suffix of ['e', 'f', 'g', 'h', 'i', 'j']) {

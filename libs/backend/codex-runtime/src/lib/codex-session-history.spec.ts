@@ -1,6 +1,6 @@
 import { readCodexSessionHistory, type CodexHistoryRequest } from './codex-session-history';
 import { CodexRequestRejectedError } from './codex-app-server-process';
-import { validateCodexResult } from './codex-protocol-validator';
+import { CodexProtocolError, validateCodexResult } from './codex-protocol-validator';
 
 // Hand-built from the pinned schema. Live paginated/child shape is UNCONFIRMED.
 const root = {
@@ -98,6 +98,28 @@ describe('readCodexSessionHistory', () => {
     await expect(readCodexSessionHistory('root', fixture({ malformed: true }), () => undefined))
       .rejects.toMatchObject({ code: 'malformedPage' });
   });
+
+  it.each([
+    'thread/read',
+    'thread/list',
+    'thread/turns/list',
+    'thread/items/list',
+  ] as const)(
+    'classifies a request-local invalidResult from %s as malformedPage',
+    async (failedMethod) => {
+      const normal = fixture();
+      const request: CodexHistoryRequest = async (method, params) => {
+        if (method === failedMethod)
+          throw new CodexProtocolError('invalidResult', method, [
+            { path: ['data'], code: 'invalid_type' },
+          ]);
+        return normal(method, params);
+      };
+      await expect(
+        readCodexSessionHistory('root', request, () => undefined),
+      ).rejects.toMatchObject({ code: 'malformedPage' });
+    },
+  );
 
   it('never returns empty history for a missing thread', async () => {
     await expect(readCodexSessionHistory('root', fixture({ missing: true }), () => undefined))

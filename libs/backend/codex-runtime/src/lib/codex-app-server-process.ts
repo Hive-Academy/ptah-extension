@@ -275,7 +275,18 @@ export class CodexAppServerProcess {
     this.assertOpen();
     if (!this.ready) throw new Error('Codex process not initialized');
     const result = await this.sendRequest(method, params, REQUEST_TIMEOUT_MS);
-    return validateCodexResult(method, result);
+    try {
+      return validateCodexResult(method, result);
+    } catch (error) {
+      // receive() normally validates first; keep the same safe diagnostic if
+      // a future schema transform makes this second validation fail.
+      if (error instanceof CodexProtocolError && error.code === 'invalidResult')
+        this.logger?.warn('Codex response result rejected', {
+          method: redactCodexDiagnostics(method),
+          issues: JSON.stringify(error.issues),
+        });
+      throw error;
+    }
   }
 
   private sendRequest(
@@ -399,17 +410,21 @@ export class CodexAppServerProcess {
         }
         return;
       }
-      // Catalog payload drift is request-local. The validator checks the envelope
-      // first, so malformed framing still fails closed in onData.
+      // A known response result is request-local. The validator checks the
+      // envelope first, so malformed framing still fails closed in onData.
       if (
-        pending?.method === 'model/list' &&
+        pending &&
         typeof id === 'number' &&
         error instanceof CodexProtocolError &&
         error.code === 'invalidResult' &&
-        error.method === 'model/list'
+        error.method === pending.method
       ) {
         clearTimeout(pending.timer);
         this.pending.delete(id);
+        this.logger?.warn('Codex response result rejected', {
+          method: redactCodexDiagnostics(pending.method),
+          issues: JSON.stringify(error.issues),
+        });
         pending.reject(error);
         return;
       }
@@ -445,7 +460,6 @@ export class CodexAppServerProcess {
         reason: 'Codex request rejected',
         method: redactCodexDiagnostics(pending.method),
         rpcCode: frame.error.code,
-        stderrTail: this.stderrTail(2048),
       });
       const race =
         (pending.method === 'turn/steer' ||
@@ -570,7 +584,6 @@ export class CodexAppServerProcess {
               timeoutMs: CODEX_INITIALIZE_TIMEOUT_MS,
             }
           : {}),
-        stderrTail: this.stderrTail(2048),
       };
       if (initializeTimeout)
         this.logger?.warn('Codex process failure', metadata);

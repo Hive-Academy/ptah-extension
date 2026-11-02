@@ -40,6 +40,8 @@ export type RpcUserErrorCode =
   | 'HISTORY_TIMEOUT'
   | 'HISTORY_CANCELLED'
   | 'HISTORY_NOT_FOUND'
+  /** A saved native history page failed protocol validation. */
+  | 'HISTORY_MALFORMED'
   | 'HISTORY_FAILED'
   /** The connection is the main agent's current driver and cannot be removed. */
   | 'CONNECTION_IN_USE'
