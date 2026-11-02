@@ -3,7 +3,10 @@ export type { AuthProvidersDIToken } from './lib/di/tokens';
 export { ProviderAccountService } from './lib/accounts/provider-account.service';
 export { ClaudeAmbientLoginStatusReader } from './lib/accounts/claude-ambient-login-status';
 export { ClaudeNamedAccountPersistence } from './lib/accounts/claude-named-account-persistence';
-export type { ProviderAccountAdmissionPort, ProviderAccountActionPort } from '@ptah-extension/auth-providers-tokens';
+export type {
+  ProviderAccountAdmissionPort,
+  ProviderAccountActionPort,
+} from '@ptah-extension/auth-providers-tokens';
 export {
   registerAuthProvidersServices,
   registerCuratorAuthServices,
@@ -40,7 +43,17 @@ export {
   ActiveProviderResolver,
   type ActiveAuth,
 } from './lib/auth/active-provider-resolver';
+export type {
+  ExecutionProfileRequest,
+  ResolvedExecutionProfile,
+} from './lib/auth/workspace-provider-profile-resolver';
 export { WorkspaceProviderProfileResolver } from './lib/auth/workspace-provider-profile-resolver';
+export { CodexHomeAuthService } from './lib/providers/codex/codex-home-auth.service';
+export {
+  resolveCodexProxyPolicy,
+  type CodexProxyPolicy,
+} from './lib/auth/codex-proxy-policy';
+export type { ICodexOwnerKeySource } from './lib/providers/codex/codex-provider.types';
 export { WorkspaceLlmResolver } from './lib/auth/workspace-llm-resolver';
 export {
   ProviderProxyPool,

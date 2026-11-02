@@ -4,7 +4,7 @@ import type {
   IndexingProgressEvent,
   IndexingStatusWire,
 } from '@ptah-extension/shared';
-import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService, WallClockService, WALL_CLOCK_COARSE_MS } from '@ptah-extension/core';
 
 import {
   WorkspaceIndexingService,
@@ -367,10 +367,36 @@ describe('WorkspaceIndexingComponent', () => {
     );
   });
 
-  it('formatRelativeTime returns "just now" for null', () => {
+  it('formatRelativeTime uses a dash for missing data', () => {
     const fixture = setup();
     const cmp = fixture.componentInstance;
-    expect(cmp.formatRelativeTime(null)).toBe('just now');
+    expect(cmp.formatRelativeTime(null)).toBe('—');
+  });
+
+  it('updates relative time on coarse ticks and holds the label between ticks', () => {
+    jest.useFakeTimers({
+      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    }).setSystemTime(200_000);
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
+    const clearIntervalSpy = jest.spyOn(globalThis, 'clearInterval');
+    try {
+      const fixture = setup();
+      const clock = TestBed.inject(WallClockService);
+      expect(clock.now('coarse')()).toBe(200_000);
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), WALL_CLOCK_COARSE_MS);
+      const interval = setIntervalSpy.mock.results.find((result) => result.type === 'return')?.value;
+      const label = () => fixture.componentInstance.formatRelativeTime(110_000);
+      expect(label()).toBe('1 minute ago');
+      jest.advanceTimersByTime(WALL_CLOCK_COARSE_MS - 1);
+      expect(label()).toBe('1 minute ago');
+      jest.advanceTimersByTime(1);
+      expect(label()).toBe('2 minutes ago');
+      fixture.destroy();
+      expect(clearIntervalSpy).toHaveBeenCalledWith(interval);
+    } finally {
+      jest.restoreAllMocks();
+      jest.useRealTimers();
+    }
   });
 
   it('shortSha truncates to 7 chars', () => {

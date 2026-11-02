@@ -73,46 +73,72 @@ export type HarnessLeaveChoice = 'cancel' | 'discard' | 'save';
             discard.
           </p>
         }
-        <div
-          class="mt-5 flex flex-col gap-2 min-[460px]:flex-row min-[460px]:justify-end"
-        >
-          <button
-            #cancelButton
-            type="button"
-            class="btn btn-outline btn-sm border-base-content/50 min-h-10 min-[460px]:min-h-8"
-            [disabled]="saving()"
-            (click)="choose('cancel')"
+        @if (stopUncertain()) {
+          <p
+            role="alert"
+            class="mt-3 rounded-md border border-state-err/55 bg-error/10 px-2.5 py-2 text-xs"
           >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm border-base-content/50 min-h-10 min-[460px]:min-h-8"
-            [disabled]="saving()"
-            (click)="choose('discard')"
+            The agent may still be running. Retry stop or keep this session.
+          </p>
+          <div class="mt-5 flex justify-end gap-2">
+            <button
+              #cancelButton
+              type="button"
+              class="btn btn-outline btn-sm"
+              (click)="stopChoice.emit('keep-current')"
+            >
+              Keep current
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              (click)="stopChoice.emit('retry-stop')"
+            >
+              Retry stop
+            </button>
+          </div>
+        } @else {
+          <div
+            class="mt-5 flex flex-col gap-2 min-[460px]:flex-row min-[460px]:justify-end"
           >
-            <span class="text-state-err" aria-hidden="true">×</span> Discard
-          </button>
-          <button
-            type="button"
-            class="btn btn-primary btn-sm min-h-10 min-[460px]:min-h-8"
-            [disabled]="saving()"
-            [attr.aria-disabled]="!sessionStarted() ? true : null"
-            [attr.aria-describedby]="
-              !sessionStarted() ? 'builder-save-pending' : null
-            "
-            [attr.tabindex]="!sessionStarted() ? -1 : null"
-            (click)="choose('save')"
-          >
-            {{
-              saving()
-                ? 'Saving...'
-                : saveFailed()
-                  ? 'Try again'
-                  : 'Save as draft'
-            }}
-          </button>
-        </div>
+            <button
+              #cancelButton
+              type="button"
+              class="btn btn-outline btn-sm border-base-content/50 min-h-10 min-[460px]:min-h-8"
+              [disabled]="saving()"
+              (click)="choose('cancel')"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm border-base-content/50 min-h-10 min-[460px]:min-h-8"
+              [disabled]="saving()"
+              (click)="choose('discard')"
+            >
+              <span class="text-state-err" aria-hidden="true">×</span> Discard
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm min-h-10 min-[460px]:min-h-8"
+              [disabled]="saving()"
+              [attr.aria-disabled]="!sessionStarted() ? true : null"
+              [attr.aria-describedby]="
+                !sessionStarted() ? 'builder-save-pending' : null
+              "
+              [attr.tabindex]="!sessionStarted() ? -1 : null"
+              (click)="choose('save')"
+            >
+              {{
+                saving()
+                  ? 'Saving...'
+                  : saveFailed()
+                    ? 'Try again'
+                    : 'Save as draft'
+              }}
+            </button>
+          </div>
+        }
       </div>
     </div>
   `,
@@ -126,9 +152,11 @@ export class HarnessBuilderLeaveDialogComponent
   readonly sessionStarted = input(true);
   readonly saving = input(false);
   readonly saveFailed = input(false);
+  readonly stopUncertain = input(false);
   readonly existingDraftAt = input<string | null>(null);
   readonly trigger = input<HTMLElement | null>(null);
   readonly choice = output<HarnessLeaveChoice>();
+  readonly stopChoice = output<'retry-stop' | 'keep-current'>();
 
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
   private readonly cancelButton =
@@ -184,7 +212,7 @@ export class HarnessBuilderLeaveDialogComponent
           sibling.setAttribute('inert', '');
         }
       }
-      if (parent.matches('ptah-harness-builder-view')) break;
+      if (parent.matches('ptah-onboarding-shell')) break;
       current = parent;
     }
     queueMicrotask(() => this.cancelButton().nativeElement.focus());
@@ -199,6 +227,10 @@ export class HarnessBuilderLeaveDialogComponent
   }
 
   protected choose(choice: HarnessLeaveChoice): void {
+    if (this.stopUncertain()) {
+      if (choice === 'cancel') this.stopChoice.emit('keep-current');
+      return;
+    }
     if (this.saving() || (choice === 'save' && !this.sessionStarted())) return;
     this.choice.emit(choice);
   }

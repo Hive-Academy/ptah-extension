@@ -9,7 +9,17 @@
  */
 import 'reflect-metadata';
 
-import { resolve } from 'path';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
 
 import type { AgentProcessInfo } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -140,6 +150,22 @@ function createHarness(
 }
 
 describe('LaneCompletionNotifier.signal', () => {
+  it('writes provider usage to the lane outcome without estimating cost', async () => {
+    const h = createHarness();
+    await h.notifier.signal(createInfo(), {
+      reportsDelivered: 0,
+      usage: { inputTokens: 60_219, outputTokens: 481, cacheReadTokens: 300 },
+    });
+    expect(h.recordLaneCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputTokens: 60_219,
+        outputTokens: 481,
+        costUsd: null,
+      }),
+      expect.objectContaining({ brief: expect.any(String) }),
+    );
+  });
+
   it('enqueues once before parent refusal and copies spawn facts', async () => {
     const h = createHarness();
     const info = createInfo({
@@ -160,7 +186,9 @@ describe('LaneCompletionNotifier.signal', () => {
         family: 'codex',
         provider: null,
         model: 'lane-default',
+        parentSessionId: null,
       }),
+      { brief: info.task },
     );
   });
   it('uses the Ptah CLI spawn provider when no quota owner was discovered', async () => {
@@ -178,6 +206,7 @@ describe('LaneCompletionNotifier.signal', () => {
         family: 'z-ai',
         provider: 'z-ai',
       }),
+      { brief: 'Write the review report.\nSecond line nobody needs.' },
     );
   });
 
@@ -256,6 +285,10 @@ describe('LaneCompletionNotifier.signal', () => {
       expect(result.signal?.verdict).toBe('delivered');
       expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
       expect(h.sendMessageToSession.mock.calls[0][0]).toBe(PARENT);
+      expect(h.recordLaneCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({ parentSessionId: PARENT }),
+        expect.any(Object),
+      );
       expect(h.sendMessageToSession.mock.calls[0][2]).toEqual({
         origin: {
           kind: 'peer',
@@ -397,6 +430,7 @@ describe('LaneCompletionNotifier.signal', () => {
       );
 
       expect(result.signal?.deliverables[0].writtenAfterSpawn).toBe(false);
+      expect(result.signal?.verdict).toBe('no-deliverable');
       expect(h.envelope()).toContain('NOT written by this run');
     });
 
@@ -466,10 +500,13 @@ describe('LaneCompletionNotifier.signal', () => {
     it('omits the host-stop fields for a caller stop', async () => {
       const h = createHarness();
 
-      const result = await h.notifier.signal(createInfo({ status: 'stopped' }), {
-        reportsDelivered: 0,
-        toolCalls: 7,
-      });
+      const result = await h.notifier.signal(
+        createInfo({ status: 'stopped' }),
+        {
+          reportsDelivered: 0,
+          toolCalls: 7,
+        },
+      );
 
       expect(result.signal).not.toHaveProperty('stopReason');
       expect(result.signal).not.toHaveProperty('repeatedCalls');
@@ -667,6 +704,23 @@ describe('LaneCompletionNotifier.signal', () => {
 
       expect(result.reason).toBe('parent-session-not-active');
       expect(h.sendMessageToSession).not.toHaveBeenCalled();
+      expect(h.recordLaneCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({ parentSessionId: null }),
+        expect.any(Object),
+      );
+    });
+
+    it('persists null when the parent is an unresolved UUID tab id', async () => {
+      const h = createHarness({ sessionActive: false });
+      const tabId = '33333333-3333-4333-8333-333333333333';
+
+      const result = await h.notifier.signal(createInfo({ parentSessionId: tabId }));
+
+      expect(result.reason).toBe('parent-session-not-active');
+      expect(h.recordLaneCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({ parentSessionId: null }),
+        expect.any(Object),
+      );
     });
 
     it('refuses with `delivery-failed` when the chat runtime rejects the turn', async () => {
@@ -786,7 +840,7 @@ describe('LaneCompletionNotifier.signalSessionChild', () => {
       expect(result.envelope.verdict).toBe('no-deliverable');
       expect(result.envelope.text).toContain('(NOT written by this run)');
 
-      // The lane rule is unchanged: existence + non-empty is delivered.
+      // The lane applies the same freshness rule as the session child.
       const lane = createHarness({
         files: { '/ws/out.md': 10 },
         mtime: Date.parse(STARTED_AT) - 1,
@@ -794,7 +848,7 @@ describe('LaneCompletionNotifier.signalSessionChild', () => {
       const laneResult = await lane.notifier.signal(
         createInfo({ deliverables: ['out.md'] }),
       );
-      expect(laneResult.signal?.verdict).toBe('delivered');
+      expect(laneResult.signal?.verdict).toBe('no-deliverable');
     });
 
     it('counts a file whose mtime equals startedAt as written (the >= boundary)', async () => {
@@ -1063,5 +1117,135 @@ describe('LaneCompletionNotifier.signalSessionChild', () => {
 
       expect(envelope.text).toContain('agent="a&quot;b&lt;c&gt;"');
     });
+  });
+});
+
+// TASK_2026_857 phase A review F1/F2: host review capture reads only a
+// delivered review run's own files, by absolute path, inside the lane roots.
+describe('LaneCompletionNotifier review capture', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    jest.useRealTimers();
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'review-capture-')));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function captureHarness(mtime = Date.parse(COMPLETED_AT)) {
+    const fileSystem: Pick<
+      IFileSystemProvider,
+      'exists' | 'stat' | 'readFile'
+    > = {
+      exists: jest.fn(async (path: string) => existsSync(path)),
+      stat: jest.fn(async (path: string) => ({
+        type: FileType.File,
+        ctime: mtime,
+        mtime,
+        size: statSync(path).size,
+      })),
+      readFile: jest.fn(async (path: string) => readFileSync(path, 'utf8')),
+    };
+    const captureReview = jest.fn(async () => ({
+      ok: true as const,
+      state: 'applied' as const,
+      runId: 'lane:target',
+    }));
+    const notifier = new LaneCompletionNotifier(
+      createLogger(),
+      // The capture path uses only these three methods.
+      fileSystem as IFileSystemProvider,
+      null,
+      () => ({ recordLaneCompletion: jest.fn(), captureReview }),
+    );
+    return { notifier, captureReview };
+  }
+
+  /** Real file I/O settles on the thread pool, so poll briefly for it. */
+  async function flushCapture(until?: () => boolean): Promise<void> {
+    if (!until) {
+      for (let i = 0; i < 5; i += 1)
+        await new Promise<void>((done) => setImmediate(done));
+      return;
+    }
+    for (let i = 0; i < 400 && !until(); i += 1)
+      await new Promise<void>((done) => setTimeout(done, 5));
+  }
+
+  function reviewInfo(
+    overrides: Partial<AgentProcessInfo> = {},
+  ): AgentProcessInfo {
+    return createInfo({
+      workingDirectory: dir,
+      role: 'code-logic-reviewer',
+      deliverables: [join(dir, 'review.md')],
+      ...overrides,
+    });
+  }
+
+  it('captures a delivered review from an absolute deliverable path', async () => {
+    writeFileSync(
+      join(dir, 'review.md'),
+      'Reviewed-Run: agent-x\nVerdict: REVISE',
+    );
+    const h = captureHarness();
+    await h.notifier.signal(reviewInfo());
+    await flushCapture(() => h.captureReview.mock.calls.length > 0);
+    expect(h.captureReview).toHaveBeenCalledWith({
+      reviewerRunId: `${AGENT_ID}:${COMPLETED_AT}`,
+      text: 'Reviewed-Run: agent-x\nVerdict: REVISE',
+    });
+  });
+
+  it('does not capture a failed review run', async () => {
+    writeFileSync(
+      join(dir, 'review.md'),
+      'Reviewed-Run: agent-x\nVerdict: REVISE',
+    );
+    const h = captureHarness();
+    await h.notifier.signal(reviewInfo({ status: 'failed', exitCode: 1 }));
+    await flushCapture();
+    expect(h.captureReview).not.toHaveBeenCalled();
+  });
+
+  it('does not capture a review file older than the run', async () => {
+    writeFileSync(
+      join(dir, 'review.md'),
+      'Reviewed-Run: agent-x\nVerdict: REVISE',
+    );
+    const h = captureHarness(Date.parse(STARTED_AT) - 60_000);
+    await h.notifier.signal(reviewInfo());
+    await flushCapture();
+    expect(h.captureReview).not.toHaveBeenCalled();
+  });
+
+  it('does not capture a run whose verdict is no-deliverable', async () => {
+    writeFileSync(
+      join(dir, 'review.md'),
+      'Reviewed-Run: agent-x\nVerdict: REVISE',
+    );
+    const h = captureHarness();
+    await h.notifier.signal(
+      reviewInfo({
+        deliverables: [join(dir, 'review.md'), join(dir, 'missing.md')],
+      }),
+    );
+    await flushCapture();
+    expect(h.captureReview).not.toHaveBeenCalled();
+  });
+
+  it('does not capture a lane whose kind is not review', async () => {
+    writeFileSync(
+      join(dir, 'review.md'),
+      'Reviewed-Run: agent-x\nVerdict: REVISE',
+    );
+    const h = captureHarness();
+    await h.notifier.signal(
+      reviewInfo({ role: 'code-logic-reviewer', taskKind: 'implement' }),
+    );
+    await flushCapture();
+    expect(h.captureReview).not.toHaveBeenCalled();
   });
 });

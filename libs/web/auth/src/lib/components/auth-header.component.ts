@@ -36,7 +36,7 @@ import { AuthMode } from '../models/auth.types';
       class="flex items-center gap-3 mb-8 "
     >
       <img
-        ngSrc="/assets/icons/ptah-icon.png"
+        ngSrc="/assets/icons/ptah-icon.webp"
         alt="PtahCode logo"
         width="128"
         height="128"

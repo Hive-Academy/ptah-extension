@@ -24,6 +24,32 @@ function usage(overrides: Partial<TurnModelUsage> = {}): TurnModelUsage {
 }
 
 describe('deriveLiveModelStats (session-live-stats.util)', () => {
+  it.each([
+    { tokens: 130_000, window: 200_000, percent: 65 },
+    { tokens: 130_000, window: 1_000_000, percent: 13 },
+    { tokens: 33_333, window: 200_000, percent: 16.7 },
+  ])('uses a trusted $window window for $tokens tokens ($percent%)', ({ tokens, window, percent }) => {
+    const model = 'claude-sonnet-4';
+    const derived = deriveLiveModelStats(
+      [usage({
+        lastTurnContextTokens: tokens,
+        contextCapacity: {
+          tokens: window,
+          source: 'sdk-native',
+          providerId: null,
+          model,
+        },
+      })],
+      { hasCompacted: false },
+    );
+
+    expect(derived?.live).toEqual(expect.objectContaining({
+      contextUsed: tokens,
+      contextWindow: window,
+      contextPercent: percent,
+    }));
+  });
+
   it('never substitutes cumulative usage for a missing main context frame', () => {
     const row = {
       ...usage({ inputTokens: 50, outputTokens: 16, cacheReadInputTokens: 42 }),

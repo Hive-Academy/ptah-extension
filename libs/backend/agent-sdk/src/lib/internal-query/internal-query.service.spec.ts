@@ -435,12 +435,14 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
     await h.service.execute(makeConfig());
     await h.service.execute(makeConfig());
     await h.service.execute(makeConfig());
-    const fifth = h.service.execute(makeConfig());
+    const abortController = new AbortController();
+    const fifth = h.service.execute(makeConfig({ abortController }));
 
     await settle();
     expect(h.started()).toBe(4);
 
-    void fifth;
+    abortController.abort();
+    await expect(fifth).rejects.toMatchObject({ name: 'AbortError' });
   });
 
   /**
@@ -464,12 +466,16 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
       const h = makeGatedHarness();
 
       await h.service.execute(makeConfig({ lane: 'skill-synthesis' }));
-      const queued = h.service.execute(makeConfig({ lane: 'skill-synthesis' }));
+      const abortController = new AbortController();
+      const queued = h.service.execute(
+        makeConfig({ lane: 'skill-synthesis', abortController }),
+      );
 
       await settle();
       expect(h.started()).toBe(1);
 
-      void queued;
+      abortController.abort();
+      await expect(queued).rejects.toMatchObject({ name: 'AbortError' });
     });
 
     it('holds a fourth lane at the global ceiling', async () => {
@@ -478,12 +484,16 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
       await h.service.execute(makeConfig({ lane: 'memory-curator' }));
       await h.service.execute(makeConfig({ lane: 'skill-synthesis' }));
       await h.service.execute(makeConfig({ lane: 'default' }));
-      const fourth = h.service.execute(makeConfig({ lane: 'user-action' }));
+      const abortController = new AbortController();
+      const fourth = h.service.execute(
+        makeConfig({ lane: 'user-action', abortController }),
+      );
 
       await settle();
       expect(h.started()).toBe(DEFAULT_MAX_CONCURRENT);
 
-      void fourth;
+      abortController.abort();
+      await expect(fourth).rejects.toMatchObject({ name: 'AbortError' });
     });
 
     it('admits a user-action query while both background lanes hold slots at the defaults', async () => {
@@ -527,8 +537,9 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
       const h = makeGatedHarness();
 
       await h.service.execute(makeConfig({ lane: 'memory-curator' }));
+      const abortController = new AbortController();
       const queued = h.service.execute(
-        makeConfig({ lane: '  Memory-Curator ' }),
+        makeConfig({ lane: '  Memory-Curator ', abortController }),
       );
 
       // A near-miss must NOT mint a second lane with its own ceiling — that
@@ -536,19 +547,24 @@ describe('InternalQueryService — concurrency gate (TASK_2026_323 B6)', () => {
       await settle();
       expect(h.started()).toBe(1);
 
-      void queued;
+      abortController.abort();
+      await expect(queued).rejects.toMatchObject({ name: 'AbortError' });
     });
 
     it('charges a caller that names no lane to the shared default', async () => {
       const h = makeGatedHarness();
 
       await h.service.execute(makeConfig());
-      const queued = h.service.execute(makeConfig({ lane: '   ' }));
+      const abortController = new AbortController();
+      const queued = h.service.execute(
+        makeConfig({ lane: '   ', abortController }),
+      );
 
       await settle();
       expect(h.started()).toBe(1);
 
-      void queued;
+      abortController.abort();
+      await expect(queued).rejects.toMatchObject({ name: 'AbortError' });
     });
   });
 

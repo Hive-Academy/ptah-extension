@@ -12,6 +12,7 @@ import {
 import {
   ROUTING_UNAVAILABLE_MESSAGE,
   RoutingUnavailableError,
+  buildRouteNamespace,
   type RouteNamespace,
 } from '../namespace-builders/route-namespace.builder';
 import {
@@ -116,6 +117,99 @@ describe('handleRouteToolCall', () => {
     expect(api.decide).toHaveBeenCalledWith({
       stage: 'pre-flight',
       request: 'ship the parser',
+    });
+  });
+
+  const cachedSessionKey = 'private-session-key';
+  const cachedResult: RouteDecideResult = {
+    ...RESULT,
+    reasons: ['reused host pre-flight result'],
+  };
+  const freshResult: RouteDecideResult = {
+    ...RESULT,
+    usage: { ...RESULT.usage, requests: 1 },
+  };
+
+  function routeWithSessionAwareService() {
+    const decide = jest.fn(
+      async (
+        _args: unknown,
+        _source: unknown,
+        context?: { readonly sessionKey?: string },
+      ): Promise<RouteDecideResult> =>
+        context?.sessionKey === cachedSessionKey ? cachedResult : freshResult,
+    );
+    const namespace = buildRouteNamespace({
+      agent: {
+        list: jest.fn(),
+        limits: jest.fn(),
+        listRoles: jest.fn(),
+      },
+      container: {
+        isRegistered: () => true,
+        resolve: jest.fn().mockReturnValue({ decide }),
+      },
+    });
+    return { namespace, decide };
+  }
+
+  it('forwards a matching session key for host pre-flight reuse without exposing it', async () => {
+    const { namespace, decide } = routeWithSessionAwareService();
+    const reply = await handleRouteToolCall(
+      { stage: 'pre-flight', request: 'ship the parser' },
+      namespace,
+      logger(),
+      { sessionKey: cachedSessionKey },
+    );
+
+    expect(decide).toHaveBeenCalledWith(
+      { stage: 'pre-flight', request: 'ship the parser' },
+      expect.anything(),
+      { sessionKey: cachedSessionKey },
+    );
+    expect(reply).toEqual({
+      isError: false,
+      text: JSON.stringify(cachedResult),
+    });
+    expect(reply.text).not.toContain(cachedSessionKey);
+  });
+
+  it('forwards a different session key and returns the fresh pre-flight result', async () => {
+    const { namespace, decide } = routeWithSessionAwareService();
+    const sessionKey = 'other-private-session-key';
+    const reply = await handleRouteToolCall(
+      { stage: 'pre-flight', request: 'ship the parser' },
+      namespace,
+      logger(),
+      { sessionKey },
+    );
+
+    expect(decide).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      sessionKey,
+    });
+    expect(reply).toEqual({
+      isError: false,
+      text: JSON.stringify(freshResult),
+    });
+    expect(reply.text).not.toContain(sessionKey);
+  });
+
+  it('keeps the pre-flight path unchanged without a session key', async () => {
+    const { namespace, decide } = routeWithSessionAwareService();
+    const reply = await handleRouteToolCall(
+      { stage: 'pre-flight', request: 'ship the parser' },
+      namespace,
+      logger(),
+    );
+
+    expect(decide).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      undefined,
+    );
+    expect(reply).toEqual({
+      isError: false,
+      text: JSON.stringify(freshResult),
     });
   });
 

@@ -19,7 +19,7 @@ import {
 } from './pipeline.test-support';
 
 describe('OutcomeWritePipeline backlog decisions', () => {
-  it('rejects an unknown lane review while an open store has SQLITE_BUSY writes', async () => {
+  it('holds an unknown lane review while an open store has SQLITE_BUSY writes', async () => {
     const storage = new MemoryState();
     const availability = new Availability();
     availability.open = true;
@@ -42,16 +42,25 @@ describe('OutcomeWritePipeline backlog decisions', () => {
     ).snapshot();
     const writes = storage.writes.length;
     expect(await pipeline.submit(reportOp('L9', 101, 'review'))).toEqual({
-      ok: false,
-      error: 'run L9 not found',
+      ok: true,
+      state: 'held',
+      runId: 'L9',
     });
     expect(
       new KeyValueOutcomeJournal<OutcomeWriteOp>(storage).snapshot(),
-    ).toEqual(before);
-    expect(storage.writes).toHaveLength(writes);
+    ).toEqual({
+      ...before,
+      nextSeq: before.nextSeq + 1,
+      heldRuns: [
+        { runId: 'L9', expiresAt: 0, holdExpiries: [expect.any(Number)] },
+      ],
+    });
+    expect(storage.writes.length).toBeGreaterThan(writes);
     expect(await store.get('L9')).toBeNull();
     expect(await store.hasReceipt('report-101')).toBe(false);
-    expect(await store.listHeldReports(Date.now())).toHaveLength(0);
+    expect(await store.listHeldReports(Date.now())).toEqual([
+      expect.objectContaining({ reportId: 'report-101', kind: 'review' }),
+    ]);
     await pipeline.dispose();
   });
 
@@ -140,11 +149,21 @@ describe('OutcomeWritePipeline backlog decisions', () => {
     );
     expect(
       await pipeline.submit(reportOp('subagent:v', 105, 'review')),
-    ).toEqual({ ok: false, error: 'run subagent:v not found' });
+    ).toEqual({ ok: true, state: 'held', runId: 'subagent:v' });
     await pipeline.flush();
     expect(
       new KeyValueOutcomeJournal<OutcomeWriteOp>(storage).snapshot().heldRuns,
-    ).toEqual([]);
+    ).toEqual([
+      {
+        runId: 'subagent:v',
+        expiresAt: 0,
+        holdExpiries: [expect.any(Number)],
+      },
+    ]);
+    expect(
+      new KeyValueOutcomeJournal<OutcomeWriteOp>(storage).snapshot()
+        .heldRuns[0].holdExpiries[0],
+    ).not.toBe(expiresAt);
     await pipeline.dispose();
   });
 
@@ -602,16 +621,35 @@ describe('OutcomeWritePipeline backlog decisions', () => {
   });
 
   it('dead letters a missing report target once', async () => {
-    const storage = new MemoryState();
-    const store = new InMemoryLaneOutcomeStore();
-    const pipeline = new OutcomeWritePipeline(store, testLogger(), storage);
-    pipeline.enqueue(reportOp('lane:missing', 70, 'review'));
-    await pipeline.flush();
-    expect(
-      storage.get<{ entries: readonly { reason: string }[] }>(
-        OUTCOME_REJECTED_KEY,
-      )?.entries,
-    ).toEqual([expect.objectContaining({ reason: 'target-missing' })]);
-    await pipeline.dispose();
+    const wall = Date.now();
+    jest.useFakeTimers();
+    try {
+      const storage = new MemoryState();
+      const store = new InMemoryLaneOutcomeStore();
+      const pipeline = new OutcomeWritePipeline(store, testLogger(), storage);
+      pipeline.enqueue(reportOp('lane:missing', 70, 'review'));
+      await pipeline.flush();
+      expect(storage.get(OUTCOME_REJECTED_KEY)).toBeUndefined();
+      expect(await store.listHeldReports(Date.now())).toEqual([
+        expect.objectContaining({ reportId: 'report-70' }),
+      ]);
+      jest.setSystemTime(wall + 86_500_000);
+      await pipeline.flush();
+      await pipeline.flush();
+      expect(
+        storage.get<{ entries: readonly { reason: string }[] }>(
+          OUTCOME_REJECTED_KEY,
+        )?.entries,
+      ).toEqual([
+        expect.objectContaining({
+          reason: 'held-report-expired',
+          reportId: 'report-70',
+        }),
+      ]);
+      expect(await store.listHeldReports(Date.now())).toHaveLength(0);
+      await pipeline.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

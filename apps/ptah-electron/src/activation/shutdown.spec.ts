@@ -8,6 +8,14 @@
  * finished or its budget has run out.
  */
 
+import 'reflect-metadata';
+import { container } from 'tsyringe';
+import type { CodexThreadIdentity } from '@ptah-extension/codex-runtime';
+import {
+  createElectronCodexBindingHandle,
+  createElectronCodexSessionState,
+  createElectronCodexShutdownStore,
+} from '../di/codex-session-binding';
 import {
   killRunningChecks,
   runningCheckPids,
@@ -17,9 +25,26 @@ import type { BootRefs } from './boot-coordinator';
 import {
   CHAT_SESSION_DISPOSE_BUDGET_MS,
   RUN_CHECK_KILL_BUDGET_MS,
+  CODEX_DISPOSE_BUDGET_MS,
   handleWillQuit,
   requiresDeferredDisposal,
 } from './shutdown';
+
+import { disposeElectronCodexBindings, hasElectronCodexBindings } from '../di/codex-binding-registry';
+
+// Keep the real binding shutdown helpers without loading unrelated RPC handlers.
+// These control factories are not used by the shutdown scenarios below.
+jest.mock('@ptah-extension/rpc-handlers', () => ({
+  createNativeSessionControls: jest.fn(),
+  createLegacySessionControlPorts: jest.fn(),
+  createLegacyCodexSessionSettings: jest.fn(),
+}));
+
+jest.mock('../di/codex-binding-registry', () => ({
+  ...jest.requireActual<typeof import('../di/codex-binding-registry')>('../di/codex-binding-registry'),
+  disposeElectronCodexBindings: jest.fn(async () => undefined),
+  hasElectronCodexBindings: jest.fn(() => false),
+}));
 
 jest.mock('@ptah-extension/vscode-lm-tools', () => ({
   killRunningChecks: jest.fn(async () => undefined),
@@ -171,6 +196,140 @@ describe('will-quit — the run-check kill', () => {
   });
 });
 
+
+describe('will-quit ? Codex bindings', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    pids.mockReturnValue([]);
+    jest.mocked(hasElectronCodexBindings).mockReturnValue(true);
+    jest.mocked(disposeElectronCodexBindings).mockReset();
+  });
+
+  afterEach(() => {
+    jest.mocked(hasElectronCodexBindings).mockReturnValue(false);
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('continues teardown and the final flush after a rejected Codex close', async () => {
+    const failure = new Error('scope close failed');
+    jest.mocked(disposeElectronCodexBindings).mockRejectedValue(failure);
+    const order: string[] = [];
+    const deps = quitDeps(minimalRefs(order));
+    deps.disposeVoiceWorker.mockImplementation(() => { order.push('voice'); });
+    deps.flushSessionMetadataStores.mockImplementation(async () => { order.push('flush'); });
+    expect(handleWillQuit(deps)).toBe(false);
+    await flushMicrotasks();
+    expect(order).toEqual(['flush', 'sqliteConnection', 'voice', 'diagnostics', 'flush']);
+    expect(deps.quit).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Codex bindings dispose failed'), failure,
+    );
+  });
+
+  it('stages inactive metadata before SQLite closes when the scope close exceeds its budget', async () => {
+    const order: string[] = [];
+    const identity: CodexThreadIdentity = {
+      threadId: 'thread-1', contextId: 'context-1', processGeneration: 1,
+      normalizedHome: '/home', workspaceId: '/work', providerId: 'codex',
+      profileFingerprint: 'fingerprint',
+    };
+    let metadataState = 'active';
+    const markInactive = jest.fn(async () => {
+      metadataState = 'inactive';
+      order.push('markInactive');
+    });
+    const store = createElectronCodexShutdownStore({
+      persist: async () => undefined, read: async () => identity, markInactive,
+    });
+    await store.persist(identity);
+    const otherIdentity = { ...identity, threadId: 'thread-2', contextId: 'context-2' };
+    await store.persist(otherIdentity);
+    const parent = container.createChildContainer();
+    let releaseClose: () => void = () => undefined;
+    const pendingClose = new Promise<void>((resolve) => { releaseClose = resolve; });
+    const binding = createElectronCodexBindingHandle({
+      routing: { devRoute: undefined, capabilities: { nativeCodex: true, nativeCodexGateway: false } },
+      scopes: new Set([{
+        container: parent,
+        dispose: async () => {
+          await pendingClose;
+          await store.markInactive(identity);
+        },
+      }]),
+      record: { dispose: jest.fn() }, lookup: { dispose: jest.fn() },
+      store, state: createElectronCodexSessionState(parent), disposed: false,
+    });
+    jest.mocked(disposeElectronCodexBindings).mockImplementation(
+      jest.requireActual<typeof import('../di/codex-binding-registry')>(
+        '../di/codex-binding-registry',
+      ).disposeElectronCodexBindings,
+    );
+    const deps = quitDeps(minimalRefs(order));
+    deps.flushSessionMetadataStores.mockImplementation(async () => { order.push('flush'); });
+    try {
+      handleWillQuit(deps);
+      await flushMicrotasks();
+      expect(metadataState).toBe('inactive');
+      expect(order).toEqual(['flush', 'markInactive', 'markInactive']);
+      expect(deps.quit).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(CODEX_DISPOSE_BUDGET_MS);
+      await flushMicrotasks();
+      expect(order).toEqual(['flush', 'markInactive', 'markInactive', 'sqliteConnection', 'diagnostics', 'flush']);
+      expect(deps.quit).toHaveBeenCalledTimes(1);
+      releaseClose();
+      await binding.dispose();
+      expect(markInactive).toHaveBeenCalledTimes(2);
+      expect(markInactive).toHaveBeenCalledWith(identity);
+      expect(markInactive).toHaveBeenCalledWith(otherIdentity);
+    } finally {
+      releaseClose();
+      await binding.dispose();
+      await parent.dispose();
+    }
+  });
+
+  it('drains Codex writes before closing storage and performing the final flush', async () => {
+    const order: string[] = [];
+    jest.mocked(disposeElectronCodexBindings).mockImplementation(async () => { order.push('markInactive'); });
+    const deps = quitDeps(minimalRefs(order));
+    deps.flushSessionMetadataStores.mockImplementation(async () => { order.push('flush'); });
+    handleWillQuit(deps);
+    await flushMicrotasks();
+    expect(order).toEqual(['flush', 'markInactive', 'sqliteConnection', 'diagnostics', 'flush']);
+  });
+});
+
+describe('Electron Codex shutdown metadata staging', () => {
+  it('includes a pending persist and refuses new persistence during shutdown', async () => {
+    const identity: CodexThreadIdentity = {
+      threadId: 'thread-1', contextId: 'context-1', processGeneration: 1,
+      normalizedHome: '/home', workspaceId: '/work', providerId: 'codex',
+      profileFingerprint: 'fingerprint',
+    };
+    let finishPersist: () => void = () => undefined;
+    const pending = new Promise<void>((resolve) => { finishPersist = resolve; });
+    const persist = jest.fn(() => pending);
+    const markInactive = jest.fn(async () => undefined);
+    const store = createElectronCodexShutdownStore({
+      persist, markInactive, read: async () => identity,
+    });
+    const writing = store.persist(identity);
+    const rejected = expect(writing).rejects.toThrow('shutting down');
+    const staged = store.stageInactive();
+    expect(markInactive).toHaveBeenCalledWith(identity);
+    finishPersist();
+    await rejected;
+    await staged;
+    expect(store.stageInactive()).toBe(staged);
+    await expect(store.persist(identity)).rejects.toThrow('shutting down');
+    await store.markInactive(identity);
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(markInactive).toHaveBeenCalledTimes(1);
+  });
+});
+
 // Named Claude account sessions hold a run lease in SQLite; the release is a
 // write after the session's child exits, so it must settle before the close.
 describe('will-quit — main-chat sessions release leases before SQLite close', () => {
@@ -276,7 +435,7 @@ describe('will-quit — main-chat sessions release leases before SQLite close', 
     expect(deps.quit).toHaveBeenCalledTimes(1);
     expect(console.warn).toHaveBeenCalledWith(
       expect.stringContaining('Chat session disposal failed'),
-      'teardown failed',
+      expect.objectContaining({ message: 'teardown failed' }),
     );
   });
 });

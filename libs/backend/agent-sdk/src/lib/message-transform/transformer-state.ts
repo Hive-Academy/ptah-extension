@@ -2,6 +2,7 @@ import type {
   SessionId,
   HarnessStreamId,
   WizardPhaseId,
+  BackgroundTasksSnapshotEvent,
 } from '@ptah-extension/shared';
 
 export type TransformerSessionId = SessionId | HarnessStreamId | WizardPhaseId;
@@ -20,9 +21,7 @@ export type TransformerSessionId = SessionId | HarnessStreamId | WizardPhaseId;
  *    from `task_started.is_backgrounded`).
  */
 export type BackgroundAnnounceOrigin =
-  | 'task_started'
-  | 'task_updated'
-  | 'task_tool';
+  'task_started' | 'task_updated' | 'task_tool';
 
 /**
  * Correlation record for a single `Workflow` tool run.
@@ -99,6 +98,10 @@ export interface TransformerState {
    * and would otherwise upsert a phantom agent into the monitor store.
    */
   isNonAgentTask(taskId: string): boolean;
+  getBackgroundTaskCommand(
+    sessionId: string,
+    taskId: string,
+  ): string | undefined;
   hasActiveSkillToolUseId(toolUseId: string): boolean;
   activeSkillToolUseIdsCount(): number;
   snapshotActiveSkillToolUseIds(): string[];
@@ -125,7 +128,21 @@ export interface TransformerState {
   setTaskParent(taskId: string, parentToolUseId: string): void;
   /** Clears the task→tool_use link AND any non-agent mark for `taskId`. */
   clearTaskParent(taskId: string): void;
-  markNonAgentTask(taskId: string): void;
+  markNonAgentTask(
+    taskId: string,
+    toolUseId?: string,
+    sessionId?: string,
+  ): void;
+  recordBackgroundBashCommand(
+    sessionId: string,
+    toolUseId: string,
+    command: string,
+  ): void;
+  retainBackgroundTaskCommands(
+    sessionId: string,
+    taskIds: readonly string[],
+  ): void;
+  cacheBackgroundTasksSnapshot(event: BackgroundTasksSnapshotEvent): void;
   markTaskStartedEmitted(toolUseId: string): void;
   /**
    * Records that `background_agent_started` was emitted for `toolUseId`,

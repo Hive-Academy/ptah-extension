@@ -1,0 +1,7 @@
+{ "batch": 39, "status": "COMPLETE",
+  "files": ["libs/frontend/marketplace/src/lib/external-consent-dialog.component.ts","libs/frontend/marketplace/src/lib/external-consent-dialog.component.spec.ts","libs/frontend/marketplace/src/lib/external-marketplaces.component.ts","libs/frontend/marketplace/src/lib/external-marketplaces.component.spec.ts"],
+  "copy": "Ptah adds these servers to the scope you choose below. Review each command before you continue.",
+  "mcpScope": "sent only on the consented plugins:install-external call next to consentToken, only when the plan has servers and a scope is effective; never on the plan call",
+  "verification": { "scoped": "/tmp/tpd-b39-scoped.log: 3 suites 81/81", "cohort": "/tmp/tpd-b37-39-verify.log: 5 projects; chat-ui 101 suites/1799, chat 311/5490 (2 skipped), marketplace 70/1581, webview 25/675, electron 79/1413 (8 skipped); all typechecks ok; only known ptah-extension-webview:lint failed. Audit /tmp/tpd-b37-39-audit.log exit 0" },
+  "decisions": [76],
+  "deferred": ["F-D4 AFTER dark/light Electron screenshots", "Electron keyboard check of radios inside the focus trap"] }

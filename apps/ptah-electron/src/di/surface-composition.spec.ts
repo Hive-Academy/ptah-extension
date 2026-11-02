@@ -1,3 +1,7 @@
+import 'reflect-metadata';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { ELECTRON_CODEX_BOUND_TOKENS } from './expected-resolvable';
 /**
  * Electron surface composition — lazy push host across a real registration
  * order, through the real production window getter (TASK_2026_538 Batch 14,
@@ -21,8 +25,6 @@
  * send } }` stub — that was the shape that hid the destroyed-window race
  * before the fix.
  */
-
-import 'reflect-metadata';
 
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
@@ -68,10 +70,12 @@ describe('Electron artifact notification composition', () => {
   it('resolves the renderer lazily and sends metadata through the surface transport', async () => {
     const c = rootContainer.createChildContainer();
     registerArtifactNotification(c);
-    const notify = c.resolve<(
-      type: 'artifact:published',
-      payload: ArtifactPublishedNotification,
-    ) => Promise<void>>(ARTIFACT_NOTIFICATION_TOKEN);
+    const notify = c.resolve<
+      (
+        type: 'artifact:published',
+        payload: ArtifactPublishedNotification,
+      ) => Promise<void>
+    >(ARTIFACT_NOTIFICATION_TOKEN);
     await notify('artifact:published', notification);
 
     const win = makeWindow();
@@ -100,7 +104,10 @@ describe('Electron artifact notification composition', () => {
  * follow-up"), not through a name import (`SurfaceRpcHandlers` is not
  * exported from `@ptah-extension/rpc-handlers`'s public barrel).
  */
-function registerSurfaceRpc(container: DependencyContainer, logger: Logger): void {
+function registerSurfaceRpc(
+  container: DependencyContainer,
+  logger: Logger,
+): void {
   const profile = createElectronRpcHostProfile(container, logger);
   const step = resolveRpcHandlerPlan(profile).find((s) => s.key === 'surface');
   if (!step) {
@@ -160,7 +167,9 @@ function formSurface(id: string): SurfaceEnvelope {
     catalogVersion: SURFACE_CATALOG_VERSION,
     surfaceId: id,
     title: { text: id },
-    components: [{ kind: 'text', id: 'name', label: 'Name', path: 'form.name' }],
+    components: [
+      { kind: 'text', id: 'name', label: 'Name', path: 'form.name' },
+    ],
     dataModel: { form: { name: 'Ada' } },
   };
 }
@@ -384,5 +393,43 @@ describe('Electron surface composition — real two-consumer round trip (Req 7.4
     expect(reply.isError).toBe(false);
     expect(reply.text).toContain('"revision":2');
     expect(reply.text).toContain('"name":"Grace"');
+  });
+});
+
+describe('Electron Codex bootstrap composition', () => {
+  it('binds each guarded port literally before adapter initialization', () => {
+    const composition = readFileSync(
+      join(__dirname, 'codex-runtime-composition.ts'),
+      'utf8',
+    );
+    for (const name of [
+      'SESSION_RUNTIME_IDENTITY_LOOKUP',
+      'CODEX_CHAT_ADAPTER_PORTS',
+      'RUNTIME_ADMISSION_PORT',
+      'RUNTIME_HOST_CAPABILITIES',
+      'NATIVE_SESSION_CONTROLS',
+      'LEGACY_SESSION_CONTROL_PORTS',
+    ])
+      expect(composition).toMatch(
+        new RegExp(
+          String.raw`container\.register(?:<[\w.]+>)?\(\s*SDK_TOKENS\.${name},\s*\{\s*useValue:`,
+        ),
+      );
+    expect(ELECTRON_CODEX_BOUND_TOKENS).toHaveLength(6);
+    const bootstrap = readFileSync(
+      join(__dirname, '../activation/bootstrap.ts'),
+      'utf8',
+    );
+    const bound = bootstrap.indexOf('await bindElectronCodexChat(container,');
+    expect(bound).toBeGreaterThan(
+      bootstrap.indexOf('await workspaceStateStorage.whenReady()'),
+    );
+    expect(bound).toBeGreaterThan(
+      bootstrap.indexOf('container.register(TOKENS.WEBVIEW_MANAGER,'),
+    );
+    expect(bound).toBeLessThan(
+      bootstrap.indexOf('void startAgentAdapterInitialization(container)'),
+    );
+    expect(bootstrap).toContain('isPackaged: app.isPackaged');
   });
 });

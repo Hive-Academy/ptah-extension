@@ -41,6 +41,7 @@ import { MemoryCuratorTabComponent } from '@ptah-extension/memory-curator-ui';
 import { SkillSynthesisTabComponent } from '@ptah-extension/skill-synthesis-ui';
 import { CronSchedulerTabComponent } from '@ptah-extension/cron-scheduler-ui';
 import { MessagingGatewayTabComponent } from '@ptah-extension/messaging-gateway-ui';
+import { MotionStageDirective } from '@ptah-extension/ui';
 
 /** Tab identifiers for the Thoth hub, in rail order. */
 export const THOTH_TAB_IDS = ['memory', 'skills', 'cron', 'gateway'] as const;
@@ -91,6 +92,7 @@ interface ThothTabSpec {
     SkillSynthesisTabComponent,
     CronSchedulerTabComponent,
     MessagingGatewayTabComponent,
+    MotionStageDirective,
   ],
   template: `
     <div class="flex h-full w-full flex-col bg-surface-0 lg:flex-row">
@@ -219,19 +221,31 @@ interface ThothTabSpec {
         [id]="'thoth-panel-' + activeTab()"
         [attr.aria-labelledby]="'thoth-tab-' + activeTab()"
       >
-        <div class="w-full px-3 py-6 sm:px-4 lg:py-8">
+        <div
+          class="w-full"
+          ptahMotionStage
+          [motionIndex]="activeTabIndex()"
+        >
           @switch (activeTab()) {
             @case ('memory') {
-              <ptah-memory-curator-tab (pausedChange)="onPausedChange()" />
+              <div class="ptah-motion-panel px-3 py-6 sm:px-4 lg:py-8" [animate.enter]="hasSwitchedTabs() ? 'ptah-motion-enter' : ''" animate.leave="ptah-motion-leave">
+                <ptah-memory-curator-tab (pausedChange)="onPausedChange()" />
+              </div>
             }
             @case ('skills') {
-              <ptah-skill-synthesis-tab (pausedChange)="onPausedChange()" />
+              <div class="ptah-motion-panel px-3 py-6 sm:px-4 lg:py-8" [animate.enter]="hasSwitchedTabs() ? 'ptah-motion-enter' : ''" animate.leave="ptah-motion-leave">
+                <ptah-skill-synthesis-tab (pausedChange)="onPausedChange()" />
+              </div>
             }
             @case ('cron') {
-              <ptah-cron-scheduler-tab />
+              <div class="ptah-motion-panel px-3 py-6 sm:px-4 lg:py-8" [animate.enter]="hasSwitchedTabs() ? 'ptah-motion-enter' : ''" animate.leave="ptah-motion-leave">
+                <ptah-cron-scheduler-tab />
+              </div>
             }
             @case ('gateway') {
-              <ptah-messaging-gateway-tab />
+              <div class="ptah-motion-panel px-3 py-6 sm:px-4 lg:py-8" [animate.enter]="hasSwitchedTabs() ? 'ptah-motion-enter' : ''" animate.leave="ptah-motion-leave">
+                <ptah-messaging-gateway-tab />
+              </div>
             }
           }
         </div>
@@ -259,6 +273,7 @@ export class ThothShellComponent implements OnInit {
   private readonly routeTab = signal<ThothActiveTabId | null>(
     this.tabOfRoute(),
   );
+  public readonly hasSwitchedTabs = signal(false);
 
   protected readonly RadioTowerIcon = RadioTower;
   protected readonly ArrowLeftIcon = ArrowLeft;
@@ -321,6 +336,7 @@ export class ThothShellComponent implements OnInit {
         if (!this.isThothUrl(event.urlAfterRedirects)) return;
         const tab = this.tabOfRoute();
         if (tab === null) return;
+        if (tab !== this.activeTab()) this.hasSwitchedTabs.set(true);
         this.routeTab.set(tab);
         this.appState.setThothActiveTab(tab);
       });
@@ -388,6 +404,11 @@ export class ThothShellComponent implements OnInit {
    */
   public readonly activeTab = computed<ThothActiveTabId>(
     () => this.routeTab() ?? this.appState.thothActiveTab(),
+  );
+
+  /** Rail order supplies forward/back motion for the active child route. */
+  protected readonly activeTabIndex = computed(() =>
+    THOTH_TAB_IDS.indexOf(this.activeTab()),
   );
 
   /**

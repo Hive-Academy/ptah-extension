@@ -210,14 +210,14 @@ describe('HarnessReconcilerService — the skills selection gate', () => {
   // ----------------------------------------------------------- the migration
 
   describe('the migration', () => {
-    it('THE MIGRATION: an absent mode over a manifest that already owns a skill resolves to `all`, and a full reconcile propagates every skill — assert on files, not the decision object', async () => {
+    it('THE MIGRATION: an absent mode over a manifest that already owns a skill resolves to `selected` with exactly the owned slugs; the owned skill keeps propagating and nothing new does — assert on files, not the decision object', async () => {
       const store = new ManagedManifestStore();
       // Stands in for a previous, ungated version of Ptah that had already
-      // propagated a skill into this workspace, recorded against a REGISTERED
-      // target (cursor). No `skillSyncMode` is recorded — this is exactly what
-      // a user upgrading into the gate looks like.
+      // propagated `skill-one` into this workspace, recorded against a
+      // REGISTERED target (cursor). No `skillSyncMode` is recorded — this is
+      // exactly what a user upgrading into the gate looks like.
       store.save(ws, 'cursor', {
-        '.cursor/skills/legacy-skill': managedEntry(
+        '.cursor/skills/skill-one': managedEntry(
           'seed-hash',
           '/legacy/path',
           'skill',
@@ -229,9 +229,12 @@ describe('HarnessReconcilerService — the skills selection gate', () => {
         reason: 'first pass after the upgrade',
       });
 
+      // Never a derived `all` (TASK_2026_853 #17): the owned skill survives,
+      // the one this workspace never had does not arrive.
+      expect(readState()?.skillSyncMode).toBe('selected');
+      expect(readState()?.enabledSkillSlugs).toEqual(['skill-one']);
       expectPropagatedEverywhere('skill-one');
-      expectPropagatedEverywhere('skill-two');
-      expect(readState()?.skillSyncMode).toBe('all');
+      expectAbsentEverywhere('skill-two');
     });
 
     it('an absent mode over manifests owning only command/agent/mcp entries is NOT skill evidence and resolves `selected` with `[]`', async () => {
@@ -295,9 +298,11 @@ describe('HarnessReconcilerService — the skills selection gate', () => {
         reason: 'evidence lives on an unregistered target',
       });
 
-      expect(readState()?.skillSyncMode).toBe('all');
-      expectPropagatedEverywhere('skill-one');
-      expectPropagatedEverywhere('skill-two');
+      // The unregistered target's entry still counts as owned.
+      expect(readState()?.skillSyncMode).toBe('selected');
+      expect(readState()?.enabledSkillSlugs).toEqual(['legacy-skill']);
+      expectAbsentEverywhere('skill-one');
+      expectAbsentEverywhere('skill-two');
     });
 
     it('the derived decision is persisted, so a second pass does not re-walk and cannot flip after a reap empties the manifests', async () => {
@@ -312,9 +317,10 @@ describe('HarnessReconcilerService — the skills selection gate', () => {
 
       await newReconciler().reconcile(ws, {
         mode: 'full',
-        reason: 'pass one — derives `all`',
+        reason: 'pass one — derives `selected` + the owned slug',
       });
-      expect(readState()?.skillSyncMode).toBe('all');
+      expect(readState()?.skillSyncMode).toBe('selected');
+      expect(readState()?.enabledSkillSlugs).toEqual(['legacy-skill']);
 
       // Simulate a reap: every manifest this pass could read now owns nothing.
       for (const target of [
@@ -330,20 +336,21 @@ describe('HarnessReconcilerService — the skills selection gate', () => {
       // The evidence walk must not run again: the recorded decision short-
       // circuits it entirely.
       expect(new SkillSyncGate(store).resolve(ws)).toEqual({
-        mode: 'all',
-        slugs: [],
+        mode: 'selected',
+        slugs: ['legacy-skill'],
         derived: false,
       });
 
       await newReconciler().reconcile(ws, {
         mode: 'full',
         reason:
-          'pass two — must not reap on the strength of an emptied manifest',
+          'pass two — must not re-derive from an emptied manifest',
       });
 
-      expect(readState()?.skillSyncMode).toBe('all');
-      expectPropagatedEverywhere('skill-one');
-      expectPropagatedEverywhere('skill-two');
+      expect(readState()?.skillSyncMode).toBe('selected');
+      expect(readState()?.enabledSkillSlugs).toEqual(['legacy-skill']);
+      expectAbsentEverywhere('skill-one');
+      expectAbsentEverywhere('skill-two');
     });
   });
 

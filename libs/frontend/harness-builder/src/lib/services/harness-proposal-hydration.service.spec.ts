@@ -269,3 +269,28 @@ describe('HarnessProposalHydrationService', () => {
     ]);
   });
 });
+
+describe('HarnessProposalHydrationService folded revisions', () => {
+  it('exposes ordered cumulative snapshots without user overrides', async () => {
+    const getProposal = jest.fn().mockResolvedValue(proposal('session-1', [
+      { id: 'later', configUpdates: { name: 'Later name' }, isConfigComplete: true, updatedAt: t2, turnStartedAt: t2 },
+      { id: 'earlier', configUpdates: { persona: persona('Agent') }, isConfigComplete: false, updatedAt: t1, turnStartedAt: t1 },
+    ]));
+    TestBed.configureTestingModule({ providers: [
+      HarnessProposalHydrationService,
+      { provide: HarnessRpcService, useValue: { getProposal } },
+      { provide: LoggingService, useValue: { warn: jest.fn(), error: jest.fn() } },
+    ] });
+    const hydration = TestBed.inject(HarnessProposalHydrationService);
+    const snapshot: HarnessUserSnapshot = {
+      version: 1, workspaceRoot: root, tabId: 'tab-1',
+      configUpdates: { persona: persona('User') },
+      fields: { persona: { source: 'user', chosenAt: t3, updatedAt: t3 } },
+    };
+    await hydration.bind(root, 'tab-1', ['session-1'], snapshot);
+    expect(hydration.revisions().map((entry) => [entry.id, entry.ordinal])).toEqual([['earlier', 1], ['later', 2]]);
+    expect(hydration.revisions()[0].config.persona?.label).toBe('Agent');
+    expect(hydration.revisions()[1].config.persona?.label).toBe('Agent');
+    expect(hydration.config().persona?.label).toBe('User');
+  });
+});

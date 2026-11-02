@@ -76,6 +76,7 @@ export type {
   SDKAssistantMessage,
   SDKAssistantMessageError,
   SDKAuthStatusMessage,
+  SDKBackgroundTasksChangedMessage,
   SDKCompactBoundaryMessage,
   SDKElicitationCompleteMessage,
   SDKFilesPersistedEvent,
@@ -160,6 +161,7 @@ import type {
   SDKRateLimitEvent,
   SDKPromptSuggestionMessage,
   SDKAPIRetryMessage,
+  SDKBackgroundTasksChangedMessage,
   SDKTaskStartedMessage,
   SDKTaskProgressMessage,
   SDKTaskUpdatedMessage,
@@ -417,6 +419,12 @@ export function isTaskStarted(msg: SDKMessage): msg is SDKTaskStartedMessage {
   return (
     msg.type === 'system' && 'subtype' in msg && msg.subtype === 'task_started'
   );
+}
+
+export function isBackgroundTasksChanged(
+  msg: SDKMessage,
+): msg is SDKBackgroundTasksChangedMessage {
+  return msg.type === 'system' && 'subtype' in msg && msg.subtype === 'background_tasks_changed';
 }
 
 export function isTaskProgress(msg: SDKMessage): msg is SDKTaskProgressMessage {

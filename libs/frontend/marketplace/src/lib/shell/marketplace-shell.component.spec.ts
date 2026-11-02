@@ -12,10 +12,11 @@
  * no `NgZone.run` (Batch 3 decision, Batch 12 acceptance).
  */
 
-import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { TestBed } from '@angular/core/testing';
 import { provideLocationMocks } from '@angular/common/testing';
-import { provideRouter, type Routes } from '@angular/router';
+import { ActivatedRoute, ActivationEnd, Router, RouterOutlet, provideRouter, type Routes } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import {
   AppStateManager,
@@ -25,7 +26,9 @@ import {
   VSCodeService,
 } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { detailParamKey, MotionRouteStageDirective, MotionStageDirective } from '@ptah-extension/ui';
 import { MarketplaceShellComponent } from './marketplace-shell.component';
+import { MARKETPLACE_LEAVE_CLONE } from './marketplace-motion-key';
 
 // ---------------------------------------------------------------------------
 // Stub pages
@@ -35,6 +38,11 @@ import { MarketplaceShellComponent } from './marketplace-shell.component';
   selector: 'ptah-stub-overview-page',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    class: 'ptah-motion-panel p-6',
+    'animate.enter': 'ptah-motion-enter',
+    'animate.leave': 'ptah-motion-leave',
+  },
   template: `
     <h1>Overview</h1>
     <input
@@ -57,16 +65,42 @@ class StubOverviewPageComponent {}
 @Component({
   selector: 'ptah-stub-servers-page',
   standalone: true,
+  imports: [RouterOutlet, MotionRouteStageDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    class: 'ptah-motion-panel p-6',
+    'animate.enter': 'ptah-motion-enter',
+    'animate.leave': 'ptah-motion-leave',
+  },
   template: `<h1>MCP Servers</h1>
-    <button type="button" data-testid="page-button">Add</button>`,
+    <button type="button" data-testid="page-button">Add</button>
+    <div ptahMotionRouteStage [motionRouteKey]="detailMotionKey">
+      <router-outlet />
+    </div>`,
 })
-class StubServersPageComponent {}
+class StubServersPageComponent {
+  protected readonly detailMotionKey = detailParamKey(inject(ActivatedRoute), 'serverRef');
+}
+
+@Component({
+  selector: 'ptah-stub-server-detail',
+  standalone: true,
+  template: `<p data-testid="server-ref">{{ ref().get('serverRef') }}</p>`,
+})
+class StubServerDetailComponent {
+  protected readonly route = inject(ActivatedRoute);
+  protected readonly ref = toSignal(this.route.paramMap, { initialValue: this.route.snapshot.paramMap });
+}
 
 @Component({
   selector: 'ptah-stub-source-page',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    class: 'ptah-motion-panel p-6',
+    'animate.enter': 'ptah-motion-enter',
+    'animate.leave': 'ptah-motion-leave',
+  },
   template: `<h1>Smithery</h1>`,
 })
 class StubSourcePageComponent {}
@@ -84,7 +118,7 @@ const routes: Routes = [
           {
             path: '',
             component: StubServersPageComponent,
-            children: [{ path: ':serverRef', children: [] }],
+            children: [{ path: ':serverRef', component: StubServerDetailComponent }],
           },
         ],
       },
@@ -218,6 +252,109 @@ describe('MarketplaceShellComponent', () => {
     await harness.navigateByUrl(url);
     await harness.fixture.whenStable();
   };
+
+  it('starts a new page at scroll top while anchoring its leaving panel', async () => {
+    configure(false);
+    await mount('/marketplace/overview');
+    const main = query<HTMLElement>('main[data-testid="marketplace-content"]');
+    const stage = query<HTMLElement>('main > .ptah-motion-stage');
+    if (!main || !stage) throw new Error('Marketplace scroll stage missing');
+    const leaving = document.createElement('div');
+    leaving.className = 'ptah-motion-leave';
+    stage.appendChild(leaving);
+    main.scrollTop = 355;
+
+    await navigate('/marketplace/servers');
+
+    expect(main.scrollTop).toBe(0);
+    expect(leaving.style.top).toBe('-355px');
+
+    main.scrollTop = 180;
+    await navigate('/marketplace/servers/claude-user:first');
+    expect(main.scrollTop).toBe(180);
+  });
+
+  it('keeps one panel and sets direction for real page switches', async () => {
+    configure(false);
+    await mount('/marketplace/servers/smithery');
+    const stage = query<HTMLElement>('main > .ptah-motion-stage');
+    expect(stage?.querySelector(':scope > router-outlet')).not.toBeNull();
+    expect(stage?.classList.contains('p-6')).toBe(false);
+    expect(stage?.classList.contains('h-full')).toBe(true);
+    expect(stage?.classList.contains('min-h-0')).toBe(true);
+    expect(stage?.querySelectorAll('.ptah-motion-panel')).toHaveLength(1);
+    const directions: string[] = [];
+    const subscription = TestBed.inject(Router).events.subscribe((event) => {
+      if (event instanceof ActivationEnd) directions.push(stage?.dataset['motionDir'] ?? '');
+    });
+    await navigate('/marketplace/overview');
+    expect(stage?.querySelectorAll('.ptah-motion-panel')).toHaveLength(1);
+    expect(stage?.querySelector('.ptah-motion-panel')?.classList.contains('p-6')).toBe(true);
+    expect(directions.length).toBeGreaterThan(0);
+    expect(directions).toEqual(Array(directions.length).fill('back'));
+    expect(stage?.dataset['motionDir']).toBe('back');
+
+    directions.length = 0;
+    await navigate('/marketplace/servers/smithery');
+    subscription.unsubscribe();
+    expect(stage?.querySelectorAll('.ptah-motion-panel')).toHaveLength(1);
+    expect(directions.length).toBeGreaterThan(0);
+    expect(directions).toEqual(Array(directions.length).fill('forward'));
+    expect(stage?.dataset['motionDir']).toBe('forward');
+  });
+
+  it('replays exactly once for a detail parameter switch and clears it on return to the list', async () => {
+    configure(false);
+    await mount('/marketplace/servers');
+    const stage = query<HTMLElement>('ptah-stub-servers-page > .ptah-motion-stage');
+    const replay = jest.spyOn(MotionStageDirective.prototype, 'replay');
+    await navigate('/marketplace/servers/claude-user:first');
+    expect(replay).toHaveBeenCalledTimes(0);
+    await navigate('/marketplace/servers/claude-user:second');
+    expect(replay).toHaveBeenCalledTimes(1);
+    expect(stage?.querySelector('[data-testid="server-ref"]')?.textContent).toContain('second');
+    await navigate('/marketplace/servers');
+    expect(stage?.querySelector('.ptah-motion-enter')).toBeNull();
+    expect(stage?.querySelector('[data-motion-clone]')).toBeNull();
+    replay.mockRestore();
+  });
+
+  it('clears pending route motion when navigation is superseded', async () => {
+    configure(false);
+    await mount('/marketplace/servers/smithery');
+    const router = TestBed.inject(Router);
+    await Promise.allSettled([
+      router.navigateByUrl('/marketplace/overview'),
+      router.navigateByUrl('/marketplace/servers/smithery'),
+    ]);
+    harness.fixture.detectChanges();
+    await harness.fixture.whenStable();
+    const stage = query<HTMLElement>('main > .ptah-motion-stage');
+    expect(router.url).toBe('/marketplace/servers/smithery');
+    expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+    expect(stage?.querySelector('[data-motion-clone]')).toBeNull();
+  });
+
+  it('uses the clone fallback when its shell provider is true', async () => {
+    configure(false);
+    TestBed.overrideComponent(MarketplaceShellComponent, {
+      add: { providers: [{ provide: MARKETPLACE_LEAVE_CLONE, useValue: true }] },
+    });
+    await mount('/marketplace/servers/smithery');
+    const stage = query<HTMLElement>('main > .ptah-motion-stage');
+    const panel = stage?.querySelector<HTMLElement>(':scope > .ptah-motion-panel');
+    if (!panel) throw new Error('route panel missing');
+    const clone = jest.spyOn(panel, 'cloneNode');
+    await navigate('/marketplace/overview');
+    expect(clone).toHaveBeenCalledWith(true);
+    const leavingClone = stage?.querySelector<HTMLElement>('[data-motion-clone]');
+    expect(leavingClone?.dataset['motionClone']).toBe('running');
+    const animationEnd = new Event('animationend');
+    Object.defineProperty(animationEnd, 'animationName', { value: 'ptahMotionLeave' });
+    leavingClone?.dispatchEvent(animationEnd);
+    expect(stage?.querySelector('[data-motion-clone]')).toBeNull();
+    clone.mockRestore();
+  });
 
   beforeEach(() => {
     StubResizeObserver.instances = [];

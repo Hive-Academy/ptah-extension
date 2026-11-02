@@ -40,6 +40,8 @@ export interface TrackedAgent {
   subprocessReleased: boolean;
   /** Accumulated structured segments for persistence (capped at MAX_ACCUMULATED_SEGMENTS) */
   accumulatedSegments: CliOutputSegment[];
+  /** Usage reported for the current turn, retained even if output is capped. */
+  outcomeUsage?: CliOutputSegment['usage'];
   /** Accumulated rich stream events for persistence (Ptah CLI only, capped at MAX_ACCUMULATED_STREAM_EVENTS) */
   accumulatedStreamEvents: FlatStreamEventUnion[];
   /** True once the stream-events cap has been logged — suppresses per-event log spam for long-running agents. */
@@ -67,6 +69,18 @@ export interface TrackedAgent {
   reportsDelivered: number;
   /** Authentication wording from the failed turn's bounded output. */
   authMatched?: boolean;
+  /**
+   * API rate-limit (HTTP 429) wording in this turn's bounded output, set in
+   * `handleExit` before the output is discarded. In memory only; it is not
+   * quota and never sets `failureKind`.
+   */
+  rateLimitMatched?: boolean;
+  /**
+   * Index into `accumulatedSegments` where the current turn's segments begin:
+   * 0 at spawn, the segment count when a continuation starts. Keeps an
+   * earlier turn's 429 out of a later turn's rate-limit match.
+   */
+  turnSegmentStart?: number;
   /**
    * Tool calls the lane guard counted, saved when the guard is released so the
    * completion signal can still report them.

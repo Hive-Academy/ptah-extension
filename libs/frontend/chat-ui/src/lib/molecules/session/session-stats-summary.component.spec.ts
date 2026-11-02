@@ -156,6 +156,22 @@ describe('SessionStatsSummaryComponent', () => {
         model: LIVE.model,
       },
     },
+    {
+      contextCapacity: {
+        tokens: 200_000,
+        source: 'provider-catalog' as const,
+        providerId: null,
+        model: LIVE.model,
+      },
+    },
+    {
+      contextCapacity: {
+        tokens: 200_000,
+        source: 'sdk-native' as const,
+        providerId: null,
+        model: 'another-model',
+      },
+    },
   ])(
     'renders unknown main context as an em dash without changing tree totals: %j',
     (unknown) => {
@@ -187,6 +203,13 @@ describe('SessionStatsSummaryComponent', () => {
       expect(fixture.componentInstance.snapshot()).toBe(SNAPSHOT);
     },
   );
+
+  it('renders a trusted 130,000 of 200,000 context as 65% (F2)', () => {
+    const root = render(SNAPSHOT, { ...LIVE, contextUsed: 130_000, contextPercent: 65 });
+    expect(text(root, 'stats-context')).toBe('65%');
+    click(root, '[data-testid="stats-expand"]');
+    expect(text(root, 'stats-context')).toBe('65%');
+  });
 
   it('displays one backend snapshot in both layouts without message-derived totals', () => {
     const root = render(SNAPSHOT, LIVE);

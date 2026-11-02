@@ -12,6 +12,7 @@ import {
   InMemoryLaneOutcomeStore,
   KeyValueOutcomeJournal,
   OutcomeWritePipeline,
+  deterministicReviewReportId,
   type LaneOutcomeLogger,
 } from '@ptah-extension/lane-outcomes';
 import type { LaneOutcomeRecord } from '@ptah-extension/shared';
@@ -21,6 +22,7 @@ import {
   runOutcomeReport,
 } from './outcome-report.tool';
 import { handleOutcomeReportToolCall } from './outcome-report.handler';
+import { runWithMcpRequestContext } from '../mcp-request-context';
 
 const root = resolve('outcome-report-fixture');
 const logger: LaneOutcomeLogger = {
@@ -50,6 +52,7 @@ function row(runId: string, agentId = runId): LaneOutcomeRecord {
     model: 'test',
     role: null,
     taskKind: null,
+    taskKindSource: null,
     taskId: null,
     verdict: 'unverified',
     failureClass: null,
@@ -125,6 +128,13 @@ describe('ptah_outcome_report', () => {
     });
   });
 
+  it('names reviewerRunId and early review support in the tool description', () => {
+    expect(buildOutcomeReportTool().description).toContain('reviewerRunId');
+    expect(buildOutcomeReportTool().description).toContain(
+      'before that run finishes',
+    );
+  });
+
   it('publishes one closed object that names the kind requiring each field', () => {
     const schema = buildOutcomeReportTool().inputSchema;
     const raw = schema as unknown as Record<string, unknown>;
@@ -144,6 +154,7 @@ describe('ptah_outcome_report', () => {
     expect(Object.keys(properties).sort()).toEqual([
       'kind',
       'paths',
+      'reviewerRunId',
       'routingSource',
       'target',
       'taskId',
@@ -156,6 +167,9 @@ describe('ptah_outcome_report', () => {
     );
     expect(properties['verdict']['description']).toBe(
       'Required for kind review; not allowed for any other kind.',
+    );
+    expect(properties['reviewerRunId']['description']).toBe(
+      'Optional for kind review; not allowed for any other kind.',
     );
     for (const key of ['taskKind', 'taskId', 'routingSource'])
       expect(properties[key]['description']).toBe(
@@ -340,7 +354,12 @@ describe('ptah_outcome_report', () => {
         expect(
           (
             await runOutcomeReport(
-              { kind: 'review', target: { runId: `subagent:${id}` }, verdict },
+              {
+                kind: 'review',
+                target: { runId: `subagent:${id}` },
+                verdict,
+                reviewerRunId: `reviewer-${verdict}`,
+              },
               f.deps,
             )
           ).recorded,
@@ -367,12 +386,18 @@ describe('ptah_outcome_report', () => {
       deliverables({ runId: 'subagent:A' }, 'a.txt'),
       f.deps,
     );
-    const b = await runOutcomeReport(
-      deliverables({ agentId: 'B' }, 'missing.txt'),
-      f.deps,
+    const b = await runWithMcpRequestContext(
+      { callerSessionId: 'ptah-session' },
+      () =>
+        runOutcomeReport(deliverables({ agentId: 'B' }, 'missing.txt'), f.deps),
     );
     const review = await runOutcomeReport(
-      { kind: 'review', target: { runId: 'subagent:A' }, verdict: 'revise' },
+      {
+        kind: 'review',
+        target: { runId: 'subagent:A' },
+        verdict: 'revise',
+        reviewerRunId: 'reviewer',
+      },
       f.deps,
     );
     expect([a.recorded, b.recorded, review.recorded]).toEqual([
@@ -398,6 +423,232 @@ describe('ptah_outcome_report', () => {
     await f.pipeline.dispose();
   });
 
+  it('creates one subagent row for external-caller agent deliverables', async () => {
+    const f = fixture();
+    files.set(resolve(root, 'artifact.md'), { size: 4, mtime: 150 });
+    const result = await runOutcomeReport(
+      deliverables({ agentId: 'external-agent' }, 'artifact.md'),
+      f.deps,
+    );
+    expect(result.recorded).toBe('applied');
+    expect(await f.store.get('subagent:external-agent')).toMatchObject({
+      executorKind: 'subagent',
+      agentId: 'external-agent',
+      taskKindSource: 'unclassified',
+      verdict: 'delivered',
+    });
+    expect(await f.store.listHeldReports(Date.now())).toHaveLength(0);
+    await f.pipeline.dispose();
+  });
+
+  it('pairs repeated reviewer reports and refuses an anonymous review', async () => {
+    const f = fixture();
+    f.pipeline.enqueue({
+      kind: 'subagent-stop',
+      row: row('subagent:reviewed'),
+    });
+    await f.pipeline.flush();
+    const paired = {
+      kind: 'review',
+      target: { runId: 'subagent:reviewed' },
+      verdict: 'revise',
+      reviewerRunId: 'subagent:reviewer',
+    };
+    const first = await runOutcomeReport(paired, f.deps);
+    const repeat = await runOutcomeReport(paired, f.deps);
+    expect(first).toMatchObject({ recorded: 'applied' });
+    expect(repeat).toMatchObject({ recorded: 'applied' });
+    expect('reportId' in first && 'reportId' in repeat && first.reportId).toBe(
+      'reportId' in repeat ? repeat.reportId : undefined,
+    );
+    expect(await f.store.get('subagent:reviewed')).toMatchObject({
+      reviseRounds: 1,
+    });
+
+    const submit = jest.spyOn(f.pipeline, 'submit');
+    const anonymous = await runOutcomeReport(
+      {
+        kind: 'review',
+        target: { runId: 'subagent:reviewed' },
+        verdict: 'approved',
+      },
+      f.deps,
+    );
+    expect(anonymous).toEqual({
+      recorded: false,
+      reason: 'reviewer identity required',
+    });
+    expect(submit).not.toHaveBeenCalled();
+    expect(await f.store.get('subagent:reviewed')).toMatchObject({
+      finalReview: null,
+    });
+    await f.pipeline.dispose();
+  });
+
+  it('attributes a review with no agent or reviewer to the caller session', async () => {
+    const f = fixture();
+    f.pipeline.enqueue({
+      kind: 'subagent-stop',
+      row: row('subagent:reviewed'),
+    });
+    await f.pipeline.flush();
+    const review = {
+      kind: 'review',
+      target: { runId: 'subagent:reviewed' },
+      verdict: 'revise',
+    };
+    const inSession = () =>
+      runWithMcpRequestContext({ callerSessionId: 'ptah-session' }, () =>
+        runOutcomeReport(review, f.deps),
+      );
+    const first = await inSession();
+    const repeat = await inSession();
+    const reportId = deterministicReviewReportId(
+      'subagent:reviewed',
+      'session:ptah-session',
+    );
+    expect(first).toMatchObject({ recorded: 'applied', reportId });
+    expect(repeat).toMatchObject({ recorded: 'applied', reportId });
+    expect(await f.store.get('subagent:reviewed')).toMatchObject({
+      reviseRounds: 1,
+    });
+    await f.pipeline.dispose();
+  });
+
+  it('holds an unseen agent review under the bare id until its lane row lands', async () => {
+    const f = fixture();
+    const review = await runOutcomeReport(
+      {
+        kind: 'review',
+        target: { agentId: 'implementer' },
+        verdict: 'approved',
+        reviewerRunId: 'reviewer',
+      },
+      f.deps,
+    );
+    expect(review).toMatchObject({ recorded: 'held', runId: 'implementer' });
+    const laneRunId = 'implementer:2026-10-31T10:00:00.000Z';
+    f.pipeline.enqueue({
+      kind: 'lane-completion',
+      row: row(laneRunId, 'implementer'),
+    });
+    await f.pipeline.flush();
+    expect(await f.store.get(laneRunId)).toMatchObject({
+      finalReview: 'approved',
+    });
+    expect(await f.store.listHeldReports(Date.now())).toHaveLength(0);
+    await f.pipeline.dispose();
+  });
+
+  it('holds a paired review until the reviewed run appears', async () => {
+    const f = fixture();
+    const result = await runOutcomeReport(
+      {
+        kind: 'review',
+        target: { runId: 'lane:pending' },
+        verdict: 'revise',
+        reviewerRunId: 'subagent:reviewer',
+      },
+      f.deps,
+    );
+    expect(result.recorded).toBe('held');
+    expect(await f.store.listHeldReports(Date.now())).toHaveLength(1);
+    await f.pipeline.dispose();
+  });
+
+  it('refuses a review whose reviewer is the reviewed agent, without a write', async () => {
+    const f = fixture();
+    const submit = jest.spyOn(f.pipeline, 'submit');
+    const result = await runOutcomeReport(
+      {
+        kind: 'review',
+        target: { runId: 'subagent:same' },
+        verdict: 'approved',
+        reviewerRunId: 'same',
+      },
+      f.deps,
+    );
+    expect(result).toEqual({ recorded: false, reason: 'self-review' });
+    expect(submit).not.toHaveBeenCalled();
+    await f.pipeline.dispose();
+  });
+
+  it('shares one report id with host capture for the same reviewer agent', async () => {
+    const f = fixture();
+    f.pipeline.enqueue({
+      kind: 'subagent-stop',
+      row: row('subagent:reviewed'),
+    });
+    await f.pipeline.flush();
+    const host = deterministicReviewReportId(
+      'subagent:reviewed',
+      'reviewer-lane:2026-10-31T10:00:00.000Z',
+    );
+    const result = await runOutcomeReport(
+      {
+        kind: 'review',
+        target: { runId: 'subagent:reviewed' },
+        verdict: 'revise',
+        reviewerRunId: 'reviewer-lane',
+      },
+      f.deps,
+    );
+    expect(result).toMatchObject({ recorded: 'applied', reportId: host });
+    await f.pipeline.dispose();
+  });
+
+  it('keys a lane review by its calling agent when no reviewer is named', async () => {
+    const f = fixture();
+    f.pipeline.enqueue({
+      kind: 'subagent-stop',
+      row: row('subagent:reviewed'),
+    });
+    await f.pipeline.flush();
+    const host = deterministicReviewReportId(
+      'subagent:reviewed',
+      'reviewer-lane:2026-10-31T10:00:00.000Z',
+    );
+    const review = {
+      kind: 'review',
+      target: { runId: 'subagent:reviewed' },
+      verdict: 'revise',
+    };
+    const result = await runWithMcpRequestContext(
+      { callerAgentId: 'reviewer-lane' },
+      () => runOutcomeReport(review, f.deps),
+    );
+    expect(result).toMatchObject({ recorded: 'applied', reportId: host });
+
+    const self = await runWithMcpRequestContext(
+      { callerAgentId: 'reviewed' },
+      () => runOutcomeReport(review, f.deps),
+    );
+    expect(self).toEqual({ recorded: false, reason: 'self-review' });
+    expect(await f.store.get('subagent:reviewed')).toMatchObject({
+      reviseRounds: 1,
+    });
+    await f.pipeline.dispose();
+  });
+
+  it('rejects invalid review arguments before any write', async () => {
+    const f = fixture();
+    const submit = jest.spyOn(f.pipeline, 'submit');
+    const reply = await handleOutcomeReportToolCall(
+      {
+        kind: 'review',
+        target: { runId: 'subagent:A' },
+        verdict: 'revise',
+        reviewerRunId: 42,
+      },
+      () => f.deps,
+      {} as Logger,
+    );
+    expect(reply).toMatchObject({ isError: true, invalidArguments: true });
+    expect(submit).not.toHaveBeenCalled();
+    expect(await f.store.listHeldReports(Date.now())).toHaveLength(0);
+    await f.pipeline.dispose();
+  });
+
   it('refuses unknown review in a closed store without changing journal, row, receipt, or hold', async () => {
     const f = fixture(true);
     f.pipeline.enqueue({ kind: 'lane-completion', row: row('L1') });
@@ -405,7 +656,12 @@ describe('ptah_outcome_report', () => {
     const before = new KeyValueOutcomeJournal(f.storage).snapshot();
     const submit = jest.spyOn(f.pipeline, 'submit');
     const rejected = await runOutcomeReport(
-      { kind: 'review', target: { runId: 'L9' }, verdict: 'approved' },
+      {
+        kind: 'review',
+        target: { runId: 'L9' },
+        verdict: 'approved',
+        reviewerRunId: 'reviewer',
+      },
       f.deps,
     );
     expect(rejected).toMatchObject({

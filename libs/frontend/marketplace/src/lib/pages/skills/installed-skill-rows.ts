@@ -16,6 +16,7 @@ import {
 } from 'lucide-angular';
 import type { MarketplaceSkillSource } from '@ptah-extension/core';
 import type {
+  CapabilityScope,
   CloneSummary,
   ExternalPluginListing,
   InstalledSkill,
@@ -24,6 +25,7 @@ import type {
   PluginSource,
 } from '@ptah-extension/shared';
 import type {
+  InventoryConversionOutcome,
   InventorySlice,
   InventorySliceId,
   InventorySliceState,
@@ -75,6 +77,55 @@ export interface InstalledSkillRow {
    * shadows (F7f). Empty outside Electron, where no clone list is read.
    */
   readonly shadowedAgents: readonly string[];
+  /**
+   * Which source root a community skill lives in, for its scope badge and
+   * "Make global" (design-spec §2). `null` for plugins: they have no install
+   * scope of their own.
+   */
+  readonly scope: CapabilityScope | null;
+}
+
+/** Scope badge text of an installed community skill (design-spec §2). */
+export const INSTALL_SCOPE_BADGE_LABELS: Readonly<
+  Record<CapabilityScope, string>
+> = {
+  workspace: 'This workspace',
+  global: 'All workspaces',
+};
+
+/** What the page shows after one "Make global", beside the converted row. */
+export interface SkillConversionNotice {
+  /** The row the user converted. */
+  readonly ref: string;
+  /** `status` for a success, `alert` for a failure or refusal. */
+  readonly role: 'status' | 'alert';
+  readonly text: string;
+}
+
+/**
+ * The feedback line of one "Make global". The whole source root moves, so a
+ * success also names every other skill that moved with it. A failure or a
+ * refusal shows the store's fixed copy, never host text.
+ */
+export function skillConversionNotice(
+  row: Pick<InstalledSkillRow, 'ref' | 'name'>,
+  outcome: InventoryConversionOutcome,
+): SkillConversionNotice {
+  if (outcome.status !== 'converted') {
+    return { ref: row.ref, role: 'alert', text: outcome.message };
+  }
+  const others = [...new Set(outcome.convertedSkills)].filter(
+    (name) => name !== row.name,
+  );
+  const alsoMoved =
+    others.length === 0
+      ? ''
+      : ` It was installed together with ${others.join(', ')}, which ${others.length === 1 ? 'is' : 'are'} now available in all workspaces too.`;
+  return {
+    ref: row.ref,
+    role: 'status',
+    text: `${outcome.message}${alsoMoved}`,
+  };
 }
 
 /** One grouped list with its OWN load state (per-slice failure isolation). */
@@ -154,10 +205,7 @@ export const SKILL_KIND_ICONS: Readonly<
 };
 
 const GROUP_META: Readonly<
-  Record<
-    InstalledSkillGroupId,
-    Pick<InstalledSkillGroup, 'label' | 'browse'>
-  >
+  Record<InstalledSkillGroupId, Pick<InstalledSkillGroup, 'label' | 'browse'>>
 > = {
   plugins: {
     label: 'Ptah plugins',
@@ -264,6 +312,7 @@ export function pluginRow(
     provenance: pluginProvenance(plugin.id, plugin.name),
     contents,
     shadowedAgents: shadowedAgentNames(plugin.id, contents.agents, clones),
+    scope: null,
   };
 }
 
@@ -290,6 +339,7 @@ export function communityRow(skill: InstalledSkill): InstalledSkillRow {
         : { kind: 'skills-sh', source },
     contents: null,
     shadowedAgents: [],
+    scope: skill.scope,
   };
 }
 
@@ -311,7 +361,8 @@ export function marketplaceRow(
     name: listing.name,
     description: textOrNull(listing.description),
     source: listing.source,
-    version: textOrNull(listing.installedVersion) ?? textOrNull(listing.version),
+    version:
+      textOrNull(listing.installedVersion) ?? textOrNull(listing.version),
     detail: contents?.summary ?? null,
     action: 'uninstall',
     provenance: pluginProvenance(listing.id, listing.name),
@@ -320,6 +371,7 @@ export function marketplaceRow(
       contents === null
         ? []
         : shadowedAgentNames(listing.id, contents.agents, clones),
+    scope: null,
   };
 }
 

@@ -18,7 +18,7 @@ import {
   AudioLines,
   RotateCw,
 } from 'lucide-angular';
-import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
+import { MotionStageDirective, PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 // Two declarations on purpose: each component import must hold only the `@defer`-only class, or
 // Angular keeps the whole tab (Providers with its named-accounts UI and agents routing, Context Management) in the eager chunk.
 import { ProvidersSettingsComponent } from './providers/providers-settings.component';
@@ -111,6 +111,7 @@ const isAgentsRoutingSection = (
     SearchVoiceSettingsComponent,
     SettingsToastComponent,
     LucideAngularModule,
+    MotionStageDirective,
   ],
   // Page-scoped: the toast timer dies with the page; one models loader for every tab.
   providers: [
@@ -205,12 +206,13 @@ export class SettingsComponent implements OnInit {
   readonly activeSettingsTab = signal<
     'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools'
   >('claude-auth');
+  readonly settingsTabIndex = computed(() =>
+    this.settingsTabs.findIndex((tab) => tab.id === (this.activeSettingsTab() === 'providers' ? 'claude-auth' : this.activeSettingsTab())),
+  );
 
   readonly providersTarget = signal<ProvidersSettingsFocusTarget | null>(null);
   /** Focus target for the CLI matrix / background roles part of the Providers tab. */
-  readonly agentsRoutingTarget = signal<AgentsRoutingFocusTarget | null>(
-    null,
-  );
+  readonly agentsRoutingTarget = signal<AgentsRoutingFocusTarget | null>(null);
 
   /**
    * Provider id carried by a deep-link into the settings page (e.g. the
@@ -222,6 +224,14 @@ export class SettingsComponent implements OnInit {
   readonly isElectron = this.vscodeService.isElectron;
   /** Header "App: …" label. */
   readonly appLabel = this.isElectron ? 'Desktop' : 'VS Code';
+
+  runOnboardingAgain(): void {
+    this.appState.setCurrentView('onboarding');
+  }
+
+  checkClaudeCode(): void {
+    if (this.isElectron) this.appState.openOnboardingReady();
+  }
   /** Header workspace path (full, for `title`); null until setting sources load or with no folder open. */
   readonly workspacePath = computed(
     () => this.providersState.scopes().data?.activePath ?? null,

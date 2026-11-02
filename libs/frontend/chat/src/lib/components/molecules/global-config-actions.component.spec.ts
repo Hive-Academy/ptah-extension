@@ -60,18 +60,21 @@ describe('GlobalConfigActionsComponent', () => {
     ).toBeNull();
   });
 
-  it('adds a Setup hub icon button after Thoth when showSetupHub is set', () => {
+  it('adds a Setup icon button after Thoth when showSetupHub is set', () => {
     fixture.componentRef.setInput('showSetupHub', true);
     fixture.detectChanges();
     expect(buttons().map((b) => b.getAttribute('aria-label'))).toEqual([
       'Thoth',
-      'Setup hub',
+      'Setup',
       'Marketplace',
       'Settings',
     ]);
     buttons()[1].click();
-    expect(appState.setCurrentView).toHaveBeenCalledWith('setup-hub');
-    appState.openConfigurationSurface.set('setup-hub');
+    expect(buttons()[1].getAttribute('data-test')).toBe(
+      'config-menu-item-setup-hub',
+    );
+    expect(appState.setCurrentView).toHaveBeenCalledWith('onboarding');
+    appState.openConfigurationSurface.set('onboarding');
     fixture.detectChanges();
     expect(buttons()[1].getAttribute('aria-current')).toBe('true');
   });
@@ -97,7 +100,7 @@ describe('GlobalConfigActionsComponent', () => {
   });
 
   it('updates aria-current and highlights from the settled surface signal', () => {
-    for (const surface of [null, ...ids, 'setup-hub' as const, null]) {
+    for (const surface of [null, ...ids, 'onboarding' as const, null]) {
       appState.openConfigurationSurface.set(surface);
       fixture.detectChanges();
       buttons().forEach((button, index) => {

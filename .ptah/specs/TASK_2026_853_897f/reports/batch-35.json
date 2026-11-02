@@ -1,0 +1,40 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": 35,
+  "title": "D-6 shared registration and Electron heavy-boot trigger",
+  "executor": "claude backend-developer subagent (3 rounds: implementation, reverted optional-reconciler round, factory registration)",
+  "changed": [
+    "libs/shared/src/lib/types/rpc.types.ts: notice methods joined into the RpcMethodRegistry Pick union and RPC_METHOD_ENTRIES; doc comment updated (decision #67)",
+    "libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts: installScopeNotice entry, requires [] (same as harness)",
+    "libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts: InstallScopeMigrationService via instanceCachingFactory (decision #71), InstallScopeNoticeRpcHandlers registerSingleton",
+    "libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.spec.ts: singleton + register() test",
+    "libs/backend/rpc-handlers/src/lib/install-scope/install-scope-notice-rpc.handlers.ts: METHODS satisfies readonly RpcMethodName[]",
+    "libs/backend/rpc-handlers/src/index.ts: exports InstallScopeMigrationService, InstallScopeNoticeRpcHandlers",
+    "apps/ptah-electron/src/activation/boot-heavy-services.ts: startInstallScopeMigration (once per process, not awaited, both error paths logged) before refreshUserLayer",
+    "apps/ptah-electron/src/activation/boot-heavy-services.install-scope.spec.ts (new)"
+  ],
+  "timingTrace": "startOrJoin reserves boot -> createMainWindow -> openWindowGate -> bootThothRuntime -> markPersistenceSettled -> setPhase(harness) -> initPluginLoader -> startInstallScopeMigration() (run() not awaited) -> await refreshUserLayer -> reconcileHarness. Only the start is ordered; the migration can still run during refreshUserLayer, and its reconcile pass uses the reconciler lock.",
+  "compatibility": {
+    "electron": "resolves both, starts run() once per process",
+    "vscode": "resolves both through registerSharedRpcHandlers, serves notice RPCs, never calls run(); notice is null until Electron ran the migration (D-D5)",
+    "cli": "same as VS Code; all dependencies registered (cli-engine container.ts:721, platform-cli registration.ts:67-83)",
+    "tui": "uses the cli-engine container; no run()"
+  },
+  "tests": [
+    "registerSharedRpcHandlers > registers the install-scope migration and its notice handler as singletons",
+    "Electron heavy boot — install-scope migration trigger > starts the migration after the window and before refreshUserLayer",
+    "... > does not await the migration: a run that never settles leaves the boot complete",
+    "... > logs a rejected run through the Logger and still finishes the boot",
+    "... > logs a migration that cannot be resolved and still finishes the boot",
+    "... > starts the migration once per process, not once per workspace boot"
+  ],
+  "findings": [
+    "registerRpcSurface resolves every manifest handler at activation without a try (VS Code bootstrap.ts:177, CLI container.ts:982); host rpc-surface specs check the partition only, so the VS Code container smoke is the only construction gate",
+    "Spec tsconfigs emit decorator metadata, so defaulted constructor overrides fail container resolution in specs (decisions #70, #71); SkillsShSourceRootService has the same latent issue, unchanged",
+    "CLI EXPECTED_RESOLVABLE does not list the new classes (not in scope)"
+  ],
+  "verification": {
+    "scoped": "rpc-handlers 47/47, ptah-extension-vscode 62/62, ptah-electron 57/57, exit 0 (/tmp/tpd-b35-fix2.log); di-lint OK 1909 sites; rpc-handlers typecheck exit 0",
+    "combinedVerify": "Cohort 35+41: npm run verify -- -p @ptah-extension/shared,@ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview -> NX 71 tasks: 70 succeeded (41 cached), 1 failed = known pre-existing ptah-extension-webview:lint (/tmp/tpd-b35-41-verify.log); degradation-audit:lint --skip-nx-cache exit 0 (/tmp/tpd-b35-41-audit.log); di-lint OK"
+  }
+}

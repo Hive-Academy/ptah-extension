@@ -69,6 +69,7 @@ import {
   GitWatchRpcHandlers,
   registerHarnessServices,
   registerChatServices,
+  registerHostRouting,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 import { UpdateManager } from '../services/update/update-manager';
@@ -93,6 +94,7 @@ export function registerPhase4Handlers(
 ): void {
   registerHarnessServices(container);
   registerChatServices(container);
+  registerHostRouting(container);
   container.registerSingleton(SessionRpcHandlers);
   container.registerSingleton(ArtifactRpcHandlers);
   container.registerSingleton(DisplayWindowRpcHandlers);

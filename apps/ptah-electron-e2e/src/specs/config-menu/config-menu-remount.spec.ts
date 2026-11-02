@@ -90,7 +90,7 @@ test.describe('Global configuration menu — remount on workspace switch', () =>
     ).toHaveCount(0);
   });
 
-  test('Setup hub: the surface stays and its component is re-created on a workspace switch', async ({
+  test('Setup: the surface stays and its component is re-created on a workspace switch', async ({
     ui,
   }) => {
     const page = ui.page;
@@ -98,7 +98,7 @@ test.describe('Global configuration menu — remount on workspace switch', () =>
 
     await proveRecreated(
       page,
-      page.locator('ptah-app-shell ptah-setup-hub'),
+      page.locator('ptah-app-shell ptah-onboarding-home'),
       () => switchToSecondFolder(page),
     );
   });
@@ -148,8 +148,8 @@ test.describe('Global configuration menu — remount on workspace switch', () =>
     await switchToSecondFolder(page);
 
     await expect(page.locator('[data-testid="canvas-grid"]')).toBeVisible();
-    await expect(page.locator('[data-test="config-back-to-welcome"]')).toHaveCount(
-      0,
-    );
+    await expect(
+      page.locator('[data-test="config-back-to-welcome"]'),
+    ).toHaveCount(0);
   });
 });

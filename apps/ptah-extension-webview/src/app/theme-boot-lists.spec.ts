@@ -66,9 +66,8 @@ describe('index.html pre-paint theme boot lists', () => {
 
   it('every other theme-name literal in the script is a declared, eager theme of the right lightness', () => {
     // The glass-migration targets are spelled inline in the script, and the
-    // <html> default is spelled in markup. Both must be themes styles.css
-    // carries (no sheet fetch on the migration path), and the migration
-    // targets must sit on the side of DARK their names claim.
+    // <html> default is spelled in markup. The glass-pair targets are eager;
+    // the retired dark theme is handled separately as deferred dracula.
     const script = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
     const eager = new Set(readList(html, 'EAGER'));
     const dark = new Set(readList(html, 'DARK'));
@@ -132,8 +131,9 @@ describe('index.html pre-paint theme boot lists', () => {
 
   it('pre-paint accepts exactly the declared scenes, including the default', () => {
     const declared = /export const SCENES:[^=]+ = \[([^\]]+)\]/.exec(SERVICE_SOURCE)?.[1].match(/'([^']+)'/g)?.map((name) => name.slice(1, -1)) ?? [];
-    expect(declared).toEqual(['aurora', 'ember', 'tide', 'horizon']);
+    expect(declared).toEqual(['pyramid', 'aurora', 'ember', 'tide', 'horizon', 'temple']);
     expect(readList(html, 'SCENE')).toEqual(declared);
+    expect(/export const DEFAULT_SCENE: SceneName = '([^']+)'/.exec(SERVICE_SOURCE)?.[1]).toBe(declared[0]);
   });
 
   it('does not link the deferred sheet as a stylesheet or preload', () => {

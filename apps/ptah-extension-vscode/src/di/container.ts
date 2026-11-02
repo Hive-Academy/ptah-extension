@@ -50,7 +50,7 @@ export class DIContainer {
     }
     const { logger } = registerPhase0Platform(root, context);
     registerPhase1Infra(root, context, logger);
-    registerPhase2Libraries(root, logger);
+    registerPhase2Libraries(root, logger, context.extensionMode === vscode.ExtensionMode.Development);
     registerPhase3Handlers(root, logger);
     registerPhase4App(root, context);
     return root;

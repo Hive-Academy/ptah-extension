@@ -35,6 +35,7 @@ import {
   type DisplaySidebarConnection,
 } from './display-sidebar-wiring';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
+import { BackgroundTaskTilesContainerComponent } from '../molecules/background-task-tiles/background-task-tiles-container.component';
 import { ChatSessionLayoutComponent } from './chat-session-layout.component';
 import {
   QuestionCardComponent,
@@ -48,6 +49,10 @@ import {
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { SessionBudgetBannerComponent } from '../molecules/notifications/session-budget-banner.component';
+import {
+  InstallScopeMigrationNoticeComponent,
+  type InstallScopeMigrationNoticeAction,
+} from '../molecules/notifications/install-scope-migration-notice.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/agent-origin-banner.component';
 import { SessionInspectorStore } from '../../services/session-inspector';
@@ -85,7 +90,9 @@ import {
   SESSION_VISIBLE,
   SESSION_FORCED_CARD,
   SESSION_START_GUARD,
+  SESSION_FOCUSED,
 } from '../../tokens/session-context.token';
+import { SESSION_EMBED_CHROME } from '../../tokens/session-embed-chrome.token';
 import {
   ClaudeRpcService,
   AppStateManager,
@@ -153,8 +160,12 @@ export const DISPLAY_DOCK_DEFAULT_WIDTH = 400;
 /** `PanelResizeService` bounds: 300 px, at most 75% of the host. */
 const DOCK_MIN_WIDTH = 300;
 const DOCK_MAX_WIDTH_RATIO = 0.75;
-/** Includes the last inspector row's entrance and a small cleanup margin. */
-const ENTER_WINDOW_MS = 400;
+/** Read the current motion preset at each switch; jsdom has no root tokens. */
+function motionDurationMs(style: CSSStyleDeclaration | null, token: string, fallbackMs: number): number {
+  const value = style?.getPropertyValue(token).trim() ?? '';
+  const match = /^(\d+(?:\.\d+)?)(ms|s)$/.exec(value);
+  return match ? Number(match[1]) * (match[2] === 's' ? 1000 : 1) : fallbackMs;
+}
 
 /** One separator arrow-key step (design-spec section 8, assertion 11). */
 const DOCK_KEY_STEP = 16;
@@ -181,11 +192,13 @@ const VIEW_PANEL_KEY = '';
     AgentMonitorPanelComponent,
     DisplaySheetComponent,
     ChatInputComponent,
+    BackgroundTaskTilesContainerComponent,
     ChatSessionLayoutComponent,
     QuestionCardComponent,
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
     SessionBudgetBannerComponent,
+    InstallScopeMigrationNoticeComponent,
     CompactionNotificationComponent,
     CompactionMarkerComponent,
     SidebarTabComponent,
@@ -301,7 +314,8 @@ export class ChatViewComponent implements OnDestroy {
     this.staleOlderHistory.set(null);
     const outcome = await this.historyPaging.loadOlder(tabId);
     if (outcome === 'stale') {
-      const message = 'Earlier history changed. Reopen the session to load it again.';
+      const message =
+        'Earlier history changed. Reopen the session to load it again.';
       const tab = this._tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
       if (tab) {
         this.staleOlderHistory.set({
@@ -311,10 +325,7 @@ export class ChatViewComponent implements OnDestroy {
           message,
         });
       }
-      this.showActionError(
-        message,
-        tabId,
-      );
+      this.showActionError(message, tabId);
     } else if (outcome === 'failed') {
       this.showActionError(
         'Could not load earlier messages. Please try again.',
@@ -342,6 +353,43 @@ export class ChatViewComponent implements OnDestroy {
   /** Dismiss the re-auth banner. */
   protected onAuthBannerDismiss(): void {
     this._authState.clearAuthRequiredBanner();
+  }
+
+  /**
+   * The install-scope migration notice shows in one chat view at a time: the
+   * main panel (no SESSION_CONTEXT, VS Code) or, where every view is a
+   * session embed (Electron canvas), the focused full-chrome pane. Bare
+   * hosts (harness builder, setup wizard, Command Center) and read-only
+   * views never mount it, and an unfocused split pane or hidden workspace
+   * does not either, so one card shows however many session views exist.
+   */
+  private readonly _sessionFocused = inject(SESSION_FOCUSED, {
+    optional: true,
+  });
+  private readonly _embedChrome = inject(SESSION_EMBED_CHROME, {
+    optional: true,
+  });
+  private readonly _installNoticeReadOnly =
+    inject(SESSION_READ_ONLY, { optional: true }) ?? false;
+  protected readonly showInstallMigrationNotice = computed(() => {
+    if (this._installNoticeReadOnly) return false;
+    if (!this._sessionContext) return true;
+    return this._embedChrome !== 'bare' && (this._sessionFocused?.() ?? true);
+  });
+
+  /**
+   * After "Got it" the notice is gone, so focus moves to the chat input
+   * instead of falling back to the document body. "Open Marketplace" hides
+   * this view; the marketplace view takes over and focus is not forced into
+   * a hidden textarea.
+   */
+  protected onInstallMigrationNoticeDismissed(
+    action: InstallScopeMigrationNoticeAction,
+  ): void {
+    if (action !== 'got-it') return;
+    this.hostEl.nativeElement
+      .querySelector<HTMLTextAreaElement>('[sessionComposer] textarea')
+      ?.focus();
   }
 
   /**
@@ -732,6 +780,7 @@ export class ChatViewComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     if (this.enteringTimer !== null) clearTimeout(this.enteringTimer);
+    if (this.leavingTimer !== null) clearTimeout(this.leavingTimer);
     this._cancelResizeFrame();
     this._cleanupResizeListeners();
     this.resizeObserver?.disconnect();
@@ -1046,25 +1095,100 @@ export class ChatViewComponent implements OnDestroy {
   });
 
   protected readonly enteringTabId = signal<string | null>(null);
+  protected readonly pendingEntranceTabId = signal<string | null>(null);
+  /** The previous tab, kept on screen over the new one while it fades out. */
+  protected readonly leavingTabId = signal<string | null>(null);
   private enteringTimer: ReturnType<typeof setTimeout> | null = null;
+  private leavingTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** A tab edge owns one entrance window; changing its session or mode does not. */
+  /**
+   * A tab edge owns one entrance window; changing its session or mode does not.
+   * The previous transcript stays visible while history loads. Once the new
+   * one has content, their glass-free slots crossfade and the new pane rises.
+   */
   private wireSessionEntrance(): void {
     let lastTabId: string | null = null;
     effect(() => {
       const tabId = this.resolvedTabId();
-      if (tabId === null || tabId === lastTabId) return;
-      lastTabId = tabId;
-      untracked(() => {
-        if (this.enteringTimer !== null) clearTimeout(this.enteringTimer);
-        this.enteringTabId.set(tabId);
-        this.ngZone.runOutsideAngular(() => {
-          this.enteringTimer = setTimeout(() => {
-            this.enteringTimer = null;
-            this.enteringTabId.set(null);
-          }, ENTER_WINDOW_MS);
-        });
+      if (tabId === null) {
+        lastTabId = null;
+        this.pendingEntranceTabId.set(null);
+        untracked(() => this.startLeave(null));
+        return;
+      }
+      if (tabId !== lastTabId) {
+        const previous = lastTabId;
+        lastTabId = tabId;
+        this.pendingEntranceTabId.set(tabId);
+        untracked(() => this.startLeave(previous));
+      }
+      if (this.pendingEntranceTabId() !== tabId || !this.entranceContentReady()) return;
+      this.pendingEntranceTabId.set(null);
+      untracked(() => this.startEnter(tabId));
+    });
+  }
+
+  /** True when the shown tab has messages or is not waiting for history. */
+  private entranceContentReady(): boolean {
+    const tab = this.resolvedActiveTab();
+    if (!tab || tab.messages?.length) return true;
+    return (
+      tab.status !== 'resuming' &&
+      tab.status !== 'switching' &&
+      !this.isHistoryReplaying(tab.id)
+    );
+  }
+
+  private startEnter(tabId: string): void {
+    if (this.enteringTimer !== null) clearTimeout(this.enteringTimer);
+    if (this.leavingTimer !== null) clearTimeout(this.leavingTimer);
+    const style = typeof getComputedStyle === 'function'
+      ? getComputedStyle(this.hostEl.nativeElement) : null;
+    const stagger = motionDurationMs(style, '--ptah-stagger-step', 36);
+    const entrance = motionDurationMs(style, '--ptah-motion-in', 320);
+    const paneSwitch = motionDurationMs(style, '--ptah-motion-switch', 380);
+    // Last staggered row: 60 ms lead + six steps + its own entrance.
+    const enterWindowMs = Math.max(60 + 6 * stagger + entrance, paneSwitch) + 44;
+    this.enteringTabId.set(tabId);
+    this.ngZone.runOutsideAngular(() => {
+      this.enteringTimer = setTimeout(() => {
+        this.enteringTimer = null;
+        this.enteringTabId.set(null);
+      }, enterWindowMs);
+    });
+    if (this.leavingTabId() !== null) {
+      const leaveWindowMs = motionDurationMs(style, '--ptah-motion-out', 180) + 40;
+      this.ngZone.runOutsideAngular(() => {
+        this.leavingTimer = setTimeout(() => {
+          this.leavingTimer = null;
+          this.leavingTabId.set(null);
+        }, leaveWindowMs);
       });
+    }
+  }
+
+  private startLeave(previous: string | null): void {
+    if (this.leavingTimer !== null) {
+      clearTimeout(this.leavingTimer);
+      this.leavingTimer = null;
+    }
+    const shown =
+      previous !== null &&
+      this.mainPanelShowing() &&
+      this.transcriptTabIds().includes(previous);
+    this.leavingTabId.set(shown ? previous : null);
+    if (!shown) return;
+    const style = typeof getComputedStyle === 'function'
+      ? getComputedStyle(this.hostEl.nativeElement) : null;
+    const switchMs = motionDurationMs(style, '--ptah-motion-switch', 380);
+    const leaveMs = motionDurationMs(style, '--ptah-motion-out', 180);
+    // Show the new tab's loading state even if history never becomes ready.
+    const safetyWindowMs = Math.min(2000, Math.max(1000, switchMs + leaveMs + 40));
+    this.ngZone.runOutsideAngular(() => {
+      this.leavingTimer = setTimeout(() => {
+        this.leavingTimer = null;
+        this.leavingTabId.set(null);
+      }, safetyWindowMs);
     });
   }
 
@@ -1329,7 +1453,6 @@ export class ChatViewComponent implements OnDestroy {
         this.panelState.releaseAgentsUserClose(key);
       });
     });
-
 
     effect(() => {
       const request = this._appState.composerPrefillRequest();

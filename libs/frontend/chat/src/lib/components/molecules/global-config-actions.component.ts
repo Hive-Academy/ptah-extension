@@ -21,7 +21,7 @@ import {
 /**
  * Global configuration actions for the Electron navbar: Thoth, Marketplace
  * and Settings as icon buttons, next to the theme toggle. With a workspace,
- * Setup hub is a navbar tab (see `ElectronShellComponent`); on the welcome
+ * Setup is a navbar tab (see `ElectronShellComponent`); on the welcome
  * screen it is an icon button here (`showSetupHub`).
  *
  * The `config-menu-item-<id>` hooks are kept from the former dropdown menu:
@@ -37,7 +37,7 @@ import {
       <button
         type="button"
         class="btn btn-ghost btn-sm btn-square focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        [attr.data-test]="'config-menu-item-' + item.id"
+        [attr.data-test]="'config-menu-item-' + (item.testId ?? item.id)"
         [attr.aria-label]="item.label"
         [title]="item.title ?? item.label"
         [attr.aria-current]="
@@ -63,14 +63,15 @@ export class GlobalConfigActionsComponent {
   protected readonly openConfigurationSurface =
     this.appState.openConfigurationSurface;
   /**
-   * Also render Setup hub as an icon button. The shell sets this on the
-   * welcome screen, where the navbar tab strip (and its Setup hub tab) is
+   * Also render Setup as an icon button. The shell sets this on the
+   * welcome screen, where the navbar tab strip (and its Setup tab) is
    * not rendered.
    */
   readonly showSetupHub = input(false);
 
   private readonly allItems: readonly {
     id: ConfigurationSurfaceId;
+    testId?: string;
     label: string;
     title?: string;
     icon: LucideIconData;
@@ -81,14 +82,14 @@ export class GlobalConfigActionsComponent {
       title: 'Thoth — agentic platform',
       icon: RadioTower,
     },
-    { id: 'setup-hub', label: 'Setup hub', icon: Wrench },
+    { id: 'onboarding', testId: 'setup-hub', label: 'Setup', icon: Wrench },
     { id: 'marketplace', label: 'Marketplace', icon: Store },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
   protected readonly items = computed(() =>
     this.showSetupHub()
       ? this.allItems
-      : this.allItems.filter((item) => item.id !== 'setup-hub'),
+      : this.allItems.filter((item) => item.id !== 'onboarding'),
   );
 
   protected selectItem(id: ConfigurationSurfaceId): void {

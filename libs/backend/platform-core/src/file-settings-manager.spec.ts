@@ -105,6 +105,34 @@ describe('PtahFileSettingsManager', () => {
     warnSpy.mockRestore();
   });
 
+  it('counts routing writes synchronously, including silent writes and failed-persist restore', async () => {
+    const mgr = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+    const changed = jest.fn();
+    mgr.watch('agentOrchestration.hostRouting', changed);
+    const first = mgr.set('agentOrchestration.hostRouting', false);
+    expect(mgr.getRoutingConfigurationGeneration()).toBe(1);
+    await first;
+    expect(changed).toHaveBeenCalledTimes(1);
+
+    const modelWrite = mgr.set('agentOrchestration.decisionModel', {
+      kind: 'ollama',
+      model: 'nimble',
+    });
+    expect(mgr.getRoutingConfigurationGeneration()).toBe(2);
+    await modelWrite;
+    await mgr.set('unrelated.key', 1);
+    expect(mgr.getRoutingConfigurationGeneration()).toBe(2);
+
+    fs.rmSync(PTAH_DIR, { recursive: true, force: true });
+    fs.writeFileSync(PTAH_DIR, 'blocks directory creation');
+    const failed = mgr.set('agentOrchestration.hostRouting', true);
+    expect(mgr.getRoutingConfigurationGeneration()).toBe(3);
+    await expect(failed).rejects.toThrow();
+    expect(mgr.get<boolean>('agentOrchestration.hostRouting')).toBe(false);
+    expect(mgr.getRoutingConfigurationGeneration()).toBe(4);
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
   // -------------------------------------------------------------------------
   // Path resolution
   // -------------------------------------------------------------------------
@@ -377,21 +405,25 @@ describe('PtahFileSettingsManager', () => {
       await writer.set('skills.telemetry.enabled', false);
 
       const reader = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
-      expect(reader.get('skills.enhancement.provider')).toBe('selected-provider');
+      expect(reader.get('skills.enhancement.provider')).toBe(
+        'selected-provider',
+      );
       expect(reader.get('skills.enhancement.model')).toBe('selected-model');
       expect(reader.get('skills.enhancement.timeoutMs')).toBe(60000);
       expect(reader.get('skills.telemetry.enabled')).toBe(false);
     });
 
     it('copies only stored old values through the serialized persist path', async () => {
-      writeSettingsFile(JSON.stringify({
-        skillSynthesis: {
-          judgeProvider: 'saved-provider',
-          judgeModel: 'saved-model',
-          enhanceTimeoutMs: 45000,
-          triggers: { skillInvocationTelemetry: { enabled: false } },
-        },
-      }));
+      writeSettingsFile(
+        JSON.stringify({
+          skillSynthesis: {
+            judgeProvider: 'saved-provider',
+            judgeModel: 'saved-model',
+            enhanceTimeoutMs: 45000,
+            triggers: { skillInvocationTelemetry: { enabled: false } },
+          },
+        }),
+      );
 
       const manager = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
       expect(manager.get('skills.enhancement.provider')).toBe('saved-provider');
@@ -411,24 +443,28 @@ describe('PtahFileSettingsManager', () => {
       expect(saved.skillSynthesis.judgeProvider).toBe('saved-provider');
 
       const firstWrite = fs.readFileSync(SETTINGS_PATH, 'utf-8');
-      const restarted = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      const restarted = new PtahFileSettingsManager(
+        FILE_BASED_SETTINGS_DEFAULTS,
+      );
       expect(restarted.get('skills.enhancement.model')).toBe('saved-model');
       expect(fs.readFileSync(SETTINGS_PATH, 'utf-8')).toBe(firstWrite);
     });
 
     it('preserves each explicit new choice while copying other stored old values', async () => {
-      writeSettingsFile(JSON.stringify({
-        skillSynthesis: {
-          judgeProvider: 'old-provider',
-          judgeModel: 'old-model',
-          enhanceTimeoutMs: 45000,
-          triggers: { skillInvocationTelemetry: { enabled: true } },
-        },
-        skills: {
-          enhancement: { provider: '', timeoutMs: 90000 },
-          telemetry: { enabled: false },
-        },
-      }));
+      writeSettingsFile(
+        JSON.stringify({
+          skillSynthesis: {
+            judgeProvider: 'old-provider',
+            judgeModel: 'old-model',
+            enhanceTimeoutMs: 45000,
+            triggers: { skillInvocationTelemetry: { enabled: true } },
+          },
+          skills: {
+            enhancement: { provider: '', timeoutMs: 90000 },
+            telemetry: { enabled: false },
+          },
+        }),
+      );
 
       const manager = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
       expect(manager.get('skills.enhancement.provider')).toBe('');
@@ -438,7 +474,9 @@ describe('PtahFileSettingsManager', () => {
 
       await manager.set('skills.enhancement.model', 'old-model');
 
-      const restarted = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      const restarted = new PtahFileSettingsManager(
+        FILE_BASED_SETTINGS_DEFAULTS,
+      );
       expect(restarted.get('skills.enhancement.provider')).toBe('');
       expect(restarted.get('skills.enhancement.timeoutMs')).toBe(90000);
       expect(restarted.get('skills.telemetry.enabled')).toBe(false);

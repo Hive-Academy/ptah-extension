@@ -251,7 +251,9 @@ test.describe('External marketplace — the two-call install protocol (TASK_2026
 
     // The command line, verbatim — never abbreviated or reformatted.
     expect(dialogText).toContain(commandLine);
-    expect(dialogText).toContain('NOT register or run');
+    // Installing adds the declared servers in the chosen scope (Phase D).
+    expect(dialogText).toContain('Ptah adds these servers to the scope you');
+    expect(dialogText).not.toContain('NOT register or run');
 
     // The executable surface: script file names, verbatim.
     expect(dialogText).toContain('scripts/run-tests.ps1');

@@ -136,7 +136,7 @@ describe('LicenseStatusCardComponent', () => {
     expect(element.textContent).toContain('Membership & data');
     expect(element.firstElementChild?.classList).toContain('border-base-content/10');
     expect(element.firstElementChild?.classList).not.toContain('card');
-    expect(element.firstElementChild?.hasAttribute('data-glass-surface')).toBe(false);
+    expect(element.firstElementChild?.getAttribute('data-glass-surface')).toBe('content');
     const badges = Array.from(element.querySelectorAll('.badge')).map(
       (badge) => badge.textContent?.trim(),
     );

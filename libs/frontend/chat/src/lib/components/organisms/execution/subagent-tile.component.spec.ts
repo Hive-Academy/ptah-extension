@@ -118,6 +118,9 @@ describe('SubagentTileComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('4 tools');
     expect(
+      fixture.nativeElement.querySelector('[title="Current known count"]'),
+    ).not.toBeNull();
+    expect(
       fixture.nativeElement.querySelector('[data-testid="subagent-activity"]')
         .textContent,
     ).toContain('Search');
@@ -141,7 +144,7 @@ describe('SubagentTileComponent', () => {
     ]);
     entries.set(new Map());
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('2 tools');
+    expect(fixture.nativeElement.textContent).toContain('4 tools');
     expect(
       fixture.nativeElement.querySelector('[data-testid="subagent-activity"]')
         .textContent,

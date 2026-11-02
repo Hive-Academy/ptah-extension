@@ -1,0 +1,21 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": "26",
+  "title": "D-3 loader sole owner and Electron mirror guard",
+  "executor": "claude backend-developer subagent (killed before report; coordinator inspected the diff)",
+  "changed": [
+    "libs/backend/agent-sdk/src/lib/helpers/plugin-loader.service.ts",
+    "libs/backend/agent-sdk/src/lib/helpers/plugin-loader.service.spec.ts",
+    "apps/ptah-electron/src/activation/plugin-activation.ts (comment only)"
+  ],
+  "contract": {
+    "retiredSkip": "discoverSkillsShPluginPaths drops user-global ptah-skillssh-* roots named in ~/.ptah/plugins/.ptah-skillssh-retired.json; missing/unreadable/malformed registry retires nothing and is warned (decision #56).",
+    "workspaceDiscovery": "discoverWorkspaceSkillsShPluginPaths(ws) scans workspacePluginsDir(ws) for ONE workspace only; not filtered by the retired registry (decision #61).",
+    "overlay": "resolveSkillsShOverlayPaths dedupes by id, workspace wins (Make global retry remnant), feeds resolveCurrentPluginPaths only.",
+    "mirror": "buildMirrorSources stays user-global only; guard comment in plugin-activation.ts."
+  },
+  "verification": {
+    "scopedTest": "npm run verify -- -t test -p @ptah-extension/agent-sdk -- --testPathPatterns=plugin-loader: exit 0 (/tmp/tpd-b26-test.log)",
+    "combinedVerify": "shared, agent-sdk, rpc-handlers, ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui, cli-engine, ptah-extension-webview: 74 tasks, 73 ok, only known ptah-extension-webview:lint failed (/tmp/tpd-b26-29-verify.log); degradation-audit:lint exit 0"
+  }
+}

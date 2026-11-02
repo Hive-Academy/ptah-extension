@@ -98,7 +98,9 @@ export class SkillTriggerService {
     if (
       this.readSkillInvocationTelemetryEnabled() &&
       payload.agentType &&
-      payload.subagentSessionId
+      payload.subagentSessionId &&
+      payload.transcriptPath &&
+      payload.workspaceRoot
     ) {
       void this.recordInvocation({
         slug: payload.agentType,

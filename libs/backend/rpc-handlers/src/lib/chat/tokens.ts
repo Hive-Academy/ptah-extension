@@ -8,6 +8,7 @@
  * Registered via `registerChatServices(container)` — see `./di.ts`.
  */
 export const CHAT_TOKENS = {
+  RUNTIME_PROFILE: Symbol.for('ChatRuntimeProfileService'),
   SDK_CONTEXT: Symbol.for('ChatSdkContextService'),
   PTAH_CLI: Symbol.for('ChatPtahCliService'),
   SESSION: Symbol.for('ChatSessionService'),
@@ -27,4 +28,10 @@ export const CHAT_TOKENS = {
    * Req 10). Resolved by the `surface:action` submit branch.
    */
   SURFACE_SUBMIT_TURN: Symbol.for('SurfaceSubmitTurnService'),
+  /**
+   * Host-side pre-flight routing for the main conversation
+   * (TASK_2026_857, Component 16). Registered only by hosts that opt in
+   * (Electron); `ChatSessionService` injects it as optional.
+   */
+  HOST_ROUTING_COORDINATOR: Symbol.for('ChatHostRoutingCoordinator'),
 } as const;

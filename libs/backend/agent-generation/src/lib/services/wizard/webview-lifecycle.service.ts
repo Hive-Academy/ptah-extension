@@ -150,7 +150,7 @@ export class WizardWebviewLifecycleService {
       panel.webview,
       {
         workspaceInfo: this.htmlGenerator.buildWorkspaceInfo(),
-        initialView: 'setup-wizard',
+        initialView: 'onboarding',
         ...initialData,
       },
     );

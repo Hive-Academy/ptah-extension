@@ -77,7 +77,7 @@ describe('migration 0055_skill_invocation_run_id — registry and static SQL', (
   });
 
   it('keeps the bundled-version ratchet current', () => {
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(63);
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(64);
   });
 });
 

@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { WallClockService } from '@ptah-extension/core';
 import type { SessionStatsEntry } from '@ptah-extension/shared';
-import { CacheCountdownClockService } from './cache-countdown-clock.service';
 import { InspectorCacheTileComponent } from './inspector-cache-tile.component';
 
 type Cache = NonNullable<SessionStatsEntry['cache']>;
@@ -10,13 +10,15 @@ describe(InspectorCacheTileComponent.name, () => {
   const now = signal(0);
   const release = jest.fn();
   const acquire = jest.fn(() => release);
+  const clock = {
+    now: jest.fn(() => now.asReadonly()),
+    acquire,
+  } satisfies Pick<WallClockService, 'now' | 'acquire'>;
 
   function render(cache: Cache) {
     TestBed.configureTestingModule({
       imports: [InspectorCacheTileComponent],
-      providers: [
-        { provide: CacheCountdownClockService, useValue: { now, acquire } },
-      ],
+      providers: [{ provide: WallClockService, useValue: clock }],
     });
     const fixture = TestBed.createComponent(InspectorCacheTileComponent);
     fixture.componentRef.setInput('cache', cache);
@@ -46,6 +48,7 @@ describe(InspectorCacheTileComponent.name, () => {
       expect(tile?.classList.contains('border')).toBe(false);
       expect(root.textContent).toContain(`Cache · ${ttl}`);
       expect(root.textContent).toContain(start);
+      expect(acquire).toHaveBeenCalledWith('second');
       expect(root.textContent).toContain('estimated');
       expect(bar(root)?.parentElement?.getAttribute('aria-hidden')).toBe(
         'true',
@@ -82,6 +85,7 @@ describe(InspectorCacheTileComponent.name, () => {
       expect(tile?.getAttribute('aria-label')).toBe(
         `Prompt cache ${ttl}. Cache expired. Estimated from the last request. The server can evict cached content early.`,
       );
+      expect(release).toHaveBeenCalledTimes(1);
       fixture.destroy();
       expect(release).toHaveBeenCalledTimes(1);
     },

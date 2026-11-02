@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import axe from 'axe-core';
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { VSCodeService } from '@ptah-extension/core';
+import { VSCodeService, WallClockService, WALL_CLOCK_COARSE_MS } from '@ptah-extension/core';
 import type {
   EditorTarget,
   GitHistoryCommit,
@@ -164,6 +164,10 @@ describe('HistoryTimelineComponent', () => {
         // OpenInButtonComponent reads its remembered target only with one.
         { provide: VSCodeService, useValue: null },
         {
+          provide: WallClockService,
+          useValue: { now: () => signal(Date.now()), acquire: () => () => undefined },
+        },
+        {
           provide: GitStatusService,
           useValue: {
             activeWorkspacePath: workspace,
@@ -213,6 +217,55 @@ describe('HistoryTimelineComponent', () => {
   function text(testId: string): string {
     return query(testId)?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
   }
+
+  it('advances commit ages without a new log and releases the coarse interval on destroy', async () => {
+    jest.useFakeTimers({
+      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    }).setSystemTime(1_700_000_000_000);
+    TestBed.overrideProvider(WallClockService, {
+      useFactory: () => new WallClockService(),
+      deps: [],
+    });
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
+    const clearIntervalSpy = jest.spyOn(globalThis, 'clearInterval');
+    const timedCommit = commit('b1c2d3e', 'clock test', {
+      authorDate: new Date(Date.now() - 30_000).toISOString(),
+    });
+    readLog.mockResolvedValue(sinceBase([timedCommit]));
+
+    try {
+      fixture = TestBed.createComponent(HistoryTimelineComponent);
+      fixture.componentRef.setInput('shown', true);
+      fixture.detectChanges();
+      await Promise.resolve();
+      TestBed.tick();
+      fixture.detectChanges();
+      const intervalCall = setIntervalSpy.mock.calls.findIndex(
+        ([, delay]) => delay === WALL_CLOCK_COARSE_MS,
+      );
+      expect(intervalCall).toBeGreaterThanOrEqual(0);
+      const interval = setIntervalSpy.mock.results[intervalCall].value;
+      expect(queryAll('history-commit')[0].querySelector('time')?.textContent).toContain('just now');
+
+      jest.advanceTimersByTime(WALL_CLOCK_COARSE_MS);
+      fixture.detectChanges();
+      expect(queryAll('history-commit')[0].querySelector('time')?.textContent).toContain('1m ago');
+      expect(readLog).toHaveBeenCalledTimes(1);
+
+      fixture.destroy();
+      expect(clearIntervalSpy).toHaveBeenCalledWith(interval);
+    } finally {
+      fixture?.destroy();
+      jest.restoreAllMocks();
+      jest.useRealTimers();
+    }
+  });
+
+  it('shows an em dash when a commit has no valid date', async () => {
+    readLog.mockResolvedValue(sinceBase([commit('d1e2f3a', 'unknown age', { authorDate: '' })]));
+    await render();
+    expect(queryAll('history-commit')[0].querySelector('time')?.textContent).toContain('—');
+  });
 
   // -- Reads ---------------------------------------------------------------------
 

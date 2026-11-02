@@ -89,6 +89,19 @@ export interface ConfigAutopilotGetResult {
   sessionPermissionLevel?: PermissionLevel | null;
 }
 
+/**
+ * Parameters for `config:models-list`.
+ *
+ * `workspacePath` is the workspace whose saved main-agent model and provider
+ * the caller wants. `null` or omitted means the ambient scope (no workspace
+ * open, or a host caller such as the CLI that does not name a folder). The
+ * handler reads that scope once, before any catalog await, and echoes it on
+ * the result so a later answer for a different scope can be dropped.
+ */
+export interface ConfigModelsListParams {
+  workspacePath?: string | null;
+}
+
 /** Model information for config:models-list response. IDs are always full model IDs (e.g., 'claude-opus-4-6'). */
 export interface SdkModelInfo {
   id: string; // Full model ID (e.g., 'claude-opus-4-6', 'claude-sonnet-4-5-20250514')
@@ -103,6 +116,13 @@ export interface SdkModelInfo {
 /** Response from config:models-list RPC method */
 export interface ConfigModelsListResult {
   models: SdkModelInfo[];
+  /**
+   * Workspace this list was built for. Echo of the request `workspacePath`.
+   * `null` is the ambient / global scope. The handler always sets it. The
+   * field is optional on the type so a fixture that only sends `models` still
+   * typechecks; the composer drops a present value that is not the path it asked for.
+   */
+  workspacePath?: string | null;
 }
 
 /**

@@ -1749,7 +1749,7 @@ describe('WizardGenerationRpcHandlers', () => {
         const h = makeHarness();
         h.freshness.getStatus.mockResolvedValue({
           state,
-          reason: state === 'missing' ? 'no-analysis' : 'expired',
+          reason: state === 'missing' ? 'no-analysis' : 'workspace-changed',
           analysisDir: state === 'missing' ? null : '.ptah/analysis/acme',
         });
         h.handlers.register();

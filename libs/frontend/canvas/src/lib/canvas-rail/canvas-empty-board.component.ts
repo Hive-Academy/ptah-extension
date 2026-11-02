@@ -49,7 +49,11 @@ import {
   StatRowComponent,
   StatValueComponent,
 } from '@ptah-extension/chat-ui/vitals';
-import { LoggingService, VSCodeService } from '@ptah-extension/core';
+import {
+  LoggingService,
+  VSCodeService,
+  injectWallClock,
+} from '@ptah-extension/core';
 import { AuroraEffectComponent } from '@ptah-extension/ui';
 import type { CanvasBoardNotice } from './canvas-rail-board.component';
 import {
@@ -272,6 +276,7 @@ export const LOAD_STEPS_MAX_MS = 12_000;
 export class CanvasEmptyBoardComponent {
   protected readonly vitals = inject(WorkspaceVitalsStore);
   private readonly logger = inject(LoggingService);
+  private readonly now = injectWallClock('coarse');
   protected readonly isElectron = inject(VSCodeService).isElectron;
 
   readonly workspacePath = input.required<string>();
@@ -299,13 +304,17 @@ export class CanvasEmptyBoardComponent {
   protected readonly loaded = computed(
     () => this.vitals.isLoaded() || this.loadWaitOver(),
   );
-  protected readonly grid = computed(() =>
-    toBoardGrid(
-      this.vitals.activity90(),
-      this.vitals.previousSessionCount(),
-      localDayKey(new Date()),
-    ),
-  );
+  protected readonly grid = computed(() => {
+    const today = localDayKey(new Date(this.now()));
+    return {
+      ...toBoardGrid(
+        this.vitals.activity90(),
+        this.vitals.previousSessionCount(),
+        today,
+      ),
+      today,
+    };
+  });
   protected readonly numerals = computed(() =>
     toNumerals(this.vitals.activity90()),
   );

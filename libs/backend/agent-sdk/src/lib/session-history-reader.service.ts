@@ -33,6 +33,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
 import {
+  contextFillTokens,
   resolveContextCapacity,
   type ContextCapacity,
   isDirectAnthropic,
@@ -841,6 +842,7 @@ export class SessionHistoryReaderService {
   ): void {
     for (let i = mainMessages.length - 1; i >= 0; i--) {
       const msg = mainMessages[i];
+      if (msg.isSidechain === true) continue;
       if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
         return;
       }
@@ -1280,6 +1282,7 @@ export class SessionHistoryReaderService {
     }
     for (let i = mainMessages.length - 1; i >= 0; i--) {
       const msg = mainMessages[i];
+      if (msg.isSidechain === true) continue;
       if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
         return undefined;
       }
@@ -1291,8 +1294,7 @@ export class SessionHistoryReaderService {
         this.modelResolver.resolveForCost(rawModel).modelId || rawModel;
       return {
         model: modelKey,
-        contextTokens:
-          tokens.input + (tokens.cacheRead ?? 0) + (tokens.cacheCreation ?? 0),
+        contextTokens: contextFillTokens(tokens),
         ...knownContextWindow(modelKey),
       };
     }
@@ -1331,10 +1333,14 @@ function ledgerFromMessages(
       sessionId: msg.sessionId,
       timestamp: msg.timestamp,
       model: msg.model,
+      isMeta: msg.isMeta,
+      isSidechain: msg.isSidechain,
+      isCompactSummary: msg.isCompactSummary,
       message: {
         role: msg.message?.role,
         id: msg.message?.id,
         model: msg.message?.model,
+        content: msg.message?.content,
         usage: msg.message?.usage ?? msg.usage,
       },
     });

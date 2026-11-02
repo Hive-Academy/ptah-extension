@@ -80,20 +80,25 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
              takes 8px of the body padding on each side and the tab body resets both. -->
         <ptah-native-tab-group class="-mx-2 block [&_[role=tablist]]:flex-wrap" [tabs]="tabs()" [(activeId)]="activeTab"
           ariaLabel="Connection details sections" data-testid="connection-drawer-tabs">
-          <div class="px-2 pt-4" [attr.data-tab-body]="activeTabId()">
+            <ng-container>
             @switch (activeTabId()) {
               @case ('accounts') {
+                <div class="ptah-motion-panel px-2 pt-4" animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave">
                 <ptah-accounts-tab />
+                </div>
               }
               @case ('overview') {
+                <div class="ptah-motion-panel px-2 pt-4" animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave">
                 <ptah-connection-overview-tab [status]="status()" [positiveProbeEvidence]="positiveProbeEvidence()"
                   [isActive]="isActive()" [kind]="kind()" [authModeLabel]="authModeRowLabel()" [credentialLabel]="credentialLabel()"
                   [keyHint]="overviewKeyHint()" [lastCheck]="lastCheck()"
                   [loading]="loading()" [checking]="checking()" [saving]="saving()" [usedBy]="usedBy()" [usageComplete]="usageComplete()"
                   [usageError]="usageError()" (checkConnectionRequested)="checkConnectionRequested.emit()"
                   (retryUsageRequested)="retryUsageRequested.emit()" (roleLinkOpened)="closed.emit()" />
+                </div>
               }
               @case ('credentials') {
+                <div class="ptah-motion-panel px-2 pt-4" animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave">
                 <ptah-connection-credentials-tab [connection]="current" [kind]="kind()" [isActiveDriver]="isDriver()"
                   [saving]="saving()" [setup]="credentialsSetup()" [setupError]="credentialsSetupError()" [commit]="credentialsCommit()"
                   [externalAuth]="externalAuth()" [kimiLogin]="kimiLogin()" [verifyDraftConnection]="verifyDraftConnection()"
@@ -103,20 +108,25 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
                 @if (setupFallback()) {
                   <p class="mt-4 text-xs text-base-content-muted" data-testid="connection-setup-copy">{{ setupCopy() }}</p>
                 }
+                </div>
               }
               @case ('models') {
+                <div class="ptah-motion-panel px-2 pt-4" animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave">
                 <ptah-connection-models-tab [connection]="current" />
                 @if (setupFallback()) {
                   <p class="mt-4 text-xs text-base-content-muted" data-testid="connection-setup-copy">{{ setupCopy() }}</p>
                 }
+                </div>
               }
               @case ('advanced') {
+                <div class="ptah-motion-panel px-2 pt-4" animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave">
                 <ptah-connection-advanced-tab [connection]="current" [isDriver]="isDriver()"
                   [verifyDraftConnection]="verifyDraftConnection()" [cancelDraftVerification]="cancelDraftVerification()" />
                 <p class="mt-4 text-xs text-base-content-muted" data-testid="connection-setup-copy">{{ setupCopy() }}</p>
+                </div>
               }
             }
-          </div>
+            </ng-container>
         </ptah-native-tab-group>
       }
       @if (connection(); as current) {

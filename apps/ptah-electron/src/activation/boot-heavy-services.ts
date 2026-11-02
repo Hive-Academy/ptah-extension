@@ -4,13 +4,14 @@ import {
   ContentDownloadService,
   type IWorkspaceWatcher,
 } from '@ptah-extension/platform-core';
-import { TOKENS } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
   PERSISTENCE_TOKENS,
   type SqliteIntegrityService,
 } from '@ptah-extension/persistence-sqlite';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
+import { InstallScopeMigrationService } from '@ptah-extension/rpc-handlers';
 import {
   bootThothRuntime,
   createActivityEmitter,
@@ -137,6 +138,44 @@ export function createHeavyServicesBooter(
     releaseWindowGate = resolve;
   });
   let gateOpened = false;
+  let installScopeMigrationStarted = false;
+
+  /**
+   * Start the one-time install-scope migration (TASK_2026_853 D-6) without
+   * waiting for it. Electron is the only host that runs it (D-D5); VS Code
+   * and the CLI only serve its notice. Once per process: the service resumes
+   * a partial run itself, so a second workspace boot has nothing to add, and
+   * a failed pass is retried on the next app start.
+   *
+   * Never awaited: it walks every recent workspace, and neither the window
+   * (already on screen when this runs) nor the user-layer pass after it may
+   * wait for that. `run()` is documented never to reject; the guards below
+   * keep a broken resolution or a future rejection from becoming an
+   * unhandled rejection or stopping the boot.
+   */
+  const startInstallScopeMigration = (): void => {
+    if (installScopeMigrationStarted) return;
+    installScopeMigrationStarted = true;
+    try {
+      const logger = container.resolve<Logger>(TOKENS.LOGGER);
+      const migration = container.resolve(InstallScopeMigrationService);
+      // degradation-audit: reported - logged at error level; the boot goes on
+      // and the next app start retries the migration from its ledger.
+      migration.run().catch((error: unknown) => {
+        logger.error(
+          '[Ptah Electron] Install-scope migration failed (non-fatal)',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      });
+    } catch (error: unknown) {
+      // degradation-audit: reported - the boot must not stop for a migration
+      // that could not be constructed; the next app start tries again.
+      console.error(
+        '[Ptah Electron] Install-scope migration could not start (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  };
 
   const bootHeavyServicesOnce = async (
     workspaceRoot: string | undefined,
@@ -201,6 +240,11 @@ export function createHeavyServicesBooter(
     // behind a per-root coalescer (TASK_2026_345). The three separate calls
     // that used to stand here ran the catalog sync twice on their own and
     // raced the folder listener's propagation for the other two.
+    //
+    // The install-scope migration is STARTED just before it (plan D-6) and
+    // never awaited: only its start is ordered, not its completion, so this
+    // pass and the window never wait for the migration.
+    startInstallScopeMigration();
     await refreshUserLayer(container, workspaceRoot, 'activation');
     emitActivity('harness', 'user-layer', 'User layer refreshed');
     contentDownload

@@ -1,13 +1,12 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   computed,
   inject,
   input,
 } from '@angular/core';
 import type { SessionStatsEntry } from '@ptah-extension/shared';
-import { CacheCountdownClockService } from './cache-countdown-clock.service';
+import { WallClockService, injectWallClock } from '@ptah-extension/core';
 
 type Cache = NonNullable<SessionStatsEntry['cache']>;
 const IDLE_FIRE_LATENESS_MS = 60_000;
@@ -83,10 +82,20 @@ function countdown(ms: number, showHours = true): string {
 })
 export class InspectorCacheTileComponent {
   readonly cache = input.required<Cache>();
-  private readonly clock = inject(CacheCountdownClockService);
+  private readonly clockNow = inject(WallClockService).now('second');
+  private readonly clockActive = computed(() => {
+    const cache = this.cache();
+    const now = this.clockNow();
+    return (
+      cache.expiresAt > now ||
+      (cache.idleCompactAt !== undefined &&
+        now < cache.idleCompactAt + IDLE_FIRE_LATENESS_MS)
+    );
+  });
+  private readonly now = injectWallClock('second', () => this.clockActive());
   protected readonly estimateTitle = ESTIMATE_TITLE;
   protected readonly remainingMs = computed(
-    () => this.cache().expiresAt - this.clock.now(),
+    () => this.cache().expiresAt - this.now(),
   );
   protected readonly expired = computed(() => this.remainingMs() <= 0);
   protected readonly remainingPercent = computed(() => {
@@ -105,7 +114,7 @@ export class InspectorCacheTileComponent {
   );
   protected readonly idleCountdown = computed(() => {
     const fireAt = this.cache().idleCompactAt;
-    const now = this.clock.now();
+    const now = this.now();
     return fireAt === undefined || now >= fireAt + IDLE_FIRE_LATENESS_MS
       ? null
       : countdown(fireAt - now, false);
@@ -117,7 +126,7 @@ export class InspectorCacheTileComponent {
   protected readonly accessibleText = computed(() => {
     const remaining = this.remainingMs();
     const fireAt = this.cache().idleCompactAt;
-    const now = this.clock.now();
+    const now = this.now();
     const idle =
       fireAt === undefined || now >= fireAt + IDLE_FIRE_LATENESS_MS
         ? null
@@ -131,8 +140,4 @@ export class InspectorCacheTileComponent {
       ESTIMATE_TITLE,
     ].join(' ');
   });
-
-  constructor() {
-    inject(DestroyRef).onDestroy(this.clock.acquire());
-  }
 }

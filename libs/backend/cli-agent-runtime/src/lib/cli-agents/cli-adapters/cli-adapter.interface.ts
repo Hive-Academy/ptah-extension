@@ -174,6 +174,8 @@ export interface SdkHandle extends LaneAccountBindingFields {
   readonly onOutput: (callback: (data: string) => void) => void;
   /** Register a callback to receive structured output segments. Optional — only SDK adapters with structured event data implement this. */
   readonly onSegment?: (callback: (segment: CliOutputSegment) => void) => void;
+  /** Usage segments are terminal totals for one turn, safe for lane outcomes. */
+  readonly outcomeUsageIsTurnTotal?: true;
   /** Fired when this handle's own MCP startup gate times out. */
   readonly onMcpAttachmentTimeout?: (callback: () => void) => void;
   readonly mcpConfigWriteFailed?: boolean;
@@ -320,4 +322,13 @@ export interface CliAdapter {
    * Returns true if tokens are fresh (or were refreshed), false otherwise.
    */
   ensureTokensFresh?(): Promise<boolean>;
+}
+
+/**
+ * Host-owned, lazy selection of the Codex lane adapter. Called once per detector.
+ * If creation fails, the detector reports Codex unavailable and keeps peer
+ * adapters usable. It never substitutes the legacy Codex adapter.
+ */
+export interface CodexAdapterFactory {
+  create(): CliAdapter;
 }

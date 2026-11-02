@@ -226,6 +226,23 @@ function buildMinimalContainer(): DependencyContainer {
     },
   });
 
+  // `InstallScopeMigrationService` (TASK_2026_853 D-6) injects the harness
+  // reconciler and `RecentWorkspacesService`, which keeps its list in state
+  // storage and checks paths through the file-system provider. The real CLI
+  // container binds these through `registerHarnessSyncServices` and
+  // platform-cli `registration.ts`.
+  c.register(HARNESS_SYNC_TOKENS.RECONCILER, {
+    useValue: { reconcile: jest.fn() },
+  });
+  c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+    useValue: {
+      get: jest.fn(() => undefined),
+      update: jest.fn(async () => undefined),
+      keys: jest.fn(() => []),
+    },
+  });
+  c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: {} });
+
   c.register<Pick<OpenRouterPricingService, 'getPricing'>>(OpenRouterPricingService, { useValue: { getPricing: jest.fn() } });
   c.register<Pick<SessionStatsReaderService, 'scanDatedUsage'>>(SessionStatsReaderService, { useValue: { scanDatedUsage: jest.fn() } });
   registerUsageAnalytics(c);
@@ -493,6 +510,26 @@ describe('CLI DI — lane outcomes', () => {
     expect(c.resolve(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER)).toBe(
       c.resolve(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER),
     );
+  });
+});
+
+describe('CLI/TUI native Codex lane composition', () => {
+  it('binds the gated factory before the shared CLI detection service', () => {
+    const setup = fs.readFileSync(path.resolve(
+      __dirname, '../../../../libs/backend/cli-engine/src/lib/container.ts',
+    ), 'utf8');
+    const factory = setup.indexOf('registerCliCodexLaneFactory(container, logger);');
+    const runtime = setup.indexOf('registerCliAgentRuntimeServices(container, logger);');
+    expect(factory).toBeGreaterThan(-1);
+    expect(factory).toBeLessThan(runtime);
+  });
+
+  it('starts TUI with the same CLI engine container', () => {
+    const main = fs.readFileSync(path.resolve(
+      __dirname, '../../../ptah-tui/src/main.tsx',
+    ), 'utf8');
+    expect(main).toContain("from '@ptah-extension/cli-engine'");
+    expect(main).toContain("host: 'tui'");
   });
 });
 

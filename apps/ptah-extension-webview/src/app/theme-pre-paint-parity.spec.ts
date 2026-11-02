@@ -47,7 +47,7 @@ const INITIAL_ATTRIBUTES: Readonly<Record<string, string>> = {
   'data-glass-mode': 'dark',
 };
 
-const COMPARED = [...Object.keys(INITIAL_ATTRIBUTES), 'data-accent', 'data-scene'];
+const COMPARED = [...Object.keys(INITIAL_ATTRIBUTES), 'data-accent', 'data-scene', 'data-motion-style'];
 
 const STATE_TO_HINT: Readonly<Record<string, string>> = {
   'theme-v2': 'ptah-theme-v2',
@@ -76,6 +76,7 @@ function resetDocument(hints: Readonly<Record<string, string>>): void {
   const root = document.documentElement;
   root.removeAttribute('data-accent');
   root.removeAttribute('data-scene');
+  root.removeAttribute('data-motion-style');
   for (const [name, value] of Object.entries(INITIAL_ATTRIBUTES)) {
     root.setAttribute(name, value);
   }
@@ -197,6 +198,16 @@ const CASES: ReadonlyArray<{
     expected: 'cupcake',
   },
   {
+    name: 'a retired v2 dark choice migrates to dracula',
+    persisted: { state: { 'theme-v2': 'dark' }, hints: {} },
+    expected: 'dracula',
+  },
+  {
+    name: 'a retired legacy dark choice migrates to dracula',
+    persisted: { state: { theme: 'dark' }, hints: {} },
+    expected: 'dracula',
+  },
+  {
     name: 'second Electron workspace: legacy state plus an origin-wide v2 mirror',
     persisted: {
       state: { theme: 'anubis' },
@@ -247,9 +258,13 @@ describe('pre-paint theme script and ThemeService agree', () => {
       ['state choice', { 'ptah-scene': 'ember' }, {}, 'ember'],
       ['mirror only', {}, { 'ptah-scene': 'tide' }, 'tide'],
       ['invalid state uses mirror', { 'ptah-scene': 'retired' }, { 'ptah-scene': 'horizon' }, 'horizon'],
+      ['pyramid state choice', { 'ptah-scene': 'pyramid' }, {}, 'pyramid'],
+      ['temple mirror choice', {}, { 'ptah-scene': 'temple' }, 'temple'],
       ['joined ids are invalid', { 'ptah-scene': 'ember tide' }, { 'ptah-scene': 'horizon' }, 'horizon'],
-      ['invalid values', { 'ptah-scene': 'retired' }, { 'ptah-scene': 'invalid' }, null],
-      ['stored default', { 'ptah-scene': 'aurora' }, {}, null],
+      ['no stored scene', {}, {}, 'pyramid'],
+      ['invalid values', { 'ptah-scene': 'retired' }, { 'ptah-scene': 'invalid' }, 'pyramid'],
+      ['stored default', { 'ptah-scene': 'pyramid' }, {}, 'pyramid'],
+      ['stored aurora', { 'ptah-scene': 'aurora' }, {}, 'aurora'],
     ] as const)('%s', (_name, state, hints, expected) => {
       for (const theme of [undefined, 'ptah-glass', 'ptah-glass-light', 'dark', 'nord', 'cupcake', 'dracula', 'light']) {
         const persisted = shape({ state: { ...state, ...(theme ? { 'theme-v2': theme } : {}) }, hints });
@@ -263,10 +278,28 @@ describe('pre-paint theme script and ThemeService agree', () => {
     });
   });
 
+  describe.each(shapes)('motion style parity: %s', (_shape, shape) => {
+    it.each([
+      ['default', {}, {}, null],
+      ['state choice', { 'ptah-motion-style': 'slide-left' }, {}, 'slide-left'],
+      ['mirror only', {}, { 'ptah-motion-style': 'scale' }, 'scale'],
+      ['invalid state uses mirror', { 'ptah-motion-style': 'retired' }, { 'ptah-motion-style': 'directional' }, 'directional'],
+      ['stored default', { 'ptah-motion-style': 'rise' }, {}, null],
+      ['invalid values', { 'ptah-motion-style': 'retired' }, { 'ptah-motion-style': 'none' }, null],
+    ] as const)('%s', (_name, state, hints, expected) => {
+      const persisted = shape({ state, hints });
+      const before = runPrePaint(persisted);
+      const after = runService(persisted);
+      expect(before.attributes['data-motion-style']).toBe(expected);
+      expect(after.painted).toEqual(before);
+      expect(after.writes).toEqual([]);
+    });
+  });
+
   it('keeps valid state aurora ahead of a stale non-default mirror', () => {
     const persisted = { state: { 'ptah-scene': 'aurora' }, hints: { 'ptah-scene': 'ember' } };
-    expect(runPrePaint(persisted).attributes['data-scene']).toBeNull();
-    expect(runService(persisted).painted.attributes['data-scene']).toBeNull();
+    expect(runPrePaint(persisted).attributes['data-scene']).toBe('aurora');
+    expect(runService(persisted).painted.attributes['data-scene']).toBe('aurora');
     expect(localStorage.getItem('ptah-scene')).toBe('ember');
   });
 

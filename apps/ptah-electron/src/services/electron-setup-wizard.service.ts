@@ -4,11 +4,8 @@
  * Electron-specific implementation of ISetupWizardService that replaces the
  * VS Code SetupWizardService. Instead of creating a separate webview panel
  * (VS Code pattern), this service navigates the existing Angular SPA to the
- * wizard view via IPC broadcast.
- *
- * The Angular SPA already renders the wizard via AppStateManager.currentView()
- * === 'setup-wizard' (see app-shell.component.ts). In Electron, the SPA is
- * the main BrowserWindow, so we simply broadcast a switchView message.
+ * onboarding Home via IPC broadcast. In Electron, the SPA is the main
+ * BrowserWindow, so we simply broadcast a switchView message.
  *
  * All wizard step transitions (scan, analyze, recommend, generate) are handled
  * by existing RPC handlers (SetupRpcHandlers, WizardGenerationRpcHandlers)
@@ -76,7 +73,7 @@ export class ElectronSetupWizardService implements ISetupWizardService {
 
     try {
       await this.webviewManager.broadcastMessage(MESSAGE_TYPES.SWITCH_VIEW, {
-        view: 'setup-wizard',
+        view: 'onboarding',
       });
     } catch (error) {
       this.logger.error(

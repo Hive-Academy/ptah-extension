@@ -57,8 +57,9 @@ const TABS: readonly NativeTab[] = [
       @if (config(); as cfg) {
         <ptah-native-tab-group class="-mx-2 block" [tabs]="tabs" [activeId]="direction()"
           (activeIdChange)="selectTab($event)" ariaLabel="Voice directions">
-          <div class="px-2 pt-4" [attr.data-tab-body]="direction()">
+          <ng-container>
             @if (direction() === 'stt') {
+              <div class="ptah-motion-panel px-2 pt-4" animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave">
               @switch (sttProvider()) {
                 @case ('elevenlabs') {
                   <ptah-elevenlabs-panel direction="stt" [config]="cfg.elevenlabs" (changed)="changed.emit()" />
@@ -68,7 +69,9 @@ const TABS: readonly NativeTab[] = [
                   <ng-container [ngTemplateOutlet]="elevenLabsSetup" [ngTemplateOutletContext]="{ $implicit: cfg, direction: 'stt' }" />
                 }
               }
+              </div>
             } @else if (direction() === 'tts') {
+              <div class="ptah-motion-panel px-2 pt-4" animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave">
               @switch (ttsProvider()) {
                 @case ('elevenlabs') {
                   <ptah-elevenlabs-panel direction="tts" [config]="cfg.elevenlabs" (changed)="changed.emit()" />
@@ -78,8 +81,9 @@ const TABS: readonly NativeTab[] = [
                   <ng-container [ngTemplateOutlet]="elevenLabsSetup" [ngTemplateOutletContext]="{ $implicit: cfg, direction: 'tts' }" />
                 }
               }
+              </div>
             }
-          </div>
+          </ng-container>
         </ptah-native-tab-group>
       }
       <!-- ElevenLabs is selectable only with a stored key, so its key form must be reachable while Local is active. -->

@@ -389,6 +389,13 @@ export interface SessionStatsEntry {
   /** Number of assistant messages */
   readonly messageCount: number;
   /**
+   * User turns in the counted scope: a run of consecutive user prompts with no
+   * main assistant record between them is one turn. Tool results, meta and
+   * compact-summary records are not prompts. Absent when the producer cannot
+   * count every turn (older hosts; a live run without per-model attribution).
+   */
+  readonly turnCount?: number;
+  /**
    * Unique subagent identities that belong to this session (all statuses,
    * descendants included, the root excluded). Repeated hooks, tool-use aliases
    * and repeated transcript files do not increase it.

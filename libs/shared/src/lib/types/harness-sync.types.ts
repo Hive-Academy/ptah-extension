@@ -81,6 +81,96 @@ export interface HarnessWriteFailure {
   relPath: string;
   /** Narrowed error message; never a raw stack. */
   reason: string;
+  /**
+   * Set only when the failed write was the removal of a RETIRED item's copy,
+   * so the migration ledger can file the path under `failedPaths` of the right
+   * item. The entry stays owned and the next pass retries it.
+   */
+  itemId?: HarnessRetiredItemId;
+}
+
+// ---------------------------------------------------------------------------
+// Retired-source removal results (TASK_2026_853 D-2)
+//
+// The reconciler removes a copy of a retired source only on proof: unchanged
+// content, provably untracked by git, and an owned workspace file or an
+// unchanged home-config entry. Anything else is DISOWNED — dropped from the
+// manifest, left on disk — and reported as kept with a reason. The target, the
+// reconciler, health and the migration ledger all name these paths through the
+// types below, and key them through {@link harnessPathIdentity}.
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a retired item's copy was kept on disk (and disowned):
+ *
+ * - `edited` — its content (or home-config entry) no longer matches the
+ *   manifest hash.
+ * - `git-tracked` — `git ls-files --error-unmatch` exited 0.
+ * - `unverifiable` — git missing, timed out, exit 128 (not a repository), or
+ *   any other result than exit 1 with the no-match message.
+ */
+export const HARNESS_RETIRED_KEPT_REASONS = [
+  'edited',
+  'git-tracked',
+  'unverifiable',
+] as const;
+
+export type HarnessRetiredKeptReason =
+  (typeof HARNESS_RETIRED_KEPT_REASONS)[number];
+
+/**
+ * The retired item a path belongs to: `skills-sh:<rootId>` (equal to the
+ * clone sidecar's `sourceRef`) or `mcp:<serverKey>`. One item counts once in
+ * the migration ledger however many workspaces it reached.
+ */
+export type HarnessRetiredItemId = `skills-sh:${string}` | `mcp:${string}`;
+
+/** Item id of a retired skills.sh root, keyed by its directory basename. */
+export function skillsShRetiredItemId(rootId: string): HarnessRetiredItemId {
+  return `skills-sh:${rootId}`;
+}
+
+/** Item id of a retired MCP server intent. */
+export function mcpRetiredItemId(serverKey: string): HarnessRetiredItemId {
+  return `mcp:${serverKey}`;
+}
+
+/** A retired item's copy the pass deleted. */
+export interface HarnessRetiredPath {
+  /**
+   * The target's own path for the entry, exactly as `HarnessPlanRemove.relPath`
+   * spells it: a workspace-relative POSIX path, an MCP fragment key
+   * `<configRelPath>#<serverKey>`, or a `~/`-prefixed home-config fragment.
+   */
+  relPath: string;
+  itemId: HarnessRetiredItemId;
+}
+
+/** A retired item's copy the pass kept on disk and dropped from the manifest. */
+export interface HarnessKeptRetiredPath extends HarnessRetiredPath {
+  reason: HarnessRetiredKeptReason;
+}
+
+/**
+ * The one cross-workspace identity of a target path — the ledger's
+ * `removedPaths`/`keptPaths`/`failedPaths` key and the path a notice shows.
+ *
+ * - A `~/` home-config path is returned unchanged: it is the same entry from
+ *   every workspace, so it must count once.
+ * - Anything else is joined onto the workspace root, with backslashes turned
+ *   into `/` and trailing separators dropped, so two spellings of one root
+ *   give one key. Pass the root `resolveHarnessWorkspaceRoot` returned.
+ *
+ * Plain string work, no `path` import, so it stays usable on both sides.
+ */
+export function harnessPathIdentity(
+  workspaceRoot: string,
+  relPath: string,
+): string {
+  if (relPath.startsWith('~/')) return relPath;
+  const root = workspaceRoot.replace(/\\/g, '/').replace(/\/+$/, '');
+  const rel = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  return `${root}/${rel}`;
 }
 
 /**
@@ -161,6 +251,21 @@ export interface HarnessTargetHealth {
    * and every existing producer of this type must keep compiling.
    */
   removedLocalEdit?: string[];
+  /**
+   * Copies of RETIRED items deleted on proof (unchanged, untracked, owned).
+   * Every `relPath` here ALSO appears in {@link removed}.
+   *
+   * Optional for the same reason as {@link removedLocalEdit}.
+   */
+  removedRetired?: HarnessRetiredPath[];
+  /**
+   * Copies of RETIRED items kept on disk and disowned (their manifest entry is
+   * dropped, so no later pass touches them again). NOT in {@link removed}:
+   * nothing was deleted. Never snapshotted, unlike {@link removedLocalEdit}.
+   *
+   * Optional for the same reason as {@link removedLocalEdit}.
+   */
+  keptRetired?: HarnessKeptRetiredPath[];
   /**
    * Unowned paths claimed on proof that Ptah wrote them — a legacy
    * `.ptah-managed.json` listed them, or they carry the writer signature of a

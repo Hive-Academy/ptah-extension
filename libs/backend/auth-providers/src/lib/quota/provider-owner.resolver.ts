@@ -17,6 +17,7 @@
  * The key functions are module-level because the proxy base is not DI-built;
  * the `ProviderOwnerResolver` class wraps them for DI callers.
  */
+import { normalizeCodexHomeKey } from '@ptah-extension/codex-runtime';
 import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -59,6 +60,8 @@ import {
 import { OPENCODE_PROXY_TOKEN_PLACEHOLDER } from '../providers/opencode/opencode-provider.types';
 import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../providers/openrouter/openrouter-provider.types';
 import { SAKANA_PROXY_TOKEN_PLACEHOLDER } from '../providers/sakana/sakana-provider.types';
+import type { IKimiCodeAuthService } from '../providers/kimi-code/kimi-code-provider.types';
+import { KimiCodeHomeResolver } from '../providers/kimi-code/kimi-code-home-resolver';
 
 const FINGERPRINT_DOMAIN = 'ptah-quota-owner\0';
 const FINGERPRINT_LENGTH = 16;
@@ -96,6 +99,7 @@ const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   [CLAUDE_PROVIDER_ID]: 'Claude',
   [CODEX_PROVIDER_ID]: 'Codex',
   'ollama-cloud': 'Ollama Cloud',
+  'kimi-code': 'Kimi Code',
   opencode: 'OpenCode',
   'opencode-go': 'OpenCode',
   'opencode-zen': 'OpenCode',
@@ -449,6 +453,7 @@ function realCredential(raw: string | undefined): string | null {
  */
 @injectable()
 export class ProviderOwnerResolver {
+  private readonly kimiHome = new KimiCodeHomeResolver();
   // Metadata follows this exact owner object; copying it loses the WeakMap entry.
   private readonly details = new WeakMap<
     QuotaOwnerRef,
@@ -477,7 +482,26 @@ export class ProviderOwnerResolver {
       ICodexOwnerKeySource,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER)
     private readonly codexHome: CodexHomeResolver,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH, { isOptional: true })
+    private readonly kimiAuth?: Pick<IKimiCodeAuthService, 'getStatus'>,
   ) {}
+
+  /** Shared Kimi login or provider key; no credentials are returned. */
+  async ownerForKimiCode(): Promise<QuotaOwnerRef> {
+    try {
+      const status = await this.kimiAuth?.getStatus();
+      if (status?.credentialSource === 'cli-login') {
+        return quotaOwnerRefFromKey(cliStoreOwnerKey('kimi-code', this.kimiHome.path));
+      }
+      if (status?.credentialSource === 'api-key') {
+        return this.ownerForProviderKey('kimi-code');
+      }
+    } catch {
+      // degradation-audit: reported - status failure yields an unknown owner.
+      this.logger.warn('[ProviderOwnerResolver] Kimi auth status failed', { providerId: 'kimi-code' });
+    }
+    return quotaOwnerRefFromKey(unknownOwnerKey('kimi-code', 'shared-connection'));
+  }
 
   /**
    * The owner of the key stored for a provider. A main session routed through
@@ -519,6 +543,13 @@ export class ProviderOwnerResolver {
       usesOllamaSignInFallback(raw)
     ) {
       return this.ownerForProviderKey('ollama-cloud');
+    }
+    if (
+      raw !== null &&
+      normaliseOwnerProviderId(providerId) === 'kimi-code' &&
+      !realCredential(raw)
+    ) {
+      return this.ownerForKimiCode();
     }
     const credential = raw === null ? null : realCredential(raw);
     const owner = quotaOwnerRefFromKey(
@@ -563,13 +594,26 @@ export class ProviderOwnerResolver {
   }
 
   /**
-   * The Codex account last read from the resolved `CODEX_HOME`. Unknown —
-   * keyed by that home — before the first read and after the auth file changes.
+   * The Codex account last read from the requested home (default when omitted).
+   * Unknown owners use that home; lexical aliases of the default share its key.
    */
-  ownerForCodexHome(): QuotaOwnerRef {
-    const key = this.codexAccountUsage.currentOwnerKey();
+  ownerForCodexHome(home?: string): QuotaOwnerRef {
+    const key = this.codexAccountUsage.currentOwnerKey(home);
+    let ownerHome = home ?? this.codexHome.path;
+    if (!key && home !== undefined) {
+      try {
+        if (
+          normalizeCodexHomeKey(home, process.platform) ===
+          normalizeCodexHomeKey(this.codexHome.path, process.platform)
+        ) {
+          ownerHome = this.codexHome.path;
+        }
+      } catch {
+        // Invalid homes remain isolated unknown owners, without failing discovery.
+      }
+    }
     const owner = quotaOwnerRefFromKey(
-      key ?? unknownOwnerKey(CODEX_PROVIDER_ID, this.codexHome.path),
+      key ?? unknownOwnerKey(CODEX_PROVIDER_ID, ownerHome),
     );
     return key
       ? owner
@@ -584,11 +628,15 @@ export class ProviderOwnerResolver {
    * account service coalesces and caches this App Server read, so the usage
    * reader immediately following discovery reuses the same result.
    */
-  async resolveCodexHomeOwner(): Promise<QuotaOwnerRef> {
-    if (!this.codexAccountUsage.currentOwnerKey()) {
-      await this.codexAccountUsage.getAccountUsage();
+  async resolveCodexHomeOwner(home?: string): Promise<QuotaOwnerRef> {
+    if (!this.codexAccountUsage.currentOwnerKey(home)) {
+      if (home === undefined) {
+        await this.codexAccountUsage.getAccountUsage();
+      } else {
+        await this.codexAccountUsage.getAccountUsage({ home });
+      }
     }
-    return this.ownerForCodexHome();
+    return this.ownerForCodexHome(home);
   }
 
   /** A CLI whose quota follows its own on-disk credential store. */
@@ -631,8 +679,8 @@ export class ProviderOwnerResolver {
    *
    * - `native` — the Claude account of that session's own `Query`.
    * - `direct-key` — the stored key of the route's provider.
-   * - `proxy` — Codex resolves through its account home; any other provider
-   *   through its stored key (the key the proxy sends).
+   * - `proxy` — Codex resolves through its account home, Kimi through its
+   *   shared connection, and other providers through their stored key.
    * - no record, no route, or a proxy without a provider id — unknown, keyed
    *   by the session.
    */
@@ -643,7 +691,10 @@ export class ProviderOwnerResolver {
     if (accountRoute?.kind === 'named') {
       let account: ClaudeAccountInfo = null;
       try {
-        const result = await this.probe.readAccountForRoute(sessionId, accountRoute);
+        const result = await this.probe.readAccountForRoute(
+          sessionId,
+          accountRoute,
+        );
         if (result.status === 'available') account = result.value;
       } catch {
         // degradation-audit: optional-capability - failed identity proof stays unknown.
@@ -713,9 +764,13 @@ export class ProviderOwnerResolver {
       case 'direct-key':
         return this.ownerForProviderKey(route.providerId);
       case 'proxy':
-        return normaliseOwnerProviderId(route.providerId) === CODEX_PROVIDER_ID
-          ? this.ownerForCodexHome()
-          : this.ownerForProviderKey(route.providerId);
+        if (normaliseOwnerProviderId(route.providerId) === CODEX_PROVIDER_ID) {
+          return this.ownerForCodexHome();
+        }
+        if (route.providerId === 'kimi-code') {
+          return this.ownerForKimiCode();
+        }
+        return this.ownerForProviderKey(route.providerId);
     }
   }
 

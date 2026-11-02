@@ -48,12 +48,16 @@ function resolveRelative(file: string, name: string): string {
 }
 
 describe('plain surface contract modules stay zod-free', () => {
-  it.each(['surface.types.ts', 'surface-catalog.ts'])(
+  it.each([
+    'mcp-apps-contracts/surface.types.ts',
+    'mcp-apps-contracts/surface-catalog.ts',
+    'lib/types/session-runtime.types.ts',
+  ])(
     'walks every relative import and re-export from %s',
     (entry) => {
       expect(
         zodImports(
-          resolve(__dirname, 'mcp-apps-contracts', entry),
+          resolve(__dirname, entry),
           (file) => readFileSync(file, 'utf8'),
           resolveRelative,
         ),

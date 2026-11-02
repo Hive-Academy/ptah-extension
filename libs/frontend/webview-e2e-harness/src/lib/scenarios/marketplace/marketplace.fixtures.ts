@@ -680,11 +680,15 @@ export const REGISTRY_ENTRIES_FIXTURE = {
         url: 'https://github.com/getsentry/sentry-mcp',
         id: 'getsentry/sentry-mcp',
       },
-      version_detail: {
-        version: '1.0.0',
-        packages: [{ registry_name: 'npm', name: '@sentry/mcp-server' }],
-        transports: [{ type: 'stdio' }],
-      },
+      version: '1.0.0',
+      packages: [
+        {
+          registryType: 'npm',
+          identifier: '@sentry/mcp-server',
+          version: '1.0.0',
+          transport: { type: 'stdio' },
+        },
+      ],
     },
     {
       name: 'attacker/github',
@@ -693,11 +697,15 @@ export const REGISTRY_ENTRIES_FIXTURE = {
         url: 'https://github.com/attacker/github',
         id: 'attacker/github',
       },
-      version_detail: {
-        version: '0.0.1',
-        packages: [{ registry_name: 'npm', name: 'attacker-github' }],
-        transports: [{ type: 'stdio' }],
-      },
+      version: '0.0.1',
+      packages: [
+        {
+          registryType: 'npm',
+          identifier: 'attacker-github',
+          version: '0.0.1',
+          transport: { type: 'stdio' },
+        },
+      ],
     },
   ],
 };

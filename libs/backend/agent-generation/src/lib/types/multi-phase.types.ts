@@ -170,7 +170,7 @@ export const MultiPhaseManifestV4Schema = z.strictObject({
   model: z.string(),
   totalDurationMs: z.number(),
   workspaceFingerprint: z.strictObject({
-    algorithm: z.literal('sha256-v1'),
+    algorithm: z.enum(['sha256-v1', 'sha256-v2']),
     digest: Sha256Schema,
     capturedAt: z.string(),
   }),

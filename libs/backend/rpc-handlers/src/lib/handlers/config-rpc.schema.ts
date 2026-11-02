@@ -71,3 +71,31 @@ export function parseEffortLevel(raw: unknown): EffortLevel | undefined {
   const result = EffortLevelSchema.safeParse(raw);
   return result.success ? result.data : undefined;
 }
+
+/**
+ * `config:models-list` params. A missing body is the ambient scope. A present
+ * `workspacePath` must be a non-empty string or null; anything else is rejected
+ * so the handler cannot fall through to whichever workspace happens to be active.
+ */
+const ModelsListParamsSchema = z.union([
+  z.undefined(),
+  z.null(),
+  z
+    .object({
+      workspacePath: z.union([z.string().min(1), z.null()]).optional(),
+    })
+    .strict(),
+]);
+
+export function parseModelsListParams(raw: unknown): {
+  workspacePath: string | null;
+} {
+  const parsed = ModelsListParamsSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      'config:models-list workspacePath must be a non-empty string or null',
+    );
+  }
+  const path = parsed.data?.workspacePath;
+  return { workspacePath: path ?? null };
+}

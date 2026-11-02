@@ -426,6 +426,35 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('host routing setting', () => {
+    const key = 'agentOrchestration.hostRouting';
+
+    it('is file-based and defaults to enabled', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(true);
+    });
+
+    it('persists a disabled value across store restart', async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-host-routing-'));
+      try {
+        const store = new PtahFileSettingsManager(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          dir,
+        );
+        expect(store.get(key)).toBe(true);
+        await store.set(key, false);
+        const reopened = new PtahFileSettingsManager(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          dir,
+        );
+        expect(reopened.get(key)).toBe(false);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('saved Tasks-board view keys (TASK_2026_181)', () => {
     // Gate 1. These two keys have no `package.json contributes.configuration`
     // declaration behind them, so file routing is not a preference here — it is

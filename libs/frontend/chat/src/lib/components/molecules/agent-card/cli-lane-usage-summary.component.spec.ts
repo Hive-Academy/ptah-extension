@@ -61,6 +61,8 @@ describe('CliLaneUsageSummaryComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('cache read');
     expect(fixture.nativeElement.textContent).not.toContain('cache write');
     expect(fixture.nativeElement.textContent).not.toContain('in ');
+    expect(fixture.nativeElement.textContent).toContain('ctx —');
+    expect(fixture.nativeElement.textContent).toContain('—');
   });
 
   it('marks retained and live segment usage as partial when restored structured totals stay null', () => {

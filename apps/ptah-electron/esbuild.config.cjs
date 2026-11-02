@@ -68,6 +68,12 @@ module.exports = {
   },
   define: {
     __SENTRY_DSN__: isProd ? `"${SENTRY_DSN_PROD}"` : '""',
+    __PTAH_REPLAY_RECORDER__:
+      !isProd &&
+      process.env.NODE_ENV === 'development' &&
+      process.env.PTAH_REPLAY_RECORDER_BUILD === '1'
+        ? 'true'
+        : 'false',
   },
   plugins: [
     cjsExternalNamedImports({

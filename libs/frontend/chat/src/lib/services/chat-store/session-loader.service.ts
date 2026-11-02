@@ -22,12 +22,16 @@ import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   ChatSessionSummary,
   CliSessionReference,
+  createExecutionChatMessage,
+  MessageId,
   TabId,
   SessionId,
   SubagentRecord,
   type ChatResumeResult,
   type FlatStreamEventUnion,
   type SessionListParams,
+  normalizeModelKey,
+  trustedContextWindow,
 } from '@ptah-extension/shared';
 import {
   SessionManager,
@@ -38,6 +42,8 @@ import {
   TabManagerService,
   isValidSessionStatsSnapshot,
   commandCenterPersonaFor,
+  contextFillStats,
+  type LiveModelStatsPayload,
 } from '@ptah-extension/chat-state';
 import {
   SessionHistoryReplayer,
@@ -48,6 +54,7 @@ import {
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
 import { StreamViewportController } from '../stream-viewport-controller.service';
 import { HistoryPagingService } from './history-paging.service';
+import { mapChatSendFailureText } from '../message-sender.service';
 import {
   createEmptyStreamingState,
   type TabState,
@@ -1037,6 +1044,13 @@ export class SessionLoaderService {
         return { staleSnapshot: false };
       }
 
+      if (resumeResult.data?.cancelled === true) {
+        this.tabManager.applyResumeFailure(resolvedTabId);
+        this.tabManager.markTabIdle(resolvedTabId);
+        this.sessionManager.setStatus('loaded');
+        return { staleSnapshot: false };
+      }
+
       if (
         opts?.reason === 'compaction' &&
         targetTabId &&
@@ -1138,6 +1152,12 @@ export class SessionLoaderService {
           this.withoutDismissed(resumableSubagents ?? []),
         );
         this._resumableSubagentsSessionId = sessionId;
+        this.showResumeActivationFailure(
+          resolvedTabId,
+          opts,
+          targetTabId,
+          resumeResult.data,
+        );
       } else {
         this.tabManager.applyResumeFailure(resolvedTabId);
         this.sessionManager.setStatus('loaded');
@@ -1257,11 +1277,10 @@ export class SessionLoaderService {
     // Capture before applying persisted stats: applyLoadedSessionStats creates a
     // unknown live-model placeholder, which would otherwise erase the fresh
     // post-compaction seed before this targeted-reload guard can preserve it.
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    const prior = tab?.claudeSessionId === sessionId ? tab.liveModelStats ?? null : null;
     const compactionContextSeed =
-      options?.preserveCompactionContextSeed === true
-        ? (this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab
-            .liveModelStats ?? null)
-        : null;
+      options?.preserveCompactionContextSeed === true ? prior : null;
 
     this.tabManager.applyLoadedSessionStats(
       tabId,
@@ -1281,17 +1300,23 @@ export class SessionLoaderService {
 
     const snapshot = stats.contextSnapshot;
     if (!snapshot) {
+      const carried =
+        this.sameModel(prior, stats.model) &&
+        trustedContextWindow(prior?.contextCapacity, prior?.model ?? '') !== null
+          ? contextFillStats(prior, prior?.contextUsed)
+          : null;
       this.tabManager.setLiveModelStats(
         tabId,
-        stats.model
-          ? {
-              model: stats.model,
-              contextKnown: false,
-              contextUsed: 0,
-              contextWindow: 0,
-              contextPercent: 0,
-            }
-          : null,
+        carried ??
+          (stats.model
+            ? {
+                model: stats.model,
+                contextKnown: false,
+                contextUsed: 0,
+                contextWindow: 0,
+                contextPercent: 0,
+              }
+            : null),
       );
       return;
     }
@@ -1309,7 +1334,63 @@ export class SessionLoaderService {
       ],
       { hasCompacted: false },
     );
-    if (derived) this.tabManager.setLiveModelStats(tabId, derived.live);
+    if (derived) {
+      const carried =
+        trustedContextWindow(
+          derived.live.contextCapacity,
+          derived.live.model,
+        ) === null &&
+        this.sameModel(prior, snapshot.model) &&
+        trustedContextWindow(prior?.contextCapacity, prior?.model ?? '') !== null
+          ? contextFillStats(prior, snapshot.contextTokens)
+          : null;
+      this.tabManager.setLiveModelStats(tabId, carried ?? derived.live);
+    }
+  }
+
+  private sameModel(
+    prior: LiveModelStatsPayload | null,
+    model: string | null | undefined,
+  ): boolean {
+    return (
+      !!model &&
+      !!prior &&
+      normalizeModelKey(prior.model) === normalizeModelKey(model)
+    );
+  }
+
+  /**
+   * Activating resume stays successful when the transcript loaded and the
+   * live query did not. Append that failure the same way a failed start or
+   * continue does, after the loaded messages are already on the tab.
+   */
+  private showResumeActivationFailure(
+    tabId: string,
+    opts: SwitchSessionOptions | undefined,
+    targetTabId: TabId | undefined,
+    data: ChatResumeResult | undefined,
+  ): void {
+    if (opts?.activate !== true || targetTabId !== undefined) return;
+    if (!data || data.activated !== false) return;
+    const activationError = data.activationError;
+    if (typeof activationError !== 'string' || activationError.length === 0) {
+      return;
+    }
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab) return;
+    const text = mapChatSendFailureText(
+      data.activationErrorCode,
+      activationError,
+      activationError,
+    );
+    this.tabManager.setMessages(tabId, [
+      ...tab.messages,
+      createExecutionChatMessage({
+        id: MessageId.create(),
+        role: 'assistant',
+        rawContent: `Message delivery failed. ${text}`,
+      }),
+    ]);
   }
 
   /**

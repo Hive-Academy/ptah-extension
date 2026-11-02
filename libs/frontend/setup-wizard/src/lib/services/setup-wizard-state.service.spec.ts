@@ -2,7 +2,6 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import {
   SetupWizardStateService,
-  WizardStep,
   ProjectContext,
   AgentSelection,
   GenerationProgress,
@@ -107,6 +106,27 @@ describe('SetupWizardStateService', () => {
 
   it('should be created', () => {
     expect(service).toBeTruthy();
+  });
+
+  it('keeps the first analysis timestamp until reset, then accepts a new run', () => {
+    expect(service.analysisStartedAt()).toBeNull();
+    service.handleMessage({
+      type: 'setup-wizard:analysis-stream',
+      payload: { kind: 'text', content: 'first', timestamp: 1_000 },
+    });
+    expect(service.analysisStartedAt()).toBe(1_000);
+    service.handleMessage({
+      type: 'setup-wizard:analysis-stream',
+      payload: { kind: 'text', content: 'second', timestamp: 2_000 },
+    });
+    expect(service.analysisStartedAt()).toBe(1_000);
+    service.reset();
+    expect(service.analysisStartedAt()).toBeNull();
+    service.handleMessage({
+      type: 'setup-wizard:analysis-stream',
+      payload: { kind: 'text', content: 'new run', timestamp: 3_000 },
+    });
+    expect(service.analysisStartedAt()).toBe(3_000);
   });
 
   describe('Initial State', () => {
@@ -275,89 +295,6 @@ describe('SetupWizardStateService', () => {
       ];
       service.setAvailableAgents(agents);
       expect(service.selectedCount()).toBe(2);
-    });
-
-    it('should compute canProceed for welcome step', () => {
-      service.setCurrentStep('welcome');
-      expect(service.canProceed()).toBe(true);
-    });
-
-    it('should compute canProceed for scan step', () => {
-      service.setCurrentStep('scan');
-      expect(service.canProceed()).toBe(false);
-    });
-
-    it('should compute canProceed for analysis step with project context', () => {
-      service.setCurrentStep('analysis');
-      service.setProjectContext({
-        type: 'Test',
-        techStack: [],
-        isMonorepo: false,
-      });
-      expect(service.canProceed()).toBe(true);
-    });
-
-    it('should compute canProceed for analysis step without project context', () => {
-      service.setCurrentStep('analysis');
-      expect(service.canProceed()).toBe(false);
-    });
-
-    it('should compute canProceed for selection step with agents', () => {
-      service.setCurrentStep('selection');
-      service.setAvailableAgents([
-        {
-          id: '1',
-          name: 'Agent 1',
-          selected: true,
-          score: 90,
-          reason: 'Test',
-          autoInclude: false,
-        },
-      ]);
-      expect(service.canProceed()).toBe(true);
-    });
-
-    it('should compute canProceed for selection step without agents', () => {
-      service.setCurrentStep('selection');
-      expect(service.canProceed()).toBe(false);
-    });
-
-    it('should compute canProceed for generation step', () => {
-      service.setCurrentStep('generation');
-      expect(service.canProceed()).toBe(false);
-    });
-
-    it('should compute canProceed for completion step', () => {
-      service.setCurrentStep('completion');
-      expect(service.canProceed()).toBe(true);
-    });
-
-    it('should compute percentComplete for each step', () => {
-      const steps: WizardStep[] = [
-        'welcome',
-        'scan',
-        'analysis',
-        'selection',
-        'generation',
-        'completion',
-      ];
-      // stepProgress map from SetupWizardStateService: welcome=5, scan=20,
-      // analysis=35, selection=50, generation=55, completion=100.
-      const expected = [5, 20, 35, 50, 55, 100];
-
-      steps.forEach((step, index) => {
-        service.setCurrentStep(step);
-        expect(service.percentComplete()).toBe(expected[index]);
-      });
-    });
-
-    it('should compute percentComplete for generation step with progress', () => {
-      service.setCurrentStep('generation');
-      service.updateGenerationProgress({
-        phase: 'customization',
-        percentComplete: 75,
-      });
-      expect(service.percentComplete()).toBe(75);
     });
   });
 
@@ -691,25 +628,6 @@ describe('SetupWizardStateService', () => {
       service.reset();
 
       expect(service.fallbackWarning()).toBeNull();
-    });
-  });
-
-  describe('Enhance Step Integration (TASK_2025_149)', () => {
-    it('should include enhance in step order and return correct stepIndex', () => {
-      service.setCurrentStep('enhance');
-      // 'enhance' is at index 5 in: welcome(0), scan(1), analysis(2), selection(3), generation(4), enhance(5), completion(6)
-      expect(service.stepIndex()).toBe(5);
-    });
-
-    it('should return correct percentComplete for enhance step', () => {
-      service.setCurrentStep('enhance');
-      // stepProgress: enhance=85 (post-generation but pre-completion)
-      expect(service.percentComplete()).toBe(85);
-    });
-
-    it('should return canProceed=false for enhance step', () => {
-      service.setCurrentStep('enhance');
-      expect(service.canProceed()).toBe(false);
     });
   });
 

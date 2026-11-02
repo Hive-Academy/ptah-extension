@@ -1,0 +1,23 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": "29",
+  "title": "D-4 external-plugin MCP consented backend",
+  "executor": "claude backend-developer subagents (first killed; second finished)",
+  "changed": [
+    "libs/backend/rpc-handlers/src/lib/handlers/plugin-rpc.handlers.ts",
+    "libs/backend/rpc-handlers/src/lib/handlers/plugin-rpc.schema.ts",
+    "libs/backend/rpc-handlers/src/lib/handlers/plugin-rpc.handlers.spec.ts",
+    "libs/backend/rpc-handlers/src/lib/handlers/external-plugin-mcp.service.ts",
+    "libs/backend/rpc-handlers/src/lib/handlers/external-plugin-mcp.service.spec.ts"
+  ],
+  "contract": {
+    "mcpScope": "schema default workspace; read only on the consented call, ignored by the plan call.",
+    "targets": "workspace -> claude, vscode + detected cursor/opencode; global -> claude, vscode + every detected CLI.",
+    "noFolder": "workspace scope with no folder returns NO_WORKSPACE_MCP_WARNING, records no intent; plugin cache still installs.",
+    "uninstall": "forgets each server in its recorded scope via intentScopeOf; another workspace's record is left and warned."
+  },
+  "verification": {
+    "scopedTest": "--testPathPatterns='plugin-rpc|external-plugin-mcp': 2 suites, 98/98, exit 0 (/tmp/tpd-b29-test.log). Spec needed the heavy-module-mocks workspaceIntelligenceMock to load.",
+    "combinedVerify": "shared, agent-sdk, rpc-handlers, ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui, cli-engine, ptah-extension-webview: 74 tasks, 73 ok, only known ptah-extension-webview:lint failed (/tmp/tpd-b26-29-verify.log); degradation-audit:lint exit 0"
+  }
+}

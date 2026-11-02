@@ -12,8 +12,10 @@
  * SDK sessions send, and is parsed beside it in `vscode-lm-tools`'
  * `http-server.handler.ts`. The file-writer twin — for the persistent entries
  * in `.mcp.json` and the rival CLIs' config files — is `ptahMcpUrl` in
- * `vscode-lm-tools/.../mcp-http/ptah-mcp-slots.ts`. The two must produce the
- * same grammar; each names the other so a change to one finds both.
+ * `vscode-lm-tools/.../mcp-http/ptah-mcp-slots.ts`. The session-segment
+ * builder is `ptahMcpSessionUrl` in `@ptah-extension/codex-runtime`
+ * (`src/lib/codex-ptah-mcp.ts`). The three must produce the same workspace
+ * grammar; each names the others so a change to one finds all three.
  *
  * `encodeURIComponent`, never hand-rolled escaping: a Windows root carries a
  * colon and backslashes, and the encoding turns every `/` in the directory

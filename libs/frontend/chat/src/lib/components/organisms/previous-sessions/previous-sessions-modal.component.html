@@ -253,8 +253,9 @@
           >
             @if (chatStore.isLoadingMoreSessions()) {
               <span
-                class="psm-spinner inline-block w-3.5 h-3.5 rounded-full border-2 border-current border-r-transparent"
+                class="loading loading-spinner inline-block h-3 w-3 shrink-0"
                 aria-hidden="true"
+                data-testid="session-load-more-pulse"
               ></span>
               Loading...
             } @else {

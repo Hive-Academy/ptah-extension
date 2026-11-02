@@ -70,6 +70,9 @@ describe('LaneGuardsSettingsComponent', () => {
 
   it('loads only the repeat-call field from agent:getConfig', async () => {
     await create();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('section')?.getAttribute('data-glass-surface'),
+    ).toBe('content');
     expect(call).toHaveBeenCalledWith('agent:getConfig', undefined, {
       timeout: 5_000,
     });

@@ -130,6 +130,19 @@ describe('MessageDispatchService', () => {
       activeTabId: () => activeTabId(),
       activeTab: () => tabs.find((t) => t.id === activeTabId()) ?? null,
       isTabStreaming: isTabStreamingMock,
+      markLoaded: jest.fn((id: string) => {
+        tabs = tabs.map((tab) =>
+          tab.id === id ? { ...tab, status: 'loaded' } : tab,
+        );
+      }),
+      markTabIdle: jest.fn(),
+      setLastTerminalReason: jest.fn(
+        (id: string, reason: TabState['lastTerminalReason']) => {
+          tabs = tabs.map((tab) =>
+            tab.id === id ? { ...tab, lastTerminalReason: reason } : tab,
+          );
+        },
+      ),
       // Mirrors production: the ACTIVE workspace plus every background
       // partition, unlike `tabs()`.
       findTabByIdAcrossWorkspaces: (tabId: string) => {
@@ -225,6 +238,8 @@ describe('MessageDispatchService', () => {
     expect(setQueuedContentMock).toHaveBeenCalledTimes(1);
     expect(clearQueuedContentAndOptionsMock).toHaveBeenCalledTimes(1);
     expect(continueExistingSessionForQueueFlushMock).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(tabs[0].messages)).toContain('not sent');
+    expect(releaseHeldCommandMock).not.toHaveBeenCalled();
   });
 
   it('a failed flush with a new draft restores original and new exactly once', async () => {
@@ -249,6 +264,43 @@ describe('MessageDispatchService', () => {
   });
 
   describe('sendOrQueueMessage', () => {
+    it('restores a cancelled send quietly without claiming success', async () => {
+      tabs = [makeTab({ claudeSessionId: null, lastTerminalReason: null })];
+      const outcome = { success: false, cancelled: true };
+      const log = jest.spyOn(console, 'error').mockImplementation();
+      sendMock.mockImplementation(async () => {
+        tabs = tabs.map((tab) => ({ ...tab, status: 'streaming', lastTerminalReason: 'api_error' }));
+        return outcome;
+      });
+      try {
+        await expect(service.sendOrQueueMessage('/compact')).resolves.toEqual(outcome);
+        expect(setMessagesMock).not.toHaveBeenCalled();
+        expect(tabs[0].status).toBe('loaded');
+        expect(tabs[0].lastTerminalReason).toBeNull();
+        expect(TestBed.inject(TabManagerService).markTabIdle).toHaveBeenCalledWith('tab-1');
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
+    });
+
+    it('preserves the CHAT_ERROR state for an already reported direct failure', async () => {
+      const outcome = { success: false, errorAlreadyShown: true };
+      sendMock.mockImplementation(async () => {
+        tabs = [makeTab({ lastTerminalReason: 'api_error' })];
+        return outcome;
+      });
+
+      await expect(service.sendOrQueueMessage('/compact')).resolves.toEqual(outcome);
+
+      expect(setMessagesMock).not.toHaveBeenCalled();
+      expect(tabs[0].lastTerminalReason).toBe('api_error');
+      expect(TestBed.inject(TabManagerService).markLoaded).not.toHaveBeenCalled();
+      expect(TestBed.inject(TabManagerService).markTabIdle).not.toHaveBeenCalled();
+      expect(TestBed.inject(TabManagerService).setLastTerminalReason).not.toHaveBeenCalled();
+      expect(releaseHeldCommandMock).not.toHaveBeenCalled();
+    });
+
     it('blocks /context slash command for non-Anthropic providers', async () => {
       persistedAuthMethod.set('copilot');
       await service.sendOrQueueMessage('/context');
@@ -619,6 +671,44 @@ describe('MessageDispatchService', () => {
   });
 
   describe('sendQueuedMessage', () => {
+    it('restores a cancelled queued send without error UI or releasing held commands', async () => {
+      tabs = [makeTab({ queuedContent: 'queued', queuedOptions: { files: ['a.ts'] }, lastTerminalReason: 'completed' })];
+      continueExistingSessionForQueueFlushMock.mockImplementation(async () => {
+        tabs = tabs.map((tab) => ({ ...tab, status: 'streaming', lastTerminalReason: 'api_error' }));
+        return { success: false, cancelled: true };
+      });
+      const log = jest.spyOn(console, 'error').mockImplementation();
+      try {
+        await service.sendQueuedMessage('tab-1', 'queued');
+        expect(tabs[0].queuedContent).toBe('queued');
+        expect(tabs[0].queuedOptions).toEqual({ files: ['a.ts'] });
+        expect(tabs[0].status).toBe('loaded');
+        expect(tabs[0].lastTerminalReason).toBe('completed');
+        expect(TestBed.inject(TabManagerService).markTabIdle).toHaveBeenCalledWith('tab-1');
+        expect(setMessagesMock).not.toHaveBeenCalled();
+        expect(releaseHeldCommandMock).not.toHaveBeenCalled();
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
+    });
+
+    it('does not duplicate or retry an already settled compact failure', async () => {
+      tabs = [makeTab({ queuedContent: '/compact', lastTerminalReason: 'api_error' })];
+      continueExistingSessionForQueueFlushMock.mockResolvedValue({
+        success: false, errorAlreadyShown: true,
+      });
+      await service.sendQueuedMessage('tab-1', '/compact');
+      expect(setMessagesMock).not.toHaveBeenCalled();
+      expect(tabs[0].lastTerminalReason).toBe('api_error');
+      expect(tabs[0].queuedContent).toBeNull();
+      expect(setQueuedContentMock).not.toHaveBeenCalled();
+      expect(releaseHeldCommandMock).not.toHaveBeenCalled();
+      expect(TestBed.inject(TabManagerService).markLoaded).not.toHaveBeenCalled();
+      expect(TestBed.inject(TabManagerService).markTabIdle).not.toHaveBeenCalled();
+      expect(TestBed.inject(TabManagerService).setLastTerminalReason).not.toHaveBeenCalled();
+    });
+
     beforeEach(() => {
       tabs = [
         makeTab({

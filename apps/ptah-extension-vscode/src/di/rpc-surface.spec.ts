@@ -190,6 +190,20 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] =
 describe('VS Code RPC surface', () => {
   const surface = deriveRpcSurface(createVscodeRpcHostProfile(NOOP_LOGGER));
 
+  it('keeps chat and configuration RPCs available on the legacy host', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'chat:start',
+        'chat:continue',
+        'chat:abort',
+        'chat:resume',
+        'config:model-switch',
+        'config:effort-set',
+        'config:autopilot-toggle',
+      ]),
+    );
+  });
+
   it('serves artifact methods with the optional store absent', () => {
     expect(surface.registered).toEqual(
       expect.arrayContaining(['artifacts:list', 'artifacts:openLink']),

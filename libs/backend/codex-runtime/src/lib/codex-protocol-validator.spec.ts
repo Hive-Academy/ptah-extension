@@ -84,6 +84,7 @@ const requests: [string, unknown, unknown][] = [
   ],
   ['turn/interrupt', { threadId: 'thread', turnId: 'turn' }, {}],
   ['thread/compact/start', { threadId: 'thread' }, {}],
+  ['model/list', { limit: 100 }, { data: [], nextCursor: null }],
   [
     'account/rateLimits/read',
     undefined,
@@ -191,7 +192,294 @@ const notifications: [string, unknown][] = [
       willRetry: false,
     },
   ],
+  [
+    'item/reasoning/summaryTextDelta',
+    { ...ids, summaryIndex: 0, delta: 'thinking' },
+  ],
+  ['item/reasoning/textDelta', { ...ids, contentIndex: 0, delta: 'thinking' }],
 ];
+
+describe('server extensions and strict client contracts', () => {
+  const extendedThreadResult = {
+    ...threadResult,
+    thread: {
+      ...threadResult.thread,
+      environments: [],
+      extra: {},
+      canAcceptDirectInput: true,
+      daybreakEnabled: false,
+    },
+    runtimeWorkspaceRoots: ['/work'],
+    activePermissionProfile: null,
+    multiAgentMode: 'disabled',
+  };
+
+  it('strips the seven additive fields from the real thread/start shape', () => {
+    expect(validateCodexResult('thread/start', extendedThreadResult)).toEqual(
+      threadResult,
+    );
+  });
+
+  it.each(['id', 'model'])(
+    'still requires %s in an extended thread/start result',
+    (field) => {
+      const missingThread: Record<string, unknown> = {
+        ...extendedThreadResult.thread,
+      };
+      const missingResult: Record<string, unknown> = {
+        ...extendedThreadResult,
+        thread: missingThread,
+      };
+      delete (field === 'id' ? missingThread : missingResult)[field];
+      expect(() => validateCodexResult('thread/start', missingResult)).toThrow(
+        expect.objectContaining({ code: 'invalidResult' }),
+      );
+    },
+  );
+
+  it('still rejects wrong required field types', () => {
+    expect(() =>
+      validateCodexResult('thread/start', {
+        ...extendedThreadResult,
+        thread: { ...extendedThreadResult.thread, id: 42 },
+      }),
+    ).toThrow(expect.objectContaining({ code: 'invalidResult' }));
+  });
+
+  it.each([
+    ['thread/start', { futureField: true }],
+    [
+      'turn/start',
+      {
+        threadId: 'thread',
+        input: [],
+        sandboxPolicy: { type: 'readOnly', futureField: true },
+      },
+    ],
+    [
+      'turn/start',
+      {
+        threadId: 'thread',
+        input: [{ type: 'text', text: 'hi', futureField: true }],
+      },
+    ],
+    [
+      'turn/start',
+      {
+        threadId: 'thread',
+        input: [],
+        toolOutput: {
+          name: 'tool',
+          output: [{ type: 'input_text', text: 'hi', futureField: true }],
+        },
+      },
+    ],
+    [
+      'thread/start',
+      {
+        approvalPolicy: {
+          granular: {
+            mcp_elicitations: false,
+            rules: false,
+            sandbox_approval: false,
+            futureField: true,
+          },
+        },
+      },
+    ],
+    ['initialized', { futureField: true }],
+  ])('keeps outgoing %s params strict', (method, params) => {
+    expect(() => validateCodexParams(method, params)).toThrow(
+      expect.objectContaining({ code: 'invalidParams' }),
+    );
+  });
+
+  it('strips nested server policy extensions', () => {
+    const granular = {
+      mcp_elicitations: false,
+      rules: false,
+      sandbox_approval: false,
+    };
+    expect(
+      validateCodexResult('thread/start', {
+        ...threadResult,
+        approvalPolicy: {
+          granular: { ...granular, futureField: true },
+          futureField: true,
+        },
+        sandbox: { type: 'readOnly', futureField: true },
+      }),
+    ).toEqual({ ...threadResult, approvalPolicy: { granular } });
+  });
+
+  it('accepts approval request extensions while rejecting reply extensions', () => {
+    const method = 'item/commandExecution/requestApproval';
+    expect(
+      validateCodexParams(method, {
+        ...approval,
+        futureField: true,
+        networkApprovalContext: {
+          host: 'example.test',
+          protocol: 'https',
+          futureField: true,
+        },
+      }),
+    ).toEqual({
+      ...approval,
+      networkApprovalContext: { host: 'example.test', protocol: 'https' },
+    });
+    expect(() =>
+      validateCodexResult(method, {
+        decision: 'accept',
+        futureField: true,
+      }),
+    ).toThrow(expect.objectContaining({ code: 'invalidResult' }));
+    expect(() =>
+      validateCodexParams(method, {
+        ...approval,
+        kind: 'futureKind',
+        futureField: true,
+      }),
+    ).toThrow(expect.objectContaining({ code: 'invalidParams' }));
+  });
+
+  it('keeps nested permission replies strict and server permissions tolerant', () => {
+    const permissions = { network: { enabled: true, futureField: true } };
+    expect(
+      validateCodexParams('item/permissions/requestApproval', {
+        ...approval,
+        cwd: '/work',
+        permissions,
+      }),
+    ).toEqual({
+      ...approval,
+      cwd: '/work',
+      permissions: { network: { enabled: true } },
+    });
+    expect(() =>
+      validateCodexResult('item/permissions/requestApproval', {
+        permissions,
+      }),
+    ).toThrow(expect.objectContaining({ code: 'invalidResult' }));
+  });
+
+  it.each([
+    { type: 'agentMessage', id: 'item', text: 'hi' },
+    {
+      type: 'userMessage',
+      id: 'item',
+      content: [{ type: 'text', text: 'hi' }],
+    },
+    {
+      type: 'functionCallOutput',
+      id: 'item',
+      name: 'tool',
+      output: [{ type: 'input_text', text: 'hi' }],
+    },
+  ])('strips extensions inside $type notifications', (item) => {
+    const params = { threadId: 'thread', turnId: 'turn', startedAtMs: 1, item };
+    expect(
+      validateCodexParams('item/started', {
+        ...params,
+        item: { ...item, futureField: true },
+        futureField: true,
+      }),
+    ).toEqual(params);
+  });
+
+  it('strips deeply nested server inputs and function outputs', () => {
+    const params = { threadId: 'thread', turnId: 'turn', startedAtMs: 1 };
+    expect(
+      validateCodexParams('item/started', {
+        ...params,
+        item: {
+          type: 'userMessage',
+          id: 'item',
+          content: [
+            {
+              type: 'text',
+              text: 'hi',
+              futureField: true,
+              text_elements: [
+                {
+                  byteRange: { start: 0, end: 2, futureField: true },
+                  futureField: true,
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toEqual({
+      ...params,
+      item: {
+        type: 'userMessage',
+        id: 'item',
+        content: [
+          {
+            type: 'text',
+            text: 'hi',
+            text_elements: [{ byteRange: { start: 0, end: 2 } }],
+          },
+        ],
+      },
+    });
+    expect(
+      validateCodexParams('item/started', {
+        ...params,
+        item: {
+          type: 'functionCallOutput',
+          id: 'item',
+          name: 'tool',
+          output: [
+            {
+              type: 'input_text',
+              text: 'hi',
+              futureField: true,
+            },
+          ],
+        },
+      }),
+    ).toEqual({
+      ...params,
+      item: {
+        type: 'functionCallOutput',
+        id: 'item',
+        name: 'tool',
+        output: [
+          {
+            type: 'input_text',
+            text: 'hi',
+          },
+        ],
+      },
+    });
+  });
+
+  it('strips envelope extensions without weakening outgoing param validation', () => {
+    expect(
+      validateCodexFrame(
+        { id: 1, result: {}, futureField: true },
+        'turn/interrupt',
+      ),
+    ).toEqual({ id: 1, result: {} });
+    expect(() =>
+      validateCodexFrame({
+        id: 1,
+        method: 'thread/start',
+        params: { futureField: true },
+        futureField: true,
+      }),
+    ).toThrow(expect.objectContaining({ code: 'invalidParams' }));
+    expect(() =>
+      validateCodexFrame({
+        method: 'future/notification',
+        params: {},
+        futureField: true,
+      }),
+    ).toThrow(expect.objectContaining({ code: 'unknownMethod' }));
+  });
+});
 
 describe('Codex protocol validation', () => {
   it('replays every inbound method from spike runs 6e through 6j', () => {
@@ -259,6 +547,31 @@ describe('Codex protocol validation', () => {
     expect(() =>
       validateCodexFrame({ method: 'future/notification', params: {} }),
     ).toThrow(expect.objectContaining({ code: 'unknownMethod' }));
+  });
+
+  it('models the reasoning delta notifications with required fields', () => {
+    for (const [method, indexKey] of [
+      ['item/reasoning/summaryTextDelta', 'summaryIndex'],
+      ['item/reasoning/textDelta', 'contentIndex'],
+    ] as const) {
+      const params = { ...ids, [indexKey]: 0, delta: 'thinking' };
+      const frame = validateCodexFrame({ method, params });
+      expect(frame).toEqual({ method, params });
+      expect(() =>
+        validateCodexFrame({
+          method,
+          params: { ...params, futureField: true },
+        }),
+      ).not.toThrow();
+      const missing = { ...params } as Record<string, unknown>;
+      delete missing[indexKey];
+      expect(() =>
+        validateCodexFrame({ method, params: missing }),
+      ).toThrow(CodexProtocolError);
+      expect(() => validateCodexFrame({ id: 1, method, params })).toThrow(
+        CodexProtocolError,
+      );
+    }
   });
 
   it.each(notifications.slice(0, 7))(
@@ -408,9 +721,17 @@ describe('Codex protocol validation', () => {
     expect(() => validateCodexParams(method, { misspelled: true })).toThrow(
       CodexProtocolError,
     );
-    expect(() => validateCodexResult(method, { misspelled: true })).toThrow(
-      CodexProtocolError,
-    );
+    // Empty server results strip additive keys; non-object results remain invalid.
+    if (method === 'turn/interrupt' || method === 'thread/compact/start') {
+      expect(validateCodexResult(method, { misspelled: true })).toEqual({});
+      expect(() => validateCodexResult(method, null)).toThrow(
+        expect.objectContaining({ code: 'invalidResult' }),
+      );
+    } else {
+      expect(() => validateCodexResult(method, { misspelled: true })).toThrow(
+        CodexProtocolError,
+      );
+    }
   });
   it.each(notifications)('validates %s notification', (method, params) => {
     expect(

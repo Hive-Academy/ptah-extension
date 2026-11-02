@@ -133,6 +133,7 @@ export function emptySessionStats(sessionId: string): SessionStatsReadEntry {
     tokens: ZERO_TOKENS,
     tokenCount: 0,
     messageCount: 0,
+    turnCount: 0,
     agentSessionCount: 0,
     status: 'empty',
     coverage: 'complete',
@@ -210,6 +211,8 @@ function aggregateLedgers(
   let unattributedTokens = 0;
   let usageRecords = 0;
   let messageCount = 0;
+  let turnCount = 0;
+  let previousPrompt = false;
   let untimestampedCount = 0;
 
   const count = (record: UsageRecord, isParent: boolean): void => {
@@ -222,7 +225,15 @@ function aggregateLedgers(
         return;
       }
     }
-    if (isParent && record.assistant) messageCount++;
+    if (isParent) {
+      if (record.prompt) {
+        if (!previousPrompt) turnCount++;
+        previousPrompt = true;
+      } else if (record.assistant) {
+        previousPrompt = false;
+      }
+      if (record.assistant) messageCount++;
+    }
     if (!record.hasUsage) return;
     usageRecords++;
     addTokens(totals, record);
@@ -298,6 +309,7 @@ function aggregateLedgers(
         : 'complete',
     status: usageRecords > 0 ? 'ok' : 'empty',
     messageCount,
+    turnCount,
     untimestampedCount,
     subagentIds: input.subagentIds,
     scope: scope.kind,
@@ -310,6 +322,8 @@ function aggregateContributions(
   const totals: TokenTotals = { ...ZERO_TOKENS };
   const perModel = new Map<string, TokenTotals & { costUSD: number | null }>();
   let messageCount = 0;
+  let turnCount = 0;
+  let hasAllTurnCounts = true;
   let untimestampedCount = 0;
   let fallbackModel: string | null = null;
   let totalCost: number | null = 0;
@@ -329,6 +343,11 @@ function aggregateContributions(
     if (part.status === 'error') anyError = true;
     fallbackModel ??= part.model;
     messageCount += part.messageCount;
+    if (part.turnCount === undefined) {
+      hasAllTurnCounts = false;
+    } else {
+      turnCount += part.turnCount;
+    }
     untimestampedCount += part.untimestampedCount ?? 0;
     addTokens(totals, part.tokens);
     for (const row of part.modelUsageList ?? []) {
@@ -386,6 +405,7 @@ function aggregateContributions(
     coverage,
     status: anyOk ? 'ok' : anyError ? 'error' : 'empty',
     messageCount,
+    turnCount: hasAllTurnCounts ? turnCount : undefined,
     untimestampedCount,
     subagentIds: input.subagentIds,
     scope: 'session',
@@ -404,6 +424,7 @@ function finishEntry(params: {
   readonly coverage: SessionStatsCoverage;
   readonly status: SessionStatsReadEntry['status'];
   readonly messageCount: number;
+  readonly turnCount: number | undefined;
   readonly untimestampedCount: number;
   readonly subagentIds: readonly string[];
   readonly scope: NonNullable<SessionStatsReadEntry['scope']>;
@@ -431,6 +452,7 @@ function finishEntry(params: {
     tokens,
     tokenCount: tokenSum(tokens),
     messageCount: params.messageCount,
+    ...(params.turnCount !== undefined && { turnCount: params.turnCount }),
     agentSessionCount: countUniqueSubagents(params.subagentIds),
     ...(rows.length > 0 && {
       modelUsageList: rows.map((m) => ({

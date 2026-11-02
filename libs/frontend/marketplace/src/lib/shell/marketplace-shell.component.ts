@@ -22,6 +22,7 @@ import {
   VSCodeService,
   type MarketplaceRoute,
 } from '@ptah-extension/core';
+import { MotionRouteStageDirective } from '@ptah-extension/ui';
 import { MarketplaceInventoryStore } from '../data/marketplace-inventory.store';
 import { ConnectorLinksStore } from '../data/connector-links.store';
 import { CapabilityTogglesStore } from '../data/capability-toggles.store';
@@ -35,6 +36,7 @@ import {
   marketplaceRouteOfUrl,
 } from './marketplace-route-url';
 import { MarketplaceStatusBarComponent } from './marketplace-status-bar.component';
+import { MARKETPLACE_LEAVE_CLONE, MARKETPLACE_LEAVE_CLONE_DEFAULT, marketplacePageKey } from './marketplace-motion-key';
 
 /**
  * The element `/` focuses: the first search field of the active page.
@@ -111,9 +113,11 @@ export function isEditableTarget(target: EventTarget | null): boolean {
     LucideAngularModule,
     MarketplaceNavComponent,
     MarketplaceStatusBarComponent,
+    MotionRouteStageDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [
+    { provide: MARKETPLACE_LEAVE_CLONE, useValue: MARKETPLACE_LEAVE_CLONE_DEFAULT },
     MarketplaceInventoryStore,
     ConnectorLinksStore,
     CapabilityTogglesStore,
@@ -139,6 +143,8 @@ export class MarketplaceShellComponent {
   private readonly appState = inject(AppStateManager);
   private readonly vscode = inject(VSCodeService);
   private readonly router = inject(Router);
+  protected readonly pageMotionKey = marketplacePageKey(this.router);
+  protected readonly motionLeaveClone = inject(MARKETPLACE_LEAVE_CLONE);
   private readonly layout = inject(MarketplaceLayout);
   private readonly capabilities = inject(CapabilityTogglesStore);
 
@@ -197,9 +203,31 @@ export class MarketplaceShellComponent {
           this.router,
           event.urlAfterRedirects,
         );
+        const previous = this._route();
+        if (route && previous &&
+            (route.page !== previous.page ||
+              (route.page === 'servers' && previous.page === 'servers' && route.source !== previous.source) ||
+              (route.page === 'skills' && previous.page === 'skills' && route.source !== previous.source))) {
+          this.resetPageScroll();
+        }
         this._route.set(route);
         if (route !== null) this.appState.rememberMarketplaceRoute(route);
       });
+  }
+
+  private resetPageScroll(): void {
+    const main = this.main().nativeElement;
+    const offset = main.scrollTop;
+    if (offset === 0) return;
+
+    // The leaving route is absolute in the stage. Keep its viewport position
+    // while the new page starts at the top of the shared scroll container.
+    for (const leaving of main.querySelectorAll<HTMLElement>(
+      ':scope > .ptah-motion-stage > .ptah-motion-leave',
+    )) {
+      leaving.style.top = `${-offset}px`;
+    }
+    main.scrollTop = 0;
   }
 
   /** Back to chat — the hub's `goBack` behaviour, VS Code only. */

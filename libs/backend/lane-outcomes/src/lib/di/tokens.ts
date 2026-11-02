@@ -9,6 +9,8 @@ export const LANE_OUTCOME_TOKENS = {
   SKILL_TELEMETRY_SEAM: Symbol.for('PtahLaneOutcomeSkillTelemetrySeam'),
   /** Optional failure classifier supplied by the host. */
   FAILURE_CLASSIFIER: Symbol.for('PtahLaneOutcomeFailureClassifier'),
+  /** Optional task-kind classifier supplied by the host. */
+  TASK_KIND_CLASSIFIER: Symbol.for('PtahLaneOutcomeTaskKindClassifier'),
   /** Host logger registered by this library. */
   LOGGER: Symbol.for('PtahLaneOutcomeLogger'),
   /**

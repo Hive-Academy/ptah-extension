@@ -1520,13 +1520,13 @@ export function buildHarnessCreateSkillTool(): MCPToolDefinition {
       'frontmatter and the provided markdown content, then returns the skill ID, file path, ' +
       'plugin ID and scope. Use this to persist a reusable skill while building a harness.\n\n' +
       'SCOPE — choose deliberately, because it decides where the skill loads:\n' +
-      '- scope:"user" (the DEFAULT) writes ~/.ptah/plugins/ptah-harness-{name}/skills/{name}/SKILL.md ' +
-      'and loads in EVERY workspace on this machine.\n' +
-      '- scope:"workspace" writes {workspace}/.ptah/plugins/ptah-harness-{name}/skills/{name}/SKILL.md ' +
+      '- scope:"workspace" (the DEFAULT) writes {workspace}/.ptah/plugins/ptah-harness-{name}/skills/{name}/SKILL.md ' +
       'and loads in THIS project only. It sits beside .ptah/specs, so it can be committed and ' +
-      'travels with the repository to the whole team. Prefer it for anything that names this ' +
-      'codebase, its conventions or its domain. It requires an open workspace folder and fails ' +
-      'clearly without one.\n' +
+      'travels with the repository to the whole team. It requires an open workspace folder and ' +
+      'fails clearly without one.\n' +
+      '- scope:"user" writes ~/.ptah/plugins/ptah-harness-{name}/skills/{name}/SKILL.md ' +
+      'and loads in EVERY workspace on this machine. Pass it explicitly, and only for a skill ' +
+      'that is useful in every project.\n' +
       'The two scopes share one plugin ID, so the same name cannot be used in both — the call is ' +
       'refused rather than letting the workspace copy silently shadow the global one.\n\n' +
       'AVAILABILITY — harness-authored (ptah-harness-*) plugins are active on discovery and need no ' +
@@ -1559,7 +1559,7 @@ export function buildHarnessCreateSkillTool(): MCPToolDefinition {
           type: 'string',
           enum: ['user', 'workspace'],
           description:
-            '"user" (default) loads everywhere on this machine; "workspace" loads only in this project and can be committed with it.',
+            '"workspace" (default) loads only in this project and can be committed with it; "user" loads in every workspace on this machine.',
         },
       },
       required: ['name', 'description', 'content'],
@@ -1661,14 +1661,15 @@ export function buildHarnessInstallMcpTool(): MCPToolDefinition {
   return {
     name: 'ptah_harness_install_mcp_server',
     description:
-      'Harness-builder tool: install an MCP server into the workspace by writing its transport ' +
-      'config to the selected target config files (claude -> .mcp.json, vscode -> .vscode/mcp.json, ' +
-      'cursor -> .cursor/mcp.json, copilot -> ~/.copilot/mcp-config.json). Defaults to ' +
-      '["claude","vscode"]. Discover a server first with ptah_harness_search_mcp_registry and check ' +
-      'ptah_harness_list_installed_mcp so you do not re-install one that is already configured. ' +
-      'You must supply the transport config yourself — the registry entry tells you the package/URL. ' +
-      'Returns the resolved server key, the config files written, and per-target warnings. NOTE: the ' +
-      'server becomes available to a NEW agent session, not the current one.',
+      'Harness-builder tool: install an MCP server by writing its transport config to target ' +
+      'config files (claude -> .mcp.json, vscode -> .vscode/mcp.json, cursor -> ' +
+      '.cursor/mcp.json). Default targets ["claude","vscode"]. scope:"workspace" (the DEFAULT) ' +
+      'needs an open folder and refuses home-folder targets (codex, copilot, antigravity); ' +
+      'scope:"user" installs for every workspace. ' +
+      'Find a server with ptah_harness_search_mcp_registry and check ' +
+      'ptah_harness_list_installed_mcp first. Supply the transport config yourself; the registry ' +
+      'entry gives the package/URL. Returns the server key, files written and per-target ' +
+      'warnings. The server is available to a NEW agent session only.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1707,7 +1708,15 @@ export function buildHarnessInstallMcpTool(): MCPToolDefinition {
           },
           description:
             'Optional install targets. Defaults to ["claude","vscode"]. An EMPTY array is rejected ' +
-            '— omit the key to take the default.',
+            '— omit the key to take the default. "codex", "copilot" and "antigravity" write ' +
+            'home-folder configs and need scope "user".',
+        },
+        scope: {
+          type: 'string',
+          enum: ['user', 'workspace'],
+          description:
+            '"workspace" (default) installs for this workspace only and writes project files only; ' +
+            '"user" installs for every workspace and is required for home-folder targets.',
         },
       },
       required: ['serverName', 'config'],

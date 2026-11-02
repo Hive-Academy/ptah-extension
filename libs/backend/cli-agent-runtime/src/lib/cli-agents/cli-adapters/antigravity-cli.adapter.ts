@@ -494,7 +494,7 @@ export class AntigravityCliAdapter implements CliAdapter {
    *
    * Prefers $HOME / $USERPROFILE over os.homedir() so tests (and sandbox
    * setups) that reassign HOME after module load are honoured. Mirrors the
-   * env-first pattern in CodexCliAdapter.getAuthPath().
+   * env-first pattern in FileCodexLaneCredentialProbe.check().
    */
   private static geminiRoot(): string {
     const home = process.env['HOME'] || process.env['USERPROFILE'] || homedir();

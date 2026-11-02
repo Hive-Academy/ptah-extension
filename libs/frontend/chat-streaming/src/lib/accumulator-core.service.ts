@@ -54,6 +54,7 @@ import { SessionManager } from './session-manager.service';
 import { EventDeduplicationService } from './event-deduplication.service';
 import { BatchedUpdateService } from './batched-update.service';
 import { BackgroundAgentStore } from './background-agent.store';
+import { BackgroundTaskStore } from './background-task.store';
 import { AgentMonitorStore } from './agent-monitor.store';
 
 /**
@@ -210,6 +211,7 @@ export class StreamingAccumulatorCore {
   private readonly defaultDeduplication = inject(EventDeduplicationService);
   private readonly defaultBatchedUpdate = inject(BatchedUpdateService);
   private readonly defaultBackgroundAgentStore = inject(BackgroundAgentStore);
+  private readonly backgroundTaskStore = inject(BackgroundTaskStore);
   private readonly defaultAgentMonitorStore = inject(AgentMonitorStore);
 
   /**
@@ -600,6 +602,9 @@ export class StreamingAccumulatorCore {
           agentMonitorStore.onBackgroundAgentStarted(event);
         }
         return this.mutated(event.eventType);
+      case 'background_tasks_snapshot':
+        if (!ctx.skipStoreEffects) this.backgroundTaskStore.replace(event);
+        return skip(event.eventType);
       case 'background_agent_completed':
         if (!ctx.skipStoreEffects) {
           backgroundAgentStore.onCompleted(event);

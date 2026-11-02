@@ -177,8 +177,8 @@ let nextDialogId = 0;
             }
             @if (error()) {
               <p role="alert" class="alert alert-warning my-2">
-                Targets could not be checked. Review the agents folder after
-                generation.
+                @if (retryOnError()) { Preview failed. Retry the comparison to continue. }
+                @else { Targets could not be checked. Review the agents folder after generation. }
               </p>
             }
             @if (!loading() && preview(); as current) {
@@ -278,7 +278,7 @@ let nextDialogId = 0;
               [disabled]="loading()"
               (click)="confirm.emit()"
             >
-              {{ confirmText() }}
+              {{ error() && retryOnError() ? 'Retry comparison' : confirmText() }}
             </button>
           </div>
         </section>
@@ -288,6 +288,7 @@ let nextDialogId = 0;
 })
 export class AgentPreviewDialogComponent {
   readonly open = input(false);
+  readonly retryOnError = input(false);
   readonly loading = input(false);
   readonly changed = input(false);
   readonly error = input(false);

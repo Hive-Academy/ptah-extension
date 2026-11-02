@@ -4,6 +4,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   Injector,
   input,
@@ -57,6 +58,7 @@ import { CanvasInspectorDockComponent } from './canvas-inspector-dock.component'
 import { CanvasRailBoardComponent } from './canvas-rail-board.component';
 import { CanvasRailCardComponent } from './canvas-rail-card.component';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
+import { groupRailTiles } from './canvas-rail-grouping.util';
 
 const sourceState = signal<CompactRailState>('idle');
 type TestHost = Omit<HTMLElement, 'querySelector'> & {
@@ -69,7 +71,7 @@ type TestHost = Omit<HTMLElement, 'querySelector'> & {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div class="overflow-y-auto" style="height:200px">
     <ul>
-      @for (tile of tiles(); track tile.tabId) {
+       @for (tile of displayedTiles(); track tile.tabId) {
         <li
           data-rail-card
           [attr.data-tab-id]="tile.tabId"
@@ -89,6 +91,12 @@ class RailStub {
   readonly heights = COMPACT_RAIL_CARD_HEIGHT;
   readonly tiles = input<readonly CanvasTile[]>([]);
   readonly states = input<ReadonlyMap<string, CompactRailState>>(new Map());
+  readonly displayedTiles = computed(() => {
+    const grouped = groupRailTiles(this.tiles(), this.states());
+    return grouped.groups.flatMap(group =>
+      group.key === 'finished' && !this.collapsed() && grouped.counts.done > 3
+        ? [] : group.tiles);
+  });
   readonly focusedTabId = input<string | null>(null);
   readonly density = input<CompactRailDensity>('comfortable');
   readonly collapsed = input(false);
@@ -141,6 +149,7 @@ class SelectCardStub {
   readonly variant = input('rail');
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
+  readonly tabStop = input(false);
   readonly holdText = input(false);
   readonly reserveActionCorner = input(false);
   readonly expandToFull = output<void>();
@@ -343,6 +352,7 @@ describe('CanvasRailBoardComponent actions', () => {
       },
       workspacePath: () => 'workspace',
       orderedTiles: () => [{ tabId: 'a' }, { tabId: 'b' }],
+      railStates: () => new Map<string, CompactRailState>(),
       otherTabId: signal<string | null>(null),
       activeSide: signal<'left' | 'right'>('left'),
       visualOrder: signal<readonly ('left' | 'right')[]>(['left', 'right']),
@@ -431,7 +441,14 @@ describe('CanvasRailBoardComponent rendering', () => {
     jest
       .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
       .mockImplementation(function (this: HTMLElement) {
-        return { height: Number.parseFloat(this.style.height) || 0 } as DOMRect;
+        const height = Number.parseFloat(this.style.height) || 0;
+        const list = this.closest<HTMLElement>('.overflow-y-auto');
+        const cards = [...(list?.querySelectorAll<HTMLElement>('[data-rail-card]') ?? [])];
+        const index = cards.indexOf(this);
+        const top = index < 0 ? 0 : cards.slice(0, index).reduce(
+          (sum, card) => sum + (Number.parseFloat(card.style.height) || 0), 0,
+        ) - (list?.scrollTop ?? 0);
+        return { top, height } as DOMRect;
       });
     const tiles = signal<readonly CanvasTile[]>(
       Array.from(
@@ -944,7 +961,44 @@ describe('CanvasRailBoardComponent rendering', () => {
     list.scrollTop = 0;
     fixture.componentInstance.toggleDensity();
     fixture.detectChanges();
-    expect(list.scrollTop).toBe(100);
+    expect(list.scrollTop).toBe(92);
+  });
+
+  it('anchors from the rendered card bounds when group headers change its position', () => {
+    const { fixture } = mount(true, 3, 'a');
+    const list = fixture.nativeElement.querySelector<HTMLElement>('.overflow-y-auto')!;
+    const card = list.querySelector<HTMLElement>('[data-rail-card][data-tab-id="a"]')!;
+    const header = document.createElement('div');
+    header.textContent = 'Running';
+    card.parentElement!.insertBefore(header, card);
+    Object.defineProperty(list, 'clientHeight', { value: 100 });
+    jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.matches('.overflow-y-auto')) return { top: 10, height: 100 } as DOMRect;
+        if (this.matches('[data-rail-card][data-tab-id="a"]'))
+          return { top: 64, height: 176 } as DOMRect;
+        return { top: 0, height: Number.parseFloat(this.style.height) || 0 } as DOMRect;
+      });
+    list.scrollTop = 0;
+    fixture.componentInstance.anchor('a');
+    fixture.detectChanges();
+    expect(list.scrollTop).toBe(130);
+  });
+
+  it('restores persisted scroll while Finished cards are collapsed', () => {
+    const { fixture, board } = mount(true, 5);
+    const instance = fixture.componentInstance;
+    const list = fixture.nativeElement.querySelector<HTMLElement>('.overflow-y-auto')!;
+    Object.defineProperty(list, 'scrollHeight', { value: 500 });
+    Object.defineProperty(list, 'clientHeight', { value: 100 });
+    instance.railStates.set(new Map<string, CompactRailState>([
+      ['a', 'running'], ['b', 'done'], ['c', 'done'], ['d', 'done'], ['e', 'done'],
+    ]));
+    board.update(value => ({ ...value, railScrollTop: 140 }));
+    Object.assign(instance, { restoredScroll: false });
+    fixture.detectChanges();
+    expect(list.querySelectorAll('[data-rail-card]')).toHaveLength(1);
+    expect(list.scrollTop).toBe(140);
   });
 
   it('auto-collapses for narrow details without persisting the user collapse', () => {
@@ -2561,6 +2615,36 @@ describe('CanvasRailBoardComponent rendering', () => {
     );
   });
 
+  it('moves only within a displayed group while preserving unrelated stored slots', () => {
+    const { fixture, store } = mount(true, 4);
+    const instance = fixture.componentInstance;
+    instance.railStates.set(new Map([
+      ['a', 'needs'], ['b', 'running'], ['c', 'idle'], ['d', 'running'],
+    ]));
+    fixture.detectChanges();
+    expect([...fixture.nativeElement.querySelectorAll('[data-rail-card]')]
+      .map((node: Element) => node.getAttribute('data-tab-id')))
+      .toEqual(['b', 'd', 'a', 'c']);
+    instance.move('b', 1);
+    expect(store.reorderTiles).toHaveBeenCalledWith(['a', 'd', 'c', 'b']);
+    const calls = (store.reorderTiles as jest.Mock).mock.calls.length;
+    instance.move('b', -1);
+    expect(store.reorderTiles).toHaveBeenCalledTimes(calls);
+    expect(instance.announcement()).toContain('cannot move');
+  });
+  it('jumps through status matches in grouped display order', () => {
+    const { fixture, store } = mount(true, 4, 'b');
+    const instance = fixture.componentInstance;
+    instance.railStates.set(new Map([
+      ['a', 'needs'], ['b', 'running'], ['c', 'needs'], ['d', 'running'],
+    ]));
+    fixture.detectChanges();
+    instance.jumpTo('needs');
+    expect(store.focusTile).toHaveBeenCalledWith('a');
+    instance.jumpTo('needs');
+    expect(store.focusTile).toHaveBeenLastCalledWith('c');
+  });
+
   it('announces a pre-existing persistence failure with the neutral layout message', () => {
     const { fixture, writeFailed } = mount();
     writeFailed.set(true);
@@ -2661,6 +2745,43 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(store.removeTile).toHaveBeenCalledWith('b');
     expect(card('b')).toBeNull();
     expect(document.activeElement).toBe(card('c'));
+  });
+
+  it('closes to the next displayed card across groups for selection and DOM focus', async () => {
+    const { fixture, store } = mount(true, 4, 'b');
+    fixture.componentInstance.railStates.set(new Map<string, CompactRailState>([
+      ['a', 'idle'], ['b', 'running'], ['c', 'idle'], ['d', 'running'],
+    ]));
+    fixture.detectChanges();
+    const card = (id: string) => fixture.nativeElement.querySelector<HTMLElement>(
+      `[data-rail-card][data-tab-id="${id}"] .rc-select`);
+    expect([...fixture.nativeElement.querySelectorAll('[data-rail-card]')]
+      .map(node => node.getAttribute('data-tab-id'))).toEqual(['b', 'd', 'a', 'c']);
+    card('b')?.focus();
+    await fixture.componentInstance.close('b');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(store.focusTile).toHaveBeenLastCalledWith('d');
+    expect(document.activeElement).toBe(card('d'));
+  });
+
+  it('skips collapsed Finished cards when closing the last visible running card', async () => {
+    const { fixture, store } = mount(true, 6, 'b');
+    fixture.componentInstance.railStates.set(new Map<string, CompactRailState>([
+      ['a', 'done'], ['b', 'running'], ['c', 'done'], ['d', 'done'],
+      ['e', 'done'], ['f', 'needs'],
+    ]));
+    fixture.detectChanges();
+    const card = (id: string) => fixture.nativeElement.querySelector<HTMLElement>(
+      `[data-rail-card][data-tab-id="${id}"] .rc-select`);
+    expect([...fixture.nativeElement.querySelectorAll('[data-rail-card]')]
+      .map(node => node.getAttribute('data-tab-id'))).toEqual(['b', 'f']);
+    card('b')?.focus();
+    await fixture.componentInstance.close('b');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(store.focusTile).toHaveBeenLastCalledWith('f');
+    expect(document.activeElement).toBe(card('f'));
   });
 
   // ---- R9x: header split actions, swap, stacked Tab order; R9w C1-C3, NEW-3, NEW-6 ----

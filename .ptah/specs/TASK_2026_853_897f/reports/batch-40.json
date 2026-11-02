@@ -1,0 +1,18 @@
+{
+  "batch": 40,
+  "status": "COMPLETE",
+  "files": [
+    "libs/frontend/chat/src/lib/components/molecules/notifications/install-scope-migration-notice.component.ts",
+    "libs/frontend/chat/src/lib/components/molecules/notifications/install-scope-migration-notice.component.spec.ts",
+    "libs/frontend/chat/src/lib/components/templates/chat-view.component.ts",
+    "libs/frontend/chat/src/lib/components/templates/chat-view.component.html"
+  ],
+  "rpc": ["harness:get-install-migration-notice", "harness:dismiss-install-migration-notice"],
+  "verification": {
+    "scoped": "/tmp/tpd-b40-scoped-static.log: 7 suites, 155/155",
+    "cohort36_40": "/tmp/tpd-b36-40-verify.log + rerun /tmp/tpd-chat-test.log: chat 311/311 suites; only known webview lint failed",
+    "degradationAudit": "/tmp/tpd-b36-40-audit.log exit 0"
+  },
+  "decisions": [74, 75],
+  "deferred": ["chat-view placement, tile hiding and Got it focus -> Electron visual review (chat-view specs stub the child)"]
+}

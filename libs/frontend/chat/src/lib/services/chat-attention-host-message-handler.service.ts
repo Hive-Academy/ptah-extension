@@ -1,20 +1,39 @@
 import { DOCUMENT } from '@angular/common';
 import { DestroyRef, Injectable, inject } from '@angular/core';
 import {
-  AppStateManager, ClaudeRpcService, LoggingService, NotificationService,
-  type AttentionItem, type MessageHandler,
-  NOTIFICATION_FOCUS_ROUTER, SURFACE_FOCUS_ROUTER, VSCodeService,
+  AppStateManager,
+  ClaudeRpcService,
+  LoggingService,
+  NotificationService,
+  type AttentionItem,
+  type MessageHandler,
+  NOTIFICATION_FOCUS_ROUTER,
+  SURFACE_FOCUS_ROUTER,
+  VSCodeService,
+  focusRouterKindFor,
 } from '@ptah-extension/core';
-import { TabManagerService, workspaceLabelFromPath } from '@ptah-extension/chat-state';
 import {
-  AttentionChangedPayloadSchema, AttentionNoticeSchema,
-  AttentionOpenTargetPayloadSchema, MESSAGE_TYPES,
-  type AttentionNotice, type AttentionTarget, workspaceIdFromPath,
+  TabManagerService,
+  workspaceLabelFromPath,
+} from '@ptah-extension/chat-state';
+import {
+  AttentionChangedPayloadSchema,
+  AttentionNoticeSchema,
+  AttentionOpenTargetPayloadSchema,
+  MESSAGE_TYPES,
+  type AttentionNotice,
+  type AttentionTarget,
+  workspaceIdFromPath,
 } from '@ptah-extension/shared';
 import { z } from 'zod';
-import { attentionContext, isUnsafeAttentionContext } from './attention-context.util';
+import {
+  attentionContext,
+  isUnsafeAttentionContext,
+} from './attention-context.util';
 
-const SnapshotSchema = z.object({ notices: z.array(AttentionNoticeSchema) }).strict();
+const SnapshotSchema = z
+  .object({ notices: z.array(AttentionNoticeSchema) })
+  .strict();
 const LOG_CONTEXT = 'ChatAttentionHostMessageHandler';
 
 /** Reconciles the host's safe attention projection and handles native notification clicks. */
@@ -32,8 +51,11 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
   private readonly tabs = inject(TabManagerService);
   private readonly vscode = inject(VSCodeService);
   private readonly appState = inject(AppStateManager);
-  private readonly focusRouter = inject(NOTIFICATION_FOCUS_ROUTER, { optional: true });
-  private readonly surfaceRouters = inject(SURFACE_FOCUS_ROUTER, { optional: true }) ?? [];
+  private readonly focusRouter = inject(NOTIFICATION_FOCUS_ROUTER, {
+    optional: true,
+  });
+  private readonly surfaceRouters =
+    inject(SURFACE_FOCUS_ROUTER, { optional: true }) ?? [];
   private readonly logger = inject(LoggingService);
   private readonly projected = new Map<string, number>();
   private readonly targets = new Map<string, AttentionTarget>();
@@ -86,7 +108,10 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
         const { key, generation } = parsed.data;
         if (generation < (this.generationFloor.get(key) ?? -1)) return;
         this.generationFloor.set(key, generation);
-        if (this.generationFloor.size > 256) this.generationFloor.delete(this.generationFloor.keys().next().value!);
+        if (this.generationFloor.size > 256)
+          this.generationFloor.delete(
+            this.generationFloor.keys().next().value!,
+          );
         this.resolveProjection(key, generation);
       } else {
         this.upsertProjection(parsed.data.notice);
@@ -94,18 +119,28 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
       return;
     }
     if (message.type === MESSAGE_TYPES.ATTENTION_OPEN_TARGET) {
-      const parsed = AttentionOpenTargetPayloadSchema.safeParse(message.payload);
+      const parsed = AttentionOpenTargetPayloadSchema.safeParse(
+        message.payload,
+      );
       if (!parsed.success) {
         this.logger.warn(LOG_CONTEXT, 'Invalid attention target dropped');
         return;
       }
-      void this.openIfPending(parsed.data.key, parsed.data.generation, parsed.data.target);
+      void this.openIfPending(
+        parsed.data.key,
+        parsed.data.generation,
+        parsed.data.target,
+      );
     }
   }
 
   private async fetchSnapshot(): Promise<readonly AttentionNotice[] | null> {
     try {
-      const result = await this.rpc.call('attention:getSnapshot', {}, { timeout: 5000 });
+      const result = await this.rpc.call(
+        'attention:getSnapshot',
+        {},
+        { timeout: 5000 },
+      );
       if (!result.isSuccess()) {
         this.logger.warn(LOG_CONTEXT, 'Attention snapshot unavailable');
         return null;
@@ -122,7 +157,10 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
   }
 
   private snapshotFailure(error: unknown): null {
-    this.logger.warn(LOG_CONTEXT, `Attention snapshot failed (${error instanceof Error ? error.name : 'unknown'})`);
+    this.logger.warn(
+      LOG_CONTEXT,
+      `Attention snapshot failed (${error instanceof Error ? error.name : 'unknown'})`,
+    );
     return null;
   }
 
@@ -138,9 +176,16 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
       if (!notices) {
         this.snapshotFailures++;
         if (this.snapshotFailures >= 5) {
-          if (this.snapshotFailures === 5) this.logger.warn(LOG_CONTEXT, 'Attention snapshot retries exhausted');
+          if (this.snapshotFailures === 5)
+            this.logger.warn(
+              LOG_CONTEXT,
+              'Attention snapshot retries exhausted',
+            );
         } else if (!this.retryTimeout) {
-          const delay = Math.min(2000 * 2 ** (this.snapshotFailures - 1), 30000);
+          const delay = Math.min(
+            2000 * 2 ** (this.snapshotFailures - 1),
+            30000,
+          );
           this.retryTimeout = setTimeout(() => {
             this.retryTimeout = undefined;
             void this.reconcile();
@@ -155,14 +200,18 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
         this.reconcileAgain = true;
         return;
       }
-      const current = new Set(notices.map(notice => notice.key));
+      const current = new Set(notices.map((notice) => notice.key));
       for (const [key, generation] of this.projected) {
         if (!current.has(key)) this.resolveProjection(key, generation);
       }
       for (const notice of notices) this.upsertProjection(notice);
     } finally {
       this.reconciling = false;
-      if (this.reconcileAgain && this.snapshotFailures < 5 && !this.retryTimeout) {
+      if (
+        this.reconcileAgain &&
+        this.snapshotFailures < 5 &&
+        !this.retryTimeout
+      ) {
         this.reconcileAgain = false;
         void this.reconcile();
       } else {
@@ -176,44 +225,101 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
     if (notice.generation <= floor) return;
     const prior = this.projected.get(notice.key);
     if (prior !== undefined && notice.generation < prior) return;
-    const workspacePath = notice.target ? this.localWorkspace(notice.target) : null;
-    const owner = notice.target?.tabId ? this.tabs.findTabByIdAcrossWorkspaces(notice.target.tabId) :
-      notice.target ? this.tabs.findTabBySessionIdAcrossWorkspaces(notice.target.sessionId) : null;
-    const validOwner = owner && (owner.tab.claudeSessionId === notice.target?.sessionId ||
-      owner.tab.id === notice.target?.sessionId) ? owner : null;
+    const workspacePath = notice.target
+      ? this.localWorkspace(notice.target)
+      : null;
+    const owner = notice.target?.tabId
+      ? this.tabs.findTabByIdAcrossWorkspaces(notice.target.tabId)
+      : notice.target
+        ? this.tabs.findTabBySessionIdAcrossWorkspaces(notice.target.sessionId)
+        : null;
+    const validOwner =
+      owner &&
+      (owner.tab.claudeSessionId === notice.target?.sessionId ||
+        owner.tab.id === notice.target?.sessionId)
+        ? owner
+        : null;
     const labelPath = workspacePath ?? '';
-    const provider = workspacePath && validOwner?.tab.providerId === 'claude-cli' ? 'Claude'
-      : workspacePath && validOwner?.tab.providerId === 'ptah-cli' ? 'Ptah CLI'
-      : workspacePath && validOwner?.tab.providerId === 'vscode-lm' ? 'VS Code' : '';
-    const kindTitle = notice.kind === 'permission' ? 'Permission required'
-      : notice.kind === 'question' ? 'Question needs an answer'
-      : notice.kind === 'lane-permission' ? 'Lane permission required' : undefined;
+    const provider =
+      workspacePath && validOwner?.tab.providerId === 'claude-cli'
+        ? 'Claude'
+        : workspacePath && validOwner?.tab.providerId === 'ptah-cli'
+          ? 'Ptah CLI'
+          : workspacePath && validOwner?.tab.providerId === 'vscode-lm'
+            ? 'VS Code'
+            : '';
+    const kindTitle =
+      notice.kind === 'permission'
+        ? 'Permission required'
+        : notice.kind === 'question'
+          ? 'Question needs an answer'
+          : notice.kind === 'lane-permission'
+            ? 'Lane permission required'
+            : undefined;
     const sessionTitle = notice.title.trim();
-    const safeTitle = !/^(new chat|new session|untitled|permission required|question needs an answer|lane permission required)$/i.test(sessionTitle) &&
-      !isUnsafeAttentionContext(sessionTitle)
-      ? sessionTitle.slice(0, 80) : '';
+    const safeTitle =
+      !/^(new chat|new session|untitled|permission required|question needs an answer|lane permission required)$/i.test(
+        sessionTitle,
+      ) && !isUnsafeAttentionContext(sessionTitle)
+        ? sessionTitle.slice(0, 80)
+        : '';
     const context = kindTitle ? attentionContext([provider, safeTitle]) : '';
     // An opaque ID keeps the request counted while its local owner is unavailable.
-    const presentationWorkspace = workspacePath && validOwner?.workspacePath === null ? ''
-      : workspacePath ?? `attention:${notice.target?.workspaceId ?? 'unknown'}`;
-    const surfaceRouter = this.surfaceRouters.find(router =>
-      !!notice.target && (!notice.target.surfaceKind || router.kind === notice.target.surfaceKind) &&
-      router.canFocus(notice.target.sessionId));
-    const surfaceOwned = !!notice.target && !!surfaceRouter &&
+    const presentationWorkspace =
+      workspacePath && validOwner?.workspacePath === null
+        ? ''
+        : (workspacePath ??
+          `attention:${notice.target?.workspaceId ?? 'unknown'}`);
+    const surfaceRouter = this.surfaceRouters.find(
+      (router) =>
+        !!notice.target &&
+        (!notice.target.surfaceKind ||
+          router.kind === focusRouterKindFor(notice.target.surfaceKind)) &&
+        router.canFocus(notice.target.sessionId),
+    );
+    const surfaceOwned =
+      !!notice.target &&
+      !!surfaceRouter &&
       (notice.target.surfaceMode || !notice.target.tabId);
-    const routable = surfaceOwned || (!!notice.target && !notice.target.surfaceMode &&
-      !!workspacePath && !!this.focusRouter);
+    const routable =
+      surfaceOwned ||
+      (!!notice.target &&
+        !notice.target.surfaceMode &&
+        !!workspacePath &&
+        !!this.focusRouter);
     const item: AttentionItem = {
-      key: notice.key, generation: notice.generation, kind: notice.kind,
-      source: 'host', workspacePath: presentationWorkspace,
-      workspaceName: labelPath ? workspaceLabelFromPath(labelPath) : 'Unknown workspace',
-      sessionId: notice.target?.sessionId, tabId: notice.target?.tabId,
-      ownerSurface: surfaceOwned || notice.target?.surfaceMode ? 'surface' : 'chat',
-      severity: 'warning', title: kindTitle ?? notice.title, context: context || undefined,
-      sessionTitle: safeTitle || undefined, provider: provider || undefined, actionable: true,
-      actions: [{ id: 'open', label: surfaceOwned || notice.target?.surfaceMode ? 'Open' : 'Show in canvas', ...(!routable && {
-        disabledReason: notice.target?.surfaceMode ? 'Answer in owning surface' : 'Target unavailable',
-      }) }],
+      key: notice.key,
+      generation: notice.generation,
+      kind: notice.kind,
+      source: 'host',
+      workspacePath: presentationWorkspace,
+      workspaceName: labelPath
+        ? workspaceLabelFromPath(labelPath)
+        : 'Unknown workspace',
+      sessionId: notice.target?.sessionId,
+      tabId: notice.target?.tabId,
+      ownerSurface:
+        surfaceOwned || notice.target?.surfaceMode ? 'surface' : 'chat',
+      severity: 'warning',
+      title: kindTitle ?? notice.title,
+      context: context || undefined,
+      sessionTitle: safeTitle || undefined,
+      provider: provider || undefined,
+      actionable: true,
+      actions: [
+        {
+          id: 'open',
+          label:
+            surfaceOwned || notice.target?.surfaceMode
+              ? 'Open'
+              : 'Show in canvas',
+          ...(!routable && {
+            disabledReason: notice.target?.surfaceMode
+              ? 'Answer in owning surface'
+              : 'Target unavailable',
+          }),
+        },
+      ],
       soundEligible: false,
     };
     this.projected.set(notice.key, notice.generation);
@@ -229,68 +335,117 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
   }
 
   private localWorkspace(target: AttentionTarget): string | null {
-    const byTab = target.tabId ? this.tabs.findTabByIdAcrossWorkspaces(target.tabId) : null;
-    const validTab = byTab && (byTab.tab.claudeSessionId === target.sessionId ||
-      byTab.tab.id === target.sessionId) ? byTab : null;
-    if (validTab?.workspacePath &&
-        workspaceIdFromPath(validTab.workspacePath) === target.workspaceId) {
+    const byTab = target.tabId
+      ? this.tabs.findTabByIdAcrossWorkspaces(target.tabId)
+      : null;
+    const validTab =
+      byTab &&
+      (byTab.tab.claudeSessionId === target.sessionId ||
+        byTab.tab.id === target.sessionId)
+        ? byTab
+        : null;
+    if (
+      validTab?.workspacePath &&
+      workspaceIdFromPath(validTab.workspacePath) === target.workspaceId
+    ) {
       return validTab.workspacePath;
     }
-    const bySession = this.tabs.findTabBySessionIdAcrossWorkspaces(target.sessionId);
-    if (bySession?.workspacePath && workspaceIdFromPath(bySession.workspacePath) === target.workspaceId) return bySession.workspacePath;
+    const bySession = this.tabs.findTabBySessionIdAcrossWorkspaces(
+      target.sessionId,
+    );
+    if (
+      bySession?.workspacePath &&
+      workspaceIdFromPath(bySession.workspacePath) === target.workspaceId
+    )
+      return bySession.workspacePath;
     if (validTab?.workspacePath === null || bySession?.workspacePath === null) {
-      const roots = [this.tabs.activeWorkspacePath, this.vscode.config().workspaceRoot];
-      return roots.find(root => !!root && workspaceIdFromPath(root) === target.workspaceId) ?? null;
+      const roots = [
+        this.tabs.activeWorkspacePath,
+        this.vscode.config().workspaceRoot,
+      ];
+      return (
+        roots.find(
+          (root) => !!root && workspaceIdFromPath(root) === target.workspaceId,
+        ) ?? null
+      );
     }
     return null;
   }
 
-  private async openIfPending(key: string, generation: number, target: AttentionTarget): Promise<boolean> {
+  private async openIfPending(
+    key: string,
+    generation: number,
+    target: AttentionTarget,
+  ): Promise<boolean> {
     const notices = await this.fetchSnapshot();
-    if (!notices) { this.appState.setStatusMessage('Target unavailable'); return false; }
-    const pending = notices.find(notice => notice.key === key && notice.generation === generation);
+    if (!notices) {
+      this.appState.setStatusMessage('Target unavailable');
+      return false;
+    }
+    const pending = notices.find(
+      (notice) => notice.key === key && notice.generation === generation,
+    );
     if (!pending) {
       this.appState.setStatusMessage('Already answered');
       void this.reconcile();
       return false;
     }
-    if (!pending.target || pending.target.workspaceId !== target.workspaceId ||
-        pending.target.sessionId !== target.sessionId ||
-        pending.target.tabId !== target.tabId ||
-        pending.target.surfaceMode !== target.surfaceMode ||
-        pending.target.surfaceKind !== target.surfaceKind) {
+    if (
+      !pending.target ||
+      pending.target.workspaceId !== target.workspaceId ||
+      pending.target.sessionId !== target.sessionId ||
+      pending.target.tabId !== target.tabId ||
+      pending.target.surfaceMode !== target.surfaceMode ||
+      pending.target.surfaceKind !== target.surfaceKind
+    ) {
       this.logger.warn(LOG_CONTEXT, 'Attention target mismatch dropped');
       this.appState.setStatusMessage('Target unavailable');
       return false;
     }
     if (target.surfaceMode || !target.tabId) {
-      const router = this.surfaceRouters.find(candidate =>
-        (!target.surfaceKind || candidate.kind === target.surfaceKind) && candidate.canFocus(target.sessionId));
+      const router = this.surfaceRouters.find(
+        (candidate) =>
+          (!target.surfaceKind ||
+            candidate.kind === focusRouterKindFor(target.surfaceKind)) &&
+          candidate.canFocus(target.sessionId),
+      );
       if (router) {
         try {
           const result = await router.focus(target.sessionId);
-          if (!result.success) this.appState.setStatusMessage('Target unavailable');
+          if (!result.success)
+            this.appState.setStatusMessage('Target unavailable');
           return result.success;
         } catch (error) {
           return this.focusFailure(error);
         }
       }
-      if (target.surfaceMode) { this.appState.setStatusMessage('Target unavailable'); return false; }
+      if (target.surfaceMode) {
+        this.appState.setStatusMessage('Target unavailable');
+        return false;
+      }
     }
     const workspacePath = this.localWorkspace(target);
     if (!workspacePath || !this.focusRouter || target.surfaceMode) {
-      this.appState.setStatusMessage(target.surfaceMode ? 'Answer in owning surface' : 'Target unavailable');
+      this.appState.setStatusMessage(
+        target.surfaceMode ? 'Answer in owning surface' : 'Target unavailable',
+      );
       return false;
     }
     try {
-      const owner = target.tabId ? this.tabs.findTabByIdAcrossWorkspaces(target.tabId) :
-        this.tabs.findTabBySessionIdAcrossWorkspaces(target.sessionId);
-      const unpartitionedOwner = owner?.workspacePath === null &&
-        (owner.tab.claudeSessionId === target.sessionId || owner.tab.id === target.sessionId);
+      const owner = target.tabId
+        ? this.tabs.findTabByIdAcrossWorkspaces(target.tabId)
+        : this.tabs.findTabBySessionIdAcrossWorkspaces(target.sessionId);
+      const unpartitionedOwner =
+        owner?.workspacePath === null &&
+        (owner.tab.claudeSessionId === target.sessionId ||
+          owner.tab.id === target.sessionId);
       const outcome = await this.focusRouter.focus({
-        workspacePath: unpartitionedOwner ? '' : workspacePath, sessionId: target.sessionId, tabId: target.tabId,
+        workspacePath: unpartitionedOwner ? '' : workspacePath,
+        sessionId: target.sessionId,
+        tabId: target.tabId,
       });
-      if (!outcome.success) this.appState.setStatusMessage('Target unavailable');
+      if (!outcome.success)
+        this.appState.setStatusMessage('Target unavailable');
       return outcome.success;
     } catch (error) {
       return this.focusFailure(error);
@@ -298,7 +453,10 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
   }
 
   private focusFailure(error: unknown): false {
-    this.logger.warn(LOG_CONTEXT, `Attention focus failed (${error instanceof Error ? error.name : 'unknown'})`);
+    this.logger.warn(
+      LOG_CONTEXT,
+      `Attention focus failed (${error instanceof Error ? error.name : 'unknown'})`,
+    );
     this.appState.setStatusMessage('Target unavailable');
     return false;
   }

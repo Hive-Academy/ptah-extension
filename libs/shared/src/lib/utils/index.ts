@@ -93,9 +93,16 @@ export {
 } from './agents-region.utils';
 export {
   addCliUsage,
+  cliUsageTokenTotal,
   hasReportedCliCacheTokens,
   type CliUsageTotals,
 } from './cli-usage.utils';
+export { isValidTokenCount, messageTokenTotal, sessionTokenTotal } from './token-usage.utils';
+export {
+  contextFillTokens,
+  trustedContextWindow,
+  contextFillPercent,
+} from './context-fill.utils';
 export {
   activeEstimatedExhaustion,
   activeWindowExhaustion,

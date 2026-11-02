@@ -190,11 +190,11 @@ describe('AmbientAccountRowComponent', () => {
     expect(document.activeElement).toBe(elsewhere);
   });
 
-  it('refreshes the age every 30 seconds while mounted and stops after destroy', () => {
+  it('advances the age on the shared coarse tick and releases the clock after destroy', () => {
     host.ambient.set(connected());
     render();
     expect(hint()?.textContent).toBe('Last checked 2 minutes ago.');
-    jest.advanceTimersByTime(60_000);
+    jest.advanceTimersByTime(30_000);
     render();
     expect(hint()?.textContent).toBe('Last checked 3 minutes ago.');
     host.shown.set(false);

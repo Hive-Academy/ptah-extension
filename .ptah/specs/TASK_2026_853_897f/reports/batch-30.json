@@ -1,0 +1,24 @@
+{
+  "task": "TASK_2026_853_897f",
+  "batch": "30",
+  "title": "D-4 harness tool defaults and schemas",
+  "executor": "claude backend-developer subagent",
+  "changed": [
+    "libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.ts",
+    "libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/harness-namespace.builder.spec.ts",
+    "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts",
+    "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.spec.ts",
+    "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts (forward scope, coordinator-approved)",
+    "libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.spec.ts"
+  ],
+  "contract": {
+    "createSkill": "scope defaults to workspace; no folder error hints scope: 'user'; 'user' writes ~/.ptah/plugins.",
+    "installMcpServer": "installMcpServer(serverName, config, serverKey?, targets?, scope?) ; default workspace; 'user' maps to global; codex/copilot/antigravity refused before any write in workspace scope; result includes scope.",
+    "mcpToolPath": "protocol-dispatcher forwards scope as the 5th argument."
+  },
+  "handoffBatch31": "system-namespace.builders.ts ~230 createSkill scope default; ~258 installMcpServer signature with scope?, workspace default, 'user' = global, home targets need 'user', result includes scope.",
+  "verification": {
+    "scopedTest": "--testPathPatterns='harness-namespace|tool-description|protocol-dispatcher': 4 suites, 515 passed, 3 skipped, exit 0 (/tmp/tpd-b30-test2.log)",
+    "combinedVerify": "77 tasks over shared, rpc-handlers, vscode-lm-tools, agent-generation and all hosts: only known ptah-extension-webview:lint and vscode-lm-tools:test failed (/tmp/tpd-b27-30-32-verify.log). vscode-lm-tools: install_mcp_server description 1002 > 780 budget (fixed in Batch 30, now ~700 chars) and outliner timing under load; rerun of mcp-contract.sweep, tool-description, code-outliner.adapter: 3 suites 218/218 exit 0 (/tmp/tpd-b30-fix-test.log). degradation-audit:lint exit 0"
+  }
+}

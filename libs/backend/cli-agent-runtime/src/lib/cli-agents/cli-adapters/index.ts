@@ -19,7 +19,6 @@ export {
 } from './cli-adapter.utils';
 export { fixPath } from './fix-path';
 export { ptahMcpServerUrl } from './ptah-mcp-url';
-export { CodexCliAdapter } from './codex-cli.adapter';
 export { CopilotSdkAdapter } from './copilot-sdk.adapter';
 export { CopilotPermissionBridge } from './copilot-permission-bridge';
 export { CursorCliAdapter } from './cursor-cli.adapter';

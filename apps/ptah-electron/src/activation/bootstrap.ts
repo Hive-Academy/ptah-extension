@@ -30,12 +30,19 @@ import {
   type CustomProviderStore,
   type MigrationRunner,
   type IActiveWorkspaceSource,
+  type WorkspaceScopeResolver,
 } from '@ptah-extension/settings-core';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import {
   activateSessionLifecycleNotifier,
   runCursorApiKeyMigration,
+  type NativeSessionControlsDeps,
 } from '@ptah-extension/rpc-handlers';
+import {
+  bindElectronCodexChat,
+  createElectronCodexRouting,
+  resolveElectronCodexBundledRoot,
+} from '../di/codex-runtime-composition';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
 import { resolveInitialWorkspaceArg } from './initial-workspace-arg';
@@ -214,7 +221,9 @@ export function createMainWindowHandleGetter(
 
 /** The chat attention handler's snapshot request proves Angular has registered its message handler. */
 export function createAttentionRendererReadiness(
-  currentContents: () => { on(event: 'did-start-loading', listener: () => void): void } | null,
+  currentContents: () => {
+    on(event: 'did-start-loading', listener: () => void): void;
+  } | null,
   subscribeRpc: (listener: (sender: object, message: unknown) => void) => void,
 ): { isReady(): boolean; onReady(listener: () => void): boolean } {
   const ready = new WeakSet<object>();
@@ -230,17 +239,38 @@ export function createAttentionRendererReadiness(
   };
   subscribeRpc((sender, message) => {
     const contents = current();
-    if (!contents || sender !== contents || !message || typeof message !== 'object') return;
+    if (
+      !contents ||
+      sender !== contents ||
+      !message ||
+      typeof message !== 'object'
+    )
+      return;
     const rpc = message as { type?: unknown; payload?: unknown };
-    if (rpc.type !== MESSAGE_TYPES.RPC_CALL || !rpc.payload || typeof rpc.payload !== 'object') return;
-    if ((rpc.payload as { method?: unknown }).method !== 'attention:getSnapshot') return;
+    if (
+      rpc.type !== MESSAGE_TYPES.RPC_CALL ||
+      !rpc.payload ||
+      typeof rpc.payload !== 'object'
+    )
+      return;
+    if (
+      (rpc.payload as { method?: unknown }).method !== 'attention:getSnapshot'
+    )
+      return;
     ready.add(contents);
     for (const listener of listeners) listener();
     listeners.clear();
   });
   return {
-    isReady: () => { const contents = current(); return !!contents && ready.has(contents); },
-    onReady: (listener) => { if (!current()) return false; listeners.add(listener); return true; },
+    isReady: () => {
+      const contents = current();
+      return !!contents && ready.has(contents);
+    },
+    onReady: (listener) => {
+      if (!current()) return false;
+      listeners.add(listener);
+      return true;
+    },
   };
 }
 
@@ -252,7 +282,9 @@ export function attachElectronHostAttention(
   try {
     attach(resolve());
   } catch (error: unknown) {
-    warn(`Host attention attach failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
+    warn(
+      `Host attention attach failed: ${error instanceof Error ? error.name : 'UnknownError'}`,
+    );
   }
 }
 
@@ -308,7 +340,10 @@ async function runBootstrap(
       const win = getMainWindow();
       return win && !win.isDestroyed() ? win.webContents : null;
     },
-    (listener) => ipcMain.on('rpc', (event, message: unknown) => listener(event.sender, message)),
+    (listener) =>
+      ipcMain.on('rpc', (event, message: unknown) =>
+        listener(event.sender, message),
+      ),
   );
   const platformOptions: ElectronPlatformOptions = {
     attention: {
@@ -535,7 +570,10 @@ async function runBootstrap(
     );
   }
 
-  const webviewManagerAdapter = new ElectronWebviewManagerAdapter(ipcBridge, container.resolve<Logger>(TOKENS.LOGGER));
+  const webviewManagerAdapter = new ElectronWebviewManagerAdapter(
+    ipcBridge,
+    container.resolve<Logger>(TOKENS.LOGGER),
+  );
   try {
     container.register(TOKENS.WEBVIEW_MANAGER, {
       useValue: webviewManagerAdapter,
@@ -546,6 +584,34 @@ async function runBootstrap(
       error instanceof Error ? error.message : String(error),
     );
     throw error;
+  }
+  const codexRoutingInput = {
+    isPackaged: app.isPackaged,
+    env: process.env,
+    platform: { platform: process.platform, arch: process.arch },
+  };
+  if (createElectronCodexRouting(codexRoutingInput).capabilities.nativeCodex) {
+    try {
+      await bindElectronCodexChat(container, {
+        ...codexRoutingInput,
+        bundledRoot: resolveElectronCodexBundledRoot({
+          isPackaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+          appPath: app.getAppPath(),
+        }),
+        scopeResolver: container.resolve<WorkspaceScopeResolver>(
+          SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER,
+        ),
+        settingsStore: container.resolve<NativeSessionControlsDeps['store']>(
+          SETTINGS_TOKENS.SETTINGS_STORE,
+        ),
+      });
+    } catch (error) {
+      container.resolve<Logger>(TOKENS.LOGGER).error(
+        '[Ptah Electron] Codex chat binding failed; continuing startup',
+        error instanceof Error ? error : new Error('Codex chat binding failed'),
+      );
+    }
   }
   // Detached Display window (TASK_2026_853_3401). Bound here, beside
   // WEBVIEW_MANAGER, because it needs the bridge; `DisplayWindowRpcHandlers`
@@ -563,8 +629,13 @@ async function runBootstrap(
     }),
   });
   attachElectronHostAttention(
-    () => container.resolve<IHostAttentionIngress>(SDK_TOKENS.HOST_ATTENTION_COORDINATOR),
-    (observer) => { webviewManagerAdapter.setAttentionObserver(observer); },
+    () =>
+      container.resolve<IHostAttentionIngress>(
+        SDK_TOKENS.HOST_ATTENTION_COORDINATOR,
+      ),
+    (observer) => {
+      webviewManagerAdapter.setAttentionObserver(observer);
+    },
     (message) => container.resolve<Logger>(TOKENS.LOGGER).warn(message),
   );
   // The boot readiness port, registered beside WEBVIEW_MANAGER because both are

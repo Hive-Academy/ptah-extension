@@ -42,6 +42,7 @@ const CODEX = owner('openai-codex', 'account', 'c0de');
 const OPENCODE = owner('opencode', 'cli-store', '0c0d');
 const ANTIGRAVITY = owner('antigravity', 'cli-store', 'a9a9');
 const OLLAMA = owner('ollama-cloud', 'credential', '011a');
+const KIMI = owner('kimi-code', 'credential', 'c1c1');
 const CLAUDE_RUN = owner('anthropic', 'account', 'aaaa');
 
 function snapshot(
@@ -99,6 +100,19 @@ function createHarness(
 }
 
 describe('LaneLimitLookupService', () => {
+  it('reads Kimi lane limits before a remembered run', async () => {
+    const h = createHarness(async (target) => snapshot(target.ownerRef));
+    h.rules.ownerForPtahCliKey.mockResolvedValue(KIMI);
+    await h.service.lookup([{ cli: 'ptah-cli', providerId: 'kimi-code', ptahCliId: 'kimi-1' }]);
+    expect(h.rules.ownerForPtahCliKey).toHaveBeenCalledWith('kimi-1', 'kimi-code');
+    expect(h.snapshots.getOwnerSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'kimi-code', ownerRef: KIMI,
+        credentialRef: { kind: 'ptah-cli-key', ptahCliId: 'kimi-1' },
+      }),
+      expect.anything(),
+    );
+  });
   afterEach(() => {
     jest.useRealTimers();
   });

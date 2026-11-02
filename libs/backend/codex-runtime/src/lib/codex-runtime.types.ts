@@ -46,18 +46,25 @@ export type CodexMcpServer =
       readonly command: string;
       readonly args: readonly string[];
       readonly envReferences: Readonly<Record<string, string>>;
+      readonly toolTimeoutSec?: number;
     }
   | {
       readonly name: string;
       readonly transport: 'http' | 'sse';
       readonly url: string;
+      /** Reference to the full url when the real url carries a secret query; `url` then holds only origin and path. */
+      readonly urlReference?: string;
       readonly headerReferences: Readonly<Record<string, string>>;
       readonly authReference?: string;
+      readonly toolTimeoutSec?: number;
     };
+/** Reference -> secret value, built by the host per open; never stored, logged or fingerprinted. */
+export type CodexMcpSecrets = ReadonlyMap<string, string>;
 /**
  * Validated and deeply frozen by buildCodexExecutionProfile (the profile-builder batch).
  * Home, identity and workspace stay fixed on resume. Secrets are excluded from the
- * fingerprint. Ask requires granular-all-true approvals and a read-only sandbox.
+ * fingerprint. Chat/usage ask can require granular approvals; native lanes
+ * always use a workspace-write sandbox scoped to their working directory.
  * Full access is an explicit, evidence-gated choice, never inferred from a consumer.
  */
 export interface CodexExecutionProfile {
@@ -82,6 +89,15 @@ export interface CodexExecutionProfile {
   readonly attachments: readonly CodexAttachment[];
   readonly lane?: {
     readonly suppressedTools: readonly string[];
+    readonly agentsEnabled?: false;
+    readonly pluginsEnabled?: false;
+    readonly appsEnabled?: false;
+    readonly includeSkillInstructions?: false;
+    readonly disabledUserMcpServers?: readonly string[];
+    readonly autoCompactTokens?: number;
+    readonly toolOutputTokenLimit?: number;
+    readonly webSearch?: 'live' | 'disabled';
+    readonly ptahToolTimeoutSeconds?: number;
     readonly maxTurns?: number;
     readonly maxBudgetUsd?: number;
     readonly explicitFullAccess: boolean;
@@ -123,6 +139,15 @@ export interface AppliedSettings {
  */
 export type CodexApprovalDecision =
   'accept' | 'acceptForSession' | 'decline' | 'cancel';
+/**
+ * What an approval sink may return.
+ * `denialReason` is the user's deny-with-message text.
+ * `editNotSupported` is only the edit marker.
+ */
+export type CodexApprovalOutcome =
+  | CodexApprovalDecision
+  | { readonly decision: 'decline'; readonly editNotSupported: true }
+  | { readonly decision: 'decline'; readonly denialReason: string };
 export interface CodexApprovalCorrelation {
   readonly contextId: string;
   readonly processGeneration: number;
@@ -139,16 +164,30 @@ export interface CodexApprovalRequest extends CodexApprovalCorrelation {
   readonly providerId: string;
   readonly toolId?: string;
   readonly toolName?: string;
+  readonly expiresAt?: number; // epoch ms when the bridge auto-declines
   readonly message: string;
   readonly details: Readonly<Record<string, CodexJsonValue>>;
 }
 /** Only values reported by the server; missing counters are not zero. */
+/**
+ * Whole-turn usage: cumulative thread total minus the turn-start baseline,
+ * including every model request/tool continuation. Updates are snapshots, not deltas.
+ * OpenAI inputTokens INCLUDES cachedInputTokens; consumers with separate buckets
+ * use inputTokens - cachedInputTokens for input and cachedInputTokens for cacheRead.
+ * cacheWriteInputTokens is reported separately (wire omission defaults to zero).
+ * reasoningOutputTokens is a subset of outputTokens. No cost is inferred.
+ */
 export interface CodexReportedUsage {
   readonly inputTokens?: number;
   readonly cachedInputTokens?: number;
+  readonly cacheWriteInputTokens?: number;
   readonly outputTokens?: number;
   readonly reasoningOutputTokens?: number;
   readonly totalTokens?: number;
+  /** Context-window occupancy of the most recent model request in this turn (wire tokenUsage.last.totalTokens). NOT a whole-turn quantity; use it for compaction preTokens / context fill, never for turn cost. */
+  readonly lastRequestTotalTokens?: number;
+  /** The model context window the server reported with this update (wire tokenUsage.modelContextWindow). Present only when the server reported a positive integer; null or absent stays absent. */
+  readonly modelContextWindow?: number;
   readonly costUsd?: number;
 }
 /** Sanitized, consumer-safe information, never raw errors or credentials. */
@@ -178,6 +217,17 @@ export type CodexRuntimeEvent = CodexEventIdentity &
         readonly text: string;
       }
     | {
+        readonly type: 'userInputAsync';
+        readonly itemId: string;
+        readonly text: string;
+        /** Chat runtime decides whether the question has a card or needs text. */
+        readonly presentation?: 'card' | 'text';
+        readonly questions: readonly {
+          readonly title: string;
+          readonly options?: readonly string[];
+        }[];
+      }
+    | {
         readonly type: 'toolStarted';
         readonly toolId: string;
         readonly toolName: string;
@@ -188,6 +238,10 @@ export type CodexRuntimeEvent = CodexEventIdentity &
         readonly toolId: string;
         readonly output: CodexJsonValue;
         readonly status: 'completed' | 'failed' | 'cancelled';
+        /** Process exit code the server reported for the item (commandExecution today). Present only when reported: 0 is a real value, wire null/absent stays absent. */
+        readonly exitCode?: number;
+        /** Server-reported error text of a failed tool call (mcpToolCall.error.message today), length-bounded. Absent when the server reported no error text. */
+        readonly errorText?: string;
       }
     | {
         readonly type: 'reasoning';
@@ -233,10 +287,22 @@ export interface CodexRuntime {
   open(
     profile: CodexExecutionProfile,
     resume?: CodexThreadIdentity,
+    secrets?: CodexMcpSecrets,
   ): Promise<CodexContext>;
+}
+export interface CodexModelInfo {
+  /** Catalog key; use model for thread/start and turn/start. */
+  readonly id: string;
+  readonly model: string;
+  readonly displayName: string;
+  readonly description?: string;
+  readonly isDefault: boolean;
+  readonly supportedEfforts?: readonly string[];
 }
 export interface CodexContext {
   readonly identity: CodexThreadIdentity;
+  readonly turnPermissionLevel: CodexPermissionLevel;
+  listModels(): Promise<readonly CodexModelInfo[]>;
   events(signal: AbortSignal): AsyncIterable<CodexRuntimeEvent>;
   startTurn(input: CodexTurnInput): Promise<CodexTurnReceipt>;
   steer(input: CodexTurnInput): Promise<CodexTurnReceipt>;

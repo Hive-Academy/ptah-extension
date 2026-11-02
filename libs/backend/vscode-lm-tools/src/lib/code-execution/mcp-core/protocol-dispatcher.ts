@@ -150,8 +150,14 @@ import {
   buildSurfaceUpdateTool,
 } from './surface-tools';
 import { handleSurfaceToolCall } from './surface-tool-handlers';
-import { ARTIFACT_PUBLISH_TOOL_NAME, buildArtifactPublishTool } from './artifact-tools';
-import { handleArtifactPublish, type ArtifactNotification } from './artifact-tool-handlers';
+import {
+  ARTIFACT_PUBLISH_TOOL_NAME,
+  buildArtifactPublishTool,
+} from './artifact-tools';
+import {
+  handleArtifactPublish,
+  type ArtifactNotification,
+} from './artifact-tool-handlers';
 import type { IArtifactStore } from '@ptah-extension/platform-core';
 import type { McpToolProfile } from '@ptah-extension/shared';
 import {
@@ -2218,11 +2224,13 @@ async function handleIndividualTool(
           config: mcpConfig,
           serverKey: mcpServerKey,
           targets: mcpTargets,
+          scope: mcpScope,
         } = args as {
           serverName?: string;
           config?: McpServerConfig;
           serverKey?: string;
           targets?: McpInstallTarget[];
+          scope?: 'user' | 'workspace';
         };
 
         if (
@@ -2258,6 +2266,7 @@ async function handleIndividualTool(
           mcpConfig,
           mcpServerKey,
           mcpTargets,
+          mcpScope,
         );
         return await createToolSuccessResponse(
           request,
@@ -2376,7 +2385,7 @@ async function handleIndividualTool(
           {
             workspaceRoot: callerWorkspace,
             sessionId: callerSessionId
-              ? deps.getSessionTabId?.(callerSessionId) ?? callerSessionId
+              ? (deps.getSessionTabId?.(callerSessionId) ?? callerSessionId)
               : undefined,
           },
           deps.artifactStore,
@@ -2877,7 +2886,16 @@ async function routeDecideResponse(
   logger: Logger,
   deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
-  const reply = await handleRouteToolCall(args, ptahAPI.route, logger);
+  const callerSessionId = getCallerSessionId()?.trim() || undefined;
+  const sessionKey = callerSessionId
+    ? (deps.getSessionTabId?.(callerSessionId) ?? callerSessionId)
+    : undefined;
+  const reply = await handleRouteToolCall(
+    args,
+    ptahAPI.route,
+    logger,
+    sessionKey ? { sessionKey } : undefined,
+  );
   return reply.isError
     ? toolErrorResponse(request, reply.text)
     : createToolSuccessResponse(request, reply.text, deps);

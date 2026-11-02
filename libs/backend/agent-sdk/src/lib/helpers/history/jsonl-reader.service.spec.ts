@@ -604,6 +604,45 @@ describe('JsonlReaderService', () => {
       expect(out[2].isSidechain).toBeUndefined();
     });
 
+    it('projects only a literal true compact-summary flag without changing other fields', async () => {
+      const baseLine = {
+        uuid: 'u-summary',
+        sessionId: 's1',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        type: 'user',
+        isSidechain: true,
+        origin: { kind: 'human' },
+        turnOrigin: 'human',
+        message: { role: 'user', content: 'summary' },
+      };
+      const jsonl = [true, false, 'true', 1, undefined]
+        .map((isCompactSummary) =>
+          JSON.stringify({ ...baseLine, isCompactSummary }),
+        )
+        .join('\n');
+      mockedStat.mockResolvedValueOnce(statsWithSize(Buffer.byteLength(jsonl)));
+      primeFileContent(jsonl);
+
+      const out = await service.readJsonlMessages('/tmp/session.jsonl');
+
+      expect(out).toHaveLength(5);
+      expect(out[0]).toEqual({ ...out[4], isCompactSummary: true });
+      expect(out[4]).toMatchObject({
+        uuid: 'u-summary',
+        sessionId: 's1',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        type: 'user',
+        isSidechain: true,
+        origin: { kind: 'human' },
+        turnOrigin: 'human',
+        message: { role: 'user', content: 'summary' },
+      });
+      for (const message of out.slice(1)) {
+        expect(message).toEqual(out[4]);
+        expect(Object.hasOwn(message, 'isCompactSummary')).toBe(false);
+      }
+    });
+
     it('rejects files over the 50 MB cap with SdkError before reading content', async () => {
       // `await expect(...).rejects.toThrow(...)` invokes the thunk once, so we
       // need exactly one stat reply — any extra primed replies stay queued

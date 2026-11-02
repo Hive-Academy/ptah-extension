@@ -206,4 +206,43 @@ describe('NativeTabGroupComponent', () => {
     fixture.detectChanges();
     expect(tabs()[0].getAttribute('aria-selected')).toBe('true');
   });
+
+  it('uses the tabpanel as the motion stage and follows visual tab order', () => {
+    const panel = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="native-tabpanel"]',
+    ) as HTMLElement;
+    expect(panel.classList.contains('ptah-motion-stage')).toBe(true);
+    expect(panel.dataset['motionDir']).toBe('forward');
+    host.activeId.set('command');
+    fixture.detectChanges();
+    expect(panel.dataset['motionDir']).toBe('forward');
+    host.activeId.set('skill');
+    fixture.detectChanges();
+    expect(panel.dataset['motionDir']).toBe('back');
+  });
+
+  it('keeps direction when tabs before the selection change or no tab is active', () => {
+    const panel = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="native-tabpanel"]',
+    ) as HTMLElement;
+    host.activeId.set('command');
+    fixture.detectChanges();
+    host.activeId.set('agent');
+    fixture.detectChanges();
+    expect(panel.dataset['motionDir']).toBe('back');
+
+    host.tabs.set([{ id: 'new', label: 'New' }, ...host.tabs()]);
+    fixture.detectChanges();
+    expect(panel.dataset['motionDir']).toBe('back');
+    host.tabs.set(host.tabs().filter((tab) => tab.id !== 'new'));
+    fixture.detectChanges();
+    expect(panel.dataset['motionDir']).toBe('back');
+
+    host.tabs.set([]);
+    fixture.detectChanges();
+    expect(panel.dataset['motionDir']).toBe('back');
+    host.tabs.set([{ id: 'agent', label: 'Agents' }]);
+    fixture.detectChanges();
+    expect(panel.dataset['motionDir']).toBe('back');
+  });
 });

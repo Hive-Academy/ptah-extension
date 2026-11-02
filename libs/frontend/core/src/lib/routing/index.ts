@@ -13,12 +13,32 @@ export {
   ACCEPTED_INITIAL_VIEWS,
   DEFAULT_SURFACE_ID,
   LEGACY_SURFACE_ALIASES,
+  LEGACY_SURFACE_TARGETS,
   SURFACE_ROUTE_IDS,
   isAcceptedInitialView,
+  isLegacySurfaceAlias,
   isSurfaceRouteId,
+  resolveSurfaceAlias,
   surfaceIdFromSegment,
   surfaceRoutePath,
+  type LegacySurfaceAlias,
 } from './surface-routes';
+
+export {
+  ONBOARDING_QUERY,
+  ONBOARDING_READY_QUERY,
+  isOnboardingIdentityValue,
+  onboardingGenerationBinding,
+  onboardingGenerationTarget,
+  onboardingHarnessTarget,
+  onboardingReadyTarget,
+  parseOnboardingReadyArea,
+  parseOnboardingReadyOpen,
+  type OnboardingHarnessMode,
+  type OnboardingReadyArea,
+  type OnboardingReadyOpen,
+  type OnboardingTarget,
+} from './onboarding-routes';
 
 export { SURFACE_ACTIVE, surfaceActiveFor } from './surface-active';
 export { SurfaceActiveDirective } from './surface-active.directive';

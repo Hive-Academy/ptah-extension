@@ -16,6 +16,7 @@ import {
 } from '@ptah-extension/chat-routing';
 import {
   AgentMonitorStore,
+  BackgroundTaskStore,
   TurnStateApplier,
 } from '@ptah-extension/chat-streaming';
 import {
@@ -62,6 +63,9 @@ function makeValidAskUserQuestionRequest() {
 describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', () => {
   let handler: ChatMessageHandler;
   let chatStore: {
+    permissionRequests: jest.Mock;
+    handlePermissionAutoResolved: jest.Mock;
+    handlePermissionResponse: jest.Mock;
     handlePermissionRequest: jest.Mock;
     handleQuestionRequest: jest.Mock;
     handleTurnEndedNotification: jest.Mock;
@@ -110,6 +114,9 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
 
   beforeEach(() => {
     chatStore = {
+      permissionRequests: jest.fn(() => []),
+      handlePermissionAutoResolved: jest.fn(),
+      handlePermissionResponse: jest.fn(),
       handlePermissionRequest: jest.fn(),
       handleQuestionRequest: jest.fn(),
       handleTurnEndedNotification: jest.fn(),
@@ -183,9 +190,26 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
   });
 
   it('retires pending ids only on a confirmed session-ended message', () => {
+    const tasks = TestBed.inject(BackgroundTaskStore);
+    tasks.replace({
+      id: 'snapshot-1', eventType: 'background_tasks_snapshot',
+      timestamp: 1, sessionId: 'old-session', messageId: 'background-tasks-old-session',
+      tasks: [{ taskId: 'bash-1', taskType: 'local_bash', description: 'Compile', status: 'running' }],
+    });
+    handler.handleMessage({ type: MESSAGE_TYPES.CHAT_COMPLETE, payload: { tabId: 'tab-1' } });
+    expect(tasks.tasksForSession('old-session')).toHaveLength(1);
     handler.handleMessage({ type: MESSAGE_TYPES.CHAT_SESSION_ENDED, payload: { tabId: 'tab-1', sessionId: 'old-session' } });
     expect(chatStore.retireEndedSessionPrompts).toHaveBeenCalledWith('tab-1', 'old-session');
+    expect(tasks.tasksForSession('old-session')).toEqual([]);
     handler.handleMessage({ type: MESSAGE_TYPES.CHAT_SESSION_ENDED, payload: { tabId: 'tab-1' } });
+    expect(chatStore.retireEndedSessionPrompts).toHaveBeenCalledTimes(1);
+    tasks.replace({
+      id: 'snapshot-2', eventType: 'background_tasks_snapshot',
+      timestamp: 2, sessionId: 'old-session', messageId: 'background-tasks-old-session',
+      tasks: [{ taskId: 'bash-2', taskType: 'local_bash', description: 'Package', status: 'running' }],
+    });
+    handler.handleMessage({ type: MESSAGE_TYPES.CHAT_SESSION_ENDED, payload: { sessionId: 'old-session' } });
+    expect(tasks.tasksForSession('old-session')).toEqual([]);
     expect(chatStore.retireEndedSessionPrompts).toHaveBeenCalledTimes(1);
   });
 
@@ -225,6 +249,47 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
 
     expect(chatStore.handlePermissionRequest).toHaveBeenCalledTimes(1);
     expect(streamRouter.routePermissionPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it('registers prompt cancellation and removes only the correlated session prompt', () => {
+    const prompt = { ...makeValidPermissionRequest(), sessionId: SESS_VALID };
+    chatStore.permissionRequests.mockReturnValue([prompt]);
+    expect(handler.handledMessageTypes).toContain(
+      MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED,
+    );
+    handler.handleMessage({
+      type: MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED,
+      payload: {
+        sessionId: SESS_VALID,
+        requestId: prompt.id,
+        reason: 'turn-ended',
+      },
+    });
+    expect(chatStore.handlePermissionAutoResolved).toHaveBeenCalledWith({
+      id: prompt.id,
+      toolName: prompt.toolName,
+    });
+    expect(chatStore.handlePermissionAutoResolved).toHaveBeenCalledTimes(1);
+    expect(chatStore.handlePermissionResponse).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { sessionId: 'other-session', requestId: VALID_UUID },
+    { sessionId: SESS_VALID, requestId: 'other-request' },
+    { requestId: VALID_UUID },
+    { sessionId: SESS_VALID },
+    { sessionId: SESS_VALID, requestId: 42 },
+    null,
+  ])('ignores unrelated or malformed prompt cancellations: %j', (payload) => {
+    chatStore.permissionRequests.mockReturnValue([
+      { ...makeValidPermissionRequest(), sessionId: SESS_VALID },
+    ]);
+    handler.handleMessage({
+      type: MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED,
+      payload,
+    });
+    expect(chatStore.handlePermissionAutoResolved).not.toHaveBeenCalled();
+    expect(chatStore.handlePermissionResponse).not.toHaveBeenCalled();
   });
 
   // ----- ASK_USER_QUESTION_REQUEST ------------------------------------------

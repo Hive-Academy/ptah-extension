@@ -31,8 +31,10 @@ import {
   DEFAULT_SURFACE_ID,
   isAcceptedInitialView,
   isSurfaceRouteId,
+  resolveSurfaceAlias,
   type ViewType,
 } from '../routing/surface-routes';
+import { onboardingReadyTarget } from '../routing/onboarding-routes';
 import {
   marketplaceRouteCommands,
   type MarketplaceRoute,
@@ -59,12 +61,12 @@ export type ThothActiveTabId = 'memory' | 'skills' | 'cron' | 'gateway';
  */
 export type ConfigurationSurfaceId = Extract<
   ViewType,
-  'thoth' | 'setup-hub' | 'marketplace' | 'settings'
+  'thoth' | 'onboarding' | 'marketplace' | 'settings'
 >;
 
 export const CONFIGURATION_SURFACE_IDS: readonly ConfigurationSurfaceId[] = [
   'thoth',
-  'setup-hub',
+  'onboarding',
   'marketplace',
   'settings',
 ];
@@ -84,8 +86,8 @@ export function isConfigurationSurface(
 export interface ConfigurationSurfaceSlots {
   /** Reserved; no 540-owned Thoth-global state. */
   readonly thoth: Readonly<Record<string, never>>;
-  /** Reserved; no 540-owned Setup-hub-global state. */
-  readonly 'setup-hub': Readonly<Record<string, never>>;
+  /** Reserved; no 540-owned Onboarding-global state. */
+  readonly onboarding: Readonly<Record<string, never>>;
   /** Marketplace-global state (TASK_2026_533). */
   readonly marketplace: {
     /** Last settled Marketplace page, the same for every workspace. */
@@ -359,10 +361,24 @@ export class AppStateManager implements MessageHandler {
    * onto the chat surface.
    */
   handleMessage(message: { type: string; payload?: unknown }): void {
-    const payload = message.payload as { view?: string } | undefined;
+    const payload = message.payload as
+      { view?: string; sessionId?: unknown; sessionName?: unknown } | undefined;
     const view = payload?.view;
     if (isAcceptedInitialView(view)) {
       this.handleViewSwitch(view);
+      if (
+        view === 'chat' &&
+        typeof payload?.sessionId === 'string' &&
+        payload.sessionId.length > 0
+      ) {
+        this.requestOpenSession({
+          sessionId: payload.sessionId,
+          name:
+            typeof payload.sessionName === 'string'
+              ? payload.sessionName
+              : undefined,
+        });
+      }
     } else {
       console.warn(
         `[AppStateManager] switchView received with invalid or missing view: ${view}`,
@@ -394,7 +410,7 @@ export class AppStateManager implements MessageHandler {
   private readonly _isConnected = signal(true);
   /**
    * Deliberately NOT workspace-partitioned. The four configuration surfaces
-   * (thoth, setup-hub, marketplace, settings) apply regardless of which
+   * (thoth, onboarding, marketplace, settings) apply regardless of which
    * workspace is active, so their open state is one global fact. The
    * constructor effect writes openSurface
    * unconditionally from the Router's surface; slice stamping refuses these
@@ -407,7 +423,7 @@ export class AppStateManager implements MessageHandler {
     openSurface: null,
     perSurface: {
       thoth: {},
-      'setup-hub': {},
+      onboarding: {},
       marketplace: { marketplaceRoute: null },
       settings: {},
     },
@@ -637,7 +653,7 @@ export class AppStateManager implements MessageHandler {
    * entry point behaves consistently (no blank shell).
    */
   private normalizeView(view: ViewType): ViewType {
-    return view === 'orchestra-canvas' ? 'chat' : view;
+    return resolveSurfaceAlias(view);
   }
 
   /**
@@ -787,8 +803,9 @@ export class AppStateManager implements MessageHandler {
    * it on the default-surface fallback with an "Unknown initialView" warning.
    */
   normalizeInitialView(raw: string | undefined): ViewType {
-    const candidate =
-      raw === 'orchestra-canvas' ? this.normalizeView('orchestra-canvas') : raw;
+    const candidate = isAcceptedInitialView(raw)
+      ? this.normalizeView(raw)
+      : raw;
     if (isSurfaceRouteId(candidate)) return candidate;
     if (raw !== undefined && raw !== '') {
       console.warn(
@@ -1157,6 +1174,12 @@ export class AppStateManager implements MessageHandler {
   openMarketplace(route: MarketplaceRoute): void {
     if (!this.canSwitchViews()) return;
     void this.requestSurface('marketplace', marketplaceRouteCommands(route));
+  }
+
+  /** Open the Electron readiness check through the same gated surface path. */
+  openOnboardingReady(): void {
+    if (!this.canSwitchViews()) return;
+    void this.requestSurface('onboarding', onboardingReadyTarget().subPath);
   }
 
   /**

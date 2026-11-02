@@ -4,6 +4,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   AgentPackInfoDto,
   AgentRecommendation,
+  AnalysisStatus,
   EnhancedPromptsRunWizardResponse,
   EnhancedPromptsGetStatusResponse,
   MultiPhaseAnalysisResponse,
@@ -103,7 +104,6 @@ export interface AgentSelectionResponse {
  * Pattern: Facade pattern - provides wizard-specific API over unified RPC
  *
  * Supported RPC methods:
- * - setup-wizard:launch - Launch the wizard webview
  * - wizard:submit-selection - Submit agent selection and trigger generation
  * - wizard:cancel - Cancel the wizard session
  * - wizard:retry-item - Retry a failed generation item
@@ -235,17 +235,6 @@ export class WizardRpcService {
   }
 
   /**
-   * Launch the setup wizard webview
-   * This uses the existing `setup-wizard:launch` RPC handler
-   */
-  public async launchWizard(): Promise<void> {
-    const result = await this.rpcService.call('setup-wizard:launch', {});
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to launch wizard');
-    }
-  }
-
-  /**
    * Read-only target preview; failure must not prevent generation.
    *
    * @param target - Root to compare against; absent = the harness root.
@@ -253,10 +242,12 @@ export class WizardRpcService {
   public async previewGeneration(
     selectedAgentIds: string[],
     target?: GenerationTargetChoice,
+    tabBinding?: SetupGenerationTabBinding,
   ): Promise<WizardPreviewGenerationResponse> {
     const params: WizardPreviewGenerationParams = {
       selectedAgentIds,
       ...(target !== undefined ? { target } : {}),
+      ...(tabBinding !== undefined ? { tabBinding } : {}),
     };
     const result = await this.rpcService.call(
       'wizard:preview-generation',
@@ -626,7 +617,9 @@ export class WizardRpcService {
    *
    * @returns Array of saved analysis metadata sorted by date (newest first)
    */
-  public async listAnalyses(): Promise<SavedAnalysisMetadata[]> {
+  public async listAnalyses(options?: {
+    throwOnError?: boolean;
+  }): Promise<SavedAnalysisMetadata[]> {
     const result = await this.rpcService.call(
       'wizard:list-analyses',
       {},
@@ -634,9 +627,12 @@ export class WizardRpcService {
     );
 
     if (result.isSuccess() && result.data) {
-      return (result.data as { analyses: SavedAnalysisMetadata[] }).analyses;
+      const analyses = (result.data as { analyses?: unknown }).analyses;
+      if (Array.isArray(analyses)) return analyses as SavedAnalysisMetadata[];
     }
 
+    if (options?.throwOnError)
+      throw new Error('Saved analyses could not be loaded.');
     return [];
   }
 
@@ -647,6 +643,16 @@ export class WizardRpcService {
    * @param filename - Slug directory name from .ptah/analysis/
    * @returns Multi-phase analysis response with manifest and phase contents
    */
+  public async getAnalysisStatus(): Promise<AnalysisStatus> {
+    const result = await this.rpcService.call(
+      'wizard:analysis-status',
+      {},
+      { timeout: WIZARD_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) return result.data;
+    throw new Error(result.error || 'Failed to check analysis status');
+  }
+
   public async loadAnalysis(
     filename: string,
   ): Promise<MultiPhaseAnalysisResponse> {

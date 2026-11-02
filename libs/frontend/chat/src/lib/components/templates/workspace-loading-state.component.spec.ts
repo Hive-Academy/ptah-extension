@@ -1,5 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { VSCodeService } from '@ptah-extension/core';
+import { signal } from '@angular/core';
+import {
+  ElectronLayoutService,
+  VSCodeService,
+  WallClockService,
+} from '@ptah-extension/core';
 import {
   SLOW_HINT_MS,
   WorkspaceLoadingStateComponent,
@@ -7,6 +12,7 @@ import {
 
 describe('WorkspaceLoadingStateComponent', () => {
   let fixture: ComponentFixture<WorkspaceLoadingStateComponent>;
+  let coarseTick = signal(0);
 
   function host(): HTMLElement {
     return fixture.nativeElement as HTMLElement;
@@ -28,12 +34,25 @@ describe('WorkspaceLoadingStateComponent', () => {
 
   beforeEach(async () => {
     jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 9, 30, 12));
+    coarseTick = signal(Date.now());
     await TestBed.configureTestingModule({
       imports: [WorkspaceLoadingStateComponent],
       providers: [
         {
           provide: VSCodeService,
           useValue: { getPtahIconUri: () => 'ptah-icon.png' },
+        },
+        {
+          provide: ElectronLayoutService,
+          useValue: { workspaceResolveStartedAt: Date.now() },
+        },
+        {
+          provide: WallClockService,
+          useValue: {
+            now: () => coarseTick.asReadonly(),
+            acquire: () => () => undefined,
+          },
         },
       ],
     }).compileComponents();
@@ -94,6 +113,37 @@ describe('WorkspaceLoadingStateComponent', () => {
     expect(hint?.closest('[aria-hidden="true"], [aria-busy="true"]')).toBeNull();
     // Grouped with the content on the text scrim, not floating below it.
     expect(hint?.closest('.ptah-loading__scrim')).not.toBeNull();
+  });
+
+  it('keeps the original service deadline when the loading view remounts', () => {
+    render('ptah-extension');
+    fixture.destroy();
+    jest.advanceTimersByTime(8_000);
+
+    fixture = TestBed.createComponent(WorkspaceLoadingStateComponent);
+    render('ptah-extension');
+    jest.advanceTimersByTime(SLOW_HINT_MS - 8_000 - 1);
+    fixture.detectChanges();
+    expect(host().querySelector('[data-testid="workspace-loading-slow"]')).toBeNull();
+
+    jest.advanceTimersByTime(1);
+    fixture.detectChanges();
+    expect(host().querySelector('[data-testid="workspace-loading-slow"]')).not.toBeNull();
+  });
+
+  it('updates the activity grid day key with the coarse clock', () => {
+    render('ptah-extension');
+    coarseTick.set(new Date(2026, 10, 1, 12).getTime());
+    fixture.detectChanges();
+    expect(
+      host().querySelector('.ptah-activity-grid__today')?.getAttribute('data-date'),
+    ).toBe('2026-11-01');
+
+    coarseTick.set(new Date(2026, 10, 2, 12).getTime());
+    fixture.detectChanges();
+    expect(
+      host().querySelector('.ptah-activity-grid__today')?.getAttribute('data-date'),
+    ).toBe('2026-11-02');
   });
 
   it('drops the slow-hint timer when it is destroyed', () => {

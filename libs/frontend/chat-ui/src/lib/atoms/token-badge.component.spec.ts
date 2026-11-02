@@ -42,7 +42,7 @@ describe('TokenBadgeComponent', () => {
     expect(fixture.componentInstance.tooltipText()).toContain('42 tokens');
   });
 
-  it('sums input + output for full MessageTokenUsage', () => {
+  it('sums all four token classes for full MessageTokenUsage', () => {
     const fixture = render();
     const usage: MessageTokenUsage = {
       input: 100,
@@ -52,13 +52,42 @@ describe('TokenBadgeComponent', () => {
     };
     fixture.componentRef.setInput('tokens', usage);
     fixture.detectChanges();
-    expect(fixture.componentInstance.totalCount()).toBe(300);
+    expect(fixture.componentInstance.totalCount()).toBe(375);
+    expect(fixture.nativeElement.textContent).toContain('375 tokens');
     const tooltip = fixture.componentInstance.tooltipText();
     expect(tooltip).toContain('Input: 100');
     expect(tooltip).toContain('Output: 200');
     expect(tooltip).toContain('Cache Read: 50');
     expect(tooltip).toContain('Cache Creation: 25');
-    expect(tooltip).toContain('Total: 300');
+    expect(tooltip).toContain('Total: 375');
+  });
+
+  it('shows unavailable for invalid message token counts', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('tokens', {
+      input: 100,
+      output: 200,
+      cacheRead: Number.NaN,
+      cacheCreation: 25,
+    } satisfies MessageTokenUsage);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.totalCount()).toBeNull();
+    expect(fixture.nativeElement.textContent.trim()).toBe('—');
+    expect(fixture.nativeElement.querySelector('span').title).toBe(
+      'Token usage unavailable',
+    );
+  });
+
+  it('shows unavailable for a NaN numeric total', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('tokens', Number.NaN);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent.trim()).toBe('—');
+    expect(fixture.nativeElement.querySelector('span').title).toBe(
+      'Token usage unavailable',
+    );
   });
 
   it('handles missing tokens input as 0', () => {

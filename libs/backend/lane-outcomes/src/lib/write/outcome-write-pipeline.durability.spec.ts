@@ -33,14 +33,16 @@ describe('OutcomeWritePipeline durability', () => {
       storage,
       availability,
     );
-    const insert = store.insertIfAbsent.bind(store);
-    jest.spyOn(store, 'insertIfAbsent').mockImplementation(async (row) => {
-      if (row.runId === 'lane:first') {
-        for (const id of ['lane:second', 'lane:third', 'lane:fourth'])
-          pipeline.enqueue({ kind: 'lane-completion', row: outcomeRow(id) });
-      }
-      return insert(row);
-    });
+    const insert = store.insertStopWithHeldReports.bind(store);
+    const spy = jest
+      .spyOn(store, 'insertStopWithHeldReports')
+      .mockImplementation(async (row, nowMs, resolve) => {
+        if (row.runId === 'lane:first') {
+          for (const id of ['lane:second', 'lane:third', 'lane:fourth'])
+            pipeline.enqueue({ kind: 'lane-completion', row: outcomeRow(id) });
+        }
+        return insert(row, nowMs, resolve);
+      });
 
     pipeline.enqueue({
       kind: 'lane-completion',
@@ -48,6 +50,7 @@ describe('OutcomeWritePipeline durability', () => {
     });
     await drainTurns(pipeline, 4);
 
+    expect(spy).toHaveBeenCalledTimes(4);
     for (const id of ['lane:first', 'lane:second', 'lane:third', 'lane:fourth'])
       expect(await store.get(id)).not.toBeNull();
     expect(
@@ -211,7 +214,7 @@ describe('OutcomeWritePipeline durability', () => {
           InMemoryLaneOutcomeStore['insertStopWithHeldReports']
         >
       ): ReturnType<InMemoryLaneOutcomeStore['insertStopWithHeldReports']> {
-        if (!this.failed) {
+        if (!this.failed && args[0].runId.startsWith('subagent:')) {
           this.failed = true;
           throw Object.assign(new Error('io'), { code: 'SQLITE_IOERR' });
         }
@@ -260,7 +263,7 @@ describe('OutcomeWritePipeline durability', () => {
           InMemoryLaneOutcomeStore['insertStopWithHeldReports']
         >
       ): ReturnType<InMemoryLaneOutcomeStore['insertStopWithHeldReports']> {
-        if (this.failing)
+        if (this.failing && args[0].runId.startsWith('subagent:'))
           throw Object.assign(new Error('io'), { code: 'SQLITE_IOERR' });
         return super.insertStopWithHeldReports(...args);
       }
@@ -308,14 +311,17 @@ describe('OutcomeWritePipeline durability', () => {
     const order: string[] = [];
     class StreakStore extends InMemoryLaneOutcomeStore {
       failures = 2;
-      override async insertIfAbsent(
-        row: Parameters<InMemoryLaneOutcomeStore['insertIfAbsent']>[0],
-      ): Promise<boolean> {
+      override async insertStopWithHeldReports(
+        ...args: Parameters<
+          InMemoryLaneOutcomeStore['insertStopWithHeldReports']
+        >
+      ): ReturnType<InMemoryLaneOutcomeStore['insertStopWithHeldReports']> {
+        const [row] = args;
         if (row.runId === 'lane:2' && this.failures-- > 0)
           throw Object.assign(new Error('busy'), { code: 'SQLITE_BUSY' });
-        const inserted = await super.insertIfAbsent(row);
-        if (inserted) order.push(row.runId);
-        return inserted;
+        const result = await super.insertStopWithHeldReports(...args);
+        if (result.inserted) order.push(row.runId);
+        return result;
       }
     }
     const store = new StreakStore();
@@ -378,7 +384,7 @@ describe('OutcomeWritePipeline durability', () => {
     await pipeline.dispose();
   });
 
-  it('dead letters a review after its pending stop fails validation', async () => {
+  it('holds a review after its pending stop fails validation', async () => {
     const storage = new MemoryState();
     const availability = new Availability();
     const store = new InMemoryLaneOutcomeStore();
@@ -400,19 +406,15 @@ describe('OutcomeWritePipeline durability', () => {
     await pipeline.flush();
     expect(await store.get('subagent:bad')).toBeNull();
     expect(await store.hasReceipt('report-702')).toBe(false);
-    expect(await store.listHeldReports(Date.now())).toHaveLength(0);
+    expect(await store.listHeldReports(Date.now())).toEqual([
+      expect.objectContaining({ reportId: 'report-702', kind: 'review' }),
+    ]);
     expect(
       storage.get<{ entries: readonly { reason: string }[] }>(
         OUTCOME_REJECTED_KEY,
       )?.entries,
-    ).toEqual([
-      expect.objectContaining({ reason: 'ZOD_VALIDATION' }),
-      expect.objectContaining({
-        reason: 'target-missing',
-        reportId: 'report-702',
-      }),
-    ]);
-    expect(logger.warn).toHaveBeenCalledTimes(2);
+    ).toEqual([expect.objectContaining({ reason: 'ZOD_VALIDATION' })]);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
     await pipeline.dispose();
   });
 
@@ -565,15 +567,20 @@ describe('OutcomeWritePipeline durability', () => {
       release = resolve;
     });
     class StalledStore extends InMemoryLaneOutcomeStore {
-      override async insertIfAbsent(
-        row: Parameters<InMemoryLaneOutcomeStore['insertIfAbsent']>[0],
-      ): Promise<boolean> {
+      stalls = 0;
+      override async insertStopWithHeldReports(
+        ...args: Parameters<
+          InMemoryLaneOutcomeStore['insertStopWithHeldReports']
+        >
+      ): ReturnType<InMemoryLaneOutcomeStore['insertStopWithHeldReports']> {
+        this.stalls++;
         await gate;
-        return super.insertIfAbsent(row);
+        return super.insertStopWithHeldReports(...args);
       }
     }
+    const stalled = new StalledStore();
     const pipeline = new OutcomeWritePipeline(
-      new StalledStore(),
+      stalled,
       testLogger(),
       storage,
       availability,
@@ -588,6 +595,7 @@ describe('OutcomeWritePipeline durability', () => {
     });
     pipeline.enqueue({ kind: 'lane-completion', row: outcomeRow('lane:late') });
     await shutdown;
+    expect(stalled.stalls).toBe(1);
     expect(Date.now() - started).toBeLessThan(3000);
     expect(
       new KeyValueOutcomeJournal<OutcomeWriteOp>(storage)
@@ -723,15 +731,18 @@ describe('OutcomeWritePipeline durability', () => {
     });
     const applied: string[] = [];
     class PausedStore extends InMemoryLaneOutcomeStore {
-      override async insertIfAbsent(
-        row: Parameters<InMemoryLaneOutcomeStore['insertIfAbsent']>[0],
-      ): Promise<boolean> {
+      override async insertStopWithHeldReports(
+        ...args: Parameters<
+          InMemoryLaneOutcomeStore['insertStopWithHeldReports']
+        >
+      ): ReturnType<InMemoryLaneOutcomeStore['insertStopWithHeldReports']> {
+        const [row] = args;
         if (row.runId === 'lane:1') {
           entered?.();
           await gate;
         }
         applied.push(row.runId);
-        return super.insertIfAbsent(row);
+        return super.insertStopWithHeldReports(...args);
       }
       override async applyReportWithReceipt(
         ...args: Parameters<InMemoryLaneOutcomeStore['applyReportWithReceipt']>
@@ -772,7 +783,8 @@ describe('OutcomeWritePipeline durability', () => {
       storage,
       availability,
     );
-    first.enqueue(reportOp('lane:absent', 20, 'review'));
+    // Deliverables, not a review: under F1 an early review is held, not dead-lettered.
+    first.enqueue(reportOp('lane:absent', 20));
     await first.flush();
     storage.rejectNext = (key) => key === OUTCOME_JOURNAL_KEY;
     availability.reopen();

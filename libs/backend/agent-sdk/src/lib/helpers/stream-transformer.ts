@@ -12,10 +12,13 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { randomUUID } from 'node:crypto';
 import {
   SessionId,
   FlatStreamEventUnion,
+  type BackgroundTasksSnapshotEvent,
   calculateMessageCost,
+  contextFillTokens,
   resolveContextCapacity,
   type ContextCapacity,
   type ContextCapacityRoute,
@@ -48,6 +51,7 @@ import {
   isTaskProgress,
   isTaskUpdated,
   isTaskNotification,
+  isBackgroundTasksChanged,
   isSuccessResult,
   isRateLimitEvent,
   isAPIRetryMessage,
@@ -541,6 +545,7 @@ export class StreamTransformer {
         let sdkMessageCount = 0;
         let yieldedEventCount = 0;
         let effectiveSessionId = sessionId;
+        let sawBackgroundTasksSnapshot = false;
         // Per-component last-turn context, keyed by model. message_start
         // REPLACES all three components; the final message_delta REPLACES only
         // the components it carries (`??` skips null/undefined only, so an
@@ -908,9 +913,7 @@ export class StreamTransformer {
                       costUSD: reported ? usage.costUSD : costUSD,
                       cacheReadInputTokens: cacheRead,
                       lastTurnContextTokens: trackedContext
-                        ? trackedContext.input +
-                          trackedContext.cacheRead +
-                          trackedContext.cacheCreation
+                        ? contextFillTokens(trackedContext)
                         : undefined,
                     });
                   }
@@ -1104,7 +1107,8 @@ export class StreamTransformer {
               isTaskStarted(sdkMessage) ||
               isTaskProgress(sdkMessage) ||
               isTaskUpdated(sdkMessage) ||
-              isTaskNotification(sdkMessage)
+              isTaskNotification(sdkMessage) ||
+              isBackgroundTasksChanged(sdkMessage)
             ) {
               let flatEvents: FlatStreamEventUnion[];
               try {
@@ -1122,6 +1126,9 @@ export class StreamTransformer {
 
               let emittedTerminal = false;
               for (const event of flatEvents) {
+                if (event.eventType === 'background_tasks_snapshot') {
+                  sawBackgroundTasksSnapshot = true;
+                }
                 yieldedEventCount++;
                 if (event.eventType === 'turn_state') {
                   if (!emittedTerminal && resultConsumedClientMessageId !== null) {
@@ -1227,6 +1234,21 @@ export class StreamTransformer {
             );
           }
           logger.debug(`[StreamTransformer] Session ${sessionId} stream ended`);
+          // SDK task snapshots are process-scoped. Retire the last level on
+          // completion, abort, error, or consumer close; turn_state alone
+          // must not clear it while the SDK query remains alive.
+          messageTransformer.clearBackgroundTaskSession(effectiveSessionId);
+          if (sawBackgroundTasksSnapshot) {
+            const terminalSnapshot: BackgroundTasksSnapshotEvent = {
+              id: `background-tasks-end-${randomUUID()}`,
+              eventType: 'background_tasks_snapshot',
+              sessionId: effectiveSessionId,
+              messageId: `background-tasks-${effectiveSessionId}`,
+              timestamp: Date.now(),
+              tasks: [],
+            };
+            yield terminalSnapshot;
+          }
         }
       },
     };

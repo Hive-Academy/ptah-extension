@@ -14,7 +14,7 @@ describe('ElectronSetupWizardService', () => {
     );
     expect((await service.launchWizard('/workspace')).isOk()).toBe(true);
     expect(broadcastMessage).toHaveBeenCalledWith(MESSAGE_TYPES.SWITCH_VIEW, {
-      view: 'setup-wizard',
+      view: 'onboarding',
     });
     broadcastMessage.mockClear();
     const payload = {

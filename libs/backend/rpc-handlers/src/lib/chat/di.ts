@@ -42,6 +42,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 
+import { ChatRuntimeProfileService } from './session/chat-runtime-profile.service';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import { CHAT_TOKENS } from './tokens';
@@ -66,6 +67,10 @@ export { CHAT_TOKENS } from './tokens';
 
 export function registerChatServices(container: DependencyContainer): void {
   assertOutputStyleServicesRegistered(container);
+  container.registerSingleton(
+    CHAT_TOKENS.RUNTIME_PROFILE,
+    ChatRuntimeProfileService,
+  );
   container.registerSingleton(CHAT_TOKENS.SDK_CONTEXT, ChatSdkContextService);
   container.registerSingleton(CHAT_TOKENS.PTAH_CLI, ChatPtahCliService);
   container.registerSingleton(

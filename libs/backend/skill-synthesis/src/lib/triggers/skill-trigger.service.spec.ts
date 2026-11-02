@@ -52,11 +52,38 @@ describe('SkillTriggerService retained hooks', () => {
     h.callbacks.subagent?.({
       agentType: 'reviewer', subagentSessionId: 'sub', parentSessionId: 'parent',
       agentId: 'run', workspaceRoot: '/ws', timestamp: 100,
+      transcriptPath: '/t/sub.jsonl',
     } as never);
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(h.recorder.recordSkillEvent).toHaveBeenCalledWith(
       expect.objectContaining({ slug: 'reviewer', runId: 'run', source: 'subagent' }),
     );
+    h.service.stop();
+  });
+
+  it('skips subagent completion when stop metadata is absent', async () => {
+    const h = harness();
+    h.callbacks.subagent?.({
+      agentType: 'reviewer', subagentSessionId: null, parentSessionId: null,
+      agentId: 'run', workspaceRoot: '/ws', timestamp: 100, transcriptPath: null,
+    });
+    h.callbacks.subagent?.({
+      agentType: 'reviewer', subagentSessionId: 'sub', parentSessionId: null,
+      agentId: 'run', workspaceRoot: '/ws', timestamp: 100, transcriptPath: null,
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(h.recorder.recordSkillEvent).not.toHaveBeenCalled();
+    h.service.stop();
+  });
+
+  it('skips subagent completion when workspaceRoot is null', async () => {
+    const h = harness();
+    h.callbacks.subagent?.({
+      agentType: 'reviewer', subagentSessionId: 'sub', parentSessionId: 'parent',
+      agentId: 'run', workspaceRoot: null, timestamp: 100, transcriptPath: '/t/sub.jsonl',
+    });
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(h.recorder.recordSkillEvent).not.toHaveBeenCalled();
     h.service.stop();
   });
 

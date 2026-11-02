@@ -1,0 +1,65 @@
+{
+  "taskId": "TASK_2026_853_897f",
+  "batch": 20,
+  "title": "D-5 selected-default gate",
+  "status": "COMPLETE",
+  "filesChanged": [
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/backend/harness-sync/src/lib/state/skill-sync-gate.ts",
+      "change": "MODIFIED: resolve() for a workspace with no recorded mode now derives { mode: 'selected', slugs: <owned skill slugs, normalized>, derived: true } and never 'all'. hasOwnedSkills() is replaced by ownedSkillSlugs(), which takes the last POSIX segment of every kind 'skill' manifest key across HARNESS_TARGET_IDS. A recorded mode, persist(), select() and enableAll() are unchanged. The header doc now states the new migration rule (#17, D-D4)."
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/backend/harness-sync/src/lib/state/skill-sync-gate.spec.ts",
+      "change": "CREATED: unit spec over real ManagedManifestStore/HarnessStateStore in a temp workspace. Covers: owned slugs derived (deduped across targets, sorted, non-skill entries ignored); an unregistered target (vscode) counts; selected [] with no skill entries or no manifests; persist() records the derived allowlist and resolve() does not re-derive after the manifests are emptied; a recorded 'all' stays 'all' (persist cannot overwrite it); a recorded 'selected' keeps its own slugs, including []."
+    },
+    {
+      "path": "/home/amun/ptah-extension/.claude-worktrees/session-prefix-diet-d/libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.skill-consent.spec.ts",
+      "change": "MODIFIED (ownership transferred to Batch 20 by the coordinator; no other batch lists it): only the 3 migration tests that encoded the old derived 'all' rule. THE MIGRATION: an owned skill-one gives selected ['skill-one']; skill-one still propagates and skill-two does not. Unregistered-target evidence: selected ['legacy-skill'] and nothing new propagates. Persisted decision: stays selected ['legacy-skill'] (derived:false) after the manifests are emptied, with no flip and no new propagation."
+    }
+  ],
+  "ownershipTransfer": {
+    "file": "libs/backend/harness-sync/src/lib/reconciler/harness-reconciler.skill-consent.spec.ts",
+    "reason": "3 tests asserted the retired derive-to-'all' rule and failed under D-5",
+    "approvedBy": "coordinator (main)"
+  },
+  "behaviour": {
+    "undecidedWithOwnedSkills": "selected + exactly the owned slugs (persisted once by the reconciler)",
+    "undecidedWithoutSkillEntries": "selected []",
+    "recordedAll": "unchanged",
+    "recordedSelected": "unchanged (own slugs kept)",
+    "userDrivenSurface": "select()/enableAll() unchanged; no page change"
+  },
+  "verify": {
+    "command": "npm run verify -- -p @ptah-extension/shared,@ptah-extension/harness-sync,@ptah-extension/cli-agent-runtime,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,@ptah-extension/cli-engine,ptah-extension-webview (one combined run for Batches 18, 20 and 21; log /tmp/tpd-b18-21-verify.log)",
+    "perTarget": {
+      "result": "74 tasks: 72 succeeded, 2 failed",
+      "failed": {
+        "@ptah-extension/harness-sync:test": "2 environmental failures in agent-workspace-scope.spec.ts only (634/636 pass; spec and source unchanged vs main; /tmp/tpd-hs-test.log)",
+        "ptah-extension-webview:lint": "pre-existing on main"
+      }
+    },
+    "note": "The earlier harness-sync failures in /tmp/tpd-b20-verify.log and /tmp/tpd-b21-verify.log came from runs concurrent with unfinished Batch 18 edits; they do not reproduce."
+  },
+  "environmentalFailures": [
+    {
+      "spec": "libs/backend/harness-sync/src/lib/state/agent-workspace-scope.spec.ts",
+      "tests": [
+        "the writer half — resolveAgentMirrorSource › names the source directory and the root, for a consented workspace",
+        "the writer half — resolveAgentMirrorSource › mirrors when the gate is absent, because absent is a wiring gap"
+      ],
+      "classification": "environmental, pre-existing",
+      "cause": "The spec uses the fixed path WS_A = /home/amun/projects/alpha. Root resolution walks up to the nearest .ptah marker. On this machine /home/amun/projects/.ptah exists (user data, left untouched), so the root resolves to /home/amun/projects instead of /home/amun/projects/alpha. The spec was last changed in 313112496 and Batch 20 does not touch it."
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "Slug = last POSIX segment of a kind 'skill' manifest key.",
+      "options": [
+        "basename of relPath",
+        "basename of entry.source"
+      ],
+      "evidence": "claude-target.ts:171 keys skills as `${SKILLS_REL}/${skill.slug}`. Manifest keys are workspace-relative POSIX paths (managed-manifest.ts ManagedManifestSchema). entry.source is diagnostic only.",
+      "reversible": true
+    }
+  ]
+}

@@ -186,6 +186,9 @@ export class SetupWizardStateService implements MessageHandler {
     this.generationProgressSignal.asReadonly();
   public readonly scanProgress = this.scanProgressSignal.asReadonly();
   public readonly analysisStream = this.analysisStreamSignal.asReadonly();
+  public readonly analysisStartedAt = computed(
+    () => this.analysisStreamSignal()[0]?.timestamp ?? null,
+  );
   public readonly phaseStreamingStates =
     this.phaseStreamingStatesSignal.asReadonly();
   /** O(1) lookup by phaseKey. Derived from {@link phaseStreamingStates}. */
@@ -245,11 +248,7 @@ export class SetupWizardStateService implements MessageHandler {
   public readonly installedCommunityAgentCount: WizardComputeds['installedCommunityAgentCount'];
   public readonly isMultiPhaseAnalysis: WizardComputeds['isMultiPhaseAnalysis'];
   public readonly hasMultiPhaseResult: WizardComputeds['hasMultiPhaseResult'];
-  public readonly activeStepConfig: WizardComputeds['activeStepConfig'];
   public readonly selectedCount: WizardComputeds['selectedCount'];
-  public readonly canProceed: WizardComputeds['canProceed'];
-  public readonly percentComplete: WizardComputeds['percentComplete'];
-  public readonly stepIndex: WizardComputeds['stepIndex'];
   public readonly recommendedAgents: WizardComputeds['recommendedAgents'];
   public readonly totalGenerationItems: WizardComputeds['totalGenerationItems'];
   public readonly generationCompletionPercentage: WizardComputeds['generationCompletionPercentage'];
@@ -349,11 +348,7 @@ export class SetupWizardStateService implements MessageHandler {
       this.computeds.installedCommunityAgentCount;
     this.isMultiPhaseAnalysis = this.computeds.isMultiPhaseAnalysis;
     this.hasMultiPhaseResult = this.computeds.hasMultiPhaseResult;
-    this.activeStepConfig = this.computeds.activeStepConfig;
     this.selectedCount = this.computeds.selectedCount;
-    this.canProceed = this.computeds.canProceed;
-    this.percentComplete = this.computeds.percentComplete;
-    this.stepIndex = this.computeds.stepIndex;
     this.recommendedAgents = this.computeds.recommendedAgents;
     this.totalGenerationItems = this.computeds.totalGenerationItems;
     this.generationCompletionPercentage =
@@ -379,31 +374,6 @@ export class SetupWizardStateService implements MessageHandler {
    */
   public getInternalState(): WizardInternalState {
     return this.internalState;
-  }
-
-  /**
-   * Check if a step can be jumped to based on prerequisites.
-   * Used by the wizard view stepper to enable forward-jumps
-   * when a saved analysis is loaded.
-   *
-   * - 'selection': requires deepAnalysis + recommendations loaded
-   * - 'enhance': requires deepAnalysis loaded
-   * - Others: only accessible via normal flow
-   */
-  public canJumpToStep(step: WizardStep): boolean {
-    const hasAnalysis =
-      this.multiPhaseResultSignal() !== null ||
-      this.deepAnalysisSignal() !== null;
-    const hasRecommendations = this.recommendationsSignal().length > 0;
-
-    switch (step) {
-      case 'selection':
-        return hasAnalysis && hasRecommendations;
-      case 'enhance':
-        return hasAnalysis;
-      default:
-        return false;
-    }
   }
 
   public setCurrentStep(step: WizardStep): void {

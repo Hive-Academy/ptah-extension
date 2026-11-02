@@ -1,5 +1,8 @@
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
+  DECISION_MODEL_TIMEOUT_MAX_MS,
+  DECISION_MODEL_TIMEOUT_MIN_MS,
+  DECISION_MODEL_TIMEOUT_SETTING_KEY,
   OLLAMA_CLOUD_DIRECT_BASE_URL,
   OLLAMA_CLOUD_PROVIDER_ENTRY,
   isCloudTag,
@@ -53,7 +56,10 @@ export interface DecisionEndpoint {
   readonly apiKey?: string;
   readonly probe: DecisionEndpointProbe;
   readonly locality: DecisionModelLocality;
-  /** Per-request budget for this locality (DC8). */
+  /**
+   * Per-request budget: the `agentOrchestration.decisionModelTimeoutMs`
+   * setting when set, else the default for this locality (DC8).
+   */
   readonly timeoutMs: number;
 }
 
@@ -77,7 +83,10 @@ export type DecisionEndpointResolution =
 
 /** What the resolver reads. Keys are read per call and never cached (1.4). */
 export interface DecisionEndpointDeps {
-  /** `ptah` section settings (the Ollama Cloud base URL override). */
+  /**
+   * `ptah` section settings: the Ollama Cloud base URL override and the
+   * request timeout override.
+   */
   readonly workspace: Pick<IWorkspaceProvider, 'getConfiguration'>;
   readonly keys: Pick<DecisionModelKeys, 'get' | 'readOllamaCloudKey'>;
   /** `provider.ollama.baseUrl`, normalised (`DecisionModelConfig.ollamaBaseUrl`). */
@@ -123,6 +132,7 @@ export async function resolveDecisionEndpoint(
         null,
         'daemon',
         localityOf(deps.ollamaBaseUrl(), selection.model),
+        deps.workspace,
       );
     case 'jev':
       return endpoint(
@@ -131,6 +141,7 @@ export async function resolveDecisionEndpoint(
         await deps.keys.get('jev'),
         'none',
         'remote',
+        deps.workspace,
       );
     case 'ollama-cloud':
       return resolveOllamaCloud(selection, deps);
@@ -166,11 +177,41 @@ export function localityOfSelection(
   }
 }
 
-/** Per-request budget for a locality (DC8). */
-function timeoutForLocality(locality: DecisionModelLocality): number {
+/**
+ * Per-request budget of one System One call: the request timeout setting
+ * when it holds a usable value, else the default for the locality (DC8).
+ */
+function requestTimeoutMs(
+  locality: DecisionModelLocality,
+  workspace: Pick<IWorkspaceProvider, 'getConfiguration'>,
+): number {
+  const configured = configuredRequestTimeoutMs(workspace);
+  if (configured !== null) return configured;
   return locality === 'local'
     ? DECISION_REQUEST_TIMEOUT_MS
     : DECISION_REQUEST_TIMEOUT_REMOTE_MS;
+}
+
+/**
+ * `agentOrchestration.decisionModelTimeoutMs`, read per call like the other
+ * decision-model settings: a finite number above zero, rounded and clamped
+ * to `DECISION_MODEL_TIMEOUT_MIN_MS..DECISION_MODEL_TIMEOUT_MAX_MS`. `null`
+ * when unset or not such a number, so the locality default applies.
+ */
+function configuredRequestTimeoutMs(
+  workspace: Pick<IWorkspaceProvider, 'getConfiguration'>,
+): number | null {
+  const raw = workspace.getConfiguration<unknown>(
+    DECISION_MODEL_CONFIG_SECTION,
+    DECISION_MODEL_TIMEOUT_SETTING_KEY,
+  );
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) {
+    return null;
+  }
+  return Math.min(
+    DECISION_MODEL_TIMEOUT_MAX_MS,
+    Math.max(DECISION_MODEL_TIMEOUT_MIN_MS, Math.round(raw)),
+  );
 }
 
 async function resolveOllamaCloud(
@@ -194,13 +235,14 @@ async function resolveOllamaCloud(
       null,
       'daemon',
       'remote',
+      deps.workspace,
     );
   }
   const baseUrl = override ?? OLLAMA_CLOUD_DIRECT_BASE_URL;
   if (!keyTransportAllowed(baseUrl)) {
     return keyNeedsHttps();
   }
-  return endpoint(baseUrl, model, key, 'endpoint', 'remote');
+  return endpoint(baseUrl, model, key, 'endpoint', 'remote', deps.workspace);
 }
 
 async function resolveCustom(
@@ -218,6 +260,7 @@ async function resolveCustom(
     key,
     'endpoint',
     localityOf(baseUrl, selection.model),
+    deps.workspace,
   );
 }
 
@@ -264,13 +307,14 @@ function endpoint(
   apiKey: string | null,
   probe: DecisionEndpointProbe,
   locality: DecisionModelLocality,
+  workspace: Pick<IWorkspaceProvider, 'getConfiguration'>,
 ): DecisionEndpoint {
   const target = {
     baseUrl,
     model,
     probe,
     locality,
-    timeoutMs: timeoutForLocality(locality),
+    timeoutMs: requestTimeoutMs(locality, workspace),
   };
   return apiKey === null ? target : { ...target, apiKey };
 }

@@ -1,5 +1,6 @@
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { WallClockService, WALL_CLOCK_COARSE_MS } from '@ptah-extension/core';
 import type { GitStashFileEntry, StashEntry } from '@ptah-extension/shared';
 import { GitStashService } from '../services/git-stash.service';
 import { GitStatusService } from '../services/git-status.service';
@@ -7,6 +8,7 @@ import { StashPopoverComponent, stashAge } from './stash-popover.component';
 
 describe('StashPopoverComponent', () => {
   let fixture: ComponentFixture<StashPopoverComponent>;
+  const clockNow = signal(Date.now());
   const activeWorkspace = signal<string | null>('/ws/a');
   const stash = {
     entries: signal<StashEntry[]>([]),
@@ -27,6 +29,7 @@ describe('StashPopoverComponent', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    clockNow.set(Date.now());
     activeWorkspace.set('/ws/a');
     stash.entries.set([
       {
@@ -45,6 +48,10 @@ describe('StashPopoverComponent', () => {
     TestBed.configureTestingModule({
       imports: [StashPopoverComponent],
       providers: [
+        {
+          provide: WallClockService,
+          useValue: { now: () => clockNow, acquire: () => () => undefined },
+        },
         { provide: GitStashService, useValue: stash },
         {
           provide: GitStatusService,
@@ -227,5 +234,68 @@ describe('StashPopoverComponent', () => {
     expect(stashAge(now - 5 * 60_000, now)).toBe('5m ago');
     expect(stashAge(now - 3 * 3_600_000, now)).toBe('3h ago');
     expect(stashAge(now - 2 * 24 * 3_600_000, now)).toBe('2d ago');
+  });
+
+  it('shows an em dash when the stash has no timestamp', () => {
+    expect(el('stash-entry').textContent).toContain('—');
+  });
+});
+
+describe('StashPopoverComponent coarse clock', () => {
+  it('advances a fixed stash age after 30 seconds and clears its interval on destroy', () => {
+    jest.useFakeTimers({
+      doNotFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    }).setSystemTime(1_700_000_000_000);
+    const entries = signal<StashEntry[]>([{
+      index: 0,
+      hash: 'clock-stash',
+      message: 'time-sensitive stash',
+      time: Date.now() - 30_000,
+    }]);
+    const stash = {
+      entries,
+      listLoading: signal(false),
+      selectedIndex: signal<number | null>(null),
+      files: signal<GitStashFileEntry[]>([]),
+      filesLoading: signal(false),
+      busy: signal(false),
+      error: signal<string | null>(null),
+      loadList: jest.fn(async () => undefined),
+      select: jest.fn(async () => undefined),
+      mutate: jest.fn(async () => ({ success: true })),
+      openFileDiff: jest.fn(async () => undefined),
+    };
+    TestBed.configureTestingModule({
+      imports: [StashPopoverComponent],
+      providers: [{ provide: GitStashService, useValue: stash }],
+    });
+    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
+    const clearIntervalSpy = jest.spyOn(globalThis, 'clearInterval');
+    const fixture = TestBed.createComponent(StashPopoverComponent);
+
+    try {
+      fixture.componentRef.setInput('isOpen', true);
+      fixture.detectChanges();
+      const intervalCall = setIntervalSpy.mock.calls.findIndex(
+        ([, delay]) => delay === WALL_CLOCK_COARSE_MS,
+      );
+      expect(intervalCall).toBeGreaterThanOrEqual(0);
+      const interval = setIntervalSpy.mock.results[intervalCall].value;
+      const label = (): string =>
+        (fixture.nativeElement as HTMLElement).querySelector('[data-testid="stash-entry"] .ml-auto')?.textContent?.trim() ?? '';
+      expect(label()).toBe('just now');
+
+      jest.advanceTimersByTime(WALL_CLOCK_COARSE_MS);
+      fixture.detectChanges();
+      expect(label()).toBe('1m ago');
+      expect(stash.loadList).toHaveBeenCalledTimes(1);
+
+      fixture.destroy();
+      expect(clearIntervalSpy).toHaveBeenCalledWith(interval);
+    } finally {
+      fixture.destroy();
+      jest.restoreAllMocks();
+      jest.useRealTimers();
+    }
   });
 });

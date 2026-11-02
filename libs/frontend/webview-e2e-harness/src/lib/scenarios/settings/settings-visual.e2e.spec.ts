@@ -1262,12 +1262,12 @@ for (const host of ['vscode', 'electron'] as const) {
       await openSettingsAt(page, fixtureServer.url, host, theme, 'Providers');
       const drawer = page.locator('[data-testid="connection-detail-drawer"]');
       for (const entry of DRAWERS.slice(0, 4)) {
-        // Batch 24: the card itself opens the drawer (a click on its name, clear of the inline action).
+        // Batch 24: the card itself opens the drawer (a click on its details trigger, clear of the inline action).
         await page
           .locator('[data-testid="provider-connection-card"]')
           .filter({ hasText: entry.card })
-          .locator('[data-testid="provider-name"]')
-          .click();
+          .locator('[data-testid="provider-card-details-trigger"]')
+          .click({ position: { x: 12, y: 12 } });
         await expect(drawer).toBeVisible();
         if (entry.tab)
           await page.getByRole('tab', { name: entry.tab, exact: true }).click();
@@ -1291,17 +1291,16 @@ for (const host of ['vscode', 'electron'] as const) {
       await page
         .locator('[data-testid="provider-connection-card"]')
         .filter({ hasText: 'sovereigneg' })
-        .locator('[role="button"]')
-        .first()
+        .locator('[data-testid="provider-card-details-trigger"]')
         .focus();
       const drawer = page.locator('[data-testid="connection-detail-drawer"]');
       for (const entry of DRAWERS.slice(4)) {
-        // Batch 24: the card itself opens the drawer (a click on its name, clear of the inline action).
+        // Batch 24: the card itself opens the drawer (a click on its details trigger, clear of the inline action).
         await page
           .locator('[data-testid="provider-connection-card"]')
           .filter({ hasText: entry.card })
-          .locator('[data-testid="provider-name"]')
-          .click();
+          .locator('[data-testid="provider-card-details-trigger"]')
+          .click({ position: { x: 12, y: 12 } });
         await expect(drawer).toBeVisible();
         if (entry.tab)
           await page.getByRole('tab', { name: entry.tab, exact: true }).click();

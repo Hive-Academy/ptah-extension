@@ -20,6 +20,8 @@
 
 import { ipcMain, type IpcMainEvent } from 'electron';
 import type { DependencyContainer } from 'tsyringe';
+import type { CodexChatHostPorts } from '@ptah-extension/rpc-handlers';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { RpcHandler } from '@ptah-extension/vscode-core';
 import {
   TOKENS,
@@ -32,6 +34,11 @@ import {
   type ISdkPermissionHandler,
 } from '@ptah-extension/shared';
 import { isTrustedIpcSender } from './ipc-sender-policy';
+import {
+  createReplayRecorderIfEnabled,
+  tapReplayRecorder,
+  type ReplayRecorder,
+} from '../replay/replay-recorder';
 
 const STREAM_FLUSH_INTERVAL_MS = 16;
 
@@ -159,6 +166,7 @@ export class IpcBridge {
   private readonly warnedSenderIds = new Set<number>();
   /** `webContents.id` of the open detached Display window, or `null`. */
   private displayWindowSenderId: number | null = null;
+  private readonly recorder: ReplayRecorder | null;
 
   /**
    * @param trustedDocumentPaths - absolute paths of the documents the main
@@ -170,11 +178,18 @@ export class IpcBridge {
     private readonly container: DependencyContainer,
     private readonly getWindow: GetWindowFn,
     private readonly trustedDocumentPaths: readonly string[],
+    recorder?: ReplayRecorder | null,
   ) {
     this.rpcHandler = container.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
     this.stateStorage = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
     );
+    this.recorder =
+      recorder !== undefined
+        ? recorder
+        : __PTAH_REPLAY_RECORDER__
+          ? createReplayRecorderIfEnabled()
+          : null;
   }
 
   /**
@@ -217,6 +232,9 @@ export class IpcBridge {
       return false;
     }
     win.webContents.send('to-renderer', message);
+    if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+      tapReplayRecorder(this.recorder, (r) => r.recordPush(message));
+    }
     return true;
   }
 
@@ -327,16 +345,24 @@ export class IpcBridge {
       return;
     }
     if (events.length === 1) {
-      win.webContents.send('to-renderer', {
+      const singleMessage = {
         type: events[0].type,
         payload: events[0].payload,
-      });
+      };
+      win.webContents.send('to-renderer', singleMessage);
+      if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+        tapReplayRecorder(this.recorder, (r) => r.recordPush(singleMessage));
+      }
       return;
     }
-    win.webContents.send('to-renderer', {
+    const batchMessage = {
       type: MESSAGE_TYPES.BATCH,
       payload: { events },
-    });
+    };
+    win.webContents.send('to-renderer', batchMessage);
+    if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+      tapReplayRecorder(this.recorder, (r) => r.recordPush(batchMessage));
+    }
   }
 
   /**
@@ -456,6 +482,11 @@ export class IpcBridge {
           }
           return;
         }
+        if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+          tapReplayRecorder(this.recorder, (r) =>
+            r.recordRpcCall(method, params, correlationId),
+          );
+        }
         const response = await this.rpcHandler.handleMessage({
           method,
           params,
@@ -476,6 +507,11 @@ export class IpcBridge {
           error: response.error,
           errorCode: response.errorCode,
         });
+        if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+          tapReplayRecorder(this.recorder, (r) =>
+            r.recordRpcResult(correlationId, response),
+          );
+        }
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -543,15 +579,40 @@ export class IpcBridge {
           console.warn('[IpcBridge] SDK permission response missing payload');
           return;
         }
+        const { decision } = response;
+        if (
+          decision !== 'allow' &&
+          decision !== 'always_allow' &&
+          decision !== 'deny_with_message' &&
+          decision !== 'deny'
+        ) {
+          console.warn('[IpcBridge] SDK permission response has invalid decision');
+          return;
+        }
         try {
+          // Codex host ports first (null when native Codex is not bound).
+          const codexPorts = this.container.isRegistered(
+            SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+            true,
+          )
+            ? this.container.resolve<
+                Pick<CodexChatHostPorts, 'handlePermissionResponse'> | null
+              >(
+                SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+              )
+            : null;
+          if (
+            codexPorts?.handlePermissionResponse({ ...response, decision }) === true
+          ) {
+            return;
+          }
           if (this.container.isRegistered(SDK_PERMISSION_HANDLER)) {
             const handler = this.container.resolve<ISdkPermissionHandler>(
               SDK_PERMISSION_HANDLER,
             );
             handler.handleResponse(response.id, {
               id: response.id,
-              decision: response.decision as
-                'allow' | 'deny' | 'deny_with_message' | 'always_allow',
+              decision,
               reason: response.reason,
               modifiedInput: response.modifiedInput,
             });
@@ -563,7 +624,7 @@ export class IpcBridge {
         } catch (error) {
           console.error(
             '[IpcBridge] Failed to process SDK permission response',
-            error instanceof Error ? error.message : String(error),
+            error instanceof Error ? error : new Error(String(error)),
           );
         }
         break;
@@ -777,6 +838,9 @@ export class IpcBridge {
    */
   dispose(): void {
     this.flushStreamQueue();
+    if (__PTAH_REPLAY_RECORDER__ && this.recorder) {
+      tapReplayRecorder(this.recorder, (r) => r.flush());
+    }
     ipcMain.removeAllListeners('rpc');
     ipcMain.removeAllListeners('get-state');
     ipcMain.removeAllListeners('set-state');

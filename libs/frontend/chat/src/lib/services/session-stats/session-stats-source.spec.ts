@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { buildStatsLimitViewModel } from '@ptah-extension/chat-ui';
+import { buildStatsLimitViewModel, type LiveModelStats } from '@ptah-extension/chat-ui';
 import { AgentMonitorStore, type MonitoredAgent } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
 import { PlanLimitsStore } from '@ptah-extension/core';
@@ -36,6 +36,65 @@ describe('injectSessionStatsSource cache projection', () => {
       tab, sessionId, available, budget: () => null,
     }));
   }
+
+  const liveContext = {
+    model: 'claude-sonnet-4',
+    contextUsed: 130_000,
+    contextWindow: 200_000,
+    contextPercent: 65,
+    contextCapacity: {
+      tokens: 200_000,
+      source: 'sdk-native',
+      providerId: null,
+      model: 'claude-sonnet-4',
+    },
+  } satisfies LiveModelStats;
+
+  it('projects 65% for 130,000 tokens in a trusted 200,000-token window (F2)', () => {
+    const stats = source();
+    tab.set({ liveModelStats: liveContext } as TabState);
+    expect(stats.inputs()?.context).toMatchObject({
+      known: true, percent: 65, label: '65%', usedTokens: 130_000,
+    });
+  });
+
+  it('projects 13% for the sdk-native million-token window (F3)', () => {
+    const stats = source();
+    tab.set({ liveModelStats: {
+      ...liveContext,
+      contextWindow: 1_000_000,
+      contextPercent: 13,
+      contextCapacity: { ...liveContext.contextCapacity, tokens: 1_000_000 },
+    } } as TabState);
+    expect(stats.inputs()?.context).toMatchObject({
+      known: true, percent: 13, label: '13%', usedTokens: 130_000,
+    });
+  });
+
+  it('keeps 105% unclamped for 210,000 tokens in a 200,000-token window (F5)', () => {
+    const stats = source();
+    tab.set({ liveModelStats: {
+      ...liveContext, contextUsed: 210_000, contextPercent: 105,
+    } } as TabState);
+    expect(stats.inputs()?.context).toMatchObject({
+      known: true, percent: 105, label: '105%', usedTokens: 210_000,
+    });
+  });
+
+  it.each([
+    ['unknown capacity', { ...liveContext, contextWindow: 0, contextPercent: 0,
+      contextCapacity: { ...liveContext.contextCapacity, tokens: null, source: 'unknown' as const } }],
+    ['provider catalog without provider id', { ...liveContext,
+      contextCapacity: { ...liveContext.contextCapacity, source: 'provider-catalog' as const } }],
+    ['capacity for a different model', { ...liveContext,
+      contextCapacity: { ...liveContext.contextCapacity, model: 'other-model' } }],
+  ])('shows unavailable context for %s (F6)', (_case, live) => {
+    const stats = source();
+    tab.set({ liveModelStats: live } as TabState);
+    expect(stats.inputs()?.context).toMatchObject({
+      known: false, percent: null, label: '—', usedTokens: null,
+    });
+  });
 
   it('keeps a live owner cache on its selected tab and isolates a tab switch', () => {
     const stats = source();

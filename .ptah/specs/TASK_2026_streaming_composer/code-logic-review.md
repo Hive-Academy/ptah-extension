@@ -1,0 +1,30 @@
+# Streaming composer code logic review
+
+Review family: codex (reviewer) vs claude (implementer)
+
+Score: 6/10
+
+Verdict: REVISE
+
+## Findings
+
+1. **Blocking — Opacity is animated on an ancestor of a glass surface.** `libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.ts:710-717` fades every direct child of `.chat-composer-card`. The toolbar is one of those children and contains the attach popover's `data-glass-surface="overlay"` at line 434. Opening that popover during the expansion fade puts a glass surface under an opacity animated ancestor, violating the feature's explicit backdrop filter rule. Exclude every subtree containing a glass surface, or target only leaf content known to be free of glass descendants.
+
+2. **Serious — A file drag can refold the composer while the file is still hovering over it.** `libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.ts:1055-1069` omits `_isDraggingOver()` from the store's busy inputs. `handleDragOver` at lines 1516-1524 calls `expand()` only when already compact. Once the first drag event opens it, the idle refold timer starts; continued dragover events do not restart that timer. After about 1.5 seconds, the composer closes beneath a still active drop gesture. Keep the drag state in the non-idle predicate and cover a sustained hover in a test.
+
+3. **Moderate — Reduced motion still delays popovers after an instant expansion.** `libs/frontend/chat/src/lib/services/composer-compact.store.ts:96-107` holds `unclipped` false for 240 ms regardless of motion preference, while `chat-input.component.ts:719-725` removes the height transition for reduced motion. Slash and @ suggestions opened immediately after typing remain under `overflow: clip` (`chat-input.component.ts:687-700`) for that delay, even though the visual expansion has finished. Release clipping immediately when reduced motion is active; for normal motion, verify suggestions are usable during and after the fold animation.
+
+4. **Moderate — The core first-character promise has no effective regression test.** `libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.ts:1075-1077` expands and focuses the textarea during a document `keydown`, relying on the browser's subsequent default text insertion to deliver the same key exactly once. `chat-input.streaming-fold.spec.ts:266-277` dispatches a synthetic keydown and checks only expansion and focus; it never asserts the textarea value. Synthetic keydown has no trusted text insertion default action, so this test cannot validate the promised first character, including `/` and `@`. Add a focused Chromium interaction check for a key originating on the compact bar, a noneditable transcript element, and the body. Include an IME and modifier case. This is a verification gap; I did not establish a character-loss defect from the source alone.
+
+5. **Minor — The new viewport follow test does not exercise pin loss or lifecycle.** `libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.viewport-follow.spec.ts:79-81,92-131` runs the rAF callback synchronously and checks one pinned resize. It does not assert that an unpinned transcript stays put, that resize events during `restoreScrollOnActivation` defer to restoration, or that deactivation and destroy disconnect the observer. The implementation at `chat-transcript.component.ts:1437-1457` coalesces scroll work and does not itself create a size feedback loop, but these interactions are the failure cases the extra observer introduces.
+
+6. **Minor — Split the new composer wiring out of the already large component.** `libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.ts:973-1111` adds the document keyboard/paste listeners, compact state wiring, focus transfer, and announcement alongside the existing draft, attachment, and suggestion logic. The file is now 2,223 lines and grew by about 294 lines. Keep `ComposerCompactStore` and the compact bar component, move the document typing/paste scope behavior into a dedicated host directive or service, and move the fold styles at lines 662-726 to a component stylesheet. The component should retain only the draft updates and action callbacks it owns.
+
+## Checked and evidence
+
+- Read `git status`, the tracked diff, the implementation report, and every new source/spec file in the change. The compact store is component provided, its timeout effects register cleanup, and its stream-end and scope-change effects reset user expansion. The directive's `focusout` microtask rechecks `activeElement`, which covers moves between descendants; its captured native popover listener is removed on destroy. I found no separate defect in these paths.
+- The key filter excludes Ctrl/Meta/Alt shortcuts, IME composition, named dead keys, and editable targets; `Ctrl+K` is not consumed by this handler. The compact bar uses a native button, `aria-controls`, `aria-expanded`, an inert full region, a polite live region, and textarea focus on explicit expansion.
+- The transcript observer disconnects on deactivation/destroy, schedules only when pinned, and scroll changes do not resize either observed element. Its rAF still needs the interaction coverage in finding 5.
+- Ran the permitted focused command: `npm run verify -- -t test -p @ptah-extension/chat -- --testPathPatterns='composer-compact|composer-type-to-expand|streaming-fold|viewport-follow'` — Nx reported one task succeeded.
+- No Electron or VS Code rendering was available without a build or serve, both prohibited for this review. I opened the workspace webview's raw HTML through the Ptah browser, but it contains no built Angular feature, so it cannot establish visual quality. The 40 px bar, motion, glass rendering, and real first-character insertion remain unverified in a rendered host.
+- Native skill invocation was unavailable in this lane; I read the installed `angular-frontend-patterns` SKILL.md directly and applied its signal/component guidance.

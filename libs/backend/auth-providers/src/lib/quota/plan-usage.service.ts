@@ -74,6 +74,8 @@ import { createOpenCodeLocalUsageReader } from './readers/opencode-local-usage.r
 import { createOpenCodeGoPlanUsageReader } from './readers/opencode-go-plan-usage.reader';
 import { createGrokAccountPlanUsageReader } from './readers/grok-account-plan-usage.reader';
 import { createGrokSessionUsageReader } from './readers/grok-session-usage.reader';
+import { createKimiCodePlanUsageReader } from './readers/kimi-code-plan-usage.reader';
+import type { IKimiCodeAuthService } from '../providers/kimi-code/kimi-code-provider.types';
 import type {
   PlanOwnerTarget,
   PlanUsageReader,
@@ -153,6 +155,8 @@ export class PlanUsageService {
     codexUsage: CodexPlanUsageSource,
     /** Test seam; the DI factory leaves the default. */
     private readonly now: () => number = Date.now,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH, { isOptional: true })
+    kimiAuth?: Pick<IKimiCodeAuthService, 'resolveRequestCredential' | 'forceRefresh'>,
   ) {
     this.readers = {
       anthropic: createClaudePlanUsageReader(probe, logger, now),
@@ -163,6 +167,7 @@ export class PlanUsageService {
       'opencode-go': createOpenCodeGoPlanUsageReader(now),
       'opencode-zen': createOpenCodeLocalUsageReader(logger, now),
       grok: createGrokAccountPlanUsageReader(now),
+      ...(kimiAuth && { 'kimi-code': createKimiCodePlanUsageReader(kimiAuth, credentials, now) }),
     };
     this.localReaders = {
       'opencode-go': createOpenCodeLocalUsageReader(logger, now),
@@ -288,7 +293,7 @@ export class PlanUsageService {
     if (!reader) return this.settle(owner, statusOnly('provider-unsupported'));
 
     let credential: PlanSecret | undefined;
-    if (target.credentialRef && providerId !== 'grok') {
+    if (target.credentialRef && providerId !== 'grok' && providerId !== 'kimi-code') {
       const resolution = await this.credentials.resolve(target.credentialRef);
       if (resolution.kind === 'unavailable') {
         return this.settle(owner, statusOnly(resolution.status));

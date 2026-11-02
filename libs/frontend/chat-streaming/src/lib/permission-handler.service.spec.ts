@@ -19,6 +19,7 @@ import { signal, computed } from '@angular/core';
 import {
   MESSAGE_TYPES,
   UNKNOWN_AGENT_TOOL_CALL_ID,
+  parsePermissionRequest,
   type PermissionRequest,
   type AskUserQuestionRequest,
 } from '@ptah-extension/shared';
@@ -157,6 +158,38 @@ describe('PermissionHandlerService', () => {
   });
 
   describe('handlePermissionResponse', () => {
+    it('answers a parser-produced request with Claude decisions', () => {
+      const wire = {
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        toolName: 'Bash',
+        toolInput: { command: 'ls' },
+        timestamp: 1,
+        description: 'List files',
+        timeoutAt: 0,
+        allowedDecisions: ['accept', 'acceptForSession', 'decline', 'cancel'],
+      };
+      const answers = [
+        { decision: 'allow' as const, modifiedInput: { command: 'ls -la' } },
+        { decision: 'always_allow' as const },
+        { decision: 'deny_with_message' as const, reason: 'use ls' },
+        { decision: 'deny' as const },
+      ];
+      const posted: unknown[] = [];
+      for (const answer of answers) {
+        const request = parsePermissionRequest(wire);
+        if (!request) throw new Error('parser rejected the permission payload');
+        expect(request).not.toHaveProperty('allowedDecisions');
+        service.handlePermissionRequest(request);
+        expect(service.handlePermissionResponse({ id: request.id, ...answer }, 'tab-1')).toBe(true);
+        posted.push({ id: request.id, ...answer });
+      }
+      expect(vscodePostMessage.mock.calls.map((call) => call[0])).toEqual(
+        posted.map((response) => ({ type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE, response })),
+      );
+      expect(service.permissionRequests()).toEqual([]);
+      expect(service.consumeHardDenyToolUseIds('tab-1').has(UNKNOWN_AGENT_TOOL_CALL_ID)).toBe(true);
+    });
+
     it.each(['allow', 'deny'] as const)('posts the same SDK response for a tab-less decision: %s', decision => {
       service.handlePermissionRequest(makePermissionRequest({ tabId: undefined, sessionId: undefined }));
       expect(service.handlePermissionResponse({ id: 'req-1', decision })).toBe(true);

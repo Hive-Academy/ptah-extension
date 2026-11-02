@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "runId": "f9e84782-c7b5-48a8-97a9-5f8a7e6c1c1c",
+  "analysisRunId": "01M4VSDK08BRNJ7KRR82FDP303",
+  "analysisDirectory": "D:\\projects\\ptah-extension\\.ptah\\analysis\\ptah-extension",
+  "createdAt": "2026-10-15T07:38:05.457Z",
+  "updatedAt": "2026-10-15T07:44:00.019Z",
+  "lifecycle": "completed",
+  "outputDirectory": "D:\\projects\\ptah-extension\\.claude\\agents",
+  "selectedAgentIds": [
+    "project-manager",
+    "software-architect",
+    "team-leader",
+    "backend-developer",
+    "frontend-developer",
+    "devops-engineer",
+    "senior-tester",
+    "code-style-reviewer",
+    "code-logic-reviewer",
+    "researcher-expert",
+    "modernization-detector",
+    "technical-content-writer",
+    "ui-ux-designer",
+    "visual-reviewer",
+    "video-director"
+  ],
+  "input": {
+    "model": "opus"
+  },
+  "agents": {
+    "project-manager": {
+      "agentId": "project-manager",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\project-manager.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 0
+    },
+    "software-architect": {
+      "agentId": "software-architect",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\software-architect.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 1
+    },
+    "team-leader": {
+      "agentId": "team-leader",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\team-leader.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 0
+    },
+    "backend-developer": {
+      "agentId": "backend-developer",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\backend-developer.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 2
+    },
+    "frontend-developer": {
+      "agentId": "frontend-developer",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\frontend-developer.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 2
+    },
+    "devops-engineer": {
+      "agentId": "devops-engineer",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\devops-engineer.md",
+      "status": "written",
+      "rejectedSections": 1,
+      "tailoredSections": 0
+    },
+    "senior-tester": {
+      "agentId": "senior-tester",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\senior-tester.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 1
+    },
+    "code-style-reviewer": {
+      "agentId": "code-style-reviewer",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\code-style-reviewer.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 1
+    },
+    "code-logic-reviewer": {
+      "agentId": "code-logic-reviewer",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\code-logic-reviewer.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 1
+    },
+    "researcher-expert": {
+      "agentId": "researcher-expert",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\researcher-expert.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 0
+    },
+    "modernization-detector": {
+      "agentId": "modernization-detector",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\modernization-detector.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 0
+    },
+    "technical-content-writer": {
+      "agentId": "technical-content-writer",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\technical-content-writer.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 0
+    },
+    "ui-ux-designer": {
+      "agentId": "ui-ux-designer",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\ui-ux-designer.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 0
+    },
+    "visual-reviewer": {
+      "agentId": "visual-reviewer",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\visual-reviewer.md",
+      "status": "written",
+      "rejectedSections": 1,
+      "tailoredSections": 0
+    },
+    "video-director": {
+      "agentId": "video-director",
+      "filePath": "D:\\projects\\ptah-extension\\.claude\\agents\\video-director.md",
+      "status": "written",
+      "rejectedSections": 0,
+      "tailoredSections": 0
+    }
+  }
+}

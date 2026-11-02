@@ -120,6 +120,17 @@ const STATS_PAGE_BUDGET_MS = 20_000;
 /** `session:list` calls slower than this log one warn line (AC1, L13). */
 const SESSION_LIST_SLOW_MS = 200;
 
+// The metadata parser is internal to agent-sdk; validate the persisted resume
+// fields here before treating a native session as available without a JSONL.
+const CodexThreadResumeSchema = z.object({
+  version: z.literal(1),
+  contextId: z.string().min(1),
+  processGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  workspaceId: z.string().min(1),
+  profileFingerprint: z.string().min(1),
+  state: z.enum(['active', 'inactive']),
+}).strict();
+
 /** Surviving transcripts of one sessions directory. */
 interface TranscriptIndex {
   readonly sessionsDir: string;
@@ -149,6 +160,13 @@ export const AgentJsonlFirstLineSchema = z.object({
 export const SessionStatusParamsSchema = z.object({
   sessionId: z.string().min(1),
 });
+
+/** A native Codex row's stored count; a missing or invalid value lists as 0. */
+function storedCodexMessageCount(value: number | undefined): number {
+  return value !== undefined && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : 0;
+}
 
 /**
  * RPC handlers for session operations (SDK-based)
@@ -485,6 +503,7 @@ export class SessionRpcHandlers {
           // without a count keeps 0, which hides "N msgs".
           const messageCounts = this.messageCounter.peekAndWarm(
             paginated.flatMap((s): SessionTranscriptRef[] => {
+              if (s.codexExecution?.runtime === 'codex-app-server') return [];
               const index = transcriptIndexOf(s.sessionId);
               return index && index.ids.has(s.sessionId)
                 ? [
@@ -540,7 +559,9 @@ export class SessionRpcHandlers {
                 name: s.name,
                 lastActivityAt: s.lastActiveAt,
                 createdAt: s.createdAt,
-                messageCount: messageCounts.get(s.sessionId) ?? 0,
+                messageCount: s.codexExecution?.runtime === 'codex-app-server'
+                  ? storedCodexMessageCount(s.codexMessageCount)
+                  : messageCounts.get(s.sessionId) ?? 0,
                 isActive: false, // Listed sessions are not currently active
                 ...(transcriptIndex
                   ? { hasTranscript: transcriptIndex.ids.has(s.sessionId) }
@@ -1051,6 +1072,15 @@ export class SessionRpcHandlers {
           }
 
           const metadata = await this.metadataStore.get(sessionId);
+          if (
+            metadata?.codexExecution?.runtime === 'codex-app-server' &&
+            CodexThreadResumeSchema.safeParse(metadata.codexThread).success
+          ) {
+            this.logger.debug('RPC: session:validate - native Codex session exists', {
+              sessionId,
+            });
+            return { exists: true };
+          }
           const resolvedWorkspacePath = await this.resolveTranscriptDirectory(
             metadata?.workingDirectory,
             workspacePath,

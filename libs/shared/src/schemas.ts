@@ -27,6 +27,7 @@ export * from './lib/types/task-saved-view.schemas';
 export * from './lib/types/claude-domain.schemas';
 export * from './lib/types/provider-profile.schemas';
 export * from './lib/types/provider-account.schemas';
+export * from './lib/types/session-runtime.schemas';
 export * from './lib/types/rpc/rpc-harness.schemas';
 export * from './lib/types/execution/schemas';
 export * from './lib/types/messages/schemas';

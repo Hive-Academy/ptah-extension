@@ -109,6 +109,7 @@ import {
   type LaneOwnerResolver,
 } from './limits/lane-owner.resolver';
 import { matchesAuthFailure } from './limits/lane-auth-classifier';
+import { matchesApiRateLimit } from './limits/lane-rate-limit-classifier';
 import { laneRouteFingerprint } from './limits/lane-limit-lookup.service';
 
 const DEFAULT_AGENT_READ_TAIL_LINES = 200;
@@ -238,6 +239,7 @@ export type AgentWaitMode = 'any' | 'all';
 
 /** Longest {@link AgentProcessManager.waitForAgents} wait: 15 minutes (TASK_2026_597, D13). */
 export const MAX_AGENT_WAIT_MS = 900_000;
+const MAX_RESOLVED_PARENT_SESSIONS = 256;
 
 /**
  * One requested id in a {@link AgentWaitResult}.
@@ -304,6 +306,8 @@ export class LaneModelBlockedError extends Error {
 @injectable()
 export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
+  /** Recent tab resolutions cover lanes spawned after session open. */
+  private readonly resolvedParentSessions = new Map<string, string>();
   private readonly turns = new WeakMap<TrackedAgent, symbol>();
   /**
    * Lanes adopted by a handoff whose new session is still starting, keyed by
@@ -377,7 +381,9 @@ export class AgentProcessManager {
     private readonly hostAttention?: HostAttentionCoordinator,
     @inject(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { isOptional: true })
     private readonly attachmentProbe?: import('./mcp-attachment-probe.port').IMcpAttachmentProbe,
-    @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE, { isOptional: true })
+    @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE, {
+      isOptional: true,
+    })
     private readonly instructionFiles?: LaneInstructionFileStore,
     /**
      * Stored per-workspace Claude lane selection (TASK_2026_719 B14). Absent
@@ -662,7 +668,9 @@ export class AgentProcessManager {
       return {
         task,
         resumeSessionId,
-        ...(gate.accountReference ? { accountReference: gate.accountReference } : {}),
+        ...(gate.accountReference
+          ? { accountReference: gate.accountReference }
+          : {}),
         resumeDecision: {
           decision: 'resumed',
           reason: gate.reason,
@@ -690,7 +698,9 @@ export class AgentProcessManager {
         finalText,
         changedFiles: carryOver.changedFiles,
       }),
-      ...(gate.accountReference ? { accountReference: gate.accountReference } : {}),
+      ...(gate.accountReference
+        ? { accountReference: gate.accountReference }
+        : {}),
       resumeDecision: {
         decision: 'fresh',
         reason: gate.reason,
@@ -808,7 +818,9 @@ export class AgentProcessManager {
       deliverables: request.deliverables,
       status: 'running',
       startedAt,
-      parentSessionId: request.parentSessionId,
+      parentSessionId:
+        this.resolvedParentSessions.get(request.parentSessionId ?? '') ??
+        request.parentSessionId,
       displayName,
       model: resolvedModel,
       ...(request.resumeSessionId
@@ -866,44 +878,51 @@ export class AgentProcessManager {
     let sdkHandle: SdkHandle;
     try {
       sdkHandle = await runSdk({
-      ...options.accountReference,
-      // Claude adapter field (`ClaudeCliCommandOptions`); set for Claude only.
-      ...(options.accountAdmission
-        ? { accountAdmission: options.accountAdmission }
-        : {}),
-      onAccountBinding: async (reference, sdkSessionId) => {
-        const snapshot = snapshotLaneAccountReference(reference);
-        if (!snapshot || !options.accountBindings) throw new LaneAccountResumeError('unavailable-storage');
-        if (admittedReference && JSON.stringify(admittedReference) !== JSON.stringify(snapshot)) {
-          throw new LaneAccountResumeError('invalid-bound');
-        }
-        await options.accountBindings.persistReference(snapshot, sdkSessionId);
-        admittedReference = snapshot;
-        admittedSdkSessionId = sdkSessionId;
-      },
-      task,
-      workingDirectory,
-      files: request.files,
-      taskFolder: request.taskFolder,
-      deliverables: request.deliverables,
-      model: resolvedModel,
-      modelSource: laneModel.source,
-      binaryPath,
-      mcpPort,
-      attachmentProbe: this.attachmentProbe,
-      resumeSessionId: request.resumeSessionId,
-      projectGuidance: request.projectGuidance,
-      reasoningEffort: laneEffort.effort,
-      autoApprove: this.spawnEnvironment.resolveAutoApprove(cli),
-      // Minted above, BEFORE the CLI is asked to build its MCP config, so the
-      // `/agent/{id}` segment of the URL names this exact record
-      // (TASK_2026_402). The rival-CLI path needs no extra plumbing for this —
-      // the id already exists by the time `runSdk` is called.
-      agentId,
-      role: roleDefinition,
-      laneBudgets,
-      instructionFileStore: this.instructionFiles,
-    });
+        ...options.accountReference,
+        // Claude adapter field (`ClaudeCliCommandOptions`); set for Claude only.
+        ...(options.accountAdmission
+          ? { accountAdmission: options.accountAdmission }
+          : {}),
+        onAccountBinding: async (reference, sdkSessionId) => {
+          const snapshot = snapshotLaneAccountReference(reference);
+          if (!snapshot || !options.accountBindings)
+            throw new LaneAccountResumeError('unavailable-storage');
+          if (
+            admittedReference &&
+            JSON.stringify(admittedReference) !== JSON.stringify(snapshot)
+          ) {
+            throw new LaneAccountResumeError('invalid-bound');
+          }
+          await options.accountBindings.persistReference(
+            snapshot,
+            sdkSessionId,
+          );
+          admittedReference = snapshot;
+          admittedSdkSessionId = sdkSessionId;
+        },
+        task,
+        workingDirectory,
+        files: request.files,
+        taskFolder: request.taskFolder,
+        deliverables: request.deliverables,
+        model: resolvedModel,
+        modelSource: laneModel.source,
+        binaryPath,
+        mcpPort,
+        attachmentProbe: this.attachmentProbe,
+        resumeSessionId: request.resumeSessionId,
+        projectGuidance: request.projectGuidance,
+        reasoningEffort: laneEffort.effort,
+        autoApprove: this.spawnEnvironment.resolveAutoApprove(cli),
+        // Minted above, BEFORE the CLI is asked to build its MCP config, so the
+        // `/agent/{id}` segment of the URL names this exact record
+        // (TASK_2026_402). The rival-CLI path needs no extra plumbing for this —
+        // the id already exists by the time `runSdk` is called.
+        agentId,
+        role: roleDefinition,
+        laneBudgets,
+        instructionFileStore: this.instructionFiles,
+      });
     } catch (error: unknown) {
       // The spawn failure is the error the caller needs; the cleanup behind
       // it must never replace it (4332578869).
@@ -921,8 +940,11 @@ export class AgentProcessManager {
     // Pi reports its shared channel here too (4332578858).
     const effectiveChannel = sdkHandle.getRoleDelivery?.() ?? roleChannel;
     const boundInfo = { ...info, ...admittedReference };
-    const effectiveInfo = roleStamp ? { ...boundInfo, roleChannel: effectiveChannel } : boundInfo;
-    const initialCliSessionId = sdkHandle.getSessionId?.() ?? admittedSdkSessionId;
+    const effectiveInfo = roleStamp
+      ? { ...boundInfo, roleChannel: effectiveChannel }
+      : boundInfo;
+    const initialCliSessionId =
+      sdkHandle.getSessionId?.() ?? admittedSdkSessionId;
     const infoWithSession = initialCliSessionId
       ? { ...effectiveInfo, cliSessionId: initialCliSessionId }
       : effectiveInfo;
@@ -1009,7 +1031,9 @@ export class AgentProcessManager {
         deliverables: meta.deliverables,
         status: 'running',
         startedAt,
-        parentSessionId: meta.parentSessionId,
+        parentSessionId:
+          this.resolvedParentSessions.get(meta.parentSessionId ?? '') ??
+          meta.parentSessionId,
         displayName: meta.ptahCliName,
         ptahCliName: meta.ptahCliName,
         ptahCliId: meta.ptahCliId,
@@ -1024,9 +1048,10 @@ export class AgentProcessManager {
         ...meta.roleStamp,
       };
       const effectiveChannel = sdkHandle.getRoleDelivery?.();
-      const effectiveInfo = effectiveChannel && meta.roleStamp
-        ? { ...info, roleChannel: effectiveChannel }
-        : info;
+      const effectiveInfo =
+        effectiveChannel && meta.roleStamp
+          ? { ...info, roleChannel: effectiveChannel }
+          : info;
       const initialCliSessionId = sdkHandle.getSessionId?.();
       const infoWithSession = initialCliSessionId
         ? { ...effectiveInfo, cliSessionId: initialCliSessionId }
@@ -1076,9 +1101,17 @@ export class AgentProcessManager {
     mcp?: { readonly mcpPort?: number; readonly expectsMcp?: boolean },
   ): SpawnAgentResult {
     const agentId = info.agentId;
-    const handleReference = snapshotLaneAccountReference(laneAccountFields(sdkHandle));
-    const requestedReference = snapshotLaneAccountReference(laneAccountFields(info));
-    if (handleReference && requestedReference && JSON.stringify(handleReference) !== JSON.stringify(requestedReference)) {
+    const handleReference = snapshotLaneAccountReference(
+      laneAccountFields(sdkHandle),
+    );
+    const requestedReference = snapshotLaneAccountReference(
+      laneAccountFields(info),
+    );
+    if (
+      handleReference &&
+      requestedReference &&
+      JSON.stringify(handleReference) !== JSON.stringify(requestedReference)
+    ) {
       throw new LaneAccountResumeError('invalid-bound');
     }
     const reference = handleReference ?? requestedReference;
@@ -1128,6 +1161,7 @@ export class AgentProcessManager {
       streamCapLogged: false,
       pendingMessages: [],
       reportsDelivered: 0,
+      turnSegmentStart: 0,
     };
 
     this.agents.set(agentId, tracked);
@@ -1223,6 +1257,9 @@ export class AgentProcessManager {
       );
       sdkHandle.onSegment((segment: CliOutputSegment) => {
         if (this.agents.get(agentId) !== tracked) return;
+        if (sdkHandle.outcomeUsageIsTurnTotal && segment.usage) {
+          tracked.outcomeUsage = segment.usage;
+        }
         this.outputBuffer.appendSegment(
           agentId,
           this.agents.get(agentId),
@@ -1931,6 +1968,12 @@ export class AgentProcessManager {
       );
       return;
     }
+    this.resolvedParentSessions.delete(tabId);
+    this.resolvedParentSessions.set(tabId, realSessionId);
+    if (this.resolvedParentSessions.size > MAX_RESOLVED_PARENT_SESSIONS) {
+      const oldest = this.resolvedParentSessions.keys().next().value;
+      if (oldest !== undefined) this.resolvedParentSessions.delete(oldest);
+    }
     for (const tracked of this.agents.values()) {
       if (tracked.info.parentSessionId === tabId) {
         tracked.info.parentSessionId = realSessionId;
@@ -2138,17 +2181,23 @@ export class AgentProcessManager {
       throw new AgentContinueError('not_found', `Agent not found: ${agentId}`);
     }
     const accountReference = laneAccountFields(tracked.info);
-    const accountScoped = String(tracked.info.cli) === 'claude' ||
-      accountReference.accountBinding !== undefined || accountReference.accountBindingId !== undefined;
+    const accountScoped =
+      String(tracked.info.cli) === 'claude' ||
+      accountReference.accountBinding !== undefined ||
+      accountReference.accountBindingId !== undefined;
     if (accountScoped) {
       await resolveLaneAccountResume({
         cli: tracked.info.cli,
         cliSessionId: tracked.info.cliSessionId ?? '',
         accountReference,
-        accountBindings: this.cliDetection.getAdapter(tracked.info.cli)?.accountBindings,
+        accountBindings: this.cliDetection.getAdapter(tracked.info.cli)
+          ?.accountBindings,
       });
       if (this.agents.get(agentId) !== tracked) {
-        throw new AgentContinueError('released', 'Lane was replaced during account validation.');
+        throw new AgentContinueError(
+          'released',
+          'Lane was replaced during account validation.',
+        );
       }
     }
 
@@ -2204,6 +2253,13 @@ export class AgentProcessManager {
     this.clearIdleRelease(tracked);
 
     tracked.hasExited = false;
+    // This turn's rate-limit match reads only the segments it produces.
+    tracked.turnSegmentStart = tracked.accumulatedSegments.length;
+    tracked.outcomeUsage = undefined;
+    tracked.rateLimitMatched = undefined;
+    // A stop or timeout of this turn never re-reads auth wording, so an
+    // earlier turn's match must not label it `auth`.
+    tracked.authMatched = undefined;
     if (tracked.cleanupHandle) {
       clearTimeout(tracked.cleanupHandle);
       tracked.cleanupHandle = undefined;
@@ -2240,7 +2296,9 @@ export class AgentProcessManager {
       if (!this.isCurrentTurn(tracked, turn)) throw error;
       if (accountScoped) {
         this.handleExit(agentId, 1, null);
-        throw new LaneAccountResumeError(laneAccountErrorCode(error) ?? 'unavailable-storage');
+        throw new LaneAccountResumeError(
+          laneAccountErrorCode(error) ?? 'unavailable-storage',
+        );
       }
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -2405,6 +2463,7 @@ export class AgentProcessManager {
     }
 
     this.agents.clear();
+    this.resolvedParentSessions.clear();
     this.laneGuards.clear();
     this.logger.info(`[AgentProcessManager] ${entries.length} agents disposed`);
   }
@@ -2643,10 +2702,13 @@ export class AgentProcessManager {
     try {
       await this.instructionFiles?.remove(agentId);
     } catch (error: unknown) {
-      this.logger.warn('[AgentProcessManager] Lane instruction cleanup failed', {
-        agentId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      this.logger.warn(
+        '[AgentProcessManager] Lane instruction cleanup failed',
+        {
+          agentId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
     }
   }
 
@@ -2727,7 +2789,13 @@ export class AgentProcessManager {
     tracked.hasExited = true;
     if (tracked.sdkHandle?.supportsContinuation?.() !== true) {
       void this.instructionFiles?.remove(agentId).catch((error: unknown) => {
-        this.logger.warn('[AgentProcessManager] Lane instruction cleanup failed', { agentId, error: error instanceof Error ? error.message : String(error) });
+        this.logger.warn(
+          '[AgentProcessManager] Lane instruction cleanup failed',
+          {
+            agentId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
       });
     }
 
@@ -2766,6 +2834,9 @@ export class AgentProcessManager {
       } else {
         tracked.authMatched = false;
       }
+      // Also before the discard below. A rate limit is not quota: it never
+      // sets `failureKind` and never reaches `recordLaneLimits`.
+      tracked.rateLimitMatched = this.matchLaneRateLimit(tracked, code);
       this.recordLaneLimits(tracked, limit, observedAt);
     } else if (!tracked.info.completedAt) {
       tracked.info = {
@@ -2845,6 +2916,46 @@ export class AgentProcessManager {
       );
     }
     return limit;
+  }
+
+  /**
+   * Whether this turn's bounded output names an API rate limit (HTTP 429).
+   * An exit 0 reads only the current turn's error segments, never stdout: a
+   * lane's final summary may legitimately discuss 429s. A failed exit reads
+   * the current turn's error segments plus the stdout tail. Segments dropped
+   * by the accumulation cap are not seen, so the match fails open.
+   */
+  private matchLaneRateLimit(
+    tracked: TrackedAgent,
+    code: number | null,
+  ): boolean {
+    const errors = this.turnErrorTexts(tracked);
+    const texts =
+      code === 0
+        ? errors
+        : [...errors, tracked.stdoutBuffer.slice(-LIMIT_CLASSIFIER_TAIL_CHARS)];
+    const matched = matchesApiRateLimit(texts);
+    if (matched) {
+      this.logger.debug(
+        '[AgentProcessManager] Lane turn matched an API rate-limit wording',
+        {
+          agentId: tracked.info.agentId,
+          cli: tracked.info.cli,
+          exitCode: code,
+        },
+      );
+    }
+    return matched;
+  }
+
+  /** The current turn's newest error segments, bounded like the failure texts. */
+  private turnErrorTexts(tracked: TrackedAgent): readonly string[] {
+    return tracked.accumulatedSegments
+      .slice(tracked.turnSegmentStart ?? 0)
+      .filter((segment) => segment.type === 'error')
+      .slice(-LIMIT_CLASSIFIER_ERROR_SEGMENTS)
+      .reverse()
+      .map((segment) => segment.content.slice(-LIMIT_CLASSIFIER_SEGMENT_CHARS));
   }
 
   private laneFailureTexts(tracked: TrackedAgent): readonly string[] {
@@ -2988,15 +3099,20 @@ export class AgentProcessManager {
     // A continuation-capable lane keeps its guard past a turn's exit, so read
     // the live count first and fall back to the one saved on release.
     const toolCalls =
-      this.laneGuards.get(info.agentId)?.toolCallCount ?? tracked.guardToolCalls;
+      this.laneGuards.get(info.agentId)?.toolCallCount ??
+      tracked.guardToolCalls;
     void this.laneCompletion.signal(info, {
       reportsDelivered,
+      ...(tracked.outcomeUsage ? { usage: tracked.outcomeUsage } : {}),
       authMatched: tracked.authMatched ?? false,
+      ...(tracked.rateLimitMatched ? { rateLimited: true } : {}),
       ...(toolCalls !== undefined ? { toolCalls } : {}),
       ...(tracked.queuedMessagesDropped
         ? { queuedMessagesDropped: tracked.queuedMessagesDropped }
         : {}),
-      ...(tracked.repeatedCalls ? { repeatedCalls: tracked.repeatedCalls } : {}),
+      ...(tracked.repeatedCalls
+        ? { repeatedCalls: tracked.repeatedCalls }
+        : {}),
     });
   }
 
@@ -3118,7 +3234,10 @@ export class AgentProcessManager {
   }
 
   private isCurrentTurn(tracked: TrackedAgent, turn: symbol): boolean {
-    return this.agents.get(tracked.info.agentId) === tracked && this.turns.get(tracked) === turn;
+    return (
+      this.agents.get(tracked.info.agentId) === tracked &&
+      this.turns.get(tracked) === turn
+    );
   }
 
   private getRunningCount(): number {

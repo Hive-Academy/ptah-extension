@@ -39,12 +39,23 @@
  * with no derivable migration. The collision is surfaced instead.
  */
 
-import { readdirSync, lstatSync, accessSync, constants } from 'fs';
-import { basename, join, resolve } from 'path';
+import {
+  readdirSync,
+  lstatSync,
+  accessSync,
+  constants,
+  readFileSync,
+} from 'fs';
+import { basename, dirname, join, resolve } from 'path';
 import {
   AGENT_MODEL_PROVIDERS,
   isAgentModelEmittable,
+  ORIGIN_SIDECAR_FILENAME,
+  parseOriginSidecar,
   resolveAgentModel,
+  SKILLS_SH_PLUGIN_ID_PREFIX,
+  SKILLS_SH_SOURCE_REF_PREFIX,
+  workspacePluginsDir,
   type AgentModelLayers,
   type AgentModelProvider,
   type HarnessCollision,
@@ -161,6 +172,21 @@ export interface HarnessManifestBuildOptions {
    */
   skillSync?: SkillSyncSelection;
   /**
+   * The ALREADY-NORMALIZED workspace root this desired state is for — the
+   * value `resolveHarnessWorkspaceRoot` returned, the same one the source
+   * resolver was called with.
+   *
+   * It identifies this workspace's own skills.sh roots
+   * (`{workspaceRoot}/.ptah/plugins/ptah-skillssh-*`), which bypass the
+   * {@link skillSync} selection (D-D4): installing into a workspace IS the
+   * selection, so a second write to the allowlist would only be uninstall
+   * bookkeeping to keep in sync. Every other gate still applies to them.
+   *
+   * Absent means no root is exempt and every overlay stays subject to the
+   * selection — the pre-D behaviour, never a broader one.
+   */
+  workspaceRoot?: string;
+  /**
    * Cancels the source walk between whole files (TASK_2026_323 / B8).
    *
    * Hashing `~/.ptah/user` is the single most expensive thing a preflight does,
@@ -169,6 +195,94 @@ export interface HarnessManifestBuildOptions {
    * `abort/pass-abort.ts`. Aborting raises `HarnessPassAbortedError`.
    */
   signal?: AbortSignal;
+}
+
+/**
+ * The retired skills.sh roots of one pass (D-2), indexed two ways: by root id
+ * (the directory basename a clone's `skills-sh:<rootId>` sourceRef names) and
+ * by resolved directory (an overlay path that IS a retired root).
+ *
+ * Built from `HarnessSourceState.retired`, which the resolver fills from the
+ * registry on every pass; absent means nothing retired (decision #56). The
+ * resolver hands down directories rather than the registry, so the shared
+ * `isRetiredSourceRef(ref, registry)` cannot be called as-is; the sourceRef
+ * test below applies the same rule (prefix, then an exact root-id match) to
+ * the ids derived from those directories. A Set lookup also never matches
+ * through a prototype chain, the property the shared helper guards for.
+ */
+interface RetiredSkillSources {
+  readonly rootIds: ReadonlySet<string>;
+  readonly rootDirs: ReadonlySet<string>;
+}
+
+function indexRetiredSkillSources(
+  sources: HarnessSourceState,
+): RetiredSkillSources {
+  const rootIds = new Set<string>();
+  const rootDirs = new Set<string>();
+  for (const root of sources.retired?.skillSourceRoots ?? []) {
+    // `resolve('')` is the process cwd, never a retired root.
+    if (root.trim().length === 0) continue;
+    const dir = resolve(root);
+    rootDirs.add(dir);
+    rootIds.add(basename(dir));
+  }
+  return { rootIds, rootDirs };
+}
+
+/** True when `sourceRef` is `skills-sh:<rootId>` for a retired root id. */
+function isRetiredSkillsShSourceRef(
+  sourceRef: string | undefined,
+  rootIds: ReadonlySet<string>,
+): boolean {
+  if (!sourceRef?.startsWith(SKILLS_SH_SOURCE_REF_PREFIX)) return false;
+  const rootId = sourceRef.slice(SKILLS_SH_SOURCE_REF_PREFIX.length);
+  return rootId.length > 0 && rootIds.has(rootId);
+}
+
+/**
+ * The `sourceRef` a user-layer clone's sidecar records, or `undefined`.
+ *
+ * Every failure (no sidecar, unreadable, not JSON, not a sidecar, written
+ * before `sourceRef` existed) answers `undefined`, which retires nothing: the
+ * same fail-open direction as `readUserLayerOrigin`, because dropping a slug
+ * here reaps its workspace copies.
+ */
+function readCloneSourceRef(cloneDir: string): string | undefined {
+  let raw: string;
+  try {
+    raw = readFileSync(join(cloneDir, ORIGIN_SIDECAR_FILENAME), 'utf-8');
+  } catch {
+    // degradation-audit: optional-capability - ENOENT (user-authored) or an
+    // IO error: neither proves retirement, so the clone stays active.
+    return undefined;
+  }
+  try {
+    return parseOriginSidecar(JSON.parse(raw))?.sourceRef;
+  } catch {
+    // degradation-audit: optional-capability - malformed JSON reads as "no
+    // sidecar", as everywhere else; it retires nothing.
+    return undefined;
+  }
+}
+
+/**
+ * Resolved `{workspaceRoot}/.ptah/plugins`, the only directory whose
+ * `ptah-skillssh-*` roots are exempt from the selection, or `null` when the
+ * caller named no workspace (then nothing is exempt).
+ */
+function workspaceSkillsShParent(
+  workspaceRoot: string | undefined,
+): string | null {
+  const dir = workspacePluginsDir(workspaceRoot);
+  return dir === null ? null : resolve(dir);
+}
+
+/** What `buildSkills` gates on, beyond the source state itself. */
+interface SkillGateOptions {
+  readonly skillSync: SkillSyncSelection | undefined;
+  readonly retired: RetiredSkillSources;
+  readonly workspaceSkillsShParent: string | null;
 }
 
 /**
@@ -208,13 +322,23 @@ export class HarnessManifestBuilder {
     throwIfPassAborted(options.signal);
     const collisions: HarnessCollision[] = [];
     const hashOptions = { signal: options.signal };
-    const skills = await this.buildSkills(
+    const retired = indexRetiredSkillSources(sources);
+    const { skills, excludedBySelection } = await this.buildSkills(
       sources,
       collisions,
-      options.skillSync,
+      {
+        skillSync: options.skillSync,
+        retired,
+        workspaceSkillsShParent: workspaceSkillsShParent(options.workspaceRoot),
+      },
       hashOptions,
     );
-    const commands = await this.buildCommands(sources, collisions, hashOptions);
+    const commands = await this.buildCommands(
+      sources,
+      collisions,
+      retired,
+      hashOptions,
+    );
     const agents = await this.buildAgents(
       sources,
       collisions,
@@ -234,6 +358,7 @@ export class HarnessManifestBuilder {
       sources: this.classifySources(
         skills.length + commands.length + agents.length,
         options.downloadPending === true,
+        excludedBySelection,
       ),
       sourceRoots: this.deriveSourceRoots(sources),
     };
@@ -289,18 +414,24 @@ export class HarnessManifestBuilder {
     return servers.sort((a, b) => a.serverKey.localeCompare(b.serverKey));
   }
 
+  /**
+   * `excludedBySelection`: the user layer offered at least one skill that this
+   * workspace's selection left out. Sources are installed then, so an empty
+   * desired state is the user's choice, not "not installed yet".
+   */
   private classifySources(
     artifactCount: number,
     downloadPending: boolean,
+    excludedBySelection: boolean,
   ): HarnessSourcesStatus {
-    if (artifactCount > 0) return 'ok';
+    if (artifactCount > 0 || excludedBySelection) return 'ok';
     return downloadPending ? 'pending-download' : 'sources-missing';
   }
 
   // ---------------------------------------------------------------- skills
 
   /**
-   * Skills, gated three times over. Evaluated OUTERMOST FIRST:
+   * Skills, gated three times over. Listed OUTERMOST FIRST:
    *
    * 1. The per-workspace SELECTION (`skillSync`, TASK_2026_316). Under
    *    `'selected'` only the recorded slugs are propagated here at all. It is
@@ -322,9 +453,26 @@ export class HarnessManifestBuilder {
    *    slug that is both allowlisted and disabled is not propagated, because
    *    every level has to say yes.
    *
-   * The two cheap set tests run before the sidecar read that level 2 needs.
-   * That is a cost ordering and not a semantic one — all three levels are a
-   * conjunction, so no ordering of them changes the answer.
+   * Two Phase D rules (TASK_2026_853) sit beside these levels:
+   *
+   * - RETIREMENT (D-2) is not a level of the selection but a precondition of
+   *   existing at all. A user-layer clone whose sidecar `sourceRef` names a
+   *   retired skills.sh root, and an overlay path that IS a retired root, are
+   *   inactive in every mode — `'all'` included, an explicit allowlist entry
+   *   included. The clone stays on disk; only its workspace copies go, and
+   *   only through the reconciler's retirement proof policy.
+   * - The WORKSPACE EXEMPTION (D-D4): an overlay root
+   *   `{workspaceRoot}/.ptah/plugins/ptah-skillssh-*` of THE workspace being
+   *   built bypasses level 1 only. Level 3 and `disabledPluginIds` still apply
+   *   to it, and a skills.sh root of any OTHER workspace, a user-global
+   *   skills.sh root, a harness plugin and a bundled plugin stay subject to the
+   *   selection exactly as before.
+   *
+   * The selection test runs LAST, after the disabled, retirement and plugin
+   * gates: the skill set is a conjunction, so the order does not change which
+   * skills are built, but `excludedBySelection` must only count a skill that
+   * every other gate admitted. Otherwise a retired or disabled leftover would
+   * make a workspace with no usable sources read as healthy.
    *
    * A slug any gate rejects is NOT recorded in `userLayerSlugs`, deliberately.
    * That set exists to stop an overlay plugin's own mirrored copy being reported
@@ -342,10 +490,15 @@ export class HarnessManifestBuilder {
   private async buildSkills(
     sources: HarnessSourceState,
     collisions: HarnessCollision[],
-    skillSync: SkillSyncSelection | undefined,
+    { skillSync, retired, workspaceSkillsShParent }: SkillGateOptions,
     hashOptions: ContentHashOptions,
-  ): Promise<HarnessDesiredSkill[]> {
+  ): Promise<{
+    skills: HarnessDesiredSkill[];
+    /** At least one offered skill was left out only by the selection. */
+    excludedBySelection: boolean;
+  }> {
     const disabled = new Set(sources.disabledSkillIds);
+    const checkRetiredRefs = retired.rootIds.size > 0;
     const pluginGate = createPluginOriginGate(sources);
     // `null` is "no selection gate at all", which is what an absent option and
     // an explicit `'all'` both mean. An empty Set is a real, empty allowlist.
@@ -353,12 +506,29 @@ export class HarnessManifestBuilder {
       skillSync?.mode === 'selected' ? new Set(skillSync.slugs) : null;
     const claimed = new Map<string, HarnessDesiredSkill>();
     const userLayerSlugs = new Set<string>();
+    let excludedBySelection = false;
 
     for (const slug of this.listSkillSlugs(sources.layout.skillsRoot)) {
-      if (selected !== null && !selected.has(slug)) continue;
+      // The selection is checked LAST: `excludedBySelection` must mean an
+      // active, enabled, non-retired, gate-passing skill that only the
+      // selection left out, or a retired/disabled leftover would make missing
+      // sources read as healthy.
       if (disabled.has(slug)) continue;
       const cloneDir = join(sources.layout.skillsRoot, slug);
+      if (
+        checkRetiredRefs &&
+        isRetiredSkillsShSourceRef(
+          readCloneSourceRef(cloneDir),
+          retired.rootIds,
+        )
+      ) {
+        continue;
+      }
       if (!pluginGate(cloneDir)) continue;
+      if (selected !== null && !selected.has(slug)) {
+        excludedBySelection = true;
+        continue;
+      }
       userLayerSlugs.add(canonicalSlug(slug));
       await this.claimSkill(
         claimed,
@@ -374,13 +544,25 @@ export class HarnessManifestBuilder {
     for (const pluginPath of sources.overlayPluginPaths) {
       const pluginId = basename(pluginPath);
       if (disabledPlugins.has(pluginId)) continue;
+      const pluginDir = resolve(pluginPath);
+      if (retired.rootDirs.has(pluginDir)) continue;
+      const exemptFromSelection =
+        workspaceSkillsShParent !== null &&
+        pluginId.startsWith(SKILLS_SH_PLUGIN_ID_PREFIX) &&
+        dirname(pluginDir) === workspaceSkillsShParent;
       const pluginSkillsDir = join(pluginPath, 'skills');
       for (const slug of this.listSkillSlugs(pluginSkillsDir)) {
         // The selection gates the OVERLAY too. An opt-out harness plugin
         // reaches a workspace only through this loop, and it is exactly the
         // kind of skill a per-project selection exists to be able to exclude.
-        if (selected !== null && !selected.has(slug)) continue;
+        // This workspace's own skills.sh roots are the one exception (D-D4).
+        // Disabled skills are dropped first so only an enabled skill counts
+        // as excluded by the selection.
         if (disabled.has(slug)) continue;
+        if (!exemptFromSelection && selected !== null && !selected.has(slug)) {
+          excludedBySelection = true;
+          continue;
+        }
         // Expected, not a conflict: the mirror already published this plugin's
         // skill into the user layer. Reporting it would drown the real cases.
         if (userLayerSlugs.has(canonicalSlug(slug))) continue;
@@ -395,7 +577,12 @@ export class HarnessManifestBuilder {
       }
     }
 
-    return [...claimed.values()].sort((a, b) => a.slug.localeCompare(b.slug));
+    return {
+      skills: [...claimed.values()].sort((a, b) =>
+        a.slug.localeCompare(b.slug),
+      ),
+      excludedBySelection,
+    };
   }
 
   private async claimSkill(
@@ -484,6 +671,7 @@ export class HarnessManifestBuilder {
   private async buildCommands(
     sources: HarnessSourceState,
     collisions: HarnessCollision[],
+    retired: RetiredSkillSources,
     hashOptions: ContentHashOptions,
   ): Promise<HarnessDesiredCommand[]> {
     const claimed = new Map<string, HarnessDesiredCommand>();
@@ -506,6 +694,8 @@ export class HarnessManifestBuilder {
     for (const pluginPath of sources.overlayPluginPaths) {
       const pluginId = basename(pluginPath);
       if (disabledPlugins.has(pluginId)) continue;
+      // A retired skills.sh root contributes nothing, commands included (D-2).
+      if (retired.rootDirs.has(resolve(pluginPath))) continue;
       const pluginCommandsDir = join(pluginPath, 'commands');
       for (const file of this.listMarkdownFiles(pluginCommandsDir)) {
         const slug = file.replace(/\.md$/i, '');

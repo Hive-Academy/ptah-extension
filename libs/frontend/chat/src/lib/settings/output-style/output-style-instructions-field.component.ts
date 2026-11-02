@@ -9,15 +9,15 @@
  * field only edits them and switches the view.
  */
 
-import { ChangeDetectionStrategy, Component, computed, model, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, model, signal, type AnimationCallbackEvent } from '@angular/core';
 import { LucideAngularModule, AlertTriangle } from 'lucide-angular';
-import { NativeTabGroupComponent, type NativeTab } from '@ptah-extension/ui';
+import { MotionStageDirective, NativeTabGroupComponent, type NativeTab } from '@ptah-extension/ui';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 
 @Component({
   selector: 'ptah-output-style-instructions-field',
   standalone: true,
-  imports: [LucideAngularModule, NativeTabGroupComponent, MarkdownBlockComponent],
+  imports: [LucideAngularModule, MotionStageDirective, NativeTabGroupComponent, MarkdownBlockComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // Block host: the editor form's space-y-3 sets a top margin, which an inline host ignores.
   host: { class: 'block' },
@@ -80,9 +80,11 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
           />
         </div>
 
+        <div ptahMotionStage [motionIndex]="showPreview() ? 1 : 0">
         @if (showPreview()) {
           <div
-            class="max-h-64 overflow-y-auto border border-base-300 rounded p-3 bg-base-200/50 text-base-content"
+            class="ptah-motion-panel max-h-64 overflow-y-auto border border-base-300 rounded p-3 bg-base-200/50 text-base-content"
+            animate.enter="ptah-motion-enter" animate.leave="ptah-motion-leave"
             data-test="body-preview"
           >
             @if (body().trim().length > 0) {
@@ -94,6 +96,7 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
             }
           </div>
         } @else {
+          <div class="ptah-motion-panel" animate.enter="ptah-motion-enter" [animate.leave]="leaveEditorPanel">
           <textarea
             id="output-style-body"
             rows="5"
@@ -102,7 +105,9 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
             [value]="body()"
             (input)="onBodyInput($event)"
           ></textarea>
+          </div>
         }
+        </div>
         <p class="text-xs text-base-content-muted mt-1 leading-relaxed">
           Markdown. This text influences how the agent writes — it does not
           override Ptah's own instructions, which are always applied as well.
@@ -127,6 +132,21 @@ export class OutputStyleInstructionsFieldComponent {
   /** Preview signal supported for both direct programmatic toggle and NativeTabGroup. */
   readonly showPreview = signal(false);
   readonly activeTab = computed(() => (this.showPreview() ? 'preview' : 'edit'));
+
+  /** The editor may still be leaving when a rapid reverse switch creates another textarea id. */
+  readonly leaveEditorPanel = (event: AnimationCallbackEvent): void => {
+    const panel = event.target as HTMLElement;
+    panel.setAttribute('inert', '');
+    panel.setAttribute('aria-hidden', 'true');
+    panel.classList.add('ptah-motion-leave');
+    const animations = panel.getAnimations?.() ?? [];
+    if (animations.length === 0) {
+      event.animationComplete();
+      return;
+    }
+    void Promise.allSettled(animations.map((animation) => animation.finished))
+      .then(() => event.animationComplete());
+  };
 
   onTabChange(tabId: string | null): void {
     this.showPreview.set(tabId === 'preview');

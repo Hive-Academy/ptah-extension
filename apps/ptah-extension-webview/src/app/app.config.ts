@@ -92,20 +92,22 @@ import {
 } from '@ptah-extension/chat';
 import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
 // NARROW `/app` entry on purpose, here and in `app.routes.ts`. The setup
-// wizard is a LAUNCH SURFACE (`initialView: 'setup-wizard'`), so its route
-// stays a static `component:`. But its later steps render inside `@defer`,
+// wizard remains a legacy route during B5a, so its route stays a static
+// `component:`. But its later steps render inside `@defer`,
 // and the wide barrel re-exports those step components, so importing the
 // wide barrel from eager code would put them back into the initial bundle
 // (about 208 kB, TASK_2026_701).
 import {
   provideWizardInternalState,
-  provideSetupWizardFocusRouter,
   SetupWizardStateService,
   SetupGenerationOpenHandler,
   GenerationRunEventAdapter,
 } from '@ptah-extension/setup-wizard/app';
-import { provideHarnessBuilderFocusRouter } from '@ptah-extension/harness-builder/services';
 import { provideAppsFocusRouter } from '@ptah-extension/mcp-apps-page/focus';
+import {
+  provideOnboardingFirstRun,
+  provideOnboardingFocusRouter,
+} from '@ptah-extension/onboarding/services';
 import {
   FileContentChangesService,
   GitBranchesService,
@@ -227,11 +229,23 @@ export const appConfig: ApplicationConfig = {
     ),
     provideVSCodeService(),
     provideMessageRouter(),
-    { provide: ATTENTION_ACTION_DISPATCHER, useExisting: ChatAttentionActionDispatcherService },
+    {
+      provide: ATTENTION_ACTION_DISPATCHER,
+      useExisting: ChatAttentionActionDispatcherService,
+    },
     { provide: ATTENTION_LANE_OPENER, useExisting: CanvasAttentionLaneOpener },
-    { provide: NOTICE_ACTION_HANDLER, useExisting: VoiceProviderErrorService, multi: true },
-    { provide: NOTIFICATION_FOCUS_ROUTER, useExisting: NotificationFocusCoordinator },
-    provideAppInitializer(() => { inject(ChatAttentionSourceService); }),
+    {
+      provide: NOTICE_ACTION_HANDLER,
+      useExisting: VoiceProviderErrorService,
+      multi: true,
+    },
+    {
+      provide: NOTIFICATION_FOCUS_ROUTER,
+      useExisting: NotificationFocusCoordinator,
+    },
+    provideAppInitializer(() => {
+      inject(ChatAttentionSourceService);
+    }),
     {
       provide: SurfaceRouterService.generationRouteTabValidatorToken,
       useFactory: () => {
@@ -258,11 +272,19 @@ export const appConfig: ApplicationConfig = {
     },
     { provide: MESSAGE_HANDLERS, useExisting: AppStateManager, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatMessageHandler, multi: true },
-    { provide: MESSAGE_HANDLERS, useExisting: ArtifactMessageHandler, multi: true },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: ArtifactMessageHandler,
+      multi: true,
+    },
     // Detached Display window (TASK_2026_853_3401): `displayWindow:closed`
     // and child actions. It asks `displayWindow:status` on Electron at boot.
     { provide: MESSAGE_HANDLERS, useExisting: DisplayWindowSync, multi: true },
-    { provide: MESSAGE_HANDLERS, useExisting: ChatAttentionHostMessageHandler, multi: true },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: ChatAttentionHostMessageHandler,
+      multi: true,
+    },
     // Late adoption of agent-started child tabs (TASK_2026_584). The
     // `agentSession:opened` push above only reaches a webview that is running
     // when the child starts; this asks `chat:agent-sessions` at bootstrap and
@@ -273,6 +295,10 @@ export const appConfig: ApplicationConfig = {
     // it (TASK_2026_524 Batch 4c). One `NavigationEnd` subscription and one
     // root effect; `TabManagerService` stays the owner of the active tab.
     provideAppInitializer(() => inject(ChatTabRouteSync).start()),
+    // First-run onboarding (TASK_2026_ONBOARDING): one `Router.events`
+    // subscription that commits `shownAt` only when the chat guard's redirect
+    // actually lands on `/onboarding`. A superseded boot leaves it unset.
+    provideOnboardingFirstRun(),
     // The ONE `surface:updated` intake for every host (TASK_2026_494, plan
     // D3). Eager on purpose: a lazy consumer claims its routing id before
     // `chat:start`, so nothing can arrive unclaimed, and the zod-free inbox
@@ -335,8 +361,7 @@ export const appConfig: ApplicationConfig = {
     { provide: MESSAGE_HANDLERS, useExisting: TasksChangedFeed, multi: true },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
-    ...provideSetupWizardFocusRouter(),
-    ...provideHarnessBuilderFocusRouter(),
+    ...provideOnboardingFocusRouter(),
     ...provideAppsFocusRouter(),
     provideGitStatusAttention(),
     { provide: MESSAGE_HANDLERS, useExisting: GitStatusService, multi: true },

@@ -96,7 +96,7 @@ describe(CompactRailCardComponent.name, () => {
       b.textContent?.trim().startsWith(name),
     ) as HTMLButtonElement | undefined;
 
-  it('shows only known positive summary badges and preserves the diff', () => {
+  it('shows known summary badges including zero context and preserves the diff', () => {
     const f = render();
     const value = summary();
     f.componentRef.setInput('summary', { ...value, metrics: { ...value.metrics, agentCount: 2 } });
@@ -113,17 +113,19 @@ describe(CompactRailCardComponent.name, () => {
     f.componentRef.setInput('contextPercent', null);
     f.detectChanges();
     expect(badges()).toEqual([]);
+    expect(f.componentInstance.roundedContextPercent()).toBeNull();
     f.componentRef.setInput('contextPercent', 0);
     f.componentRef.setInput('lanes', lanes(4));
     f.detectChanges();
     // Three rows plus "+1 more": the badge still counts every CLI lane.
-    expect(badges()).toEqual(['4 CLI']);
+    expect(badges()).toEqual(['4 CLI', '0% ctx']);
+    expect(f.componentInstance.roundedContextPercent()).toBe(0);
     f.componentRef.setInput('lanes', {
       ...lanes(6),
       kinds: { cli: 2, subagent: 4, background: 0 },
     });
     f.detectChanges();
-    expect(badges()).toEqual(['2 CLI']);
+    expect(badges()).toEqual(['2 CLI', '0% ctx']);
   });
 
   it('uses the shared height for both densities', () => {
@@ -271,15 +273,32 @@ describe(CompactRailCardComponent.name, () => {
     f.componentRef.setInput('state', 'done');
     f.detectChanges();
     const select = f.nativeElement.querySelector('.rc-select') as HTMLButtonElement;
-    expect(select.getAttribute('aria-label')).toBe('Session A, done');
+    expect(select.getAttribute('aria-label')).toBe('Session A, Done');
     expect(select.getAttribute('aria-current')).toBeNull();
     f.componentRef.setInput('focused', true);
     f.detectChanges();
-    expect(select.getAttribute('aria-label')).toBe('Session A, done, in focus');
+    expect(select.getAttribute('aria-label')).toBe('Session A, Done, in focus');
     expect(select.getAttribute('aria-current')).toBe('true');
     f.componentRef.setInput('focused', false);
     f.detectChanges();
-    expect(select.getAttribute('aria-label')).toBe('Session A, done');
+    expect(select.getAttribute('aria-label')).toBe('Session A, Done');
+  });
+
+  it('keeps selection and the roving tab stop separate while showing full status labels', () => {
+    const f = render();
+    f.componentRef.setInput('state', 'needs');
+    f.componentRef.setInput('focused', true);
+    f.detectChanges();
+    const select = f.nativeElement.querySelector('.rc-select') as HTMLButtonElement;
+    expect(select.getAttribute('aria-current')).toBe('true');
+    expect(select.tabIndex).toBe(-1);
+    expect((f.nativeElement.querySelector('.rc-pill') as HTMLElement).textContent).toBe('Needs input');
+    f.componentRef.setInput('focused', false);
+    f.componentRef.setInput('tabStop', true);
+    f.detectChanges();
+    expect(select.getAttribute('aria-current')).toBeNull();
+    expect(select.tabIndex).toBe(0);
+    expect(select.getAttribute('aria-label')).toContain('Needs input');
   });
 
   it('draws the keyboard ring of the invisible select button on the host', () => {

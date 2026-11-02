@@ -8,6 +8,7 @@ import {
   linkedSignal,
   output,
 } from '@angular/core';
+import { injectWallClock } from '@ptah-extension/core';
 import type { GitStashFileEntry, StashEntry } from '@ptah-extension/shared';
 import {
   GitStashService,
@@ -83,7 +84,7 @@ export function stashAge(
                     <span class="font-mono opacity-70">{{
                       stashRef(entry)
                     }}</span>
-                    <span class="ml-auto opacity-60">{{ age(entry) }}</span>
+                    <span class="ml-auto opacity-60">{{ age(entry) || '—' }}</span>
                   </span>
                   <span class="w-full truncate" [title]="entry.message">{{
                     entry.message
@@ -189,6 +190,7 @@ export class StashPopoverComponent {
   private readonly gitStatus = inject(GitStatusService, { optional: true });
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   readonly isOpen = input.required<boolean>();
+  private readonly now = injectWallClock('coarse', () => this.isOpen());
   readonly closed = output<void>();
   protected readonly confirmDrop = linkedSignal<
     readonly unknown[],
@@ -220,7 +222,7 @@ export class StashPopoverComponent {
   }
 
   protected age(entry: StashEntry): string {
-    return stashAge(entry.time);
+    return stashAge(entry.time, this.now());
   }
 
   protected statusLabel(file: GitStashFileEntry): string {

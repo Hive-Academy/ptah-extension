@@ -17,6 +17,7 @@ import {
   AppStateManager,
   ClaudeRpcService,
   ThemeService,
+  injectWallClock,
 } from '@ptah-extension/core';
 import { CommandCenterStore } from '../model/command-center.store';
 import { summarizeVoiceProviders } from '../model/voice-provider-summary';
@@ -29,7 +30,6 @@ import {
 } from '../model/work-projection';
 import { CommandVoiceLoop } from '../voice/command-voice-loop';
 import { replyExcerpt } from '../voice/spoken-text';
-import { commandCenterClock } from './command-center-clock';
 import {
   CommandCenterQuestionProvider,
   isIdleWithoutPendingRequest,
@@ -66,7 +66,7 @@ export class CommandCenterPageController {
   private readonly chat = inject(ChatStore);
   private readonly voiceSessions = inject(CommandCenterVoiceSessionService);
   private readonly projectionSource = inject(CommandCenterProjectionSource);
-  public readonly now = commandCenterClock();
+  public readonly now = injectWallClock('coarse');
   private readonly questions = new CommandCenterQuestionProvider(
     this.store,
     this.chat,

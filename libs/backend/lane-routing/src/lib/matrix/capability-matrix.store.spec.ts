@@ -364,18 +364,20 @@ describe('CapabilityMatrixStore', () => {
     });
   });
 
-  it('replaces the seed when five local runs qualify (Req 6.6)', async () => {
-    const below = harness({
+  it('replaces the seed with blended local cells (Req 6.6, Req 8)', async () => {
+    const four = harness({
       reader: outcomeReader({ summaries: deliveredRuns(4) }).reader,
     });
-    const belowSnapshot = await load(below.store, [
+    const fourSnapshot = await load(four.store, [
       { laneId: 'codex', subagent: false },
     ]);
+    // Four delivered runs blend with the seed prior 80: round(1200/14).
     expect(
-      belowSnapshot.resolve('z-ai', 'glm-5', 'implement').cell,
+      valueCell(fourSnapshot.resolve('z-ai', 'glm-5', 'implement').cell),
     ).toMatchObject({
-      source: 'seed',
-      score: SEED_LABEL_SCORE.strong,
+      source: 'local',
+      score: 86,
+      sampleCount: 4,
     });
 
     const ready = harness({
@@ -384,11 +386,12 @@ describe('CapabilityMatrixStore', () => {
     const snapshot = await load(ready.store, [
       { laneId: 'codex', subagent: false },
     ]);
+    // Five delivered runs blend with the seed prior 80: round(1300/15).
     expect(
       valueCell(snapshot.resolve('z-ai', 'glm-5', 'implement').cell),
     ).toMatchObject({
       source: 'local',
-      score: 100,
+      score: 87,
       sampleCount: 5,
     });
     expect(snapshot.reasons).toEqual([]);
@@ -660,11 +663,12 @@ describe('CapabilityMatrixStore', () => {
       }).reader,
     });
     const snapshot = await load(store, [{ laneId: 'codex', subagent: false }]);
+    // The family profile has no seed, so the prior is 50: round(1000/15).
     expect(
       snapshot.resolve('z-ai', LANE_DEFAULT_MODEL, 'implement').cell,
     ).toMatchObject({
       source: 'local',
-      score: 100,
+      score: 67,
       sampleCount: 5,
     });
     expect(

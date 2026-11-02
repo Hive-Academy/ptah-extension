@@ -94,6 +94,17 @@ import {
 /** Type of the RPC handler callback used by every `rpcHandler.registerMethod`. */
 type RpcHandlerFn<TParams, TResp> = (params: TParams) => Promise<TResp>;
 
+function isFailedRpcResult(
+  value: unknown,
+): value is { success: false; cancelled?: unknown; errorCode?: unknown } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'success' in value &&
+    value.success === false
+  );
+}
+
 /**
  * RPC handlers for chat operations (SDK-based).
  *
@@ -174,7 +185,7 @@ export class ChatRpcHandlers {
   /**
    * Shared error funnel — mirrors the C7d harness facade.
    *
-   * Logs `RPC: {method} called` on entry and `RPC: {method} success` on exit.
+   * Logs `RPC: {method} called` on entry and the resolved outcome on exit.
    * On exception, logs the error, captures it in Sentry under
    * `errorSource: ChatRpcHandlers.{tag}`, and re-throws.
    *
@@ -193,7 +204,17 @@ export class ChatRpcHandlers {
       this.logger.debug(`RPC: ${method} called`);
       try {
         const result = await fn(params);
-        this.logger.debug(`RPC: ${method} success`);
+        if (isFailedRpcResult(result)) {
+          if (result.cancelled === true) {
+            this.logger.debug(`RPC: ${method} cancelled`);
+          } else {
+            const code =
+              typeof result.errorCode === 'string' ? ` (${result.errorCode})` : '';
+            this.logger.debug(`RPC: ${method} failed${code}`);
+          }
+        } else {
+          this.logger.debug(`RPC: ${method} success`);
+        }
         return result;
       } catch (error) {
         if (error instanceof RpcUserError) {

@@ -313,6 +313,21 @@ export interface TurnStateEvent extends FlatStreamEvent, SessionTurnState {
   readonly retirementOnly?: boolean;
 }
 
+/** Full set of non-ambient SDK tasks currently running in one session. */
+export interface BackgroundTaskSnapshotEntry {
+  readonly taskId: string;
+  readonly taskType: string;
+  readonly description: string;
+  readonly command?: string;
+  readonly status: 'running';
+}
+
+export interface BackgroundTasksSnapshotEvent extends FlatStreamEvent {
+  readonly eventType: 'background_tasks_snapshot';
+  readonly sessionId: string;
+  readonly tasks: readonly BackgroundTaskSnapshotEntry[];
+}
+
 /**
  * Union type for all flat events - enables discriminated unions
  */
@@ -333,6 +348,7 @@ export type FlatStreamEventUnion =
   | BackgroundAgentStartedEvent
   | BackgroundAgentCompletedEvent
   | BackgroundAgentStoppedEvent
+  | BackgroundTasksSnapshotEvent
   | AgentProgressEvent
   | AgentStatusEvent
   | AgentCompletedEvent

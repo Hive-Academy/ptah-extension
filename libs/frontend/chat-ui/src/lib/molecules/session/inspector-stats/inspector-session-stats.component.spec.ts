@@ -1,22 +1,33 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ModelStateService } from '@ptah-extension/core';
+import { ModelStateService, WallClockService } from '@ptah-extension/core';
 import type { SessionStatsInputs } from '../session-stats-view';
-import { CacheCountdownClockService } from './cache-countdown-clock.service';
 import { InspectorSessionStatsComponent } from './inspector-session-stats.component';
 
 describe(InspectorSessionStatsComponent.name, () => {
-  const clockNow = signal(0);
-  const release = jest.fn();
-  const clock = { now: clockNow, acquire: jest.fn(() => release) };
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
 
   it('mounts only a present cache, releases it on removal, and updates on session switch', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
     TestBed.configureTestingModule({
       imports: [InspectorSessionStatsComponent],
       providers: [
         { provide: ModelStateService, useValue: { availableModels: signal([]) } },
-        { provide: CacheCountdownClockService, useValue: clock },
       ],
+    });
+    const clock = TestBed.inject(WallClockService);
+    const acquireClock = clock.acquire.bind(clock);
+    const release = jest.fn();
+    const acquire = jest.spyOn(clock, 'acquire').mockImplementation((cadence) => {
+      const releaseClock = acquireClock(cadence);
+      return () => {
+        releaseClock();
+        release();
+      };
     });
     const fixture = TestBed.createComponent(InspectorSessionStatsComponent);
     const stats: SessionStatsInputs = {
@@ -29,6 +40,7 @@ describe(InspectorSessionStatsComponent.name, () => {
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     expect(root.querySelector('[data-testid="inspector-cache-tile"]')).toBeNull();
+    expect(acquire).not.toHaveBeenCalled();
     const grid = root.querySelector('[data-testid="inspector-stats-grid"]');
     expect(grid?.classList.contains('grid-cols-3')).toBe(true);
     expect(grid?.querySelectorAll('[data-glass-surface="tile"]').length).toBe(0);
@@ -48,6 +60,8 @@ describe(InspectorSessionStatsComponent.name, () => {
     const tile = root.querySelector('[data-testid="inspector-cache-tile"]');
     expect(root.querySelector('ptah-inspector-cache-tile')?.classList.contains('col-span-2')).toBe(false);
     expect(tile?.textContent).toContain('1:00:00');
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(acquire).toHaveBeenCalledWith('second');
     fixture.componentRef.setInput('stats', { ...stats, sessionId: 'two', cache: { ttl: '5m', lastRequestAt: 0, expiresAt: 300_000 } });
     fixture.detectChanges();
     expect(root.textContent).toContain('05:00');

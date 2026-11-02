@@ -1,10 +1,12 @@
+import 'reflect-metadata';
 import {
-  CodexRuntime,
   buildCodexExecutionProfile,
+  buildCodexLaneThreadConfig,
 } from '@ptah-extension/codex-runtime';
 import {
   buildCodexLaneProfileSettings,
   type CodexLaneProfileInput,
+  type CodexLaneProfileSettings,
   type CodexLaneRequirements,
 } from './codex-lane-profile';
 
@@ -42,23 +44,15 @@ const paths = {
   },
 };
 
-// Explicit fixture acknowledgement only; production 10b must enforce these keys.
-const handledKeys = [
-  'agentsEnabled',
-  'pluginsEnabled',
-  'appsEnabled',
-  'includeSkillInstructions',
-  'disabledUserMcpServers',
-  'autoCompactTokens',
-  'toolOutputTokenLimit',
-  'webSearch',
-  'ptahToolTimeoutSeconds',
-  'roleDelivery',
-] as const satisfies readonly (keyof CodexLaneRequirements)[];
+function requirementKeys(
+  result: CodexLaneProfileSettings,
+): (keyof CodexLaneRequirements)[] {
+  return Object.keys(result.requirements) as (keyof CodexLaneRequirements)[];
+}
 
 function acknowledgedProfile(source: CodexLaneProfileInput) {
   const result = buildCodexLaneProfileSettings(source);
-  result.assertAllRequirementsHandled(handledKeys);
+  result.assertAllRequirementsHandled(requirementKeys(result));
   return result;
 }
 
@@ -72,24 +66,38 @@ describe('buildCodexLaneProfileSettings', () => {
     }).toThrow('permissionLevel is required');
   });
 
-  it('prevents reading settings before acknowledging requirements', () => {
+  it('prevents reading settings before proving requirements', () => {
     const result = buildCodexLaneProfileSettings(input());
     expect(() => result.settings).toThrow('requirements must be handled');
     expect(() => result.assertAllRequirementsHandled([])).toThrow(
       'Unhandled Codex lane requirements',
     );
     expect(() => result.settings).toThrow('requirements must be handled');
-    result.assertAllRequirementsHandled(handledKeys);
+    result.assertAllRequirementsHandled(requirementKeys(result));
     expect(result.settings.consumer).toBe('lane');
   });
 
-  it.each(handledKeys)('refuses an unhandled %s requirement', (key) => {
+  it('refuses every missing requirement handler', () => {
     const result = buildCodexLaneProfileSettings(input());
+    for (const key of requirementKeys(result)) {
+      expect(() =>
+        result.assertAllRequirementsHandled(
+          requirementKeys(result).filter((candidate) => candidate !== key),
+        ),
+      ).toThrow(key);
+      expect(() => result.settings).toThrow('requirements must be handled');
+    }
+  });
+
+  it('refuses a requirement whose typed core field no longer matches', () => {
+    const result = acknowledgedProfile(input());
+    Object.defineProperty(result.settings.lane, 'webSearch', {
+      value: 'disabled',
+      configurable: true,
+    });
     expect(() =>
-      result.assertAllRequirementsHandled(
-        handledKeys.filter((candidate) => candidate !== key),
-      ),
-    ).toThrow(key);
+      result.assertAllRequirementsHandled(requirementKeys(result)),
+    ).toThrow('Unsupported Codex lane requirements: webSearch');
     expect(() => result.settings).toThrow('requirements must be handled');
   });
 
@@ -109,7 +117,7 @@ describe('buildCodexLaneProfileSettings', () => {
       true,
     );
     result.assertAllRequirementsHandled(
-      handledKeys.filter(
+      requirementKeys(result).filter(
         (key) =>
           key !== 'autoCompactTokens' &&
           key !== 'toolOutputTokenLimit' &&
@@ -119,58 +127,33 @@ describe('buildCodexLaneProfileSettings', () => {
     expect(result.settings.consumer).toBe('lane');
   });
 
-  it.each([51820, undefined])(
-    'the public runtime refuses the lane before using process dependencies (port %s)',
-    async (mcpPort) => {
-      const unexpectedDependency = jest.fn((): never => {
-        throw new Error(
-          'Runtime must refuse before accessing process dependencies',
-        );
-      });
-      const runtime = new CodexRuntime({
-        sink: { request: async () => 'decline' },
-        get spawner() {
-          return unexpectedDependency();
+  it('builds the exact native thread config from a validated lane profile', () => {
+    const result = acknowledgedProfile(input());
+    const profile = buildCodexExecutionProfile({
+      session: result.settings,
+      paths,
+    });
+    expect(buildCodexLaneThreadConfig(profile)).toEqual({
+      agents: { enabled: false },
+      features: { plugins: false, apps: false },
+      skills: { include_instructions: false },
+      model_auto_compact_token_limit: 120000,
+      tool_output_token_limit: 2500,
+      web_search: 'live',
+      approval_policy: 'never',
+      mcp_servers: {
+        'a.b': { enabled: false },
+        github: { enabled: false },
+        ptah: {
+          url: 'http://localhost:51820/agent/lane%2F1/workspace/%2Fworkspace',
+          tool_timeout_sec: 960,
+          default_tools_approval_mode: 'approve',
         },
-        get executable() {
-          return unexpectedDependency();
-        },
-        get binary() {
-          return unexpectedDependency();
-        },
-        get store() {
-          return unexpectedDependency();
-        },
-        get clock() {
-          return unexpectedDependency();
-        },
-        get logger() {
-          return unexpectedDependency();
-        },
-      });
-      const source = input();
-      const result = acknowledgedProfile({
-        ...source,
-        config: { ...source.config, mcpPort },
-      });
-      const profile = buildCodexExecutionProfile({
-        session: result.settings,
-        paths,
-      });
-      expect(profile.lane?.suppressedTools.length).toBeGreaterThan(0);
-      expect(profile.mcpServers).toHaveLength(mcpPort === undefined ? 0 : 1);
-      try {
-        await expect(runtime.open(profile)).rejects.toThrow(
-          'Codex profile requires unsupported runtime configuration',
-        );
-        expect(unexpectedDependency).not.toHaveBeenCalled();
-      } finally {
-        await runtime.close();
-      }
-    },
-  );
+      },
+    });
+  });
 
-  it('retains suppression and Ptah attachment in public core settings', () => {
+  it('projects every requirement into typed core settings and keeps the Ptah URL', () => {
     const result = acknowledgedProfile(input());
     expect(result.settings.lane).toEqual({
       suppressedTools: [
@@ -181,6 +164,15 @@ describe('buildCodexLaneProfileSettings', () => {
         'mcp:a.b',
         'mcp:github',
       ],
+      agentsEnabled: false,
+      pluginsEnabled: false,
+      appsEnabled: false,
+      includeSkillInstructions: false,
+      disabledUserMcpServers: ['a.b', 'github'],
+      autoCompactTokens: 120000,
+      toolOutputTokenLimit: 2500,
+      webSearch: 'live',
+      ptahToolTimeoutSeconds: 960,
       explicitFullAccess: false,
     });
     expect(result.settings.mcpServers).toEqual([
@@ -210,18 +202,11 @@ describe('buildCodexLaneProfileSettings', () => {
     });
     expect(profile.consumer).toBe('lane');
     expect(profile.effort).toBe('high');
-    expect(profile.approvalPolicy).toEqual({
-      granular: {
-        sandbox_approval: true,
-        rules: true,
-        skill_approval: true,
-        request_permissions: true,
-        mcp_elicitations: true,
-      },
-    });
-    expect(profile.sandboxPolicy.mode).toBe('read-only');
+    // D26: every native lane level is workspace-write in its cwd, no network.
+    expect(profile.approvalPolicy).toBe('never');
+    expect(profile.sandboxPolicy.mode).toBe('workspace-write');
+    expect(profile.sandboxPolicy.networkAccess).toBe(false);
     expect(profile.fullAccessStatus).toBe('unproved-disabled');
-    // These fields trigger the core's pre-spawn refusal, even with zero budgets.
     expect(profile.lane?.suppressedTools.length).toBeGreaterThan(0);
   });
 
@@ -236,10 +221,8 @@ describe('buildCodexLaneProfileSettings', () => {
         session: result.settings,
         paths,
       });
-      expect(profile.approvalPolicy).toBe('on-request');
-      expect(profile.sandboxPolicy.mode).toBe(
-        permissionLevel === 'plan' ? 'read-only' : 'workspace-write',
-      );
+      expect(profile.approvalPolicy).toBe('never');
+      expect(profile.sandboxPolicy.mode).toBe('workspace-write');
       expect(profile.sandboxPolicy.networkAccess).toBe(false);
       expect(profile.fullAccessStatus).toBe('unproved-disabled');
     },
@@ -265,9 +248,16 @@ describe('buildCodexLaneProfileSettings', () => {
       expect(result.requirements.webSearch).toBe('disabled');
       expect(result.settings.lane).not.toHaveProperty('maxBudgetUsd');
       expect(result.settings.lane).not.toHaveProperty('maxTurns');
-      expect(() =>
-        buildCodexExecutionProfile({ session: result.settings, paths }),
-      ).not.toThrow();
+      expect(result.settings.lane).not.toHaveProperty('autoCompactTokens');
+      expect(result.settings.lane).not.toHaveProperty('toolOutputTokenLimit');
+      const profile = buildCodexExecutionProfile({
+        session: result.settings,
+        paths,
+      });
+      const threadConfig = buildCodexLaneThreadConfig(profile);
+      expect(threadConfig).not.toHaveProperty('model_auto_compact_token_limit');
+      expect(threadConfig).not.toHaveProperty('tool_output_token_limit');
+      expect(threadConfig.web_search).toBe('disabled');
       expect(result.settings.lane?.suppressedTools).toContain('skills');
       expect(result.warnings).toEqual([]);
     },
@@ -287,23 +277,29 @@ describe('buildCodexLaneProfileSettings', () => {
       });
       expect(result.requirements).not.toHaveProperty('autoCompactTokens');
       expect(result.requirements).not.toHaveProperty('toolOutputTokenLimit');
+      expect(result.settings.lane).not.toHaveProperty('autoCompactTokens');
+      expect(result.settings.lane).not.toHaveProperty('toolOutputTokenLimit');
       expect(result.warnings).toHaveLength(2);
     },
   );
 
-  it('preserves positive token, money and turn limits explicitly', () => {
+  it('keeps a positive supported token limit', () => {
     const source = input();
     const result = acknowledgedProfile({
       ...source,
-      maxTurns: 3,
-      maxBudgetUsd: 4,
       config: { ...source.config, autoCompactTokens: Number.MAX_SAFE_INTEGER },
     });
     expect(result.requirements.autoCompactTokens).toBe(Number.MAX_SAFE_INTEGER);
-    expect(result.settings.lane).toMatchObject({
-      maxTurns: 3,
-      maxBudgetUsd: 4,
-    });
+    expect(result.settings.lane?.autoCompactTokens).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it.each([
+    { maxTurns: 1, maxBudgetUsd: undefined, name: 'maxTurns' },
+    { maxTurns: undefined, maxBudgetUsd: 0.01, name: 'maxBudgetUsd' },
+  ])('refuses unsupported positive $name', ({ maxTurns, maxBudgetUsd, name }) => {
+    expect(() =>
+      buildCodexLaneProfileSettings({ ...input(), maxTurns, maxBudgetUsd }),
+    ).toThrow(`Codex lane ${name} is unsupported`);
   });
 
   it.each([undefined, 0, -1, 65536, 1.5, NaN])(
@@ -316,6 +312,15 @@ describe('buildCodexLaneProfileSettings', () => {
       });
       expect(result.settings.mcpServers).toEqual([]);
       expect(result.requirements).not.toHaveProperty('ptahToolTimeoutSeconds');
+      expect(result.settings.lane).not.toHaveProperty('ptahToolTimeoutSeconds');
+      const profile = buildCodexExecutionProfile({
+        session: result.settings,
+        paths,
+      });
+      expect(buildCodexLaneThreadConfig(profile).mcp_servers).toEqual({
+        'a.b': { enabled: false },
+        github: { enabled: false },
+      });
       expect(result.warnings).toHaveLength(
         mcpPort === undefined || mcpPort === 0 ? 0 : 1,
       );
@@ -335,6 +340,10 @@ describe('buildCodexLaneProfileSettings', () => {
     });
     expect(first.settings.developerPrompt).toBe('Role one');
     expect(resumed.settings.developerPrompt).toBe('Role two');
+    expect(
+      buildCodexExecutionProfile({ session: resumed.settings, paths })
+        .developerPrompt,
+    ).toBe('Role two');
     const repeated = acknowledgedProfile(source);
     expect(repeated.settings).toEqual(first.settings);
     expect(repeated.requirements).toEqual(first.requirements);

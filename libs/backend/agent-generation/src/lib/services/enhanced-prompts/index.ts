@@ -21,7 +21,10 @@ export {
   DEFAULT_ENHANCED_PROMPTS_CONFIG,
   createInitialEnhancedPromptsState,
 } from '../../types/enhanced-prompts.types';
-export { EnhancedPromptsService } from './enhanced-prompts.service';
+export {
+  EnhancedPromptsService,
+  ENHANCED_PROMPTS_RUN_CEILING_MS,
+} from './enhanced-prompts.service';
 export type {
   EnhancedPromptsSdkConfig,
   IMultiPhaseAnalysisReader,

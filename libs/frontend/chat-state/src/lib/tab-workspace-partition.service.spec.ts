@@ -367,4 +367,64 @@ describe('TabWorkspacePartitionService', () => {
       ]);
     });
   });
+
+  describe('backgroundRevision$', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    });
+
+    it('increments once per workspace switch and skips an already-active path', () => {
+      expect(svc.backgroundRevision$()).toBe(0);
+      svc.switchWorkspace('/ws/a', [], null);
+      expect(svc.backgroundRevision$()).toBe(1);
+      svc.switchWorkspace('/ws/a', [], null);
+      expect(svc.backgroundRevision$()).toBe(1);
+      svc.switchWorkspace('/ws/b', [makeTab('a-1')], 'a-1');
+      expect(svc.backgroundRevision$()).toBe(2);
+    });
+
+    it('increments once for a background update and skips non-mutating updates', () => {
+      svc.switchWorkspace('/ws/a', [], null);
+      svc.switchWorkspace('/ws/b', [makeTab('a-1')], 'a-1');
+      const before = svc.backgroundRevision$();
+
+      expect(svc.updateBackgroundTab('a-1', { status: 'streaming' })).toBe(true);
+      expect(svc.backgroundRevision$()).toBe(before + 1);
+      expect(svc.updateBackgroundTab('a-1', { streamingState: null })).toBe(true);
+      expect(svc.updateBackgroundTab('missing', { status: 'streaming' })).toBe(false);
+      expect(svc.backgroundRevision$()).toBe(before + 1);
+    });
+
+    it('increments once for a background insertion and skips refused insertions', () => {
+      svc.switchWorkspace('/ws/a', [], null);
+      svc.switchWorkspace('/ws/b', [makeTab('parent')], 'parent');
+      const before = svc.backgroundRevision$();
+
+      expect(svc.addTabToWorkspace('/ws/a', makeTab('child'), 'parent')).toBe(true);
+      expect(svc.backgroundRevision$()).toBe(before + 1);
+      expect(svc.addTabToWorkspace('/ws/a', makeTab('child'), 'parent')).toBe(false);
+      expect(svc.addTabToWorkspace('/ws/b', makeTab('other'), 'parent')).toBe(false);
+      expect(svc.backgroundRevision$()).toBe(before + 1);
+    });
+
+    it('increments once when removing stored state and skips an unknown path', () => {
+      svc.switchWorkspace('/ws/a', [], null);
+      svc.switchWorkspace('/ws/b', [makeTab('a-1')], 'a-1');
+      const before = svc.backgroundRevision$();
+
+      expect(svc.removeWorkspaceState('/ws/a')).toBe(false);
+      expect(svc.backgroundRevision$()).toBe(before + 1);
+      svc.removeWorkspaceState('/ws/a');
+      expect(svc.backgroundRevision$()).toBe(before + 1);
+    });
+
+    it('does not increment for active-only synchronization', () => {
+      svc.switchWorkspace('/ws/a', [], null);
+      const before = svc.backgroundRevision$();
+      svc.syncActiveWorkspaceState([makeTab('active')], 'active');
+      expect(svc.backgroundRevision$()).toBe(before);
+    });
+  });
 });

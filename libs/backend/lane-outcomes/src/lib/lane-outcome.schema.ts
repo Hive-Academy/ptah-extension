@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   LANE_FAILURE_CLASSES,
   OUTCOME_ROUTING_SOURCES,
+  OUTCOME_TASK_KIND_SOURCES,
   OUTCOME_TASK_KINDS,
 } from '@ptah-extension/shared';
 
@@ -26,6 +27,7 @@ export const OutcomeReportArgsSchema = z.discriminatedUnion('kind', [
       kind: z.literal('review'),
       target: OutcomeTargetSchema,
       verdict: z.enum(['approved', 'rejected', 'revise']),
+      reviewerRunId: z.string().min(1).max(200).optional(),
     })
     .strict(),
 ]);
@@ -44,6 +46,7 @@ export const LaneOutcomeRowSchema = z.object({
   model: z.string().min(1),
   role: z.string().nullable(),
   taskKind: z.enum(OUTCOME_TASK_KINDS).nullable(),
+  taskKindSource: z.enum(OUTCOME_TASK_KIND_SOURCES).nullable().default(null),
   taskId: z.string().nullable(),
   verdict: z.enum(['delivered', 'no-deliverable', 'unverified', 'failed']),
   failureClass: z.enum(LANE_FAILURE_CLASSES).nullable(),

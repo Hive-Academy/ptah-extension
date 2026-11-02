@@ -154,7 +154,12 @@ export function formatDetailDate(value: string): string {
     TargetMarksComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block', 'data-testid': 'server-detail' },
+  host: {
+    class: 'block ptah-motion-panel',
+    'data-testid': 'server-detail',
+    'animate.enter': 'ptah-motion-enter',
+    'animate.leave': 'ptah-motion-leave',
+  },
   templateUrl: './server-detail.component.html',
 })
 export class ServerDetailComponent {
@@ -181,6 +186,7 @@ export class ServerDetailComponent {
   protected readonly detectionIcons = DETECTION_ICONS;
 
   protected readonly activeTab = signal<DetailTab>('overview');
+  protected readonly hasSwitchedTab = signal(false);
   protected readonly confirming = signal(false);
   /** The last removal or reconnect failure, shown inline. */
   protected readonly actionError = signal<string | null>(null);
@@ -439,7 +445,8 @@ export class ServerDetailComponent {
   }
 
   protected selectTab(id: string): void {
-    if (id === 'overview' || id === 'targets' || id === 'config') {
+    if ((id === 'overview' || id === 'targets' || id === 'config') && id !== this.activeTab()) {
+      this.hasSwitchedTab.set(true);
       this.activeTab.set(id);
     }
   }

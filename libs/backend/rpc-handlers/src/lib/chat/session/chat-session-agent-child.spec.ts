@@ -78,6 +78,22 @@ import {
 } from './chat-session.service';
 import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
+const mockCodexChatAdapterError = class LocalCodexChatAdapterError extends Error {
+  constructor(
+    readonly code: import('@ptah-extension/agent-sdk').CodexChatAdapterErrorCode,
+    readonly operation: string,
+    options?: ErrorOptions,
+  ) {
+    super(`Codex chat ${operation}: ${code}`, options);
+    this.name = 'CodexChatAdapterError';
+  }
+};
+
+jest.mock('@ptah-extension/agent-sdk', () => ({
+  ...jest.requireActual<typeof import('@ptah-extension/agent-sdk')>('@ptah-extension/agent-sdk'),
+  isCodexChatAdapterError: (error: unknown) => error instanceof mockCodexChatAdapterError,
+}));
+
 const TEST_ROOT = mkdtempSync(join(tmpdir(), 'ptah-session-policy-'));
 afterAll(() => rmSync(TEST_ROOT, { recursive: true, force: true }));
 for (const part of [
@@ -270,6 +286,18 @@ function startConfig(h: Harness): Record<string, unknown> {
 
 describe('ChatSessionService — SDK launch identity (TASK_2026_584)', () => {
   describe('startSession (chat:start) — unchanged for existing callers', () => {
+    it('returns classified native runtime start failures as RPC result data', async () => {
+      const h = makeHarness();
+      const failure = new mockCodexChatAdapterError('runtime-failed', 'open');
+      h.startChatSession.mockRejectedValueOnce(failure);
+      await expect(h.service.startSession({ tabId: 'tab-1', prompt: 'Hello', workspacePath: ROOT }))
+        .resolves.toEqual({
+          success: false,
+          errorCode: 'CODEX_RUNTIME_FAILED',
+          error: 'Codex chat could not complete the operation.',
+        });
+    });
+
     it('passes workspaceId === projectPath === the workspace path, without a permission level', async () => {
       const h = makeHarness();
 

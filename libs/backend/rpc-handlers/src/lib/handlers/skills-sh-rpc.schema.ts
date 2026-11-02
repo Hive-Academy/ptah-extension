@@ -49,16 +49,18 @@ export const SkillsShSearchParamsSchema = z.object({
 /**
  * Boundary schema for `skillsSh:install`.
  *
- * `agents` and `scope` are gone — see the `skillsSh:install` contract in
- * `@ptah-extension/shared`'s `rpc.types.ts` for why each named a choice the
- * implementation could not make. The regexes below stay exactly as they were;
- * the extra `.`/`..` rejection these values need now that they become directory
- * names is layered ON TOP in `rejectUnsafeInstallRequest`
+ * `agents` stays gone — see the `skillsSh:install` contract in
+ * `@ptah-extension/shared`'s `rpc.types.ts`. `scope` picks the SOURCE ROOT
+ * (TASK_2026_853 Phase D) and defaults to `'workspace'`, so only an explicit
+ * `'global'` reaches every workspace. The regexes below stay exactly as they
+ * were; the extra `.`/`..` rejection these values need now that they become
+ * directory names is layered ON TOP in `rejectUnsafeInstallRequest`
  * (`../utils/skills-sh-cli.ts`), never by loosening anything here.
  */
 export const SkillsShInstallParamsSchema = z.object({
   source: z.string().regex(SAFE_SOURCE_PATTERN),
   skillId: z.string().regex(SAFE_SKILL_ID_PATTERN).optional(),
+  scope: z.enum(['workspace', 'global']).default('workspace'),
 });
 
 /** Boundary schema for `skillsSh:uninstall`. */
@@ -66,8 +68,20 @@ export const SkillsShUninstallParamsSchema = z.object({
   name: z.string().regex(SAFE_SKILL_NAME_PATTERN),
 });
 
+/** Boundary schema for `skillsSh:makeGlobal`. */
+export const SkillsShMakeGlobalParamsSchema = z.object({
+  name: z.string().regex(SAFE_SKILL_NAME_PATTERN),
+});
+
+/** Fixed refusal for a malformed `skillsSh:makeGlobal` name. */
+export const SKILLS_SH_MAKE_GLOBAL_INVALID_ERROR =
+  'Could not change where this skill is installed.';
+
 export type SkillsShSearchParams = z.infer<typeof SkillsShSearchParamsSchema>;
 export type SkillsShInstallParams = z.infer<typeof SkillsShInstallParamsSchema>;
 export type SkillsShUninstallParams = z.infer<
   typeof SkillsShUninstallParamsSchema
+>;
+export type SkillsShMakeGlobalParams = z.infer<
+  typeof SkillsShMakeGlobalParamsSchema
 >;

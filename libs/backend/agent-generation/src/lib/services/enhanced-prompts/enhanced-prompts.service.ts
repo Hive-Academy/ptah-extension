@@ -230,6 +230,9 @@ const GENERATION_LOCK_GRACE_MS = 30 * 1000;
 const PROMPT_DESIGNER_TIMEOUT_MS = 10 * 60 * 1000;
 /** Allow designer timeout and workspace discovery before aborting a wedged run. */
 const GENERATION_LOCK_TIMEOUT_MS = PROMPT_DESIGNER_TIMEOUT_MS + 2 * 60 * 1000;
+/** Latest time a generation run can still hold the lock. */
+export const ENHANCED_PROMPTS_RUN_CEILING_MS =
+  GENERATION_LOCK_TIMEOUT_MS + GENERATION_LOCK_GRACE_MS;
 
 @injectable()
 export class EnhancedPromptsService {

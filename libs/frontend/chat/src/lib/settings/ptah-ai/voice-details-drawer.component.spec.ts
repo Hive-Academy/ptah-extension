@@ -102,11 +102,30 @@ describe('VoiceDetailsDrawerComponent', () => {
   });
 
   it('switches tabs and keeps the parent in sync', () => {
+    const stage = document.querySelector<HTMLElement>('.ptah-motion-stage');
+    expect(q('stub-local-stt')?.closest('.ptah-motion-panel')).not.toBeNull();
     tab('Text-to-speech')?.click();
     fixture.detectChanges();
     expect(host.direction()).toBe('tts');
+    expect(stage?.getAttribute('data-motion-dir')).toBe('forward');
     expect(q('stub-local-tts')).not.toBeNull();
+    expect(q('stub-local-tts')?.closest('.ptah-motion-panel')).not.toBeNull();
     expect(q('stub-local-stt')).toBeNull();
+    expect(stage?.classList.contains('px-2')).toBe(false);
+    expect(stage?.querySelector(':scope > .ptah-motion-panel')?.classList.contains('px-2')).toBe(true);
+    expect(stage?.querySelectorAll(':scope > .ptah-motion-panel')).toHaveLength(1);
+  });
+
+  it('projects both voice direction panels directly into the motion stage', () => {
+    for (const label of ['Speech-to-text', 'Text-to-speech']) {
+      tab(label)?.click();
+      fixture.detectChanges();
+      const panel = document.querySelector<HTMLElement>('[data-testid="native-tabpanel"] > .ptah-motion-panel');
+      expect(panel).not.toBeNull();
+      expect(panel?.parentElement?.classList.contains('ptah-motion-stage')).toBe(true);
+      expect(panel?.classList.contains('px-2')).toBe(true);
+      expect(panel?.classList.contains('pt-4')).toBe(true);
+    }
   });
 
   it('renders the ElevenLabs panel for the direction that uses it', () => {

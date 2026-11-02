@@ -79,6 +79,7 @@ function formatValue(
   template: `
     @if (group(); as group) {
       <section
+        [attr.data-glass-surface]="contentSurface() ? 'content' : null"
         class="flex flex-col gap-3 border-b border-base-content/10 pb-7 text-sm text-base-content"
         [attr.aria-labelledby]="idPrefix() + '-heading'"
         [attr.data-testid]="'settings-section-' + group.id"
@@ -249,8 +250,14 @@ function formatValue(
       </section>
     }
   `,
+  styles: `
+    :host-context([data-glass='on']) [data-glass-surface='content'] {
+      padding: 1.25rem;
+    }
+  `,
 })
 export class AdvancedSettingsGroupComponent implements OnInit {
+  readonly contentSurface = input(true);
   private readonly vscode = inject(VSCodeService);
   /** The page toast: every write's outcome (with Undo after a save) is said there. */
   private readonly feedback = inject(SettingsSaveFeedbackService);

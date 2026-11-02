@@ -66,6 +66,7 @@ import {
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import type { ExecutionNode } from '@ptah-extension/shared';
+import { WallClockService } from '@ptah-extension/core';
 
 function makeNode(overrides: Partial<ExecutionNode> = {}): ExecutionNode {
   return {
@@ -89,6 +90,11 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
     new Map(),
   );
   const executionTree = signal<ExecutionNode[]>([]);
+  const clockNow = signal(100_000);
+  const clock = {
+    now: () => clockNow.asReadonly(),
+    acquire: jest.fn(() => jest.fn()),
+  };
   const executionMock = {
     entries: executionEntries,
     entryFor: (key: string) => executionEntries().get(key),
@@ -134,6 +140,7 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
 
   beforeEach(() => {
     executionTree.set([]);
+    clockNow.set(100_000);
     executionEntries.set(new Map());
     subagentMap.set(new Map());
     (storeMock.sendMessageToAgent as jest.Mock).mockClear();
@@ -145,6 +152,7 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
       providers: [
         { provide: SubagentExecutionStore, useValue: executionMock },
         { provide: SessionManager, useValue: { sessionId: () => null } },
+        { provide: WallClockService, useValue: clock },
       ],
     });
   });
@@ -186,6 +194,39 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
     );
     fixture.destroy();
     expect(executionMock.release).toHaveBeenCalledWith('toolu_parent_abc');
+  });
+
+  it('labels the visible tool count as the current known count', () => {
+    const fixture = TestBed.configureTestingModule({
+      providers: [
+        { provide: AgentMonitorStore, useValue: storeMock },
+        { provide: BackgroundAgentStore, useValue: bgStoreMock },
+      ],
+    }).createComponent(InlineAgentBubbleComponent);
+    fixture.componentRef.setInput(
+      'node',
+      makeNode({
+        status: 'complete',
+        children: [makeNode({ type: 'tool', children: [] })],
+      }),
+    );
+    fixture.detectChanges();
+    const count = (fixture.nativeElement as HTMLElement).querySelector(
+      '[title="Current known count"]',
+    );
+    expect(count?.textContent).toContain('1 tool');
+  });
+
+  it('advances the running agent duration on clock ticks', () => {
+    const cmp = build(makeNode());
+    setRecord({
+      parentToolUseId: 'toolu_parent_abc',
+      status: 'running',
+      startedAt: 97_000,
+    });
+    expect(cmp.agentDuration()).toBe(3_000);
+    clockNow.set(102_000);
+    expect(cmp.agentDuration()).toBe(5_000);
   });
 
   it('loads restored output only when requested', () => {
