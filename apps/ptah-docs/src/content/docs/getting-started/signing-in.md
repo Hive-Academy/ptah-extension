@@ -23,7 +23,7 @@ This page covers both. Neither is required to start using Ptah — every local c
 
 Community is fully free and open source, with **no gating** on any local feature. Ptah Builders is a paid membership that adds training and community on top. It does not unlock anything local.
 
-**Approved early adopters get their first year free.** The Early Adopter program is a grant, not a discount. There is no checkout step and no payment method to enter. See the [pricing page](https://ptah.live/pricing) to apply, or read the full [tier comparison](/reference/tier-comparison/).
+**Approved early adopters get their first year free.** The Early Adopter program is a grant, not a discount. There is no checkout step and no payment method to enter. See the [pricing page](https://builders.ptah.live/pricing) to apply, or read the full [tier comparison](/reference/tier-comparison/).
 
 ## Entering a license key
 

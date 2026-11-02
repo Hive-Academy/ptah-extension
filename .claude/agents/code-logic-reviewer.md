@@ -149,8 +149,7 @@ coverage suggestions). When you cannot decide between two levels, take the highe
 - **Errors must not leak or disappear.** Follow `libs/backend/platform-core/src/file-settings-errors.ts`: typed errors carry a code and fixed text, never a file path, secret or setting value. An empty `catch`, or a fallback that hides a persistence failure, is a finding.
 - **Concurrent settings writes.** Writes through `libs/backend/platform-core/src/file-settings-manager.ts` can race between processes and can fail partway (full disk, locks). Check that callers handle a rejected write and do not cache a value that was never saved.
 - **Sanitize rendered output.** Model and user markdown must render through `libs/frontend/markdown/src/lib/markdown-block.component.ts` and `marked-extensions.ts`, where DOMPurify and the URI allowlist apply. Any `innerHTML` path that skips them is a finding.
-- **License server boundaries.** NestJS endpoints validate DTOs the way `libs/api/licensing/src/lib/license/dto/` does. Admin routes are guarded as in `libs/api/licensing/src/lib/license/guards/admin-api-key.guard.ts`. Webhooks in `libs/api/billing/src/lib/paddle/paddle-webhook.service.ts` must verify the signature before acting, and must tolerate replayed events.
-- **Expensive files.** Schema changes under `apps/ptah-license-server/prisma/migrations` cannot be undone in production. A change to the shared RPC types in `libs/shared/` changes behaviour on every host at once.
+- **Expensive files.** A change to the shared RPC types in `libs/shared/` changes behaviour on every host at once.
 
 ## Output contract
 

@@ -40,30 +40,14 @@ const SWEPT_ROOT = join(__dirname, '..', '..', '..', '..', 'libs', 'web');
  */
 const BANNED = /text-base-content\/\d+/g;
 
-/**
- * The permitted exceptions, and why.
- *
- * ⚠️ THE SINGLE ENTRY HERE IS NOT AN OVERSIGHT — IT IS A DECISION THIS SWEEP
- * DELIBERATELY DID NOT OVERTURN. `EmptyState`'s glyph is `aria-hidden="true"`
- * and carries nothing its message does not, so no contrast ratio applies to it,
- * and `panel-theme-spec.md` §2 rules `/40` legal for exactly that case.
- * `empty-state.spec.ts` asserts BOTH that the icon keeps `/40` AND that no
- * text-bearing element does; sweeping the glyph would have broken a passing
- * guard to make a decorative dot darker.
- *
- * Keyed to the exact class string AND an exact count, so a new site — or the
- * same site at a new tier — is an offender until someone writes it down here.
- */
-const DECORATIVE_EXCEPTIONS: ReadonlyMap<
-  string,
-  ReadonlyMap<string, number>
-> = new Map([
-  [
-    'panel-ui/src/lib/empty-state/empty-state.html',
-    new Map([['text-base-content/40', 1]]),
-  ],
-]);
-
+/** Hits in a source file as `class xN` strings. */
+function offendersIn(source: string): string[] {
+  const out: string[] = [];
+  for (const [klass, count] of tally(source)) {
+    out.push(`${klass} x${count}`);
+  }
+  return out.sort();
+}
 /** Every .ts/.html source file under the swept root, excluding specs. */
 function sourceFiles(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -104,28 +88,16 @@ function tally(source: string): Map<string, number> {
   return counts;
 }
 
-/** Hits in `file` that no recorded exception covers, as `class xN` strings. */
-function offendersIn(relative: string, source: string): string[] {
-  const allowed =
-    DECORATIVE_EXCEPTIONS.get(relative) ?? new Map<string, number>();
-  const out: string[] = [];
-  for (const [klass, count] of tally(source)) {
-    const surplus = count - (allowed.get(klass) ?? 0);
-    if (surplus > 0) out.push(`${klass} x${surplus}`);
-  }
-  return out.sort();
-}
-
 describe('libs/web does not use opacity-modified base-content for text', () => {
   const files = sourceFiles(SWEPT_ROOT);
 
-  it('has no banned text-base-content/NN outside the decorative exceptions', () => {
+  it('has no banned text-base-content/NN', () => {
     // Failure message names the file and the class so the fix is obvious:
     // replace it with `text-base-content-muted`.
     const offenders: Record<string, string[]> = {};
     for (const file of files) {
       const relative = relativeTo(SWEPT_ROOT, file);
-      const hits = offendersIn(relative, readFileSync(file, 'utf8'));
+      const hits = offendersIn(readFileSync(file, 'utf8'));
       if (hits.length > 0) offenders[relative] = hits;
     }
 
@@ -133,9 +105,8 @@ describe('libs/web does not use opacity-modified base-content for text', () => {
   });
 
   it('still sweeps a meaningful number of files', () => {
-    // A ratchet that silently stops finding files has stopped ratcheting. The
-    // sweep saw 256 files across 10 libs; 150 is a floor, not a target.
-    expect(files.length).toBeGreaterThan(150);
+    // Keep a floor that detects an empty or incorrectly rooted sweep.
+    expect(files.length).toBeGreaterThan(10);
   });
 
   it('reaches the libs this sweep actually repointed', () => {
@@ -146,7 +117,7 @@ describe('libs/web does not use opacity-modified base-content for text', () => {
     );
 
     expect(
-      ['admin', 'members', 'panel-ui', 'auth'].filter((lib) => !libs.has(lib)),
+      ['core', 'landing', 'legal', 'ui'].filter((lib) => !libs.has(lib)),
     ).toEqual([]);
   });
 
@@ -155,7 +126,7 @@ describe('libs/web does not use opacity-modified base-content for text', () => {
     // so the green result above means "absent", not "unmatched".
     const sample = '<span class="text-xs text-base-content/40">x</span>';
 
-    expect(offendersIn('nowhere.html', sample)).toEqual([
+    expect(offendersIn(sample)).toEqual([
       'text-base-content/40 x1',
     ]);
   });
@@ -165,7 +136,7 @@ describe('libs/web does not use opacity-modified base-content for text', () => {
     // A regex tuned to `class="..."` would have missed every one of them.
     const sample = '<i [class.text-base-content/60]="!row.expiringSoon"></i>';
 
-    expect(offendersIn('nowhere.html', sample)).toEqual([
+    expect(offendersIn(sample)).toEqual([
       'text-base-content/60 x1',
     ]);
   });
@@ -173,40 +144,7 @@ describe('libs/web does not use opacity-modified base-content for text', () => {
   it('does not flag non-text base-content utilities', () => {
     const sample = '<div class="border-base-content/10 bg-base-content/5">';
 
-    expect(offendersIn('nowhere.html', sample)).toEqual([]);
+    expect(offendersIn(sample)).toEqual([]);
   });
 
-  it('treats surplus over a recorded exception as an offender', () => {
-    // The exception is a CEILING, not a licence. A second `/40` in EmptyState
-    // is a new decision and has to be written down.
-    const relative = 'panel-ui/src/lib/empty-state/empty-state.html';
-    const two = '<i class="text-base-content/40"></i>'.repeat(2);
-
-    expect(offendersIn(relative, two)).toEqual(['text-base-content/40 x1']);
-  });
-
-  it('does not let an exception cover a DIFFERENT alpha in the same file', () => {
-    const relative = 'panel-ui/src/lib/empty-state/empty-state.html';
-    const sample =
-      '<i class="text-base-content/40"></i><p class="text-base-content/60">t</p>';
-
-    expect(offendersIn(relative, sample)).toEqual(['text-base-content/60 x1']);
-  });
-
-  it('records the decorative exception as still present and still exempt', () => {
-    // If the glyph is removed or repointed, the exception must go with it —
-    // otherwise it silently becomes budget for a future violation.
-    const actual: Record<string, Record<string, number>> = {};
-    const expected: Record<string, Record<string, number>> = {};
-
-    for (const [relative, classes] of DECORATIVE_EXCEPTIONS) {
-      const counts = tally(readFileSync(join(SWEPT_ROOT, relative), 'utf8'));
-      actual[relative] = Object.fromEntries(
-        [...classes.keys()].map((klass) => [klass, counts.get(klass) ?? 0]),
-      );
-      expected[relative] = Object.fromEntries(classes);
-    }
-
-    expect(actual).toEqual(expected);
-  });
 });

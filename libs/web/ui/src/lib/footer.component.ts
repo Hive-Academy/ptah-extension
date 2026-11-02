@@ -111,7 +111,7 @@ interface FooterLink {
           class="pt-8 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4"
         >
           <p class="text-xs text-ink-500">
-            © 2026 Ptah Extension. All rights reserved.
+            © 2026 PtahCode. All rights reserved.
           </p>
           <p class="text-xs text-ink-500">
             Persistent AI coding agent for developers.
@@ -128,17 +128,6 @@ export class FooterComponent {
       title: 'Product',
       links: [
         { label: 'Download', href: '/download', external: false },
-        { label: 'Pricing', href: '/pricing', external: false },
-        {
-          label: 'VS Code Extension',
-          href: 'https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra',
-          external: true,
-        },
-        {
-          label: 'CLI Docs',
-          href: 'https://docs.ptah.live/providers/ptah-cli/',
-          external: true,
-        },
         {
           label: 'Documentation',
           href: 'https://docs.ptah.live',
@@ -176,7 +165,6 @@ export class FooterComponent {
       links: [
         { label: 'Privacy', href: '/privacy', external: false },
         { label: 'Terms', href: '/terms-and-conditions', external: false },
-        { label: 'Refund Policy', href: '/refund', external: false },
       ],
     },
   ];

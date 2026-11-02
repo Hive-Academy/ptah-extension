@@ -154,9 +154,7 @@ Working sequence:
 - Add new RPC contract types to `libs/shared` (`rpc.types.ts`). After adding them, check that `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts` still matches.
 - Log through the injected `Logger` from `libs/backend/vscode-core/src/logging/logger.ts`, never `console`. Pass real `Error` objects to `logger.error`; never add more `as unknown as Error` casts.
 - Swallowing an error requires a justification. `tools/degradation-audit/check-degradation.ts` ratchets silent degradation, so don't add any new unjustified catch.
-- NestJS server code (`libs/api/*`, license server) follows the feature-module shape of `libs/api/licensing/src/lib/license/`: `license.module.ts` plus `controllers/`, `services/`, `dto/` and `guards/`.
-- In NestJS, inject `ConfigService` from `@nestjs/config` for configuration, as `libs/api/licensing/src/lib/license/controllers/license.controller.ts` does. Never read `process.env` directly. Validate DTOs with class-validator.
-- Keep Prisma queries in services, not controllers. Type the authenticated user with `libs/api/identity/src/lib/interfaces/request-user.interface.ts` instead of `req.user as any`; `libs/api/licensing/src/lib/auth-endpoints/auth.controller.ts` is the anti-example.
+- The license server and its NestJS libraries now live in the separate Builders repository. Keep backend work here within the desktop, extension, CLI, and shared runtime projects.
 
 ## Backend architecture patterns
 

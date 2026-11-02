@@ -347,7 +347,7 @@ export const DEFAULT_ALLOWED_PUSH_TYPES: ReadonlySet<string> = new Set<string>([
   'switchView',
 ]);
 
-// --- Privacy scan rules (mirrors & extends B2 libs/web/landing/src/lib/live-demo/scenario/privacy-scan.ts) ---
+// --- Privacy scan rules (originally mirrored from the removed landing live-demo privacy scan) ---
 const SAFE_CREDENTIAL_FIELDS = new Set([
   'hasApiKey',
   'hasOpenRouterKey',

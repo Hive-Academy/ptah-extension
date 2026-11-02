@@ -84,8 +84,6 @@ backups/
 # ============================================
 # Local environment files (contain secrets)
 .env
-apps/ptah-license-server/.env
-apps/ptah-license-server/.env
 
 # ============================================
 # Build Output

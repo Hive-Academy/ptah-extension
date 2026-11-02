@@ -169,7 +169,7 @@ Read more: [Getting started](https://docs.ptah.live/getting-started/) · [CLI gu
 
 PtahCode is free and open source under the MIT license. There is no trial and no credit card.
 
-**Ptah Builders** is a paid membership for cohort sessions, private support, and community packs. The product itself stays free. Join the waitlist at [ptah.live](https://ptah.live).
+**Ptah Builders** is a paid membership for cohort sessions, private support, and community packs. The product itself stays free. Join the waitlist at [builders.ptah.live](https://builders.ptah.live).
 
 ---
 
@@ -179,19 +179,17 @@ PtahCode is an Nx monorepo. The apps and libraries share one hexagonal core.
 
 ```
 apps/          # desktop app, VS Code extension, webview, CLI, TUI,
-               # license server, landing page, docs site, e2e suites
+               # landing page, docs site, e2e suites
 libs/backend/  # runtime-agnostic services; ports live in platform-core,
                # adapters in platform-vscode | platform-electron | platform-cli
-libs/frontend/ # Angular 21 feature libraries (signals, OnPush)
+libs/frontend/ # Angular feature libraries (signals, OnPush)
 libs/shared/   # the one bridge between frontend and backend
-libs/api/      # NestJS libraries for the license server
 libs/web/      # Angular libraries for the marketing site
 ```
 
 ```bash
 git clone https://github.com/Hive-Academy/PtahCode.git
 cd PtahCode
-cp .env.example .env
 npm install
 
 npm run dev              # watch the extension and the webview

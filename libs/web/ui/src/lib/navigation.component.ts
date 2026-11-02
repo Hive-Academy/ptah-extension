@@ -3,41 +3,24 @@ import {
   ChangeDetectionStrategy,
   signal,
   inject,
-  DestroyRef,
-  afterNextRender,
-  computed,
   ElementRef,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule, NgOptimizedImage } from '@angular/common';
-import { RouterLink, RouterLinkActive, Router } from '@angular/router';
+import { RouterLink, RouterLinkActive } from '@angular/router';
 import {
   LucideAngularModule,
-  User,
-  Users,
-  LogOut,
   Menu,
   X,
   ChevronDown,
   Download,
-  MessagesSquare,
 } from 'lucide-angular';
-import { AuthService } from '@ptah-web/core';
-import { SubscriptionStateService } from '@ptah-web/core';
 
 /**
- * NavigationComponent - Fixed navigation bar with branding and CTAs
+ * Fixed navigation for the PtahCode desktop marketing site.
  *
- * Declutter & consolidate redesign (TASK_2026_168):
- * - Top row consolidated to: Product ▾ (Features, Builders), Pricing, Docs,
- *   Community ▾ (Community — authenticated only, Discord, GitHub, Reddit, LinkedIn),
- *   Download PtahCode CTA, and — authenticated only — a User ▾ avatar menu
- *   (Members, Profile, divider, Logout). Unauthenticated keeps Login + Sign Up
- *   inline before the CTA.
- * - Three disclosure menus are driven by a single tri-state `openMenu` signal
- *   guaranteeing mutual exclusion. Escape closes the open menu (and returns
- *   focus to its trigger); outside-click closes it (host listeners).
- * - Fully transparent at top, solid on scroll; backdrop blur; auth-aware.
+ * Product and Community disclosure menus share one open-menu signal. Escape
+ * closes the active menu and returns focus to its trigger. Outside clicks close
+ * it. The bar is transparent at the top and solid after scrolling.
  */
 @Component({
   selector: 'ptah-navigation',
@@ -139,29 +122,9 @@ import { SubscriptionStateService } from '@ptah-web/core';
               >
                 Features
               </a>
-              <a
-                routerLink="/"
-                fragment="builders"
-                class="flex items-center px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-                role="menuitem"
-                (click)="closeMenu()"
-              >
-                Builders
-              </a>
             </div>
           }
         </div>
-
-        <!-- Pricing Link -->
-        <a
-          routerLink="/pricing"
-          routerLinkActive="text-amber-500"
-          [routerLinkActiveOptions]="{ exact: true }"
-          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
-          aria-label="View pricing plans"
-        >
-          Pricing
-        </a>
 
         <!-- Docs Link -->
         <a
@@ -206,23 +169,6 @@ import { SubscriptionStateService } from '@ptah-web/core';
               role="menu"
               aria-labelledby="community-menu-trigger"
             >
-              <!-- Community (in-product, authenticated only) -->
-              @if (isAuthenticated()) {
-                <a
-                  [routerLink]="COMMUNITY_ROUTE"
-                  class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-                  role="menuitem"
-                  (click)="closeMenu()"
-                >
-                  <lucide-angular
-                    [img]="MessagesSquareIcon"
-                    class="w-4 h-4"
-                    aria-hidden="true"
-                  />
-                  Community
-                </a>
-              }
-
               <!-- Discord Link -->
               <a
                 href="https://discord.gg/pZcbrqNRzq"
@@ -314,26 +260,6 @@ import { SubscriptionStateService } from '@ptah-web/core';
           }
         </div>
 
-        @if (!isAuthenticated()) {
-          <!-- Login Link (Not Authenticated) -->
-          <a
-            routerLink="/login"
-            class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
-            aria-label="Sign in to your account"
-          >
-            Login
-          </a>
-
-          <!-- Sign Up CTA (Not Authenticated) -->
-          <a
-            routerLink="/signup"
-            class="text-amber-500 hover:text-amber-400 border border-ink-600 hover:border-amber-500/40 px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-            aria-label="Create an account"
-          >
-            Sign Up
-          </a>
-        }
-
         <!-- Primary Download CTA (always visible) -->
         <a
           routerLink="/download"
@@ -348,107 +274,6 @@ import { SubscriptionStateService } from '@ptah-web/core';
           />
           Download PtahCode
         </a>
-
-        @if (isAuthenticated()) {
-          <!-- User Disclosure Menu (Members, Profile, divider, Logout) -->
-          <div class="relative">
-            <button
-              type="button"
-              id="user-menu-trigger"
-              class="flex items-center gap-1 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-              aria-haspopup="menu"
-              [attr.aria-expanded]="openMenu() === 'user'"
-              aria-controls="user-menu"
-              aria-label="Account menu"
-              (click)="toggleMenu('user')"
-            >
-              <!--
-                Avatar = Option A (recommended for this pass): generic circular
-                badge with the User lucide icon, zero new HTTP calls / signals.
-                Option B (future upgrade): derive email-initials from
-                authService.getCurrentUser() and render them as text instead of
-                the icon — flagged as a follow-up, out of scope for declutter.
-              -->
-              <span
-                class="w-9 h-9 rounded-full bg-ink-800 border border-white/10 text-white/80 hover:border-amber-500/40 hover:text-amber-500 transition-colors flex items-center justify-center"
-                [ngClass]="{
-                  'ring-2 ring-amber-400': accountSectionActive(),
-                  'ring-1 ring-amber-500/30':
-                    openMenu() === 'user' && !accountSectionActive(),
-                }"
-              >
-                <lucide-angular
-                  [img]="UserIcon"
-                  class="w-5 h-5"
-                  aria-hidden="true"
-                />
-              </span>
-              <lucide-angular
-                [img]="ChevronDownIcon"
-                class="w-4 h-4 text-white/80 transition-transform duration-200"
-                [class.rotate-180]="openMenu() === 'user'"
-                aria-hidden="true"
-              />
-            </button>
-
-            @if (openMenu() === 'user') {
-              <div
-                id="user-menu"
-                class="absolute right-0 top-full mt-2 w-48 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
-                role="menu"
-                aria-labelledby="user-menu-trigger"
-              >
-                <!-- Members Link -->
-                <a
-                  routerLink="/members"
-                  class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-                  role="menuitem"
-                  (click)="closeMenu()"
-                >
-                  <lucide-angular
-                    [img]="UsersIcon"
-                    class="w-4 h-4"
-                    aria-hidden="true"
-                  />
-                  Members
-                </a>
-
-                <!-- Profile Link -->
-                <a
-                  routerLink="/profile"
-                  class="flex items-center gap-2.5 px-4 py-2 text-white/70 hover:text-white hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-                  role="menuitem"
-                  (click)="closeMenu()"
-                >
-                  <lucide-angular
-                    [img]="UserIcon"
-                    class="w-4 h-4"
-                    aria-hidden="true"
-                  />
-                  Profile
-                </a>
-
-                <!-- Divider -->
-                <div class="h-px bg-white/10 my-1" aria-hidden="true"></div>
-
-                <!-- Logout Button -->
-                <button
-                  type="button"
-                  class="flex items-center gap-2.5 px-4 py-2 w-full text-left text-white/70 hover:text-red-400 hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-                  role="menuitem"
-                  (click)="handleLogout(); closeMenu()"
-                >
-                  <lucide-angular
-                    [img]="LogOutIcon"
-                    class="w-4 h-4"
-                    aria-hidden="true"
-                  />
-                  Logout
-                </button>
-              </div>
-            }
-          </div>
-        }
       </div>
     </nav>
 
@@ -481,27 +306,6 @@ import { SubscriptionStateService } from '@ptah-web/core';
             Features
           </a>
 
-          <!-- Builders Anchor -->
-          <a
-            routerLink="/"
-            fragment="builders"
-            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
-            role="menuitem"
-            (click)="closeMobileMenu()"
-          >
-            Builders
-          </a>
-
-          <!-- Pricing Link -->
-          <a
-            routerLink="/pricing"
-            class="flex items-center px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
-            role="menuitem"
-            (click)="closeMobileMenu()"
-          >
-            Pricing
-          </a>
-
           <!-- Docs Link -->
           <a
             href="https://docs.ptah.live"
@@ -517,80 +321,6 @@ import { SubscriptionStateService } from '@ptah-web/core';
           <!-- Divider -->
           <div class="h-px bg-white/10 my-2" aria-hidden="true"></div>
 
-          @if (isAuthenticated()) {
-            <!-- ACCOUNT section -->
-            <div
-              class="px-4 pt-1 pb-1 text-xs font-semibold uppercase tracking-wide text-white/40"
-            >
-              Account
-            </div>
-
-            <!-- Members Link -->
-            <a
-              routerLink="/members"
-              class="flex items-center gap-2 px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
-              role="menuitem"
-              (click)="closeMobileMenu()"
-            >
-              <lucide-angular
-                [img]="UsersIcon"
-                class="w-5 h-5"
-                aria-hidden="true"
-              />
-              Members
-            </a>
-
-            <!-- Profile Link -->
-            <a
-              routerLink="/profile"
-              class="flex items-center gap-2 px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
-              role="menuitem"
-              (click)="closeMobileMenu()"
-            >
-              <lucide-angular
-                [img]="UserIcon"
-                class="w-5 h-5"
-                aria-hidden="true"
-              />
-              Profile
-            </a>
-
-            <!-- Logout Button -->
-            <button
-              type="button"
-              class="flex items-center gap-2 px-4 py-3 text-white/60 hover:text-red-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium w-full text-left"
-              role="menuitem"
-              (click)="handleLogout(); closeMobileMenu()"
-            >
-              <lucide-angular
-                [img]="LogOutIcon"
-                class="w-5 h-5"
-                aria-hidden="true"
-              />
-              Logout
-            </button>
-          } @else {
-            <!-- Login Link (Not Authenticated) -->
-            <a
-              routerLink="/login"
-              class="flex items-center px-4 py-3 text-white/80 hover:text-amber-500 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
-              role="menuitem"
-              (click)="closeMobileMenu()"
-            >
-              Login
-            </a>
-
-            <!-- Sign Up Link (Not Authenticated) -->
-            <a
-              routerLink="/signup"
-              class="flex items-center px-4 py-3 text-amber-500 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
-              role="menuitem"
-              (click)="closeMobileMenu()"
-            >
-              Sign Up
-            </a>
-          }
-
           <!-- Divider -->
           <div class="h-px bg-white/10 my-2" aria-hidden="true"></div>
 
@@ -600,23 +330,6 @@ import { SubscriptionStateService } from '@ptah-web/core';
           >
             Community
           </div>
-
-          <!-- Community Link (Authenticated, in-product) -->
-          @if (isAuthenticated()) {
-            <a
-              [routerLink]="COMMUNITY_ROUTE"
-              class="flex items-center gap-2 px-4 py-3 text-white/70 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
-              role="menuitem"
-              (click)="closeMobileMenu()"
-            >
-              <lucide-angular
-                [img]="MessagesSquareIcon"
-                class="w-5 h-5"
-                aria-hidden="true"
-              />
-              Community
-            </a>
-          }
 
           <!-- Discord Link -->
           <a
@@ -752,124 +465,21 @@ import { SubscriptionStateService } from '@ptah-web/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NavigationComponent {
-  /** Lucide icon references */
-  public readonly UserIcon = User;
-  public readonly UsersIcon = Users;
-  public readonly LogOutIcon = LogOut;
   public readonly MenuIcon = Menu;
   public readonly XIcon = X;
   public readonly ChevronDownIcon = ChevronDown;
   public readonly DownloadIcon = Download;
-  public readonly MessagesSquareIcon = MessagesSquare;
 
-  private readonly authService = inject(AuthService);
-  private readonly destroyRef = inject(DestroyRef);
-  private readonly subscriptionState = inject(SubscriptionStateService);
-  private readonly router = inject(Router);
   private readonly elementRef = inject(ElementRef);
 
-  /**
-   * In-product community route (MG-2.7).
-   *
-   * This used to be a one-click SSO deep-link into an external forum, computed
-   * from a `communityUrl` the server echoed on `/licenses/me`. TASK_2026_177
-   * removed the forum, the env var behind it and that response field, so the
-   * link is now a plain internal route and needs no server input at all.
-   *
-   * Still shown to AUTHENTICATED visitors only, and the guard is unchanged in
-   * spirit: `/members` is protected by `MemberGuard`, so an authenticated
-   * non-member who follows this lands on `/pricing` rather than an error. It is
-   * a `routerLink`, not an `href` with `target="_blank"` — the destination is
-   * this same app now, so a new tab would be wrong.
-   */
-  public readonly COMMUNITY_ROUTE = '/members/community';
-
-  /**
-   * Signal tracking scroll position
-   * - false: User at top (fully transparent)
-   * - true: User scrolled (solid background + shadow)
-   */
+  /** Whether the page has scrolled far enough to use the solid bar. */
   public readonly scrolled = signal(false);
 
-  /**
-   * Signal tracking mobile menu open state
-   * - false: Menu closed (hamburger icon shown)
-   * - true: Menu open (X icon shown, overlay visible)
-   */
+  /** Whether the mobile navigation panel is open. */
   public readonly mobileMenuOpen = signal(false);
 
-  /**
-   * Single tri-state signal driving all three desktop disclosure menus
-   * (Product / Community / User). Only one may be open at a time — mutual
-   * exclusion is guaranteed for free by a single source of truth.
-   */
-  public readonly openMenu = signal<'product' | 'community' | 'user' | null>(
-    null,
-  );
-
-  /**
-   * Signal tracking authentication state
-   * - null: Still checking (initial load)
-   * - true: User is authenticated
-   * - false: User is not authenticated
-   */
-  public readonly isAuthenticated = signal<boolean | null>(null);
-
-  /**
-   * True when the current route is inside an account-scoped section
-   * (`/profile` or `/members`) — rings the avatar trigger to signal
-   * "you are here" for the User menu.
-   */
-  public readonly accountSectionActive = computed<boolean>(() => {
-    const url = this.router.url;
-    return url.startsWith('/profile') || url.startsWith('/members');
-  });
-
-  constructor() {
-    afterNextRender(() => {
-      this.checkAuthState();
-      this.subscriptionState
-        .fetchSubscriptionState()
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe();
-    });
-  }
-
-  /**
-   * Check authentication state from server
-   *
-   * Uses verifyAuthentication() instead of isAuthenticated() to always
-   * make an API call. This ensures that after OAuth/magic-link redirects,
-   * the HTTP-only cookie is properly validated and the localStorage hint
-   * is set for future calls.
-   */
-  private checkAuthState(): void {
-    this.authService
-      .isAuthenticated()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (isAuth) => this.isAuthenticated.set(isAuth),
-        error: () => this.isAuthenticated.set(false),
-      });
-  }
-
-  /**
-   * Handle logout action
-   */
-  public handleLogout(): void {
-    this.authService
-      .logout()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          this.isAuthenticated.set(false);
-          window.location.href = '/';
-        },
-        error: () => {
-          this.isAuthenticated.set(false);
-        },
-      });
-  }
+  /** The single open desktop disclosure menu. */
+  public readonly openMenu = signal<'product' | 'community' | null>(null);
 
   /**
    * Handler for window scroll events
@@ -897,7 +507,7 @@ export class NavigationComponent {
    * Toggle a desktop disclosure menu. Opening a menu implicitly closes any
    * other open menu (mutual exclusion via the single tri-state signal).
    */
-  public toggleMenu(menu: 'product' | 'community' | 'user'): void {
+  public toggleMenu(menu: 'product' | 'community'): void {
     this.openMenu.update((current) => (current === menu ? null : menu));
   }
 

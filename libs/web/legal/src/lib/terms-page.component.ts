@@ -1,6 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { SeoService } from '@ptah-web/core';
-import { RouterLink } from '@angular/router';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -15,7 +14,6 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
   imports: [
     NavigationComponent,
     FooterComponent,
-    RouterLink,
     ViewportAnimationDirective,
     FallingCubesBackgroundComponent,
   ],
@@ -34,7 +32,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             >
               Terms of Service
             </h1>
-            <p class="text-white/40">Last Updated: July 2026</p>
+            <p class="text-white/40">Last Updated: November 2026</p>
           </div>
 
           <!-- 1. Acceptance of Terms -->
@@ -48,14 +46,14 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               1. Acceptance of Terms
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              By accessing or using the Ptah VS Code extension and related
-              services (collectively, the "Service"), you agree to be bound by
-              these Terms of Service ("Terms"). If you do not agree to these
-              Terms, you may not use the Service.
+              By accessing or using the PtahCode desktop application and the
+              ptah.live website (collectively, the "Service"), you agree to be
+              bound by these Terms of Service ("Terms"). If you do not agree to
+              these Terms, you may not use the Service.
             </p>
             <p class="text-white/70 leading-relaxed">
               These Terms constitute a legally binding agreement between you and
-              Ptah Extension ("we," "us," or "our"), operated at
+              PtahCode ("we," "us," or "our"), operated at
               <a href="https://ptah.live" class="text-amber-400 hover:underline"
                 >ptah.live</a
               >.
@@ -73,111 +71,72 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               2. Description of Service
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              Ptah is an AI coding orchestra for Visual Studio Code. The Service
-              includes:
+              PtahCode is a free, open-source AI coding orchestration desktop
+              application. The Service includes:
             </p>
             <ul
               class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
             >
               <li>
-                The Ptah VS Code extension providing intelligent workspace
-                analysis, project-adaptive AI agents, and built-in MCP server
-                integration
+                The PtahCode desktop application with intelligent workspace
+                analysis, project-adaptive AI agents, and MCP integration
               </li>
-              <li>
-                Cloud-based license management and subscription services hosted
-                at ptah.live
-              </li>
+              <li>Desktop downloads through GitHub Releases</li>
               <li>
                 Community support through Discord and documentation resources
               </li>
             </ul>
           </section>
 
-          <!-- 3. Account Registration -->
+          <!-- 3. Accounts and Provider Credentials -->
           <section
-            id="account-registration"
+            id="accounts-and-credentials"
             viewportAnimation
             [viewportConfig]="sectionConfig"
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              3. Account Registration and Security
+              3. Accounts and Provider Credentials
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              To access certain features, you must create an account.
-              Authentication is handled through our third-party provider,
-              WorkOS, which supports single sign-on (SSO) and magic link
-              authentication.
+              You do not need a ptah.live account to use PtahCode. The desktop
+              application connects to the AI providers that you configure.
             </p>
             <p class="text-white/70 mb-4 leading-relaxed">You agree to:</p>
             <ul
               class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
             >
-              <li>
-                Provide accurate and complete information during registration
-              </li>
-              <li>Maintain the security of your account credentials</li>
-              <li>
-                Notify us immediately of any unauthorized access to your account
-              </li>
-              <li>
-                Accept responsibility for all activity that occurs under your
-                account
-              </li>
+              <li>Keep your provider credentials secure</li>
+              <li>Use provider credentials that you are authorized to use</li>
+              <li>Follow the terms of each provider that you configure</li>
+              <li>Review generated code and commands before you use them</li>
             </ul>
           </section>
 
-          <!-- 4. Subscription Plans -->
+          <!-- 4. Open-Source Software -->
           <section
-            id="subscription-plans"
+            id="open-source-software"
             viewportAnimation
             [viewportConfig]="sectionConfig"
             class="mb-8 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 sm:p-8 backdrop-blur-sm"
           >
             <h2 class="text-2xl font-display font-semibold text-amber-400 mb-4">
-              4. Subscription Plans and Billing
+              4. Open-Source Software
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              Ptah is free and open source. The full coding orchestra -- every
-              agent, workspace-intelligence feature, and integration -- is
-              available at no cost under the
-              <strong class="text-white/90">Community</strong> plan. No license
-              key, trial, or payment is required to use it.
-            </p>
-            <p class="text-white/70 mb-4 leading-relaxed">
-              <strong class="text-white/90">Ptah Builders</strong> is a paid
-              membership priced at
-              <strong class="text-white/90">$29 per month</strong> or
-              <strong class="text-white/90">$290 per year</strong>. Builders is
-              not yet open for self-serve purchase.
-            </p>
-            <p class="text-white/70 mb-4 leading-relaxed">
-              If you apply to the Ptah Builders Early Adopter program before
-              checkout opens, and we approve your application, we grant you a
-              <strong class="text-white/90"
-                >complimentary 12-month Ptah Builders membership</strong
-              >
-              at no cost. We do not collect a payment method for this grant, and
-              there is no charge at any point during the 12 months. Approval is
-              at our discretion; an application is not a guarantee of a grant.
-              The membership ends when the 12 months expire. To continue after
-              that date, you must start a paid subscription at the then-current
-              list price.
-            </p>
-            <p class="text-white/70 mb-4 leading-relaxed">
-              Any active paid subscription is processed by
-              <strong class="text-white/90">Paddle</strong> (paddle.com), which
-              serves as our merchant of record. Paddle handles all payment
-              processing, invoicing, VAT, and sales tax on our behalf. By
-              subscribing, you also agree to Paddle's terms of service.
+              PtahCode is free and open source. Every desktop capability is
+              available at no cost under the license included with the source
+              code. No license key, trial, account, or payment is required to
+              use the desktop application.
             </p>
             <p class="text-white/70 leading-relaxed">
-              Paid subscriptions automatically renew at the end of each billing
-              period. You may cancel your subscription at any time through your
-              account settings or by contacting us -- cancellation takes effect
-              at the end of the current billing period, and you retain access
-              until then.
+              The ptah.live website does not sell subscriptions or process
+              payments. AI provider usage and related charges are governed by
+              your agreements with those providers.
+            </p>
+            <p class="text-white/70 mt-4 leading-relaxed">
+              Terms for paid Ptah Builders services are available at
+              <a href="https://builders.ptah.live" class="text-amber-400 hover:underline">builders.ptah.live</a>.
             </p>
           </section>
 
@@ -198,22 +157,16 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
             >
               <li>Violate any applicable laws or regulations</li>
-              <li>
-                Reverse engineer, decompile, or attempt to extract the source
-                code of the Service
-              </li>
-              <li>
-                Share, transfer, or resell your license or account credentials
-              </li>
+              <li>Use the Service to develop or distribute malicious software</li>
               <li>
                 Interfere with or disrupt the integrity or performance of the
-                Service
+                website
               </li>
               <li>
-                Attempt to gain unauthorized access to the Service or its
+                Attempt to gain unauthorized access to the website or its
                 related systems
               </li>
-              <li>Use the Service to develop a competing product or service</li>
+              <li>Violate the terms of an AI provider that you configure</li>
             </ul>
           </section>
 
@@ -228,11 +181,10 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               6. Intellectual Property Rights
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              The Service, including all software, design, text, graphics, and
-              other content, is owned by Ptah Extension and protected by
-              intellectual property laws. Your subscription grants you a
-              limited, non-exclusive, non-transferable license to use the
-              Service.
+              The PtahCode source code is available under its open-source
+              license. The website design, text, graphics, and other original
+              content are owned by PtahCode and protected by intellectual
+              property laws.
             </p>
             <p class="text-white/70 leading-relaxed">
               You retain all rights to the code and content you create using the
@@ -252,7 +204,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               7. Limitation of Liability
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              To the maximum extent permitted by applicable law, Ptah Extension
+              To the maximum extent permitted by applicable law, PtahCode
               shall not be liable for any indirect, incidental, special,
               consequential, or punitive damages, including but not limited to
               loss of profits, data, or business opportunities, regardless of
@@ -262,9 +214,9 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               The Service is provided "as is" and "as available" without
               warranties of any kind, whether express or implied, including but
               not limited to implied warranties of merchantability, fitness for
-              a particular purpose, and non-infringement. Our total liability
-              shall not exceed the amount you paid us in the twelve (12) months
-              preceding the claim.
+              a particular purpose, and non-infringement. Some jurisdictions do
+              not permit these exclusions, so parts of this section may not
+              apply to you.
             </p>
           </section>
 
@@ -279,22 +231,13 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               8. Termination
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              We may suspend or terminate your access to the Service at any time
-              if you violate these Terms or engage in conduct that we determine
-              to be harmful to the Service or other users.
+              We may restrict access to the website if you violate these Terms
+              or engage in conduct that harms the website or other users.
             </p>
             <p class="text-white/70 leading-relaxed">
-              You may terminate your account at any time by contacting us at
-              <a
-                href="mailto:support@ptah.live"
-                class="text-amber-400 hover:underline"
-                >support&#64;ptah.live</a
-              >. Upon termination, your right to use the Service will
-              immediately cease. Any prepaid fees for unused subscription
-              periods may be refunded in accordance with our
-              <a routerLink="/refund" class="text-amber-400 hover:underline"
-                >Refund Policy</a
-              >.
+              You may stop using PtahCode at any time by closing and
+              uninstalling the desktop application. You can delete its local
+              settings and credentials through your operating system.
             </p>
           </section>
 
@@ -400,7 +343,7 @@ export class TermsPageComponent {
     inject(SeoService).setPage({
       title: 'Terms and Conditions — PtahCode',
       description:
-        'Terms of service for the Ptah AI coding agent desktop app, VS Code extension, and CLI.',
+        'Terms of service for the free, open-source PtahCode desktop application and website.',
       url: 'https://ptah.live/terms-and-conditions',
     });
   }

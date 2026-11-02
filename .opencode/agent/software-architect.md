@@ -154,7 +154,7 @@ step-by-step instructions — the team-leader owns decomposition.
 - **Failures a user should see** are raised as `RpcUserError` from `libs/backend/vscode-core/src/messaging`. Do not add new `vscode-core` imports to host-neutral libs; depend on `platform-core` ports instead, and plan designs so this dependency shrinks.
 - **Webview handlers** subscribe through the `MESSAGE_HANDLERS` multi-provider in `libs/frontend/core/src/lib/services/message-router.types.ts`. Never add a separate message listener.
 - **Every new project gets both a `scope:*` and a `type:*` tag** that satisfy the depConstraints in `eslint.config.mjs`. Choose the narrowest scope. Never design around the boundary rule or plan a suppression of it.
-- **NestJS domains** follow the module → controller → service layering in `libs/api/billing/src/lib/`. New controllers must not call Prisma directly; `libs/api/licensing/src/lib/license/controllers/license.controller.ts` does, and it is a known deviation, not a template.
+- The NestJS service domains have moved to the separate Builders repository. Keep architecture guidance here focused on the desktop, extension, CLI, shared runtime, and marketing site.
 
 ## Output contract
 
