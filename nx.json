@@ -201,6 +201,7 @@
         "libs/backend/platform-electron/**/*",
         "libs/backend/plugin-marketplace/**/*",
         "libs/backend/rpc-handlers/**/*",
+        "libs/backend/remote-machines/**/*",
         "libs/backend/session-organization/**/*",
         "libs/backend/skill-synthesis/**/*",
         "libs/backend/task-specs/**/*",
@@ -211,6 +212,7 @@
         "libs/backend/vscode-core/**/*",
         "libs/backend/vscode-lm-tools/**/*",
         "libs/backend/workspace-intelligence/**/*",
+        "libs/backend/worker-runtime/**/*",
         "libs/frontend/canvas/**/*",
         "libs/frontend/chat/**/*",
         "libs/frontend/chat-execution-tree/**/*",
@@ -227,6 +229,7 @@
         "libs/frontend/git-ui/**/*",
         "libs/frontend/harness-builder/**/*",
         "libs/frontend/markdown/**/*",
+        "libs/frontend/machines-ui/**/*",
         "libs/frontend/marketplace/**/*",
         "libs/frontend/mcp-apps-page/**/*",
         "libs/frontend/memory-curator-ui/**/*",
@@ -245,6 +248,7 @@
         "libs/web/landing/**/*",
         "libs/web/legal/**/*",
         "libs/web/ui/**/*",
+        "libs/worker-protocol/**/*",
         "tools/mcp-bench/**/*"
       ]
     },
@@ -277,6 +281,7 @@
         "libs/backend/platform-electron/**/*",
         "libs/backend/plugin-marketplace/**/*",
         "libs/backend/rpc-handlers/**/*",
+        "libs/backend/remote-machines/**/*",
         "libs/backend/session-organization/**/*",
         "libs/backend/settings-core/**/*",
         "libs/backend/skill-synthesis/**/*",
@@ -288,6 +293,7 @@
         "libs/backend/vscode-core/**/*",
         "libs/backend/vscode-lm-tools/**/*",
         "libs/backend/workspace-intelligence/**/*",
+        "libs/backend/worker-runtime/**/*",
         "libs/frontend/canvas/**/*",
         "libs/frontend/chat/**/*",
         "libs/frontend/chat-execution-tree/**/*",
@@ -303,6 +309,7 @@
         "libs/frontend/git-ui/**/*",
         "libs/frontend/harness-builder/**/*",
         "libs/frontend/markdown/**/*",
+        "libs/frontend/machines-ui/**/*",
         "libs/frontend/marketplace/**/*",
         "libs/frontend/mcp-apps-page/**/*",
         "libs/frontend/memory-curator-ui/**/*",
@@ -320,6 +327,7 @@
         "libs/web/landing/**/*",
         "libs/web/legal/**/*",
         "libs/web/ui/**/*",
+        "libs/worker-protocol/**/*",
         "tools/mcp-bench/**/*"
       ]
     }

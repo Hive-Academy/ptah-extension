@@ -1,6 +1,6 @@
 # Batches - TASK_2026_858_f7b9
 
-Total tasks: 42 | Batches: 26 | Complete: 0/26
+Total tasks: 42 | Batches: 26 | Complete: 3/26
 
 Scope: Phase 0 tool and Phase 1 (C0-C10) of implementation-plan.md, Round 5. C11 is not built
 (Q1 = (a), decisions.md row 10). The U5 licensing batch is not built (U5 = 1). Phases 2-4 get
@@ -249,7 +249,7 @@ phase summary.
 
 ---
 
-## Batch 3: C1a worker-protocol wire contract — PENDING
+## Batch 3: C1a worker-protocol wire contract — COMPLETE
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -261,7 +261,7 @@ phase summary.
 - Phase: B | Phase review: at Batch 7
 - Verify: `npm run verify -- -p @ptah-extension/worker-protocol`
 
-### Task 3.1: Frames, methods, errors, version, pairing code — PENDING
+### Task 3.1: Frames, methods, errors, version, pairing code — COMPLETE
 
 - Files: W/`libs/worker-protocol/src/lib/{frames,methods,errors,version,pairing-code}.ts`
   (+ specs), W/`libs/worker-protocol/src/index.ts`
@@ -278,6 +278,11 @@ phase summary.
 ### Batch 3 verification
 
 - Files exist with real schemas; verify passes; no per-batch review
+- Result: executor backend-developer subagent (Claude). 5 modules + 5 specs (84 tests).
+  Batch 1 gap fixed here: the four new libs were missing from the `lint` and `test` plugin
+  include lists in `nx.json`. `npm run verify -- -p` the 4 new libs → 12/12 tasks succeeded.
+  Executor-designed shapes for Phase B review: `admin.grants.list/add`, `admin.status`,
+  `goodbye` payload, `VERSION_MISMATCH` detail `client`.
 
 ## Batch 4: C1b worker client and session event reducer — PENDING
 
