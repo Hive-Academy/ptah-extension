@@ -169,8 +169,6 @@ Read more: [Getting started](https://docs.ptah.live/getting-started/) · [CLI gu
 
 PtahCode is free and open source under the MIT license. There is no trial and no credit card.
 
-**Ptah Builders** is a paid membership for cohort sessions, private support, and community packs. The product itself stays free. Join the waitlist at [builders.ptah.live](https://builders.ptah.live).
-
 ---
 
 ## Development

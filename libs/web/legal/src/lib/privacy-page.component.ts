@@ -106,10 +106,6 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               <li>Requested pages and timestamps</li>
               <li>Error reports and performance metrics</li>
             </ul>
-            <p class="text-white/70 mb-4 leading-relaxed">
-              Privacy information for paid Ptah Builders services is available at
-              <a href="https://builders.ptah.live" class="text-amber-400 hover:underline">builders.ptah.live</a>.
-            </p>
 
             <h3 class="text-lg font-semibold text-white/90 mb-3">
               2.4 Download Data

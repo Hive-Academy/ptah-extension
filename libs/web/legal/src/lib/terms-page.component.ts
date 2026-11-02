@@ -134,10 +134,6 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               payments. AI provider usage and related charges are governed by
               your agreements with those providers.
             </p>
-            <p class="text-white/70 mt-4 leading-relaxed">
-              Terms for paid Ptah Builders services are available at
-              <a href="https://builders.ptah.live" class="text-amber-400 hover:underline">builders.ptah.live</a>.
-            </p>
           </section>
 
           <!-- 5. Acceptable Use -->
