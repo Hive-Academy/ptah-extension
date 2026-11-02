@@ -14,8 +14,8 @@
 //                                          already holds the lock
 //
 // Every run takes a slot of the machine-wide lock in scripts/verify-lock.mjs
-// first. There are PTAH_VERIFY_SLOTS slots (default 2). A second concurrent
-// run starts only while PTAH_VERIFY_MIN_FREE_GB of memory is free (default 8).
+// first. There are PTAH_VERIFY_SLOTS slots (default 3). A second concurrent
+// run starts only while PTAH_VERIFY_MIN_FREE_GB of memory is free (default 5).
 // Inside each run Nx runs one task at a time (nx.json `parallel: 1`, and
 // --parallel=1 here) and Jest uses 2 workers per task (jest.preset.js).
 
