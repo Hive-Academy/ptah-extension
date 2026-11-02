@@ -579,13 +579,13 @@ describe('StreamTransformer — discovered context windows on proxies (TASK_2026
     const model = 'gpt-ctx-stream-proxy-414';
     registerModelContextWindows(
       [{ id: model, contextLength: 400_000 }],
-      'openai-codex',
+      'github-copilot',
     );
 
     const usage = await runResult(
       makeAuthEnv({
         ANTHROPIC_BASE_URL: 'http://127.0.0.1:43123',
-        ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+        ANTHROPIC_AUTH_TOKEN: 'copilot-proxy-managed',
       }),
       model,
     );

@@ -113,7 +113,6 @@ export type {
 } from './lib/providers/copilot';
 export {
   CodexAuthService,
-  CodexTranslationProxy,
   CodexHomeResolver,
   CodexAccountUsageService,
   CODEX_PROVIDER_ENTRY,

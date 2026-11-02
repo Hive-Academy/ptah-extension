@@ -66,7 +66,6 @@ import {
   isDirectAnthropic,
   getAllAnthropicProviders,
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
-  CODEX_PROXY_TOKEN_PLACEHOLDER,
   KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
   NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
@@ -150,9 +149,6 @@ export function resolveCapacityRoute(authEnv: AuthEnv): ContextCapacityRoute {
         switch (authEnv.ANTHROPIC_AUTH_TOKEN) {
           case COPILOT_PROXY_TOKEN_PLACEHOLDER:
             providerId = 'github-copilot';
-            break;
-          case CODEX_PROXY_TOKEN_PLACEHOLDER:
-            providerId = 'openai-codex';
             break;
           case KIMI_CODE_PROXY_TOKEN_PLACEHOLDER:
             providerId = 'kimi-code';
@@ -1622,14 +1618,14 @@ export class SessionQueryExecutor {
     const providerBaseUrl =
       effectiveAuthEnv.ANTHROPIC_BASE_URL?.trim() || 'default';
     const providerModel = sessionConfig?.model ?? 'unknown';
-    // The Codex proxy path and every class whose E2 has not passed (all of
-    // them today: `e2Passed` is null) register OBSERVE_ONLY.
+    // Every class whose E2 has not passed (`e2Passed` is null) registers
+    // OBSERVE_ONLY.
     const compactionTap = new CompactionSessionTap(
       this.logger,
       this.compactionCoordinator,
       this.contextUsagePort,
       {
-        codexProxy: rec.capacityRoute?.providerId === 'openai-codex',
+        codexProxy: false,
         e2Passed: null,
       },
       rec.token,
