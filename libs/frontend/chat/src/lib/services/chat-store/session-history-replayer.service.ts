@@ -325,6 +325,7 @@ export class SessionHistoryReplayer {
     claim: ReplayClaim,
     sessionId: SessionId,
     resumableSubagents: SubagentRecord[] | undefined,
+    resumeProviderId?: string,
   ): Promise<HistoryReplayOutcome> {
     const { tabId } = claim;
     const chunkSize = SessionHistoryReplayer.REPLAY_CHUNK_SIZE;
@@ -361,7 +362,7 @@ export class SessionHistoryReplayer {
         }
       }
 
-      this.restoreNativeCompletedChildren(events, tabId, sessionId);
+      this.restoreNativeCompletedChildren(events, tabId, sessionId, resumeProviderId);
 
       const seed = this.seeds.get(claim.claim);
       const historyToolIds = this.historyIndexes.get(claim.claim)?.toolIds;
@@ -579,15 +580,13 @@ export class SessionHistoryReplayer {
     resumeProviderId?: string,
   ): void {
     // Claude replay owns its own monitor lifecycle, including dismissed records.
-    const providerId = resumeProviderId ??
-      this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.providerId;
     const hasNativeCodexAgent = events.some((event) =>
       event.eventType === 'agent_start' &&
       event.source === 'history' &&
       event.id.startsWith('[') &&
       /,"agent_start","item\/(?:started|completed)",\d+\]$/.test(event.id),
     );
-    if (providerId !== 'openai-codex' && !hasNativeCodexAgent) return;
+    if (resumeProviderId !== 'openai-codex' && !hasNativeCodexAgent) return;
 
     const childrenByParent = new Map<string, FlatStreamEventUnion[]>();
     const resultsByTool = new Map<string, ToolResultEvent>();

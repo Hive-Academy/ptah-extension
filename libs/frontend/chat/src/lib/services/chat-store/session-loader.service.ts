@@ -1130,6 +1130,7 @@ export class SessionLoaderService {
             replayClaim,
             sessionId,
             resumableSubagents,
+            resumeResult.data?.providerId ?? session?.providerId ?? existingTab?.providerId,
           );
           if (outcome === 'superseded') {
             return { staleSnapshot: false };
@@ -1857,7 +1858,7 @@ export class SessionLoaderService {
           result.data?.events ?? [],
           tabId,
           sessionId,
-          result.data?.providerId,
+          result.data?.providerId ?? restoredTab.providerId,
         );
       } catch (error) {
         console.error(

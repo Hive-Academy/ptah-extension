@@ -212,9 +212,8 @@ describe('SessionHistoryReplayer', () => {
   }
 
   it('restores a completed native child card transcript and agents entry on resume', async () => {
-    tabs[0].providerId = 'openai-codex';
     const events = completedChildEvents();
-    await replayer.replay(events, replayer.claim(TAB, SESSION), SESSION, []);
+    await replayer.replay(events, replayer.claim(TAB, SESSION), SESSION, [], 'openai-codex');
 
     expect(monitor.onAgentStart).toHaveBeenCalledWith(events[0]);
     expect(monitor.onTaskToolResult).toHaveBeenCalledWith('spawn-1', false, 5);
@@ -232,9 +231,18 @@ describe('SessionHistoryReplayer', () => {
     );
   });
 
+  it('uses the supplied provider for Codex history without a native marker', async () => {
+    const events = completedChildEvents(false);
+    await replayer.replay(events, replayer.claim(TAB, SESSION), SESSION, [], 'openai-codex');
+    expect(monitor.onAgentStart).toHaveBeenCalledWith(events[0]);
+    expect(execution.restoreHistoryChild).toHaveBeenCalledWith(
+      'spawn-1', SESSION, 'child-1', events.slice(1, 4),
+    );
+  });
+
   it('leaves Claude monitor and execution state unchanged', async () => {
     tabs[0].providerId = 'anthropic';
-    await replayer.replay(completedChildEvents(false), replayer.claim(TAB, SESSION), SESSION, []);
+    await replayer.replay(completedChildEvents(false), replayer.claim(TAB, SESSION), SESSION, [], 'anthropic');
     expect(monitor.onAgentStart).not.toHaveBeenCalled();
     expect(monitor.onTaskToolResult).not.toHaveBeenCalled();
     expect(execution.restoreHistoryChild).not.toHaveBeenCalled();
