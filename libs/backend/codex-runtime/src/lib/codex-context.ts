@@ -67,6 +67,15 @@ interface Subscriber {
   release: () => void;
 }
 
+/** Undefined means the root thread; null means an unrelated thread. */
+export function childEventParent(
+  threadId: string,
+  rootThreadId: string,
+  childTools: ReadonlyMap<string, string>,
+): string | null | undefined {
+  return threadId === rootThreadId ? undefined : childTools.get(threadId) ?? null;
+}
+
 /** Operations serialize RPC admission, never the lifetime of a running turn. */
 class RuntimeContext implements CodexContext {
   private committedIdentity?: CodexThreadIdentity;
@@ -79,6 +88,14 @@ class RuntimeContext implements CodexContext {
   private activeTurn?: string;
   private turnController = new AbortController();
   private readonly terminalTurns = new Set<string>();
+  private readonly childTools = new Map<string, string>();
+  private readonly knownChildParents = new Map<string, string>();
+  private readonly childTurns = new Map<string, string>();
+  private readonly pendingSpawns = new Map<string, Set<string>>();
+  private readonly earlyChildEvents = new Map<string, CodexRuntimeEvent[]>();
+  private earlyChildCount = 0;
+  private rootTerminalPending = false;
+  private rootTerminalTimer?: ReturnType<typeof setTimeout>;
   private sequence = 0;
   private revision = 0;
   private turnRevision = 0;
@@ -150,7 +167,14 @@ class RuntimeContext implements CodexContext {
             (this.state !== 'running' && this.state !== 'interrupting')
           )
             throw new Error('Codex approval has no live turn');
-          const approvalTurnId = this.activeTurn;
+          const requestedTurn = z.object({
+            threadId: z.string(), turnId: z.string(),
+          }).safeParse(frame.params);
+          const approvalTurnId = requestedTurn.success &&
+            this.childTools.has(requestedTurn.data.threadId) &&
+            this.childTurns.get(requestedTurn.data.threadId) ===
+              requestedTurn.data.turnId
+            ? requestedTurn.data.turnId : this.activeTurn;
           const result = await this.bridge.handle(
             frame,
             approvalTurnId,
@@ -276,7 +300,8 @@ class RuntimeContext implements CodexContext {
       permissionLevel: () => this.turnPermissionLevel,
       isCurrent: (correlation) =>
         this.state === 'running' &&
-        correlation.turnId === this.activeTurn &&
+        (correlation.turnId === this.activeTurn ||
+          [...this.childTurns.values()].includes(correlation.turnId)) &&
         correlation.processGeneration === this.generation,
       isWritable: () => this.state !== 'closed',
       close: this.onFailure,
@@ -361,6 +386,18 @@ class RuntimeContext implements CodexContext {
     frame: Parameters<CodexAppServerHandlers['onNotification']>[0],
   ): void {
     if (this.state === 'closed' || !this.committedIdentity) return;
+    if (frame.method === 'thread/started') {
+      const started = z.object({ thread: z.object({
+        id: z.string(), parentThreadId: z.string().nullish(),
+      }) }).safeParse(frame.params);
+      if (started.success && started.data.thread.parentThreadId) {
+        const candidates = this.pendingSpawns.get(started.data.thread.parentThreadId);
+        if (candidates?.size === 1) {
+          const toolId = [...candidates][0];
+          if (toolId) this.linkChild(started.data.thread.id, toolId);
+        }
+      }
+    }
     // Compaction owns admission, so thread item activity belongs to its work.
     if (
       this.finishCompact &&
@@ -376,9 +413,12 @@ class RuntimeContext implements CodexContext {
         frame.params,
       );
       if (
-        parsed.threadId === this.identity.threadId &&
-        parsed.turnId === this.activeTurn
+        (parsed.threadId === this.identity.threadId &&
+          parsed.turnId === this.activeTurn) ||
+        this.childTools.has(parsed.threadId)
       ) {
+        if (this.childTools.has(parsed.threadId))
+          this.childTurns.set(parsed.threadId, parsed.turnId);
         const item = parsed.item;
         if (item.type === 'fileChange')
           this.targets.set(item.id, {
@@ -397,6 +437,9 @@ class RuntimeContext implements CodexContext {
       const parsed = codexNotificationSchemas['turn/started'].parse(
         frame.params,
       );
+      const knownParent = this.knownChildParents.get(parsed.threadId);
+      if (knownParent && !this.childTools.has(parsed.threadId))
+        this.linkChild(parsed.threadId, knownParent);
       if (
         parsed.threadId === this.identity.threadId &&
         !this.terminalTurns.has(parsed.turn.id)
@@ -406,49 +449,143 @@ class RuntimeContext implements CodexContext {
         this.activeTurn = parsed.turn.id;
         this.state = 'running';
       }
+      if (this.childTools.has(parsed.threadId))
+        this.childTurns.set(parsed.threadId, parsed.turn.id);
     }
     for (const event of this.translator.translate(frame)) {
-      if (
-        event.threadId !== this.identity.threadId ||
-        this.terminalTurns.has(event.turnId)
-      )
+      const parentToolUseId = childEventParent(
+        event.threadId, this.identity.threadId, this.childTools,
+      );
+      if (parentToolUseId === null) {
+        this.bufferEarlyChild(event);
         continue;
+      }
+      if (parentToolUseId === undefined && this.terminalTurns.has(event.turnId))
+        continue;
+      if (event.type === 'toolStarted' && event.toolName === 'spawnAgent') {
+        const pending = this.pendingSpawns.get(event.threadId) ?? new Set<string>();
+        pending.add(event.toolId);
+        this.pendingSpawns.set(event.threadId, pending);
+      }
+      if (event.type === 'toolCompleted')
+        this.pendingSpawns.get(event.threadId)?.delete(event.toolId);
+      this.admitEvent(event, parentToolUseId);
+      if ((event.type === 'toolStarted' || event.type === 'toolCompleted') &&
+        event.agentThreadIds) {
+        for (const childId of event.agentThreadIds) {
+          if (childId !== this.identity.threadId && childId !== event.threadId)
+            this.linkChild(childId, event.toolId);
+        }
+      }
+    }
+  }
+
+  private linkChild(threadId: string, toolId: string): void {
+    if (!this.knownChildParents.has(threadId) &&
+      this.knownChildParents.size >= 256) {
+      const oldest = this.knownChildParents.keys().next().value;
+      if (oldest) this.knownChildParents.delete(oldest);
+      this.options.logger.error(
+        'Codex child thread linkage cache limit reached',
+        { reason: 'Oldest inactive child linkage was removed' },
+      );
+    }
+    this.knownChildParents.set(threadId, toolId);
+    this.childTools.set(threadId, toolId);
+    const buffered = this.earlyChildEvents.get(threadId) ?? [];
+    this.earlyChildEvents.delete(threadId);
+    this.earlyChildCount -= buffered.length;
+    for (const event of buffered) {
+      const parentToolUseId = this.childTools.get(threadId);
+      if (parentToolUseId) this.admitEvent(event, parentToolUseId);
+    }
+  }
+
+  private bufferEarlyChild(event: CodexRuntimeEvent): void {
+    const current = this.earlyChildEvents.get(event.threadId);
+    if (this.earlyChildCount >= 64 ||
+      (!current && this.earlyChildEvents.size >= 8)) {
+      this.options.logger.error(
+        'Codex early child event buffer overflow',
+        { reason: 'Native child linkage was not reported within the buffer limit' },
+      );
+      return;
+    }
+    const buffer = current ?? [];
+    buffer.push(event);
+    this.earlyChildEvents.set(event.threadId, buffer);
+    this.earlyChildCount++;
+  }
+
+  private admitEvent(
+    event: CodexRuntimeEvent,
+    parentToolUseId: string | undefined,
+  ): void {
       if (event.type === 'terminal') {
+        if (parentToolUseId !== undefined) {
+          this.emit({ ...event, parentToolUseId });
+          this.childTools.delete(event.threadId);
+          this.childTurns.delete(event.threadId);
+          this.pendingSpawns.delete(event.threadId);
+          if (this.rootTerminalPending && this.childTools.size === 0)
+            this.finishActiveTurn();
+          return;
+        }
         this.terminalTurns.add(event.turnId);
         if (event.turnId === this.activeTurn) {
-          this.asyncQuestionItems.clear();
-          this.activeTurn = undefined;
-          this.activeTurnPermissionLevel = undefined;
-          this.targets.clear();
-          this.turnController.abort();
-          this.releaseTurnSignal?.();
-          this.releaseTurnSignal = undefined;
-          clearTimeout(this.interruptTimer);
-          this.interruptTimer = undefined;
-          this.state = 'idle';
+          if (this.childTools.size > 0 && event.status === 'completed') {
+            this.rootTerminalPending = true;
+            this.rootTerminalTimer = setTimeout(() => this.finishActiveTurn(), 30_000);
+          } else this.finishActiveTurn();
         }
         this.finishCompact?.();
+        this.earlyChildEvents.clear();
+        this.earlyChildCount = 0;
       }
-      if (event.type === 'compaction' && event.phase !== 'started')
+      if (parentToolUseId === undefined && event.type === 'compaction' &&
+        event.phase !== 'started')
         this.finishCompact?.();
       if (
         event.type === 'userInputAsync' &&
         (this.profile.consumer === 'chat' || this.profile.consumer === 'gateway')
       ) {
-        if (this.asyncQuestionItems.has(event.itemId)) {
+        const questionKey = `${event.threadId}:${event.itemId}`;
+        if (this.asyncQuestionItems.has(questionKey)) {
           this.warnAsyncQuestion('duplicate');
-          continue;
+          return;
         }
-        this.asyncQuestionItems.add(event.itemId);
+        this.asyncQuestionItems.add(questionKey);
         const card = event.presentation !== 'text' && this.askAsyncUserInput(event);
-        if (!card) this.warnAsyncQuestion(event.presentation === 'text' ? 'already-streamed' : 'card-unavailable');
+        if (!card)
+          this.warnAsyncQuestion(
+            event.presentation === 'text' ? 'already-streamed' : 'card-unavailable',
+          );
         this.emit({
           ...event,
+          ...(parentToolUseId === undefined ? {} : { parentToolUseId }),
           presentation: card ? 'card' : 'text',
           text: event.text || event.questions.map((question) => question.title).join('\n'),
         });
-      } else this.emit(event);
-    }
+      } else this.emit(parentToolUseId === undefined ? event : { ...event, parentToolUseId });
+  }
+
+  private finishActiveTurn(): void {
+    clearTimeout(this.rootTerminalTimer);
+    this.rootTerminalTimer = undefined;
+    this.rootTerminalPending = false;
+    this.asyncQuestionItems.clear();
+    this.activeTurn = undefined;
+    this.activeTurnPermissionLevel = undefined;
+    this.targets.clear();
+    this.childTools.clear();
+    this.childTurns.clear();
+    this.pendingSpawns.clear();
+    this.turnController.abort();
+    this.releaseTurnSignal?.();
+    this.releaseTurnSignal = undefined;
+    clearTimeout(this.interruptTimer);
+    this.interruptTimer = undefined;
+    if (this.state !== 'closed') this.state = 'idle';
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -931,6 +1068,8 @@ class RuntimeContext implements CodexContext {
     if (this.closing) return this.closing;
     this.state = 'closed';
     clearTimeout(this.compactTimer);
+    clearTimeout(this.rootTerminalTimer);
+    this.rootTerminalTimer = undefined;
     this.compactTimer = undefined;
     clearTimeout(this.interruptTimer);
     this.interruptTimer = undefined;
@@ -960,6 +1099,12 @@ class RuntimeContext implements CodexContext {
     this.activeTurnPermissionLevel = undefined;
     this.translator.dispose();
     this.targets.clear();
+    this.childTools.clear();
+    this.childTurns.clear();
+    this.knownChildParents.clear();
+    this.pendingSpawns.clear();
+    this.earlyChildEvents.clear();
+    this.earlyChildCount = 0;
     for (const subscriber of this.subscribers) subscriber.release();
     this.closing = this.finishClose();
     return this.closing;

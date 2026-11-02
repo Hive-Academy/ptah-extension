@@ -205,6 +205,34 @@ const delta: CodexRuntimeEvent = {
 };
 
 describe('Codex chat turn lifecycle', () => {
+  it('forwards a linked child after the root terminal before closing its card', async () => {
+    const h = setup();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...identity, turnId: 'turn', sequence: 1, type: 'toolStarted',
+        toolId: 'spawn', toolName: 'spawnAgent', agentThreadIds: ['child'],
+        input: { subagent_type: 'codex', description: 'Inspect' } } satisfies CodexRuntimeEvent;
+      yield { ...identity, turnId: 'turn', sequence: 2, type: 'toolCompleted',
+        toolId: 'spawn', status: 'completed', agentThreadIds: ['child'],
+        output: null } satisfies CodexRuntimeEvent;
+      yield { ...terminal, sequence: 3 };
+      yield { ...identity, threadId: 'child', turnId: 'child-turn',
+        sequence: 4, type: 'textFinal', itemId: 'answer', text: 'Child answer',
+        parentToolUseId: 'spawn' } satisfies CodexRuntimeEvent;
+      yield { ...identity, threadId: 'child', turnId: 'child-turn',
+        sequence: 5, type: 'terminal', status: 'completed',
+        parentToolUseId: 'spawn' } satisfies CodexRuntimeEvent;
+    })());
+    const output = await collect(await h.adapter.startChatSession({ tabId, prompt: 'inspect' }));
+    const childComplete = output.findIndex((event) =>
+      event.eventType === 'message_complete' && event.parentToolUseId === 'spawn');
+    const result = output.findIndex((event) =>
+      event.eventType === 'tool_result' && event.toolCallId === 'spawn');
+    expect(childComplete).toBeGreaterThan(-1);
+    expect(result).toBeGreaterThan(childComplete);
+    expect(output[result]).toMatchObject({ output: 'Child answer', isError: false });
+    expect(h.callbacks.result).toHaveBeenCalledTimes(1);
+    await h.adapter.dispose();
+  });
   it('orders generating and completed settlement around the projected message', async () => {
     const h = setup();
     h.context.events.mockImplementation(() =>

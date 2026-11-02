@@ -19,7 +19,7 @@ const items: CodexHistoryTurn['items'] = [
   { type: 'fileChange', id: 'file-1', status: 'completed', changes: [{ path: '/repo/a.ts', diff: '+a', kind: { type: 'add' } }] },
   { type: 'mcpToolCall', id: 'mcp-1', server: 'server', tool: 'lookup', arguments: { key: 'a' }, status: 'completed', result: { content: [{ type: 'text', text: 'found' }] } },
   { type: 'dynamicToolCall', id: 'dynamic-1', tool: 'calculate', arguments: { n: 2 }, status: 'completed', success: true, contentItems: [{ type: 'inputText', text: '4' }] },
-  { type: 'collabAgentToolCall', id: 'collab-1', senderThreadId: 'root', receiverThreadIds: ['child'], status: 'completed', tool: 'spawnAgent', agentsStates: {} },
+  { type: 'collabAgentToolCall', id: 'collab-1', senderThreadId: 'root', receiverThreadIds: ['child'], status: 'completed', tool: 'spawnAgent', agentsStates: {}, prompt: 'Inspect files' },
   { type: 'agentMessage', id: 'answer-1', text: 'Done.' },
 ];
 
@@ -52,6 +52,205 @@ const snapshot: CodexSessionHistory = {
 };
 
 describe('projectCodexHistory', () => {
+  it('keeps two spawn results distinct and releases each after its last receiver', () => {
+    const spawn = (id: string, receivers: string[]): CodexHistoryTurn['items'][number] => ({
+      type: 'collabAgentToolCall', id, senderThreadId: 'root',
+      receiverThreadIds: receivers, status: 'completed', tool: 'spawnAgent',
+      agentsStates: {}, prompt: 'Inspect',
+    });
+    const rootTurn: CodexHistoryTurn = {
+      id: 'root-turn', status: 'completed', startedAt: 100,
+      completedAt: 101, itemsView: 'full',
+      items: [spawn('first', ['a', 'b']), spawn('second', ['c'])],
+    };
+    const child = (id: string, end: number): CodexHistoryTurn => {
+      const item: CodexHistoryTurn['items'][number] = {
+        type: 'agentMessage', id: `${id}-answer`, text: `${id} answer`,
+      };
+      return {
+        id: `${id}-turn`, status: 'completed', startedAt: end,
+        completedAt: end, itemsView: 'full', items: [item],
+        itemEntries: [{ turnId: `${id}-turn`, item, startedAtMs: end * 1000 }],
+      };
+    };
+    const history = projectCodexHistory('session', {
+      rootThreadId: 'root', threads: [
+        thread('root', null, [rootTurn]),
+        thread('a', 'root', [child('a', 102)]),
+        thread('b', 'root', [child('b', 104)]),
+        thread('c', 'root', [child('c', 103)]),
+      ],
+    }).events;
+    const results = history.filter((event) => event.eventType === 'tool_result');
+    expect(results).toHaveLength(2);
+    expect(new Set(results.map((event) => event.id)).size).toBe(2);
+    expect(results).toContainEqual(expect.objectContaining({
+      toolCallId: 'first', output: 'a answer\nb answer',
+    }));
+    expect(results).toContainEqual(expect.objectContaining({
+      toolCallId: 'second', output: 'c answer',
+    }));
+    const index = (predicate: (event: typeof history[number]) => boolean) =>
+      history.findIndex(predicate);
+    expect(index((event) => event.eventType === 'tool_result' &&
+      event.toolCallId === 'first')).toBeGreaterThan(index((event) =>
+      event.eventType === 'message_complete' &&
+      event.messageId === '["b","b-turn"]'));
+    expect(index((event) => event.eventType === 'tool_result' &&
+      event.toolCallId === 'second')).toBeGreaterThan(index((event) =>
+      event.eventType === 'message_complete' &&
+      event.messageId === '["c","c-turn"]'));
+    const live = new CodexChatEvents('session', {
+      contextId: 'live', processGeneration: 1, threadId: 'root', turnId: 'root-turn',
+    }, { result: () => undefined, content: () => undefined,
+      live: () => undefined, compaction: () => undefined,
+      error: () => undefined }, () => 100_000);
+    let sequence = 0;
+    const root = { contextId: 'live', processGeneration: 1,
+      threadId: 'root', turnId: 'root-turn' };
+    const liveEvents = [
+      ...live.map({ ...root, sequence: ++sequence, type: 'toolStarted',
+        toolId: 'first', toolName: 'spawnAgent', agentThreadIds: ['a', 'b'],
+        input: { subagent_type: 'codex', description: 'Inspect', prompt: 'Inspect' } }),
+      ...live.map({ ...root, sequence: ++sequence, type: 'toolCompleted',
+        toolId: 'first', status: 'completed', agentThreadIds: ['a', 'b'], output: null }),
+      ...live.map({ ...root, sequence: ++sequence, type: 'toolStarted',
+        toolId: 'second', toolName: 'spawnAgent', agentThreadIds: ['c'],
+        input: { subagent_type: 'codex', description: 'Inspect', prompt: 'Inspect' } }),
+      ...live.map({ ...root, sequence: ++sequence, type: 'toolCompleted',
+        toolId: 'second', status: 'completed', agentThreadIds: ['c'], output: null }),
+      ...live.map({ ...root, sequence: ++sequence, type: 'terminal', status: 'completed' }),
+    ];
+    for (const id of ['a', 'c', 'b']) {
+      const childIdentity = { ...root, threadId: id, turnId: `${id}-turn`,
+        parentToolUseId: id === 'c' ? 'second' : 'first' };
+      liveEvents.push(...live.map({ ...childIdentity, sequence: ++sequence,
+        type: 'textFinal', itemId: `${id}-answer`, text: `${id} answer` }));
+      liveEvents.push(...live.map({ ...childIdentity, sequence: ++sequence,
+        type: 'terminal', status: 'completed' }));
+    }
+    const contract = (events: typeof history) => events.map((event) => ({
+      type: event.eventType,
+      parent: event.parentToolUseId,
+      tool: event.eventType === 'tool_start' || event.eventType === 'tool_result' ||
+        event.eventType === 'agent_start' ? event.toolCallId : undefined,
+      agent: event.eventType === 'agent_start' ? event.agentId : undefined,
+      output: event.eventType === 'tool_result' ? event.output : undefined,
+      text: event.eventType === 'text_delta' ? event.delta : undefined,
+    }));
+    expect(contract(history)).toEqual(contract(liveEvents));
+  });
+  it('keeps the parent turn active when a linked child turn completes', () => {
+    const result = jest.fn();
+    const mapper = new CodexChatEvents('session', {
+      contextId: 'live', processGeneration: 1, threadId: 'root', turnId: 'root-turn',
+    }, { result, content: () => undefined, live: () => undefined,
+      compaction: () => undefined, error: () => undefined }, () => 1);
+    mapper.map({ contextId: 'live', processGeneration: 1, threadId: 'root', turnId: 'root-turn',
+      sequence: 1, type: 'toolStarted', toolId: 'spawn', toolName: 'spawnAgent',
+      input: { subagent_type: 'codex', description: 'Inspect' }, agentThreadIds: ['child'] });
+    expect(mapper.map({ contextId: 'live', processGeneration: 1, threadId: 'root', turnId: 'root-turn',
+      sequence: 2, type: 'toolCompleted', toolId: 'spawn', status: 'completed',
+      output: { receiverThreadIds: ['child'] }, agentThreadIds: ['child'] }))
+      .not.toContainEqual(expect.objectContaining({ eventType: 'tool_result', toolCallId: 'spawn' }));
+    const childComplete = mapper.map({
+      contextId: 'live', processGeneration: 1, threadId: 'child', turnId: 'child-turn',
+      sequence: 3, type: 'terminal', status: 'completed', parentToolUseId: 'spawn',
+    });
+    expect(childComplete).toContainEqual(expect.objectContaining({
+      eventType: 'message_complete', parentToolUseId: 'spawn',
+    }));
+    expect(childComplete).toContainEqual(expect.objectContaining({
+      eventType: 'tool_result', toolCallId: 'spawn',
+    }));
+    expect(result).not.toHaveBeenCalled();
+    expect(mapper.map({
+      contextId: 'live', processGeneration: 1, threadId: 'root', turnId: 'root-turn',
+      sequence: 4, type: 'terminal', status: 'completed',
+    })).toContainEqual(expect.objectContaining({ eventType: 'message_complete' }));
+    expect(result).toHaveBeenCalledTimes(1);
+  });
+  it('replays the live spawn, child completion and finished wait contract', () => {
+    const spawn: CodexHistoryTurn['items'][number] = {
+      type: 'collabAgentToolCall', id: 'spawn', senderThreadId: 'root',
+      receiverThreadIds: ['child'], status: 'completed', tool: 'spawnAgent',
+      agentsStates: {}, prompt: 'Inspect parser',
+    };
+    const wait: CodexHistoryTurn['items'][number] = {
+      type: 'collabAgentToolCall', id: 'wait-1', senderThreadId: 'root',
+      receiverThreadIds: ['child'], status: 'completed', tool: 'wait', agentsStates: {},
+    };
+    const childMessage: CodexHistoryTurn['items'][number] = {
+      type: 'agentMessage', id: 'child-answer', text: 'Found it',
+    };
+    const rootTurn: CodexHistoryTurn = {
+      id: 'root-turn', status: 'completed', startedAt: 100, completedAt: 105,
+      items: [spawn, wait], itemsView: 'full',
+      itemEntries: [
+        { turnId: 'root-turn', item: spawn, startedAtMs: 101_000 },
+        { turnId: 'root-turn', item: wait, startedAtMs: 104_000 },
+      ],
+    };
+    const childTurn: CodexHistoryTurn = {
+      id: 'child-turn', status: 'completed', startedAt: 102, completedAt: 103,
+      items: [childMessage], itemsView: 'full',
+    };
+    const history = projectCodexHistory('session', { rootThreadId: 'root', threads: [
+      thread('root', null, [rootTurn]), thread('child', 'root', [childTurn]),
+    ] }).events;
+    const mapper = new CodexChatEvents('session', {
+      contextId: 'live', processGeneration: 1, threadId: 'root', turnId: 'root-turn',
+    }, {
+      result: () => undefined, content: () => undefined, live: () => undefined,
+      compaction: () => undefined, error: () => undefined,
+    }, () => 1);
+    const translator = new CodexEventTranslator('live', 1);
+    const liveFrame = (
+      method: string,
+      params: Record<string, unknown>,
+      parentToolUseId?: string,
+    ) => translator.translate({ method, params }).flatMap((event) =>
+      mapper.map(parentToolUseId === undefined
+        ? event : { ...event, parentToolUseId }));
+    const live = [
+      ...liveFrame('item/started', {
+        threadId: 'root', turnId: 'root-turn', item: spawn, startedAtMs: 101_000,
+      }),
+      ...liveFrame('item/completed', {
+        threadId: 'root', turnId: 'root-turn', item: spawn, completedAtMs: 101_000,
+      }),
+      ...liveFrame('item/completed', {
+        threadId: 'child', turnId: 'child-turn', item: childMessage,
+        completedAtMs: 103_000,
+      }, 'spawn'),
+      ...liveFrame('turn/completed', { threadId: 'child', turn: {
+        id: 'child-turn', status: 'completed', items: [],
+      } }, 'spawn'),
+      ...liveFrame('item/started', {
+        threadId: 'root', turnId: 'root-turn', item: wait, startedAtMs: 104_000,
+      }),
+      ...liveFrame('item/completed', {
+        threadId: 'root', turnId: 'root-turn', item: wait, completedAtMs: 104_000,
+      }),
+      ...liveFrame('turn/completed', { threadId: 'root', turn: {
+        id: 'root-turn', status: 'completed', items: [],
+      } }),
+    ];
+    const contract = (events: typeof history) => events.map((event) => {
+      switch (event.eventType) {
+        case 'tool_start': return { type: event.eventType, id: event.toolCallId, name: event.toolName, input: event.toolInput, task: event.isTaskTool, parent: event.parentToolUseId };
+        case 'tool_result': return { type: event.eventType, id: event.toolCallId, output: event.output, error: event.isError, parent: event.parentToolUseId };
+        case 'agent_start': return { type: event.eventType, id: event.toolCallId, agentId: event.agentId, agentType: event.agentType, description: event.agentDescription, prompt: event.agentPrompt, parent: event.parentToolUseId };
+        case 'text_delta': return { type: event.eventType, text: event.delta, parent: event.parentToolUseId };
+        case 'message_start': return { type: event.eventType, role: event.role, parent: event.parentToolUseId };
+        case 'message_complete': return { type: event.eventType, reason: event.stopReason, parent: event.parentToolUseId };
+        default: return { type: event.eventType };
+      }
+    });
+    expect(contract(history)).toEqual(contract(live));
+    const waits = history.filter((event) => (event.eventType === 'tool_start' || event.eventType === 'tool_result') && event.toolCallId === 'wait-1');
+    expect(waits.map((event) => event.eventType)).toEqual(['tool_start', 'tool_result']);
+  });
   it('projects complete ordered turns, child cards, stable ids and absent usage', () => {
     const first = projectCodexHistory('session', snapshot);
     const second = projectCodexHistory('session', snapshot);
@@ -73,7 +272,8 @@ describe('projectCodexHistory', () => {
     expect(first.events.filter((event) => event.eventType === 'tool_start').map((event) => event.toolCallId)).toEqual(['command-1', 'file-1', 'mcp-1', 'dynamic-1', 'collab-1']);
     expect(first.events.filter((event) => event.eventType === 'tool_result').map((event) => event.toolCallId)).toEqual(['command-1', 'file-1', 'mcp-1', 'dynamic-1', 'collab-1']);
     expect(first.events).toContainEqual(expect.objectContaining({ eventType: 'agent_start', agentId: 'child', toolCallId: 'collab-1' }));
-    expect(first.events).toContainEqual(expect.objectContaining({ eventType: 'agent_start', agentId: 'child', agentType: 'unknown', source: 'history', messageId: '["root","turn-1"]' }));
+    expect(first.events).toContainEqual(expect.objectContaining({ eventType: 'tool_start', toolCallId: 'collab-1', toolName: 'Task', isTaskTool: true, toolInput: { subagent_type: 'codex', description: 'Inspect files', prompt: 'Inspect files' } }));
+    expect(first.events).toContainEqual(expect.objectContaining({ eventType: 'agent_start', agentId: 'child', agentType: 'codex', agentDescription: 'Inspect files', parentToolUseId: 'collab-1', source: 'history', messageId: '["root","turn-1"]' }));
     expect(first.events).toContainEqual(expect.objectContaining({ eventType: 'text_delta', delta: 'Child answer', parentToolUseId: 'collab-1' }));
     expect(first.events.some((event) => event.eventType === 'message_delta')).toBe(false);
     expect(first.events.filter((event) => event.eventType === 'message_complete').every((event) => !('tokenUsage' in event))).toBe(true);
@@ -86,7 +286,7 @@ describe('projectCodexHistory', () => {
       result: () => undefined, content: () => undefined, live: () => undefined,
       compaction: () => undefined, error: () => undefined,
     }, () => 100_000);
-    const live = items.flatMap((item) => item.type === 'userMessage' ? [] :
+    const liveItems = items.flatMap((item) => item.type === 'userMessage' ? [] :
       (['item/started', 'item/completed'] as const).flatMap((method) =>
         translator.translate({ method, params: {
           threadId: 'root', turnId: 'turn-1', item,
@@ -95,13 +295,20 @@ describe('projectCodexHistory', () => {
             : { completedAtMs: 100_000 }),
         } })
           .flatMap((event) => mapper.map(event))));
+    const live = [...liveItems, ...mapper.map({
+      ...identity, sequence: 999, type: 'terminal', status: 'completed',
+    })];
     const projected = projectCodexHistory('session', snapshot).events;
     const toolShape = (events: typeof projected) => events.filter((event) =>
       event.eventType === 'tool_start' || event.eventType === 'tool_result').map((event) => {
       if (event.eventType === 'tool_start') return { eventType: event.eventType, toolCallId: event.toolCallId, toolName: event.toolName, toolInput: event.toolInput, isTaskTool: event.isTaskTool };
       return { eventType: event.eventType, toolCallId: event.toolCallId, output: event.output, isError: event.isError };
     });
-    expect(toolShape(projected)).toEqual(toolShape(live));
+    expect(toolShape(projected).filter((event) => event.toolCallId !== 'collab-1'))
+      .toEqual(toolShape(live).filter((event) => event.toolCallId !== 'collab-1'));
+    expect(projected).toContainEqual(expect.objectContaining({
+      eventType: 'tool_result', toolCallId: 'collab-1', output: 'Child answer',
+    }));
     const liveStart = live.find((event) => event.eventType === 'message_start');
     const projectedStart = projected.find((event) => event.eventType === 'message_start' && event.messageId === '["root","turn-1"]');
     expect(projectedStart).toMatchObject({ id: liveStart?.id, sessionId: liveStart?.sessionId, messageId: liveStart?.messageId });
@@ -205,8 +412,8 @@ describe('projectCodexHistory', () => {
       thread('root', null, [rootTurn]), thread('child', 'root', [childTurn]), thread('grandchild', 'child', [grandchildTurn]),
     ] });
     expect(result.skippedItems).toEqual([]);
-    expect(result.events).toContainEqual(expect.objectContaining({ eventType: 'agent_start', agentId: 'child', toolCallId: 'resume-child' }));
-    expect(result.events).toContainEqual(expect.objectContaining({ eventType: 'agent_start', agentId: 'grandchild', toolCallId: 'spawn-grandchild', parentToolUseId: 'resume-child' }));
+    expect(result.events).not.toContainEqual(expect.objectContaining({ eventType: 'agent_start', agentId: 'child', toolCallId: 'resume-child' }));
+    expect(result.events).toContainEqual(expect.objectContaining({ eventType: 'agent_start', agentId: 'grandchild', toolCallId: 'spawn-grandchild', parentToolUseId: 'spawn-grandchild' }));
     expect(result.events).toContainEqual(expect.objectContaining({ eventType: 'text_delta', delta: 'Deep', parentToolUseId: 'spawn-grandchild' }));
   });
 

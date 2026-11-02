@@ -120,6 +120,7 @@ export async function* streamCodexChatTurn(
   const abort = () => subscription.abort();
   session.abort.signal.addEventListener('abort', abort, { once: true });
   let terminal = false;
+  let backgroundTimer: ReturnType<typeof setTimeout> | undefined;
   let terminalStatus: CodexChatResult['status'] | undefined;
   let countedCompletedTurn = false;
   let turnSettled = false;
@@ -379,7 +380,13 @@ export async function* streamCodexChatTurn(
         }
       }
       if (terminalError) throw terminalError;
-      if (terminal) return;
+      if (terminal && projection.hasPendingChildren && !backgroundTimer)
+        backgroundTimer = setTimeout(() => subscription.abort(), 30_000);
+      if (terminal && !projection.hasPendingChildren) return;
+    }
+    if (terminal && projection.hasPendingChildren) {
+      for (const unresolved of projection.finishBackground()) yield unresolved;
+      return;
     }
     throw deps.error('runtime-failed', 'stream');
   } catch (error) {
@@ -429,6 +436,7 @@ export async function* streamCodexChatTurn(
     else if (!admitted) deps.admission?.rejected(reported);
     throw reported;
   } finally {
+    clearTimeout(backgroundTimer);
     finishCompaction?.();
     // A consumer can detach between message_complete and its settlement event.
     if (terminal) settleTurn();

@@ -50,6 +50,20 @@ export interface CodexChatEventCallbacks {
   error(message: string, cwd?: string): void | Promise<void>;
 }
 
+interface AgentResultState {
+  readonly pending: Map<string, {
+    result: Extract<FlatStreamEventUnion, { eventType: 'tool_result' }>;
+    remaining: Set<string>;
+    receivers: readonly string[];
+  }>;
+  readonly terminated: Set<string>;
+  readonly texts: Map<string, string>;
+}
+
+function agentResultState(): AgentResultState {
+  return { pending: new Map(), terminated: new Set(), texts: new Map() };
+}
+
 /** One projection per turn. Core events are already normalized. */
 export class CodexChatEvents {
   private pending: Promise<void> = Promise.resolve();
@@ -90,15 +104,93 @@ export class CodexChatEvents {
   private readonly blocks = new Map<string, number>();
   /** Raw native tool names by tool id, from toolStarted to toolCompleted. */
   private readonly tools = new Map<string, string>();
+  private readonly agentStarts = new Set<string>();
+  private readonly agentInputs = new Map<string, Record<string, unknown>>();
+  private readonly childProjections = new Map<string, CodexChatEvents>();
+  private lastResultText = '';
 
   constructor(
     private readonly sessionId: string,
     private readonly identity: CodexChatTurnIdentity,
     private readonly callbacks: CodexChatEventCallbacks,
     private readonly now: () => number = Date.now,
+    _nested = false,
+    private readonly agentState: AgentResultState = agentResultState(),
+    private readonly releaseOnTerminal = false,
   ) {}
 
+  get hasPendingChildren(): boolean {
+    return this.agentState.pending.size > 0;
+  }
+
+  /** The caller can end a bounded background drain without claiming a child answer. */
+  finishBackground(): FlatStreamEventUnion[] {
+    const results = [...this.agentState.pending.values()].map(({ result }) => ({
+      ...result,
+      output: null,
+      isError: true,
+      timestamp: this.now(),
+    }));
+    this.agentState.pending.clear();
+    return results;
+  }
+
+
+  private flushHistoryResults(): FlatStreamEventUnion[] {
+    const results = [...this.agentState.pending.values()].map(({ result }) => result);
+    this.agentState.pending.clear();
+    return results;
+  }
+
+  private completedAgentResult(toolId: string): FlatStreamEventUnion | undefined {
+    const pending = this.agentState.pending.get(toolId);
+    if (!pending || pending.remaining.size > 0) return undefined;
+    this.agentState.pending.delete(toolId);
+    const text = pending.receivers.map((id) => this.agentState.texts.get(id) ?? '')
+      .filter(Boolean).join('\n');
+    return { ...pending.result, output: text, timestamp: this.now() };
+  }
+
   map(event: CodexRuntimeEvent): FlatStreamEventUnion[] {
+    if (event.parentToolUseId !== undefined &&
+      (event.threadId !== this.identity.threadId || event.turnId !== this.identity.turnId)) {
+      const key = JSON.stringify([event.threadId, event.turnId]);
+      let child = this.childProjections.get(key);
+      if (!child) {
+        child = new CodexChatEvents(this.sessionId, {
+          contextId: event.contextId, processGeneration: event.processGeneration,
+          threadId: event.threadId, turnId: event.turnId,
+        }, {
+          ...this.callbacks,
+          // Child completion must not settle the root turn.
+          result: () => undefined,
+          // Child errors remain scoped to the child card.
+          error: () => undefined,
+        }, this.now, true, this.agentState, this.releaseOnTerminal);
+        this.childProjections.set(key, child);
+      }
+      const childParent = event.parentToolUseId;
+      const mapped: FlatStreamEventUnion[] = child
+        .map({ ...event, parentToolUseId: undefined })
+        .map((entry): FlatStreamEventUnion => entry.eventType === 'agent_start'
+          ? entry : { ...entry, parentToolUseId: childParent });
+      if (event.type === 'toolCompleted') {
+        const pending = this.agentState.pending.get(event.toolId);
+        if (pending) pending.result = {
+          ...pending.result, parentToolUseId: event.parentToolUseId,
+        };
+      }
+      if (event.type === 'terminal') {
+        this.agentState.terminated.add(event.threadId);
+        this.agentState.texts.set(event.threadId, child.lastResultText);
+        for (const [toolId, pending] of this.agentState.pending) {
+          pending.remaining.delete(event.threadId);
+          const result = this.completedAgentResult(toolId);
+          if (result) mapped.push(result);
+        }
+      }
+      return mapped;
+    }
     if (
       this.terminal ||
       event.sequence <= this.sequence ||
@@ -235,14 +327,17 @@ export class CodexChatEvents {
       }
       case 'toolStarted':
         this.tools.set(event.toolId, event.toolName);
+        if (event.agentThreadIds !== undefined && typeof event.input === 'object' &&
+          event.input !== null && !Array.isArray(event.input))
+          this.agentInputs.set(event.toolId, Object.fromEntries(Object.entries(event.input)));
         return [
           {
             ...base,
             eventType: 'tool_start',
             toolCallId: event.toolId,
-            isTaskTool: false,
+            isTaskTool: event.agentThreadIds !== undefined,
             ...presentCodexTool(
-              event.toolName,
+              event.agentThreadIds !== undefined ? 'Task' : event.toolName,
               typeof event.input === 'object' &&
               event.input !== null &&
               !Array.isArray(event.input)
@@ -250,25 +345,40 @@ export class CodexChatEvents {
                 : undefined,
             ),
           },
+          ...this.agentStartEvents(event, base),
         ];
       case 'toolCompleted': {
         // The result is shaped like Claude's tool_result for the tool that
         // started (the runtime completion carries no name).
         const toolName = this.tools.get(event.toolId);
         this.tools.delete(event.toolId);
+        const starts = this.agentStartEvents(event, base);
+        this.agentInputs.delete(event.toolId);
+        const resultEvent: Extract<FlatStreamEventUnion, { eventType: 'tool_result' }> = {
+          ...base,
+          eventType: 'tool_result',
+          toolCallId: event.toolId,
+          ...presentCodexToolResult({
+            toolName,
+            status: event.status,
+            output: event.output,
+            ...(event.exitCode === undefined ? {} : { exitCode: event.exitCode }),
+            ...(event.errorText === undefined ? {} : { errorText: event.errorText }),
+          }),
+        };
+        if (event.status === 'completed' && event.agentThreadIds?.length) {
+          const receivers = event.agentThreadIds;
+          this.agentState.pending.set(event.toolId, {
+            result: resultEvent,
+            receivers,
+            remaining: new Set(receivers.filter((id) => !this.agentState.terminated.has(id))),
+          });
+          const completed = this.completedAgentResult(event.toolId);
+          return completed ? [...starts, completed] : starts;
+        }
         return [
-          {
-            ...base,
-            eventType: 'tool_result',
-            toolCallId: event.toolId,
-            ...presentCodexToolResult({
-              toolName,
-              status: event.status,
-              output: event.output,
-              ...(event.exitCode === undefined ? {} : { exitCode: event.exitCode }),
-              ...(event.errorText === undefined ? {} : { errorText: event.errorText }),
-            }),
-          },
+          ...starts,
+          resultEvent,
         ];
       }
       case 'usage':
@@ -296,6 +406,8 @@ export class CodexChatEvents {
         if (event.error.code === 'codexFollowUpRejected') this.error();
         return [];
       case 'terminal': {
+        const unresolvedAgentResults = this.releaseOnTerminal
+          ? this.flushHistoryResults() : [];
         this.terminal = true;
         const failed = event.status === 'failed' || event.error !== undefined;
         if (failed) this.error();
@@ -306,9 +418,13 @@ export class CodexChatEvents {
           ...(usage === undefined ? {} : { usage }),
           ...(failed ? { error: CODEX_FAILURE_NOTICE } : {}),
         };
+        this.lastResultText = result.text;
         this.text.clear();
         this.blocks.clear();
         this.tools.clear();
+        this.agentStarts.clear();
+        this.agentInputs.clear();
+        if (!this.hasPendingChildren) this.childProjections.clear();
         this.usage = undefined;
         this.track(this.callbacks.result(result));
         // Failed and interrupted turns must not end the generator normally.
@@ -324,6 +440,7 @@ export class CodexChatEvents {
         }
         // Message usage is the SDK stream contract; result stats are a separate channel.
         return [
+          ...unresolvedAgentResults,
           {
             ...base,
             eventType: 'message_complete',
@@ -338,6 +455,35 @@ export class CodexChatEvents {
         ];
       }
     }
+  }
+
+  private agentStartEvents(
+    event: Extract<CodexRuntimeEvent, { type: 'toolStarted' | 'toolCompleted' }>,
+    base: { id: string; messageId: string; sessionId: string; timestamp: number; source: 'stream' },
+  ): FlatStreamEventUnion[] {
+    const ids = event.agentThreadIds ?? [];
+    const input = event.type === 'toolStarted' && typeof event.input === 'object' &&
+      event.input !== null && !Array.isArray(event.input)
+      ? Object.fromEntries(Object.entries(event.input)) : this.agentInputs.get(event.toolId);
+    const agentType = input?.['subagent_type'];
+    const description = input?.['description'];
+    const prompt = input?.['prompt'];
+    return ids.flatMap((agentId) => {
+      const key = JSON.stringify([event.toolId, agentId]);
+      if (this.agentStarts.has(key)) return [];
+      this.agentStarts.add(key);
+      return [{
+        ...base,
+        id: `${base.id}:agent:${agentId}`,
+        eventType: 'agent_start' as const,
+        toolCallId: event.toolId,
+        agentId,
+        agentType: typeof agentType === 'string' ? agentType : 'codex',
+        agentDescription: typeof description === 'string' ? description : 'Codex sub-agent',
+        ...(typeof prompt === 'string' ? { agentPrompt: prompt } : {}),
+        parentToolUseId: event.toolId,
+      }];
+    });
   }
 
   private block(kind: string, itemId: string): number {

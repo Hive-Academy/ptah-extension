@@ -7,7 +7,6 @@ import {
 } from '@ptah-extension/codex-runtime';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 import { CODEX_FAILURE_NOTICE, CodexChatEvents } from './codex-chat-events';
-import { HistoryEventFactory } from '../helpers/history/history-event-factory';
 
 export interface CodexHistoryProjection {
   readonly events: FlatStreamEventUnion[];
@@ -62,6 +61,7 @@ export function projectCodexHistory(
     for (const event of events) collected.push({ event, ordinal: ordinal++ });
   };
   const parentTool = new Map<string, string>();
+  const spawnReceivers = new Map<string, readonly string[]>();
   const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread]));
   const knownTimes = snapshot.threads.flatMap((thread) => [
     millis(thread.createdAt, Number.POSITIVE_INFINITY),
@@ -72,6 +72,7 @@ export function projectCodexHistory(
     for (const turn of thread.turns) {
       for (const item of turn.items) {
         if (item.type === 'collabAgentToolCall') {
+          if (item.tool === 'spawnAgent') spawnReceivers.set(item.id, item.receiverThreadIds);
           for (const childId of item.receiverThreadIds) {
             const child = threadsById.get(childId);
             if (childId === snapshot.rootThreadId || !child?.parentThreadId || createsParentCycle(thread, childId, threadsById)) continue;
@@ -95,11 +96,56 @@ export function projectCodexHistory(
     if (parentThreadId && !linked)
       skippedItems.push({ threadId: thread.id, turnId: thread.turns[0]?.id ?? '', itemId: thread.id, reason: 'unresolvedParentTool' });
     for (const turn of thread.turns) {
-      threadTime = projectTurn(thread, turn, sessionId, parentToolUseId, parentTool, threadTime, push, skippedItems);
+      threadTime = projectTurn(
+        thread, turn, sessionId, parentToolUseId, threadTime, push,
+        skippedItems, parentTool,
+      );
     }
   }
-  collected.sort((a, b) => a.event.timestamp - b.event.timestamp || a.ordinal - b.ordinal);
-  return { events: collected.map(({ event }) => event), stats: null, skippedItems };
+  const ordered = [...collected];
+  ordered.sort((a, b) => a.event.timestamp - b.event.timestamp || a.ordinal - b.ordinal);
+  // Place held results after the last receiver terminal by event relationship.
+  // Tied or absent native timestamps cannot reverse that sequence.
+  const held = ordered.filter(({ event }) =>
+    event.eventType === 'tool_result' && spawnReceivers.has(event.toolCallId));
+  for (const entry of held) {
+    const event = entry.event;
+    if (event.eventType !== 'tool_result') continue;
+    const receivers = (spawnReceivers.get(event.toolCallId) ?? [])
+      .filter((id) => parentTool.get(id) === event.toolCallId);
+    const answers = receivers.flatMap((id) => {
+      const child = threadsById.get(id);
+      const messages = child?.turns.flatMap((turn) => turn.items
+        .filter((item) => item.type === 'agentMessage')
+        .map((item) => item.text)) ?? [];
+      const last = messages[messages.length - 1];
+      return last ? [last] : [];
+    });
+    const index = ordered.indexOf(entry);
+    ordered.splice(index, 1);
+    const lastTerminal = receivers.map((id) => {
+      const child = threadsById.get(id);
+      const turns = child?.turns ?? [];
+      const lastTurn = turns[turns.length - 1];
+      if (!lastTurn) return -1;
+      return ordered.findIndex(({ event: candidate }) =>
+        candidate.eventType === 'message_complete' &&
+        candidate.messageId === JSON.stringify([id, lastTurn.id]));
+    });
+    const releaseAt = lastTerminal.length > 0 && lastTerminal.every((value) => value >= 0)
+      ? Math.max(...lastTerminal) + 1 : Math.min(index, ordered.length);
+    const lastChild = ordered[releaseAt - 1]?.event;
+    ordered.splice(releaseAt, 0, {
+      ...entry,
+      event: {
+        ...event,
+        output: answers.join('\n'),
+        timestamp: lastChild && releaseAt !== index
+          ? Math.max(event.timestamp, lastChild.timestamp) : event.timestamp,
+      },
+    });
+  }
+  return { events: ordered.map(({ event }) => event), stats: null, skippedItems };
 }
 
 function projectTurn(
@@ -107,10 +153,10 @@ function projectTurn(
   turn: CodexHistoryTurn,
   sessionId: string,
   parentToolUseId: string | undefined,
-  parentTool: ReadonlyMap<string, string>,
   fallbackTime: number,
   push: (events: readonly FlatStreamEventUnion[]) => void,
   skipped: CodexHistoryProjection['skippedItems'][number][],
+  parentTool: ReadonlyMap<string, string>,
 ): number {
   const turnStart = Math.max(fallbackTime, millis(turn.startedAt, fallbackTime));
   const messageId = JSON.stringify([thread.id, turn.id]);
@@ -139,14 +185,18 @@ function projectTurn(
     live: () => undefined,
     compaction: () => undefined,
     error: () => undefined,
-  }, () => timestamp);
+  }, () => timestamp, parentToolUseId !== undefined, undefined, true);
   const emit = (method: 'item/started' | 'item/completed', item: HistoryItem) => {
     const translated = translator.translate({
       method,
       params: {
         threadId: thread.id,
         turnId: turn.id,
-        item,
+        item: item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent'
+          ? { ...item, receiverThreadIds: item.receiverThreadIds.filter(
+            (id) => parentTool.get(id) === item.id,
+          ) }
+          : item,
         ...(method === 'item/started'
           ? { startedAtMs: timestamp }
           : { completedAtMs: timestamp }),
@@ -174,15 +224,11 @@ function projectTurn(
         id: entry.eventType === 'message_start'
           ? entry.id
           : JSON.stringify([thread.id, turn.id, item.id, entry.eventType, method, index]),
-        ...(parentToolUseId === undefined ? {} : { parentToolUseId }),
+        ...(entry.eventType === 'agent_start'
+          ? { source: 'history' as const }
+          : parentToolUseId === undefined ? {} : { parentToolUseId }),
       })));
       if (completeContent.length) push(completeContent.splice(0));
-      if (item.type === 'collabAgentToolCall' && event.type === 'toolStarted') {
-        for (const childId of item.receiverThreadIds.filter((id) => parentTool.get(id) === item.id)) push([{
-          ...new HistoryEventFactory().createAgentStart(sessionId, messageId, item.id, {}, 0, timestamp, parentToolUseId, childId),
-          id: JSON.stringify([thread.id, turn.id, item.id, childId, 'agent-start']),
-        }]);
-      }
     }
   };
   turn.items.forEach((item, index) => {
@@ -244,7 +290,10 @@ function projectTurn(
       status: turn.status === 'inProgress' ? 'interrupted' : turn.status,
     });
     push(terminal.map((entry) => ({
-      ...entry, id: JSON.stringify([thread.id, turn.id, 'terminal', entry.eventType]),
+      ...entry, id: JSON.stringify([
+        thread.id, turn.id, 'terminal', entry.eventType,
+        entry.eventType === 'tool_result' ? entry.toolCallId : '',
+      ]),
       ...(parentToolUseId === undefined ? {} : { parentToolUseId }),
     })));
   }
