@@ -11,14 +11,19 @@ import {
   type CodexExecutionProfile,
   type CodexReportedUsage,
   type CodexRuntimeEvent,
+  type CodexUsageEvidence,
 } from '@ptah-extension/codex-runtime';
-import { SessionId, type FlatStreamEventUnion } from '@ptah-extension/shared';
+import {
+  SessionId, calculateExactMessageCost, type FlatStreamEventUnion,
+} from '@ptah-extension/shared';
 import {
   CodexChatAdapter,
   type CodexChatAdapterPorts,
 } from './codex-chat-adapter';
 import { SessionApprovalRouter } from './session-approval-router';
 import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
+import { CodexSessionUsageOwner, type CodexUsageCheckpoint } from
+  './codex-session-usage-owner';
 
 const id = SessionId.from('11111111-1111-4111-8111-111111111111');
 const tabId = SessionId.from('22222222-2222-4222-8222-222222222222');
@@ -55,7 +60,13 @@ function mockLogger(): Logger {
   return Object.assign(Object.create(Logger.prototype), createMockLogger());
 }
 
-function setup(override = true, consumer: 'chat' | 'gateway' = 'chat') {
+function setup(
+  override = true,
+  consumer: 'chat' | 'gateway' = 'chat',
+  billingMode: 'api-key' | 'subscription' | 'unknown' = 'unknown',
+  model = 'gpt',
+  checkpoint?: CodexUsageCheckpoint,
+) {
   const logger = mockLogger();
   const turnState = new SessionTurnStateRegistry();
   const context: jest.Mocked<CodexContext> = {
@@ -106,6 +117,7 @@ function setup(override = true, consumer: 'chat' | 'gateway' = 'chat') {
     compaction: jest.fn(),
     error: jest.fn(),
   };
+  const persistUsage = jest.fn(async () => undefined);
   const lifecycle = { opened: jest.fn(), closed: jest.fn() };
   const scope = container.createChildContainer();
   const open = jest.fn(async () => context);
@@ -152,14 +164,19 @@ function setup(override = true, consumer: 'chat' | 'gateway' = 'chat') {
       },
     },
     profile: jest.fn(async (_config, resumeId) => ({
-      profile: { ...profile, consumer },
+      profile: { ...profile, consumer, model },
+      billingMode,
       ...(resumeId ? { resume: identity } : {}),
     })),
     createScope: (value) => {
       sink = value;
       return { container: scope, dispose };
     },
-    metadata: { save: jest.fn(async () => undefined) },
+    metadata: {
+      save: jest.fn(async () => undefined),
+      readUsage: jest.fn(async () => ({ checkpoint, messageCount: 0 })),
+      persistUsage,
+    },
     approvals,
     presentation: {
       present: jest.fn(),
@@ -181,6 +198,7 @@ function setup(override = true, consumer: 'chat' | 'gateway' = 'chat') {
     open,
     dispose,
     callbacks,
+    persistUsage,
     lifecycle,
     sink: () => {
       if (!sink) throw new Error('Expected an approval sink after opening');
@@ -205,6 +223,199 @@ const delta: CodexRuntimeEvent = {
 };
 
 describe('Codex chat turn lifecycle', () => {
+  const counters = {
+    uncachedInputTokens: 100, outputTokens: 20, cacheReadTokens: 0,
+    cacheCreationTokens: 0, reasoningOutputTokens: 0, totalTokens: 120,
+  };
+  const evidence: CodexUsageEvidence = {
+    threadId: id, turnId: 'turn', modelId: 'gpt-4o', total: counters,
+    last: counters, timestamp: 1, terminalState: 'completed', accepted: true,
+    epoch: 0, resetOrStale: false, cacheSemanticsAmbiguous: false,
+    lastExceedsTotal: false, diagnostics: [],
+  };
+
+  it.each([
+    ['api-key', 'estimated'],
+    ['subscription', 'covered-by-subscription'],
+  ] as const)('prices %s native usage as %s', async (mode, basis) => {
+    const h = setup(true, 'chat', mode, 'gpt-4o');
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, evidence, usage: { inputTokens: 100, outputTokens: 20 } };
+    })());
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+      costBasis: basis,
+      turnCost: expect.any(Number),
+      priceProvenance: [expect.objectContaining({ modelIdUsed: 'gpt-4o' })],
+      sessionStats: expect.objectContaining({
+        totalCost: expect.any(Number), costBasis: basis,
+        pricingCoverage: 'full', tokens: {
+          input: 100, output: 20, cacheRead: 0, cacheCreation: 0,
+        },
+        priceProvenance: [expect.objectContaining({ modelIdUsed: 'gpt-4o' })],
+      }),
+    }));
+    await h.adapter.dispose();
+  });
+
+  it('retains unknown prices and emits lifetime stats on a failed terminal', async () => {
+    const h = setup(true, 'chat', 'api-key', 'unpriced-native-model');
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, status: 'failed' as const,
+        evidence: { ...evidence, modelId: 'unpriced-native-model',
+          terminalState: 'failed' as const } };
+    })());
+    await expect(collect(await h.adapter.startChatSession({ tabId }))).rejects.toMatchObject({
+      code: 'runtime-failed',
+    });
+    expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+      turnCost: null, costBasis: 'unknown', pricingCoverage: 'none',
+      sessionStats: expect.objectContaining({
+        totalCost: null, costBasis: 'unknown', pricingCoverage: 'none',
+        tokens: expect.objectContaining({ input: 100 }),
+      }),
+    }));
+    await h.adapter.dispose();
+  });
+
+  it('keeps a known rate unavailable when auth mode is unknown', async () => {
+    const h = setup(true, 'chat', 'unknown', 'gpt-4o');
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, evidence };
+    })());
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+      turnCost: null, costBasis: 'unknown', pricingCoverage: 'none',
+      sessionStats: expect.objectContaining({ totalCost: null }),
+    }));
+    await h.adapter.dispose();
+  });
+
+  it('continues restored lifetime usage on resume', async () => {
+    const owner = new CodexSessionUsageOwner(id, id);
+    owner.accept({ ...evidence, turnId: 'prior', total: {
+      ...counters, uncachedInputTokens: 50, totalTokens: 70,
+    } });
+    const h = setup(true, 'chat', 'api-key', 'gpt-4o', owner.serialize());
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, evidence };
+    })());
+    await collect(await h.adapter.resumeSession(id, { tabId }));
+    expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+      sessionStats: expect.objectContaining({
+        tokens: expect.objectContaining({ input: 100 }),
+      }),
+    }));
+    await h.adapter.dispose();
+  });
+
+  it('retains exact lifetime cost across a priced model switch and resume', async () => {
+    const owner = new CodexSessionUsageOwner(id, id);
+    const priorCounters = { ...counters, uncachedInputTokens: 40,
+      outputTokens: 10, totalTokens: 50 };
+    owner.accept({ ...evidence, turnId: 'prior', modelId: 'gpt-4o-mini',
+      total: priorCounters, last: priorCounters });
+    const priorPrice = calculateExactMessageCost('gpt-4o-mini', {
+      input: 40, output: 10,
+    }, { billingMode: 'api-key', usageObserved: true });
+    if (priorPrice.totalCost === null) throw new Error('Expected a catalog rate');
+    owner.recordTurnPrice(priorPrice);
+    const h = setup(true, 'chat', 'api-key', 'gpt-4o', owner.serialize());
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, evidence };
+    })());
+    await collect(await h.adapter.resumeSession(id, { tabId }));
+    const result = stats.mock.calls[0]?.[0];
+    if (!result) throw new Error('Expected native result stats');
+    expect(result.turnCost).toBeGreaterThan(0);
+    expect(result.sessionStats.totalCost).toBeCloseTo(
+      priorPrice.totalCost + result.turnCost, 10,
+    );
+    expect(result.sessionStats.pricingCoverage).toBe('full');
+    expect(result.sessionStats.priceProvenance).toEqual([
+      expect.objectContaining({ modelIdUsed: 'gpt-4o-mini' }),
+      expect.objectContaining({ modelIdUsed: 'gpt-4o' }),
+    ]);
+    await h.adapter.dispose();
+  });
+
+  it('does not price usage from a configured alias when evidence omits the model', async () => {
+    const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, evidence: { ...evidence, modelId: undefined } };
+    })());
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+      turnCost: null, costBasis: 'unknown',
+      sessionStats: expect.objectContaining({ totalCost: null }),
+    }));
+    await h.adapter.dispose();
+  });
+
+  it('reports a checkpoint read failure and continues with partial coverage', async () => {
+    const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+    h.ports.metadata.readUsage = jest.fn().mockRejectedValue(new Error('disk read failed'));
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, evidence };
+    })());
+    await collect(await h.adapter.resumeSession(id, { tabId }));
+    expect(h.ports.logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('checkpoint read failed'), expect.any(Error),
+    );
+    expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+      turnCost: expect.any(Number),
+      sessionStats: expect.objectContaining({
+        coverage: 'partial', totalCost: null,
+      }),
+    }));
+    await h.adapter.dispose();
+  });
+
+  it('logs a checkpoint write failure without losing the terminal result', async () => {
+    const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.persistUsage.mockRejectedValueOnce(new Error('storage unavailable'));
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, evidence };
+    })());
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(stats).toHaveBeenCalledTimes(1);
+    expect(h.ports.logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('checkpoint persistence failed'),
+      expect.any(Error),
+    );
+    await h.adapter.dispose();
+  });
+
+  it('reports an unavailable host usage store on the terminal path', async () => {
+    const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+    h.ports.metadata.persistUsage = undefined;
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, evidence };
+    })());
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(h.ports.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('checkpoint persistence unavailable'),
+      expect.objectContaining({ sessionId: id }),
+    );
+    await h.adapter.dispose();
+  });
+
   it('orders generating and completed settlement around the projected message', async () => {
     const h = setup();
     h.context.events.mockImplementation(() =>
@@ -397,6 +608,8 @@ describe('Codex chat turn lifecycle', () => {
     'settles a %s terminal with a consumable terminal state',
     async (status, phase, terminalReason) => {
       const h = setup();
+      const stats = jest.fn();
+      h.adapter.setResultStatsCallback(stats);
       h.context.events.mockImplementation(() =>
         (async function* () {
           yield delta;
@@ -418,6 +631,9 @@ describe('Codex chat turn lifecycle', () => {
         code: status === 'failed' ? 'runtime-failed' : 'cancelled',
         webviewReported: status === 'failed' ? true : undefined,
       });
+      expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+        sessionStats: expect.objectContaining({ coverage: 'partial' }),
+      }));
       expect(output.filter((event) => event.eventType === 'text_delta' &&
         event.delta === 'Codex reported a runtime error.')).toHaveLength(status === 'failed' ? 1 : 0);
       expect(h.turnState.get(id)).toMatchObject({ phase, terminalReason });

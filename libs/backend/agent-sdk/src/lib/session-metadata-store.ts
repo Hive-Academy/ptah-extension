@@ -169,6 +169,11 @@ function checkpointRegresses(next: CodexUsageCheckpoint, current: CodexUsageChec
     'cacheCreationTokens', 'reasoningOutputTokens', 'totalTokens'] as const;
   if (next.rootThreadId !== current.rootThreadId || next.revision < current.revision ||
     (current.childInclusion === 'disjoint' && next.childInclusion !== 'disjoint')) return true;
+  if (current.pricing && (!next.pricing ||
+    next.pricing.throughRevision < current.pricing.throughRevision ||
+    next.pricing.knownCost < current.pricing.knownCost ||
+    (next.revision === current.revision && current.pricing.complete &&
+      !next.pricing.complete))) return true;
   if (next.revision === current.revision &&
     (next.threads.length !== current.threads.length ||
       classes.some((key) => next.total[key] !== current.total[key] ||
@@ -186,8 +191,17 @@ function checkpointRegresses(next: CodexUsageCheckpoint, current: CodexUsageChec
 function validCheckpoint(sessionId: string, raw: unknown): CodexUsageCheckpoint | undefined {
   const parsed = codexUsageCheckpointSchema.safeParse(raw);
   return parsed.success &&
-    CodexSessionUsageOwner.restore(sessionId, parsed.data.rootThreadId, parsed.data).getDiagnostics().length === 0
+    CodexSessionUsageOwner.restore(
+      sessionId, parsed.data.rootThreadId, parsed.data,
+    ).isRestoredCheckpoint()
     ? parsed.data : undefined;
+}
+
+function nativeCheckpointCost(checkpoint: CodexUsageCheckpoint): number | null {
+  const price = checkpoint.pricing;
+  return checkpoint.revision > 0 && checkpoint.threads.length > 0 &&
+    checkpoint.coverage === 'complete' && price?.complete &&
+    price.throughRevision === checkpoint.revision ? price.knownCost : null;
 }
 
 export class SessionAccountBindingError extends Error {
@@ -209,6 +223,7 @@ export class CodexSessionMetadataError extends Error {
     readonly code:
       | 'legacy-conversion'
       | 'invalid-identity'
+      | 'usage-regression'
       | 'binding-change'
       | 'unavailable-storage'
       | 'direct-runtime-write'
@@ -335,7 +350,7 @@ export interface SessionMetadata {
   /**
    * Accumulated cost from result messages (USD)
    */
-  readonly totalCost: number;
+  readonly totalCost: number | null;
 
   /**
    * Accumulated tokens from result messages
@@ -1206,7 +1221,8 @@ export class SessionMetadataStore {
           ? { isChildSession: true } : {}),
         createdAt: existing?.createdAt ?? now,
         lastActiveAt: now,
-        totalCost: checkpoint ? 0 : existing?.totalCost ?? 0,
+        totalCost: checkpoint ? nativeCheckpointCost(checkpoint) :
+          existing?.codexExecution ? null : existing?.totalCost ?? null,
         totalTokens: checkpoint
           ? {
               input: checkpoint.total.uncachedInputTokens +
@@ -1232,7 +1248,9 @@ export class SessionMetadataStore {
     if (validated.sessionId !== sessionId) {
       throw new CodexSessionMetadataError('invalid-identity', 'Usage checkpoint session mismatch');
     }
-    if (CodexSessionUsageOwner.restore(sessionId, validated.rootThreadId, validated).getDiagnostics().length) {
+    if (!CodexSessionUsageOwner.restore(
+      sessionId, validated.rootThreadId, validated,
+    ).isRestoredCheckpoint()) {
       throw new CodexSessionMetadataError('invalid-identity', 'Invalid usage checkpoint aggregate');
     }
     let workspaceId: string | undefined;
@@ -1248,13 +1266,15 @@ export class SessionMetadataStore {
       }
       if (stored && checkpointRegresses(validated, stored)) {
         this.logger.warn('[SessionMetadataStore] Rejected regressing native usage checkpoint', { sessionId });
-        throw new CodexSessionMetadataError('invalid-identity', 'Native usage checkpoint regression');
+        throw new CodexSessionMetadataError(
+          'usage-regression', 'Native usage checkpoint regression',
+        );
       }
       workspaceId = current.workspaceId;
       await this.persistMetadata({
         ...current,
         codexUsageCheckpoint: validated,
-        totalCost: 0,
+        totalCost: nativeCheckpointCost(validated),
         totalTokens: {
           input: validated.total.uncachedInputTokens + validated.total.cacheReadTokens + validated.total.cacheCreationTokens,
           output: validated.total.outputTokens,
@@ -1364,7 +1384,7 @@ export class SessionMetadataStore {
         input: checkpoint.total.uncachedInputTokens + checkpoint.total.cacheReadTokens +
           checkpoint.total.cacheCreationTokens,
         output: checkpoint.total.outputTokens,
-      }, totalCost: 0 } : {}),
+      }, totalCost: nativeCheckpointCost(checkpoint) } : {}),
       ...(existing?.codexExecution && existing.codexMessageCount !== undefined
         ? { codexMessageCount: existing.codexMessageCount }
         : {}),

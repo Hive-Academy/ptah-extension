@@ -10,7 +10,8 @@ import type {
   IAgentAdapter,
   SessionId,
 } from '@ptah-extension/shared';
-import { resolveContextCapacity } from '@ptah-extension/shared';
+import { calculateExactMessageCost, resolveContextCapacity } from '@ptah-extension/shared';
+import type { CodexSessionUsageOwner, CodexUsageCheckpoint } from './codex-session-usage-owner';
 import type {
   CodexChatAdapterPorts,
   CodexChatScope,
@@ -36,6 +37,9 @@ export interface CodexChatSession {
   readonly token: string;
   readonly consumer?: 'chat' | 'gateway';
   readonly context: CodexContext;
+  readonly usageOwner: CodexSessionUsageOwner;
+  readonly billingMode: 'subscription' | 'api-key' | 'unknown';
+  messageCount: number;
   readonly sink: CodexChatApprovalSink;
   readonly scope: CodexChatScope;
   readonly abort: AbortController;
@@ -95,6 +99,7 @@ interface CodexChatTurnDependencies {
   completedTurn(id: SessionId): Promise<void>;
   callbacks: CodexChatAdapterPorts['callbacks'];
   stats: Parameters<IAgentAdapter['setResultStatsCallback']>[0];
+  persistUsage(id: SessionId, checkpoint: CodexUsageCheckpoint): Promise<void>;
   interrupt(id: SessionId): Promise<boolean>;
   close(session: CodexChatSession): Promise<void>;
   notifyCompaction(session: CodexChatSession, trigger: 'auto'): void;
@@ -141,6 +146,8 @@ export async function* streamCodexChatTurn(
   };
   let exhausted = false;
   const started = Date.now();
+  const startTokens = session.usageOwner.snapshot().tokens;
+  let turnUsageObserved = false;
   let events: AsyncIterator<CodexRuntimeEvent> | undefined;
   let projection: CodexChatEvents | undefined;
   let errorPresented = false;
@@ -149,6 +156,10 @@ export async function* streamCodexChatTurn(
   let compactionActive = false;
   let admitted = false;
   let finishCompaction: (() => void) | undefined;
+  let drainUsage: {
+    readonly publishStats: (result: CodexChatResult) => Promise<void>;
+    readonly observeUsage: (event: CodexRuntimeEvent) => void;
+  } | undefined;
   try {
     if (session.abort.signal.aborted) throw deps.error('cancelled', 'turn');
     const eventStream = session.context.events(subscription.signal);
@@ -167,6 +178,107 @@ export async function* streamCodexChatTurn(
       compactionActive = false;
       callbacks.compaction('failed');
     };
+    const publishStats = async (result: CodexChatResult): Promise<void> => {
+      const usage = result.usage;
+      if (!turnUsageObserved) session.usageOwner.markMissingEvidence();
+      const lifetime = session.usageOwner.snapshot(session.messageCount);
+      const checkpoint = session.usageOwner.serialize();
+      const turnTokens = {
+        input: lifetime.tokens.input - startTokens.input,
+        output: lifetime.tokens.output - startTokens.output,
+        cacheRead: lifetime.tokens.cacheRead - startTokens.cacheRead,
+        cacheCreation: lifetime.tokens.cacheCreation - startTokens.cacheCreation,
+      };
+      const tokens = usage?.inputTokens !== undefined &&
+        usage.outputTokens !== undefined ? tokenUsage(usage) : turnTokens;
+      const evidenceModel = checkpoint.threads.find((thread) =>
+        thread.threadId === session.context.identity.threadId &&
+        thread.turnId === session.turnId,
+      )?.modelId;
+      const model = evidenceModel ?? session.settings?.model;
+      const pricingOptions = {
+        billingMode: session.billingMode,
+        cacheSemantics: checkpoint.cacheSemanticsAmbiguous
+          ? 'ambiguous' as const : 'disjoint' as const,
+        usageObserved: turnUsageObserved,
+      };
+      const turnPrice = calculateExactMessageCost(evidenceModel ?? '', {
+        input: turnTokens.input, output: turnTokens.output,
+        cacheHit: turnTokens.cacheRead,
+        cacheCreation: turnTokens.cacheCreation,
+      }, pricingOptions);
+      session.usageOwner.recordTurnPrice(
+        turnUsageObserved ? turnPrice : { totalCost: null },
+      );
+      const lifetimePrice = session.usageOwner.lifetimePrice(session.billingMode);
+      try {
+        await deps.persistUsage(session.id, session.usageOwner.serialize());
+      } catch (error) {
+        deps.logger.error(
+          '[CodexChatAdapter] Native usage checkpoint persistence failed.',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+      const contextCapacity = model
+        ? resolveContextCapacity({
+            route: { kind: 'native', providerId: null },
+            model,
+            sdkContextWindow: usage?.modelContextWindow,
+          })
+        : undefined;
+      deps.stats({
+        sessionId: session.id,
+        turnCost: turnUsageObserved ? turnPrice.totalCost : null,
+        costBasis: turnPrice.costBasis,
+        pricingCoverage: turnPrice.pricingCoverage,
+        ...(turnPrice.priceProvenance
+          ? { priceProvenance: [turnPrice.priceProvenance] } : {}),
+        sessionStats: {
+          ...lifetime,
+          totalCost: lifetimePrice.totalCost,
+          costBasis: lifetimePrice.costBasis,
+          pricingCoverage: lifetimePrice.pricingCoverage,
+          ...(lifetimePrice.priceProvenance
+            ? { priceProvenance: lifetimePrice.priceProvenance } : {}),
+        },
+        tokens,
+        duration: Date.now() - started,
+        ...(model && contextCapacity
+          ? {
+              // The same per-model row the Claude path sends, from native
+              // data only. An unavailable rate keeps cost null, and
+              // an unknown window reads 0 while contextCapacity says
+              // 'unknown', so the header renders an explicit unknown
+              // context, never a wrong percentage.
+              modelUsage: [
+                {
+                  model,
+                  inputTokens: tokens.input,
+                  outputTokens: tokens.output,
+                  contextWindow: contextCapacity.tokens ?? 0,
+                  contextCapacity,
+                  costUSD: turnUsageObserved ? turnPrice.totalCost : null,
+                  cacheReadInputTokens: tokens.cacheRead ?? 0,
+                  ...(usage?.lastRequestTotalTokens !== undefined
+                    ? {
+                        lastTurnContextTokens:
+                          usage.lastRequestTotalTokens,
+                      }
+                    : {}),
+                },
+              ],
+            }
+          : {}),
+      });
+    };
+    const observeUsage = (event: CodexRuntimeEvent): void => {
+      if (event.contextId !== session.context.identity.contextId ||
+        event.processGeneration !== session.context.identity.processGeneration ||
+        (event.type !== 'usage' && event.type !== 'terminal') ||
+        !event.evidence) return;
+      turnUsageObserved = session.usageOwner.accept(event.evidence) || turnUsageObserved;
+    };
+    drainUsage = { publishStats, observeUsage };
     projection = new CodexChatEvents(session.id, turn, {
       ...callbacks,
       error: (message) => {
@@ -197,6 +309,7 @@ export async function* streamCodexChatTurn(
           // block or fail the turn result itself.
           try {
             await deps.completedTurn(session.id);
+            session.messageCount += 2;
           } catch (error) {
             deps.logger.warn(
               '[CodexChatAdapter] message-count-write-failed: completed turn not counted.',
@@ -204,53 +317,10 @@ export async function* streamCodexChatTurn(
             );
           }
         }
-        await callbacks.result(result);
-        const usage = result.usage;
-        if (
-          usage?.inputTokens !== undefined &&
-          usage.outputTokens !== undefined
-        ) {
-          const tokens = tokenUsage(usage);
-          const model = session.settings?.model;
-          const contextCapacity = model
-            ? resolveContextCapacity({
-                route: { kind: 'native', providerId: null },
-                model,
-                sdkContextWindow: usage.modelContextWindow,
-              })
-            : undefined;
-          deps.stats({
-            sessionId: session.id,
-            turnCost: null,
-            tokens,
-            duration: Date.now() - started,
-            ...(model && contextCapacity
-              ? {
-                  // The same per-model row the Claude path sends, from native
-                  // data only: cost stays null (Codex reports no pricing) and
-                  // an unknown window reads 0 while contextCapacity says
-                  // 'unknown', so the header renders an explicit unknown
-                  // context, never a wrong percentage.
-                  modelUsage: [
-                    {
-                      model,
-                      inputTokens: tokens.input,
-                      outputTokens: tokens.output,
-                      contextWindow: contextCapacity.tokens ?? 0,
-                      contextCapacity,
-                      costUSD: null,
-                      cacheReadInputTokens: tokens.cacheRead ?? 0,
-                      ...(usage.lastRequestTotalTokens !== undefined
-                        ? {
-                            lastTurnContextTokens:
-                              usage.lastRequestTotalTokens,
-                          }
-                        : {}),
-                    },
-                  ],
-                }
-              : {}),
-          });
+        try {
+          await callbacks.result(result);
+        } finally {
+          await publishStats(result);
         }
       },
     });
@@ -311,6 +381,7 @@ export async function* streamCodexChatTurn(
       }
       const event = next.value;
       if (subscription.signal.aborted) break;
+      observeUsage(event);
       if (session.stopRequested) {
         if (
           event.type === 'terminal' &&
@@ -320,6 +391,11 @@ export async function* streamCodexChatTurn(
           event.turnId === receipt.turnId
         ) {
           terminal = true;
+          await publishStats({
+            status: event.status,
+            text: '',
+            ...(event.usage ? { usage: event.usage } : {}),
+          });
           // The runtime synthesizes a failed terminal when its 30 s
           // interrupt timer closes a context that never answered.
           if (event.status === 'failed' && !session.closing)
@@ -450,6 +526,7 @@ export async function* streamCodexChatTurn(
       session.turnId &&
       events &&
       projection &&
+      drainUsage &&
       !session.closing &&
       !session.abort.signal.aborted
     ) {
@@ -460,6 +537,8 @@ export async function* streamCodexChatTurn(
         projection,
         deps,
         settleTurn,
+        drainUsage.publishStats,
+        drainUsage.observeUsage,
       ).finally(release);
     } else {
       release();
@@ -480,6 +559,8 @@ async function drainInterruptedTurn(
   projection: CodexChatEvents,
   deps: CodexChatTurnDependencies,
   settleTurn: () => ReturnType<SessionTurnStateRegistry['settleTurn']> | undefined,
+  publishStats: (result: CodexChatResult) => Promise<void>,
+  observeUsage: (event: CodexRuntimeEvent) => void,
 ): Promise<void> {
   let terminal = false;
   try {
@@ -487,6 +568,7 @@ async function drainInterruptedTurn(
     while (!session.abort.signal.aborted) {
       const next = await events.next();
       if (next.done) break;
+      observeUsage(next.value);
       if (session.stopRequested) {
         if (
           next.value.type === 'terminal' &&
@@ -496,6 +578,11 @@ async function drainInterruptedTurn(
           next.value.turnId === session.turnId
         ) {
           terminal = true;
+          await publishStats({
+            status: next.value.status,
+            text: '',
+            ...(next.value.usage ? { usage: next.value.usage } : {}),
+          });
           if (next.value.status === 'failed') await deps.close(session);
           return;
         }

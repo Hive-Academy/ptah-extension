@@ -2211,7 +2211,10 @@ describe('Codex metadata identity', () => {
   it('persists a native usage checkpoint and restores sidebar totals after reload', async () => {
     const { storage, store } = fixture();
     await store.updateCodexExecution(threadId, () => execution);
+    expect((await store.get(threadId))?.totalCost).toBeNull();
     const owner = new CodexSessionUsageOwner(threadId, 'native-root');
+    await store.updateCodexUsageCheckpoint(threadId, owner.serialize());
+    expect((await store.get(threadId))?.totalCost).toBeNull();
     owner.accept({
       threadId: 'native-root', turnId: 'turn-1', timestamp: 1, terminalState: 'failed',
       total: { uncachedInputTokens: 5, outputTokens: 2, cacheReadTokens: 3,
@@ -2225,9 +2228,34 @@ describe('Codex metadata identity', () => {
     const reloaded = new SessionMetadataStore(storage, asLogger(createMockLogger()));
     const row = await reloaded.get(threadId);
     expect(row?.totalTokens).toEqual({ input: 9, output: 2 });
+    expect(row?.totalCost).toBeNull();
     expect(row?.codexUsageCheckpoint).toEqual(owner.serialize());
     await reloaded.updateCodexExecution(threadId, () => execution);
     expect((await reloaded.get(threadId))?.totalTokens).toEqual({ input: 9, output: 2 });
+    expect((await reloaded.get(threadId))?.totalCost).toBeNull();
+    owner.recordTurnPrice({ totalCost: 0.0001 });
+    await reloaded.updateCodexUsageCheckpoint(threadId, owner.serialize());
+    expect((await reloaded.get(threadId))?.totalCost).toBe(0.0001);
+    const priced = owner.serialize();
+    if (!priced.pricing) throw new Error('Expected priced checkpoint');
+    await expect(reloaded.updateCodexUsageCheckpoint(threadId, {
+      ...priced, pricing: { ...priced.pricing, knownCost: 0 },
+    })).rejects.toMatchObject({ code: 'usage-regression' });
+  });
+
+  it('stores a recoverable partial orphan checkpoint without a false regression', async () => {
+    const { store } = fixture();
+    await store.updateCodexExecution(threadId, () => execution);
+    const owner = new CodexSessionUsageOwner(threadId, 'native-root');
+    const counts = { uncachedInputTokens: 5, outputTokens: 0, cacheReadTokens: 0,
+      cacheCreationTokens: 0, reasoningOutputTokens: 0, totalTokens: 5 };
+    owner.accept({ threadId: 'child', parentThreadId: 'missing', turnId: 'turn',
+      total: counts, last: counts, timestamp: 1, terminalState: 'completed',
+      accepted: true, resetOrStale: false, epoch: 0,
+      cacheSemanticsAmbiguous: false, lastExceedsTotal: false, diagnostics: [] });
+    await store.updateCodexUsageCheckpoint(threadId, owner.serialize());
+    expect((await store.get(threadId))?.codexUsageCheckpoint).toEqual(owner.serialize());
+    expect((await store.get(threadId))?.totalCost).toBeNull();
   });
 
   it('rejects older checkpoints and preserves a newer checkpoint on stale ordinary save', async () => {
@@ -2248,7 +2276,9 @@ describe('Codex metadata identity', () => {
       timestamp: 2, terminalState: 'completed', accepted: true, resetOrStale: false,
       epoch: 0, cacheSemanticsAmbiguous: false, lastExceedsTotal: false, diagnostics: [] });
     await store.updateCodexUsageCheckpoint(threadId, owner.serialize());
-    await expect(store.updateCodexUsageCheckpoint(threadId, older)).rejects.toThrow('regression');
+    await expect(store.updateCodexUsageCheckpoint(threadId, older)).rejects.toMatchObject({
+      code: 'usage-regression',
+    });
     await store.save({ ...staleRow, codexUsageCheckpoint: older, name: 'Renamed' });
     const saved = await store.get(threadId);
     expect(saved?.name).toBe('Renamed');
@@ -2504,7 +2534,7 @@ describe('Codex metadata identity', () => {
   });
 
   it.each([false, true])(
-    'preserves resume state and accumulated totals (async=%s)',
+    'preserves resume state and tokens while clearing unverified cost (async=%s)',
     async (asyncStorage) => {
       const { store } = fixture(asyncStorage);
       await store.updateCodexExecution(threadId, () => execution);
@@ -2523,7 +2553,7 @@ describe('Codex metadata identity', () => {
       expect(await store.get(threadId)).toMatchObject({
         workingDirectory: '/work/project/worktree',
         resumableSdkSubagents: [],
-        totalCost: 7,
+        totalCost: null,
         totalTokens: { input: 23, output: 41 },
       });
     },

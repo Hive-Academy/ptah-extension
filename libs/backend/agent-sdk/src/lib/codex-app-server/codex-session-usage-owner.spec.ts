@@ -22,6 +22,26 @@ function evidence(threadId: string, turnId: string, total: CodexUsageCounters,
 }
 
 describe('CodexSessionUsageOwner', () => {
+  it('persists child usage observed before its root or parent as partial coverage', () => {
+    const owner = new CodexSessionUsageOwner(SESSION, ROOT);
+    owner.accept(evidence('child', 'one', totals(7), { parentThreadId: 'parent' }));
+    const restored = CodexSessionUsageOwner.restore(SESSION, ROOT, owner.serialize());
+    expect(restored.getDiagnostics()).toEqual([]);
+    expect(restored.snapshot().coverage).toBe('partial');
+    expect(restored.serialize().childTotal.uncachedInputTokens).toBe(7);
+  });
+
+  it('rejects self-parent corruption even in a partial checkpoint', () => {
+    const owner = new CodexSessionUsageOwner(SESSION, ROOT);
+    owner.accept(evidence('child', 'one', totals(7), { parentThreadId: 'parent' }));
+    const checkpoint = owner.serialize();
+    const corrupt = { ...checkpoint, threads: checkpoint.threads.map((thread) =>
+      ({ ...thread, parentThreadId: thread.threadId })) };
+    const restored = CodexSessionUsageOwner.restore(SESSION, ROOT, corrupt);
+    expect(restored.isRestoredCheckpoint()).toBe(false);
+    expect(restored.getDiagnostics()).toContain('invalid-checkpoint');
+  });
+
   it('counts child and pre-compaction epochs, including failed and interrupted turns', () => {
     const owner = new CodexSessionUsageOwner(SESSION, ROOT, 'disjoint');
     owner.accept(evidence(ROOT, 'before-compact', totals(10, 2, 3, 4), { terminalState: 'failed' }));

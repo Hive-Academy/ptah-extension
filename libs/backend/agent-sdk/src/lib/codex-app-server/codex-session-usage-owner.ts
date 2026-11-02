@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { CodexUsageCounters, CodexUsageEvidence } from '@ptah-extension/codex-runtime';
-import type { SessionStatsEntry } from '@ptah-extension/shared';
+import type { PriceProvenance, SessionStatsEntry } from '@ptah-extension/shared';
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const MAX_USAGE_THREADS = 256;
@@ -23,6 +23,18 @@ const threadSchema = z.object({
   counters: countersSchema,
   accrued: countersSchema,
 }).strict();
+const provenanceSchema = z.object({
+  modelIdUsed: z.string(),
+  catalogSource: z.string().nullable().optional(),
+  catalogVersion: z.string().nullable().optional(),
+  effectiveDate: z.string().nullable().optional(),
+}).strict();
+const pricingSchema = z.object({
+  throughRevision: count,
+  knownCost: z.number().finite().nonnegative(),
+  complete: z.boolean(),
+  provenance: z.array(provenanceSchema).max(MAX_USAGE_THREADS),
+}).strict();
 export const codexUsageCheckpointSchema = z.object({
   version: z.literal(2),
   sessionId: z.string().min(1),
@@ -37,12 +49,14 @@ export const codexUsageCheckpointSchema = z.object({
   total: countersSchema,
   childTotal: countersSchema,
   threads: z.array(threadSchema).max(MAX_USAGE_THREADS),
+  pricing: pricingSchema.optional(),
 }).strict();
 export type CodexUsageCheckpoint = z.infer<typeof codexUsageCheckpointSchema>;
 export type CodexUsageOwnerDiagnostic = 'invalid-checkpoint' | 'unknown-version' | 'session-mismatch' |
   'root-mismatch' | 'counter-decrease' | 'missing-parent' | 'missing-epoch' |
   'class-conflict' | 'classes-inconsistent' | 'reasoning-exceeds-output' |
-  'thread-limit' | 'child-inclusion-unverified';
+  'thread-limit' | 'child-inclusion-unverified' | 'missing-usage-evidence' |
+  'model-change';
 
 const ZERO: CodexUsageCounters = Object.freeze({
   uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0,
@@ -74,6 +88,10 @@ export class CodexSessionUsageOwner {
   private coverage: 'complete' | 'partial' = 'complete';
   private cacheSemanticsAmbiguous = false;
   private readonly diagnostics = new Set<CodexUsageOwnerDiagnostic>();
+  private restoredCheckpoint = false;
+  private pricing: z.infer<typeof pricingSchema> = {
+    throughRevision: 0, knownCost: 0, complete: true, provenance: [],
+  };
 
   constructor(readonly sessionId: string, readonly rootThreadId: string,
     private readonly childInclusion: 'disjoint' | 'unverified' = 'unverified') {}
@@ -110,10 +128,12 @@ export class CodexSessionUsageOwner {
     }
     const computedTotal = saved.childInclusion === 'disjoint' ? sum(root, children) : root;
     if (saved.revision < saved.threads.length ||
-      (saved.threads.length > 0 && !seen.has(rootThreadId)) ||
+      (saved.pricing !== undefined && saved.pricing.throughRevision > saved.revision) ||
+      (saved.threads.length > 0 && !seen.has(rootThreadId) && saved.coverage !== 'partial') ||
+      saved.threads.some((thread) => thread.parentThreadId === thread.threadId) ||
       saved.threads.some((thread) => thread.threadId !== rootThreadId &&
         (!thread.parentThreadId || thread.parentThreadId === thread.threadId ||
-          !seen.has(thread.parentThreadId))) ||
+          !seen.has(thread.parentThreadId)) && saved.coverage !== 'partial') ||
       !computedTotal || !equal(computedTotal, saved.total) || !equal(children, saved.childTotal) ||
       (children.totalTokens > 0 && saved.childInclusion === 'unverified' && saved.coverage !== 'partial')) {
       owner.markPartial('invalid-checkpoint');
@@ -125,10 +145,61 @@ export class CodexSessionUsageOwner {
     owner.revision = saved.revision;
     owner.coverage = saved.coverage;
     owner.cacheSemanticsAmbiguous = saved.cacheSemanticsAmbiguous;
+    owner.pricing = saved.pricing ?? {
+      throughRevision: 0, knownCost: 0,
+      complete: saved.total.totalTokens === 0, provenance: [],
+    };
+    owner.restoredCheckpoint = true;
     return owner;
   }
 
   getDiagnostics(): readonly CodexUsageOwnerDiagnostic[] { return [...this.diagnostics]; }
+  isRestoredCheckpoint(): boolean { return this.restoredCheckpoint; }
+
+  recordTurnPrice(price: {
+    readonly totalCost: number | null;
+    readonly priceProvenance?: PriceProvenance;
+  }): void {
+    const addition = price.totalCost !== null && price.totalCost >= 0 &&
+      Number.isFinite(price.totalCost) ? price.totalCost : null;
+    const nextCost = this.pricing.knownCost + (addition ?? 0);
+    const newProvenance = price.priceProvenance &&
+      !this.pricing.provenance.some((item) =>
+        item.modelIdUsed === price.priceProvenance?.modelIdUsed &&
+        item.catalogVersion === price.priceProvenance?.catalogVersion)
+      ? price.priceProvenance : undefined;
+    const provenance = newProvenance &&
+      this.pricing.provenance.length < MAX_USAGE_THREADS
+      ? [...this.pricing.provenance, newProvenance]
+      : this.pricing.provenance;
+    this.pricing = {
+      throughRevision: this.revision,
+      knownCost: Number.isFinite(nextCost) ? nextCost : this.pricing.knownCost,
+      complete: this.pricing.complete && addition !== null &&
+        Number.isFinite(nextCost) &&
+        (!newProvenance || provenance.length > this.pricing.provenance.length),
+      provenance,
+    };
+  }
+
+  lifetimePrice(billingMode: 'subscription' | 'api-key' | 'unknown'): {
+    totalCost: number | null;
+    costBasis: 'unknown' | 'estimated' | 'covered-by-subscription';
+    pricingCoverage: 'none' | 'partial' | 'full';
+    priceProvenance?: z.infer<typeof provenanceSchema>[];
+  } {
+    const complete = billingMode !== 'unknown' && this.pricing.complete &&
+      this.pricing.throughRevision === this.revision && this.coverage === 'complete';
+    return {
+      totalCost: complete ? this.pricing.knownCost : null,
+      costBasis: complete
+        ? billingMode === 'subscription' ? 'covered-by-subscription' : 'estimated'
+        : 'unknown',
+      pricingCoverage: complete ? 'full' : this.pricing.knownCost > 0 ? 'partial' : 'none',
+      ...(this.pricing.provenance.length
+        ? { priceProvenance: this.pricing.provenance } : {}),
+    };
+  }
 
   accept(evidence: CodexUsageEvidence): boolean {
     if (!evidence.accepted) return false;
@@ -197,8 +268,10 @@ export class CodexSessionUsageOwner {
       terminalState, counters: evidence.total, accrued,
     });
     this.revision += 1;
-    if (!isRoot && !evidence.parentThreadId && !prior?.parentThreadId)
+    if (!isRoot && (!evidence.parentThreadId ||
+      !this.threads.has(evidence.parentThreadId)))
       this.markPartial('missing-parent');
+    if (!this.threads.has(this.rootThreadId)) this.markPartial('missing-parent');
     if (!isRoot && this.childInclusion === 'unverified')
       this.markPartial('child-inclusion-unverified');
     return true;
@@ -212,6 +285,7 @@ export class CodexSessionUsageOwner {
       // Batch 3 will fill pricing provenance after applying a catalog.
       catalogSource: null, catalogVersion: null, total: this.total, childTotal: this.childTotal,
       threads: [...this.threads.values()].sort((a, b) => a.threadId.localeCompare(b.threadId)),
+      pricing: this.pricing,
     };
   }
 
@@ -228,6 +302,14 @@ export class CodexSessionUsageOwner {
       messageCount, status: this.threads.size ? 'ok' : 'empty',
       coverage: this.coverage, pricingCoverage: 'none', scope: 'session',
     };
+  }
+
+  markMissingCheckpoint(): void {
+    this.markPartial('invalid-checkpoint');
+  }
+
+  markMissingEvidence(): void {
+    this.markPartial('missing-usage-evidence');
   }
 
   private rootAccrued(): CodexUsageCounters {

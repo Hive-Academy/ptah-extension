@@ -530,7 +530,7 @@ function createElectronCodexAdapterPorts(
       },
     },
     // The shared port keeps the native title and counts completed turns (8m-8).
-    metadata: createCodexChatMetadataPort(lookup),
+    metadata: createCodexChatMetadataPort(lookup, metadataStore),
     approvals: {
       register: (...args) =>
         container

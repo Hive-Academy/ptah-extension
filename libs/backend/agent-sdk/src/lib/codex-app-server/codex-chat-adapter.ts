@@ -51,6 +51,10 @@ import { z } from 'zod';
 import { publishUntilAdmitted, type CodexChatAdmission } from './codex-chat-admission';
 import { CodexChatPeerQueue } from './codex-chat-peer-queue';
 import { SessionAdmissionRefusedError } from '../errors/session-admission-refused.error';
+import {
+  CodexSessionUsageOwner,
+  type CodexUsageCheckpoint,
+} from './codex-session-usage-owner';
 
 export interface CodexChatMetadataPort {
   save(
@@ -60,6 +64,11 @@ export interface CodexChatMetadataPort {
   ): Promise<void>;
   /** Called once for a completed native turn. Optional for older host fakes. */
   completedTurn?(sessionId: SessionId): Promise<void>;
+  readUsage?(sessionId: SessionId): Promise<{
+    checkpoint?: unknown;
+    messageCount: number;
+  }>;
+  persistUsage?(sessionId: SessionId, checkpoint: CodexUsageCheckpoint): Promise<void>;
 }
 
 /** Composition owns registration; every scope must bind this sink before resolving runtime. */
@@ -85,6 +94,7 @@ export interface CodexChatAdapterPorts {
     sessionId?: SessionId,
   ): Promise<{
     readonly profile: CodexExecutionProfile;
+    readonly billingMode?: 'subscription' | 'api-key' | 'unknown';
     readonly resume?: CodexThreadIdentity;
     /** Resolved MCP secrets for this open only; never stored, logged or persisted. */
     readonly secrets?: CodexMcpSecrets;
@@ -151,6 +161,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
   private stats?: Parameters<IAgentAdapter['setResultStatsCallback']>[0];
   private readonly controls: CodexChatSessionControls;
   private readonly peerQueue: CodexChatPeerQueue;
+  private missingUsageStoreReported = false;
 
   constructor(
     private readonly ports: CodexChatAdapterPorts,
@@ -294,9 +305,37 @@ export class CodexChatAdapter implements NativeChatAdapter {
       this.checkOpening(opening, generation);
       await this.persistMetadata(id, context, config);
       this.checkOpening(opening, generation);
+      let savedUsage: Awaited<ReturnType<NonNullable<
+        CodexChatMetadataPort['readUsage']>>> | undefined;
+      let readUsageFailed = false;
+      try {
+        savedUsage = await this.ports.metadata.readUsage?.(id);
+      } catch (error) {
+        readUsageFailed = true;
+        // degradation-audit: reported — a failed checkpoint read leaves coverage partial.
+        this.ports.logger.error(
+          '[CodexChatAdapter] Native usage checkpoint read failed.',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+      const usageOwner = savedUsage?.checkpoint === undefined
+        ? new CodexSessionUsageOwner(id, context.identity.threadId)
+        : CodexSessionUsageOwner.restore(id, context.identity.threadId, savedUsage.checkpoint);
+      if (readUsageFailed || (resumeId && savedUsage?.checkpoint === undefined)) {
+        usageOwner.markMissingCheckpoint();
+      }
+      if (usageOwner.getDiagnostics().length) {
+        this.ports.logger.warn('[CodexChatAdapter] Native usage coverage is partial.', {
+          sessionId: id,
+          diagnostics: usageOwner.getDiagnostics(),
+        });
+      }
       if (this.sessions.has(id))
         throw new CodexChatAdapterError('busy', 'open');
-      session = this.publishSession(id, context, sink, scope, prepared.profile);
+      session = this.publishSession(
+        id, context, sink, scope, prepared.profile, usageOwner,
+        prepared.billingMode ?? 'unknown', savedUsage?.messageCount ?? 0,
+      );
       this.resolved?.(config.tabId, id);
       return this.turn(session, {
         text: config.prompt ?? '',
@@ -387,6 +426,9 @@ export class CodexChatAdapter implements NativeChatAdapter {
     sink: CodexChatApprovalSink,
     scope: CodexChatScope,
     profile: CodexExecutionProfile,
+    usageOwner: CodexSessionUsageOwner,
+    billingMode: 'subscription' | 'api-key' | 'unknown',
+    messageCount: number,
   ): TrackedSession {
     const session: TrackedSession = {
       settings: {
@@ -398,6 +440,9 @@ export class CodexChatAdapter implements NativeChatAdapter {
       token: randomUUID(),
       consumer: profile.consumer === 'gateway' ? 'gateway' : 'chat',
       context,
+      usageOwner,
+      billingMode,
+      messageCount,
       sink,
       scope,
       abort: new AbortController(),
@@ -551,6 +596,20 @@ export class CodexChatAdapter implements NativeChatAdapter {
       completedTurn: (id) => this.ports.metadata.completedTurn?.(id) ?? Promise.resolve(),
       callbacks: (id, turn) => this.ports.callbacks(id, turn),
       stats: (result) => this.stats?.(result),
+      persistUsage: (id, checkpoint) => {
+        if (this.ports.metadata.persistUsage) {
+          return this.ports.metadata.persistUsage(id, checkpoint);
+        }
+        // degradation-audit: optional-capability — host has no durable usage store.
+        if (!this.missingUsageStoreReported) {
+          this.missingUsageStoreReported = true;
+          this.ports.logger.warn(
+            '[CodexChatAdapter] Native usage checkpoint persistence unavailable.',
+            { sessionId: id },
+          );
+        }
+        return Promise.resolve();
+      },
       interrupt: (id) => this.interruptCurrentTurn(id),
       close: (active) => this.close(active),
       notifyCompaction: (active, trigger) => this.notifyCompaction(active, trigger),

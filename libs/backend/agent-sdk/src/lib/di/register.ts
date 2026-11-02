@@ -1101,7 +1101,11 @@ export function registerCodexChatServices(
           approvals: c.resolve<SessionApprovalRouter>(
             SDK_TOKENS.SESSION_APPROVAL_ROUTER,
           ),
-          metadata: createCodexChatMetadataPort(identities),
+          metadata: {
+            ...createCodexChatMetadataPort(identities),
+            readUsage: ports.metadata.readUsage,
+            persistUsage: ports.metadata.persistUsage,
+          },
         },
         c.resolve<SessionTurnStateRegistry>(
           SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
