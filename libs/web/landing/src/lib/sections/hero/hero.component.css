@@ -61,7 +61,7 @@
 
 .title-content { position: relative; z-index: 1; width: min(100%, 74rem); text-align: center; }
 .title-index, .scroll-cue, .caption-number, .rail-number, .story-outro { font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace; }
-.title-index { margin: 0 0 clamp(1.75rem, 4vw, 3.75rem); color: #ffbb4d; font-size: .7rem; font-weight: 600; letter-spacing: .16em; }
+.title-index { margin: 0 0 clamp(.75rem, 1.5vw, 1.25rem); color: #ffbb4d; font-size: clamp(.85rem, 1.1vw, 1.05rem); font-weight: 600; letter-spacing: .16em; }
 .title-content h1 { margin: 0; color: #fff; font-size: clamp(2.25rem, 4.2vw, 3.75rem); font-weight: 700; letter-spacing: -.025em; line-height: .95; text-transform: uppercase; text-wrap: balance; }
 .title-content h1 span { display: inline-block; }
 .title-lead { width: min(100%, 66ch); margin: clamp(1.5rem, 3vw, 2.5rem) auto 0; color: #e9ebef; font-size: clamp(1rem, 1.2vw, 1.125rem); line-height: 1.6; text-wrap: balance; }
