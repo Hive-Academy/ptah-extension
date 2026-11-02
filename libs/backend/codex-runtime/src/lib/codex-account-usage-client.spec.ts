@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { resolve } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
-import { CodexAccountUsageClient } from './codex-account-usage-client';
+import { CodexAccountUsageClient, usageResult } from './codex-account-usage-client';
 import { CodexAppServerProcess } from './codex-app-server-process';
 import type {
   CodexHomeAuthEvent,
@@ -330,12 +330,123 @@ describe('CodexAccountUsageClient', () => {
       providerId: 'openai-codex',
       fetchedAt: 1000,
       account: { planType: 'team' },
+      buckets: [{
+        id: 'codex',
+        label: 'Codex',
+        primary: { usedPercent: 0, windowDurationMins: null },
+        secondary: { usedPercent: 40, resetsAt: 123 },
+        rateLimitReachedType: 'weekly',
+      }],
       quota: {
         primary: { usedPercent: 0, windowDurationMins: null },
         secondary: { usedPercent: 40, resetsAt: 123 },
         rateLimitReachedType: 'weekly',
       },
     });
+  });
+
+  it('retains ordered buckets and safe allowance fields without native identifiers', async () => {
+    configure = (child) => {
+      child.response = {
+        accountId: 'private-account',
+        rateLimits: {},
+        rateLimitResetCredits: { rawSecret: 'private-account' },
+        rateLimitUpsell: { url: 'https://secret.example/private-account' },
+        rateLimitsByLimitId: {
+          zeta: { limitName: 'Team allowance', primary: { usedPercent: 60 } },
+          codex: {
+            primary: { usedPercent: 100 },
+            rateLimitReachedType: 'workspace_owner_credits_depleted',
+            spendControlReached: true,
+            individualLimit: {
+              limit: '100.00', used: '25.50', remainingPercent: 74,
+              resetsAt: 1_800_000_000,
+            },
+            credits: { balance: '12.50', hasCredits: true, unlimited: false },
+          },
+          alpha: { limitName: 'secret@example.com', secondary: { usedPercent: 3 } },
+        },
+      };
+    };
+    const result = await client.read(homeA);
+    expect(result.buckets?.map((entry) => entry.label)).toEqual([
+      'Codex', expect.stringMatching(/^Limit [a-f0-9]{6}$/),
+      expect.stringMatching(/^Limit [a-f0-9]{6}$/),
+    ]);
+    expect(result.buckets?.map((entry) => entry.id)).toEqual([
+      'codex', expect.stringMatching(/^bucket-[a-f0-9]{16}$/),
+      expect.stringMatching(/^bucket-[a-f0-9]{16}$/),
+    ]);
+    expect(result.buckets?.[0].individualLimit?.limit).toBe('100.00');
+    expect(result.buckets?.[0].credits?.balance).toBe('12.50');
+    expect(result.buckets?.[0].spendControlReached).toBe(true);
+    expect(result.resetCreditsAvailable).toBe(true);
+    expect(result.upsellAvailable).toBe(true);
+    expect(JSON.stringify(result)).not.toMatch(/private-account|secret@example.com|secret\.example/);
+  });
+
+  it('preserves default windows when other limit ids omit codex', async () => {
+    configure = (child) => {
+      child.response = {
+        rateLimits: {
+          primary: { usedPercent: 12, windowDurationMins: 300 },
+          secondary: { usedPercent: 30, windowDurationMins: 10_080 },
+        },
+        rateLimitsByLimitId: { extra: { primary: { usedPercent: 4 } } },
+      };
+    };
+    const result = await client.read(homeA);
+    expect(result.buckets?.map((entry) => entry.id)).toEqual([
+      'codex', expect.stringMatching(/^bucket-/),
+    ]);
+    expect(result.buckets?.[0].primary?.usedPercent).toBe(12);
+    expect(result.buckets?.[0].secondary?.usedPercent).toBe(30);
+    expect(result.quota?.primary?.usedPercent).toBe(12);
+  });
+
+  it('falls back to default windows when the codex limit id carries no usable fields', () => {
+    const result = usageResult({
+      rateLimits: { primary: { usedPercent: 12, windowDurationMins: 300 } },
+      rateLimitsByLimitId: { codex: { primary: 'malformed' } },
+    }, 1000);
+    expect(result.buckets?.map((entry) => entry.id)).toEqual(['codex']);
+    expect(result.buckets?.[0].primary?.usedPercent).toBe(12);
+    expect(result.quota?.primary?.usedPercent).toBe(12);
+  });
+
+  it('keeps labels stable when another limit id is inserted', () => {
+    const only = usageResult({ rateLimits: {}, rateLimitsByLimitId: {
+      zeta: { primary: { usedPercent: 1 } },
+    } }, 1000);
+    const added = usageResult({ rateLimits: {}, rateLimitsByLimitId: {
+      alpha: { primary: { usedPercent: 2 } },
+      zeta: { primary: { usedPercent: 1 } },
+    } }, 1000);
+    expect(only.buckets?.[0].label).toBe(added.buckets?.[1].label);
+  });
+
+  it('drops malformed fields independently without inventing values or exposing native data', () => {
+    const result = usageResult({
+      rateLimits: null,
+      rateLimitsByLimitId: {
+        codex: {
+          primary: { usedPercent: 25, resetsAt: 'bad', private: 'secret' },
+          secondary: { usedPercent: 'bad' },
+          rateLimitReachedType: 'bad email@example.com',
+          individualLimit: { limit: '100', used: '10', remainingPercent: 'bad', resetsAt: 123 },
+          credits: { balance: '12.50', hasCredits: 'bad', unlimited: false },
+          spendControlReached: true,
+        },
+        broken: null,
+      },
+    }, 1000);
+    expect(result.buckets?.[0]).toEqual({
+      id: 'codex', label: 'Codex', primary: { usedPercent: 25 },
+      spendControlReached: true,
+    });
+    expect(result.quota?.primary).toEqual({ usedPercent: 25 });
+    expect(result.buckets?.[1]?.primary).toBeUndefined();
+    expect(JSON.stringify(result)).not.toMatch(/secret|example.com|remainingPercent|hasCredits/);
   });
 
   it('handles the observed rate-limit notification without inventing response fields', async () => {

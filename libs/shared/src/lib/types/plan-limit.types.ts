@@ -81,6 +81,11 @@ export interface PlanLimitWindow {
   readonly key: PlanWindowKey;
   readonly kind: PlanWindowKind;
   readonly label: string;
+  /** Opaque key of a provider's limit bucket, when one has several. */
+  readonly bucketId?: string;
+  /** Safe provider cause, separate from the window's used percentage. */
+  readonly reachedType?: string;
+  readonly spendControlReached?: boolean;
   readonly modelScope?: string;
   readonly durationMins?: number;
   readonly used?: PlanLimitUsed;
@@ -93,6 +98,26 @@ export interface PlanLimitWindow {
   readonly lastResetAt?: number;
   readonly exhaustion?: OwnerLimitEvidence;
   readonly observedAt: number;
+}
+
+/** Optional non-secret allowance attached to one provider limit bucket. */
+export interface PlanLimitAllowance {
+  readonly bucketId: string;
+  readonly label: string;
+  /** Bucket-level evidence survives even when no rate window was supplied. */
+  readonly reachedType?: string;
+  readonly spendControlReached?: boolean;
+  readonly credits?: {
+    readonly balance?: string;
+    readonly hasCredits: boolean;
+    readonly unlimited: boolean;
+  };
+  readonly individual?: {
+    readonly limit: string;
+    readonly used: string;
+    readonly remainingPercent: number;
+    readonly resetsAt?: number;
+  };
 }
 
 /**
@@ -217,6 +242,21 @@ export interface PlanLimitOwnerSnapshot {
   readonly cooldown?: PlanLimitCooldown;
   readonly account?: ProviderGetAccountUsageResult['account'];
   readonly activity?: ProviderGetAccountUsageResult['activity'];
+  readonly allowances?: readonly PlanLimitAllowance[];
+  /** Optional provider allowances; absent means unknown, including on old snapshots. */
+  readonly credits?: {
+    readonly balance?: string;
+    readonly hasCredits: boolean;
+    readonly unlimited: boolean;
+  };
+  readonly individualAllowance?: {
+    readonly limit: string;
+    readonly used: string;
+    readonly remainingPercent: number;
+    readonly resetsAt?: number;
+  };
+  readonly resetCreditsAvailable?: boolean;
+  readonly upsellAvailable?: boolean;
   readonly unavailableReason?: PlanLimitUnavailableReason;
   /** Typed cause behind a window-less status; see {@link PlanLimitStatusReason}. */
   readonly statusReason?: PlanLimitStatusReason;
