@@ -89,7 +89,7 @@ describe('MarkdownBlockComponent', () => {
     fixture.detectChanges();
 
     const markdownEl = fixture.nativeElement.querySelector('markdown');
-    // The hardcoded `prose-invert` is what breaks `operator-member-light`:
+    // The hardcoded `prose-invert` breaks light surfaces:
     // near-white body text on a near-white card (NFR-U5). `auto` must drop it.
     expect(markdownEl.classList.contains('prose-invert')).toBe(false);
     expect(markdownEl.classList.contains('dark:prose-invert')).toBe(true);

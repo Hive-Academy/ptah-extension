@@ -10,13 +10,8 @@
  *
  * ## The defect
  *
- * TASK_2026_177 Batch 15B measured `text-base-content/60` at **4.42:1** on
- * `operator-member-light` — below WCAG AA's 4.5:1 for body text, on the SHARED
- * panel nav, so on every member and admin surface. It was the closing state of
- * B13's own F-1 fix, which had moved that element from `/40` to `/60`: correct
- * in the dark theme it was measured in, insufficient in the light one. An alpha
- * modifier tuned against one theme is a fix with an expiry date. The value has
- * to be chosen per theme, which is what `--bcm` is.
+ * `text-base-content/40` falls below WCAG AA on the landing page's
+ * `operator` theme. The measured `--bcm` token keeps muted text legible.
  *
  * ## Why a source sweep rather than a rendered-DOM check
  *

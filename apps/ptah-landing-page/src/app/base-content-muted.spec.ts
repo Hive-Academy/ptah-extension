@@ -1,33 +1,8 @@
 /**
- * The `base-content-muted` token must clear WCAG AA on every theme THIS app
- * defines. Sibling of `apps/ptah-extension-webview/src/app/base-content-muted.spec.ts`.
- *
- * ## Why a second copy of this guard exists
- *
- * `ptah-landing-page` has its OWN `tailwind.config.js` and shares nothing with
- * the webview's — different daisyUI themes, different colour ladder, different
- * compiled stylesheet. TASK_2026_186 registered `--bcm` in the webview only, so
- * until this file existed the four `operator*` themes had no muted tier at all
- * and any `text-base-content-muted` in `libs/web/**` would have silently fallen
- * back to `var(--bc)` — rendering unmuted rather than failing loudly.
- *
- * ## The defect this closes
- *
- * TASK_2026_177 Batch 15B ran the first light-theme axe pass this repository
- * had ever done and measured `text-base-content/60` at **4.42:1** on
- * `operator-member-light` — below the 4.5:1 AA gate, on the SHARED panel nav,
- * so on every member and admin surface. Recomputed here from the literal theme
- * colours it is 4.41:1. It is not an outlier: `/40` fails on all four operator
- * themes (2.47:1 - 3.33:1) and `/50` fails on `operator-admin` and
- * `operator-member` (4.35:1). No single alpha passes everywhere, which is the
- * whole argument for a per-theme token.
- *
- * ## What this spec actually checks
- *
- * It does not trust the committed numbers. It re-reads `tailwind.config.js`,
- * recomputes the contrast of each committed `--bcm` against that theme's own
- * `base-100`, and fails on a mis-transcribed triplet or a theme that gained a
- * new `base-100` without a matching muted value.
+ * The landing page's `base-content-muted` token must clear WCAG AA.
+ * This app owns its DaisyUI config and supplies the `operator` theme.
+ * The spec remeasures the committed `--bcm` value against `base-100`
+ * and catches a missing value when a theme is added.
  */
 
 const { oklch, wcagContrast, rgb } = require('culori/require');
@@ -40,11 +15,7 @@ type ThemeSource = Record<string, string>;
 
 /**
  * Every theme this app defines, flattened out of the daisyui `themes` array.
- *
- * Unlike the webview — whose config holds one object with two themes in it —
- * this app declares each theme as its own single-key object so each can carry
- * its own block comment. Flattening rather than indexing means adding a fifth
- * theme is picked up automatically instead of silently skipped.
+ * Flattening keeps a future theme in the contrast check.
  */
 const THEME_SOURCES: ReadonlyArray<readonly [string, ThemeSource]> =
   TAILWIND_CONFIG.daisyui.themes.flatMap((entry: unknown) =>
@@ -69,12 +40,7 @@ describe('base-content-muted (--bcm) on the landing-page themes', () => {
   it('finds the themes it is meant to guard', () => {
     // A restructured config that yields zero themes would otherwise make every
     // describe.each below vacuous and this file green-but-useless.
-    expect(THEME_SOURCES.map(([name]) => name)).toEqual([
-      'operator',
-      'operator-admin',
-      'operator-member',
-      'operator-member-light',
-    ]);
+    expect(THEME_SOURCES.map(([name]) => name)).toEqual(['operator']);
   });
 
   it('falls back to var(--bc) so an unmeasured theme cannot fail contrast', () => {
@@ -124,45 +90,13 @@ describe('base-content-muted (--bcm) on the landing-page themes', () => {
 });
 
 describe('the alpha ladder base-content-muted replaces', () => {
-  const byName = new Map(THEME_SOURCES);
-
-  /**
-   * Pins the defect rather than the fix. If someone later argues the token is
-   * over-engineering and `text-base-content/60` would do, this is the number
-   * that says otherwise — measured, not asserted.
-   */
-  it('fails AA at /60 on operator-member-light', () => {
-    const theme = byName.get('operator-member-light') as ThemeSource;
+  it('fails AA at /40 on operator', () => {
+    const operator = new Map(THEME_SOURCES).get('operator') as ThemeSource;
     const ratio = wcagContrast(
-      composite(theme['base-content'], theme['base-100'], 0.6),
-      theme['base-100'],
+      composite(operator['base-content'], operator['base-100'], 0.4),
+      operator['base-100'],
     );
 
     expect(ratio).toBeLessThan(AA_NORMAL);
-    expect(ratio).toBeCloseTo(4.41, 1);
-  });
-
-  it('fails AA at /40 on every theme, and at /50 on the panel themes', () => {
-    const ratioAt = (name: string, alpha: number): number => {
-      const theme = byName.get(name) as ThemeSource;
-      return wcagContrast(
-        composite(theme['base-content'], theme['base-100'], alpha),
-        theme['base-100'],
-      );
-    };
-    const failing = (alpha: number): string[] =>
-      [...byName.keys()].filter((name) => ratioAt(name, alpha) < AA_NORMAL);
-
-    expect(failing(0.4)).toEqual([
-      'operator',
-      'operator-admin',
-      'operator-member',
-      'operator-member-light',
-    ]);
-    expect(failing(0.5)).toEqual([
-      'operator-admin',
-      'operator-member',
-      'operator-member-light',
-    ]);
   });
 });

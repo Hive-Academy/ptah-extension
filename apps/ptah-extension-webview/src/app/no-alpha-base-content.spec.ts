@@ -32,7 +32,7 @@
  * files and the two `detail/` components kept theirs until 186 found them.
  * TASK_2026_177 B13 closed a contrast finding by moving an element from `/40`
  * to `/60` — a fix that was correct in the dark theme it was measured in and
- * that measures 4.42:1 in `operator-member-light`. And 186 itself left ~1300
+ * that measured 4.42:1 in a light panel theme. And 186 itself left ~1300
  * sites standing outside `tasks-ui`. The alpha modifier is an attractive
  * nuisance: it looks like a dimmer, it reads like a dimmer, and it silently
  * changes meaning per theme.

@@ -45,7 +45,7 @@ export class MarkdownBlockComponent {
    *   the default is unchanged and no existing consumer moves.
    * - `'auto'` — follows the colour scheme. Required by any surface that has a
    *   light theme: the hardcoded `prose-invert` renders near-white body text on
-   *   the near-white `base-200` of `operator-member-light`, which is NFR-U5's
+   *   a near-white `base-200` surface, which is NFR-U5's
    *   exact failure mode.
    */
   public readonly variant = input<'invert' | 'auto'>('invert');
