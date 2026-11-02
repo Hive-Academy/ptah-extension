@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { realpath, stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { z } from 'zod';
 import {
   PTAH_MCP_PORT,
   PTAH_UI_HINT_CODEX,
@@ -203,6 +204,42 @@ function profiles(deps: CodexRuntimeAdmissionDeps) {
     deps.webviewManager,
     deps.hostCapabilities,
   );
+}
+
+const billingAuthSchema = z.object({
+  auth_mode: z.string().nullable().optional(),
+  OPENAI_API_KEY: z.string().nullable().optional(),
+  openai_api_key: z.string().nullable().optional(),
+  tokens: z.object({ access_token: z.string().nullable().optional() })
+    .passthrough().nullable().optional(),
+}).passthrough();
+
+export async function resolveBillingMode(
+  home: string,
+  logger: CodexChatHostPortsDeps['logger'],
+): Promise<'api-key' | 'subscription' | 'unknown'> {
+  try {
+    const raw = await readFile(join(home, 'auth.json'), 'utf8');
+    const auth = billingAuthSchema.parse(JSON.parse(raw));
+    const mode = auth.auth_mode?.toLowerCase();
+    const hasKey = !!(auth.OPENAI_API_KEY?.trim() || auth.openai_api_key?.trim());
+    const hasPlanToken = !!auth.tokens?.access_token?.trim();
+    if (mode === 'apikey') return hasKey ? 'api-key' : 'unknown';
+    if (mode === 'chatgpt') return hasPlanToken ? 'subscription' : 'unknown';
+    if (hasKey && !hasPlanToken) return 'api-key';
+    if (hasPlanToken && !hasKey) return 'subscription';
+    return 'unknown';
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      // auth.json may be absent for this home; the billing mode is unknown.
+      return 'unknown';
+    }
+    logger.error(
+      '[CodexChatHostPorts] Native billing mode resolution failed.',
+      new Error('Codex auth metadata could not be read or validated.'),
+    );
+    return 'unknown';
+  }
 }
 
 export function createCodexRuntimeAdmission(
@@ -422,9 +459,10 @@ export function createCodexChatHostPorts(
           resume.providerId !== profile.providerId)
       )
         throw new Error('Native resume identity mismatch');
+      const billingMode = await resolveBillingMode(profile.normalizedHome, deps.logger);
       return user.secrets.size > 0
-        ? { profile, resume, secrets: user.secrets }
-        : { profile, resume };
+        ? { profile, resume, secrets: user.secrets, billingMode }
+        : { profile, resume, billingMode };
     },
     presentation: approval.presentation,
     handlePermissionResponse: approval.handlePermissionResponse,

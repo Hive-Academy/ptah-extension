@@ -1,20 +1,27 @@
+import { z } from 'zod';
+import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import { redactCodexDiagnostics } from './codex-stderr-tail';
 import {
+  CodexAppServerProcess,
   CodexHomeMismatchError,
   CodexProcessFailureError,
   CodexRequestRejectedError,
 } from './codex-app-server-process';
 import { buildCodexThreadConfig } from './codex-mcp-config';
 import { CodexResumeProfileChangedError } from './codex-resume-profile-error';
+import { CodexSessionHistoryError, readCodexSessionHistory } from './codex-session-history';
 import { CodexPermissionRuleStore } from './codex-permission-rule-store';
-import { CodexProtocolError } from './codex-protocol-validator';
+import { CodexProtocolError, codexNotificationSchemas } from './codex-protocol-validator';
 import { RuntimeContext, type CodexRuntimeOptions } from './codex-context';
+import type { IProcessSpawner } from './codex-runtime-ports';
 import type {
   CodexContext,
   CodexExecutionProfile,
   CodexMcpSecrets,
   CodexRuntime as RuntimePort,
   CodexThreadIdentity,
+  CodexSessionHistory,
+  CodexHistoryReader,
 } from './codex-runtime.types';
 
 /** Safe, pre-model signal that a lane's thread config was refused. */
@@ -42,14 +49,188 @@ function isPreTurnConfigRejection(stderr: string): boolean {
   return /error loading config|failed to load (?:bootstrap )?config(?:uration)?|error parsing -c overrides|invalid override|invalid configuration|unknown (?:config(?:uration)? )?(?:key|field)|failed to (?:parse|deserialize)[^\n]*(?:config|toml)/i.test(stderr);
 }
 
+export interface CodexRateLimitsUpdate {
+  readonly contextId: string;
+  readonly home: string;
+  readonly observedAt: number;
+}
+
+export interface CodexRuntimeUsageNotifications {
+  readonly onRateLimitsUpdated?: (
+    update: CodexRateLimitsUpdate,
+  ) => void | Promise<void>;
+  readonly onContextClosed?: (contextId: string) => void;
+  readonly onContextOpened?: (contextId: string) => void;
+}
+
+type RuntimeOptions = CodexRuntimeOptions & {
+  readonly usage?: CodexRuntimeUsageNotifications | null;
+};
+
+const limitsUpdatedEnvelope = z.object({
+  method: z.literal('account/rateLimits/updated'),
+  params: z.unknown(),
+});
+
+/** Mirrors only validated quota frames; the primary process keeps protocol ownership. */
+class RateLimitsObserver {
+  private child?: SpawnedProcessHandle;
+  private buffer = '';
+  private active = false;
+  private disposed = false;
+
+  readonly spawner: IProcessSpawner;
+
+  constructor(
+    private readonly options: RuntimeOptions,
+    private readonly profile: CodexExecutionProfile,
+  ) {
+    this.spawner = {
+      spawnProcess: (request) => {
+        this.removeListener();
+        this.buffer = '';
+        const child = options.spawner.spawnProcess(request);
+        this.child = child;
+        child.stdout?.on('data', this.onData);
+        return child;
+      },
+    };
+  }
+
+  activate(): void {
+    if (!this.disposed) this.active = true;
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.active = false;
+    this.buffer = '';
+    this.removeListener();
+    try {
+      this.options.usage?.onContextClosed?.(this.profile.contextId);
+    } catch (error: unknown) {
+      this.options.logger.error('Codex usage context cleanup failed', {
+        errorClass: error instanceof Error ? error.constructor.name : typeof error,
+      });
+    }
+  }
+
+  private readonly onData = (chunk: unknown): void => {
+    if (!this.active || this.disposed) return;
+    this.buffer += String(chunk);
+    if (Buffer.byteLength(this.buffer) > 1024 * 1024) {
+      this.buffer = '';
+      return;
+    }
+    let newline: number;
+    while ((newline = this.buffer.indexOf('\n')) >= 0) {
+      const line = this.buffer.slice(0, newline).trim();
+      this.buffer = this.buffer.slice(newline + 1);
+      if (!line) continue;
+      try {
+        const envelope = limitsUpdatedEnvelope.safeParse(JSON.parse(line));
+        if (!envelope.success) continue;
+        const parsed = codexNotificationSchemas[
+          'account/rateLimits/updated'
+        ].safeParse(envelope.data.params);
+        if (!parsed.success || !this.active || this.disposed) continue;
+        const update = {
+          contextId: this.profile.contextId,
+          home: this.profile.normalizedHome,
+          observedAt: this.options.clock.now(),
+        };
+        const callback = this.options.usage?.onRateLimitsUpdated;
+        if (!callback) continue;
+        void Promise.resolve()
+          .then(() => {
+            if (!this.active || this.disposed) return;
+            return callback(update);
+          })
+          .catch((error: unknown) => {
+            this.options.logger.error('Codex usage update failed', {
+              errorClass:
+                error instanceof Error ? error.constructor.name : typeof error,
+            });
+          });
+      } catch {
+        // degradation-audit: optional-capability — The primary protocol parser reports malformed JSON; this observer only mirrors valid updates.
+      }
+    }
+  };
+
+  private removeListener(): void {
+    this.child?.stdout?.off('data', this.onData);
+    this.child = undefined;
+  }
+}
+
 /** Host-owned instance; contexts share only the scoped, in-memory permission rules. */
-export class CodexRuntime implements RuntimePort {
+export class CodexRuntime implements RuntimePort, CodexHistoryReader {
   private readonly contexts = new Map<string, RuntimeContext>();
+  private readonly observers = new Map<string, RateLimitsObserver>();
   private readonly generations = new Map<string, number>();
   private readonly rules = new CodexPermissionRuleStore();
+  private readonly historyReads = new Map<AbortController, Promise<void>>();
   private closed = false;
 
-  constructor(private readonly options: CodexRuntimeOptions) {}
+  constructor(private readonly options: RuntimeOptions) {}
+
+  async readHistory(
+    profile: CodexExecutionProfile,
+    resume: CodexThreadIdentity,
+    signal?: AbortSignal,
+  ): Promise<CodexSessionHistory> {
+    if (this.closed) throw new Error('Codex runtime is closed');
+    if (signal?.aborted) throw new Error('Codex history read aborted');
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) controller.abort();
+    const read = this.readHistoryProcess(profile, resume, controller.signal);
+    this.historyReads.set(controller, read.then(() => undefined, () => undefined));
+    try {
+      return await read;
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+      this.historyReads.delete(controller);
+    }
+  }
+
+  private async readHistoryProcess(
+    profile: CodexExecutionProfile,
+    resume: CodexThreadIdentity,
+    signal: AbortSignal,
+  ): Promise<CodexSessionHistory> {
+    if (profile.normalizedHome !== resume.normalizedHome)
+      throw new CodexSessionHistoryError('homeMismatch');
+    const process = new CodexAppServerProcess(
+      this.options.spawner,
+      this.options.executable,
+      this.options.binary,
+      profile,
+      {
+        onNotification: () => undefined,
+        onRequest: async () => { throw new Error('History reader rejects server requests'); },
+      },
+      this.options.logger,
+    );
+    try {
+      await process.start(signal);
+      if (process.verifiedCodexHome !== profile.normalizedHome)
+        throw new CodexHomeMismatchError();
+      return await readCodexSessionHistory(
+        resume.threadId,
+        (method, params) => process.request(method, params),
+        () => { if (this.closed || signal.aborted) throw new Error('Codex history read aborted'); },
+        this.options.logger,
+      );
+    } catch (error) {
+      throw CodexSessionHistoryError.from(error);
+    } finally {
+      await process.close();
+    }
+  }
 
   async open(
     profile: CodexExecutionProfile,
@@ -95,8 +276,11 @@ export class CodexRuntime implements RuntimePort {
         resume?.processGeneration ?? 0,
       ) + 1;
     this.generations.set(profile.contextId, generation);
+    const observer = this.options.usage?.onRateLimitsUpdated
+      ? new RateLimitsObserver(this.options, profile)
+      : undefined;
     const context = new RuntimeContext(
-      this.options,
+      observer ? { ...this.options, spawner: observer.spawner } : this.options,
       this.rules,
       profile,
       generation,
@@ -104,14 +288,21 @@ export class CodexRuntime implements RuntimePort {
       () => {
         if (this.contexts.get(profile.contextId) === context)
           this.contexts.delete(profile.contextId);
+        observer?.dispose();
+        this.observers.delete(profile.contextId);
       },
     );
     this.contexts.set(profile.contextId, context);
+    if (observer) this.observers.set(profile.contextId, observer);
     try {
       await context.open(resume);
+      this.options.usage?.onContextOpened?.(profile.contextId);
+      observer?.activate();
       return context;
     } catch (error) {
       await context.close();
+      observer?.dispose();
+      this.observers.delete(profile.contextId);
       const method =
         error instanceof CodexProcessFailureError ||
         error instanceof CodexRequestRejectedError ||
@@ -163,9 +354,15 @@ export class CodexRuntime implements RuntimePort {
 
   async close(): Promise<void> {
     this.closed = true;
+    for (const controller of this.historyReads.keys()) controller.abort();
     await Promise.all(
-      [...this.contexts.values()].map((context) => context.close()),
+      [
+        ...[...this.contexts.values()].map((context) => context.close()),
+        ...this.historyReads.values(),
+      ],
     );
+    for (const observer of this.observers.values()) observer.dispose();
+    this.observers.clear();
     this.rules.dispose();
   }
 }

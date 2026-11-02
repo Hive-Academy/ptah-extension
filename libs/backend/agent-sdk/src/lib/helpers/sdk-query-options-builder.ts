@@ -1779,7 +1779,7 @@ export class SdkQueryOptionsBuilder {
    * Validate that ANTHROPIC_BASE_URL is present when the active auth token is
    * a non-Anthropic provider placeholder.
    *
-   * Background: providers like Ollama, Copilot, Codex, and OpenRouter write a
+   * Background: providers like Ollama, Copilot, and OpenRouter write a
    * known placeholder string into `ANTHROPIC_AUTH_TOKEN` (e.g. 'ollama',
    * 'copilot-proxy-managed') and point `ANTHROPIC_BASE_URL` at their local
    * endpoint. If the strategy's `configure()` never ran — typically because the
@@ -1800,7 +1800,6 @@ export class SdkQueryOptionsBuilder {
     const placeholderToProvider: Record<string, string> = {
       [OLLAMA_AUTH_TOKEN_PLACEHOLDER]: 'Ollama',
       [COPILOT_PROXY_TOKEN_PLACEHOLDER]: 'GitHub Copilot',
-      [CODEX_PROXY_TOKEN_PLACEHOLDER]: 'OpenAI Codex',
       [KIMI_CODE_PROXY_TOKEN_PLACEHOLDER]: 'Kimi Code',
       [OPENROUTER_PROXY_TOKEN_PLACEHOLDER]: 'OpenRouter',
     };

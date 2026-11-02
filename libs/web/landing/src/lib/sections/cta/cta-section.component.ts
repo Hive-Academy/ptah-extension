@@ -54,7 +54,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
           <a
             routerLink="/download"
             class="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-lg bg-amber-500 text-ink-950 font-semibold text-sm sm:text-base transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber active:bg-amber-600 active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-            aria-label="Download the PtahCode desktop app"
+            aria-label="Download PtahCode desktop app"
           >
             <lucide-angular
               [img]="downloadIcon"

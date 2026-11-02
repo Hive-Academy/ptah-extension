@@ -44,7 +44,7 @@ function harness(send?: IdleCompactSender['sendIdleCompact'], owner?: SessionSta
       coordinatorTimeouts.delete(handle as number);
     },
   });
-  coordinator.register('s', { codexProxy: false, e2Passed: true });
+  coordinator.register('s', { e2Passed: true });
   let enabled = true;
   let autoEnabled = true;
   let minimum = 200_000;
@@ -105,7 +105,7 @@ function harness(send?: IdleCompactSender['sendIdleCompact'], owner?: SessionSta
     owner,
   );
   const arm = (id = 's') => {
-    service.sessionBound(id, 'run', false);
+    service.sessionBound(id, 'run');
     service.turnEnded(id, 'turn', request);
     service.turnContext(id, 'turn', 250_000);
   };
@@ -164,7 +164,7 @@ describe('IdleCompactionService', () => {
     const lease = owner.startNew('s');
     owner.beginRun('s', lease.generation, 'run', null);
     const h = harness(undefined, owner);
-    h.service.sessionBound('s', 'run', false, true);
+    h.service.sessionBound('s', 'run', true);
     h.service.turnEnded('s', 'write', {
       ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
     });
@@ -201,7 +201,7 @@ describe('IdleCompactionService', () => {
     const lease = owner.startNew('s');
     owner.beginRun('s', lease.generation, 'run', null);
     const h = harness(undefined, owner);
-    h.service.sessionBound('s', 'run', false, true);
+    h.service.sessionBound('s', 'run', true);
     h.service.turnEnded('s', 'write', {
       ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
     });
@@ -217,7 +217,7 @@ describe('IdleCompactionService', () => {
     const lease = owner.startNew('s');
     owner.beginRun('s', lease.generation, 'run', null);
     const h = harness(undefined, owner);
-    h.service.sessionBound('s', 'run', false, true);
+    h.service.sessionBound('s', 'run', true);
     h.service.turnEnded('s', 'write', {
       ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
     });
@@ -233,7 +233,7 @@ describe('IdleCompactionService', () => {
     const lease = owner.startNew('s');
     owner.beginRun('s', lease.generation, 'run', null);
     const h = harness(undefined, owner);
-    h.service.sessionBound('s', 'run', false, true);
+    h.service.sessionBound('s', 'run', true);
     h.service.turnEnded('s', 'write', {
       ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
     });
@@ -257,7 +257,7 @@ describe('IdleCompactionService', () => {
     const lease = owner.startNew('s');
     owner.beginRun('s', lease.generation, 'run', null);
     const h = harness(undefined, owner);
-    h.service.sessionBound('s', 'run', false, true);
+    h.service.sessionBound('s', 'run', true);
     owner.startNew('s');
     h.service.turnEnded('s', 'stale-1', {
       ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
@@ -275,12 +275,12 @@ describe('IdleCompactionService', () => {
     const lease = owner.startNew('s');
     owner.beginRun('s', lease.generation, 'run', null);
     const h = harness(undefined, owner);
-    h.service.sessionBound('s', 'run', false, false);
+    h.service.sessionBound('s', 'run');
     h.service.turnEnded('s', 'proxy', {
       ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 2, cacheWriteTtl: '1h',
     });
     expect(owner.snapshot('s')?.cache).toBeUndefined();
-    h.service.sessionBound('s', 'run', false, true);
+    h.service.sessionBound('s', 'run', true);
     h.service.turnEnded('s', 'native', {
       ...request, cacheAnchorAt: 2_000, cacheWriteTokens: 2, cacheWriteTtl: '1h',
     });
@@ -466,7 +466,7 @@ describe('IdleCompactionService', () => {
         h.change('ptah.compaction.enabled');
         break;
       case 'new-run':
-        h.service.sessionBound('s', 'run-2', false);
+        h.service.sessionBound('s', 'run-2');
         break;
     }
     expect(h.scheduler.actions).toHaveLength(0);
@@ -508,7 +508,7 @@ describe('IdleCompactionService', () => {
     expect(h.offPre).toHaveBeenCalledTimes(1);
     expect(h.offPost).toHaveBeenCalledTimes(1);
     expect(h.offConfig).toHaveBeenCalledTimes(1);
-    h.service.sessionBound('s', 'late', false);
+    h.service.sessionBound('s', 'late');
     h.service.turnEnded('s', 'late', request);
     h.service.turnContext('s', 'late', 250_000);
     expect(h.scheduler.actions).toHaveLength(0);
@@ -548,7 +548,7 @@ describe('IdleCompactionService', () => {
 
   it('normalizes old aliases for activity, turns and boundary notices', async () => {
     const h = harness();
-    h.coordinator.register('new-s', { codexProxy: false, e2Passed: true });
+    h.coordinator.register('new-s', { e2Passed: true });
     h.arm();
     h.service.rekey('s', 'new-s');
     h.service.input('s');
@@ -575,7 +575,7 @@ describe('IdleCompactionService', () => {
 
   it('drops one signal when settings throws and keeps the session alive', async () => {
     const h = harness();
-    h.service.sessionBound('s', 'run', false);
+    h.service.sessionBound('s', 'run');
     h.failNextSettingsRead();
     h.service.turnEnded('s', 'discarded', request);
     h.service.turnContext('s', 'discarded', 250_000);

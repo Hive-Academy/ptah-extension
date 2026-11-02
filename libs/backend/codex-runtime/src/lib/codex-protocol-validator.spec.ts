@@ -56,6 +56,27 @@ const threadResult = {
   modelProvider: 'openai',
   sandbox: { type: 'readOnly' },
 };
+const historyThread = {
+  ...threadResult.thread,
+  historyMode: 'paginated',
+  parentThreadId: null,
+};
+describe('synthetic descendant source variants', () => {
+  it.each([
+    'futureClient',
+    { subAgent: { thread_spawn: { parentThreadId: 'parent', depth: 1 } } },
+  ])('validates a thread/list row with source %p', (source) => {
+    const result = validateCodexResult('thread/list', {
+      data: [{ ...historyThread, id: 'child', parentThreadId: 'parent', source }],
+      nextCursor: null,
+    });
+    expect(result.data[0].source).toEqual(source);
+  });
+});
+const historyTurn = {
+  id: 'turn', status: 'completed', itemsView: 'summary',
+  items: [{ type: 'agentMessage', id: 'item', text: 'summary' }],
+};
 const requests: [string, unknown, unknown][] = [
   [
     'initialize',
@@ -72,6 +93,10 @@ const requests: [string, unknown, unknown][] = [
   ],
   ['thread/start', {}, threadResult],
   ['thread/resume', { threadId: 'thread' }, threadResult],
+  ['thread/read', { threadId: 'thread', includeTurns: true }, { thread: historyThread }],
+  ['thread/turns/list', { threadId: 'thread', itemsView: 'full', sortDirection: 'asc' }, { data: [historyTurn], nextCursor: 'next' }],
+  ['thread/items/list', { threadId: 'thread', turnId: 'turn', cursor: { type: 'item', itemId: 'prior' } }, { data: [{ turnId: 'turn', item: historyTurn.items[0] }], nextCursor: null }],
+  ['thread/list', { cursor: 'next', sourceKinds: ['subAgent'] }, { data: [historyThread], nextCursor: null }],
   [
     'turn/start',
     { threadId: 'thread', input: [{ type: 'text', text: 'Hello' }] },
@@ -139,6 +164,28 @@ const requests: [string, unknown, unknown][] = [
     { action: 'accept', content: { confirm: true }, _meta: {} },
   ],
 ];
+
+describe('pinned history methods', () => {
+  it('admits all four methods in the pinned manifest', () => {
+    const manifest = z.object({ methods: z.object({ requests: z.array(z.string()) }) }).parse(
+      JSON.parse(readFileSync(join(__dirname, 'protocol/codex-app-server-protocol.manifest.json'), 'utf8')),
+    );
+    for (const method of ['thread/read', 'thread/turns/list', 'thread/items/list', 'thread/list'])
+      expect(manifest.methods.requests).toContain(method);
+  });
+
+  it('validates includeTurns and full versus summary views', () => {
+    expect(validateCodexParams('thread/read', { threadId: 'thread', includeTurns: false })).toEqual({ threadId: 'thread', includeTurns: false });
+    expect(validateCodexResult('thread/read', { thread: { ...historyThread, turns: [historyTurn] } })).toMatchObject({ thread: { historyMode: 'paginated', turns: [{ itemsView: 'summary' }] } });
+    expect(validateCodexResult('thread/turns/list', { data: [{ ...historyTurn, itemsView: 'full' }] })).toMatchObject({ data: [{ itemsView: 'full' }] });
+  });
+
+  it('rejects unknown item types and malformed cursors', () => {
+    expect(() => validateCodexResult('thread/items/list', { data: [{ turnId: 'turn', item: { type: 'futureType', id: 'x' } }] })).toThrow(expect.objectContaining({ code: 'invalidResult' }));
+    expect(() => validateCodexResult('thread/turns/list', { data: [], nextCursor: 7 })).toThrow(expect.objectContaining({ code: 'invalidResult' }));
+    expect(() => validateCodexParams('thread/items/list', { threadId: 'thread', cursor: { type: 'item' } })).toThrow(expect.objectContaining({ code: 'invalidParams' }));
+  });
+});
 const notifications: [string, unknown][] = [
   ['account/rateLimits/updated', { rateLimits: {} }],
   ['mcpServer/startupStatus/updated', { name: 'mcp', status: 'starting' }],
@@ -482,6 +529,68 @@ describe('server extensions and strict client contracts', () => {
 });
 
 describe('Codex protocol validation', () => {
+  it('keeps only bounded paths and codes for a rejected result', () => {
+    const value = {
+      data: Array.from({ length: 20 }, (_, index) => `PRIVATE_REPLY_${index}`),
+    };
+    let caught: unknown;
+    try {
+      validateCodexResult('thread/list', value);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(CodexProtocolError);
+    if (!(caught instanceof CodexProtocolError))
+      throw new Error('Expected protocol error');
+    expect(caught.issues).toHaveLength(8);
+    expect(caught.issues[0]).toEqual({ path: ['data', 0], code: 'invalid_type' });
+    expect(caught.issues.every((issue) => issue.path.length <= 8)).toBe(true);
+    expect(caught.issues.every((issue) =>
+      Object.keys(issue).sort().join(',') === 'code,path')).toBe(true);
+    expect(JSON.stringify(caught.issues)).not.toContain('PRIVATE_REPLY');
+    expect(JSON.stringify(caught)).not.toContain('PRIVATE_REPLY');
+  });
+  it('redacts server-chosen record keys but keeps schema keys and indexes', () => {
+    const secretKey = 'sk_live_PRIVATE_RECORD_KEY';
+    let caught: unknown;
+    try {
+      validateCodexResult('thread/items/list', {
+        data: [
+          {
+            turnId: 'turn',
+            item: {
+              type: 'collabAgentToolCall',
+              id: 'item',
+              senderThreadId: 'parent',
+              receiverThreadIds: [],
+              status: 'completed',
+              tool: 'wait',
+              agentsStates: {
+                [secretKey]: { status: 'invalid', message: null },
+              },
+              model: null,
+              prompt: null,
+              reasoningEffort: null,
+            },
+            startedAtMs: null,
+            completedAtMs: null,
+          },
+        ],
+        nextCursor: null,
+        backwardsCursor: null,
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(CodexProtocolError);
+    if (!(caught instanceof CodexProtocolError))
+      throw new Error('Expected protocol error');
+    expect(caught.issues).toContainEqual({
+      path: ['data', 0, 'item', 'agentsStates', '[redacted]', 'status'],
+      code: 'invalid_value',
+    });
+    expect(JSON.stringify(caught.issues)).not.toContain(secretKey);
+  });
   it('replays every inbound method from spike runs 6e through 6j', () => {
     const methods = new Set<string>();
     for (const suffix of ['e', 'f', 'g', 'h', 'i', 'j']) {
@@ -958,6 +1067,14 @@ describe('pinned schema contract', () => {
       ),
     ],
   ] as const;
+  // Experimental params are deliberately absent from the pinned stable schema:
+  // the runtime sends them opportunistically and retries without them when the
+  // server answers JSON-RPC -32602. Keyed by "<group>/<method>"; keep exact.
+  const experimentalParams: Readonly<
+    Partial<Record<string, readonly string[]>>
+  > = {
+    'ClientRequest/thread/list': ['ancestorThreadId'],
+  };
   for (const [group, methods] of groups) {
     const variants = z
       .array(record)
@@ -978,10 +1095,18 @@ describe('pinned schema contract', () => {
         expect(wire).toBeDefined();
         if (!wire) throw new Error('Missing pinned method');
         const wireParams = record.parse(wire['properties'])['params'];
+        const experimental = experimentalParams[`${group}/${method}`] ?? [];
         const modeledFields = fields(z.toJSONSchema(modeled.params));
         const pinnedFields = wireParams === undefined ? {} : fields(wireParams);
-        for (const name of Object.keys(modeledFields))
+        for (const name of Object.keys(modeledFields)) {
+          if (experimental.includes(name)) continue;
           expect(Object.keys(pinnedFields)).toContain(name);
+        }
+        // Experimental params are checked separately: modeled, never pinned.
+        for (const name of experimental) {
+          expect(Object.keys(modeledFields)).toContain(name);
+          expect(Object.keys(pinnedFields)).not.toContain(name);
+        }
         if (wireParams !== undefined) {
           for (const name of z
             .array(z.string())

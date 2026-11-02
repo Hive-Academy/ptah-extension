@@ -1,5 +1,7 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { PlanLimitTileComponent } from './plan-limit-tile.component';
+import { sessionPlan } from './plan-limit-tiles';
+import { FRESHNESS_MS, NEAR_LIMIT_PERCENT, type PlanLimitOwnerSnapshot } from '@ptah-extension/shared';
 import type {
   PlanLimitTileModel,
   PlanWindowDetailModel,
@@ -48,6 +50,58 @@ describe('PlanLimitTileComponent', () => {
     fixture.detectChanges();
     return fixture.nativeElement as HTMLElement;
   }
+
+  it('renders provider-neutral credit and individual allowance tiles in bucket order', () => {
+    const now = Date.UTC(2026, 10, 2, 12);
+    const owner: PlanLimitOwnerSnapshot = {
+      owner: { key: 'provider#account:hash', providerId: 'provider', identityKind: 'account', label: 'Account' },
+      status: 'available',
+      windowSetEstablished: true,
+      windows: [],
+      ownerEvidence: [],
+      allowances: [
+        { bucketId: 'active', label: 'Plan', credits: { hasCredits: true, unlimited: true }, individual: { limit: '100', used: '25', remainingPercent: 75, resetsAt: now + 3_600_000 } },
+        { bucketId: 'other', label: 'Additional plan', credits: { balance: '12.50', hasCredits: true, unlimited: false } },
+      ],
+    };
+    const plan = sessionPlan({
+      sessionId: 's', sessionOwnerKey: owner.owner.key, sessionModelScope: null,
+      owners: [owner], laneRuns: [], now, time: { timeZone: 'UTC' },
+    }, { now, time: { timeZone: 'UTC' }, lane: { now, nearLimitPercent: NEAR_LIMIT_PERCENT, freshnessMs: FRESHNESS_MS } });
+    expect(plan.tiles.map((tile) => tile.id)).toEqual([
+      'plan-allowance:provider#account:hash:active:credits',
+      'plan-allowance:provider#account:hash:active:individual',
+      'plan-allowance:provider#account:hash:other:credits',
+    ]);
+    const unlimited = render(plan.tiles[0], true);
+    expect(unlimited.textContent).toContain('Unlimited');
+    expect(unlimited.textContent).toContain('Plan credits');
+    TestBed.resetTestingModule();
+    const individual = render(plan.tiles[1], true);
+    expect(individual.textContent).toContain('75% remaining');
+    expect(individual.textContent).toContain('25 of 100 used');
+    expect(individual.textContent).toContain('resets');
+    TestBed.resetTestingModule();
+    const balance = render(plan.tiles[2], true);
+    expect(balance.textContent).toContain('12.50 remaining');
+  });
+
+  it('clamps provider-reported individual remaining percent in plan tiles', () => {
+    const now = Date.UTC(2026, 10, 2, 12);
+    const owner: PlanLimitOwnerSnapshot = {
+      owner: { key: 'provider#account:hash', providerId: 'provider', identityKind: 'account', label: 'Account' },
+      status: 'available', windowSetEstablished: true, windows: [], ownerEvidence: [],
+      allowances: [
+        { bucketId: 'high', label: 'Plan', individual: { limit: '100', used: '0', remainingPercent: 140 } },
+        { bucketId: 'low', label: 'Other', individual: { limit: '100', used: '100', remainingPercent: -20 } },
+      ],
+    };
+    const plan = sessionPlan({
+      sessionId: 's', sessionOwnerKey: owner.owner.key, sessionModelScope: null,
+      owners: [owner], laneRuns: [], now, time: { timeZone: 'UTC' },
+    }, { now, time: { timeZone: 'UTC' }, lane: { now, nearLimitPercent: NEAR_LIMIT_PERCENT, freshnessMs: FRESHNESS_MS } });
+    expect(plan.tiles.map((tile) => tile.value)).toEqual(['100% remaining', '0% remaining']);
+  });
 
   function button(root: HTMLElement): HTMLButtonElement {
     const found = root.querySelector<HTMLButtonElement>(

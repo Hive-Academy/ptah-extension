@@ -305,6 +305,54 @@ describe('agent limit formatter (TASK_2026_596 Batch 14)', () => {
     );
   });
 
+  it('lists credits and individual allowance without changing the owner/window row shape', () => {
+    const limited = lane(cliRow('codex'), snapshot({
+      windows: [FIVE_HOUR_ROOM],
+      allowances: [{
+        bucketId: 'active', label: 'Plan',
+        credits: { hasCredits: true, unlimited: true },
+        individual: { limit: '100', used: '25', remainingPercent: 75, resetsAt: NOW + HOUR },
+      }],
+    }));
+    const rows = formatPlanLimitRows([limited], NOW);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveLength(6);
+    expect(rows[0][1]).toBe('5-hour session');
+    expect(rows[1]).toEqual(['codex', 'Plan credits', 'unlimited', 'unlimited', '-', '-']);
+    expect(rows[2]).toEqual([
+      'codex', 'Plan allowance', '25 of 100 used', '75% remaining',
+      'resets 2026-10-03 13:00 UTC', '-',
+    ]);
+    const text = formatPlanLimitsSection([limited], NOW);
+    expect(text).toContain('| codex | Plan credits | unlimited |');
+    expect(text).toContain('| codex | Plan allowance | 25 of 100 used | 75% remaining |');
+  });
+
+  it('escapes provider cells in the rendered plan table and clamps allowance percentages', () => {
+    const limited = lane(cliRow('codex'), snapshot({
+      windows: [],
+      allowances: [{
+        bucketId: 'active', label: 'Plan | `name`\nnext',
+        credits: { balance: '12|50', hasCredits: true, unlimited: false },
+        individual: { limit: '100', used: '25', remainingPercent: 140 },
+      }],
+    }));
+    const rows = formatPlanLimitRows([limited], NOW);
+    expect(rows[1]?.[3]).toBe('100% remaining');
+    const text = formatPlanLimitsSection([limited], NOW);
+    expect(text).toContain('Plan \\| \\`name\\` next credits');
+    expect(text).toContain('12\\|50 remaining');
+    expect(text).not.toContain('name`\nnext');
+    const negative = lane(cliRow('codex'), snapshot({
+      windows: [],
+      allowances: [{
+        bucketId: 'negative', label: 'Plan',
+        individual: { limit: '100', used: '25', remainingPercent: -20 },
+      }],
+    }));
+    expect(formatPlanLimitRows([negative], NOW)[0]?.[3]).toBe('0% remaining');
+  });
+
   it('prints the §5.1 alternatives lines verbatim', () => {
     const text = formatAlternatives(ROSTER, { now: NOW });
     expect(text).toContain(

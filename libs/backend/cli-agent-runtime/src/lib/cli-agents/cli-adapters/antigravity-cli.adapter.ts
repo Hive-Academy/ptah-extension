@@ -927,13 +927,18 @@ export class AntigravityCliAdapter implements CliAdapter {
             useStreamInput
               ? (exitCode) => {
                   const settledTurn = currentTurn;
-                  settledTurn.resolve(exitCode);
-                  if (exitCode !== 0 && failedResult) {
-                    child.stdin?.end();
-                    stdinClosed = true;
-                  } else {
-                    closeAfterSettledTurn(settledTurn);
-                  }
+                  // A result may share a stdout batch with later lines. Let
+                  // queued data callbacks emit them before exposing turn end.
+                  setImmediate(() => {
+                    if (processClosed || settledTurn.settled) return;
+                    settledTurn.resolve(exitCode);
+                    if (exitCode !== 0 && failedResult) {
+                      child.stdin?.end();
+                      stdinClosed = true;
+                    } else {
+                      closeAfterSettledTurn(settledTurn);
+                    }
+                  });
                 }
               : undefined,
           );

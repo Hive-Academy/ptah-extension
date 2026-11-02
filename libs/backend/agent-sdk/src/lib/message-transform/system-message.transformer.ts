@@ -237,7 +237,11 @@ export class SystemMessageTransformer {
     }
 
     if (toolUseId) {
-      state.setTaskParent(msg.task_id, toolUseId);
+      state.setTaskParent(
+        msg.task_id,
+        toolUseId,
+        sessionId || msg.session_id,
+      );
       helpers.subagentRegistry.setTaskId(toolUseId, msg.task_id);
 
       // A `local_workflow` task_started is the root of a workflow run: its
@@ -370,8 +374,13 @@ export class SystemMessageTransformer {
       return [];
     }
 
+    const taskSessionId = sessionId || msg.session_id;
+    if (msg.tool_use_id) {
+      state.setTaskParent(msg.task_id, msg.tool_use_id, taskSessionId);
+    }
     const parentToolUseId =
-      msg.tool_use_id ?? state.getTaskParentToolUseId(msg.task_id);
+      msg.tool_use_id ??
+      state.getTaskParentToolUseId(msg.task_id, taskSessionId);
 
     if (!parentToolUseId) {
       helpers.logger.debug(
@@ -422,7 +431,10 @@ export class SystemMessageTransformer {
       return [];
     }
 
-    const parentToolUseId = state.getTaskParentToolUseId(msg.task_id);
+    const parentToolUseId = state.getTaskParentToolUseId(
+      msg.task_id,
+      sessionId || msg.session_id,
+    );
 
     if (!parentToolUseId) {
       helpers.logger.debug(
@@ -663,7 +675,7 @@ export class SystemMessageTransformer {
       // Absent for 'completed' (the default); 'failed' renders the entry
       // as failed in the tray instead of completed.
       ...(msg.status === 'failed' && { status: 'failed' as const }),
-      result: msg.summary,
+      result: msg.skip_transcript ? undefined : msg.summary,
       duration: msg.usage?.duration_ms,
     };
   }
@@ -699,23 +711,48 @@ export class SystemMessageTransformer {
     helpers: TransformerHelpers,
     sessionId?: TransformerSessionId,
   ): FlatStreamEventUnion[] {
+    const taskSessionId = sessionId || msg.session_id;
     const parentToolUseId =
-      msg.tool_use_id ?? state.getTaskParentToolUseId(msg.task_id);
+      msg.tool_use_id ??
+      state.getTaskParentToolUseId(msg.task_id, taskSessionId);
 
     // Read before clearing — `clearTaskParent` also drops the non-agent mark.
     const isNonAgentTask = state.isNonAgentTask(msg.task_id);
+    const isDuplicateAgentTerminal =
+      !isNonAgentTask &&
+      state.isTaskTerminalEmitted(
+        msg.task_id,
+        taskSessionId,
+        msg.tool_use_id,
+      );
 
-    state.clearTaskParent(msg.task_id);
+    state.clearTaskParent(msg.task_id, taskSessionId);
 
-    if (msg.skip_transcript) {
+    if (isDuplicateAgentTerminal) {
+      return [];
+    }
+
+    // Transcript suppression never suppressed local_bash terminal handling.
+    if (isNonAgentTask && msg.skip_transcript) {
       return [];
     }
 
     if (!parentToolUseId) {
-      helpers.logger.debug(
-        '[SdkMessageTransformer] task_notification: no parentToolUseId, skipping',
-        { taskId: msg.task_id, status: msg.status },
-      );
+      if (isNonAgentTask) {
+        helpers.logger.debug(
+          '[SdkMessageTransformer] task_notification: no parentToolUseId, skipping',
+          { taskId: msg.task_id, status: msg.status },
+        );
+      } else {
+        helpers.logger.warn(
+          '[SdkMessageTransformer] task_notification: unresolved agent lifecycle, skipping terminal events',
+          {
+            taskId: msg.task_id,
+            status: msg.status,
+            sessionId: taskSessionId,
+          },
+        );
+      }
       return [];
     }
 
@@ -735,6 +772,12 @@ export class SystemMessageTransformer {
       return [event];
     }
 
+    state.markTaskTerminalEmitted(
+      msg.task_id,
+      taskSessionId,
+      parentToolUseId,
+    );
+
     // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —
     // `SdkMessageTransformer.transform` resolves it off this same object before
     // dispatching here. The old `?? (msg.session_id as SessionId)` was not just
@@ -752,12 +795,13 @@ export class SystemMessageTransformer {
       messageId: state.getMessageId('') ?? `task_${msg.task_id}`,
       parentToolUseId,
       taskId: msg.task_id,
-      status: msg.status,
-      summary:
-        msg.status === 'stopped'
+      status: msg.status ?? 'completed',
+      summary: msg.skip_transcript
+        ? ''
+        : msg.status === 'stopped'
           ? (helpers.stopNotices.noticeFor(msg.task_id) ?? msg.summary)
           : msg.summary,
-      outputFile: msg.output_file,
+      outputFile: msg.skip_transcript ? '' : msg.output_file,
       totalTokens: msg.usage?.total_tokens,
       toolUses: msg.usage?.tool_uses,
       durationMs: msg.usage?.duration_ms,

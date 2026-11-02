@@ -4,16 +4,21 @@ import {
   computed,
   input,
 } from '@angular/core';
-import { formatAgentDuration } from '@ptah-extension/chat-ui';
+import {
+  formatAgentDuration,
+  StreamingQuotesComponent,
+} from '@ptah-extension/chat-ui';
 
 /**
  * The live line under a live turn (design-spec §3.7): a pulsing dot, the
  * orchestrator verb and the turn timer.
  *
  * The verb follows the session needs-you aggregate, the same source as the
- * header chip: `Waiting for you` while it is above 0, else `Orchestrating`.
- * Only the verb is announced (`role="status"`, polite); the timer is
- * `aria-hidden` so screen readers hear no per-second updates.
+ * header chip: `Waiting for you` while it is above 0. Otherwise the line
+ * shows the rotating loading sentences, which stay for the whole turn.
+ * Only the verb is announced (`role="status"`, polite, `Orchestrating`
+ * while the sentences show); the sentences and the timer are
+ * `aria-hidden` so screen readers hear no per-character updates.
  *
  * Presentational only: the host passes `now` from its one transcript clock;
  * this component starts no timer.
@@ -21,6 +26,7 @@ import { formatAgentDuration } from '@ptah-extension/chat-ui';
 @Component({
   selector: 'ptah-turn-live-line',
   standalone: true,
+  imports: [StreamingQuotesComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   styles: [
@@ -71,9 +77,14 @@ import { formatAgentDuration } from '@ptah-extension/chat-ui';
         class="turn-live-dot bg-state-run text-state-run"
         aria-hidden="true"
       ></span>
-      <span class="text-base-content" data-test="turn-live-verb">{{
-        verb()
-      }}</span>
+      @if (waitingForYou()) {
+        <span class="text-base-content" data-test="turn-live-verb"
+          >Waiting for you</span
+        >
+      } @else {
+        <span class="sr-only" data-test="turn-live-verb">Orchestrating</span>
+        <ptah-streaming-quotes aria-hidden="true" />
+      }
       @if (timer(); as timerText) {
         <span class="text-base-content-muted" aria-hidden="true">·</span>
         <span
@@ -96,9 +107,7 @@ export class TurnLiveLineComponent {
   /** Session needs-you aggregate (the header chip's count). */
   readonly needsYouCount = input(0);
 
-  protected readonly verb = computed(() =>
-    this.needsYouCount() > 0 ? 'Waiting for you' : 'Orchestrating',
-  );
+  protected readonly waitingForYou = computed(() => this.needsYouCount() > 0);
 
   /** `{m}m {ss}s`; `null` under one second or without a start. */
   protected readonly timer = computed(() => {

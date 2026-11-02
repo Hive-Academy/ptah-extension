@@ -25,6 +25,7 @@
 
 import type {
   AgentCompletedEvent,
+  BackgroundAgentStartedEvent,
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import {
@@ -52,6 +53,12 @@ import {
   isHiddenTranscriptRecord,
   isSkillOrMetaContent,
 } from '../../message-transform/message-transform-helpers';
+import {
+  buildHistoricalBackgroundStartedEvent,
+  buildHistoricalBackgroundTerminalEvent,
+  isFinalBackgroundToolResult,
+  readReplayBackgroundSpawn,
+} from './replay-background-events';
 
 export interface HistoryReplayCollector {
   blockOwners: Map<FlatStreamEventUnion, string>;
@@ -177,6 +184,10 @@ export class SessionReplayService {
       agentDataMap,
     );
     const emittedAgentStarts = new Map<string, { agentId?: string }>();
+    // Background Task spawns of this replay, keyed by the Task tool_use id —
+    // the correlation a later notification needs to settle the tray chip.
+    const backgroundSpawns = new Map<string, BackgroundAgentStartedEvent>();
+    const completedBackgroundToolIds = new Set<string>();
     const completedTaskIds = new Set<string>();
     const allToolResults =
       this.correlationService.extractAllToolResults(effectiveMessages);
@@ -235,12 +246,13 @@ export class SessionReplayService {
             if (toolUseId && started && !completedTaskIds.has(notification.taskId)) {
               completedTaskIds.add(notification.taskId);
               const parsedTimestamp = Date.parse(msg.timestamp ?? '');
+              const notificationTimestamp = Number.isFinite(parsedTimestamp)
+                ? parsedTimestamp
+                : Date.now();
               const event: AgentCompletedEvent = {
                 id: `history-task-${msg.uuid ?? `${notification.taskId}-${eventIndex}`}`,
                 eventType: 'agent_completed',
-                timestamp: Number.isFinite(parsedTimestamp)
-                  ? parsedTimestamp
-                  : Date.now(),
+                timestamp: notificationTimestamp,
                 sessionId,
                 source: 'history',
                 messageId: `task_${notification.taskId}`,
@@ -253,6 +265,26 @@ export class SessionReplayService {
               };
               events.push(event);
               eventIndex++;
+              // A background Task's chip was announced by the replayed
+              // `background_agent_started`; the same correlated notification
+              // also settles it with a background terminal event. A final
+              // Task result may have settled it earlier; a launch placeholder
+              // alone never does.
+              const backgroundStarted = backgroundSpawns.get(toolUseId);
+              if (backgroundStarted && !completedBackgroundToolIds.has(toolUseId)) {
+                completedBackgroundToolIds.add(toolUseId);
+                events.push(
+                  buildHistoricalBackgroundTerminalEvent({
+                    sessionId,
+                    messageId: `task_${notification.taskId}`,
+                    timestamp: notificationTimestamp + 0.001,
+                    started: backgroundStarted,
+                    status: notification.status,
+                    summary: notification.summary,
+                  }),
+                );
+                eventIndex++;
+              }
             }
           }
           continue;
@@ -475,6 +507,31 @@ export class SessionReplayService {
                     agentId ?? undefined, // Real agentId from correlated agent file
                   ),
                 );
+                // A `run_in_background: true` Task replays a historical
+                // `background_agent_started` BEFORE the placeholder
+                // tool_result, mirroring the live stream order the frontend
+                // accumulator relies on (the tool_result branch checks
+                // `isBackgroundAgent` against the chip this event creates).
+                // Foreground tasks emit nothing here.
+                const backgroundSpawn = readReplayBackgroundSpawn(
+                  toolCallId,
+                  block.input,
+                  toolResult?.content,
+                );
+                const backgroundStarted = backgroundSpawn
+                  ? buildHistoricalBackgroundStartedEvent({
+                    sessionId,
+                    messageId: currentMessageId,
+                    timestamp:
+                      currentMessageTimestamp + messageSequence++ * 0.001,
+                    spawn: backgroundSpawn,
+                  })
+                  : null;
+                if (backgroundStarted) {
+                  backgroundSpawns.set(toolCallId, backgroundStarted);
+                  events.push(backgroundStarted);
+                  eventIndex++;
+                }
                 const agentData = correlatedAgentFileId
                   ? agentDataMap.get(correlatedAgentFileId)
                   : undefined;
@@ -502,6 +559,24 @@ export class SessionReplayService {
                       currentMessageTimestamp + messageSequence++ * 0.001,
                     ),
                   );
+                  if (
+                    backgroundStarted &&
+                    isFinalBackgroundToolResult(toolResult.content, backgroundStarted)
+                  ) {
+                    completedBackgroundToolIds.add(toolCallId);
+                    events.push(
+                      buildHistoricalBackgroundTerminalEvent({
+                        sessionId,
+                        messageId: currentMessageId,
+                        timestamp:
+                          currentMessageTimestamp + messageSequence++ * 0.001,
+                        started: backgroundStarted,
+                        status: toolResult.isError ? 'failed' : 'completed',
+                        summary: toolResult.content,
+                      }),
+                    );
+                    eventIndex++;
+                  }
                 } else if (
                   agentData &&
                   agentData.executionMessages.length > 0

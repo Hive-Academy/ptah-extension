@@ -100,7 +100,7 @@
             }}</span>
           } @else {
             <span data-testid="stats-cost">
-              <ptah-cost-badge [cost]="totalCost()" />
+              <ptah-cost-badge [cost]="totalCost()" [costBasis]="costBasis()" />
             </span>
             @if (costBudgetSuffix(); as suffix) {
               <span
@@ -312,7 +312,7 @@
             <span data-testid="stats-cost-budget">{{ budgetText }}</span>
           } @else {
             <span data-testid="stats-cost">
-              <ptah-cost-badge [cost]="totalCost()" />
+              <ptah-cost-badge [cost]="totalCost()" [costBasis]="costBasis()" />
             </span>
             @if (costBudgetSuffix(); as suffix) {
               <span

@@ -459,22 +459,38 @@ describe('PlanLimitsStore', () => {
       });
     });
 
-    it('keeps a newer push when a slower pull returns an older snapshot', async () => {
+    it('keeps newer pushed allowances and owner/window data when a slower pull returns an older snapshot', async () => {
       const pending = deferred<RpcResult<never>>();
       rpc.call.mockReturnValueOnce(pending.promise);
       const loading = store.load();
 
-      const pushed = snapshot(T0 + 2000, [owner('pushed')]);
+      const pushedOwner: PlanLimitOwnerSnapshot = {
+        ...owner('pushed', 40),
+        allowances: [{
+          bucketId: 'active', label: 'Plan',
+          credits: { balance: '12.50', hasCredits: true, unlimited: false },
+          individual: { limit: '100', used: '25', remainingPercent: 75 },
+        }],
+      };
+      const pushed = snapshot(T0 + 2000, [pushedOwner], {
+        s1: { ownerKey: 'pushed', modelScope: null },
+      });
       store.handleMessage({
         type: MESSAGE_TYPES.PLAN_LIMITS_CHANGED,
         payload: pushed,
       });
       pending.resolve(
-        rpcSuccess(snapshot(T0 + 1000, [owner('pulled')])) as RpcResult<never>,
+        rpcSuccess(snapshot(T0 + 1000, [owner('pulled', 5)], {
+          s1: { ownerKey: 'pulled', modelScope: null },
+        })) as RpcResult<never>,
       );
       await loading;
 
       expect(store.snapshot()).toBe(pushed);
+      expect(store.ownerByKey('pushed')?.allowances).toEqual(pushedOwner.allowances);
+      expect(store.ownerByKey('pushed')?.windows[0].used).toEqual({ kind: 'percent', percent: 40 });
+      expect(store.ownerByKey('pulled')).toBeNull();
+      expect(store.sessionOwner('s1')?.ownerKey).toBe('pushed');
     });
 
     it.each([

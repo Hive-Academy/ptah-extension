@@ -1270,6 +1270,45 @@ describe('SessionLoaderService', () => {
   });
 
   describe('resumable subagent management', () => {
+    it('passes a cached tab resume page to native child recovery', async () => {
+      const events: FlatStreamEventUnion[] = [
+        {
+          id: JSON.stringify(['thread', 'turn', 'item', 'agent_start', 'item/started', 0]),
+          eventType: 'agent_start', source: 'history', timestamp: 1,
+          sessionId: 'sess-1', messageId: 'parent',
+          parentToolUseId: 'spawn-1', toolCallId: 'spawn-1',
+          agentId: 'child-1', agentType: 'codex',
+        },
+        {
+          id: 'child-answer', eventType: 'text_delta', source: 'history',
+          timestamp: 2, sessionId: 'sess-1', messageId: 'child-message',
+          parentToolUseId: 'spawn-1', blockIndex: 0, delta: 'PINEAPPLE',
+        },
+      ];
+      const recovery = jest.spyOn(
+        TestBed.inject(SessionHistoryReplayer),
+        'restoreNativeCompletedChildren',
+      ).mockImplementation();
+      rpcCall.mockImplementation((method: string) => Promise.resolve(
+        method === 'chat:resume'
+          ? { success: true, data: { events, providerId: 'openai-codex' } }
+          : { success: true },
+      ));
+
+      const tabId = TabId.from('61a250e8-805c-4f1c-823a-791e06784980');
+      activeTabSessionIdSignal.set('sess-1');
+      activeTabStatusSignal.set('loaded');
+      activeTabIdSignal.set(tabId);
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(recovery).toHaveBeenCalledWith(
+        events, tabId, 'sess-1', 'openai-codex',
+      );
+    });
+
     it('clearResumableSubagents empties the signal', () => {
       // _resumableSubagents starts empty but we test the clear API is safe.
       service.clearResumableSubagents();

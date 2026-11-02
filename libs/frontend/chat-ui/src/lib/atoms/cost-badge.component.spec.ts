@@ -37,6 +37,28 @@ describe('CostBadgeComponent', () => {
     expect(span.getAttribute('title')).toBe('$0.5000 USD');
   });
 
+  it.each([
+    ['estimated', 'estimated'],
+    ['covered-by-subscription', 'covered by subscription'],
+  ] as const)('labels a %s final cost in the badge and tooltip', (basis, label) => {
+    fixture.componentRef.setInput('cost', 0.5);
+    fixture.componentRef.setInput('costBasis', basis);
+    fixture.detectChanges();
+
+    const badge = fixture.nativeElement.querySelector('.badge');
+    expect(badge.textContent).toContain(label);
+    expect(badge.getAttribute('title')).toContain(label);
+  });
+
+  it('keeps a null cost unavailable even with a final basis', () => {
+    fixture.componentRef.setInput('cost', null);
+    fixture.componentRef.setInput('costBasis', 'covered-by-subscription');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('cost unavailable');
+    expect(fixture.nativeElement.textContent).not.toContain('covered by subscription');
+  });
+
   it('says "cost unavailable" when cost is null (no pricing known)', () => {
     fixture.componentRef.setInput('cost', null);
     expect(() => fixture.detectChanges()).not.toThrow();
