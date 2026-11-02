@@ -1,6 +1,6 @@
 # Batches - TASK_2026_858_f7b9
 
-Total tasks: 42 | Batches: 26 | Complete: 3/26
+Total tasks: 42 | Batches: 26 | Complete: 4/26
 
 Scope: Phase 0 tool and Phase 1 (C0-C10) of implementation-plan.md, Round 5. C11 is not built
 (Q1 = (a), decisions.md row 10). The U5 licensing batch is not built (U5 = 1). Phases 2-4 get
@@ -284,7 +284,7 @@ phase summary.
   Executor-designed shapes for Phase B review: `admin.grants.list/add`, `admin.status`,
   `goodbye` payload, `VERSION_MISMATCH` detail `client`.
 
-## Batch 4: C1b worker client and session event reducer — PENDING
+## Batch 4: C1b worker client and session event reducer — COMPLETE
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -296,7 +296,7 @@ phase summary.
 - Phase: B | Phase review: at Batch 7
 - Verify: `npm run verify -- -p @ptah-extension/worker-protocol`
 
-### Task 4.1: `WorkerClient` — PENDING
+### Task 4.1: `WorkerClient` — COMPLETE
 
 - File: W/`libs/worker-protocol/src/lib/client/worker-client.ts` (+ spec)
 - Plan reference: C1 :955-956; W1/W2
@@ -306,7 +306,7 @@ phase summary.
 - Validation notes: spec over an in-memory `WebSocketLike`
 - Implementation details: export from `src/index.ts`
 
-### Task 4.2: `SessionEventReducer` — PENDING
+### Task 4.2: `SessionEventReducer` — COMPLETE
 
 - Depends on: Task 4.1
 - File: W/`libs/worker-protocol/src/lib/client/session-event-reducer.ts` (+ spec),
@@ -320,6 +320,9 @@ phase summary.
 ### Batch 4 verification
 
 - Specs cover each listed reducer case; verify passes; no per-batch review
+- Result: executor backend-developer subagent (Claude). verify worker-protocol → 3/3 tasks,
+  134 tests. Open for Phase B review: optional transport ping (PWA has none), extra client error
+  codes, baseline applies across a gap, 1,000 held-frame cap, records copied per event.
 
 ## Batch 5: C2 shared renderer contracts — PENDING
 
