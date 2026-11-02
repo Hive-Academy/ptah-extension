@@ -39,7 +39,7 @@ import {
   viewChild,
   type WritableSignal,
 } from '@angular/core';
-import { LucideAngularModule, Check, Loader2, Server } from 'lucide-angular';
+import { LucideAngularModule, Check, Server } from 'lucide-angular';
 import { injectWallClock } from '@ptah-extension/core';
 import type { LucideIconData } from 'lucide-angular';
 import {
@@ -292,22 +292,6 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
     KimiCodeLoginProgressComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: `
-    /* Static progress glyph under prefers-reduced-motion. */
-    .ptah-wizard-spinner {
-      animation: ptah-wizard-spin 1s linear infinite;
-    }
-    @keyframes ptah-wizard-spin {
-      to {
-        transform: rotate(360deg);
-      }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .ptah-wizard-spinner {
-        animation: none;
-      }
-    }
-  `,
   template: `
     <ptah-native-drawer
       [isOpen]="open()"
@@ -1061,11 +1045,11 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                   role="status"
                   data-testid="wizard-verify-checking"
                 >
-                  <lucide-angular
-                    [img]="LoaderIcon"
-                    class="ptah-wizard-spinner h-4 w-4 text-base-content"
+                  <span
+                    class="loading loading-spinner inline-block h-3 w-3 text-base-content"
                     aria-hidden="true"
-                  />
+                    data-testid="wizard-verify-pulse"
+                  ></span>
                   <span class="text-sm text-base-content">Checking {{ displayName() }}…</span>
                 </div>
                 <p
@@ -1427,7 +1411,6 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
 })
 export class ProviderSetupWizardComponent implements OnDestroy {
   protected readonly CheckIcon: LucideIconData = Check;
-  protected readonly LoaderIcon: LucideIconData = Loader2;
   protected readonly ServerIcon: LucideIconData = Server;
   protected readonly STEP_DEFS = STEP_DEFS;
   protected readonly TIER_DEFS = TIER_DEFS;

@@ -382,6 +382,10 @@ export class ChatStore {
     return this.conversation.abortWithConfirmation();
   }
 
+  async abortWithConfirmationFor(tabId: string, sessionId: SessionId): Promise<boolean> {
+    return this.conversation.abortWithConfirmationFor(tabId, sessionId);
+  }
+
   /**
    * Clear queued content for a specific tab or the active tab (the queue's
    * cancel and edit actions). A slash command held behind the removed text

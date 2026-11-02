@@ -9,18 +9,13 @@ import {
 const DOCK_PADDING_PX = 16;
 /** Width reserved for the selected pill (`max-w-[180px]`). */
 const PILL_RESERVE_PX = 180;
-/** Width reserved for the group rules between the four kinds. */
-const DIVIDERS_PX = 27;
 /** One avatar chip (28 px) plus the gap before the next. */
 const CHIP_STEP_PX = 30;
 /** `N agents ›` at a comfortable width, and the count badge below 480 px. */
 const MENU_WIDTH_PX = 112;
 const MENU_WIDTH_COMPACT_PX = 44;
 const COMPACT_BELOW_PX = 480;
-/**
- * Rosters up to this size keep every non-finished agent inline with a named
- * chip; the row wraps instead of hiding anyone for width.
- */
+/** Maximum number of agent chips, including the selected pill. */
 export const DOCK_INLINE_MAX = 5;
 
 const STATUS_INK: Readonly<Record<AgentStatusWord, string>> = {
@@ -32,44 +27,18 @@ const STATUS_INK: Readonly<Record<AgentStatusWord, string>> = {
   queued: 'text-state-idle',
 };
 
-/**
- * How many avatar chips fit beside the selected pill and the menu.
- * A non-finite width (no `ResizeObserver`, or before the first measurement)
- * fits every agent. Zero width yields `0`: the pill and the menu only.
- * 400 px -> 4, 760 px -> 14.
- */
+/** Total chips that fit beside the overflow trigger. Unknown width is safe. */
 export function dockCapacity(width: number): number {
-  if (!Number.isFinite(width)) return Number.POSITIVE_INFINITY;
+  if (!Number.isFinite(width)) return 1;
   const menuWidth =
     width < COMPACT_BELOW_PX ? MENU_WIDTH_COMPACT_PX : MENU_WIDTH_PX;
-  const raw = Math.floor(
-    (width - DOCK_PADDING_PX - PILL_RESERVE_PX - menuWidth - DIVIDERS_PX) /
-      CHIP_STEP_PX,
-  );
-  return Math.max(0, raw);
+  const spare = width - DOCK_PADDING_PX - PILL_RESERVE_PX - menuWidth;
+  if (spare < 0) return 0;
+  return Math.min(DOCK_INLINE_MAX, 1 + Math.floor(spare / CHIP_STEP_PX));
 }
 
-/**
- * Rank for a slot: Orchestrator, then the selected agent, then `waiting`,
- * `failed`, `running`, then everyone else. Ties keep dock order.
- */
-function overflowRank(agent: SessionAgent, selectedKey: string): number {
-  if (agent.key === selectedKey) return 0;
-  if (agent.kind === 'orchestrator') return 1;
-  switch (agent.status) {
-    case 'waiting':
-      return 2;
-    case 'failed':
-      return 3;
-    case 'running':
-      return 4;
-    default:
-      return 5;
-  }
-}
-
-function isFinished(agent: SessionAgent): boolean {
-  return agent.status === 'done' || agent.status === 'stopped';
+function chipRank(agent: SessionAgent): number {
+  return menuRank(agent);
 }
 
 /** Menu status order. Agents with no status sit beside queued agents. */
@@ -93,49 +62,56 @@ export function orderDockMenuAgents(agents: readonly SessionAgent[]): readonly S
     .map(({ agent }) => agent);
 }
 
-/**
- * Finished agents move to the menu except the orchestrator and selection.
- * Small rosters keep the remaining agents inline. Larger rosters fill
- * `capacity + 1` slots (the extra slot is the pill) by rank, with both pinned
- * agents retained even when the measured width is zero.
- */
+/** Partition every agent exactly once, with all chip ordering decided here. */
 export function planDockOverflow(
   agents: readonly SessionAgent[],
   selectedKey: string,
   capacity: number,
+  frozenKeys?: readonly string[] | null,
+  focusedKey?: string | null,
 ): { visible: readonly SessionAgent[]; hidden: readonly SessionAgent[] } {
-  const eligible = agents.filter((agent) =>
-    !isFinished(agent) || agent.kind === 'orchestrator' || agent.key === selectedKey,
-  );
-  if (agents.length <= DOCK_INLINE_MAX || !Number.isFinite(capacity)) {
-    const visibleKeys = new Set(eligible.map((agent) => agent.key));
-    return {
-      visible: eligible,
-      hidden: agents.filter((agent) => !visibleKeys.has(agent.key)),
-    };
+  const slots = Number.isFinite(capacity)
+    ? Math.min(DOCK_INLINE_MAX, Math.max(0, Math.floor(capacity)))
+    : 1;
+  const roster = agents.map((agent, index) => ({ agent, index }));
+  const byKey = new Map(agents.map((agent) => [agent.key, agent]));
+  const selected = byKey.get(selectedKey);
+  const ordered = roster
+    .sort((a, b) => chipRank(a.agent) - chipRank(b.agent) || a.index - b.index)
+    .map(({ agent }) => agent);
+  if (selected && selected.status !== 'running') {
+    ordered.splice(ordered.indexOf(selected), 1);
+    ordered.unshift(selected);
   }
-  const slots = Math.max(0, Math.floor(capacity)) + 1;
-  const pinnedCount = eligible.filter((agent) =>
-    agent.kind === 'orchestrator' || agent.key === selectedKey,
-  ).length;
-  const chosen = new Set(
-    eligible
-      .map((agent, index) => ({
-        agent,
-        index,
-        rank: overflowRank(agent, selectedKey),
-      }))
-      .sort((a, b) => a.rank - b.rank || a.index - b.index)
-      .slice(0, Math.max(slots, pinnedCount))
-      .map((row) => row.agent.key),
-  );
-  const visible: SessionAgent[] = [];
-  const hidden: SessionAgent[] = [];
-  for (const agent of agents) {
-    if (chosen.has(agent.key)) visible.push(agent);
-    else hidden.push(agent);
+  let visible: SessionAgent[];
+  if (frozenKeys) {
+    const frozen = [...new Set(frozenKeys)].flatMap((key) => {
+      const agent = byKey.get(key);
+      return agent ? [agent] : [];
+    });
+    const kept = new Set<string>();
+    // Selection and keyboard focus take priority when a resize reduces slots.
+    if (selected && frozen.includes(selected)) kept.add(selected.key);
+    if (focusedKey && frozen.some((agent) => agent.key === focusedKey) && kept.size < slots) {
+      kept.add(focusedKey);
+    }
+    for (const agent of frozen) {
+      if (kept.size >= slots) break;
+      kept.add(agent.key);
+    }
+    visible = frozen.filter((agent) => kept.has(agent.key)).slice(0, slots);
+  } else {
+    // Reserve a slot for selection even when it is late in the running roster.
+    const kept = new Set<string>();
+    if (selected && slots > 0) kept.add(selected.key);
+    for (const agent of ordered) {
+      if (kept.size >= slots) break;
+      kept.add(agent.key);
+    }
+    visible = ordered.filter((agent) => kept.has(agent.key));
   }
-  return { visible, hidden };
+  const chosen = new Set(visible.map((agent) => agent.key));
+  return { visible, hidden: agents.filter((agent) => !chosen.has(agent.key)) };
 }
 
 /** Running time is `now - startedAt`; a finished run is `endedAt - startedAt`. */

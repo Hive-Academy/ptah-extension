@@ -91,14 +91,23 @@ describe('ProgressRingComponent', () => {
     expect(host.classList).toContain('ptah-ring--indeterminate');
     const [length, total] = dash();
     expect(length / total).toBeCloseTo(0.25, 5);
+    expect(host.querySelector('.ptah-ring__pulse')).not.toBeNull();
   });
 
-  it('marks a null value indeterminate with a quarter arc', () => {
+  it('marks a null value indeterminate with the pulse and no arc shown', () => {
     render({ value: null });
 
     expect(host.classList).toContain('ptah-ring--indeterminate');
     const [length, total] = dash();
     expect(length / total).toBeCloseTo(0.25, 5);
+    expect(host.querySelector('.ptah-ring__pulse')).not.toBeNull();
+  });
+
+  it('draws no pulse while the value is determinate', () => {
+    render({ value: 0.4 });
+
+    expect(host.classList).not.toContain('ptah-ring--indeterminate');
+    expect(host.querySelector('.ptah-ring__pulse')).toBeNull();
   });
 
   it('uses a 56-unit viewbox with stroke 6 for size value', () => {

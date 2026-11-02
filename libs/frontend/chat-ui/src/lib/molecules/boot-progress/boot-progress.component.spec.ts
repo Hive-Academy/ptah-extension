@@ -79,6 +79,17 @@ describe('BootProgressComponent', () => {
     });
   });
 
+  it('shows the shared pulse on the active phase row only', () => {
+    render({ phase: 'sessions' });
+
+    const pulses = fixture.nativeElement.querySelectorAll(
+      '[data-testid="boot-step-pulse"]',
+    );
+    expect(pulses).toHaveLength(1);
+    expect(pulses[0].classList).toContain('loading-spinner');
+    expect(pulses[0].closest('li')?.getAttribute('data-state')).toBe('active');
+  });
+
   it('keeps pending labels on caption ink without fading their contrast', () => {
     render({ phase: 'sessions' });
 

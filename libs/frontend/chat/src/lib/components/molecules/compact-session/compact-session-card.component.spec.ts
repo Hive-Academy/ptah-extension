@@ -242,6 +242,21 @@ describe(CompactSessionCardComponent.name, () => {
     return fixture;
   }
 
+  it('passes the rail tab stop to the presentational card independently of selection', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('variant', 'rail');
+    fixture.componentRef.setInput('focused', true);
+    fixture.detectChanges();
+    const card = fixture.debugElement.query(By.directive(chatUi.CompactRailCardComponent))
+      .componentInstance as chatUi.CompactRailCardComponent;
+    expect(card.focused()).toBe(true);
+    expect(card.tabStop()).toBe(false);
+    fixture.componentRef.setInput('tabStop', true);
+    fixture.detectChanges();
+    expect(card.tabStop()).toBe(true);
+    expect(card.innerTabbable()).toBe(true);
+  });
+
   it('omits repeated title and Full view chrome but keeps status and needs-you count in Canvas', () => {
     TestBed.overrideProvider(RAIL_TRANSCRIPT_RETENTION, { useValue: true });
     const fixture = render(tab({ viewMode: 'compact', title: 'Review changes', messages: [{

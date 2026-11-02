@@ -30,6 +30,7 @@ import {
 } from '@ptah-extension/chat';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
+  compactRailStateLabel,
   type CompactRailDensity,
   type CompactRailState,
 } from '@ptah-extension/chat-ui';
@@ -147,6 +148,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           variant="rail"
           [density]="density()"
           [focused]="false"
+          [tabStop]="false"
           [holdText]="holdText()"
           (railState)="onRailState($event)"
         />
@@ -154,18 +156,19 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           type="button"
           class="rail-collapsed flex h-14 w-8 shrink-0 items-center justify-center gap-1 rounded-lg border border-base-content/10 bg-base-200 text-xs"
           [attr.aria-label]="
-            current.title + ', ' + (attentionItems().length ? 'Needs you, ' + attentionItems().length : state()) + (focused() ? ', in focus' : '')
+            current.title + ', ' + (attentionItems().length ? 'Needs input, ' + attentionItems().length : compactRailStateLabel(state())) + (focused() ? ', in focus' : '')
           "
           [attr.aria-current]="focused() ? 'true' : null"
-          [attr.title]="current.title + ', ' + state()"
-          [tabIndex]="focused() ? 0 : -1"
+          [attr.title]="current.title + ', ' + compactRailStateLabel(state())"
+          [tabIndex]="tabStop() ? 0 : -1"
           (click)="openSession()"
         >
           <span
             class="h-2 w-2 rounded-full"
             [style.background]="attentionItems().length ? 'var(--state-ink-need)' : 'var(--rail-state-ink)'"
-          ></span
-          >{{ index() }}
+            aria-hidden="true"
+          ></span>
+          <span class="sr-only">{{ current.title }}</span>
         </button>
       } @else {
         @if (current.workflow) {
@@ -215,6 +218,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           variant="rail"
           [density]="density()"
           [focused]="focused()"
+          [tabStop]="tabStop()"
           [holdText]="holdText()"
           [reserveActionCorner]="true"
           (expandToFull)="openSession()"
@@ -268,7 +272,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
             title="Session actions"
             aria-haspopup="menu"
             [attr.aria-expanded]="menuOpen()"
-            [tabIndex]="focused() ? 0 : -1"
+            [tabIndex]="tabStop() ? 0 : -1"
             (pointerdown)="onTriggerPointerDown()"
             (click)="toggleMenu($event)"
           >
@@ -341,6 +345,8 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
               class="btn btn-ghost btn-sm justify-start font-normal"
               [class.opacity-60]="!canMoveUp()"
               [attr.aria-disabled]="canMoveUp() ? null : 'true'"
+              [attr.aria-label]="canMoveUp() ? 'Move up' : 'Move up, first in group'"
+              [attr.title]="canMoveUp() ? null : 'First in group'"
               (click)="moveUp()"
             >
               Move up
@@ -352,6 +358,8 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
               class="btn btn-ghost btn-sm justify-start font-normal"
               [class.opacity-60]="!canMoveDown()"
               [attr.aria-disabled]="canMoveDown() ? null : 'true'"
+              [attr.aria-label]="canMoveDown() ? 'Move down' : 'Move down, last in group'"
+              [attr.title]="canMoveDown() ? null : 'Last in group'"
               (click)="moveDown()"
             >
               Move down
@@ -446,6 +454,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
   readonly firstDisabledReason = computed(() => this.attentionItems()[0]?.actions.find(action => action.disabledReason)?.disabledReason);
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
+  readonly tabStop = input(false);
+  readonly compactRailStateLabel = compactRailStateLabel;
   readonly collapsed = input(false);
   readonly index = input(1);
   readonly holdText = input(false);

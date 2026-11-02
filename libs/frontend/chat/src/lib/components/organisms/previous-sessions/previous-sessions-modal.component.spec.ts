@@ -1257,6 +1257,10 @@ describe('PreviousSessionsModalComponent', () => {
         expect(loadMore()?.disabled).toBe(true);
         expect(loadMore()?.getAttribute('aria-busy')).toBe('true');
         expect(loadMore()?.textContent).toContain('Loading...');
+        const pulse = loadMore()?.querySelector(
+          '[data-testid="session-load-more-pulse"]',
+        );
+        expect(pulse?.classList).toContain('loading-spinner');
         expect(list().getAttribute('aria-busy')).toBe('true');
 
         finishLoad([session('c', 'Gamma'), session('d', 'Delta')], true);

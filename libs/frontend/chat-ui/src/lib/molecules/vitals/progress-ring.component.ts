@@ -23,9 +23,10 @@ const INDETERMINATE_FRACTION = 0.25;
  * and a numeral share one centre line; `size='lg'` is the fixed 112 px
  * readiness ring. The SVG is square and scales from that one height.
  *
- * `value` is 0-1; `null` means indeterminate (a quarter arc that turns, only
- * when the user allows motion). The whole ring is one `role="img"` with the
- * caller's accessible name; the centre text is decorative for assistive tech.
+ * `value` is 0-1; `null` means indeterminate (the arc hides and a centred
+ * pulse core and ring breathe in its place, only when the user allows
+ * motion). The whole ring is one `role="img"` with the caller's accessible
+ * name; the centre text is decorative for assistive tech.
  */
 @Component({
   selector: 'ptah-progress-ring',
@@ -56,21 +57,26 @@ const INDETERMINATE_FRACTION = 0.25;
         fill="none"
         [attr.stroke-width]="stroke()"
       />
-      <g class="ptah-ring__spinner">
-        <circle
-          class="ptah-ring__arc"
-          [attr.cx]="center()"
-          [attr.cy]="center()"
-          [attr.r]="radius()"
-          fill="none"
-          [attr.stroke-width]="stroke()"
-          stroke-linecap="round"
-          [attr.stroke-dasharray]="dashArray()"
-          [attr.transform]="arcTransform()"
-          [attr.opacity]="arcLength() > 0 ? null : 0"
-        />
-      </g>
+      <circle
+        class="ptah-ring__arc"
+        [attr.cx]="center()"
+        [attr.cy]="center()"
+        [attr.r]="radius()"
+        fill="none"
+        [attr.stroke-width]="stroke()"
+        stroke-linecap="round"
+        [attr.stroke-dasharray]="dashArray()"
+        [attr.transform]="arcTransform()"
+        [attr.opacity]="arcLength() > 0 ? null : 0"
+      />
     </svg>
+    @if (fraction() === null) {
+      <span
+        class="ptah-ring__pulse"
+        data-testid="progress-ring-pulse"
+        aria-hidden="true"
+      ></span>
+    }
     @if (centerText() || subText()) {
       <span class="ptah-ring__center" aria-hidden="true">
         @if (centerText()) {
@@ -108,9 +114,35 @@ const INDETERMINATE_FRACTION = 0.25;
       .ptah-ring__arc {
         stroke: var(--ptah-ring-ink);
       }
-      .ptah-ring__spinner {
-        transform-box: view-box;
-        transform-origin: 50% 50%;
+      /* Indeterminate: no arc at all — a still quarter arc would read as 25%
+         done. The figure is the centred pulse below (TASK_2026_860). */
+      :host(.ptah-ring--indeterminate) .ptah-ring__arc {
+        visibility: hidden;
+      }
+      /* The TASK_2026_860 pulse: a 12 px core breathing inside a ring that
+         fades out from it, in the ring's own ink. Shared global keyframes;
+         only transform and opacity animate. */
+      .ptah-ring__pulse {
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: 12px;
+        height: 12px;
+        pointer-events: none;
+      }
+      .ptah-ring__pulse::before {
+        content: '';
+        position: absolute;
+        inset: 22%;
+        border-radius: 9999px;
+        background: var(--ptah-ring-ink);
+      }
+      .ptah-ring__pulse::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border: 1.5px solid var(--ptah-ring-ink);
+        border-radius: 9999px;
       }
       .ptah-ring__center {
         position: absolute;
@@ -138,18 +170,24 @@ const INDETERMINATE_FRACTION = 0.25;
         .ptah-ring__arc {
           animation: ptah-ring-in 600ms var(--ptah-ease-soft, ease-out) both;
         }
-        :host(.ptah-ring--indeterminate) .ptah-ring__spinner {
-          animation: ptah-ring-spin 1.1s linear infinite;
+        .ptah-ring__pulse::before {
+          animation: ptah-pulse-core 1.4s ease-in-out infinite;
+        }
+        .ptah-ring__pulse::after {
+          animation: ptah-pulse-ring 1.4s ease-out infinite;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .ptah-ring__pulse::after {
+          display: none;
+        }
+        .ptah-ring__pulse::before {
+          opacity: 0.8;
         }
       }
       @keyframes ptah-ring-in {
         from {
           opacity: 0;
-        }
-      }
-      @keyframes ptah-ring-spin {
-        to {
-          transform: rotate(360deg);
         }
       }
     `,
