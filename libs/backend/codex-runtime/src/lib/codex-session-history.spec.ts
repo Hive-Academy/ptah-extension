@@ -90,6 +90,14 @@ function fixture(overrides: {
 
 describe('readCodexSessionHistory', () => {
   const logger = { warn: jest.fn() };
+  /** The warning carries failures as a JSON string; parse it back for assertions. */
+  const warnMeta = (): Record<string, unknown> => {
+    const meta: unknown = logger.warn.mock.calls[0]?.[1];
+    if (!meta || typeof meta !== 'object' || !('failures' in meta) || typeof meta.failures !== 'string')
+      throw new Error('missing warning metadata');
+    const failures: unknown = JSON.parse(meta.failures);
+    return { ...meta, failures };
+  };
 
   it('hydrates root and child in order, including every turn and item page', async () => {
     const snapshot = await readCodexSessionHistory('root', fixture(), () => undefined, logger);
@@ -160,8 +168,10 @@ describe('readCodexSessionHistory', () => {
     expect(snapshot.threads.map((thread) => thread.id)).toEqual(['root']);
     expect(snapshot.threads[0].turns.map((turn) => turn.id)).toEqual(['r1', 'r2']);
     expect(logger.warn).toHaveBeenCalledTimes(1);
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(logger.warn.mock.calls[0]?.[0]).toBe(
       'Codex descendant discovery incomplete; continuing available history',
+    );
+    expect(warnMeta()).toEqual(
       { partialListing: true, completedLists: 1, failedLists: 1, failures: [
         { archived: false, reason: 'malformedPage', issues: JSON.stringify([
           { path: ['data', 0, 'source'], code: 'invalid_type' },
@@ -182,8 +192,10 @@ describe('readCodexSessionHistory', () => {
     expect(snapshot.threads.map((thread) => thread.id)).toEqual(['root']);
     expect(snapshot.threads[0].turns.map((turn) => turn.id)).toEqual(['r1', 'r2']);
     expect(calls).toContain('thread/items/list');
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(logger.warn.mock.calls[0]?.[0]).toBe(
       'Codex descendant discovery incomplete; continuing available history',
+    );
+    expect(warnMeta()).toEqual(
       { partialListing: false, completedLists: 0, failedLists: 1, failures: [
         { archived: false, reason: 'processFailure', issues: '[]' },
       ] },
@@ -201,8 +213,10 @@ describe('readCodexSessionHistory', () => {
     const snapshot = await readCodexSessionHistory('root', request, () => undefined, logger);
     expect(snapshot.threads.map((value) => value.id)).toEqual(['root']);
     expect(logger.warn).toHaveBeenCalledTimes(1);
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(logger.warn.mock.calls[0]?.[0]).toBe(
       'Codex descendant discovery incomplete; continuing available history',
+    );
+    expect(warnMeta()).toEqual(
       { partialListing: false, completedLists: 0, failedLists: 2, failures: [
         { archived: false, reason: 'requestRejected', issues: '[]', rpcCode: -32000 },
         { archived: true, reason: 'requestRejected', issues: '[]', rpcCode: -32000 },
@@ -251,8 +265,10 @@ describe('readCodexSessionHistory', () => {
       const snapshot = await readCodexSessionHistory('root', request, () => undefined, logger);
       expect(snapshot.threads.map((value) => value.id)).toEqual(['root', 'other']);
       expect(logger.warn).toHaveBeenCalledTimes(1);
-      expect(logger.warn).toHaveBeenCalledWith(
+      expect(logger.warn.mock.calls[0]?.[0]).toBe(
         'Codex descendant discovery incomplete; continuing available history',
+      );
+      expect(warnMeta()).toEqual(
         expect.objectContaining({ failures: [expect.objectContaining({
           threadId: 'child', reason: 'malformedPage',
           issues: failure === 'invalid child result'

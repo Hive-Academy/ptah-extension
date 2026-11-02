@@ -249,7 +249,7 @@ export async function readCodexSessionHistory(
   }
   if (failures.length > 0)
     logger.warn('Codex descendant discovery incomplete; continuing available history', {
-      failures,
+      failures: JSON.stringify(failures),
       partialListing: completedLists > 0 && failedLists > 0,
       completedLists,
       failedLists,
