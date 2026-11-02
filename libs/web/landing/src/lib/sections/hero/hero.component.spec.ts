@@ -2,7 +2,9 @@
 import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import gsap from 'gsap';
 import { HeroComponent } from './hero.component';
+import { HeroLightning } from './hero-lightning';
 
 class ObserverStub implements IntersectionObserver {
   static instances: ObserverStub[] = [];
@@ -29,12 +31,13 @@ class ObserverStub implements IntersectionObserver {
   }
 }
 
-function installBrowserMocks(reduced: boolean): { removeListener: jest.Mock } {
+function installBrowserMocks(reduced: boolean, desktop = false): { removeListener: jest.Mock } {
   const removeListener = jest.fn();
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: jest.fn((query: string): MediaQueryList => ({
-      matches: reduced && query.includes('prefers-reduced-motion: reduce'),
+      matches: (reduced && query.includes('prefers-reduced-motion: reduce')) ||
+        (desktop && query.includes('min-width: 768px')),
       media: query,
       onchange: null,
       addListener: jest.fn(),
@@ -93,11 +96,13 @@ describe('HeroComponent', () => {
   });
 
   it('renders final copy, actions and poster-first muted videos on the server', () => {
+    const start = jest.spyOn(HeroLightning.prototype, 'start');
     const { root, destroy } = mount('server');
-    expect(root.querySelector('h1')?.textContent).toContain('Your AI dev team.');
-    expect(root.querySelector('h1')?.textContent).toContain('Free and open source.');
+    expect(root.querySelector('.title-index')?.textContent?.trim()).toBe('PTAHCODE / YOUR AI DEV TEAM');
+    expect(root.querySelector('h1')?.textContent?.trim()).toBe('Free and open source.');
     expect(root.querySelector('.title-lead')?.textContent).toContain('MIT-licensed desktop app');
-    expect(root.querySelector('.title-footnote')?.textContent).toContain('No account. No license key. No credit card.');
+    expect(root.querySelector('.title-footnote')?.textContent?.trim()).toBe('No account, no license key, no credit card');
+    expect(root.textContent).not.toContain('Scroll to see the work');
     expect(root.querySelector<HTMLAnchorElement>('.download-link')?.getAttribute('href')).toBe('/download');
     expect(root.querySelectorAll('video')).toHaveLength(4);
     expect(Array.from(root.querySelectorAll('video')).every((video) =>
@@ -105,10 +110,13 @@ describe('HeroComponent', () => {
     )).toBe(true);
     expect(root.querySelectorAll('.artifact[alt=""][aria-hidden]')).toHaveLength(0);
     expect(root.querySelectorAll('.artifacts[aria-hidden] img[alt=""]')).toHaveLength(4);
+    expect(root.querySelector('.artifacts canvas[aria-hidden="true"]')).not.toBeNull();
+    expect(start).not.toHaveBeenCalled();
     destroy();
   });
 
   it('keeps reduced motion static and never autoplays', () => {
+    const start = jest.spyOn(HeroLightning.prototype, 'start');
     installBrowserMocks(true);
     const { component, root, destroy } = mount('browser');
     component['initialize']();
@@ -119,7 +127,94 @@ describe('HeroComponent', () => {
     component['syncPlayback']();
     expect(root.classList.contains('is-cinematic')).toBe(false);
     expect(media.every(({ play }) => play.mock.calls.length === 0)).toBe(true);
+    expect(start).not.toHaveBeenCalled();
     destroy();
+  });
+
+  it('starts desktop lightning once per run and stops on story, tab, media teardown, and destroy', () => {
+    jest.useFakeTimers();
+    installBrowserMocks(false, true);
+    const media = gsap.matchMedia();
+    const intro = gsap.timeline({ paused: true });
+    const story = gsap.timeline({ paused: true });
+    const secondIntro = gsap.timeline({ paused: true });
+    const secondStory = gsap.timeline({ paused: true });
+    const float = gsap.to({}, { paused: true });
+    let mediaCleanup: (() => void) | undefined;
+    let enterMedia: (() => void) | undefined;
+    const context = gsap.context(() => undefined);
+    jest.spyOn(media, 'add').mockImplementation((_query, callback) => {
+      enterMedia = () => {
+        const result = callback(context);
+        mediaCleanup = typeof result === 'function' ? () => result() : undefined;
+      };
+      enterMedia();
+      return media;
+    });
+    jest.spyOn(media, 'revert').mockImplementation(() => mediaCleanup?.());
+    jest.spyOn(gsap, 'matchMedia').mockReturnValue(media);
+    jest.spyOn(gsap, 'timeline').mockReturnValueOnce(intro).mockReturnValueOnce(story)
+      .mockReturnValueOnce(secondIntro).mockReturnValueOnce(secondStory);
+    jest.spyOn(gsap, 'to').mockReturnValue(float);
+    const start = jest.spyOn(HeroLightning.prototype, 'start');
+    const stop = jest.spyOn(HeroLightning.prototype, 'stop');
+    const destroyLightning = jest.spyOn(HeroLightning.prototype, 'destroy');
+    const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
+    const getContextDescriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'getContext');
+    Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+      configurable: true,
+      value: jest.fn(() => Object.assign({} as CanvasRenderingContext2D, {
+        setTransform: jest.fn(), clearRect: jest.fn(),
+      })),
+    });
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    try {
+      const { component, root, destroy } = mount('browser');
+      expect(root.classList.contains('is-cinematic')).toBe(true);
+      expect(component['lightning']).toBeInstanceOf(HeroLightning);
+      expect(start).not.toHaveBeenCalled();
+
+      const stage = root.querySelector('[data-story-stage]')!;
+      ObserverStub.instances[0].emit(stage, 1);
+      expect(start).toHaveBeenCalledTimes(1);
+      const timerCount = jest.getTimerCount();
+      const lightningTimer = component['lightning']?.['timeout'];
+      expect(lightningTimer).toBeDefined();
+      component['syncLightning']();
+      expect(jest.getTimerCount()).toBe(timerCount);
+      expect(component['lightning']?.['timeout']).toBe(lightningTimer);
+
+      const stopsBeforeStory = stop.mock.calls.length;
+      component['updateChapter'](1 / 6.2);
+      expect(root.classList.contains('is-in-story')).toBe(true);
+      expect(stop.mock.calls.length).toBeGreaterThan(stopsBeforeStory);
+      expect(component['lightning']?.['timeout']).toBeUndefined();
+
+      component['updateChapter'](0);
+      const stopsBeforeHidden = stop.mock.calls.length;
+      Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(stop.mock.calls.length).toBeGreaterThan(stopsBeforeHidden);
+      expect(component['lightning']?.['timeout']).toBeUndefined();
+      const stopsBeforeMediaTeardown = stop.mock.calls.length;
+      media.revert();
+      expect(destroyLightning).toHaveBeenCalledTimes(1);
+      expect(stop.mock.calls.length).toBeGreaterThan(stopsBeforeMediaTeardown);
+      expect(component['lightning']).toBeUndefined();
+
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+      enterMedia?.();
+      expect(component['lightning']).toBeInstanceOf(HeroLightning);
+      const stopsBeforeDestroy = stop.mock.calls.length;
+      destroy();
+      expect(destroyLightning).toHaveBeenCalledTimes(2);
+      expect(stop.mock.calls.length).toBeGreaterThan(stopsBeforeDestroy);
+    } finally {
+      if (getContextDescriptor) Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', getContextDescriptor);
+      if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor);
+      else Reflect.deleteProperty(document, 'hidden');
+      jest.useRealTimers();
+    }
   });
 
   it('plays only the revealed active clip and respects a manual pause', () => {

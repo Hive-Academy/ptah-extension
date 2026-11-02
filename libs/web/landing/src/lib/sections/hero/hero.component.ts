@@ -13,6 +13,7 @@ import { RouterLink } from '@angular/router';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { LIVE_DEMO_CATALOG } from '../../live-demo/live-demo-catalog';
+import { HeroLightning } from './hero-lightning';
 
 const CINEMATIC_QUERY =
   '(min-width: 768px) and (prefers-reduced-motion: no-preference)';
@@ -48,10 +49,11 @@ const SNAP_STOPS = [0, ...CHAPTER_STOPS, 1];
           <img data-float src="/assets/textures/scarab.png" alt="" class="artifact artifact-scarab" />
           <img data-float src="/assets/textures/eye_of_horus.png" alt="" class="artifact artifact-eye" />
           <img data-float src="/assets/textures/sun_disk_ra.png" alt="" class="artifact artifact-sun" />
+          <canvas class="lightning-canvas" data-lightning aria-hidden="true"></canvas>
         </div>
         <div class="title-content" data-title-content>
-          <p class="title-index" aria-hidden="true">PTAHCODE / A FILM IN FOUR ACTS</p>
-          <h1 id="hero-title"><span data-title-beat>Your AI dev team.</span><br /><span data-title-beat>Free and open source.</span></h1>
+          <p class="title-index">PTAHCODE / YOUR AI DEV TEAM</p>
+          <h1 id="hero-title"><span data-title-beat>Free and open source.</span></h1>
           <p class="title-lead">
             PtahCode is a free, MIT-licensed desktop app that runs a team of AI agents on your own machine.
             Bring any model — open-weight or frontier — and keep your code and keys with you.
@@ -66,11 +68,10 @@ const SNAP_STOPS = [0, ...CHAPTER_STOPS, 1];
               Watch it work
             </a>
           </div>
-          <p class="title-footnote">No account. No license key. No credit card.</p>
         </div>
-        <div class="scroll-cue" aria-hidden="true">
-          <span>Scroll to see the work</span><span class="cue-line"></span><span>↓</span>
-        </div>
+        <p class="scroll-cue title-footnote">
+          <span class="cue-line" aria-hidden="true"></span><span>No account, no license key, no credit card</span><span class="cue-line" aria-hidden="true"></span>
+        </p>
       </div>
 
         <div class="story-atmosphere" aria-hidden="true"></div>
@@ -166,8 +167,10 @@ export class HeroComponent {
   private motionMedia?: MediaQueryList;
   private mediaContext?: ReturnType<typeof gsap.matchMedia>;
   private storyTrigger?: ScrollTrigger;
+  private lightning?: HeroLightning;
   private lastSnapIndex = 0;
   private stageVisible = false;
+  private titleVisible = true;
   private reducedMotion = false;
   private saveData = false;
 
@@ -200,7 +203,7 @@ export class HeroComponent {
       });
       this.preloadObserver.observe(stage);
     }
-    this.document.addEventListener('visibilitychange', this.syncPlayback);
+    this.document.addEventListener('visibilitychange', this.onVisibilityChange);
 
     if (this.saveData || this.reducedMotion) return;
     gsap.registerPlugin(ScrollTrigger);
@@ -212,6 +215,10 @@ export class HeroComponent {
       const track = stage.querySelector<HTMLElement>('[data-scene-track]');
       const window = stage.querySelector<HTMLElement>('[data-story-window]');
       const symbols = Array.from(stage.querySelectorAll<HTMLElement>('[data-float]'));
+      const artifacts = stage.querySelector<HTMLElement>('[data-artifacts]');
+      const canvas = artifacts?.querySelector<HTMLCanvasElement>('[data-lightning]');
+      if (artifacts && canvas) this.lightning = new HeroLightning(view, artifacts, canvas, symbols);
+      this.syncLightning();
       const beats = Array.from(stage.querySelectorAll<HTMLElement>('[data-title-beat]'));
       const supporting = Array.from(stage.querySelectorAll<HTMLElement>('.title-index, .title-lead, .title-actions, .title-footnote'));
 
@@ -269,6 +276,8 @@ export class HeroComponent {
       this.storyTrigger = timeline.scrollTrigger;
 
       return () => {
+        this.lightning?.destroy();
+        this.lightning = undefined;
         intro.kill();
         floats.forEach((float) => float.kill());
         this.storyTrigger?.kill();
@@ -278,6 +287,7 @@ export class HeroComponent {
         this.cinematic.set(false);
         this.activeChapter.set(-1);
         this.host.nativeElement.classList.remove('is-in-story');
+        this.titleVisible = true;
         this.setTitleInert(false);
         this.lastSnapIndex = 0;
         this.syncPlayback();
@@ -313,6 +323,8 @@ export class HeroComponent {
   }
 
   private updateChapter(progress: number): void {
+    this.titleVisible = progress < 0.9 / STORY_VIEWPORTS;
+    this.syncLightning();
     const settled = SNAP_STOPS.findIndex((stop, index) =>
       Math.abs(stop - progress) < 0.001 && Math.abs(index - this.lastSnapIndex) <= 1);
     if (settled >= 0) this.lastSnapIndex = settled;
@@ -338,6 +350,7 @@ export class HeroComponent {
   private readonly onMotionChange = (event: MediaQueryListEvent): void => {
     this.reducedMotion = event.matches;
     this.syncPlayback();
+    this.syncLightning();
   };
 
   onVideoPause(index: number): void {
@@ -388,6 +401,7 @@ export class HeroComponent {
       }
     }
     this.syncPlayback();
+    this.syncLightning();
   };
 
   private readonly onNearIntersection: IntersectionObserverCallback = (entries) => {
@@ -410,6 +424,18 @@ export class HeroComponent {
     }
   };
 
+  private readonly onVisibilityChange = (): void => {
+    this.syncPlayback();
+    this.syncLightning();
+  };
+
+  private syncLightning(): void {
+    if (this.stageVisible && this.titleVisible && !this.document.hidden &&
+      !this.host.nativeElement.classList.contains('is-in-story') &&
+      !this.reducedMotion && !this.saveData) this.lightning?.start();
+    else this.lightning?.stop();
+  }
+
   private pauseVideo(video: HTMLVideoElement): void {
     if (video.paused) return;
     this.pausingByCode.add(video);
@@ -418,11 +444,13 @@ export class HeroComponent {
 
   private cleanup(): void {
     this.mediaContext?.revert();
+    this.lightning?.destroy();
+    this.lightning = undefined;
     this.storyTrigger?.kill();
     this.observer?.disconnect();
     this.preloadObserver?.disconnect();
     this.motionMedia?.removeEventListener('change', this.onMotionChange);
-    this.document.removeEventListener('visibilitychange', this.syncPlayback);
+    this.document.removeEventListener('visibilitychange', this.onVisibilityChange);
     for (const video of this.videos) this.pauseVideo(video);
   }
 }
