@@ -370,6 +370,19 @@ export const MESSAGE_TYPES = {
    * `workspaceRoot` is not the root its list is scoped to.
    */
   LIBRARY_CHANGED: 'library:changed',
+  /**
+   * Backend → Frontend (Electron only): one logged event of a remote
+   * session the renderer is attached to. Carries `MachinesEventPayload`
+   * (`machineId`, `sessionId`, `epoch`, `seq`, `type`, `payload`), forwarded
+   * unchanged from the worker; the renderer's per-session reducer drops
+   * duplicates and asks for a replay on a gap.
+   */
+  MACHINES_EVENT: 'machines:event',
+  /**
+   * Backend → Frontend (Electron only): a remote machine's connection state
+   * changed. Carries `MachinesStatePayload`.
+   */
+  MACHINES_STATE: 'machines:state',
 } as const;
 
 /**

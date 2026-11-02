@@ -1,6 +1,6 @@
 # Batches - TASK_2026_858_f7b9
 
-Total tasks: 42 | Batches: 26 | Complete: 4/26
+Total tasks: 42 | Batches: 26 | Complete: 5/26
 
 Scope: Phase 0 tool and Phase 1 (C0-C10) of implementation-plan.md, Round 5. C11 is not built
 (Q1 = (a), decisions.md row 10). The U5 licensing batch is not built (U5 = 1). Phases 2-4 get
@@ -324,7 +324,7 @@ phase summary.
   134 tests. Open for Phase B review: optional transport ping (PWA has none), extra client error
   codes, baseline applies across a gap, 1,000 held-frame cap, records copied per event.
 
-## Batch 5: C2 shared renderer contracts — PENDING
+## Batch 5: C2 shared renderer contracts — COMPLETE
 
 - Recommended executor: CLI lane backend capability
 - Execution mode: sequential
@@ -336,7 +336,7 @@ phase summary.
 - Phase: B | Phase review: at Batch 7
 - Verify: `npm run verify -- -p @ptah-extension/shared,@ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-extension-webview,ptah-video-studio,mcp-bench,ptah-landing-page,ptah-license-server`
 
-### Task 5.1: `machines:*` types, registry entries, message types, error codes — PENDING
+### Task 5.1: `machines:*` types, registry entries, message types, error codes — COMPLETE
 
 - Files: W/`libs/shared/src/lib/types/rpc/rpc-machines.types.ts` (create),
   W/`libs/shared/src/lib/types/rpc.types.ts`, W/`libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts`,
@@ -353,6 +353,11 @@ phase summary.
 ### Batch 5 verification
 
 - `webview-surface.types.ts` untouched; verify passes across all listed apps
+- Result: executor backend-developer subagent (Claude). Verify 78 tasks: 76 succeeded, 2 failed
+  (`ptah-license-server` test/typecheck: Prisma client not generated in the worktree). After
+  `nx run ptah-license-server:prisma:generate`, `verify -p ptah-license-server` → 2/2 succeeded.
+  D-B5-1: the 17 `machines:*` methods are NOT yet in `RpcMethodRegistry`/`RPC_METHOD_ENTRIES`;
+  they join in Batch 7 (see Task 7.1). Also touched `messages/payload-map.ts` (push payloads).
 
 ## Batch 6: C5 CLI engine hooks — PENDING
 
@@ -401,7 +406,10 @@ phase summary.
 ### Task 7.1: Capability, manifest, host label, prefix — PENDING
 
 - Files: W/`libs/backend/rpc-handlers/src/lib/host-profile/{capabilities.ts,manifest.ts,host-profile.ts}`,
-  W/`libs/backend/vscode-core/src/messaging/rpc-handler.ts`
+  W/`libs/backend/vscode-core/src/messaging/rpc-handler.ts`,
+  W/`libs/shared/src/lib/types/rpc.types.ts` (D-B5-1: `RpcMethodRegistry extends
+  MachinesRpcMethodRegistry` and `MACHINES_RPC_METHOD_NAMES` in `RPC_METHOD_ENTRIES`; add
+  `@ptah-extension/shared` and its Batch 5 dependents to the verify list)
 - Plan reference: C3 :985-1000
 - Pattern to follow: an existing `host.*` manifest entry with `requires`
 - Quality requirements: `remoteMachines` capability; `host.remoteMachines` entry with the W11

@@ -62,6 +62,10 @@ export * from './rpc/rpc-lane-outcome.types';
 
 export * from './rpc/rpc-decision-model-catalog.types';
 
+// Remote machines (`machines:*`, TASK_2026_858 W11). Declared apart from
+// RpcMethodRegistry; see MachinesRpcMethodRegistry for when it joins.
+export * from './rpc/rpc-machines.types';
+
 import type {
   AgentGetLanePlanLimitsParams,
   AgentGetLanePlanLimitsResult,
@@ -991,6 +995,11 @@ export interface InstallScopeRpcMethodRegistry {
  * in `rpc/rpc-provider-accounts.types.ts` and merged in through `extends`.
  * Install-scope methods from {@link InstallScopeRpcMethodRegistry} join the
  * same way, each once its handler serves it.
+ *
+ * Remote machine methods (`machines:*`, TASK_2026_858) are declared in
+ * `rpc/rpc-machines.types.ts` as `MachinesRpcMethodRegistry` and join here
+ * (`extends` plus `MACHINES_RPC_METHOD_NAMES` in `RPC_METHOD_ENTRIES`) in the
+ * same change that adds their `host.remoteMachines` manifest entry.
  */
 export interface RpcMethodRegistry
   extends
