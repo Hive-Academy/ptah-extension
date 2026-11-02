@@ -116,7 +116,8 @@ describe('PlanLimitsSnapshotService', () => {
       key: 'openai-codex#unknown:2222222222222222' };
     const metadata = { get: jest.fn(async (sessionId: string) => ({
       codexExecution: {
-        version: 1 as const, sessionId, runtime: 'codex-app-server' as const,
+        version: 1 as const, sessionId: SessionId.from(sessionId),
+        runtime: 'codex-app-server' as const,
         providerId: 'openai-codex', workspaceId: '/work',
         codex: { normalizedHome: sessionId === nativeId
           ? '/home/codex/.' : '/home/other' },
