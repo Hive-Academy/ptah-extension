@@ -4,119 +4,177 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { HeroComponent } from './hero.component';
 
-class StubIntersectionObserver {
-  public observe(): void {
-    /* no viewport in jsdom */
+class ObserverStub implements IntersectionObserver {
+  static instances: ObserverStub[] = [];
+  readonly root = null;
+  readonly rootMargin = '0px';
+  readonly scrollMargin = '0px';
+  readonly thresholds = [0];
+  readonly observe = jest.fn();
+  readonly unobserve = jest.fn();
+  readonly disconnect = jest.fn();
+
+  constructor(private readonly callback: IntersectionObserverCallback) {
+    ObserverStub.instances.push(this);
   }
-  public unobserve(): void {
-    /* no viewport in jsdom */
-  }
-  public disconnect(): void {
-    /* no viewport in jsdom */
-  }
-  public takeRecords(): IntersectionObserverEntry[] {
-    return [];
+
+  takeRecords(): IntersectionObserverEntry[] { return []; }
+
+  emit(target: Element, ratio: number): void {
+    this.callback([{
+      target,
+      isIntersecting: ratio > 0,
+      intersectionRatio: ratio,
+    } as IntersectionObserverEntry], this);
   }
 }
 
-const stubMatchMedia = (query: string): MediaQueryList =>
-  ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: () => undefined,
-    removeListener: () => undefined,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    dispatchEvent: () => false,
-  }) as MediaQueryList;
+function installBrowserMocks(reduced: boolean): { removeListener: jest.Mock } {
+  const removeListener = jest.fn();
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: jest.fn((query: string): MediaQueryList => ({
+      matches: reduced && query.includes('prefers-reduced-motion: reduce'),
+      media: query,
+      onchange: null,
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      addEventListener: jest.fn(),
+      removeEventListener: removeListener,
+      dispatchEvent: jest.fn(),
+    })),
+  });
+  Object.defineProperty(window, 'IntersectionObserver', { configurable: true, value: ObserverStub });
+  return { removeListener };
+}
+
+function mount(platform: 'server' | 'browser'): {
+  component: HeroComponent;
+  root: HTMLElement;
+  destroy: () => void;
+} {
+  TestBed.configureTestingModule({
+    imports: [HeroComponent],
+    providers: [provideRouter([]), { provide: PLATFORM_ID, useValue: platform }],
+  });
+  const fixture = TestBed.createComponent(HeroComponent);
+  fixture.detectChanges();
+  return {
+    component: fixture.componentInstance,
+    root: fixture.nativeElement as HTMLElement,
+    destroy: () => fixture.destroy(),
+  };
+}
+
+function mockMedia(video: HTMLVideoElement): { play: jest.SpyInstance; pause: jest.SpyInstance } {
+  let paused = true;
+  Object.defineProperty(video, 'paused', { configurable: true, get: () => paused });
+  const play = jest.spyOn(video, 'play').mockImplementation(() => {
+    paused = false;
+    video.dispatchEvent(new Event('play'));
+    return Promise.resolve();
+  });
+  const pause = jest.spyOn(video, 'pause').mockImplementation(() => {
+    paused = true;
+    video.dispatchEvent(new Event('pause'));
+  });
+  return { play, pause };
+}
 
 describe('HeroComponent', () => {
-  beforeAll(() => {
-    Object.defineProperty(window, 'IntersectionObserver', {
-      configurable: true,
-      writable: true,
-      value: StubIntersectionObserver,
-    });
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      writable: true,
-      value: stubMatchMedia,
-    });
-  });
-
   afterEach(() => {
+    jest.restoreAllMocks();
     TestBed.resetTestingModule();
+    ObserverStub.instances = [];
   });
 
-  const create = async (platform: 'browser' | 'server' = 'browser') => {
-    TestBed.configureTestingModule({
-      imports: [HeroComponent],
-      providers: [
-        provideRouter([]),
-        { provide: PLATFORM_ID, useValue: platform },
-      ],
-    });
-    const fixture = TestBed.createComponent(HeroComponent);
-    fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
-    return fixture;
-  };
-
-  it('hosts the live demo instead of the device mock and keeps the stat row', async () => {
-    const fixture = await create();
-    const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('ptah-live-demo-section')).toBeTruthy();
-    expect(root.querySelector('ptah-hero-device-showcase')).toBeNull();
-    expect(root.querySelector('ptah-council-demo')).toBeNull();
-    expect(root.querySelector('ptah-device-frame')).toBeNull();
-    expect(root.querySelector('h1')?.getAttribute('aria-label')).toBe(
-      'It ships the SaaS.',
-    );
-    expect(root.textContent).toContain('concurrent agent tiles');
-    expect(root.textContent).toContain('platforms: Windows, macOS, Linux');
-    fixture.destroy();
+  it('renders final copy, actions and poster-first muted videos on the server', () => {
+    const { root, destroy } = mount('server');
+    expect(root.querySelector('h1')?.textContent).toContain('Your AI dev team.');
+    expect(root.querySelector('h1')?.textContent).toContain('Free and open source.');
+    expect(root.querySelector('.title-lead')?.textContent).toContain('MIT-licensed desktop app');
+    expect(root.querySelector('.title-footnote')?.textContent).toContain('No account. No license key. No credit card.');
+    expect(root.querySelector<HTMLAnchorElement>('.download-link')?.getAttribute('href')).toBe('/download');
+    expect(root.querySelectorAll('video')).toHaveLength(4);
+    expect(Array.from(root.querySelectorAll('video')).every((video) =>
+      video.hasAttribute('poster') && video.hasAttribute('muted') && video.getAttribute('preload') === 'none'
+    )).toBe(true);
+    expect(root.querySelectorAll('.artifact[alt=""][aria-hidden]')).toHaveLength(0);
+    expect(root.querySelectorAll('.artifacts[aria-hidden] img[alt=""]')).toHaveLength(4);
+    destroy();
   });
 
-  it('centres a smaller headline in the first viewport, above the demo', async () => {
-    const fixture = await create();
-    const root = fixture.nativeElement as HTMLElement;
-    const headline = root.querySelector('[data-hero-headline]') as HTMLElement;
-    expect(headline.className).toContain('min-h-[100svh]');
-    expect(headline.className).toContain('items-center');
-    expect(headline.className).toContain('justify-center');
-    const h1 = root.querySelector('h1') as HTMLElement;
-    expect(h1.className).toContain('lg:text-6xl');
-    expect(h1.className).not.toContain('lg:text-7xl');
-    const demo = root.querySelector('ptah-live-demo-section') as HTMLElement;
-    expect(
-      headline.compareDocumentPosition(demo) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(root.querySelector('[data-demo-variant]')).toBeNull();
-    fixture.destroy();
+  it('keeps reduced motion static and never autoplays', () => {
+    installBrowserMocks(true);
+    const { component, root, destroy } = mount('browser');
+    component['initialize']();
+    const videos = Array.from(root.querySelectorAll('video'));
+    const media = videos.map(mockMedia);
+    ObserverStub.instances[0].emit(root.querySelector('[data-story-stage]')!, 1);
+    component.activeChapter.set(0);
+    component['syncPlayback']();
+    expect(root.classList.contains('is-cinematic')).toBe(false);
+    expect(media.every(({ play }) => play.mock.calls.length === 0)).toBe(true);
+    destroy();
   });
 
-  it('drops the download CTAs and points "Watch it work" at the live demo', async () => {
-    const fixture = await create();
-    const root = fixture.nativeElement as HTMLElement;
-    expect(root.textContent).not.toContain("Download Ptah — it's free");
-    expect(root.textContent).not.toContain('Download PtahCode');
-    expect(root.querySelector('a[href="/download"]')).toBeNull();
-    const watch = Array.from(root.querySelectorAll('a')).find((a) =>
-      a.textContent?.includes('Watch it work'),
-    );
-    expect(watch?.getAttribute('href')).toBe('#live-demo');
-    expect(root.querySelector('#live-demo')).toBeTruthy();
-    expect(root.textContent).toContain('Open source. No credit card, ever.');
-    fixture.destroy();
+  it('plays only the revealed active clip and respects a manual pause', () => {
+    installBrowserMocks(true);
+    const { component, root, destroy } = mount('browser');
+    component['initialize']();
+    const videos = Array.from(root.querySelectorAll('video'));
+    const media = videos.map(mockMedia);
+    component['reducedMotion'] = false;
+    component.cinematic.set(true);
+    ObserverStub.instances[0].emit(root.querySelector('[data-story-stage]')!, 1);
+    component.activeChapter.set(0);
+    component['syncPlayback']();
+    expect(media[0].play).toHaveBeenCalledTimes(1);
+    expect(media[1].play).not.toHaveBeenCalled();
+
+    component.activeChapter.set(1);
+    component['syncPlayback']();
+    expect(media[0].pause).toHaveBeenCalledTimes(1);
+    expect(media[1].play).toHaveBeenCalledTimes(1);
+
+    videos[1].pause(); // Native controls, not the component, initiated this pause.
+    document.dispatchEvent(new Event('visibilitychange'));
+    ObserverStub.instances[0].emit(root.querySelector('[data-story-stage]')!, 1);
+    expect(media[1].play).toHaveBeenCalledTimes(1);
+    destroy();
   });
 
-  it('renders on the server', async () => {
-    const fixture = await create('server');
-    const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('h1')).toBeTruthy();
-    expect(root.querySelector('ptah-live-demo-section')).toBeTruthy();
-    fixture.destroy();
+  it('removes the faded title CTAs from the tab order once the story starts', () => {
+    installBrowserMocks(true);
+    const { component, root, destroy } = mount('browser');
+    const title = root.querySelector('[data-title-content]')!;
+    component['updateChapter'](0.5);
+    expect(title.hasAttribute('inert')).toBe(true);
+    component['updateChapter'](0);
+    expect(title.hasAttribute('inert')).toBe(false);
+    destroy();
+  });
+
+  it('sends "Watch it work" to the first clip in the natural layout', () => {
+    installBrowserMocks(true);
+    const { component, root, destroy } = mount('browser');
+    const firstScene = root.querySelector<HTMLElement>('[data-story-scene]')!;
+    const scrollIntoView = jest.fn();
+    firstScene.scrollIntoView = scrollIntoView;
+    const event = new MouseEvent('click', { cancelable: true });
+    component.watchStory(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ block: 'start' }));
+    destroy();
+  });
+
+  it('disconnects observation and removes the motion listener on destroy', () => {
+    const { removeListener } = installBrowserMocks(true);
+    const { component, destroy } = mount('browser');
+    component['initialize']();
+    const observer = ObserverStub.instances[0];
+    destroy();
+    expect(observer.disconnect).toHaveBeenCalledTimes(1);
+    expect(removeListener).toHaveBeenCalledWith('change', expect.any(Function));
   });
 });

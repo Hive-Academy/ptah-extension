@@ -1,168 +1,336 @@
+import { DOCUMENT, isPlatformBrowser } from '@angular/common';
 import {
-  Component,
   ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
   ElementRef,
+  PLATFORM_ID,
   afterNextRender,
   inject,
-  DestroyRef,
-  PLATFORM_ID,
+  signal,
 } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
-import {
-  ViewportAnimationConfig,
-  ViewportAnimationDirective,
-} from '@hive-academy/angular-gsap';
+import { RouterLink } from '@angular/router';
 import gsap from 'gsap';
-import { HeroContentOverlayComponent } from './hero-content-overlay.component';
-import { LiveDemoSectionComponent } from '../live-demo/live-demo-section.component';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { LIVE_DEMO_CATALOG } from '../../live-demo/live-demo-catalog';
 
-/**
- * HeroComponent — "Temple of the Machine" hero with the PtahCode live demo as
- * its centerpiece.
- *
- * Layers:
- * 1. Sky (first viewport, decorative): pyramid backdrop veiled at 0.16 and four
- *    masked Egyptian artifacts drifting on independent sine loops.
- * 2. Headline (`HeroContentOverlayComponent`), centred in the first viewport
- *    below the fixed nav, then the live demo (`LiveDemoSectionComponent`),
- *    which starts below the fold and powers on as it scrolls in.
- * 3. Stat row.
- */
+const CINEMATIC_QUERY =
+  '(min-width: 768px) and (prefers-reduced-motion: no-preference)';
+
+const CAPTIONS = [
+  'Agents coordinate a shared plan.',
+  'Models review the work together.',
+  'Every session in one view.',
+  'Parallel agents, one workspace.',
+] as const;
+
 @Component({
   selector: 'ptah-hero',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    HeroContentOverlayComponent,
-    LiveDemoSectionComponent,
-    ViewportAnimationDirective,
-  ],
+  standalone: true,
+  imports: [RouterLink],
   template: `
-    <section class="relative overflow-hidden bg-ink-950">
-      <div
-        class="pointer-events-none absolute inset-x-0 top-0 h-[100svh] overflow-hidden"
-        aria-hidden="true"
-      >
-        <!-- temple backdrop, veiled -->
-        <div
-          class="absolute inset-0 opacity-[0.16]"
-          style="background-image: url('/assets/backgrounds/pyramid_energy_apex.webp'); background-size: cover; background-position: center 30%;"
-        ></div>
-        <div
-          class="absolute inset-0 bg-gradient-to-b from-ink-950/70 via-transparent to-ink-950"
-        ></div>
-
-        <!-- four artifacts, four depths -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div id="live-demo" class="story-stage" data-story-stage>
+      <div class="title-frame" data-title-frame>
         <img
-          data-float
-          src="/assets/textures/ankh-sphere.png"
+          class="title-still"
+          src="/assets/live-demo/orchestration.jpg"
           alt=""
-          class="absolute left-[8%] top-[20%] w-24 lg:w-36 opacity-70 [mask-image:radial-gradient(circle,black_52%,transparent_71%)] select-none will-change-transform"
+          aria-hidden="true"
+          fetchpriority="high"
         />
-        <img
-          data-float
-          src="/assets/textures/scarab.png"
-          alt=""
-          class="absolute right-[10%] top-[14%] w-20 lg:w-28 opacity-50 blur-[1px] [mask-image:radial-gradient(circle,black_52%,transparent_71%)] select-none will-change-transform"
-        />
-        <img
-          data-float
-          src="/assets/textures/eye_of_horus.png"
-          alt=""
-          class="absolute right-[6%] bottom-[18%] w-28 lg:w-40 opacity-65 [mask-image:radial-gradient(circle,black_52%,transparent_71%)] select-none will-change-transform"
-        />
-        <img
-          data-float
-          src="/assets/textures/sun_disk_ra.png"
-          alt=""
-          class="absolute left-[10%] bottom-[12%] w-20 lg:w-32 opacity-40 blur-[2px] [mask-image:radial-gradient(circle,black_52%,transparent_71%)] select-none will-change-transform"
-        />
-      </div>
-
-      <div class="relative z-10 flex flex-col">
-        <div
-          data-hero-headline
-          class="flex min-h-[100svh] items-center justify-center pt-24 pb-12"
-        >
-          <ptah-hero-content-overlay />
+        <div class="title-grain" aria-hidden="true"></div>
+        <div class="artifacts" data-artifacts aria-hidden="true">
+          <img data-float src="/assets/textures/ankh-sphere.png" alt="" class="artifact artifact-ankh" />
+          <img data-float src="/assets/textures/scarab.png" alt="" class="artifact artifact-scarab" />
+          <img data-float src="/assets/textures/eye_of_horus.png" alt="" class="artifact artifact-eye" />
+          <img data-float src="/assets/textures/sun_disk_ra.png" alt="" class="artifact artifact-sun" />
         </div>
-        <div class="relative z-20 w-full">
-          <ptah-live-demo-section />
-        </div>
-      </div>
-
-      <div
-        viewportAnimation
-        [viewportConfig]="statsConfig"
-        class="relative z-10 mx-auto grid max-w-md grid-cols-2 gap-x-10 gap-y-8 px-4 pt-4 pb-20 sm:flex sm:max-w-3xl sm:flex-wrap sm:justify-center sm:pb-28"
-      >
-        @for (stat of stats; track stat.label) {
-          <div class="flex flex-col items-center text-center sm:w-40">
-            <span
-              class="font-mono text-3xl sm:text-4xl font-bold text-white leading-none whitespace-nowrap"
-              >{{ stat.value }}</span
-            >
-            <span class="text-xs sm:text-sm text-ink-400 mt-2 leading-snug">{{
-              stat.label
-            }}</span>
+        <div class="title-content" data-title-content>
+          <p class="title-index" aria-hidden="true">PTAHCODE / A FILM IN FOUR ACTS</p>
+          <h1 id="hero-title"><span data-title-beat>Your AI dev team.</span><br /><span data-title-beat>Free and open source.</span></h1>
+          <p class="title-lead">
+            PtahCode is a free, MIT-licensed desktop app that runs a team of AI agents on your own machine.
+            Bring any model — open-weight or frontier — and keep your code and keys with you.
+          </p>
+          <div class="title-actions">
+            <a class="download-link" routerLink="/download">
+              Download PtahCode
+              <span aria-hidden="true">↗</span>
+            </a>
+            <a class="watch-link" href="#live-demo" (click)="watchStory($event)">
+              <span aria-hidden="true">↘</span>
+              Watch it work
+            </a>
           </div>
-        }
+          <p class="title-footnote">No account. No license key. No credit card.</p>
+        </div>
+        <div class="scroll-cue" aria-hidden="true">
+          <span>Scroll to see the work</span><span class="cue-line"></span><span>↓</span>
+        </div>
       </div>
+
+        <div class="story-atmosphere" aria-hidden="true"></div>
+        <div class="scene-track" data-scene-track>
+        @for (demo of catalog; track demo.id; let i = $index) {
+          <figure class="story-scene" data-story-scene>
+            <div class="scene-frame" data-scene-frame>
+              <video
+                class="scene-video"
+                [src]="demo.video"
+                [poster]="demo.poster"
+                [attr.aria-label]="'PtahCode ' + demo.label + ' session clip'"
+                controls
+                [muted]="true"
+                muted
+                playsinline
+                loop
+                preload="none"
+                (pause)="onVideoPause(i)"
+                (play)="onVideoPlay(i)"
+              >
+                Your browser cannot play this PtahCode video.
+              </video>
+            </div>
+            <figcaption class="scene-caption" data-scene-caption>
+              <span class="caption-number">0{{ i + 1 }} / 04</span>
+              <span class="caption-title">{{ demo.label }}</span>
+              <span class="caption-line">{{ captions[i] }}</span>
+            </figcaption>
+          </figure>
+        }
+        </div>
+        <div class="stage-vignette" aria-hidden="true"></div>
+        <div class="stage-light" aria-hidden="true"></div>
+        <div class="chapter-rail" role="group" aria-label="Four chapters of PtahCode in action" [style.--rail-progress]="(activeChapter() + 1) / 4">
+          <div class="rail-progress" aria-hidden="true"><span data-rail-fill></span></div>
+          <ol>
+            @for (demo of catalog; track demo.id; let i = $index) {
+              <li [class.is-active]="activeChapter() === i" [attr.aria-current]="cinematic() && activeChapter() === i ? 'step' : null">
+                <span class="rail-number">0{{ i + 1 }}</span>
+                <span>{{ demo.label }}</span>
+              </li>
+            }
+          </ol>
+        </div>
+      </div>
+      <div class="story-outro" aria-hidden="true"><span>04 / 04</span><span>Built to ship.</span></div>
     </section>
   `,
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-    `,
-  ],
+  styleUrl: './hero.component.css',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HeroComponent {
-  public readonly stats = [
-    { value: '9', label: 'concurrent agent tiles' },
-    { value: '7', label: 'model providers, zero lock-in' },
-    { value: 'Free', label: 'and open source' },
-    { value: '3', label: 'platforms: Windows, macOS, Linux' },
-  ];
-
-  /** Stat row — fade in. SSG-safe: the resting state is fully visible. */
-  public readonly statsConfig: ViewportAnimationConfig = {
-    animation: 'fadeIn',
-    duration: 0.6,
-    delay: 0.2,
-    threshold: 0.1,
-  };
+  readonly catalog = LIVE_DEMO_CATALOG;
+  readonly captions = CAPTIONS;
+  readonly activeChapter = signal(-1);
+  readonly cinematic = signal(false);
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly document = inject(DOCUMENT);
   private readonly destroyRef = inject(DestroyRef);
   private readonly browser = isPlatformBrowser(inject(PLATFORM_ID));
+  private readonly videos: HTMLVideoElement[] = [];
+  private readonly visibleRatios = new Map<HTMLVideoElement, number>();
+  private readonly manualPaused = new WeakSet<HTMLVideoElement>();
+  private readonly pausingByCode = new WeakSet<HTMLVideoElement>();
+  private observer?: IntersectionObserver;
+  private motionMedia?: MediaQueryList;
+  private mediaContext?: ReturnType<typeof gsap.matchMedia>;
+  private storyTrigger?: ScrollTrigger;
+  private stageVisible = false;
+  private reducedMotion = false;
+  private saveData = false;
 
   constructor() {
-    afterNextRender(() => {
-      if (!this.browser) return;
-      const mm = gsap.matchMedia();
-      mm.add('(prefers-reduced-motion: no-preference)', () => {
-        const orbs =
-          this.host.nativeElement.querySelectorAll<HTMLElement>('[data-float]');
-        gsap.from(orbs, {
-          opacity: 0,
-          scale: 0.92,
-          duration: 1.4,
-          stagger: 0.15,
-          ease: 'power2.out',
-        });
-        orbs.forEach((orb, i) => {
-          gsap.to(orb, {
-            y: i % 2 === 0 ? -18 : 15,
-            duration: 3.4 + i * 0.7,
-            ease: 'sine.inOut',
-            yoyo: true,
-            repeat: -1,
-            delay: 0.3 * i,
-          });
-        });
+    if (!this.browser) return;
+    afterNextRender(() => this.initialize());
+    this.destroyRef.onDestroy(() => this.cleanup());
+  }
+
+  private initialize(): void {
+    const view = this.document.defaultView;
+    const stage = this.host.nativeElement.querySelector<HTMLElement>('[data-story-stage]');
+    if (!view || !stage || this.videos.length) return;
+
+    this.videos.push(...this.host.nativeElement.querySelectorAll<HTMLVideoElement>('video'));
+    this.motionMedia = view.matchMedia?.('(prefers-reduced-motion: reduce)');
+    this.reducedMotion = this.motionMedia?.matches ?? false;
+    this.motionMedia?.addEventListener('change', this.onMotionChange);
+    this.saveData = (view.navigator as Navigator & { connection?: { saveData?: boolean } })
+      .connection?.saveData === true;
+
+    if ('IntersectionObserver' in view) {
+      this.observer = new IntersectionObserver(this.onIntersection, {
+        threshold: [0, 0.15, 0.35, 0.65],
       });
-      this.destroyRef.onDestroy(() => mm.revert());
+      this.observer.observe(stage);
+      for (const video of this.videos) this.observer.observe(video);
+    }
+    this.document.addEventListener('visibilitychange', this.syncPlayback);
+
+    if (this.saveData || this.reducedMotion) return;
+    gsap.registerPlugin(ScrollTrigger);
+    this.mediaContext = gsap.matchMedia();
+    this.mediaContext.add(CINEMATIC_QUERY, () => {
+      this.host.nativeElement.classList.add('is-cinematic');
+      this.cinematic.set(true);
+      const title = stage.querySelector<HTMLElement>('[data-title-frame]');
+      const track = stage.querySelector<HTMLElement>('[data-scene-track]');
+      const captions = Array.from(stage.querySelectorAll<HTMLElement>('[data-scene-caption]'));
+      const symbols = Array.from(stage.querySelectorAll<HTMLElement>('[data-float]'));
+      const beats = Array.from(stage.querySelectorAll<HTMLElement>('[data-title-beat]'));
+      const supporting = Array.from(stage.querySelectorAll<HTMLElement>('.title-index, .title-lead, .title-actions, .title-footnote'));
+
+      // Text is visible in SSR and in the CSS resting state. Browser motion starts only after render.
+      const intro = gsap.timeline();
+      intro.fromTo(beats, { opacity: 0, y: 24, filter: 'blur(8px)' },
+        { opacity: 1, y: 0, filter: 'blur(0px)', duration: 0.9, stagger: 0.16, ease: 'power3.out' });
+      intro.fromTo(supporting, { opacity: 0, y: 12 },
+        { opacity: 1, y: 0, duration: 0.55, stagger: 0.1, ease: 'power2.out' }, 0.46);
+      const floats = symbols.map((symbol, index) => gsap.to(symbol, {
+        y: index % 2 === 0 ? -18 : 15,
+        duration: 3.4 + index * 0.7,
+        ease: 'sine.inOut',
+        yoyo: true,
+        repeat: -1,
+        delay: index * 0.3,
+      }));
+
+      const timeline = gsap.timeline({
+        defaults: { ease: 'none' },
+        scrollTrigger: {
+          trigger: stage,
+          start: 'top top',
+          end: () => '+=' + Math.round(view.innerHeight * 4),
+          pin: true,
+          scrub: 0.7,
+          snap: { snapTo: [0, 0.2, 0.45, 0.7, 0.95], inertia: false, duration: { min: 0.28, max: 0.65 }, ease: 'power2.inOut' },
+          anticipatePin: 1,
+          invalidateOnRefresh: true,
+          onUpdate: (self) => this.updateChapter(self.progress),
+        },
+      });
+      if (title) timeline.to(title, { opacity: 0, yPercent: -8, duration: 0.65 }, 0);
+      if (track) {
+        timeline.fromTo(track, { opacity: 0 }, { opacity: 1, duration: 0.22 }, 0.42);
+        timeline.to(track, { x: () => -stage.clientWidth, duration: 0.55 }, 1.1);
+        timeline.to(track, { x: () => -stage.clientWidth * 2, duration: 0.55 }, 2.1);
+        timeline.to(track, { x: () => -stage.clientWidth * 3, duration: 0.55 }, 3.1);
+      }
+      captions.forEach((caption, index) => {
+        timeline.fromTo(caption, { opacity: 0, y: 22 },
+          { opacity: 1, y: 0, duration: 0.23, ease: 'power2.out' }, index + 0.62);
+      });
+      timeline.to({}, { duration: 0.35 }, 3.65);
+      this.storyTrigger = timeline.scrollTrigger;
+
+      return () => {
+        intro.kill();
+        floats.forEach((float) => float.kill());
+        this.storyTrigger?.kill();
+        this.storyTrigger = undefined;
+        timeline.kill();
+        this.host.nativeElement.classList.remove('is-cinematic');
+        this.cinematic.set(false);
+        this.activeChapter.set(-1);
+        this.host.nativeElement.classList.remove('is-in-story');
+        this.setTitleInert(false);
+        this.syncPlayback();
+      };
     });
+  }
+
+  watchStory(event: MouseEvent): void {
+    event.preventDefault();
+    if (!this.cinematic() || !this.storyTrigger) {
+      // Natural (mobile / reduced-motion) layout: the stage anchor is the title card,
+      // so go to the first clip instead.
+      this.host.nativeElement
+        .querySelector<HTMLElement>('[data-story-scene]')
+        ?.scrollIntoView({ behavior: this.reducedMotion ? 'auto' : 'smooth', block: 'start' });
+      return;
+    }
+    this.document.defaultView?.scrollTo({ top: this.storyTrigger.start + (this.storyTrigger.end - this.storyTrigger.start) * 0.2, behavior: 'smooth' });
+  }
+
+  private updateChapter(progress: number): void {
+    const chapter = progress < 0.14 ? -1 : progress < 0.4 ? 0 : progress < 0.65 ? 1 : progress < 0.9 ? 2 : 3;
+    this.host.nativeElement.classList.toggle('is-in-story', chapter >= 0);
+    // The title fades out as the story starts; keep its CTAs out of the tab order
+    // while they are invisible (WCAG 2.4.7).
+    this.setTitleInert(chapter >= 0);
+    if (chapter === this.activeChapter()) return;
+    this.activeChapter.set(chapter);
+    this.syncPlayback();
+  }
+
+  private setTitleInert(inert: boolean): void {
+    this.host.nativeElement
+      .querySelector<HTMLElement>('[data-title-content]')
+      ?.toggleAttribute('inert', inert);
+  }
+
+  private readonly onMotionChange = (event: MediaQueryListEvent): void => {
+    this.reducedMotion = event.matches;
+    this.syncPlayback();
+  };
+
+  onVideoPause(index: number): void {
+    const video = this.videos[index];
+    if (!video) return;
+    if (this.pausingByCode.delete(video)) return;
+    this.manualPaused.add(video);
+  }
+
+  onVideoPlay(index: number): void {
+    const video = this.videos[index];
+    if (!video) return;
+    this.manualPaused.delete(video);
+    if (!this.cinematic()) {
+      for (const other of this.videos) if (other !== video) this.pauseVideo(other);
+    }
+  }
+
+  private readonly onIntersection: IntersectionObserverCallback = (entries) => {
+    for (const entry of entries) {
+      if (entry.target instanceof HTMLVideoElement) {
+        this.visibleRatios.set(entry.target, entry.intersectionRatio);
+      } else {
+        this.stageVisible = entry.isIntersecting;
+      }
+    }
+    this.syncPlayback();
+  };
+
+  private readonly syncPlayback = (): void => {
+    const active = this.cinematic() && this.stageVisible && !this.document.hidden &&
+      !this.reducedMotion && !this.saveData ? this.videos[this.activeChapter()] : undefined;
+    for (const video of this.videos) {
+      if (this.cinematic()) {
+        if (video !== active) this.pauseVideo(video);
+        else if (video.paused && !this.manualPaused.has(video)) {
+          // A blocked autoplay leaves the poster and native controls available.
+          void video.play().catch(() => this.manualPaused.add(video));
+        }
+      } else if (this.document.hidden || (this.visibleRatios.get(video) ?? 0) < 0.15) {
+        this.pauseVideo(video);
+      }
+    }
+  };
+
+  private pauseVideo(video: HTMLVideoElement): void {
+    if (video.paused) return;
+    this.pausingByCode.add(video);
+    video.pause();
+  }
+
+  private cleanup(): void {
+    this.mediaContext?.revert();
+    this.storyTrigger?.kill();
+    this.observer?.disconnect();
+    this.motionMedia?.removeEventListener('change', this.onMotionChange);
+    this.document.removeEventListener('visibilitychange', this.syncPlayback);
+    for (const video of this.videos) this.pauseVideo(video);
   }
 }

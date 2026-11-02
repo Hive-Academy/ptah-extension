@@ -6,7 +6,6 @@ export * from './lib/landing-page.component';
 export * from './lib/sections/comparison/comparison-section.component';
 export * from './lib/sections/comparison/comparison-tug-meter.component';
 export * from './lib/sections/cta/cta-section.component';
-export * from './lib/sections/hero/hero-content-overlay.component';
 export * from './lib/sections/hero/hero.component';
 export * from './lib/sections/pillars/pillars-spine.component';
 export * from './lib/sections/problem/problem-section.component';
