@@ -6,6 +6,7 @@ import {
   untracked,
   type Signal,
   type WritableSignal,
+  type OnDestroy,
 } from '@angular/core';
 import {
   createEmptyStreamingState,
@@ -47,6 +48,7 @@ import {
 const HISTORY_EVENT_CAP = 10000;
 const HISTORY_PAGE_CAP = 100;
 const HISTORY_PAGE_BYTES = 256 * 1024;
+const TERMINAL_DRAIN_MS = 1500;
 const TERMINAL_STATUSES: ReadonlySet<SubagentRecord['status']> = new Set([
   'completed',
   'failed',
@@ -112,7 +114,7 @@ export interface SubagentExecutionEntry {
 
 /** Keeps each SDK subagent's execution outside the parent tab's turn state. */
 @Injectable({ providedIn: 'root' })
-export class SubagentExecutionStore {
+export class SubagentExecutionStore implements OnDestroy {
   private readonly accumulator = inject(StreamingAccumulatorCore);
   private readonly builder = inject(ExecutionTreeBuilderService);
   private readonly deduplication = inject(EventDeduplicationService);
@@ -155,6 +157,10 @@ export class SubagentExecutionStore {
   private readClock = 0;
   private readonly lastRead = new Map<string, number>();
   private readonly syncedRecords = new Map<string, SubagentRecord>();
+  private readonly finalizationTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
 
   constructor() {
     effect(() => {
@@ -166,6 +172,11 @@ export class SubagentExecutionStore {
         this.syncRecord(record);
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    for (const timer of this.finalizationTimers.values()) clearTimeout(timer);
+    this.finalizationTimers.clear();
   }
 
   private publish(entry?: SubagentExecutionEntry): void {
@@ -242,11 +253,36 @@ export class SubagentExecutionStore {
     if (record.lastEventAt)
       entry.lastEventAt = Math.max(entry.lastEventAt, record.lastEventAt);
     if (TERMINAL_STATUSES.has(record.status)) {
-      this.finalize(key);
+      this.settleRecord(key, record);
     } else {
+      this.clearFinalizationTimer(key);
       entry.live = true;
       this.publish(entry);
     }
+  }
+
+  private settleRecord(key: string, record: SubagentRecord): void {
+    if (record.settledFromHistory) this.finalize(key);
+    else this.scheduleFinalize(key);
+  }
+
+  private scheduleFinalize(key: string): void {
+    const entry = this.mutableEntries.get(key);
+    if (!entry?.live) return;
+    this.clearFinalizationTimer(key);
+    const timer = setTimeout(() => {
+      if (this.finalizationTimers.get(key) !== timer) return;
+      this.finalizationTimers.delete(key);
+      if (this.mutableEntries.get(key) === entry) this.finalize(key);
+    }, TERMINAL_DRAIN_MS);
+    this.finalizationTimers.set(key, timer);
+  }
+
+  private clearFinalizationTimer(key: string): void {
+    const timer = this.finalizationTimers.get(key);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.finalizationTimers.delete(key);
   }
 
   /**
@@ -260,10 +296,11 @@ export class SubagentExecutionStore {
     sessionId: string | undefined,
   ): void {
     if (!sessionId || entry.sessionId === sessionId) return;
+    const key = this.entryKeys.get(entry);
+    if (key) this.clearFinalizationTimer(key);
     entry.sessionId = sessionId;
     // A load in flight pages the old session; drop it so the next load
     // starts over in the new one. That includes a silent live refresh.
-    const key = this.entryKeys.get(entry);
     if (entry.history === 'loading' || (key && this.inFlight.has(key)))
       this.abort(entry);
     if (key) this.liveRefresh.reset(key);
@@ -332,7 +369,8 @@ export class SubagentExecutionStore {
       const record =
         this.syncedRecords.get(key) ??
         this.agentMonitorStore.subagents?.().get(key);
-      if (record && TERMINAL_STATUSES.has(record.status)) this.finalize(key);
+      if (record && TERMINAL_STATUSES.has(record.status))
+        this.settleRecord(key, record);
       return true;
     } catch (error) {
       this.logger.error(
@@ -411,6 +449,7 @@ export class SubagentExecutionStore {
   }
 
   finalize(key: string): void {
+    this.clearFinalizationTimer(key);
     const entry = this.mutableEntries.get(key);
     if (!entry) return;
     if (entry.state) {
@@ -472,7 +511,7 @@ export class SubagentExecutionStore {
         this.syncedRecords.get(key) ??
         this.agentMonitorStore.subagents?.().get(key);
       if (record && TERMINAL_STATUSES.has(record.status) && entry.live)
-        this.finalize(key);
+        this.settleRecord(key, record);
       this.lastRead.set(key, ++this.readClock);
       this.publish(entry);
     });
@@ -544,6 +583,7 @@ export class SubagentExecutionStore {
   }
 
   private remove(key: string, entry: SubagentExecutionEntry): void {
+    this.clearFinalizationTimer(key);
     this.abort(entry);
     this.mutableEntries.delete(key);
     this.entryViews.delete(key);

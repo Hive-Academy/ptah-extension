@@ -55,6 +55,10 @@ const record = (
   parentSessionId: sessionId,
   status,
 });
+const settledRecord = (
+  key: string,
+  status: SubagentRecord['status'] = 'completed',
+): SubagentRecord => ({ ...record(key, status), settledFromHistory: true });
 const page = (
   events: FlatStreamEventUnion[],
   nextCursor: string | null = null,
@@ -116,13 +120,19 @@ describe('SubagentExecutionStore', () => {
     store = TestBed.inject(SubagentExecutionStore);
   });
 
-  afterEach(() => TestBed.resetTestingModule());
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.useRealTimers();
+  });
 
-  it('finalizes when the monitor publishes a terminal record', () => {
+  it('finalizes after the drain window when the monitor publishes a terminal record', () => {
+    jest.useFakeTimers();
     const completed = record('agent-a', 'completed');
     store.claim(start('m'));
     subagents.set(new Map([['agent-a', completed]]));
     TestBed.flushEffects();
+    expect(store.entries().get('agent-a')?.live).toBe(true);
+    jest.advanceTimersByTime(1500);
     expect(store.entries().get('agent-a')?.live).toBe(false);
   });
 
@@ -226,22 +236,67 @@ describe('SubagentExecutionStore', () => {
     ]).toContain('one two');
   });
 
-  it('refinalizes a late event after a terminal record', () => {
+  it('keeps late child events in the live card until the drain window ends', () => {
+    jest.useFakeTimers();
+    builder.buildTree.mockReturnValue([{ id: 'combined-node' }]);
     store.syncRecord(record('agent-a'));
     store.claim(start('m'));
+    store.claim(delta('m', 'before ', 'before'));
+    const entry = store.entries().get('agent-a')!;
+
     store.syncRecord(record('agent-a', 'completed'));
-    expect(store.entries().get('agent-a')?.state).toBeNull();
+    jest.advanceTimersByTime(1000);
     expect(store.claim(delta('m', 'late', 'late'))).toBe(true);
-    expect(store.entries().get('agent-a')?.state).toBeNull();
-    expect(store.entries().get('agent-a')?.live).toBe(false);
+
+    expect(store.entries().get('agent-a')).toBe(entry);
+    expect(entry.live).toBe(true);
+    expect([...entry.state!.textAccumulators.values()]).toContain('before late');
+    jest.advanceTimersByTime(1499);
+    expect(entry.live).toBe(true);
+    jest.advanceTimersByTime(1);
+
+    expect(entry.live).toBe(false);
+    expect(entry.state).toBeNull();
+    expect(entry.finalized).toEqual([{ id: 'combined-node' }]);
+    expect(builder.buildTree).toHaveBeenCalledTimes(1);
+    const finalizedState = builder.buildTree.mock.calls[0][0];
+    expect([...finalizedState.textAccumulators.values()]).toContain(
+      'before late',
+    );
+  });
+
+  it('finalizes a history-settled record immediately without a timer', () => {
+    jest.useFakeTimers();
+    store.claim(start('m'));
+    store.syncRecord(settledRecord('agent-a'));
+
+    expect(store.entries().get('agent-a')).toMatchObject({
+      live: false,
+      state: null,
+    });
+    expect(builder.buildTree).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('clears a pending drain timer when the session resets', () => {
+    jest.useFakeTimers();
+    store.claim(start('m'));
+    store.syncRecord(record('agent-a', 'completed'));
+    expect(store.entries().get('agent-a')?.live).toBe(true);
+
+    store.clearSession(sessionId);
+    expect(store.entries().has('agent-a')).toBe(false);
+    expect(jest.getTimerCount()).toBe(0);
+    jest.advanceTimersByTime(5000);
+    expect(store.entries().has('agent-a')).toBe(false);
   });
 
   it('evicts the least recently read finalized entry and respects pins', () => {
     store.retain('agent-0');
-    store.syncRecord(record('agent-0', 'completed'));
+    store.syncRecord(settledRecord('agent-0'));
     for (let n = 1; n <= 21; n++) {
       const key = `agent-${n}`;
-      store.syncRecord(record(key, 'completed'));
+      store.syncRecord(settledRecord(key));
       if (n === 1) store.treeFor(key);
     }
     expect(store.entries().has('agent-0')).toBe(true);
@@ -436,9 +491,9 @@ describe('SubagentExecutionStore', () => {
   });
 
   it('reopens an evicted terminal entry with a session for history', async () => {
-    store.syncRecord(record('agent-a', 'completed'));
+    store.syncRecord(settledRecord('agent-a'));
     for (let index = 0; index < 21; index++)
-      store.syncRecord(record(`other-${index}`, 'completed'));
+      store.syncRecord(settledRecord(`other-${index}`));
     expect(store.entries().has('agent-a')).toBe(false);
     store.retain('agent-a', sessionId);
     rpc.call.mockResolvedValueOnce(page([]));
@@ -538,7 +593,7 @@ describe('SubagentExecutionStore', () => {
   });
 
   it('takes snapshot output into finalized when there is no live state', async () => {
-    store.syncRecord(record('agent-a', 'completed'));
+    store.syncRecord(settledRecord('agent-a'));
     rpc.call.mockResolvedValue(page([start('real', 'agent-a', 'history')]));
     await store.ensureHistory('agent-a');
     expect(store.entries().get('agent-a')?.state).toBeNull();
@@ -766,12 +821,14 @@ describe('SubagentExecutionStore', () => {
     });
 
     it('replaces the earlier tree of a resumed agent instead of repeating it', async () => {
+      jest.useFakeTimers();
       store.syncRecord(record('agent-a'));
       store.retain('agent-a', sessionId);
       store.claim(start('m1'));
       store.claim(delta('m1', 'first run', 'd1'));
       builder.buildTree.mockReturnValueOnce([{ id: 'first-run-node' }]);
       store.syncRecord(record('agent-a', 'completed'));
+      jest.advanceTimersByTime(1500);
       expect(store.entries().get('agent-a')?.finalized).toHaveLength(1);
       // A follow-up message resumes the agent; its transcript holds both runs.
       store.syncRecord(record('agent-a', 'background'));
@@ -921,6 +978,7 @@ describe('SubagentExecutionStore', () => {
     });
 
     it('does not refresh a finalized agent, and the final load supersedes a pending refresh', async () => {
+      jest.useFakeTimers();
       store.syncRecord(record('agent-a', 'background'));
       store.retain('agent-a', sessionId);
       let resolve!: (value: ReturnType<typeof page>) => void;
@@ -937,6 +995,7 @@ describe('SubagentExecutionStore', () => {
       );
       await store.ensureHistory('agent-a');
       expect(store.entries().get('agent-a')?.history).toBe('loaded');
+      jest.advanceTimersByTime(1500);
       resolve(page([start('stale', 'agent-a', 'history')]));
       await refresh;
       await store.refreshLiveHistory('agent-a');

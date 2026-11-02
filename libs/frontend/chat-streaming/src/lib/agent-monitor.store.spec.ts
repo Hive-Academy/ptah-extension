@@ -139,6 +139,109 @@ describe('AgentMonitorStore', () => {
       });
     });
 
+    it('reopens a terminal tool key for a later live agentId but not history or same-execution duplicates', () => {
+      store.onAgentStart({
+        ...base,
+        eventType: 'agent_start',
+        toolCallId: 'tool',
+        agentId: 'first-agent',
+        agentType: 'Explore',
+      });
+      complete();
+      store.onAgentStart({
+        ...base,
+        id: 'old-history',
+        eventType: 'agent_start',
+        toolCallId: 'tool',
+        agentId: 'new-agent',
+        agentType: 'Explore',
+        source: 'history',
+        timestamp: 30,
+      });
+      expect(store.getSubagent('tool')?.status).toBe('completed');
+
+      store.onAgentStart({
+        ...base,
+        id: 'new-live-start',
+        eventType: 'agent_start',
+        toolCallId: 'tool',
+        agentId: 'new-agent',
+        agentType: 'Explore',
+        source: 'hook',
+        timestamp: 30,
+      });
+      expect(store.getSubagent('tool')).toMatchObject({
+        status: 'running',
+        agentId: 'new-agent',
+        startedAt: 30,
+      });
+      expect(store.getSubagent('tool')?.completedAt).toBeUndefined();
+
+      store.onAgentCompleted({
+        ...base,
+        id: 'new-completion',
+        eventType: 'agent_completed',
+        parentToolUseId: 'tool',
+        taskId: 'A',
+        status: 'completed',
+        timestamp: 40,
+        summary: 'new summary',
+        outputFile: '',
+      });
+      store.onAgentStart({
+        ...base,
+        id: 'late-duplicate',
+        eventType: 'agent_start',
+        toolCallId: 'tool',
+        agentId: 'new-agent',
+        agentType: 'Explore',
+        source: 'stream',
+        timestamp: 50,
+      });
+      expect(store.getSubagent('tool')).toMatchObject({
+        status: 'completed',
+        completedAt: 40,
+      });
+    });
+
+    it('fills missing identity from history without reopening a terminal row', () => {
+      store.onAgentStart({
+        ...base,
+        eventType: 'agent_start',
+        toolCallId: 'tool',
+        agentType: 'Explore',
+      });
+      store.onAgentCompleted({
+        ...base,
+        eventType: 'agent_completed',
+        parentToolUseId: 'tool',
+        status: 'completed',
+        timestamp: 20,
+        summary: 'old summary',
+        outputFile: '',
+      });
+      expect(store.getSubagent('tool')?.taskId).toBeUndefined();
+      store.onAgentStart({
+        ...base,
+        id: 'history-identity',
+        eventType: 'agent_start',
+        toolCallId: 'tool',
+        source: 'history',
+        timestamp: 30,
+        agentId: 'found-agent',
+        taskId: 'found-task',
+        teammateName: 'found-name',
+        agentType: 'Explore',
+      });
+      expect(store.getSubagent('tool')).toMatchObject({
+        status: 'completed',
+        completedAt: 20,
+        agentId: 'found-agent',
+        taskId: 'found-task',
+        teammateName: 'found-name',
+      });
+    });
+
     it.each(['start', 'status', 'progress'])(
       'restarts from the pre-merge identity through %s',
       (reducer) => {

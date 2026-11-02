@@ -2370,6 +2370,7 @@ export class AgentProcessManager {
       return tracked.info;
     }
 
+    this.flushDelta(agentId);
     // Stamped BEFORE the kill, not after. The kill makes the handle settle,
     // which runs `handleExit` — and that path reads `status === 'running'` and
     // would relabel a user-requested stop as `failed`, both on the record and
@@ -2388,7 +2389,6 @@ export class AgentProcessManager {
     await this.removeInstructionFiles(agentId);
     this.clearIdleRelease(tracked);
     clearTimeout(tracked.timeoutHandle);
-    this.flushDelta(agentId);
     this.outputBuffer.discard(agentId);
 
     this.scheduleCleanup(agentId);
@@ -2619,6 +2619,8 @@ export class AgentProcessManager {
       '[AgentProcessManager] Agent produced no output for the whole inactivity window — treating it as hung',
       { agentId, inactivityTimeoutMs: tracked.inactivityTimeoutMs },
     );
+    this.flushDelta(agentId);
+    clearTimeout(tracked.timeoutHandle);
     tracked.info = {
       ...tracked.info,
       status: 'timeout',
@@ -2641,7 +2643,6 @@ export class AgentProcessManager {
     tracked.subprocessReleased = true;
     await this.removeInstructionFiles(agentId);
     this.clearIdleRelease(tracked);
-    this.flushDelta(agentId);
     this.outputBuffer.discard(agentId);
     this.scheduleCleanup(agentId);
   }
@@ -2799,6 +2800,7 @@ export class AgentProcessManager {
       });
     }
 
+    this.flushDelta(agentId);
     clearTimeout(tracked.timeoutHandle);
     // A continuation-capable lane can start another caller turn on this
     // record, so its guard is kept (and reset by `continueConversation`) until
@@ -2845,7 +2847,6 @@ export class AgentProcessManager {
       };
     }
     this.signalLaneCompletion(tracked);
-    this.flushDelta(agentId);
     this.outputBuffer.discard(agentId);
 
     this.scheduleCleanup(agentId);
