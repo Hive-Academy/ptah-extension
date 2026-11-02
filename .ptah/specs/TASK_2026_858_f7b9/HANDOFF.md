@@ -44,8 +44,8 @@ Both reviewed `git diff 8ca164796..7ea368e4b -- . ':!.ptah'` and FINISHED (no la
 
 Both reviews: **REVISE**. The fix round has NOT started. Revise round count used: 0 of 2.
 
-`code-logic-review.md` — 5/10, 1 blocking, 5 major, 2 minor (Codex CLI Session ID: see
-`ptah_agent_status 312b2892-...` if a resume is needed):
+`code-logic-review.md` — 5/10, 1 blocking, 5 major, 2 minor (Codex CLI Session ID
+`01a19a3b-eb8a-72c3-81f8-49c419dfb444`):
 1. Major — `frames.ts:123-138` baseline `FlatStreamEventSchema` checks only id/eventType/timestamp;
    validate a real discriminated union; test malformed baseline → 4400.
 2. **Blocking (orchestrator confirmed in code)** — `session-event-reducer.ts:129-136,170-179`
