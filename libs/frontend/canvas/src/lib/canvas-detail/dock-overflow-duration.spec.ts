@@ -19,15 +19,18 @@ describe('dock duration', () => {
 });
 
 describe('dock overflow threshold', () => {
-  it.each([1, 5])('keeps all %i agents inline even when no avatar slots fit', (count) => {
+  it.each([1, 5, 6])('moves all %i agents to overflow when no chip and trigger fit', (count) => {
     const agents = Array.from({ length: count }, (_, i) => ({ ...row, key: `cli:${i}`, status: 'running' as const }));
-    expect(planDockOverflow(agents, agents[0].key, 0)).toEqual({ visible: agents, hidden: [] });
+    const selected = agents[count - 1];
+    const plan = planDockOverflow(agents, selected.key, 0);
+    expect(plan).toEqual({ visible: [], hidden: agents });
+    expect(plan.hidden).toContain(selected);
   });
 
-  it('retains overflow planning for six agents', () => {
+  it('shows five of six agents and keeps a late selected agent inline when space permits', () => {
     const agents = Array.from({ length: 6 }, (_, i) => ({ ...row, key: `cli:${i}`, status: 'running' as const }));
-    const plan = planDockOverflow(agents, agents[0].key, 0);
-    expect(plan.visible).toEqual([agents[0]]);
-    expect(plan.hidden).toEqual(agents.slice(1));
+    const plan = planDockOverflow(agents, agents[5].key, 5);
+    expect(plan.visible).toEqual([agents[0], agents[1], agents[2], agents[3], agents[5]]);
+    expect(plan.hidden).toEqual([agents[4]]);
   });
 });

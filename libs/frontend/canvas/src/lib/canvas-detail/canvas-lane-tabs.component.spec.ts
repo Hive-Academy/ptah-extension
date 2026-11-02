@@ -82,6 +82,8 @@ function fireResize(callback: ResizeObserverCallback, width: number): void {
 }
 
 describe('CanvasLaneTabsComponent', () => {
+  let originalResizeObserver: typeof ResizeObserver | undefined;
+  let measuredResize: ResizeObserverCallback;
   const agents = signal<CliFixture[]>([]);
   const subagents = signal(new Map<string, SubFixture>());
   const background = signal<BackgroundFixture[]>([]);
@@ -100,6 +102,14 @@ describe('CanvasLaneTabsComponent', () => {
   }
 
   beforeEach(() => {
+    originalResizeObserver = globalThis.ResizeObserver;
+    class MeasuredResizeObserver {
+      constructor(private readonly callback: ResizeObserverCallback) { measuredResize = callback; }
+      observe(): void { fireResize(this.callback, 760); }
+      unobserve(): void { return; }
+      disconnect(): void { return; }
+    }
+    globalThis.ResizeObserver = MeasuredResizeObserver as typeof ResizeObserver;
     agents.set([]);
     subagents.set(new Map());
     background.set([]);
@@ -140,6 +150,8 @@ describe('CanvasLaneTabsComponent', () => {
       ],
     });
   });
+
+  afterEach(() => { globalThis.ResizeObserver = originalResizeObserver as typeof ResizeObserver; });
 
   it('acquires the second clock only while an agent with a start time is running', () => {
     jest.useFakeTimers({
@@ -289,13 +301,26 @@ describe('CanvasLaneTabsComponent', () => {
     fixture.destroy();
   });
 
-  it.each([1, 5, 6])('hides the dropdown when no agent is hidden (%i total)', (count) => {
+  it.each([1, 5])('hides the dropdown when no agent is hidden (%i total)', (count) => {
     agents.set(Array.from({ length: count - 1 }, (_, i) => cli({ agentId: `c${i}`, parentSessionId: 'owner', cli: `CLI ${i}` })));
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
+    TestBed.tick();
     expect(fixture.nativeElement.querySelectorAll('[role="tab"]')).toHaveLength(count);
     expect(fixture.nativeElement.querySelector('[aria-haspopup="menu"]')).toBeNull();
+    fixture.destroy();
+  });
+
+  it('caps a six-agent roster at five chips with one overflow row', () => {
+    agents.set(cliRoster(5));
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.detectChanges();
+    TestBed.tick();
+    expect(fixture.nativeElement.querySelectorAll('[role="tab"]')).toHaveLength(5);
+    expect(fixture.nativeElement.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
+    expect(fixture.nativeElement.querySelector('[aria-haspopup="menu"]')?.getAttribute('aria-label')).toBe('1 more agent');
     fixture.destroy();
   });
 
@@ -344,6 +369,7 @@ describe('CanvasLaneTabsComponent', () => {
       const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
       fixture.componentRef.setInput('tabId', TAB_ID);
       fixture.detectChanges();
+      TestBed.tick();
       const root = fixture.nativeElement as HTMLElement;
       const tabs = [...root.querySelectorAll<HTMLElement>('[role="tab"]')];
       expect(tabs).toHaveLength(3);
@@ -391,6 +417,7 @@ describe('CanvasLaneTabsComponent', () => {
       const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
       fixture.componentRef.setInput('tabId', TAB_ID);
       fixture.detectChanges();
+      TestBed.tick();
       const root = fixture.nativeElement as HTMLElement;
       const selected = root.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
       expect(selected?.querySelector('[data-testid="dock-chip-name"]')?.textContent).toContain(
@@ -399,7 +426,8 @@ describe('CanvasLaneTabsComponent', () => {
       const circles = [
         ...root.querySelectorAll<HTMLElement>('[role="tab"][aria-selected="false"]'),
       ];
-      expect(circles).toHaveLength(5);
+      expect(circles).toHaveLength(4);
+      expect(root.querySelector('[aria-haspopup="menu"]')?.getAttribute('aria-label')).toBe('1 more agent');
       for (const circle of circles) {
         expect(circle.classList.contains('size-7')).toBe(true);
         expect(circle.querySelector('[data-testid="dock-chip-name"]')).toBeNull();
@@ -414,7 +442,7 @@ describe('CanvasLaneTabsComponent', () => {
     }
   });
 
-  it('moves terminal lanes into the menu even in a small roster', () => {
+  it('keeps terminal lanes inline when the small roster fits', () => {
     subagents.set(
       new Map([
         [
@@ -448,33 +476,37 @@ describe('CanvasLaneTabsComponent', () => {
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
+    TestBed.tick();
     const dock = fixture.nativeElement.querySelector('[role="tablist"]') as HTMLElement;
     expect(dock.classList.contains('z-10')).toBe(true);
     expect(dock.classList.contains('z-20')).toBe(false);
-    expect(dock.querySelector('ptah-agent-dock-menu')).not.toBeNull();
+    expect(dock.querySelector('ptah-agent-dock-menu')).toBeNull();
     expect(dock.classList.contains('pt-1')).toBe(true);
     expect(dock.classList.contains('pb-0.5')).toBe(true);
     expect(dock.classList.contains('border-b')).toBe(true);
     expect(dock.classList.contains('border-surface-border')).toBe(true);
     expect(dock.classList.contains('bg-surface-1')).toBe(true);
-    expect(tabLabels(fixture.nativeElement)).toEqual(['Orchestrator, done']);
+    expect(tabLabels(fixture.nativeElement)).toEqual([
+      'Orchestrator, done',
+      'Worker, Sub-agent, done',
+      'Codex, CLI lane, done',
+      'Review, Background, done',
+    ]);
     expect(fixture.nativeElement.querySelectorAll('[data-testid="dock-divider"]')).toHaveLength(0);
 
     tabStatus.set('streaming');
     fixture.detectChanges();
     expect(tabLabels(fixture.nativeElement)[0]).toBe('Orchestrator, running');
 
-    expect(dock.querySelector('[aria-haspopup="menu"]')).not.toBeNull();
-    const trigger = dock.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
-    expect(trigger.textContent).toContain('3 more');
-    expect(trigger.getAttribute('aria-label')).toBe('3 more agents');
+    expect(dock.querySelector('[aria-haspopup="menu"]')).toBeNull();
   });
 
   it('keeps a focused finished chip inline until focus leaves the dock', () => {
-    agents.set(cliRoster(2));
+    agents.set(cliRoster(6));
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
+    TestBed.tick();
     const root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
     const chip = root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c0')!;
@@ -483,7 +515,7 @@ describe('CanvasLaneTabsComponent', () => {
     try {
       chip.focus();
       fixture.detectChanges();
-      agents.set(cliRoster(2).map((agent) =>
+      agents.set(cliRoster(6).map((agent) =>
         agent.agentId === 'c0' ? { ...agent, status: 'completed' } : agent,
       ));
       fixture.detectChanges();
@@ -501,10 +533,11 @@ describe('CanvasLaneTabsComponent', () => {
   });
 
   it('does not freeze visible chips after a pointer click focuses a tab', () => {
-    agents.set(cliRoster(2));
+    agents.set(cliRoster(6));
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
+    TestBed.tick();
     const root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
     try {
@@ -513,7 +546,7 @@ describe('CanvasLaneTabsComponent', () => {
       chip.focus();
       chip.click();
       fixture.detectChanges();
-      agents.set(cliRoster(2).map((agent) =>
+      agents.set(cliRoster(6).map((agent) =>
         agent.agentId === 'c1' ? { ...agent, status: 'completed' } : agent,
       ));
       fixture.detectChanges();
@@ -526,10 +559,11 @@ describe('CanvasLaneTabsComponent', () => {
   });
 
   it('freezes visible chips while a tab has keyboard focus', () => {
-    agents.set(cliRoster(2));
+    agents.set(cliRoster(6));
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
+    TestBed.tick();
     const root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
     const outside = document.createElement('button');
@@ -539,7 +573,7 @@ describe('CanvasLaneTabsComponent', () => {
       chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
       chip.focus();
       fixture.detectChanges();
-      agents.set(cliRoster(2).map((agent) =>
+      agents.set(cliRoster(6).map((agent) =>
         agent.agentId === 'c1' ? { ...agent, status: 'completed' } : agent,
       ));
       fixture.detectChanges();
@@ -554,17 +588,18 @@ describe('CanvasLaneTabsComponent', () => {
     }
   });
 
-  it.each(['waiting', 'failed'])('shows a new %s agent inline while keyboard focus freezes the dock', (status) => {
-    agents.set(cliRoster(2));
+  it.each(['waiting', 'failed'])('keeps a new %s agent in overflow while keyboard focus freezes the dock', (status) => {
+    agents.set(cliRoster(6));
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
+    TestBed.tick();
     const root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
     try {
       root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c0')!.focus();
       fixture.detectChanges();
-      agents.set([...cliRoster(2), cli({
+      agents.set([...cliRoster(6), cli({
         agentId: 'new',
         parentSessionId: 'owner',
         cli: 'New',
@@ -572,7 +607,7 @@ describe('CanvasLaneTabsComponent', () => {
         permissionQueue: status === 'waiting' ? [{ requestId: 'request-new' }] : [],
       })]);
       fixture.detectChanges();
-      expect(root.querySelector('#canvas-lane-panel-tab-cli\\:new')).not.toBeNull();
+      expect(root.querySelector('#canvas-lane-panel-tab-cli\\:new')).toBeNull();
     } finally {
       root.remove();
       fixture.destroy();
@@ -587,6 +622,9 @@ describe('CanvasLaneTabsComponent', () => {
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
+    TestBed.tick();
+    fireResize(measuredResize, 270);
+    fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
     try {
@@ -596,10 +634,14 @@ describe('CanvasLaneTabsComponent', () => {
       fixture.detectChanges();
       agents.set(agents().filter((agent) => agent.agentId !== 'c0'));
       fixture.detectChanges();
-      trigger.blur();
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
       fixture.detectChanges();
       await fixture.whenStable();
-      expect(document.activeElement).toBe(document.body);
+      expect(root.querySelector('[aria-haspopup="menu"]')).toBeNull();
+      expect(document.activeElement).toBe(outside);
+      outside.remove();
     } finally {
       root.remove();
       fixture.destroy();
@@ -611,6 +653,7 @@ describe('CanvasLaneTabsComponent', () => {
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
+    TestBed.tick();
     const root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
     try {
@@ -636,6 +679,7 @@ describe('CanvasLaneTabsComponent', () => {
     fixture.componentRef.setInput('laneKey', 'cli:c0');
     fixture.componentInstance.laneSelected.subscribe((key) => fixture.componentRef.setInput('laneKey', key));
     fixture.detectChanges();
+    TestBed.tick();
     const root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
     try {
@@ -664,6 +708,7 @@ describe('CanvasLaneTabsComponent', () => {
       const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
       fixture.componentRef.setInput('tabId', TAB_ID);
       fixture.detectChanges();
+      TestBed.tick();
       const root = fixture.nativeElement as HTMLElement;
       root.querySelector<HTMLElement>('#canvas-lane-panel-tab-cli\\:c0')!
         .dispatchEvent(mousePointer('pointerenter'));
@@ -800,6 +845,7 @@ describe('CanvasLaneTabsComponent', () => {
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
+    TestBed.tick();
     const tabs = [...fixture.nativeElement.querySelectorAll('[role="tab"]')] as HTMLElement[];
     expect(tabLabels(fixture.nativeElement)).toEqual([
       'Orchestrator, done',
@@ -808,7 +854,7 @@ describe('CanvasLaneTabsComponent', () => {
     expect(tabs.filter((tab) => tab.id.includes('cli:owned'))).toHaveLength(1);
   });
 
-  it('moves between tabs with arrow keys', () => {
+  it('moves focus between tabs with arrow keys without selecting', async () => {
     agents.set([
       cli({
         agentId: 'c',
@@ -820,17 +866,25 @@ describe('CanvasLaneTabsComponent', () => {
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
+    TestBed.tick();
+    const root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
     const selected = jest.fn();
     fixture.componentInstance.laneSelected.subscribe(selected);
-    fixture.nativeElement
-      .querySelector('[role="tab"]')
-      .dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
-      );
-    expect(selected).toHaveBeenCalledWith('cli:c');
+    const firstTab = root.querySelector<HTMLElement>('[role="tab"]')!;
+    firstTab.focus();
+    firstTab.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect((document.activeElement as HTMLElement).id).toContain('cli:c');
+    expect(selected).not.toHaveBeenCalled();
+    root.remove();
+    fixture.destroy();
   });
 
-  it('keeps a waiting agent and hides a done one at 360px, and disconnects the observer', async () => {
+  it('keeps a waiting agent in the five-chip 360px plan and disconnects the observer', async () => {
     const original = globalThis.ResizeObserver;
     let resize: ResizeObserverCallback = () => undefined;
     const disconnect = jest.fn();
@@ -883,9 +937,10 @@ describe('CanvasLaneTabsComponent', () => {
       fireResize(resize, 360);
       fixture.detectChanges();
       const labels = tabLabels(fixture.nativeElement);
-      expect(labels).toHaveLength(4);
+      expect(labels).toHaveLength(5);
       expect(labels.some((label) => label.includes('Waiter'))).toBe(true);
-      expect(labels.some((label) => label.includes('Finished'))).toBe(false);
+      expect(labels.some((label) => label.includes('Finished'))).toBe(true);
+      expect(labels.some((label) => label.includes('Extra'))).toBe(false);
       const selected = jest.fn();
       fixture.componentInstance.laneSelected.subscribe(selected);
       fixture.nativeElement
@@ -893,26 +948,25 @@ describe('CanvasLaneTabsComponent', () => {
         .dispatchEvent(
           new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
         );
-      expect(selected).toHaveBeenCalledWith('cli:wait');
-      expect(selected).not.toHaveBeenCalledWith('cli:fin');
+      expect(selected).not.toHaveBeenCalled();
       fireResize(resize, 0);
       fixture.detectChanges();
-      expect(tabLabels(fixture.nativeElement)).toEqual(['Orchestrator, done']);
+      expect(tabLabels(fixture.nativeElement)).toEqual([]);
       expect(
         fixture.nativeElement
           .querySelector('[aria-haspopup="menu"]')
           .getAttribute('aria-label'),
-      ).toBe('5 more agents, 1 waiting, needs you, 1 failed');
-      const trigger = fixture.nativeElement.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+      ).toBe('6 more agents, 1 waiting, needs you, 1 failed');
+      const trigger = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
       trigger.click();
       fixture.detectChanges();
       const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
       expect(rows.map((row) => row.querySelector('.truncate')?.textContent?.trim())).toEqual([
-        'Runner', 'Waiter', 'Broken', 'Finished', 'Extra',
+        'Runner', 'Waiter', 'Broken', 'Orchestrator', 'Finished', 'Extra',
       ]);
       expect(rows).toHaveLength(Number(trigger.getAttribute('aria-label')?.match(/^\d+/)?.[0]));
-      expect(rows.some((row) => row.textContent?.includes('Orchestrator'))).toBe(false);
-      expect((fixture.nativeElement as HTMLElement).querySelectorAll('[role="tab"]')).toHaveLength(1);
+      expect(rows.some((row) => row.textContent?.includes('Orchestrator'))).toBe(true);
+      expect((fixture.nativeElement as HTMLElement).querySelectorAll('[role="tab"]')).toHaveLength(0);
       fixture.destroy();
       expect(disconnect).toHaveBeenCalledTimes(1);
     } finally {
@@ -958,7 +1012,7 @@ describe('CanvasLaneTabsComponent', () => {
       fixture.componentRef.setInput('tabId', TAB_ID);
       fixture.detectChanges();
       await fixture.whenStable();
-      fireResize(resize, 320);
+      fireResize(resize, 240);
       fixture.detectChanges();
       expect(tabLabels(fixture.nativeElement).some((label) => label.includes('Finished'))).toBe(
         false,
@@ -984,6 +1038,9 @@ describe('CanvasLaneTabsComponent', () => {
     ]);
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.detectChanges();
+    TestBed.tick();
+    fireResize(measuredResize, 270);
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
@@ -1024,6 +1081,9 @@ describe('CanvasLaneTabsComponent', () => {
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
     fixture.componentRef.setInput('tabId', TAB_ID);
     fixture.detectChanges();
+    TestBed.tick();
+    fireResize(measuredResize, 270);
+    fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     document.body.appendChild(root);
     try {
@@ -1045,10 +1105,12 @@ describe('CanvasLaneTabsComponent', () => {
 
   it('selects from the menu with Enter, returns focus on Escape, and describes the hovered tab', async () => {
     agents.set([
-      ...Array.from({ length: 5 }, (_, i) => cli({ agentId: `c${i}`, parentSessionId: 'owner', cli: `CLI ${i}` })),
+      ...Array.from({ length: 4 }, (_, i) => cli({ agentId: `c${i}`, parentSessionId: 'owner', cli: `CLI ${i}` })),
       cli({ agentId: 'finished', parentSessionId: 'owner', cli: 'Finished', status: 'completed' }),
     ]);
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    const root = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(root);
     fixture.componentRef.setInput('tabId', TAB_ID);
     const selected = jest.fn();
     fixture.componentInstance.laneSelected.subscribe((key) => {
@@ -1056,6 +1118,7 @@ describe('CanvasLaneTabsComponent', () => {
       fixture.componentRef.setInput('laneKey', key);
     });
     fixture.detectChanges();
+    TestBed.tick();
     const trigger = fixture.nativeElement.querySelector(
       '[aria-haspopup="menu"]',
     ) as HTMLButtonElement;
@@ -1128,11 +1191,19 @@ describe('CanvasLaneTabsComponent', () => {
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelector('[role="tooltip"]')).toBeNull();
       expect(selected.mock.calls.length).toBe(calls);
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+      fixture.detectChanges();
+      await fixture.whenStable();
       expect(
         fixture.nativeElement.querySelector('[role="tab"][aria-selected="true"]').id,
       ).toContain('cli:finished');
+      outside.remove();
     } finally {
       jest.useRealTimers();
+      root.remove();
+      fixture.destroy();
     }
   });
 
@@ -1143,6 +1214,7 @@ describe('CanvasLaneTabsComponent', () => {
       const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
       fixture.componentRef.setInput('tabId', TAB_ID);
       fixture.detectChanges();
+      TestBed.tick();
       const tab: HTMLElement | null = fixture.nativeElement.querySelector('[role="tab"][aria-selected="false"]');
       expect(tab).not.toBeNull();
       if (!tab) return;
@@ -1181,8 +1253,9 @@ describe('CanvasLaneTabsComponent', () => {
       const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
       fixture.componentRef.setInput('tabId', TAB_ID);
       fixture.detectChanges();
+      TestBed.tick();
       const tabs: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('[role="tab"]');
-      expect(tabs).toHaveLength(6);
+      expect(tabs).toHaveLength(5);
       const [tabB, tabA] = [...tabs];
       const pointer = (type: string) => new MouseEvent(type, { bubbles: true });
       const enter = () => Object.defineProperty(pointer('pointerenter'), 'pointerType', { value: 'mouse' });
@@ -1202,5 +1275,287 @@ describe('CanvasLaneTabsComponent', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('CanvasLaneTabsComponent dock', () => {
+interface CliFixture {
+  agentId: string;
+  cli: string;
+  parentSessionId: string;
+  status: string;
+  permissionQueue: readonly { requestId: string }[];
+  segments: readonly { content: string }[];
+  startedAt: number | null;
+  completedAt: number | null;
+}
+const cli = (index: number, status = 'running'): CliFixture => ({
+  agentId: `c${index}`, cli: `CLI ${index}`, parentSessionId: 'owner', status,
+  permissionQueue: [], segments: [], startedAt: null, completedAt: null,
+});
+const cliRoster = (count: number): CliFixture[] => Array.from({ length: count }, (_, index) => cli(index));
+
+function fireResize(callback: ResizeObserverCallback, width: number): void {
+  const target = document.createElement('div');
+  callback([{ borderBoxSize: [], contentBoxSize: [], contentRect: new DOMRect(0, 0, width, 38),
+    devicePixelContentBoxSize: [], target }], {
+    observe: () => undefined, unobserve: () => undefined, disconnect: () => undefined,
+  });
+}
+
+
+  const agents = signal<CliFixture[]>([]);
+  const subagents = signal(new Map<string, { parentToolUseId: string; parentSessionId: string; status: string; agentType: string }>());
+  const background = signal<readonly { toolCallId: string; sessionId: string; agentType: string; status: string }[]>([]);
+  const tabStatus = signal('loaded');
+  let resize: ResizeObserverCallback;
+  let originalResizeObserver: typeof ResizeObserver | undefined;
+  const observe = jest.fn();
+  const disconnect = jest.fn();
+
+  const tabs = (root: HTMLElement): HTMLButtonElement[] =>
+    [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+  const ids = (root: HTMLElement): string[] => tabs(root).map((tab) => tab.id);
+  const trigger = (root: HTMLElement): HTMLButtonElement | null =>
+    root.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]');
+
+  beforeEach(() => {
+    agents.set([]);
+    subagents.set(new Map());
+    background.set([]);
+    tabStatus.set('loaded');
+    observe.mockClear();
+    disconnect.mockClear();
+    originalResizeObserver = globalThis.ResizeObserver;
+    class FakeResizeObserver {
+      constructor(callback: ResizeObserverCallback) { resize = callback; }
+      observe = observe;
+      unobserve(): void { return; }
+      disconnect = disconnect;
+    }
+    globalThis.ResizeObserver = FakeResizeObserver as typeof ResizeObserver;
+    TestBed.configureTestingModule({
+      imports: [CanvasLaneTabsComponent],
+      providers: [
+        { provide: AgentMonitorStore, useValue: { agents, subagents } },
+        { provide: BackgroundAgentStore, useValue: { agents: background } },
+        { provide: TabManagerService, useValue: {
+          findTabByIdAcrossWorkspaces: (id: string) => id === TAB_ID
+            ? { tab: { id: TAB_ID, claudeSessionId: 'owner', status: tabStatus() } } : undefined,
+          findTabBySessionIdAcrossWorkspaces: () => undefined,
+        } },
+        { provide: PermissionHandlerService, useValue: {
+          permissionRequests: signal([]), questionRequests: signal([]),
+          targetTabsFor: () => [], questionTargetTabsFor: () => [], routingTargetRevision: signal(0),
+        } },
+      ],
+    });
+  });
+
+  afterEach(() => { globalThis.ResizeObserver = originalResizeObserver as typeof ResizeObserver; });
+
+  function create(rail = false) {
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.componentRef.setInput('rail', rail);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it.each([0, 4, 5, 6, 12])('starts safely with %i CLI agents before a width measurement', (count) => {
+    agents.set(cliRoster(count));
+    const fixture = create();
+    const root: HTMLElement = fixture.nativeElement;
+    expect(tabs(root)).toHaveLength(1);
+    expect(tabs(root)[0].id).toContain('orchestrator');
+    if (count > 0) expect(trigger(root)?.textContent).toContain(`+${count}`);
+    expect(trigger(root) === null).toBe(count === 0);
+    fixture.destroy();
+  });
+
+  it('uses the same one-chip plan when ResizeObserver is unavailable', () => {
+    Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, writable: true, value: undefined });
+    agents.set(cliRoster(8));
+    const fixture = create();
+    const root: HTMLElement = fixture.nativeElement;
+    expect(tabs(root)).toHaveLength(1);
+    expect(trigger(root)?.getAttribute('aria-label')).toBe('8 more agents');
+    fixture.destroy();
+  });
+
+  it('caps measured widths at five chips and keeps overflow at zero width', async () => {
+    agents.set(cliRoster(9));
+    const fixture = create();
+    await fixture.whenStable();
+    const root: HTMLElement = fixture.nativeElement;
+    expect(observe).toHaveBeenCalledTimes(1);
+    fireResize(resize, 760);
+    fixture.detectChanges();
+    expect(tabs(root)).toHaveLength(5);
+    expect(trigger(root)?.getAttribute('aria-label')).toBe('5 more agents');
+    fireResize(resize, 300);
+    fixture.detectChanges();
+    expect(tabs(root).length).toBeLessThanOrEqual(3);
+    fireResize(resize, 0);
+    fixture.detectChanges();
+    expect(tabs(root)).toHaveLength(0);
+    expect(trigger(root)?.getAttribute('aria-label')).toBe('10 more agents');
+    trigger(root)?.click();
+    fixture.detectChanges();
+    expect(root.querySelectorAll('[role="menuitemradio"]')).toHaveLength(10);
+    expect(root.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent).toContain('Orchestrator');
+    fixture.destroy();
+    expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders selected non-running first, then running chips across kinds in roster order', async () => {
+    agents.set([cli(0), cli(1, 'failed'), cli(2)]);
+    subagents.set(new Map([['s', { parentToolUseId: 's', parentSessionId: 'owner', status: 'running', agentType: 'Worker' }]]));
+    background.set([{ toolCallId: 'b', sessionId: 'owner', agentType: 'Review', status: 'running' }]);
+    const fixture = create();
+    await fixture.whenStable();
+    fireResize(resize, 760);
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    const shown = tabs(root);
+    expect(shown.length).toBeLessThanOrEqual(5);
+    expect(shown[0].id).toContain('orchestrator');
+    const statuses = shown.slice(1).map((tab) => tab.getAttribute('aria-label') ?? '');
+    const firstNonRunning = statuses.findIndex((label) => !label.includes('running'));
+    if (firstNonRunning >= 0) expect(statuses.slice(firstNonRunning).every((label) => !label.includes('running'))).toBe(true);
+    expect(shown.some((tab) => tab.id.includes('cli:c0'))).toBe(true);
+    fixture.destroy();
+  });
+
+  it('moves focus in rendered order without selection and selects on click', async () => {
+    agents.set(cliRoster(6));
+    const fixture = create();
+    await fixture.whenStable();
+    fireResize(resize, 760);
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    document.body.appendChild(root);
+    try {
+      const select = jest.fn();
+      fixture.componentInstance.laneSelected.subscribe(select);
+      tabs(root)[0].focus();
+      for (const [key, expected] of [['ArrowRight', 1], ['End', 4], ['Home', 0], ['ArrowLeft', 4]] as const) {
+        (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+        fixture.detectChanges();
+        await fixture.whenStable();
+        expect(document.activeElement).toBe(tabs(root)[expected]);
+        expect(tabs(root).filter((tab) => tab.tabIndex === 0)).toHaveLength(1);
+      }
+      expect(select).not.toHaveBeenCalled();
+      tabs(root)[4].click();
+      expect(select).toHaveBeenCalledWith('cli:c3');
+    } finally { root.remove(); fixture.destroy(); }
+  });
+
+  it.each(['waiting', 'failed'])('keeps at most five frozen chips when an agent becomes %s, then replans on blur', async (status) => {
+    agents.set(cliRoster(7));
+    const fixture = create();
+    await fixture.whenStable();
+    fireResize(resize, 760);
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    document.body.appendChild(root);
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    try {
+      const before = ids(root);
+      tabs(root)[1].focus();
+      tabs(root)[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      agents.set(cliRoster(7).map((item) => item.agentId !== 'c1' ? item
+        : status === 'waiting'
+          ? { ...item, permissionQueue: [{ requestId: 'pending' }] }
+          : { ...item, status: 'failed' }));
+      fixture.detectChanges();
+      expect(ids(root)).toEqual(before);
+      expect(tabs(root)).toHaveLength(5);
+      outside.focus();
+      fixture.detectChanges();
+      expect(ids(root)).not.toEqual(before);
+      expect(tabs(root)).toHaveLength(5);
+      expect(root.querySelector('[aria-selected="true"]')?.id).toContain('orchestrator');
+    } finally { outside.remove(); root.remove(); fixture.destroy(); }
+  });
+
+  it('moves focus to overflow if a resize hides its focused chip', async () => {
+    agents.set(cliRoster(6));
+    const fixture = create();
+    await fixture.whenStable();
+    fireResize(resize, 760);
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    document.body.appendChild(root);
+    try {
+      tabs(root)[4].focus();
+      fireResize(resize, 0);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(tabs(root)).toHaveLength(0);
+      expect(document.activeElement).toBe(trigger(root));
+      expect(trigger(root)?.getAttribute('aria-label')).toBe('7 more agents');
+    } finally { root.remove(); fixture.destroy(); }
+  });
+
+  it('keeps the menu closed and returns focus after choosing a hidden lane', async () => {
+    agents.set(cliRoster(6));
+    const fixture = create();
+    const root: HTMLElement = fixture.nativeElement;
+    document.body.appendChild(root);
+    try {
+      const selected = jest.fn();
+      fixture.componentInstance.laneSelected.subscribe((key) => {
+        selected(key);
+        fixture.componentRef.setInput('laneKey', key);
+      });
+      const overflow = trigger(root)!;
+      overflow.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      root.querySelector<HTMLButtonElement>('[role="menuitemradio"]')!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(selected).toHaveBeenCalledWith('cli:c0');
+      expect(root.querySelector('[role="menu"]')).toBeNull();
+      expect(trigger(root)?.getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(trigger(root));
+    } finally { root.remove(); fixture.destroy(); }
+  });
+
+  it('keeps the rail strip at five active avatars and expands overflow', () => {
+    agents.set(cliRoster(7));
+    const fixture = create(true);
+    const root: HTMLElement = fixture.nativeElement;
+    expect(tabs(root)).toHaveLength(5);
+    expect(root.querySelector('[role="tablist"] [aria-haspopup="menu"]')).toBeNull();
+    const expand = jest.fn();
+    fixture.componentInstance.expandRequested.subscribe(expand);
+    root.querySelector<HTMLButtonElement>('[aria-label="Show 2 more active agents"]')?.click();
+    expect(expand).toHaveBeenCalledTimes(1);
+    fixture.destroy();
+  });
+
+  it('keeps hover details available for unnamed chips', async () => {
+    agents.set(cliRoster(6));
+    const fixture = create();
+    await fixture.whenStable();
+    fireResize(resize, 760);
+    fixture.detectChanges();
+    jest.useFakeTimers({ doNotFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
+    try {
+      const root: HTMLElement = fixture.nativeElement;
+      const chip = tabs(root)[1];
+      const pointer = Object.defineProperty(new MouseEvent('pointerenter', { bubbles: true }), 'pointerType', { value: 'mouse' });
+      chip.dispatchEvent(pointer);
+      jest.advanceTimersByTime(220);
+      fixture.detectChanges();
+      expect(root.querySelector('[role="tooltip"]')).not.toBeNull();
+      expect(chip.getAttribute('aria-describedby')).toBe('canvas-lane-panel-agent-card');
+    } finally { jest.useRealTimers(); fixture.destroy(); }
   });
 });

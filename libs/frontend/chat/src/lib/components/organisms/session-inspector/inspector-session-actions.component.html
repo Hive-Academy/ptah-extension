@@ -1,0 +1,80 @@
+<div class="relative flex items-center gap-1">
+  @if (narrow()) {
+    @if (hasActions()) {
+      <button type="button" data-inspector-action="more"
+        class="btn btn-ghost btn-xs btn-square size-7 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        aria-label="More session actions" title="More session actions"
+        aria-haspopup="menu" [attr.aria-expanded]="moreOpen()"
+        (click)="toggleMore()" (keydown)="onMenuKeydown($event)">
+        <lucide-angular [img]="EllipsisIcon" class="size-4" aria-hidden="true" />
+      </button>
+      @if (moreOpen()) {
+        <div role="menu" aria-label="Session actions"
+          class="absolute right-0 top-full z-30 mt-1 min-w-36 rounded-box border border-surface-border bg-base-100 p-1 shadow-lg"
+          (keydown)="onMenuKeydown($event)">
+          @if (sessionId()) {
+            <button type="button" role="menuitem" data-inspector-menu-action="rename"
+              class="btn btn-ghost btn-sm w-full justify-start focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+              (click)="select('rename', true)">Rename</button>
+            @if (organizer.available()) {
+              <button type="button" role="menuitem" data-inspector-menu-action="organize"
+                class="btn btn-ghost btn-sm w-full justify-start focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+                (click)="select('organize', true)">Organize</button>
+            }
+          }
+          @if (running()) {
+            <button type="button" role="menuitem" data-inspector-menu-action="stop"
+              class="btn btn-ghost btn-sm w-full justify-start text-state-err hover:bg-error/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+              [disabled]="!sessionId()" [title]="sessionId() ? 'Stop session' : 'Session not yet saved'"
+              (click)="select('stop', true)">Stop session</button>
+          }
+        </div>
+      }
+    }
+  } @else {
+    @if (sessionId()) {
+      <button type="button" data-inspector-action="rename"
+        class="btn btn-ghost btn-xs btn-square size-7 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        aria-label="Rename session" title="Rename session" (click)="select('rename')">
+        <lucide-angular [img]="PencilIcon" class="size-4" aria-hidden="true" />
+      </button>
+      @if (organizer.available()) {
+        <button type="button" data-inspector-action="organize"
+          class="btn btn-ghost btn-xs btn-square size-7 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+          aria-label="Organize session" title="Organize session" (click)="select('organize')">
+          <lucide-angular [img]="FolderOpenIcon" class="size-4" aria-hidden="true" />
+        </button>
+      }
+    }
+    @if (running()) {
+      <button type="button" data-inspector-action="stop"
+        class="btn btn-ghost btn-xs btn-square size-7 text-state-err hover:bg-error/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        aria-label="Stop session" [title]="sessionId() ? 'Stop session' : 'Session not yet saved'"
+        [disabled]="!sessionId()" (click)="select('stop')">
+        <lucide-angular [img]="SquareIcon" class="size-4" aria-hidden="true" />
+      </button>
+    }
+  }
+  <span class="sr-only" aria-live="polite">{{ announcement() }}</span>
+</div>
+
+@if (renameOpen()) {
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation">
+    <form role="dialog" aria-modal="true" aria-label="Rename session"
+      class="w-full max-w-sm rounded-box border border-surface-border bg-base-100 p-4 shadow-xl"
+      (submit)="$event.preventDefault(); saveRename()" (keydown)="onRenameKeydown($event)">
+      <label for="inspector-session-name" class="mb-2 block text-sm font-medium">Session name</label>
+      <input #renameField id="inspector-session-name" type="text" class="input input-bordered w-full"
+        [value]="renameDraft()" [attr.aria-invalid]="!!renameError()"
+        [attr.aria-describedby]="renameError() ? 'inspector-rename-error' : null"
+        (input)="renameDraft.set(renameField.value)" />
+      @if (renameError()) {
+        <p id="inspector-rename-error" class="mt-2 text-sm text-state-err" role="alert">{{ renameError() }}</p>
+      }
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" class="btn btn-ghost btn-sm" (click)="cancelRename()">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm" [disabled]="renaming() || !renameDraft().trim()">Save</button>
+      </div>
+    </form>
+  </div>
+}

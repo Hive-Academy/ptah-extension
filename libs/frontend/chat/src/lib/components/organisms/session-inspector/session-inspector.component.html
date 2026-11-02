@@ -94,7 +94,7 @@
     presentation() === 'sheet'
       ? 'Close session details'
       : 'Compact session details';
-  <!-- Title row: identity on the left, the collapse button on the right. Session actions live in the session card menu. -->
+  <!-- Expanded identity and session-scoped actions. -->
   <header
     class="flex shrink-0 items-start gap-2 border-b border-surface-border py-2 pl-3 pr-2"
   >
@@ -122,6 +122,7 @@
       }
     </div>
     <div class="flex shrink-0 items-center gap-1">
+      <ptah-inspector-session-actions [tabId]="tabId()" [running]="running()" />
       <!-- data-inspector-close = INSPECTOR_CLOSE_ATTR: the shell focuses it when the sheet opens. -->
       <button
         #closeButton

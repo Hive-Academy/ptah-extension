@@ -98,6 +98,7 @@ class CardStub {
   readonly variant = input('rail');
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
+  readonly tabStop = input(false);
   readonly holdText = input(false);
   readonly reserveActionCorner = input(false);
   readonly expandToFull = output<void>();
@@ -167,7 +168,8 @@ const RAIL_SUMMARY: CompactSessionSummary = {
     [lanes]="lanes"
     [density]="density()"
     [focused]="focused()"
-    [innerTabbable]="focused()"
+    [tabStop]="tabStop()"
+    [innerTabbable]="tabStop()"
     [holdText]="holdText()"
     [reserveActionCorner]="reserveActionCorner()"
     (selectRequested)="expandToFull.emit()"
@@ -181,6 +183,7 @@ class RealRailCardHost {
   readonly variant = input('rail');
   readonly density = input<CompactRailDensity>('comfortable');
   readonly focused = input(false);
+  readonly tabStop = input(false);
   readonly holdText = input(false);
   readonly reserveActionCorner = input(false);
   readonly expandToFull = output<void>();
@@ -549,6 +552,7 @@ describe('CanvasRailCardComponent', () => {
     ) as HTMLButtonElement;
     expect(button.getAttribute('aria-label')).not.toContain('in focus');
     fixture.componentRef.setInput('focused', true);
+    fixture.componentRef.setInput('tabStop', true);
     fixture.detectChanges();
     expect(button.getAttribute('aria-label')).toContain('in focus');
   });
@@ -1289,6 +1293,7 @@ describe('CanvasRailCardComponent', () => {
     const fixture = mount();
     fixture.componentRef.setInput('collapsed', true);
     fixture.componentRef.setInput('focused', true);
+    fixture.componentRef.setInput('tabStop', true);
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     const select = host.querySelector<HTMLButtonElement>(
@@ -1301,6 +1306,7 @@ describe('CanvasRailCardComponent', () => {
       );
     expect(tabbable()).toEqual([select, trigger(host)]);
     fixture.componentRef.setInput('focused', false);
+    fixture.componentRef.setInput('tabStop', false);
     fixture.detectChanges();
     expect(tabbable()).toEqual([]);
     expect(select.tabIndex).toBe(-1);
@@ -1440,7 +1446,12 @@ describe('CanvasRailCardComponent', () => {
       expect(overflow?.classList.contains('rc-lane-overflow')).toBe(
         density === 'comfortable',
       );
+      expect(overflow?.tabIndex).toBe(-1);
+      fixture.componentRef.setInput('tabStop', true);
+      fixture.detectChanges();
       expect(overflow?.tabIndex).toBe(0);
+      fixture.componentRef.setInput('tabStop', false);
+      fixture.detectChanges();
       expect(corner.contains(overflow as HTMLElement)).toBe(false);
       // It closes its lane line, below the title line, so the corner trigger
       // never sits over it.

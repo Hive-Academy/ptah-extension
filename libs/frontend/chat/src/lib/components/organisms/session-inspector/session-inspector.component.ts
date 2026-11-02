@@ -31,6 +31,7 @@ import {
 } from '../../../services/session-inspector';
 import { InspectorAgentsSectionComponent } from './inspector-agents-section.component';
 import { InspectorGitSectionComponent } from './inspector-git-section.component';
+import { InspectorSessionActionsComponent } from './inspector-session-actions.component';
 import { InspectorRequestLinesComponent } from './inspector-request-panel.component';
 import { InspectorTaskSectionComponent } from './inspector-task-section.component';
 import { InspectorTodosSectionComponent } from './inspector-todos-section.component';
@@ -74,6 +75,7 @@ function statsSwitchWindowMs(element: HTMLElement): number {
     InspectorTaskSectionComponent,
     InspectorTodosSectionComponent,
     InspectorGitSectionComponent,
+    InspectorSessionActionsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './session-inspector.component.html',
@@ -137,6 +139,7 @@ export class SessionInspectorComponent {
   readonly limitSummary = input<SessionLimitSummary | null>();
   readonly sessionTitle = input('');
   readonly sessionStatus = input('');
+  readonly running = input(false);
   readonly workflow = input<string | null>(null);
   readonly branch = input<string | null>(null);
   /** Host can retain this across a rail -> dock/sheet remount. */

@@ -32,15 +32,16 @@ import {
   SPLIT_ALREADY_FOCUSED_REASON,
 } from './canvas-rail-card.component';
 import { focusRailSelectButton, handleCanvasRailKeydown } from './canvas-rail-keyboard';
+import { groupRailTiles, neighbouringVisibleId } from './canvas-rail-grouping.util';
 
 const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close one to add another.`;
 const AUTO_COLLAPSE_REASON = 'Widen the canvas to expand the Rail';
 const CHIP_STATES = [
-  { state: 'needs', label: 'needs you' },
-  { state: 'error', label: 'error' },
-  { state: 'running', label: 'running' },
-  { state: 'done', label: 'done' },
-  { state: 'idle', label: 'idle' },
+  { state: 'needs', label: 'Needs input' },
+  { state: 'error', label: 'Error' },
+  { state: 'running', label: 'Running' },
+  { state: 'done', label: 'Done' },
+  { state: 'idle', label: 'Idle' },
 ] as const;
 
 @Component({
@@ -141,6 +142,7 @@ const CHIP_STATES = [
         @if (!collapsed()) {
           <div
             class="rail-chips flex h-7 items-center gap-1 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            aria-label="Jump to session status"
           >
             @if (orderedTiles().length === 0) {
               <span class="text-xs text-base-content-muted">No sessions</span>
@@ -158,17 +160,13 @@ const CHIP_STATES = [
                   [attr.aria-label]="
                     count(chip.state) +
                     ' ' +
-                    chip.label +
-                    ', jump to the next one'
+                    chip.label.toLowerCase() +
+                    ', jump to the next session'
                   "
-                  (click)="jumpTo.emit(chip.state)"
+                  (click)="onStatusJump(chip.state)"
                 >
-                  {{ count(chip.state)
-                  }}{{
-                    chip.state === 'needs' || chip.state === 'error'
-                      ? ' ' + chip.label
-                      : ''
-                  }}
+                  <span class="h-2 w-2 rounded-full bg-current" aria-hidden="true" [class.state-needs]="chip.state === 'needs'" [class.state-error]="chip.state === 'error'" [class.state-running]="chip.state === 'running'" [class.state-done]="chip.state === 'done'" [class.state-idle]="chip.state === 'idle'"></span>
+                  <span>{{ chip.label }} </span><span class="tabular-nums">{{ count(chip.state) }}</span>
                 </button>
               }
             }
@@ -210,46 +208,46 @@ const CHIP_STATES = [
             </p>
           }
         }
-        <ul
-          role="list"
-          class="flex flex-col gap-2"
-          [class.p-2]="!collapsed()"
-          [class.py-2]="collapsed()"
-          (keydown)="onKeydown($event)"
-        >
-          @for (
-            tile of orderedTiles();
-            track tile.tabId;
-            let i = $index, first = $first, last = $last
-          ) {
-            <li
-              ptah-canvas-rail-card
-              [tabId]="tile.tabId"
-              [density]="density()"
-              [collapsed]="collapsed()"
-              [index]="i + 1"
-              [focused]="focusedTabId() === tile.tabId"
-              [holdText]="holdTabId() === tile.tabId"
-              [state]="states().get(tile.tabId) ?? 'idle'"
-              [attentionItems]="needsFor(tile)"
-              [submittingKeys]="submitting()"
-              [blockedKeys]="blockedKeys()"
-              (attentionAction)="activate($event.item, $event.actionId, $event.reason)"
-              (otherRequests)="openNotifications()"
-              [canMoveUp]="!first"
-              [canMoveDown]="!last"
-              [splitDisabledReason]="cardSplitReason(tile.tabId)"
-              (focusRequested)="focusRequested.emit($event)"
-              (railState)="railState.emit({ tabId: tile.tabId, state: $event })"
-              (staleAction)="staleAction.emit($event)"
-              (lanesRequested)="lanesRequested.emit($event)"
-              (openBesideRequested)="openBesideRequested.emit($event)"
-              (moveUpRequested)="moveUpRequested.emit($event)"
-              (moveDownRequested)="moveDownRequested.emit($event)"
-              (closeRequested)="closeRequested.emit($event)"
-            ></li>
+        <div (keydown)="onKeydown($event)">
+          @for (group of grouped().groups; track group.key; let firstGroup = $first) {
+            <section [attr.aria-label]="group.label" [class.mt-2]="!firstGroup">
+              @if (!collapsed()) {
+                @if (group.key === 'finished') {
+                  <button type="button" class="flex min-h-7 w-full items-center gap-1 px-2 text-left text-xs font-semibold"
+                    [attr.aria-expanded]="isFinishedExpanded()" aria-controls="rail-finished-cards"
+                    (click)="toggleFinished()">
+                    <span aria-hidden="true">{{ isFinishedExpanded() ? '⌄' : '›' }}</span>
+                    <span class="min-w-0 flex-1">{{ group.label }}</span>
+                    <span class="text-base-content-muted">{{ group.tiles.length }}</span>
+                  </button>
+                } @else {
+                  <h2 class="flex min-h-7 items-center gap-1 px-2 text-xs font-semibold">
+                    <span class="min-w-0 flex-1">{{ group.label }}</span>
+                    <span class="text-base-content-muted">{{ group.tiles.length }}</span>
+                  </h2>
+                }
+              }
+                <ul role="list" class="flex flex-col gap-1.5 px-2 pb-2" [style.display]="group.key === 'finished' && !collapsed() && !isFinishedExpanded() ? 'none' : null" [id]="group.key === 'finished' ? 'rail-finished-cards' : null">
+                  @for (tile of group.tiles; track tile.tabId; let first = $first, last = $last) {
+                    <li ptah-canvas-rail-card [tabId]="tile.tabId" [density]="density()"
+                      [collapsed]="collapsed()" [focused]="focusedTabId() === tile.tabId"
+                      [tabStop]="keyboardFocusTabId() === tile.tabId"
+                      [holdText]="holdTabId() === tile.tabId" [state]="states().get(tile.tabId) ?? 'idle'"
+                      [attentionItems]="needsFor(tile)" [submittingKeys]="submitting()" [blockedKeys]="blockedKeys()"
+                      (attentionAction)="activate($event.item, $event.actionId, $event.reason)"
+                      (otherRequests)="openNotifications()" [canMoveUp]="!first" [canMoveDown]="!last"
+                      [splitDisabledReason]="cardSplitReason(tile.tabId)"
+                      (focusRequested)="onCardSelected($event)"
+                      (railState)="railState.emit({ tabId: tile.tabId, state: $event })"
+                      (staleAction)="staleAction.emit($event)" (lanesRequested)="lanesRequested.emit($event)"
+                      (openBesideRequested)="openBesideRequested.emit($event)"
+                      (moveUpRequested)="moveUpRequested.emit($event)" (moveDownRequested)="moveDownRequested.emit($event)"
+                      (closeRequested)="closeRequested.emit($event)"></li>
+                  }
+                </ul>
+            </section>
           }
-        </ul>
+        </div>
       </div>
       <footer class="shrink-0 px-2 py-2" [class.h-[82px]]="collapsed()" [class.min-h-[120px]]="!collapsed()">
         <div class="flex flex-col gap-1.5">
@@ -327,7 +325,8 @@ export class CanvasRailComponent {
     .filter(item => this.isBlocked(item)).map(item => item.key)));
   /** Each card shows its first request inline, so the open rail stands in for that request's snackbar. */
   private readonly railShownKeys = computed(() => this.surfaceActive() && !this.collapsed()
-    ? new Set(this.orderedTiles().flatMap(tile => this.needsFor(tile).slice(0, 1))
+    ? new Set(this.orderedTiles().filter(tile => this.visibleIds().includes(tile.tabId))
+      .flatMap(tile => this.needsFor(tile).slice(0, 1))
       .filter(item => this.actionableInline(item)).map(item => item.key))
     : new Set<string>());
   private railSuppressed = new Set<string>();
@@ -462,6 +461,48 @@ export class CanvasRailComponent {
   readonly orderedTiles = computed(() =>
     [...this.tiles()].sort((a, b) => a.order - b.order),
   );
+  readonly grouped = computed(() => groupRailTiles(this.orderedTiles(), this.states()));
+  readonly finishedExpanded = signal(false);
+  readonly finishedChoiceMade = signal(false);
+  readonly keyboardFocusTabId = signal<string | null>(null);
+  readonly isFinishedExpanded = computed(() => this.finishedChoiceMade()
+    ? this.finishedExpanded() : (this.grouped().counts.done <= 3));
+  readonly visibleIds = computed(() => this.grouped().groups.flatMap(group =>
+    group.key === 'finished' && !this.collapsed() && !this.isFinishedExpanded()
+      ? [] : group.tiles.map(tile => tile.tabId)));
+  private previousFocusedId: string | null = null;
+  private previousVisibleIds: readonly string[] = [];
+  private readonly syncRailFocus = effect(() => {
+    const selected = this.focusedTabId();
+    const ids = this.visibleIds();
+    const current = this.keyboardFocusTabId();
+    const previousIds = this.previousVisibleIds;
+    this.previousVisibleIds = ids;
+    if (selected !== this.previousFocusedId) {
+      this.previousFocusedId = selected;
+      if (selected && this.grouped().displayedIds.includes(selected)) {
+        if (this.states().get(selected) === 'done' && !this.collapsed()) {
+          this.finishedExpanded.set(true);
+          this.finishedChoiceMade.set(true);
+        }
+        this.keyboardFocusTabId.set(selected);
+        return;
+      }
+    }
+    if (!current || !ids.includes(current)) {
+      const next = neighbouringVisibleId(previousIds, ids, current ?? selected);
+      this.keyboardFocusTabId.set(next);
+      if (current && this.document.activeElement instanceof HTMLElement &&
+        this.host.nativeElement.contains(this.document.activeElement)) {
+        afterNextRender(() => {
+          if (this.states().get(current) === 'done' && !this.collapsed() && !this.isFinishedExpanded())
+            this.host.nativeElement.querySelector<HTMLElement>('[aria-controls="rail-finished-cards"]')?.focus();
+          else if (next) this.focusCardButton(next);
+          else this.host.nativeElement.querySelector<HTMLElement>('[aria-controls="rail-finished-cards"]')?.focus();
+        }, { injector: this.injector });
+      }
+    }
+  });
   readonly showDensityHint = computed(
     () =>
       !this.collapsed() &&
@@ -483,9 +524,27 @@ export class CanvasRailComponent {
     );
   }
   count(state: CompactRailState): number {
-    return this.orderedTiles().filter(
-      (tile) => this.states().get(tile.tabId) === state,
-    ).length;
+    return this.grouped().counts[state];
+  }
+  toggleFinished(): void {
+    this.finishedExpanded.set(!this.isFinishedExpanded());
+    this.finishedChoiceMade.set(true);
+  }
+  onStatusJump(state: CompactRailState): void {
+    if (state === 'done') {
+      this.finishedExpanded.set(true);
+      this.finishedChoiceMade.set(true);
+    }
+    this.jumpTo.emit(state);
+  }
+  onCardSelected(id: string): void {
+    this.keyboardFocusTabId.set(id);
+    this.focusRequested.emit(id);
+  }
+  private focusCardButton(id: string): void {
+    const card = [...this.host.nativeElement.querySelectorAll<HTMLElement>('[data-rail-card]')]
+      .find(item => item.dataset['tabId'] === id);
+    focusRailSelectButton(card);
   }
   onCollapseToggle(): void {
     if (!this.autoCollapsed()) this.collapseToggled.emit();
@@ -501,17 +560,10 @@ export class CanvasRailComponent {
   onKeydown(event: KeyboardEvent): void {
     handleCanvasRailKeydown(event, {
       surfaceActive: this.surfaceActive(),
-      orderedIds: this.orderedTiles().map((tile) => tile.tabId),
-      focusedId: this.focusedTabId(),
-      focus: (id) => this.focusRequested.emit(id),
-      focusSelectButton: (id) => {
-        const card = [
-          ...this.host.nativeElement.querySelectorAll<HTMLElement>(
-            '[data-rail-card]',
-          ),
-        ].find((item) => item.dataset['tabId'] === id);
-        focusRailSelectButton(card);
-      },
+      orderedIds: this.visibleIds(),
+      focusedId: this.keyboardFocusTabId(),
+      focus: (id) => this.keyboardFocusTabId.set(id),
+      focusSelectButton: (id) => this.focusCardButton(id),
       focusInnerButtons: true,
     });
   }

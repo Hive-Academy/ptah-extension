@@ -5,7 +5,7 @@ import {
   input,
 } from '@angular/core';
 import { injectWallClock } from '@ptah-extension/core';
-import { LucideAngularModule, Check, Loader } from 'lucide-angular';
+import { LucideAngularModule, Check } from 'lucide-angular';
 import type {
   BackendReadiness,
   BootPhase,
@@ -141,11 +141,15 @@ function toStagedStep(step: BootHostStep): StagedStep {
                 aria-hidden="true"
               />
             } @else if (step.state === 'active') {
-              <lucide-angular
-                [img]="LoaderIcon"
-                class="w-4 h-4 text-primary shrink-0 boot-spin"
+              <span
+                class="w-4 h-4 shrink-0 flex items-center justify-center"
                 aria-hidden="true"
-              />
+              >
+                <span
+                  class="loading loading-spinner inline-block h-3 w-3 text-primary"
+                  data-testid="boot-step-pulse"
+                ></span>
+              </span>
             } @else {
               <span
                 class="w-4 h-4 shrink-0 flex items-center justify-center"
@@ -181,22 +185,6 @@ function toStagedStep(step: BootHostStep): StagedStep {
         height: 100%;
         width: 100%;
       }
-
-      .boot-spin {
-        animation: bootSpin 1200ms linear infinite;
-      }
-
-      @keyframes bootSpin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        .boot-spin {
-          animation: none !important;
-        }
-      }
     `,
   ],
 })
@@ -210,7 +198,6 @@ export class BootProgressComponent {
   readonly hostSteps = input<readonly BootHostStep[] | null>(null);
 
   protected readonly CheckIcon = Check;
-  protected readonly LoaderIcon = Loader;
 
   protected readonly hostStagedSteps = computed<readonly StagedStep[] | null>(
     () => {

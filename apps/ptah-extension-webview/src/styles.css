@@ -573,16 +573,6 @@ ANUBIS ANIMATIONS - Egyptian Mystical Effects
   }
 }
 
-/* Cosmic Spin - Loading states */
-@keyframes cosmic-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 /* Divine Aura - Active workflow node (uses --aura-color for theming) */
 @keyframes divine-aura {
   0%,
@@ -689,15 +679,44 @@ AGENT STATUS ANIMATION CLASSES
   animation: ascension 1s ease-in-out;
 }
 
-.divine-loading::after {
-  content: '';
+/* Loading states (TASK_2026_860 pulse conversion): a 16 px breathing core
+   and a ring that fades out from it, in the surrounding text colour. Same
+   keyframes and geometry as `.loading-spinner`; transform / opacity only. */
+.divine-loading {
+  position: relative;
   display: inline-block;
   width: 16px;
   height: 16px;
-  border: 2px solid oklch(var(--s)); /* secondary - theme-aware */
-  border-top: 2px solid transparent;
-  border-radius: 50%;
-  animation: cosmic-spin 1s linear infinite;
+}
+
+.divine-loading::before {
+  content: '';
+  position: absolute;
+  inset: 22%;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: ptah-pulse-core 1.4s ease-in-out infinite;
+}
+
+.divine-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid currentColor;
+  border-radius: 9999px;
+  animation: ptah-pulse-ring 1.4s ease-out infinite;
+}
+
+/* Reduced motion: the global rule ends the animations at their base
+   style, so hide the ring and leave a still dot, as `.loading-spinner`. */
+@media (prefers-reduced-motion: reduce) {
+  .divine-loading::after {
+    display: none;
+  }
+
+  .divine-loading::before {
+    opacity: 0.8;
+  }
 }
 
 .workflow-node-active {

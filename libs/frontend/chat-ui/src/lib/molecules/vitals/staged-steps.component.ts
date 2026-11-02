@@ -7,7 +7,6 @@ import {
 import {
   Check,
   Circle,
-  Loader,
   LucideAngularModule,
   X,
   type LucideIconData,
@@ -25,10 +24,10 @@ export interface StagedStep {
 
 type StepState = StagedStep['state'];
 
-/** Icon shape and screen-reader word per state: never colour alone. */
-const STATE_ICON: Record<StepState, LucideIconData> = {
+/** Icon shape per state: never colour alone. The active row draws the pulse
+ * (TASK_2026_860) instead of an icon, so it is absent from this record. */
+const STATE_ICON: Record<Exclude<StepState, 'active'>, LucideIconData> = {
   pending: Circle,
-  active: Loader,
   done: Check,
   failed: X,
 };
@@ -44,7 +43,8 @@ interface StepView {
   readonly id: string;
   readonly label: string;
   readonly state: StepState;
-  readonly icon: LucideIconData;
+  /** `null` on the active row, which draws the pulse instead. */
+  readonly icon: LucideIconData | null;
   readonly word: string;
   /** Right-hand figure: the detail, else "done / total", else empty. */
   readonly aside: string;
@@ -74,7 +74,8 @@ function knownDone(step: StagedStep, total: number | null): number | null {
 /**
  * StagedStepsComponent — the staged-load checklist (option-ab.mjs:185-195).
  * Each row is an icon plus a word, with a right-hand figure (detail or
- * "done / total"). The active row carries a progress bar: determinate when
+ * "done / total"); the active row draws the TASK_2026_860 pulse in place of
+ * an icon and carries a progress bar: determinate when
  * `total` is known, otherwise indeterminate. Wrapped in `role="status"` with
  * `aria-busy` while any step is unfinished. The right-hand figure is
  * `aria-hidden` when it is the "done / total" count, so count ticks do not
@@ -95,14 +96,22 @@ function knownDone(step: StagedStep, total: number | null): number | null {
       >
         @for (step of views(); track step.id) {
           <li class="ptah-staged-steps__row" [attr.data-state]="step.state">
-            <lucide-angular
-              [img]="step.icon"
-              [size]="18"
-              [class]="
-                'ptah-staged-steps__icon ptah-staged-steps__icon--' + step.state
-              "
-              aria-hidden="true"
-            />
+            @if (step.icon; as icon) {
+              <lucide-angular
+                [img]="icon"
+                [size]="18"
+                [class]="
+                  'ptah-staged-steps__icon ptah-staged-steps__icon--' + step.state
+                "
+                aria-hidden="true"
+              />
+            } @else {
+              <span
+                class="ptah-staged-steps__pulse"
+                data-testid="staged-step-pulse"
+                aria-hidden="true"
+              ></span>
+            }
             <div class="ptah-staged-steps__body">
               <span class="ptah-staged-steps__label">{{ step.label }}</span>
               <span class="sr-only">, {{ step.word }}</span>
@@ -168,14 +177,34 @@ function knownDone(step: StagedStep, total: number | null): number | null {
       .ptah-staged-steps__icon--pending {
         color: oklch(var(--bc) / 0.5);
       }
-      .ptah-staged-steps__icon--active {
-        color: oklch(var(--p));
-      }
       .ptah-staged-steps__icon--done {
         color: oklch(var(--su));
       }
       .ptah-staged-steps__icon--failed {
         color: oklch(var(--er));
+      }
+      /* The TASK_2026_860 pulse that replaces the active row's icon: an 8 px
+         core breathing inside a 14 px ring that fades out from it, in the
+         active accent. Shared global keyframes; transform and opacity only. */
+      .ptah-staged-steps__pulse {
+        position: relative;
+        justify-self: center;
+        width: 8px;
+        height: 8px;
+      }
+      .ptah-staged-steps__pulse::before {
+        content: '';
+        position: absolute;
+        inset: 1px;
+        border-radius: 9999px;
+        background: oklch(var(--p));
+      }
+      .ptah-staged-steps__pulse::after {
+        content: '';
+        position: absolute;
+        inset: -3px;
+        border: 1.5px solid oklch(var(--p));
+        border-radius: 9999px;
       }
       .ptah-staged-steps__body {
         min-width: 0;
@@ -212,24 +241,29 @@ function knownDone(step: StagedStep, total: number | null): number | null {
         width: 40%;
       }
       /* Without motion the sweep cannot travel; a static 40% segment would read
-         as 40% done, so it becomes a full-width faint fill instead. */
+         as 40% done, so it becomes a full-width faint fill instead. The pulse
+         keeps a still dimmed dot, its ring hidden. */
       @media (prefers-reduced-motion: reduce) {
         .ptah-staged-steps__sweep {
           width: 100%;
           opacity: 0.35;
         }
+        .ptah-staged-steps__pulse::after {
+          display: none;
+        }
+        .ptah-staged-steps__pulse::before {
+          opacity: 0.8;
+        }
       }
       @media (prefers-reduced-motion: no-preference) {
-        .ptah-staged-steps__icon--active {
-          animation: ptah-staged-spin 1.1s linear infinite;
+        .ptah-staged-steps__pulse::before {
+          animation: ptah-pulse-core 1.4s ease-in-out infinite;
+        }
+        .ptah-staged-steps__pulse::after {
+          animation: ptah-pulse-ring 1.4s ease-out infinite;
         }
         .ptah-staged-steps__sweep {
           animation: ptah-staged-sweep 1.4s ease-in-out infinite;
-        }
-      }
-      @keyframes ptah-staged-spin {
-        to {
-          transform: rotate(360deg);
         }
       }
       @keyframes ptah-staged-sweep {
@@ -256,7 +290,7 @@ export class StagedStepsComponent {
         id: step.id,
         label: step.label,
         state: step.state,
-        icon: STATE_ICON[step.state],
+        icon: step.state === 'active' ? null : STATE_ICON[step.state],
         word: STATE_WORD[step.state],
         aside: step.detail || counts,
         asideIsCount: !step.detail && counts !== '',

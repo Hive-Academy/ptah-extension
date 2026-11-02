@@ -17,7 +17,7 @@ import {
   untracked,
   Injector,
 } from '@angular/core';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
 import type { SendMessageOptions, TabState } from '@ptah-extension/chat-types';
 import {
@@ -64,6 +64,11 @@ interface HeldCommands {
   readonly commands: HeldCommand[];
 }
 
+interface AbortTarget {
+  readonly tabId: string;
+  readonly sessionId: SessionId;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ConversationService {
   private readonly claudeRpcService = inject(ClaudeRpcService);
@@ -72,8 +77,13 @@ export class ConversationService {
   private readonly messageFinalization = inject(MessageFinalizationService);
   private readonly validator = inject(MessageValidationService);
   private readonly injector = inject(Injector); // For lazy injection to avoid circular dependency
+  private readonly logger = inject(LoggingService);
   private readonly _isStopping = signal(false);
   readonly isStopping = this._isStopping.asReadonly();
+  private readonly stopRequests = new Map<string, {
+    readonly owner: symbol;
+    readonly outcome: Promise<boolean>;
+  }>();
   private readonly _isAutoSending = signal(false);
   readonly isAutoSending = this._isAutoSending.asReadonly();
   private readonly _queueRestoreSignal = signal<{
@@ -158,11 +168,14 @@ export class ConversationService {
     this._queueRestoreSignal.set(null);
   }
 
-  /**
-   * Get current session ID from active tab
-   */
-  private currentSessionId(): SessionId | null {
-    return this.tabManager.activeTab()?.claudeSessionId ?? null;
+  private activeAbortTarget(): AbortTarget | null {
+    const tab = this.tabManager.activeTab();
+    return tab?.claudeSessionId ? { tabId: tab.id, sessionId: tab.claudeSessionId } : null;
+  }
+
+  private tabForTarget(target: AbortTarget): TabState | null {
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(target.tabId)?.tab;
+    return tab?.claudeSessionId === target.sessionId ? tab : null;
   }
 
   /**
@@ -397,64 +410,49 @@ export class ConversationService {
    *   that tab's `claudeSessionId` changed while the RPC was in flight.
    */
   async abortCurrentMessage(): Promise<void> {
-    try {
-      if (this._isStopping()) {
-        return;
-      }
-      this._isStopping.set(true);
+    const target = this.activeAbortTarget();
+    if (target) await this.stopTarget(target, false);
+  }
 
-      if (!this.claudeRpcService) {
-        console.warn('[ConversationService] RPC service not initialized');
-        this._isStopping.set(false);
-        return;
-      }
+  private stopTarget(target: AbortTarget, confirm: boolean): Promise<boolean> {
+    const key = JSON.stringify([target.tabId, target.sessionId]);
+    // A second Stop for this exact target shares the owner's actual outcome.
+    const existing = this.stopRequests.get(key);
+    if (existing) return existing.outcome;
+    if (!this.tabForTarget(target)) return Promise.resolve(false);
 
-      const sessionId = this.currentSessionId();
-      console.log('[ConversationService] Attempting to abort session:', {
-        sessionId,
-        activeTabId: this.tabManager.activeTabId(),
-        claudeSessionId: this.tabManager.activeTab()?.claudeSessionId,
+    const owner = Symbol('stop owner');
+    this._isStopping.set(true);
+    const outcome = (confirm ? this.confirmAndAbort(target) : this.abortCurrentMessageFor(target))
+      .finally(() => {
+        if (this.stopRequests.get(key)?.owner !== owner) return;
+        this.stopRequests.delete(key);
+        this._isStopping.set(this.stopRequests.size > 0);
       });
-      if (!sessionId) {
-        console.warn('[ConversationService] No active session to abort');
-        this._isStopping.set(false);
-        return;
-      }
-      const activeTab = this.tabManager.activeTab();
-      const abortedTabId = activeTab?.id ?? null;
+    this.stopRequests.set(key, { owner, outcome });
+    return outcome;
+  }
 
-      const turnKey = this.currentTurnKey(sessionId, activeTab);
+  private async abortCurrentMessageFor(target: AbortTarget): Promise<boolean> {
+    try {
+      const tab = this.tabForTarget(target);
+      if (!tab) return false;
+      const { tabId, sessionId } = target;
+      const turnKey = this.currentTurnKey(sessionId, tab);
 
       if (turnKey !== null && turnKey === this._lastAbortedTurnKey()) {
-        console.log(
-          '[ConversationService] Turn already aborted, idling tab locally:',
-          turnKey,
-        );
-        this.idleAbortedTabLocally(abortedTabId, sessionId);
-        return;
+        this.idleAbortedTabLocally(target);
+        return true;
       }
 
-      const queuedContent = activeTab?.queuedContent;
-
-      if (activeTab) {
-        this.tabManager.setLastTerminalReason(
-          activeTab.id,
-          'aborted_streaming',
-        );
-      }
+      const queuedContent = tab.queuedContent;
+      this.tabManager.setLastTerminalReason(tabId, 'aborted_streaming');
 
       if (queuedContent && queuedContent.trim()) {
-        this._queueRestoreSignal.set({
-          tabId: activeTab.id,
-          content: queuedContent,
-        });
-        this.clearQueuedContent();
+        this._queueRestoreSignal.set({ tabId, content: queuedContent });
+        this.clearQueuedContent(tabId);
       }
-      if (activeTab) this.dropHeldCommands(activeTab.id);
-      console.log(
-        '[ConversationService] Calling chat:abort RPC for session:',
-        sessionId,
-      );
+      this.dropHeldCommands(tabId);
       this._lastAbortedTurnKey.set(turnKey);
       let result: Awaited<
         ReturnType<typeof this.claudeRpcService.call<'chat:abort'>>
@@ -467,57 +465,44 @@ export class ConversationService {
         // Transport failure: the request may never have reached the backend,
         // so no ordered turn_state will ever arrive for this session, and a
         // later Stop on this same turn must be able to retry the RPC.
-        console.error('[ConversationService] chat:abort RPC failed:', error);
+        this.logger.error('ConversationService', 'chat:abort RPC failed', error);
         this._lastAbortedTurnKey.set(null);
-        this.idleAbortedTabLocally(abortedTabId, sessionId);
-        return;
+        this.idleAbortedTabLocally(target);
+        return false;
       }
 
       if (result.success) {
-        // Retire only identities owned by the aborted session after a rebind.
-        if (abortedTabId) this.messageFinalization.clearPendingPromptsForSession(abortedTabId, sessionId);
-        console.log(
-          '[ConversationService] chat:abort succeeded for session:',
-          sessionId,
-        );
+        this.messageFinalization.clearPendingPromptsForSession(tabId, sessionId);
       } else {
-        console.error(
-          '[ConversationService] Failed to abort chat:',
-          result.error,
-        );
+        this.logger.error('ConversationService', 'Failed to abort chat', result.error);
         // The backend had no live stream to interrupt (e.g. the session left
         // the SDK registry), so nothing will emit the terminal turn_state.
         // The abort did not take effect, so a retry must reach the backend.
         this._lastAbortedTurnKey.set(null);
-        this.idleAbortedTabLocally(abortedTabId, sessionId);
+        this.idleAbortedTabLocally(target);
       }
       // On success no finalize / markTabIdle here (TASK_2026_360, review F3):
       // the backend emits the ordered `idle` turn_state with terminalReason
       // 'aborted_streaming' after the last chunk (result -> settleTurn, or the
       // broadcaster's catch/finally -> forceIdle), and `TurnStateApplier`
       // finalizes and idles the tab from it. Only bookkeeping stays below.
-      const activeTabId = this.tabManager.activeTabId();
       const resumableSubagents = result.data?.resumableSubagents;
       if (resumableSubagents && resumableSubagents.length > 0) {
-        console.log(
-          '[ConversationService] chat:abort returned resumable subagents:',
-          resumableSubagents.length,
-        );
         this.sessionLoader.setResumableSubagents(
           [...resumableSubagents],
           sessionId,
         );
-        if (activeTabId) {
+        if (this.tabForTarget(target)) {
           this.messageFinalization.markAgentsAsInterruptedByToolCallIds(
-            activeTabId,
+            tabId,
             new Set(resumableSubagents.map((r) => r.toolCallId)),
           );
         }
       }
+      return result.success;
     } catch (error) {
-      console.error('[ConversationService] Failed to abort message:', error);
-    } finally {
-      this._isStopping.set(false);
+      this.logger.error('ConversationService', 'Failed to abort message', error);
+      return false;
     }
   }
 
@@ -529,19 +514,10 @@ export class ConversationService {
    * untouched unless its `claudeSessionId` still equals the session the abort
    * was issued for, so a replacement query on the same tab is never reset.
    */
-  private idleAbortedTabLocally(
-    tabId: string | null,
-    sessionId: SessionId,
-  ): void {
-    if (!tabId) return;
-    const tab = this.tabManager.tabs().find((t) => t.id === tabId);
-    if (!tab || tab.claudeSessionId !== sessionId) {
-      console.log(
-        '[ConversationService] Skipping local abort reset — tab no longer owns session:',
-        { tabId, sessionId, currentSessionId: tab?.claudeSessionId ?? null },
-      );
-      return;
-    }
+  private idleAbortedTabLocally(target: AbortTarget): void {
+    const tab = this.tabForTarget(target);
+    if (!tab) return;
+    const { tabId } = target;
     if (tab.streamingState) {
       this.messageFinalization.finalizeCurrentMessage(tabId, true);
     }
@@ -558,21 +534,18 @@ export class ConversationService {
    * @returns true if aborted, false if user cancelled
    */
   async abortWithConfirmation(): Promise<boolean> {
-    if (this._isStopping()) {
-      return false;
-    }
+    const target = this.activeAbortTarget();
+    return target ? this.abortWithConfirmationFor(target.tabId, target.sessionId) : false;
+  }
 
+  async abortWithConfirmationFor(tabId: string, sessionId: SessionId): Promise<boolean> {
+    const target: AbortTarget = { tabId, sessionId };
+    return this.stopTarget(target, true);
+  }
+
+  private async confirmAndAbort(target: AbortTarget): Promise<boolean> {
+    const { sessionId } = target;
     try {
-      const activeTab = this.tabManager.activeTab();
-      const sessionId = activeTab?.claudeSessionId;
-
-      if (!sessionId) {
-        console.log(
-          '[ConversationService] abortWithConfirmation: no session, aborting immediately',
-        );
-        await this.abortCurrentMessage();
-        return true;
-      }
       let agentCount = 0;
       let agentTypes = '';
 
@@ -584,26 +557,13 @@ export class ConversationService {
         agentCount = agents.length;
         agentTypes = agents.map((a) => a.agentType).join(', ');
       } catch (rpcError) {
-        console.warn(
-          '[ConversationService] abortWithConfirmation: RPC failed, falling back to immediate abort',
-          rpcError,
-        );
-        await this.abortCurrentMessage();
-        return true;
+        this.logger.warn('ConversationService', 'Running agents query failed', rpcError);
+        return this.abortCurrentMessageFor(target);
       }
 
       if (agentCount === 0) {
-        console.log(
-          '[ConversationService] abortWithConfirmation: no running agents, aborting immediately',
-        );
-        await this.abortCurrentMessage();
-        return true;
+        return this.abortCurrentMessageFor(target);
       }
-      console.log(
-        '[ConversationService] abortWithConfirmation: showing confirmation for',
-        agentCount,
-        'running agents',
-      );
 
       const confirmationDialog = this.injector.get(ConfirmationDialogService);
       const confirmed = await confirmationDialog.confirm({
@@ -615,24 +575,12 @@ export class ConversationService {
       });
 
       if (confirmed) {
-        console.log(
-          '[ConversationService] abortWithConfirmation: user confirmed, aborting',
-        );
-        await this.abortCurrentMessage();
-        return true;
+        return this.abortCurrentMessageFor(target);
       }
-
-      console.log(
-        '[ConversationService] abortWithConfirmation: user cancelled, keeping agents running',
-      );
       return false;
     } catch (error) {
-      console.error(
-        '[ConversationService] abortWithConfirmation failed, falling back to immediate abort:',
-        error,
-      );
-      await this.abortCurrentMessage();
-      return true;
+      this.logger.error('ConversationService', 'Abort confirmation failed', error);
+      return this.abortCurrentMessageFor(target);
     }
   }
 }

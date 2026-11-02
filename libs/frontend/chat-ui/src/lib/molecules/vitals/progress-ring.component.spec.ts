@@ -91,14 +91,23 @@ describe('ProgressRingComponent', () => {
     expect(host.classList).toContain('ptah-ring--indeterminate');
     const [length, total] = dash();
     expect(length / total).toBeCloseTo(0.25, 5);
+    expect(host.querySelector('.ptah-ring__pulse')).not.toBeNull();
   });
 
-  it('marks a null value indeterminate with a quarter arc', () => {
+  it('marks a null value indeterminate with the pulse and no arc shown', () => {
     render({ value: null });
 
     expect(host.classList).toContain('ptah-ring--indeterminate');
     const [length, total] = dash();
     expect(length / total).toBeCloseTo(0.25, 5);
+    expect(host.querySelector('.ptah-ring__pulse')).not.toBeNull();
+  });
+
+  it('draws no pulse while the value is determinate', () => {
+    render({ value: 0.4 });
+
+    expect(host.classList).not.toContain('ptah-ring--indeterminate');
+    expect(host.querySelector('.ptah-ring__pulse')).toBeNull();
   });
 
   it('uses a 56-unit viewbox with stroke 6 for size value', () => {
@@ -201,6 +210,14 @@ describe('ProgressRingComponent', () => {
     expect(center?.getAttribute('aria-hidden')).toBe('true');
     expect(host.querySelector('.ptah-ring__value')?.textContent).toBe('2/3');
     expect(host.querySelector('.ptah-ring__sub')?.textContent).toBe('ready');
+  });
+
+  it('places checking text below the indeterminate pulse', () => {
+    render({ value: null, centerText: '', subText: 'checking', size: 'lg' });
+    expect(host.querySelector('.ptah-ring__sub')?.textContent?.trim()).toBe('checking');
+    const source = readFileSync(join(__dirname, 'progress-ring.component.ts'), 'utf8');
+    expect(source).toMatch(/:host\(\.ptah-ring--indeterminate\) \.ptah-ring__pulse\s*\{\s*transform: translateY\(-14px\)/);
+    expect(source).toMatch(/:host\(\.ptah-ring--indeterminate\) \.ptah-ring__sub\s*\{\s*transform: translateY\(16px\)/);
   });
 
   it('renders no centre block when both texts are empty', () => {
