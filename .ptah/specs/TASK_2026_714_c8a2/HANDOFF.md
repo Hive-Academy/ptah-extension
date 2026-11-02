@@ -1,134 +1,115 @@
-# Session handoff — TASK_2026_714_c8a2 + TASK_2026_codex_usage_pricing (session 43)
+# HANDOFF — Codex removal (#881) + Codex usage/pricing (#886)
 
-Written 2026-11-02. Replaces the session 42 handoff.
-
-W = `D:\projects\ptah-extension\.claude-worktrees\codex-removal-a` (branch `feat/codex-removal-a`,
-DRAFT PR #881 https://github.com/Hive-Academy/ptah-extension/pull/881, pushed head `67104d6d9`).
-T = `W\.ptah\specs\TASK_2026_714_c8a2\`.
-U = `D:\projects\ptah-extension\.claude-worktrees\codex-usage-pricing` (branch
-`feat/codex-usage-pricing`, DRAFT PR #886 https://github.com/Hive-Academy/ptah-extension/pull/886,
-pushed head `c45f0b79b`). UT = `U\.ptah\specs\TASK_2026_codex_usage_pricing\`.
-L = `D:\projects\ptah-extension\.claude-worktrees\codex-d9-live` (detached, for the D9 live check;
-keep until the user authorizes removal).
-All node_modules are junctions to the main checkout: never `npm install`. Main checkout stays clean.
-U has a FOREIGN change `task-tracking/landing-live-demo/HANDOFF.md`: never commit or revert it.
+Written 2026-11-02 ~16:10 UTC by the coordinating session (session-handoff).
 
 ## Goal and user decisions
 
-- Finish both PRs: Removal A (remove the Codex translation proxy; Codex runs only via the native
-  runtime) + D9 native Codex history/sub-agent cards (#881), and native Codex usage/pricing/limits
-  in 8 batches + a rate-card batch (#886). User also asked to fix failing CI.
-- "I authorize all work, sort this out asap": proceed without asking. Still NO merge, force push,
-  history rewrite, branch deletion or worktree removal without the user.
-- D9 live check re-run authorized, cap 3 turns.
+- TASK_2026_714_c8a2 — PR #881 https://github.com/Hive-Academy/ptah-extension/pull/881 (DRAFT),
+  worktree W = `D:\projects\ptah-extension\.claude-worktrees\codex-removal-a`, branch
+  `feat/codex-removal-a`. Remove the Codex translation proxy; Codex runs only through the native
+  App Server runtime. Includes D9: native Codex history + sub-agent cards.
+- TASK_2026_codex_usage_pricing — PR #886 https://github.com/Hive-Academy/ptah-extension/pull/886
+  (DRAFT), worktree U = `D:\projects\ptah-extension\.claude-worktrees\codex-usage-pricing`,
+  branch `feat/codex-usage-pricing`. Native Codex usage, pricing, limits. Plan:
+  `U\.ptah\specs\TASK_2026_codex_usage_pricing\implementation-plan.md`.
+- Latest user instruction (verbatim): "don't do heavy checks locally please lets continue don't
+  stop until we get that live tested and pr merged". So: rely on CI, no local test/lint runs
+  (a single small-lib typecheck before a push was used once, 15 s). Earlier: user authorized all
+  work incl. D9 live check; no force push, history rewrite, branch deletion, worktree removal.
+- Merge: user wants the PRs merged. BLOCKER: the `main` ruleset requires an approving review
+  (`gh pr view 894` → BLOCKED / REVIEW_REQUIRED). Do NOT use `--admin`; ask the user to approve
+  or merge. Merge order: #894 → #881 → rebase/merge-main #886 → #886.
+- Rules: delegate implementation to CLI lanes (codex `gpt-6-sol`; Kimi ptahCliId
+  `pc-10e5a6b5-b237-4c72-a213-3202bd30d1fe`; Glm ptahCliId `pc-355b645d-35af-4974-84cf-9cf961ea0164`)
+  with self-contained prompts; lanes never run verify or git; review each change with an
+  in-process `code-logic-reviewer`; commit foreground, push background. Never commit or revert
+  `U\task-tracking\landing-live-demo\HANDOFF.md` (foreign). Do not edit tools/mcp-bench. Never
+  npm install. Decision D31: keep `@openai/codex-sdk` in root/electron manifests + lockfile.
+- Never commit real Codex session captures (private data). A 1.6 MB `thread/list` capture was
+  moved to `C:\Users\abdal\AppData\Local\Temp\ptah-d9-fix4\` on purpose.
 
-## Done this session (all pushed)
+## Done (all pushed)
 
-| PR | Commit | Subject | Verify |
-| --- | --- | --- | --- |
-| #881 | a9497540e | fix(auth-providers,agent-sdk): refuse retired Codex proxy routes (A3) | tc/lint 23/24 (known local auth-providers dependency-checks); tests pass except Windows EPERM symlink specs; review A3 APPROVE 8.5 |
-| #881 | 6fdce7110 | fix(codex-runtime,rpc-handlers,shared): reject bad frames per request (D9 fix 1) | review APPROVE 9 |
-| #881 | b8d7c78f4 | feat(codex-runtime,agent-sdk): show native Codex sub-agents as cards (D9 fix 3/4) | review APPROVE 8 |
-| #881 | 1d8926e2a | style(skill-synthesis): use const for an unchanged counter | |
-| #881 | df293fb9c | docs(docs): task reports | |
-| #881 | 67104d6d9 | test(e2e): recheck the canvas after the update-dialog probe | fixes CI hunk-revert-top-layer race (diagnosis T\e2e-hunk-revert-diagnosis.md) |
-| #886 | 423d840a2 | feat(agent-sdk,rpc-handlers,electron): price native Codex turns (usage 4) | tc/lint 12/12, focused tests pass, review APPROVE 8 |
-| #886 | c45f0b79b | feat(chat-ui,chat,agent-sdk): label final cost basis (usage 5) | tc/lint 16/16, focused tests pass, review Round 2 APPROVE 8.5 |
+W / #881 (head 325816509):
+- 0f45b62bb refactor(...): drop proxy Codex code (A5); a51a470ad locate the Codex binary without
+  the SDK (A6, agent-sdk package.json now lists `@openai/codex`).
+- b0e52cf53 test(rpc-handlers,agent-sdk): align specs with A5 and A6 (CI failures fixed).
+- 1a70e28d9 fix(codex-runtime): keep Codex history when thread/list is large (inbound frame cap
+  16 MiB / outbound 1 MiB, ancestorThreadId listing with -32602 retry, pages of 25, child
+  failures degrade to root). Reviews: code-logic-review-D9-fix4.md, -fix5.md (APPROVE 8).
+- 325816509 fix(codex-runtime): log history failures as a JSON string (fixed CI typecheck
+  TS2322 at codex-session-history.ts:252; local `codex-runtime` typecheck passed).
+U / #886 (head 4b257cc7b):
+- ad4a69013 usage 8 (limit cause/display; review r2 APPROVE 8), 2a1411c86 usage 7 (live limit
+  push; review r2 + my registration.ts type fix), 4b257cc7b usage 9 rate card (review APPROVE 8).
+  CI on 2a1411c86: typecheck pass; only failures were onboarding date test (main bug),
+  chat stdout-visibility flake, macOS git-real-git.
+PR #894 https://github.com/Hive-Academy/ptah-extension/pull/894 — branch `fix/onboarding-age-clock`
+(worktree `.claude-worktrees\onboarding-age-clock`), commit 5d4c0c479 pins Date.now in
+`libs/frontend/onboarding/src/lib/home/analysis-found-card.component.spec.ts`. CI ALL GREEN.
+Merge blocked only by required review.
 
-PR #881 body updated (follow-ups listed). **PR #881 CI on 67104d6d9: GREEN** (18 pass, 4 skipped;
-one flaky chat-streaming perf test passed on rerun). No code reviews (draft; CodeRabbit skips drafts).
+## Live test results (W)
 
-**PR #886 CI on c45f0b79b: 5 FAIL** — causes found and fixed LOCALLY (not committed, see U state):
-`checks` = degradation-audit orphaned markers in codex-chat-adapter.ts:315/:603; `test (shard 4/4)`
-= codex-chat-adapter.spec.ts "opens through the DS1 gate..." expects no stats for a turn without
-usage; `electron-e2e` = same hunk-revert helper race fixed on #881 (cherry-pick 67104d6d9 to U);
-`main` = aggregate. LESSON: run FULL test targets of changed projects, not only focused patterns.
+- `T\live-test-d9-a51a470ad.md` (3/3 paid turns used, model gpt-5.6-luna): sub-agent PARTIAL,
+  history after reload FAIL (thread/list frame > 1 MiB), follow-up after sub-agent PASS, no
+  proxy/legacy logs.
+- `T\live-test-d9-1a70e28d9.md` (0 paid turns, reopened session 01a19cd2-dc3c-7680-ae77-a7c9363246e9
+  from evidence `C:\Users\abdal\AppData\Local\Temp\ptah-live-d9-20261102-170847\` copied to
+  `...\ptah-live-d9b-20261102-174330\`): resume succeeds, no frame errors; card shows but WITHOUT
+  child output; agent lane "unavailable"; agents panel only Orchestrator → PARTIAL/FAIL.
+- Live-test worktree: `D:\projects\ptah-extension\.claude-worktrees\d9-live` (detached at
+  1a70e28d9, node_modules junction). Move it to the new head before the next re-check.
 
-## In progress (uncommitted)
+## In progress
 
-### W: Removal A step A4 (reviewed APPROVE 8, NOT yet verified)
-Deleted: auth-providers providers/codex/codex-translation-proxy.ts + .spec.ts,
-codex-stream-parity.spec.ts, translation/translation-proxy.sdk.integration.spec.ts. Edited:
-session-query-executor.service.ts/.spec.ts (Codex case removed from resolveCapacityRoute),
-auth-providers-tokens tokens.ts (SDK_CODEX_PROXY, SDK_CURATOR_CODEX_PROXY removed),
-auth-providers src/index.ts, providers/codex/index.ts, translation-proxy-base.spec.ts.
-Lane report T\task-A4-report.md (includes A5/A6 remainder); review T\code-logic-review-A4.md
-(M1: dead `codexProxy` idle lane in idle-session.reducer.ts / idle-fire-gate.ts -> A5).
-Coordinator REVERTED the lane's tools/mcp-bench edits (historical benchmark data; keep unchanged).
-Untracked scratch to NOT commit: T\pr881-body-old.md, T\pr881-body-new.md, T\ci-watch-67104d6d9.txt.
+- Lane cd92cfd2-2cfb-43b1-a13e-9b94e871c7a5 (codex, CLI session 01a19cf4-fece-7eb0-a9ad-ef28fae55060)
+  RUNNING in W: D9 fix6 — child output/lane/agents panel after resume. Deliverable
+  `T\task-D9-fix6-report.md`. Uncommitted edits so far: `libs/backend/rpc-handlers/src/lib/handlers/subagent-rpc.handlers.ts`,
+  `libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts`, `subagent-execution.store.ts`,
+  `libs/frontend/chat/src/lib/services/chat-store/session-history-replayer.service.ts`.
 
-### U: batch 6 + two CI fixes (batch 6 review Round 2 APPROVE 8, NOT yet verified after revision)
-- Batch 6 (Codex quota DTO, sanitized ordered buckets): codex-runtime codex-account-usage.types.ts,
-  codex-account-usage-client.ts/.spec.ts, auth-providers quota/readers/codex-plan-usage.reader.ts
-  /.spec.ts, shared plan-limit.types.ts. Report UT\task-batch6-report.md (+ Revision 1).
-  Review UT\code-logic-review-batch6.md. Pre-revision verify: typecheck pass, focused tests pass,
-  only auth-providers:lint known local dependency-checks error.
-- OPEN residual R1 (batch 6 review Round 2): if `rateLimitsByLimitId.codex` exists but is
-  malformed/empty it is filtered out and the default `rateLimits` is not prepended because the
-  check uses the raw key. Fix: test whether an EMITTED `codex` bucket exists. Not done yet.
-- CI fix 1 (coordinator): codex-chat-adapter.ts — removed the two orphaned degradation-audit
-  markers (plain comments now).
-- CI fix 2 (coordinator): codex-chat-turn-stream.ts publishStats — after the checkpoint persist,
-  `if (!usageReported && !turnUsageObserved) return;` so a turn without usage publishes no stats
-  (no invented zeros); restores pre-batch-4 behavior expected by codex-chat-adapter.spec.ts.
+## Background work
 
-## Background work at handoff
+- Lane above (cd92cfd2…), running.
+- CI #881 on 325816509: 2 pass / 14 pending at handoff. CI #886 on 4b257cc7b: 12 pass / 5 pending.
+  (The session's gh watchers were stopped; re-check with `gh pr checks 881` / `886`.)
 
-- No CLI lanes running. No subagents running.
-- Two verify processes from the old session may still hold/queue lock slots (their output is
-  lost; results unknown): U full tests (pid 42648) and W A4 tc/lint (pid 41680, queued; its
-  follow-up test command will not run). Check `node scripts/verify.mjs --status`; dead or
-  >120 min slots are taken over automatically. Rerun both verifies below.
+## Open problems / follow-ups
+
+- Merges need a human approving review (ruleset). Tell the user.
+- #881 review moderates: inbound frame buffer never shrinks after a large frame; ancestorThreadId
+  retry only on -32602; pinned protocol schema lacks ancestorThreadId (experimental).
+- #886 moderates: lenient price matcher now prices gpt-* IDs for Copilot/OpenRouter too
+  (estimate); gpt-5.6-sol promo price has no expiry after 2026-11-21; 12h cache writes priced at
+  30m rate; batch 7 throttle has no trailing refresh, close() uses Promise.all; batch 8 picks
+  first exhausted window, stale reset possible, ledger not updated from error cause.
+- Older follow-ups: batch 4 provisional turnCost gated only on turnUsageObserved; batch 6
+  planType fallback test; A5 dead `not-actable` skip reason (idle-compaction.types.ts:141), no
+  dedicated isNativeCodexAuthIntent spec; A6: add `@openai/codex` direct dep when D31 removal
+  happens; batch 3 D4, batch 4 R3/R4, batch 5/6 minors.
+- Known flaky: electron-e2e hunk-revert-top-layer, chat stdout-visibility spec.
+- Untracked scratch in W, do not commit: T\pr881-body-old.md, pr881-body-new.md, ci-watch-67104d6d9.txt.
+
+(T = `W\.ptah\specs\TASK_2026_714_c8a2`)
 
 ## Next steps
 
-1. U: fix batch 6 residual R1 (see above) in codex-plan-usage.reader.ts or the client mapper + spec.
-2. U verify (separate commands; do not edit U while it runs):
-   `npm run verify -- -t typecheck,lint -p @ptah-extension/codex-runtime,@ptah-extension/auth-providers,@ptah-extension/shared,@ptah-extension/agent-sdk,@ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode,ptah-extension-webview,ptah-cli,ptah-tui`
-   (accept only auth-providers:lint @nx/dependency-checks persistence-sqlite),
-   `node scripts/verify.mjs --exec --task degradation-audit -- node_modules/.bin/nx run degradation-audit:lint --skip-nx-cache`
-   (no new codex-* findings), and FULL tests
-   `npm run verify -- -t test -p @ptah-extension/agent-sdk,@ptah-extension/codex-runtime,@ptah-extension/auth-providers,@ptah-extension/shared,@ptah-extension/chat-ui,@ptah-extension/chat -- --coverage=false`
-   (accept only Windows EPERM symlink specs).
-3. U commit (foreground, explicit paths, never the foreign HANDOFF): (a) `fix(agent-sdk): publish
-   Codex stats only with usage and drop orphaned markers`; (b) `feat(codex-runtime,auth-providers,
-   shared): map Codex quota buckets (usage 6)` + UT batch 6 docs. Then `git cherry-pick 67104d6d9`
-   (e2e helper fix; note only the show-canvas.ts hunk applies, the .ptah doc is W-only — if the
-   cherry-pick brings T\e2e-hunk-revert-diagnosis.md into U that is acceptable, or use
-   `git checkout 67104d6d9 -- apps/ptah-electron-e2e/src/support/show-canvas.ts` and commit as
-   `test(e2e): recheck the canvas after the update-dialog probe`). Push in background, watch
-   `gh pr checks 886`.
-4. W verify A4: `npm run verify -- -t typecheck,lint -p @ptah-extension/auth-providers-tokens,@ptah-extension/auth-providers,@ptah-extension/agent-sdk,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`
-   then `npm run verify -- -t test -p @ptah-extension/auth-providers,@ptah-extension/agent-sdk,ptah-electron -- --coverage=false`.
-   Also run di-lint is done by pre-push. Commit `refactor(auth-providers,agent-sdk): delete the
-   Codex translation proxy (A4)` + T\task-A4-report.md + T\code-logic-review-A4.md + this
-   HANDOFF. Push, watch `gh pr checks 881`, update PR body (A4 checked).
-5. W: A5 (T\task-A4-report.md "A5/A6 remainder": ICodexOwnerKeySource, codex-proxy-policy.ts +
-   spec, placeholder/proxy cases, quota owner resolver, Windows-hide guard spec, shared
-   `codexProxy` compaction state, review A4 M1 dead idle lane), then A6
-   (codex-native-binary-path.ts stops resolving @openai/codex-sdk; keep the package in manifests
-   per D31). Lane -> verify -> in-process code-logic-reviewer -> commit -> push.
-6. W: D9 live check (cap 3 turns) after A4/A5 land: clean detached worktree of the new head,
-   build-dev, settings backup/restore + cmp, port 9335, GPT-5.6-Luna, Manual approvals; confirm
-   history after reload, sub-agent card + agents panel, wait completed, D9 M1; capture any
-   `thread/list` WARN issue paths.
-7. U: batches 7, 8 and the rate-card batch (UT\implementation-plan.md section 3 table,
-   UT\research-codex-rate-card.md). Open follow-ups: batch 4 R3/R4, batch 3 D4 isOptional,
-   batch 5 minors (terminal-only publish invariant comment; key tooltip on SessionCostBasis),
-   batch 6 minors (`Limit abc123` labels; reset-credits/upsell presence-only), plan usage service
-   drops owner-level fields. Rebase U on main after #881 merges (user merges).
-
-## Rules (repeat to every lane)
-
-CLAUDE.md applies. Lanes never verify/test/lint/typecheck/build/nx/npm, never commit/push/stash/
-checkout/reset/git rm, never call ptah_get_diagnostics, never npm install; deliverables absolute;
-LF, no BOM. Codex lanes `cli: codex`, model `gpt-6-sol` (Glm also had room). Code reviewed by an
-in-process `code-logic-reviewer` subagent (revise cap 2 rounds). Strict TS; specs type-checked by
-ts-jest. Native UI contracts identical to Claude's; no frontend Codex special case; NEVER strip MCP.
-degradation-audit suppression only `// degradation-audit: reported — <reason>` /
-`// degradation-audit: optional-capability — <reason>`, and only on a flagged catch. Never edit a
-worktree while a verify runs there; never commit/push while a lane edits it. Commit in the
-FOREGROUND (`git commit -F`, trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`),
-push in the background. Typecheck/lint and tests in SEPARATE verify commands; Jest flags only on
-test. Do not edit tools/mcp-bench data. Codex lane resume with context > 60k starts fresh: give
-complete instructions.
+1. When lane cd92cfd2 completes: read `T\task-D9-fix6-report.md`; in-process code-logic-reviewer
+   on the uncommitted W diff; fix findings via the lane; then a quick typecheck of only the
+   touched libs before pushing, e.g.
+   `npm run verify -- -t typecheck -p @ptah-extension/rpc-handlers,@ptah-extension/chat-streaming,@ptah-extension/chat`
+   (skip tests locally per user). Commit (explicit paths + T reports/reviews + live-test-d9-1a70e28d9.md), push in background.
+2. Move d9-live to the new head (`git -C .claude-worktrees/d9-live checkout --detach <head>`) and
+   spawn a codex lane for a 0-paid-turn live re-check (same procedure as
+   `T\live-test-d9-1a70e28d9.md`: copy evidence DBs to a new folder, build-dev under
+   `node scripts/verify.mjs --exec --task electron-live-test -- sh node_modules/.bin/nx run ptah-electron:build-dev`,
+   CDP 9335, reopen session 01a19cd2…, settings backup/restore + cmp). Goal: card output, lane,
+   agents panel all PASS.
+3. Watch CI: `gh pr checks 881`, `gh pr checks 886`. Inspect failures with
+   `gh run view --job <id> --log-failed | grep -E "error TS|● .* › |Tests: .*failed"`.
+4. Update PR #881 and #886 bodies (Summary/Test plan with real CI + live results), mark ready
+   (`gh pr ready`), then ask the user to approve/merge #894, #881, then #886 (after merging main
+   into U and fixing conflicts in the overlap files: codex-chat-turn-stream.ts, codex-chat-events.ts,
+   codex-history-projector.ts, session-history-router.ts).
+5. Run `/session-handoff` again when the budget runs low.

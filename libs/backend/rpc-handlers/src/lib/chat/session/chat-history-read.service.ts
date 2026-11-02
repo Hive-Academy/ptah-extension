@@ -102,7 +102,7 @@ export class ChatHistoryReadService {
 
   async readForResume(
     sessionId: SessionId,
-    options?: { includeBlockOwners?: boolean },
+    options?: { includeBlockOwners?: boolean; includeCompactedEvents?: boolean },
   ) {
     const resolvedWorkspacePath = await this.resolveSessionFolder(sessionId);
     let history: Awaited<ReturnType<SessionHistoryRouter['readSessionHistory']>>;
@@ -111,7 +111,7 @@ export class ChatHistoryReadService {
         sessionId,
         resolvedWorkspacePath,
         {
-          checkCompactionBoundary: true,
+          checkCompactionBoundary: !options?.includeCompactedEvents,
           ...(options?.includeBlockOwners ? { includeBlockOwners: true } : {}),
         },
       );

@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { computed, effect, signal } from '@angular/core';
+import type { StreamingState } from '@ptah-extension/chat-types';
 import type {
   FlatStreamEventUnion,
   MessageStartEvent,
@@ -117,6 +118,79 @@ describe('SubagentExecutionStore', () => {
   });
 
   afterEach(() => TestBed.resetTestingModule());
+
+  it('recovers a completed native child transcript for its inline card', () => {
+    const node = { id: 'child-message', content: 'Synthetic answer', children: [] };
+    builder.buildTree.mockReturnValueOnce([node]);
+    const events: FlatStreamEventUnion[] = [
+      start('child-message', 'agent-a', 'history'),
+      delta('child-message', 'Synthetic answer', 'child-answer', 'history'),
+      {
+        id: 'child-done', eventType: 'message_complete',
+        messageId: 'child-message', timestamp: 3,
+        sessionId, parentToolUseId: 'agent-a', source: 'history',
+      },
+    ];
+
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', events))
+      .toBe(true);
+    expect(store.treeFor('agent-a')).toEqual([node]);
+    expect(store.entries().get('agent-a')?.agentId).toBe('child-1');
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', events))
+      .toBe(false);
+  });
+
+  it('merges missing completed events into a partial routed child once', () => {
+    const prefix = start('child-message', 'agent-a', 'history');
+    const answer = delta('child-message', 'Synthetic answer', 'child-answer', 'history');
+    const completion: FlatStreamEventUnion = {
+      id: 'child-done', eventType: 'message_complete',
+      messageId: 'child-message', timestamp: 3, sessionId,
+      parentToolUseId: 'agent-a', source: 'history',
+    };
+    store.claim(prefix);
+    store.claim(answer);
+    subagents.set(new Map([['agent-a', record('agent-a', 'completed')]]));
+    const builtIds: string[][] = [];
+    const node = { id: 'child-message', content: 'Synthetic answer', children: [] };
+    builder.buildTree.mockImplementationOnce((state: StreamingState) => {
+      builtIds.push([...state.events.keys()]);
+      return [node];
+    });
+    const events = [prefix, answer, completion];
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', events)).toBe(true);
+    expect(builtIds).toEqual([[prefix.id, answer.id, completion.id]]);
+    expect(store.treeFor('agent-a')).toEqual([node]);
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', events)).toBe(false);
+    expect(builder.buildTree).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces a finalized partial child with its complete native snapshot', () => {
+    const prefix = start('child-message', 'agent-a', 'history');
+    store.claim(prefix);
+    builder.buildTree.mockReturnValueOnce([{ id: 'partial', content: '', children: [] }]);
+    store.syncRecord(record('agent-a', 'completed'));
+    const full = { id: 'complete', content: 'Synthetic answer', children: [] };
+    builder.buildTree.mockReturnValueOnce([full]);
+    const events: FlatStreamEventUnion[] = [
+      prefix,
+      delta('child-message', 'Synthetic answer', 'child-answer', 'history'),
+    ];
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', events)).toBe(true);
+    expect(store.treeFor('agent-a')).toEqual([full]);
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', events)).toBe(false);
+    expect(builder.buildTree).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not replace a running child with recovered history', () => {
+    store.claim(start('live-message'));
+    const before = store.entryFor('agent-a');
+    expect(store.restoreHistoryChild('agent-a', sessionId, 'child-1', [
+      start('history-message', 'agent-a', 'history'),
+    ])).toBe(false);
+    expect(store.entryFor('agent-a')).toBe(before);
+    expect(builder.buildTree).not.toHaveBeenCalled();
+  });
 
   it('finalizes when the monitor publishes a terminal record', () => {
     const completed = record('agent-a', 'completed');

@@ -2574,8 +2574,10 @@ export class AgentMonitorStore implements OnDestroy {
    * its cache state stays `'unknown'`.
    */
   async loadSubagentCacheInfo(parentToolUseId: string): Promise<void> {
+    const sessionId = this._subagents().get(parentToolUseId)?.parentSessionId;
     const result = await this.rpc.call('chat:subagent-query', {
       toolCallId: parentToolUseId,
+      ...(sessionId ? { sessionId } : {}),
     });
     if (!result.isSuccess()) {
       console.warn(

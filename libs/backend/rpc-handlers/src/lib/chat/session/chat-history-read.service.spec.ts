@@ -96,6 +96,18 @@ describe('ChatHistoryReadService', () => {
     );
   });
 
+  it('includes events before compaction for native child lookup', async () => {
+    const harness = makeHarness();
+    await harness.service.readForResume(SESSION_ID, {
+      includeCompactedEvents: true,
+    });
+    expect(harness.historyReader.readSessionHistory).toHaveBeenCalledWith(
+      SESSION_ID,
+      WORKSPACE,
+      { checkCompactionBoundary: false },
+    );
+  });
+
   it("reads resume history from the session's own folder, not the active one", async () => {
     const harness = makeHarness({
       folders: [WORKSPACE, OTHER_PROJECT],
