@@ -9,7 +9,10 @@
 
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { AuthEnv } from '@ptah-extension/shared';
+import {
+  CODEX_PROXY_TOKEN_PLACEHOLDER,
+  type AuthEnv,
+} from '@ptah-extension/shared';
 import { SdkModelService } from './sdk-model-service';
 import type {
   ModelInfo,
@@ -34,6 +37,7 @@ interface CapturedQueryOptions {
 
 interface Harness {
   service: SdkModelService;
+  getQueryFunction: jest.Mock;
   /** Env the SDK bridge was actually spawned with, per call. */
   spawnEnvs: Array<Record<string, string | undefined>>;
   /** Full options the SDK bridge was launched with, per call. */
@@ -68,18 +72,19 @@ function makeHarness(opts: {
   const spawnEnvs: Array<Record<string, string | undefined>> = [];
   const queryOptions: CapturedQueryOptions[] = [];
 
+  const getQueryFunction = jest
+    .fn()
+    .mockResolvedValue((args: { options: CapturedQueryOptions }) => {
+      spawnEnvs.push(args.options.env);
+      queryOptions.push(args.options);
+      return {
+        supportedModels: async () => opts.sdkModels,
+        close: () => undefined,
+      };
+    });
   const moduleLoader = {
     getCliJsPath: jest.fn().mockResolvedValue('/fake/cli.js'),
-    getQueryFunction: jest
-      .fn()
-      .mockResolvedValue((args: { options: CapturedQueryOptions }) => {
-        spawnEnvs.push(args.options.env);
-        queryOptions.push(args.options);
-        return {
-          supportedModels: async () => opts.sdkModels,
-          close: () => undefined,
-        };
-      }),
+    getQueryFunction,
   } as unknown as SdkModuleLoader;
 
   const tiers = opts.tiers ?? {};
@@ -126,6 +131,7 @@ function makeHarness(opts: {
       processSpawner,
       stateStorage,
     ),
+    getQueryFunction,
     spawnEnvs,
     queryOptions,
     authEnv,
@@ -151,6 +157,22 @@ const SDK_LIST_VIA_PROXY: ModelInfo[] = [
 ];
 
 describe('SdkModelService', () => {
+  it('skips a stale Codex proxy model probe before loading the SDK query', async () => {
+    const h = makeHarness({
+      authMethod: 'thirdParty',
+      authEnv: {
+        ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER,
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:58306',
+      },
+      sdkModels: SDK_LIST_VIA_PROXY,
+    });
+
+    await expect(h.service.getSupportedModels()).resolves.toEqual([]);
+    expect(h.getQueryFunction).not.toHaveBeenCalled();
+    expect(h.spawnEnvs).toHaveLength(0);
+    expect(h.queryOptions).toHaveLength(0);
+  });
+
   describe('third-party tier mapping', () => {
     it('drops Anthropic-only ids the provider proxy cannot serve', async () => {
       const h = makeHarness({

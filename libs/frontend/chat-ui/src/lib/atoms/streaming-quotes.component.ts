@@ -16,6 +16,8 @@ import {
  * Patterns: CSS typewriter animation, Signal-based state, OnPush change detection
  *
  * Shows inspirational quotes with a typewriter effect that cycles through different quotes.
+ * With `prefers-reduced-motion: reduce` it shows each whole quote for a few
+ * seconds instead, with no typing and no cursor blink.
  */
 @Component({
   selector: 'ptah-streaming-quotes',
@@ -52,6 +54,13 @@ import {
         color: oklch(var(--bc) / 0.4);
       }
 
+      @media (prefers-reduced-motion: reduce) {
+        .typing-cursor {
+          animation: none;
+          opacity: 0;
+        }
+      }
+
       .typewriter-text {
         max-width: 200px;
         font-weight: 400;
@@ -81,7 +90,31 @@ export class StreamingQuotesComponent implements AfterViewInit, OnDestroy {
   private pauseTimeout: ReturnType<typeof setTimeout> | null = null;
 
   ngAfterViewInit(): void {
-    this.startTyping();
+    if (this.prefersReducedMotion()) {
+      this.startStaticRotation();
+    } else {
+      this.startTyping();
+    }
+  }
+
+  private prefersReducedMotion(): boolean {
+    return (
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    );
+  }
+
+  private startStaticRotation(): void {
+    const holdDuration = 4000; // ms each whole quote shows
+    this.renderText(this.quotes[this.currentQuoteIndex]);
+    this.ngZone.runOutsideAngular(() => {
+      this.typingInterval = setInterval(() => {
+        this.currentQuoteIndex =
+          (this.currentQuoteIndex + 1) % this.quotes.length;
+        this.renderText(this.quotes[this.currentQuoteIndex]);
+      }, holdDuration);
+    });
   }
 
   ngOnDestroy(): void {
@@ -101,34 +134,37 @@ export class StreamingQuotesComponent implements AfterViewInit, OnDestroy {
     const pauseDuration = 2000; // pause before deleting
 
     this.ngZone.runOutsideAngular(() => {
-      this.typingInterval = setInterval(() => {
-        const currentQuote = this.quotes[this.currentQuoteIndex];
+      this.typingInterval = setInterval(
+        () => {
+          const currentQuote = this.quotes[this.currentQuoteIndex];
 
-        if (!this.isDeleting) {
-          if (this.currentCharIndex < currentQuote.length) {
-            this.currentCharIndex++;
-            this.renderText(currentQuote.slice(0, this.currentCharIndex));
+          if (!this.isDeleting) {
+            if (this.currentCharIndex < currentQuote.length) {
+              this.currentCharIndex++;
+              this.renderText(currentQuote.slice(0, this.currentCharIndex));
+            } else {
+              this.clearTypingInterval();
+              this.pauseTimeout = setTimeout(() => {
+                this.pauseTimeout = null;
+                this.isDeleting = true;
+                this.startTyping();
+              }, pauseDuration);
+            }
           } else {
-            this.clearTypingInterval();
-            this.pauseTimeout = setTimeout(() => {
-              this.pauseTimeout = null;
-              this.isDeleting = true;
+            if (this.currentCharIndex > 0) {
+              this.currentCharIndex--;
+              this.renderText(currentQuote.slice(0, this.currentCharIndex));
+            } else {
+              this.clearTypingInterval();
+              this.isDeleting = false;
+              this.currentQuoteIndex =
+                (this.currentQuoteIndex + 1) % this.quotes.length;
               this.startTyping();
-            }, pauseDuration);
+            }
           }
-        } else {
-          if (this.currentCharIndex > 0) {
-            this.currentCharIndex--;
-            this.renderText(currentQuote.slice(0, this.currentCharIndex));
-          } else {
-            this.clearTypingInterval();
-            this.isDeleting = false;
-            this.currentQuoteIndex =
-              (this.currentQuoteIndex + 1) % this.quotes.length;
-            this.startTyping();
-          }
-        }
-      }, this.isDeleting ? deleteSpeed : typeSpeed);
+        },
+        this.isDeleting ? deleteSpeed : typeSpeed,
+      );
     });
   }
 

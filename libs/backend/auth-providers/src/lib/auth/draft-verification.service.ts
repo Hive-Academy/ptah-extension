@@ -69,6 +69,7 @@ import {
   ProviderAuthResolver,
   type DraftConnectionInput,
 } from './provider-auth-resolver';
+import { CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE } from './codex-native-runtime-refusal';
 
 /** The probe's own prompt: one turn, no tools, one short answer. */
 const PROBE_PROMPT = 'Reply with the single word: ok';
@@ -163,7 +164,7 @@ const UNDETERMINED: QueryNetworkVerdict = { kind: 'undetermined' };
  *
  * 1. Our own abort from `cancel` → `cancelled`.
  * 2. `ProviderQuotaError` (the resolver's cooldown gate) → `quota-exhausted`.
- * 3. `ProviderAuthError` (the resolver refused the draft pre-flight) →
+ * 3. `ProviderAuthError` or `AuthRequiredError` (the resolver refused the draft pre-flight) →
  *    `credential-rejected`.
  * 4. HTTP 401 / 403 — from the stream's `result.api_error_status`, or from a
  *    thrown error's `status` / `statusCode` walked up its `cause` chain →
@@ -191,7 +192,9 @@ export function classifyDraftProbeFailure(
   // docblocks), not `instanceof`, so a mirrored check stays possible.
   const thrownName = errorName(input.thrown);
   if (thrownName === 'ProviderQuotaError') return 'quota-exhausted';
-  if (thrownName === 'ProviderAuthError') return 'credential-rejected';
+  if (thrownName === 'ProviderAuthError' || isCodexRuntimeRefusal(input.thrown)) {
+    return 'credential-rejected';
+  }
 
   // Rule 4: the two statuses that are a CREDENTIAL verdict, read straight off
   // the evidence rather than through the network classifier, which
@@ -295,7 +298,7 @@ export class DraftVerificationService {
 
     try {
       // Pre-flight. The resolver throws ProviderQuotaError (cooldown gate) or
-      // ProviderAuthError (the draft cannot produce a credential) — rules 2-3.
+      // ProviderAuthError or AuthRequiredError (unusable route) — rules 2-3.
       // The probe never started, so latency and modelUsed stay null.
       let override: OneShotAuthOverride;
       let model: string | null = null;
@@ -661,6 +664,9 @@ export class DraftVerificationService {
           : `The provider is still cooling down after rate limiting (retry after ${Math.max(1, Math.round(retryAfterMs / 1000))}s).`;
       }
       case 'credential-rejected':
+        if (isCodexRuntimeRefusal(error)) {
+          return CODEX_NATIVE_RUNTIME_REQUIRED_MESSAGE;
+        }
         return 'The draft is missing a usable credential for this mode.';
       default:
         return 'The probe did not start.';
@@ -742,6 +748,16 @@ function requireNonEmptyString(value: unknown, field: string): string {
 
 function errorName(error: unknown): string | null {
   return error instanceof Error ? error.name : null;
+}
+
+function isCodexRuntimeRefusal(error: unknown): boolean {
+  return (
+    errorName(error) === 'AuthRequiredError' &&
+    typeof error === 'object' &&
+    error !== null &&
+    'providerId' in error &&
+    error['providerId'] === 'openai-codex'
+  );
 }
 
 /** `retryAfterMs` of a `ProviderQuotaError`, by the documented name contract. */

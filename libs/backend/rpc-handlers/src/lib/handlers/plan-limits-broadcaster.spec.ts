@@ -115,6 +115,47 @@ describe('PlanLimitsBroadcaster', () => {
     expect(MESSAGE_TYPES.PLAN_LIMITS_CHANGED).toBe('planLimits:changed');
   });
 
+  it('pushes newer provider-neutral window evidence through the unchanged message', async () => {
+    const s = buildSuite();
+    const liveSnapshot: PlanLimitsSnapshot = {
+      generatedAt: 51,
+      owners: [
+        {
+          owner: {
+            key: 'openai-codex#cli-store:a1',
+            providerId: 'openai-codex',
+            identityKind: 'cli-store',
+            label: 'Codex CLI login',
+          },
+          status: 'available',
+          fetchedAt: 50,
+          windowSetEstablished: true,
+          windows: [
+            {
+              key: 'five_hour',
+              kind: 'five_hour',
+              label: '5-hour',
+              used: { kind: 'percent', percent: 70 },
+              usedSource: 'provider-api',
+              observedAt: 50,
+            },
+          ],
+          ownerEvidence: [],
+        },
+      ],
+      sessionOwners: {},
+    };
+    s.currentSnapshot.mockResolvedValue(liveSnapshot);
+
+    s.emit();
+    await jest.advanceTimersByTimeAsync(PLAN_LIMITS_PUSH_DELAY_MS);
+
+    expect(s.broadcastMessage).toHaveBeenCalledWith(
+      'planLimits:changed',
+      liveSnapshot,
+    );
+  });
+
   it('keeps one timer: a steady stream of changes still pushes every 500 ms', async () => {
     const s = buildSuite();
 

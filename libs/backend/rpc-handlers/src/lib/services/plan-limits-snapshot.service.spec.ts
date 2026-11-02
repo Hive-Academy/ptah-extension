@@ -25,7 +25,9 @@ import type {
 import type {
   PlanLimitOwnerSnapshot,
   QuotaOwnerRef,
+  SessionRuntimeIdentity,
 } from '@ptah-extension/shared';
+import { SessionId } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -62,7 +64,10 @@ function available(owner: QuotaOwnerRef): PlanLimitOwnerSnapshot {
   };
 }
 
-function build() {
+function build(
+  metadata?: { get(sessionId: string): Promise<{ codexExecution?: SessionRuntimeIdentity } | null> },
+  ownerResolver?: { ownerForCodexHome(home?: string): QuotaOwnerRef },
+) {
   const logger: MockLogger = createMockLogger();
   const discoverTargets = jest.fn<Promise<DiscoveredPlanOwner[]>, [unknown, number?]>(
     async () => [],
@@ -87,6 +92,8 @@ function build() {
       snapshotFor: jest.fn(() => undefined),
       sessionOwners: jest.fn(() => ({})),
     },
+    metadata,
+    ownerResolver,
   );
   return {
     service,
@@ -98,6 +105,79 @@ function build() {
 }
 
 describe('PlanLimitsSnapshotService', () => {
+  it('links an ambient-only native home to its unknown owner and isolates other homes', async () => {
+    const nativeId = SessionId.from('12345678-1234-4234-8234-123456789abc');
+    const otherId = SessionId.from('22345678-1234-4234-8234-123456789abc');
+    const ambientOwner: QuotaOwnerRef = {
+      key: 'openai-codex#unknown:1111111111111111', providerId: 'openai-codex',
+      identityKind: 'unknown', label: 'Codex (owner unknown)',
+    };
+    const otherOwner: QuotaOwnerRef = { ...ambientOwner,
+      key: 'openai-codex#unknown:2222222222222222' };
+    const metadata = { get: jest.fn(async (sessionId: string) => ({
+      codexExecution: {
+        version: 1 as const, sessionId: SessionId.from(sessionId),
+        runtime: 'codex-app-server' as const,
+        providerId: 'openai-codex', workspaceId: '/work',
+        codex: { normalizedHome: sessionId === nativeId
+          ? '/home/codex/.' : '/home/other' },
+      },
+    })) };
+    const ownerResolver = { ownerForCodexHome: jest.fn((home?: string) =>
+      home === '/home/codex/.' ? ambientOwner : otherOwner,
+    ) };
+    const s = build(metadata, ownerResolver);
+    // No provider_account rows or ledger links: discovery still has the native
+    // home owner returned by the same account usage reader.
+    s.discoverTargets.mockResolvedValue([
+      { kind: 'known', origin: 'selected-provider', snapshot: available(ambientOwner) },
+    ]);
+    await expect(s.service.snapshot({ sessionIds: [nativeId, otherId] }))
+      .resolves.toMatchObject({ sessionOwners: {
+        [nativeId]: { ownerKey: ambientOwner.key },
+        [otherId]: { ownerKey: null },
+      } });
+  });
+
+  it('warns when native metadata lookup fails and leaves the session unresolved', async () => {
+    const s = build({ get: jest.fn(async () => {
+      throw new Error('metadata unavailable');
+    }) }, { ownerForCodexHome: jest.fn(() => CODEX) });
+    await expect(s.service.snapshot({ sessionIds: ['native-session'] }))
+      .resolves.toMatchObject({ sessionOwners: {
+        'native-session': { ownerKey: null },
+      } });
+    expect(s.logger.warn).toHaveBeenCalledWith(
+      '[PlanLimitsSnapshot] native session owner lookup failed',
+      { errorName: 'Error' },
+    );
+  });
+
+  it('links only a persisted native Codex session on the discovered home to its plan owner', async () => {
+    const nativeId = SessionId.from('12345678-1234-4234-8234-123456789abc');
+    const claudeId = 'claude-session';
+    const metadata = { get: jest.fn(async (id: string) => id === nativeId
+      ? { codexExecution: {
+          version: 1 as const, sessionId: nativeId, runtime: 'codex-app-server' as const,
+          providerId: 'openai-codex', workspaceId: '/work',
+          codex: { normalizedHome: '/home/codex' },
+        } }
+      : null) };
+    const ownerResolver = { ownerForCodexHome: jest.fn((home?: string) =>
+      home === '/home/codex' ? CODEX : OLLAMA,
+    ) };
+    const s = build(metadata, ownerResolver);
+    s.discoverTargets.mockResolvedValue([
+      { kind: 'known', origin: 'selected-provider', snapshot: available(CODEX) },
+    ]);
+    await expect(s.service.snapshot({ sessionIds: [nativeId, claudeId] }))
+      .resolves.toMatchObject({ sessionOwners: {
+        [nativeId]: { ownerKey: CODEX.key, modelScope: null },
+        [claudeId]: { ownerKey: null, modelScope: null },
+      } });
+    expect(ownerResolver.ownerForCodexHome).toHaveBeenCalledWith('/home/codex');
+  });
+
   it('passes an incomplete discovery marker to the client snapshot', async () => {
     const s = build();
     s.discoverTargets.mockResolvedValue(

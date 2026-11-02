@@ -497,6 +497,42 @@ describe('SessionStatsSummaryComponent', () => {
     });
   });
 
+  describe('final cost meaning', () => {
+    it.each([
+      ['estimated', 'estimated', 'Estimated cost, not a charge.'],
+      [
+        'covered-by-subscription',
+        'covered by subscription',
+        'Published-rate value covered by the subscription, not a charge.',
+      ],
+    ] as const)('shows %s in both cost chip layouts and their tooltips', (basis, label, tooltip) => {
+      const root = render({ ...SNAPSHOT, costBasis: basis });
+      const assertCost = (): void => {
+        const badge = required(root, '[data-testid="stats-cost"] .badge');
+        expect(badge.textContent).toContain(label);
+        expect(badge.getAttribute('title')).toContain(label);
+        expect(badge.parentElement?.closest('[title]')?.getAttribute('title')).toContain(tooltip);
+        expect(root.querySelector('[data-testid="stats-cost-estimate"]')).toBeNull();
+      };
+      assertCost();
+      click(root, '[data-testid="stats-expand"]');
+      assertCost();
+    });
+
+    it('keeps final basis separate from the provisional turn marker', () => {
+      const root = render({ ...SNAPSHOT, costBasis: 'estimated', provisional: true });
+      expect(root.querySelector('[data-testid="stats-cost-estimate"]')).not.toBeNull();
+      expect(text(root, 'stats-cost')).toContain('estimated');
+    });
+
+    it('shows unavailable with a null cost even if a basis arrives', () => {
+      const root = render({ ...SNAPSHOT, totalCost: null, costBasis: 'covered-by-subscription' });
+      expect(text(root, 'stats-cost')).toBe('cost unavailable');
+      expect(root.querySelector('[data-testid="stats-cost"]')?.closest('[title]')?.getAttribute('title'))
+        .toContain('Cost unavailable');
+    });
+  });
+
   describe('in-turn estimate (TASK_2026_626 C9)', () => {
     const ESTIMATE_LINE =
       'Live estimate while the turn runs; final figures replace it when it ends.';

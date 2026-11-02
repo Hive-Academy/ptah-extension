@@ -30,7 +30,6 @@ import {
 import type { CuratorProxyManager } from './curator-proxy-manager';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
-import type { ICodexAuthService } from '../providers/codex/codex-provider.types';
 import type { IOpenRouterAuthService } from '../providers/openrouter/openrouter-provider.types';
 import type { IKimiCodeAuthService } from '../providers/kimi-code/kimi-code-provider.types';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot';
@@ -138,10 +137,6 @@ function createHarness(opts: {
     isAuthenticated: copilotAuthed,
     tryRestoreAuth: copilotRestore,
   } as unknown as ICopilotAuthService;
-  const codexAuth = {
-    isAuthenticated: jest.fn(async () => true),
-    ensureTokensFresh: jest.fn(async () => true),
-  } as unknown as ICodexAuthService;
   const openRouterAuth = {
     isAuthenticated: jest.fn(async () => true),
   } as unknown as IOpenRouterAuthService;
@@ -183,7 +178,6 @@ function createHarness(opts: {
     providerModels as unknown as ProviderModelsService,
     proxyManager as unknown as CuratorProxyManager,
     copilotAuth,
-    codexAuth,
     openRouterAuth,
     quota,
     kimiCodeAuth,
@@ -925,8 +919,8 @@ describe('ProviderAuthResolver.resolve — the quota gate', () => {
     // `provider: ''` + an exhausted active provider. If this passes with the
     // check placed below the early returns, the check is not being reached.
     const { resolver } = createHarness({
-      activeProviderId: 'openai-codex',
-      rateLimited: { 'openai-codex': undefined },
+      activeProviderId: 'openrouter',
+      rateLimited: { 'openrouter': undefined },
     });
 
     await expect(resolver.resolve('')).rejects.toBeInstanceOf(
@@ -938,11 +932,11 @@ describe('ProviderAuthResolver.resolve — the quota gate', () => {
     // The second early return. Same reasoning: "you are already on it" is not
     // an answer when "it" is rate-limited.
     const { resolver } = createHarness({
-      activeProviderId: 'openai-codex',
-      rateLimited: { 'openai-codex': undefined },
+      activeProviderId: 'openrouter',
+      rateLimited: { 'openrouter': undefined },
     });
 
-    await expect(resolver.resolve('openai-codex')).rejects.toBeInstanceOf(
+    await expect(resolver.resolve('openrouter')).rejects.toBeInstanceOf(
       ProviderQuotaError,
     );
   });
@@ -962,14 +956,14 @@ describe('ProviderAuthResolver.resolve — the quota gate', () => {
     // This is the distinction the whole defect turns on: `null` means "usable,
     // inherit", and inheriting an exhausted provider is the failure.
     const { resolver } = createHarness({
-      activeProviderId: 'openai-codex',
-      rateLimited: { 'openai-codex': undefined },
+      activeProviderId: 'openrouter',
+      rateLimited: { 'openrouter': undefined },
     });
 
     const error = await resolver.resolve('').catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ProviderQuotaError);
     expect((error as ProviderQuotaError).name).toBe('ProviderQuotaError');
-    expect((error as ProviderQuotaError).providerId).toBe('openai-codex');
+    expect((error as ProviderQuotaError).providerId).toBe('openrouter');
     expect((error as ProviderQuotaError).retryAfterMs).toBeGreaterThan(0);
     expect((error as ProviderQuotaError).retryAfterMs).toBeLessThanOrEqual(
       PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS,
@@ -978,8 +972,8 @@ describe('ProviderAuthResolver.resolve — the quota gate', () => {
 
   it('carries the upstream retry-after when one arrived, not the default', async () => {
     const { resolver } = createHarness({
-      activeProviderId: 'openai-codex',
-      rateLimited: { 'openai-codex': '90' },
+      activeProviderId: 'openrouter',
+      rateLimited: { 'openrouter': '90' },
     });
 
     const error = (await resolver
@@ -994,15 +988,15 @@ describe('ProviderAuthResolver.resolve — the quota gate', () => {
     // and read by a user. It must be short, honest, and must not say "timed
     // out" — that is the misclassification this whole task removes.
     const { resolver } = createHarness({
-      activeProviderId: 'openai-codex',
-      rateLimited: { 'openai-codex': undefined },
+      activeProviderId: 'openrouter',
+      rateLimited: { 'openrouter': undefined },
     });
 
     const error = (await resolver
       .resolve('')
       .catch((e: unknown) => e)) as ProviderQuotaError;
     expect(error.message).not.toMatch(/timed out/i);
-    expect(error.message).not.toContain('openai-codex');
+    expect(error.message).not.toContain('openrouter');
     expect(error.message).toMatch(/quota/i);
   });
 
@@ -1020,8 +1014,8 @@ describe('ProviderAuthResolver.resolve — the quota gate', () => {
 
   it('re-opens once the cooldown expires', async () => {
     const { resolver, quota } = createHarness({
-      activeProviderId: 'openai-codex',
-      rateLimited: { 'openai-codex': undefined },
+      activeProviderId: 'openrouter',
+      rateLimited: { 'openrouter': undefined },
     });
     await expect(resolver.resolve('')).rejects.toBeInstanceOf(
       ProviderQuotaError,
@@ -1031,7 +1025,7 @@ describe('ProviderAuthResolver.resolve — the quota gate', () => {
       .spyOn(Date, 'now')
       .mockReturnValue(Date.now() + PROVIDER_QUOTA_DEFAULT_COOLDOWN_MS + 1_000);
     try {
-      expect(quota.retryAfterMs('openai-codex')).toBe(0);
+      expect(quota.retryAfterMs('openrouter')).toBe(0);
       await expect(resolver.resolve('')).resolves.toBeNull();
     } finally {
       jest.spyOn(Date, 'now').mockRestore();
@@ -1040,22 +1034,60 @@ describe('ProviderAuthResolver.resolve — the quota gate', () => {
 
   it('re-opens immediately once the provider answers again', async () => {
     const { resolver, quota } = createHarness({
-      activeProviderId: 'openai-codex',
-      rateLimited: { 'openai-codex': undefined },
+      activeProviderId: 'openrouter',
+      rateLimited: { 'openrouter': undefined },
     });
     await expect(resolver.resolve('')).rejects.toBeInstanceOf(
       ProviderQuotaError,
     );
 
-    quota.recordSuccess('openai-codex');
+    quota.recordSuccess('openrouter');
 
     await expect(resolver.resolve('')).resolves.toBeNull();
   });
 
   it('is inert when nothing is cooling down', async () => {
-    const { resolver } = createHarness({ activeProviderId: 'openai-codex' });
+    const { resolver } = createHarness({ activeProviderId: 'openrouter' });
     await expect(resolver.resolve('')).resolves.toBeNull();
-    await expect(resolver.resolve('openai-codex')).resolves.toBeNull();
+    await expect(resolver.resolve('openrouter')).resolves.toBeNull();
+  });
+});
+
+describe('ProviderAuthResolver Codex refusal', () => {
+  it('surfaces an existing Codex quota cooldown before native-runtime refusal', async () => {
+    const { resolver } = createHarness({
+      activeProviderId: 'openai-codex',
+      rateLimited: { 'openai-codex': '90' },
+    });
+    await expect(resolver.resolve('')).rejects.toMatchObject({
+      name: 'ProviderQuotaError',
+      providerId: 'openai-codex',
+    });
+  });
+
+  it.each(['', 'openai-codex'])(
+    'rejects active Codex for request %j with a coded error',
+    async (requested) => {
+      const { resolver } = createHarness({ activeProviderId: 'openai-codex' });
+      await expect(resolver.resolve(requested)).rejects.toMatchObject({
+        name: 'AuthRequiredError',
+        providerId: 'openai-codex',
+        message: 'Codex chat requires a host with the native Codex runtime.',
+      });
+    },
+  );
+
+  it('rejects a Codex draft before acquiring a proxy', async () => {
+    const { resolver, ensureProxy } = createHarness({
+      activeProviderId: 'anthropic',
+    });
+    await expect(
+      resolver.buildDraftOverride({ providerId: 'openai-codex', authMode: 'oauth' }),
+    ).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+      providerId: 'openai-codex',
+    });
+    expect(ensureProxy).not.toHaveBeenCalled();
   });
 });
 

@@ -320,15 +320,18 @@ describe('native slash runtime routing', () => {
     expect(h.publishRuntimeNotices).not.toHaveBeenCalled();
   });
 
-  it('keeps a Claude session model and provider profile after switching the workspace to Codex', async () => {
+  it('refuses a stored Claude slash relaunch after switching the workspace to Codex', async () => {
     const workspace = resolve('/original-workspace');
-    const profile = { providerId: 'anthropic', model: 'claude-sonnet', authEnv: {} };
-    const resolveProviderProfileForWorkspace = jest.fn().mockResolvedValue(profile);
+    const resolveProviderProfileForWorkspace = jest.fn();
+    const resolveActiveAuthWithDefault = jest.fn().mockResolvedValue({
+      providerId: 'openai-codex',
+    });
     const resolver: WorkspaceProviderProfileResolver = Object.assign(
       Object.create(WorkspaceProviderProfileResolver.prototype),
       {
         activeProviderResolver: {
           resolveActiveAuthForPath: () => ({ providerId: 'openai-codex' }),
+          resolveActiveAuthWithDefault,
         },
         resolveProviderProfileForWorkspace,
       },
@@ -350,14 +353,19 @@ describe('native slash runtime routing', () => {
     });
     await expect(h.service.routeFollowUpSlashCommand('/review', sessionId, 'tab', workspace, {
       prompt: '/review', sessionId, tabId: 'tab',
-    })).resolves.toEqual({ success: true, sessionId });
-    expect(h.executeSlashCommand).toHaveBeenCalledWith(sessionId, '/review', expect.objectContaining({
-      sessionConfig: expect.objectContaining({ model: 'claude-sonnet' }), providerProfile: profile,
-    }));
+    })).resolves.toMatchObject({
+      success: false, sessionId, errorCode: 'AUTH_REQUIRED',
+      error: expect.stringContaining('provider (anthropic) differs'),
+      providerId: 'anthropic',
+    });
+    expect(h.executeSlashCommand).not.toHaveBeenCalled();
     expect(prepare).toHaveBeenCalledWith(expect.any(Object), {
       version: 1, sessionId, runtime: 'claude-sdk', providerId: 'anthropic', workspaceId: workspace,
     }, true);
-    expect(resolveProviderProfileForWorkspace).toHaveBeenCalledWith(workspace, 'claude-sonnet');
+    expect(resolveActiveAuthWithDefault).toHaveBeenCalledWith(
+      undefined, workspace,
+    );
+    expect(resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
     expect(broadcastMessage).not.toHaveBeenCalled();
   });
 

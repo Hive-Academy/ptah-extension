@@ -2,14 +2,14 @@
  * Codex Provider Types
  *
  * Codex-specific types for OpenAI Codex provider authentication
- * and proxy configuration. Mirrors the auth file structure used
+ * and account usage. Mirrors the auth file structure used
  * by the Codex CLI (~/.codex/auth.json).
  */
 
 import type { CodexAccountUsageResult } from '@ptah-extension/codex-runtime';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
 
-/** Placeholder API key used when the translation proxy manages auth internally */
+/** Historical marker recognized when refusing a retired Codex proxy route. */
 export const CODEX_PROXY_TOKEN_PLACEHOLDER = 'codex-proxy-managed';
 
 /** Sentinel value identifying a Codex OAuth-based provider configuration */
@@ -103,14 +103,6 @@ export interface ICodexAccountUsageService {
   clearCache(home?: string): void;
   /** Close legacy reads; the injected core client belongs to composition. */
   close(): Promise<void>;
-}
-
-/**
- * The quota owner of the Codex account home, for the owner resolver and the
- * Codex proxy boundary. Backend-only: the key is never part of
- * `CodexAccountUsageResult`, which is sent over RPC.
- */
-export interface ICodexOwnerKeySource {
   /**
    * Owner key of this home's account behind its last successful read
    * (`openai-codex#account:<fp>`), or `null` before the first read, after

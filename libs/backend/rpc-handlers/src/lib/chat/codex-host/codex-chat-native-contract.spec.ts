@@ -15,6 +15,9 @@
  * ids or timestamps.
  */
 import 'reflect-metadata';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { container } from 'tsyringe';
 import { Logger } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
@@ -59,8 +62,10 @@ import {
 import { createCodexChatUserQuestions } from './codex-chat-user-questions';
 import {
   createCodexChatHostPorts,
+  resolveBillingMode,
   type CodexChatHostPorts,
 } from './codex-chat-host-ports';
+
 import { ChatStreamBroadcaster } from '../streaming/chat-stream-broadcaster.service';
 import type { ISettingsStore } from '@ptah-extension/settings-core';
 import { createNativeSessionControls } from './native-session-controls';
@@ -79,6 +84,30 @@ const { CodexPermissionRuleStore } = jest.requireActual<
 const { SessionApprovalRouter } = jest.requireActual<
   typeof import('../../../../../agent-sdk/src/lib/codex-app-server/session-approval-router')
 >('../../../../../agent-sdk/src/lib/codex-app-server/session-approval-router');
+
+it('resolves billing mode separately for two CODEX_HOME directories', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ptah-codex-billing-'));
+  const keyHome = join(root, 'key');
+  const planHome = join(root, 'plan');
+  try {
+    await Promise.all([mkdir(keyHome), mkdir(planHome)]);
+    await Promise.all([
+      writeFile(join(keyHome, 'auth.json'), JSON.stringify({
+        auth_mode: 'ApiKey', OPENAI_API_KEY: 'test-key',
+      })),
+      writeFile(join(planHome, 'auth.json'), JSON.stringify({
+        auth_mode: 'Chatgpt', OPENAI_API_KEY: 'stale-key',
+        tokens: { access_token: 'test-token' },
+      })),
+    ]);
+    const logger = Object.assign(Object.create(Logger.prototype), createMockLogger());
+    expect(await resolveBillingMode(keyHome, logger)).toBe('api-key');
+    expect(await resolveBillingMode(planHome, logger)).toBe('subscription');
+    expect(await resolveBillingMode(join(root, 'missing'), logger)).toBe('unknown');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 const THREAD = SessionId.from('11111111-1111-4111-8111-111111111111');
 const TAB = SessionId.from('22222222-2222-4222-8222-222222222222');

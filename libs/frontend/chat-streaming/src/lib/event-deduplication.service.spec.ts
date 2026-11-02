@@ -130,12 +130,14 @@ describe('EventDeduplicationService', () => {
       const result = service.replaceAgentStartByAgentId(
         state,
         undefined,
+        'tool-1',
+        undefined,
         'complete',
       );
       expect(result).toBeUndefined();
     });
 
-    it('finds agent_start by agentId and removes it when new priority wins', () => {
+    it('replaces the same agent execution when new priority wins', () => {
       const state = makeState();
       const existing = {
         id: 'agent-evt-1',
@@ -152,6 +154,8 @@ describe('EventDeduplicationService', () => {
       const result = service.replaceAgentStartByAgentId(
         state,
         'agent-7',
+        'uuid-from-hook',
+        undefined,
         'complete',
       );
 
@@ -175,6 +179,8 @@ describe('EventDeduplicationService', () => {
       const result = service.replaceAgentStartByAgentId(
         state,
         'different-agent',
+        'tool-1',
+        undefined,
         'complete',
       );
 

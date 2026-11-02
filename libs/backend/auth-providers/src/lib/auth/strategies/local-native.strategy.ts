@@ -28,7 +28,6 @@ import type { ProviderModelsService } from '../../provider-models.service';
 import type { OllamaModelDiscoveryService } from '../../providers/local/ollama-model-discovery.service';
 import type { OllamaCloudMetadataService } from '../../providers/local/ollama-cloud-metadata.service';
 import type { ICopilotTranslationProxy } from '../../providers/copilot/copilot-provider.types';
-import type { ITranslationProxy } from '../../translation';
 import type { LocalModelTranslationProxy } from '../../providers/local/local-model-translation-proxy';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../../providers/local';
 import {
@@ -49,8 +48,6 @@ export class LocalNativeStrategy implements IAuthStrategy {
     private readonly providerModels: ProviderModelsService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_PROXY)
     private readonly copilotProxy: ICopilotTranslationProxy,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_PROXY)
-    private readonly codexProxy: ITranslationProxy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_LM_STUDIO_PROXY)
     private readonly lmStudioProxy: LocalModelTranslationProxy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_OLLAMA_CLOUD_METADATA)
@@ -68,7 +65,6 @@ export class LocalNativeStrategy implements IAuthStrategy {
       `[${this.name}] Configuring Ollama provider: ${providerId} (Anthropic-native)`,
     );
     await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
-    await this.stopProxyIfRunning(this.codexProxy, 'Codex');
     await this.stopProxyIfRunning(this.lmStudioProxy, 'LM Studio');
     const customUrl = this.config.get<string>(`provider.${providerId}.baseUrl`);
     const baseUrl = customUrl?.trim() || getProviderBaseUrl(providerId);

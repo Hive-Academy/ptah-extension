@@ -548,6 +548,27 @@ describe('SessionStatsAggregatorService', () => {
     const snapshot = (revision: number, cost: number): SessionStatsEntry =>
       makeSnapshot(SESS_1, revision, cost);
 
+    it('passes final cost basis through without changing old snapshots', () => {
+      const legacy = snapshot(1, 1);
+      const estimated = { ...snapshot(2, 2), costBasis: 'estimated' as const };
+      const covered = {
+        ...snapshot(3, 3), costBasis: 'covered-by-subscription' as const,
+      };
+      const unavailable = { ...snapshot(4, 4), totalCost: null, costBasis: 'unknown' as const };
+
+      for (const sessionStats of [legacy, estimated, covered, unavailable]) {
+        service.handleSessionStats({ ...baseStats, sessionStats });
+      }
+
+      expect(installSessionStatsMock.mock.calls.map((call) => call[1])).toEqual([
+        legacy, estimated, covered, unavailable,
+      ]);
+      expect(installSessionStatsMock.mock.calls[0]?.[1]).not.toHaveProperty('costBasis');
+      expect(streamHandleStatsMock).toHaveBeenLastCalledWith({
+        ...baseStats, sessionStats: unavailable,
+      });
+    });
+
     it('installs snapshots 10 then 15 without addition for tabs and surfaces', () => {
       const s10 = snapshot(10, 10);
       const s15 = snapshot(15, 15);

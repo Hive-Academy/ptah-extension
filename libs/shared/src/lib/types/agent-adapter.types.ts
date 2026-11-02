@@ -14,7 +14,12 @@ import type {
 import type { SessionId } from './branded.types';
 import type { FlatStreamEventUnion } from './execution';
 import type { McpHttpServerOverride } from './rpc/rpc-chat.types';
-import type { SessionStatsEntry } from './rpc/rpc-session.types';
+import type {
+  PriceProvenance,
+  SessionCostBasis,
+  SessionStatsEntry,
+  SessionStatsPricingCoverage,
+} from './rpc/rpc-session.types';
 import type { PermissionLevel } from './model-autopilot.types';
 import type { ProviderProfile } from './provider-profile.types';
 import type { ProviderAccountSelection } from './provider-account.types';
@@ -57,6 +62,15 @@ export interface ResultStatsPayload {
    * or process total: that is `sessionStats.totalCost`.
    */
   readonly turnCost: number | null;
+  /**
+   * Optional result cost meaning; absent retains existing Claude behavior.
+   * The host-to-UI wire reads the lifetime value from sessionStats.
+   */
+  readonly costBasis?: SessionCostBasis;
+  /** Price completeness for this result, distinct from token accounting coverage. */
+  readonly pricingCoverage?: SessionStatsPricingCoverage;
+  /** Exact model rate evidence, when the result was valued from a catalog. */
+  readonly priceProvenance?: ReadonlyArray<PriceProvenance>;
   readonly tokens: {
     readonly input: number;
     readonly output: number;

@@ -763,6 +763,20 @@ describe('quota owner persistence (TASK_2026_596 G3)', () => {
 });
 
 describe('wireAgentEventListeners — the drop reaches the log', () => {
+  it('does not broadcast a stale turn exit', () => {
+    const events = new EventEmitter();
+    const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+    const current = buildInfo({ status: 'completed', turnSeq: 2 });
+    wireAgentEventListeners(buildContainer([
+      [TOKENS.AGENT_PROCESS_MANAGER, { events, findAgentInfo: () => current }],
+      [TOKENS.WEBVIEW_MANAGER, { broadcastMessage }],
+    ]), {
+      logger: Object.assign(Object.create(null) as Logger, createMockLogger()),
+      platform: 'electron',
+    });
+    events.emit('agent:exited', buildInfo({ status: 'completed', turnSeq: 1 }));
+    expect(broadcastMessage).not.toHaveBeenCalled();
+  });
   it('warns when an exited agent has no parent session', () => {
     const logger = createMockLogger();
     const events = new EventEmitter();

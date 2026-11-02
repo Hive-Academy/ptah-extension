@@ -33,9 +33,9 @@ import {
   unavailableProviderMessage,
 } from './provider-auth.error';
 import { ProviderQuotaError } from './provider-quota.error';
+import { codexNativeRuntimeRequired } from './codex-native-runtime-refusal';
 import type { ProviderQuotaStore } from './provider-quota.store';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
-import type { ICodexAuthService } from '../providers/codex/codex-provider.types';
 import {
   KIMI_CODE_PROVIDER_ID,
   type IKimiCodeAuthService,
@@ -130,8 +130,6 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
     private readonly curatorProxyManager: CuratorProxyManager,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)
     private readonly copilotAuth: ICopilotAuthService,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
-    private readonly codexAuth: ICodexAuthService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_AUTH)
     private readonly openRouterAuth: IOpenRouterAuthService,
     /**
@@ -163,6 +161,10 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
     const providerId = requested || activeProviderId;
 
     this.assertNotCoolingDown(providerId);
+
+    if (providerId === 'openai-codex') {
+      throw codexNativeRuntimeRequired();
+    }
 
     if (requested.length === 0) {
       return null;
@@ -327,17 +329,6 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
         throw new ProviderAuthError(
           providerId,
           'GitHub Copilot is not authenticated.',
-        );
-      }
-      return;
-    }
-    if (providerId === 'openai-codex') {
-      const authed = await this.codexAuth.isAuthenticated();
-      const fresh = authed ? await this.codexAuth.ensureTokensFresh() : false;
-      if (!authed || !fresh) {
-        throw new ProviderAuthError(
-          providerId,
-          'OpenAI Codex is not authenticated.',
         );
       }
       return;
@@ -566,6 +557,9 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
     draft: DraftConnectionInput,
   ): Promise<OneShotAuthOverride> {
     const providerId = draft.providerId.trim();
+    if (providerId === 'openai-codex') {
+      throw codexNativeRuntimeRequired();
+    }
     const provider = getAnthropicProvider(providerId);
 
     // Same gate as `resolve()`, keyed on the provider that would actually be

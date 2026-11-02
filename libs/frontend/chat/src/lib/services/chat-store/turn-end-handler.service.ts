@@ -159,16 +159,20 @@ export class TurnEndHandlerService {
    * overrides a terminal status an `agent_completed`/`agent_status` set.
    */
   handleSubagentEnded(payload: SdkSubagentEndedPayload): void {
-    // The SDK's SubagentStop `toolUseID` is usually a per-invocation hook id,
-    // not the Task tool_use id the monitor and tray key by. A payload id the
-    // monitor knows is exact and wins; otherwise the record is found by its
-    // agent id, and the payload id is the last resort (it may still name a
-    // tray entry).
+    // Prefer the payload Task tool_use id when it names an exact monitor or
+    // tray entry. This adopts a placeholder even when the monitor's agent-id
+    // mapping is absent or stale. Otherwise retain the legacy agent-id
+    // fallback for a hook-specific id from an older backend.
+    const payloadToolCallId = payload.toolCallId;
+    const payloadTargetsKnownEntry =
+      payloadToolCallId !== undefined &&
+      (this.agentMonitor.getSubagent(payloadToolCallId) !== undefined ||
+        this.backgroundAgents.findByToolCallId(payloadToolCallId) !== null);
     const toolCallId =
-      (payload.toolCallId && this.agentMonitor.getSubagent(payload.toolCallId)
-        ? payload.toolCallId
-        : this.agentMonitor.findKeyByAgentId(payload.agentId)) ??
-      payload.toolCallId;
+      payloadToolCallId && payloadTargetsKnownEntry
+        ? payloadToolCallId
+        : (this.agentMonitor.findKeyByAgentId(payload.agentId) ??
+          payloadToolCallId);
     if (toolCallId) {
       this.agentMonitor.onSubagentEnded(
         toolCallId,
@@ -180,10 +184,9 @@ export class TurnEndHandlerService {
     const tabs = this.tabManager.findTabsBySessionId(sessionId);
     const agentKey = payload.agentId as BackgroundAgentId;
     const knownEntry =
-      this.backgroundAgents.findByAgentId(agentKey) ??
       (toolCallId
         ? this.backgroundAgents.adoptRealAgentId(toolCallId, payload.agentId)
-        : null);
+        : null) ?? this.backgroundAgents.findByAgentId(agentKey);
     if (knownEntry) {
       // SubagentStop is the normal-finish hook, so the entry completes. A
       // user stop arrives as `background_agent_stopped` from the SDK's

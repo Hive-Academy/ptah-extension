@@ -4,7 +4,7 @@
  * Owns one running translation/OAuth proxy instance PER effective provider
  * configuration (provider id + credential fingerprint), shared by every
  * workspace that resolves to that same configuration. Concurrent workspaces
- * that select DIFFERENT proxy-based providers (Copilot, Codex, OpenRouter,
+ * that select DIFFERENT proxy-based providers (Copilot, OpenRouter,
  * Sakana, LM Studio, or any user-defined `lane: 'openai'` entry) run on
  * distinct ephemeral ports; two workspaces on the SAME provider configuration
  * share one proxy instead of each starting its own.
@@ -22,7 +22,7 @@
  *   resolve to. Credentials and endpoint overrides are machine-wide (secret
  *   storage, `provider.<id>.baseUrl`), so workspaces on one provider resolve
  *   to the same configuration.
- * - The AUTH STATE is SHARED: Copilot/Codex/OpenRouter proxies receive the SAME
+ * - The AUTH STATE is SHARED: Copilot/OpenRouter proxies receive the SAME
  *   injected auth-service singletons the strategies use, so machine-global OAuth
  *   token state (single-flight refresh, file watcher) is never cloned. Sakana is
  *   key-bound at construction (per the workspace-resolved key) via the existing
@@ -63,6 +63,7 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { AnthropicProvider } from '@ptah-extension/shared';
+import { codexNativeRuntimeRequired } from './codex-native-runtime-refusal';
 import {
   isCustomProviderId,
   isOpenCodeProviderId,
@@ -78,12 +79,6 @@ import {
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   type ICopilotAuthService,
 } from '../providers/copilot';
-import {
-  CodexTranslationProxy,
-  CODEX_PROXY_TOKEN_PLACEHOLDER,
-  type ICodexAuthService,
-} from '../providers/codex';
-import type { ICodexOwnerKeySource } from '../providers/codex/codex-provider.types';
 import {
   KimiCodeTranslationProxy,
   KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
@@ -199,12 +194,8 @@ export class ProviderProxyPool {
     private readonly authSecrets: IAuthSecretsService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)
     private readonly copilotAuth: ICopilotAuthService,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
-    private readonly codexAuth: ICodexAuthService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_AUTH)
     private readonly openRouterAuth: IOpenRouterAuthService,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE)
-    private readonly codexOwnerKeys: ICodexOwnerKeySource,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH)
     private readonly kimiCodeAuth: IKimiCodeAuthService,
   ) {}
@@ -234,6 +225,9 @@ export class ProviderProxyPool {
     providerId: string,
     provider: AnthropicProvider,
   ): Promise<AcquiredProxy | undefined> {
+    if (providerId === 'openai-codex') {
+      throw codexNativeRuntimeRequired();
+    }
     if (provider.requiresProxy !== true) {
       // Not an error and not "unsupported": this provider speaks the Anthropic
       // protocol directly (built-in passthroughs AND custom `lane: 'anthropic'`
@@ -501,17 +495,6 @@ export class ProviderProxyPool {
           authToken: COPILOT_PROXY_TOKEN_PLACEHOLDER,
         };
       }
-      case 'openai-codex': {
-        await this.ensureCodexReady();
-        return {
-          proxy: new CodexTranslationProxy(
-            this.logger,
-            this.codexAuth,
-            this.codexOwnerKeys,
-          ),
-          authToken: CODEX_PROXY_TOKEN_PLACEHOLDER,
-        };
-      }
       case 'kimi-code': {
         // The credential is resolved per request by the shared Kimi Code
         // auth service, so one proxy serves every scope (constant key).
@@ -664,23 +647,6 @@ export class ProviderProxyPool {
     } catch (error: unknown) {
       this.logger.warn(
         '[ProviderProxyPool] Copilot readiness check failed (proxy will 401 until authenticated).',
-        { error: error instanceof Error ? error.message : String(error) },
-      );
-    }
-  }
-
-  /**
-   * Best-effort Codex readiness — starts the shared auth-file watcher (so a
-   * later `codex login` is detected) and refreshes tokens if possible. Mirrors
-   * the minimum `configureCodexOAuth` does WITHOUT writing the global AuthEnv.
-   */
-  private async ensureCodexReady(): Promise<void> {
-    try {
-      this.codexAuth.startWatchingAuthFile();
-      await this.codexAuth.ensureTokensFresh();
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[ProviderProxyPool] Codex readiness check failed (proxy will 401 until authenticated).',
         { error: error instanceof Error ? error.message : String(error) },
       );
     }

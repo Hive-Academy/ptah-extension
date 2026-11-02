@@ -9,7 +9,10 @@ import {
   type CodexParityConsumer,
   type CodexParityPlatform,
 } from '../codex-parity-gate';
-import { CodexRuntime } from '../codex-runtime';
+import {
+  CodexRuntime,
+  type CodexRuntimeUsageNotifications,
+} from '../codex-runtime';
 import type { CodexRuntimeOptions } from '../codex-context';
 import type { CodexRuntimeLogger } from '../codex-runtime-ports';
 import type { CodexExecutionProfile } from '../codex-runtime.types';
@@ -19,11 +22,11 @@ export interface CodexRuntimeRegistrationPorts extends CodexRuntimeOptions {
   /** Development-only chat and gateway routing; omission keeps every consumer gated. */
   readonly devRoute?: CodexDevRouteOverride | null;
   /** Null explicitly omits account usage support for this host. */
-  readonly usage: {
+  readonly usage: (CodexRuntimeUsageNotifications & {
     readonly auth: CodexHomeAuthReader;
     /** Composition supplies the complete usage profile for this normalized home. */
     readonly profileForHome: (home: string) => CodexExecutionProfile;
-  } | null;
+  }) | null;
 }
 
 /** Register once per host-owned container. The owner closes runtime and usage on exit.

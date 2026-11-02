@@ -423,19 +423,64 @@ describe('SdkMessageTransformer — task_started (Fix 1 + Fix 2)', () => {
 
   it('keeps the task → parent mapping of a background-announced task across compaction', () => {
     transformer = build();
-    transformer.setTaskParent('task-bg', 'toolu_sendmessage');
+    transformer.setTaskParent('task-bg', 'toolu_sendmessage', 'sess-a');
     transformer.markBackgroundAnnounced('toolu_sendmessage', 'task_started');
-    transformer.setTaskParent('task-fg', 'toolu_task');
+    transformer.setTaskParent('task-fg', 'toolu_task', 'sess-a');
 
     transformer.clearStreamingState();
 
     // A later task_notification without tool_use_id must still find its
     // parent, or the announced tray entry never ends.
-    expect(transformer.getTaskParentToolUseId('task-bg')).toBe(
+    expect(transformer.getTaskParentToolUseId('task-bg', 'sess-a')).toBe(
       'toolu_sendmessage',
     );
     expect(transformer.isBackgroundAnnounced('toolu_sendmessage')).toBe(true);
-    expect(transformer.getTaskParentToolUseId('task-fg')).toBeUndefined();
+    expect(
+      transformer.getTaskParentToolUseId('task-fg', 'sess-a'),
+    ).toBeUndefined();
+  });
+
+  it('keeps identical task ids isolated by session when notification omits tool_use_id', () => {
+    transformer = build();
+    Object.assign(registry, {
+      get: jest.fn().mockReturnValue(null),
+      peekPendingTeammateName: jest.fn().mockReturnValue(undefined),
+      update: jest.fn(),
+    });
+    transformer.transform(
+      makeTaskStarted({
+        taskId: 'task-shared',
+        toolUseId: 'toolu_session_a',
+        sessionId: 'sess-a',
+      }) as never,
+      'sess-a' as never,
+    );
+    transformer.transform(
+      makeTaskStarted({
+        taskId: 'task-shared',
+        toolUseId: 'toolu_session_b',
+        sessionId: 'sess-b',
+      }) as never,
+      'sess-b' as never,
+    );
+
+    const events = transformer.transform(
+      {
+        type: 'system',
+        subtype: 'task_notification',
+        task_id: 'task-shared',
+        session_id: 'sess-a',
+        status: 'completed',
+      } as never,
+      'sess-a' as never,
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      eventType: 'agent_completed',
+      sessionId: 'sess-a',
+      parentToolUseId: 'toolu_session_a',
+    });
   });
 
   it('Fix 2 —emits only one agent_start when task_started precedes the legacy assistant path for same tool_use_id', () => {
@@ -1186,7 +1231,7 @@ describe('SdkMessageTransformer — task_notification after compact_boundary', (
     expect(completionsOf(events)).toHaveLength(0);
   });
 
-  it('emits nothing for skip_transcript even with a tool_use_id (current behaviour)', () => {
+  it('emits a terminal event without transcript text for skip_transcript', () => {
     const transformer = build();
     const events = transformer.transform(
       notification('task-skip', {
@@ -1196,6 +1241,77 @@ describe('SdkMessageTransformer — task_notification after compact_boundary', (
       SESSION as never,
     );
 
-    expect(completionsOf(events)).toHaveLength(0);
+    const completed = completionsOf(events);
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({ summary: '', outputFile: '' });
+  });
+
+  it('emits a second terminal after task_started reuses a task id and dedupes its exact duplicate', () => {
+    const transformer = build();
+    transformer.transform(
+      makeTaskStarted({
+        taskId: 'task-reused',
+        toolUseId: 'toolu_first',
+      }) as never,
+      SESSION as never,
+    );
+    const first = completionsOf(
+      transformer.transform(
+        notification('task-reused', { tool_use_id: 'toolu_first' }) as never,
+        SESSION as never,
+      ),
+    );
+
+    transformer.transform(
+      makeTaskStarted({
+        taskId: 'task-reused',
+        toolUseId: 'toolu_second',
+      }) as never,
+      SESSION as never,
+    );
+    const second = completionsOf(
+      transformer.transform(
+        notification('task-reused', { tool_use_id: 'toolu_second' }) as never,
+        SESSION as never,
+      ),
+    );
+    const duplicate = completionsOf(
+      transformer.transform(
+        notification('task-reused', { tool_use_id: 'toolu_second' }) as never,
+        SESSION as never,
+      ),
+    );
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(second[0]).toMatchObject({ parentToolUseId: 'toolu_second' });
+    expect(duplicate).toHaveLength(0);
+  });
+
+  it('emits a terminal for a differing tool_use_id and dedupes its exact duplicate', () => {
+    const transformer = build();
+    const first = completionsOf(
+      transformer.transform(
+        notification('task-new-parent', { tool_use_id: 'toolu_original' }) as never,
+        SESSION as never,
+      ),
+    );
+    const second = completionsOf(
+      transformer.transform(
+        notification('task-new-parent', { tool_use_id: 'toolu_resumed' }) as never,
+        SESSION as never,
+      ),
+    );
+    const duplicate = completionsOf(
+      transformer.transform(
+        notification('task-new-parent', { tool_use_id: 'toolu_resumed' }) as never,
+        SESSION as never,
+      ),
+    );
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(second[0]).toMatchObject({ parentToolUseId: 'toolu_resumed' });
+    expect(duplicate).toHaveLength(0);
   });
 });

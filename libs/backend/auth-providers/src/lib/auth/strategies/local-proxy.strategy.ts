@@ -22,7 +22,6 @@ import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
 import type { ProviderModelsService } from '../../provider-models.service';
 import type { LocalModelTranslationProxy } from '../../providers/local/local-model-translation-proxy';
 import type { ICopilotTranslationProxy } from '../../providers/copilot/copilot-provider.types';
-import type { ITranslationProxy } from '../../translation';
 import { LOCAL_PROXY_TOKEN_PLACEHOLDER } from '../../providers/local';
 
 @injectable()
@@ -37,8 +36,6 @@ export class LocalProxyStrategy implements IAuthStrategy {
     private readonly providerModels: ProviderModelsService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_PROXY)
     private readonly copilotProxy: ICopilotTranslationProxy,
-    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_PROXY)
-    private readonly codexProxy: ITranslationProxy,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
   ) {}
@@ -48,7 +45,6 @@ export class LocalProxyStrategy implements IAuthStrategy {
 
     this.logger.info(`[${this.name}] Configuring local provider: LM Studio`);
     await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
-    await this.stopProxyIfRunning(this.codexProxy, 'Codex');
     const proxy = this.lmStudioProxy;
     let proxyUrl: string;
     try {

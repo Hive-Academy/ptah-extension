@@ -366,9 +366,12 @@ export class MessageBubbleComponent {
     () => this.turn() !== null && this.isLastOfTurn() && this.turnLive(),
   );
 
-  /** Streaming quotes (B-13): while streaming and the log has no row yet. */
+  /**
+   * Streaming quotes (B-13): while streaming and the log has no row yet.
+   * The live line shows the same sentences, so only one of them shows.
+   */
   protected readonly showStreamingQuotes = computed(
-    () => this.isStreaming() && !this.hasLog(),
+    () => this.isStreaming() && !this.hasLog() && !this.showLiveLine(),
   );
 
   /**

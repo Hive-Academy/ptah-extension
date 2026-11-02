@@ -71,9 +71,9 @@ interface SessionRecord {
   postCompactSeen: boolean;
 }
 
-/** True when the class may be acted on (not Codex proxy, E2 passed). */
+/** True when the class has passed E2 and may be acted on. */
 function canAct(sessionClass: CompactionSessionClass): boolean {
-  return !sessionClass.codexProxy && sessionClass.e2Passed === true;
+  return sessionClass.e2Passed === true;
 }
 
 function isOpen(state: CompactionState): boolean {
