@@ -444,7 +444,11 @@ export class LiveDemoSectionComponent {
     }
     this.hasAutoStarted = true;
     const playback = video.play();
-    if (playback) void playback.catch(() => undefined);
+    if (playback) {
+      // degradation-audit: optional-capability - the browser autoplay policy
+      // may refuse playback; the poster frame and the play control stay usable.
+      void playback.catch(() => undefined);
+    }
   }
 
   private pauseMedia(): void {
