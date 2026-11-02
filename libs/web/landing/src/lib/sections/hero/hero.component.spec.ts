@@ -68,9 +68,11 @@ function mount(platform: 'server' | 'browser'): {
   };
 }
 
-function mockMedia(video: HTMLVideoElement): { play: jest.SpyInstance; pause: jest.SpyInstance } {
+function mockMedia(video: HTMLVideoElement): { play: jest.SpyInstance; pause: jest.SpyInstance; setReady: (ready: boolean) => void } {
   let paused = true;
+  let readyState: number = HTMLMediaElement.HAVE_FUTURE_DATA;
   Object.defineProperty(video, 'paused', { configurable: true, get: () => paused });
+  Object.defineProperty(video, 'readyState', { configurable: true, get: () => readyState });
   const play = jest.spyOn(video, 'play').mockImplementation(() => {
     paused = false;
     video.dispatchEvent(new Event('play'));
@@ -80,7 +82,7 @@ function mockMedia(video: HTMLVideoElement): { play: jest.SpyInstance; pause: je
     paused = true;
     video.dispatchEvent(new Event('pause'));
   });
-  return { play, pause };
+  return { play, pause, setReady: (ready) => { readyState = ready ? HTMLMediaElement.HAVE_FUTURE_DATA : HTMLMediaElement.HAVE_NOTHING; } };
 }
 
 describe('HeroComponent', () => {
@@ -143,10 +145,66 @@ describe('HeroComponent', () => {
     expect(videos[0].paused).toBe(true);
     expect(videos[1].paused).toBe(false);
 
-    videos[1].pause(); // Native controls, not the component, initiated this pause.
+    root.querySelector<HTMLButtonElement>('.playback-button')!.click();
     document.dispatchEvent(new Event('visibilitychange'));
     ObserverStub.instances[0].emit(root.querySelector('[data-story-stage]')!, 1);
     expect(media[1].play).toHaveBeenCalledTimes(1);
+    destroy();
+  });
+
+  it('uses a custom play button in cinematic mode and waits for canplay', () => {
+    installBrowserMocks(true);
+    const { component, root, detectChanges, destroy } = mount('browser');
+    component['initialize']();
+    const videos = Array.from(root.querySelectorAll('video'));
+    const media = videos.map(mockMedia);
+    media[0].setReady(false);
+    component['reducedMotion'] = false;
+    component.cinematic.set(true);
+    component.activeChapter.set(0);
+    ObserverStub.instances[0].emit(root.querySelector('[data-story-stage]')!, 1);
+    detectChanges();
+    expect(videos.every((video) => !video.hasAttribute('controls'))).toBe(true);
+    const button = root.querySelector<HTMLButtonElement>('.playback-button')!;
+    expect(button.getAttribute('aria-label')).toBe('Play clip');
+    expect(media[0].play).not.toHaveBeenCalled();
+    media[0].setReady(true);
+    videos[0].dispatchEvent(new Event('canplay'));
+    detectChanges();
+    expect(media[0].play).toHaveBeenCalledTimes(1);
+    expect(button.getAttribute('aria-label')).toBe('Pause clip');
+    button.click();
+    detectChanges();
+    expect(videos[0].paused).toBe(true);
+    expect(button.getAttribute('aria-label')).toBe('Play clip');
+    button.click();
+    expect(media[0].play).toHaveBeenCalledTimes(2);
+    destroy();
+  });
+
+  it('preloads only the active and next clips near the stage and updates the caption', () => {
+    installBrowserMocks(true);
+    const { component, root, detectChanges, destroy } = mount('browser');
+    component['initialize']();
+    const videos = Array.from(root.querySelectorAll('video'));
+    component['reducedMotion'] = false;
+    component.cinematic.set(true);
+    component.activeChapter.set(1);
+    detectChanges();
+    expect(videos.map((video) => video.getAttribute('preload'))).toEqual(['none', 'none', 'none', 'none']);
+    ObserverStub.instances[1].emit(root.querySelector('[data-story-stage]')!, 1);
+    detectChanges();
+    expect(videos.map((video) => video.getAttribute('preload'))).toEqual(['none', 'auto', 'auto', 'none']);
+    expect(root.querySelector('.active-caption')?.textContent).toContain('Models review the work together.');
+    expect(root.querySelector('.active-caption')?.getAttribute('aria-live')).toBe('polite');
+    component.activeChapter.set(2);
+    detectChanges();
+    expect(videos.map((video) => video.getAttribute('preload'))).toEqual(['none', 'none', 'auto', 'auto']);
+    expect(root.querySelector('.active-caption')?.textContent).toContain('Every session in one view.');
+    expect(root.querySelector('.active-caption')?.textContent).not.toContain('Models review the work together.');
+    ObserverStub.instances[1].emit(root.querySelector('[data-story-stage]')!, 0);
+    detectChanges();
+    expect(videos.map((video) => video.getAttribute('preload'))).toEqual(['none', 'none', 'none', 'none']);
     destroy();
   });
 
@@ -219,8 +277,10 @@ describe('HeroComponent', () => {
     const { component, destroy } = mount('browser');
     component['initialize']();
     const observer = ObserverStub.instances[0];
+    const preloadObserver = ObserverStub.instances[1];
     destroy();
     expect(observer.disconnect).toHaveBeenCalledTimes(1);
+    expect(preloadObserver.disconnect).toHaveBeenCalledTimes(1);
     expect(removeListener).toHaveBeenCalledWith('change', expect.any(Function));
   });
 });

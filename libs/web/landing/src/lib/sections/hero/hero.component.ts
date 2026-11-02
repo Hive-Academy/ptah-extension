@@ -85,19 +85,20 @@ const SNAP_STOPS = [0, ...CHAPTER_STOPS, 1];
                 [src]="demo.video"
                 [poster]="demo.poster"
                 [attr.aria-label]="'PtahCode ' + demo.label + ' session clip'"
-                controls
+                [attr.controls]="cinematic() ? null : ''"
                 [muted]="true"
                 muted
                 playsinline
                 loop
-                preload="none"
+                [attr.preload]="cinematic() && stageNear() && (i === activeChapter() || i === activeChapter() + 1) ? 'auto' : 'none'"
+                (canplay)="onVideoCanPlay(i)"
                 (pause)="onVideoPause(i)"
                 (play)="onVideoPlay(i)"
               >
                 Your browser cannot play this PtahCode video.
               </video>
             </div>
-            <figcaption class="scene-caption" data-scene-caption>
+            <figcaption class="scene-caption" [attr.aria-hidden]="cinematic() ? 'true' : null">
               <span class="caption-number">0{{ i + 1 }} / 04</span>
               <span class="caption-title">{{ demo.label }}</span>
               <span class="caption-line">{{ captions[i] }}</span>
@@ -105,6 +106,23 @@ const SNAP_STOPS = [0, ...CHAPTER_STOPS, 1];
           </figure>
         }
         </div>
+        <button type="button" class="playback-button" [hidden]="!cinematic() || activeChapter() < 0"
+          [attr.aria-label]="playingChapter() === activeChapter() ? 'Pause clip' : 'Play clip'"
+          (click)="togglePlayback()">
+          <span aria-hidden="true">{{ playingChapter() === activeChapter() ? 'Ⅱ' : '▶' }}</span>
+        </button>
+        </div>
+        <div class="story-sidebar">
+        <div class="active-caption" aria-live="polite" aria-atomic="true">
+          @for (demo of catalog; track demo.id; let i = $index) {
+            @if (activeChapter() === i) {
+              <div class="active-caption-content">
+                <span class="caption-number">0{{ i + 1 }} / 04</span>
+                <span class="caption-title">{{ demo.label }}</span>
+                <span class="caption-line">{{ captions[i] }}</span>
+              </div>
+            }
+          }
         </div>
         <div class="chapter-rail" role="group" aria-label="Four chapters of PtahCode in action" [style.--rail-progress]="(activeChapter() + 1) / 4">
           <div class="rail-progress" aria-hidden="true"><span data-rail-fill></span></div>
@@ -116,6 +134,7 @@ const SNAP_STOPS = [0, ...CHAPTER_STOPS, 1];
               </button></li>
             }
           </ol>
+        </div>
         </div>
         </div>
       </div>
@@ -130,6 +149,8 @@ export class HeroComponent {
   readonly captions = CAPTIONS;
   readonly activeChapter = signal(-1);
   readonly cinematic = signal(false);
+  readonly stageNear = signal(false);
+  readonly playingChapter = signal(-1);
   readonly chapterStops = CHAPTER_STOPS;
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -141,6 +162,7 @@ export class HeroComponent {
   private readonly manualPaused = new WeakSet<HTMLVideoElement>();
   private readonly pausingByCode = new WeakSet<HTMLVideoElement>();
   private observer?: IntersectionObserver;
+  private preloadObserver?: IntersectionObserver;
   private motionMedia?: MediaQueryList;
   private mediaContext?: ReturnType<typeof gsap.matchMedia>;
   private storyTrigger?: ScrollTrigger;
@@ -173,6 +195,10 @@ export class HeroComponent {
       });
       this.observer.observe(stage);
       for (const video of this.videos) this.observer.observe(video);
+      this.preloadObserver = new IntersectionObserver(this.onNearIntersection, {
+        rootMargin: '50% 0px',
+      });
+      this.preloadObserver.observe(stage);
     }
     this.document.addEventListener('visibilitychange', this.syncPlayback);
 
@@ -185,7 +211,6 @@ export class HeroComponent {
       const title = stage.querySelector<HTMLElement>('[data-title-frame]');
       const track = stage.querySelector<HTMLElement>('[data-scene-track]');
       const window = stage.querySelector<HTMLElement>('[data-story-window]');
-      const captions = Array.from(stage.querySelectorAll<HTMLElement>('[data-scene-caption]'));
       const symbols = Array.from(stage.querySelectorAll<HTMLElement>('[data-float]'));
       const beats = Array.from(stage.querySelectorAll<HTMLElement>('[data-title-beat]'));
       const supporting = Array.from(stage.querySelectorAll<HTMLElement>('.title-index, .title-lead, .title-actions, .title-footnote'));
@@ -235,15 +260,11 @@ export class HeroComponent {
       });
       if (title) timeline.to(title, { opacity: 0, yPercent: -8, duration: 0.9 }, 0);
       if (track) {
-        timeline.fromTo(track, { opacity: 0 }, { opacity: 1, duration: 0.3 }, 0.8);
-        timeline.to(track, { x: () => -(window?.clientWidth ?? 0), duration: 0.45 }, 1.85);
-        timeline.to(track, { x: () => -(window?.clientWidth ?? 0) * 2, duration: 0.45 }, 3.15);
-        timeline.to(track, { x: () => -(window?.clientWidth ?? 0) * 3, duration: 0.45 }, 4.45);
+        timeline.fromTo(track, { opacity: 0, force3D: true }, { opacity: 1, duration: 0.3, force3D: true }, 0.8);
+        timeline.to(track, { x: () => -(window?.clientWidth ?? 0), duration: 0.45, force3D: true }, 1.85);
+        timeline.to(track, { x: () => -(window?.clientWidth ?? 0) * 2, duration: 0.45, force3D: true }, 3.15);
+        timeline.to(track, { x: () => -(window?.clientWidth ?? 0) * 3, duration: 0.45, force3D: true }, 4.45);
       }
-      captions.forEach((caption, index) => {
-        timeline.fromTo(caption, { opacity: 0, y: 18 },
-          { opacity: 1, y: 0, duration: 0.2, ease: 'power2.out' }, 0.75 + index * 1.3);
-      });
       timeline.to({}, { duration: 1.08 }, 5.12);
       this.storyTrigger = timeline.scrollTrigger;
 
@@ -299,11 +320,11 @@ export class HeroComponent {
       : progress < 1.65 / STORY_VIEWPORTS ? 0
       : progress < 2.95 / STORY_VIEWPORTS ? 1
       : progress < 4.25 / STORY_VIEWPORTS ? 2 : 3;
+    if (chapter === this.activeChapter()) return;
     this.host.nativeElement.classList.toggle('is-in-story', chapter >= 0);
     // The title fades out as the story starts; keep its CTAs out of the tab order
     // while they are invisible (WCAG 2.4.7).
     this.setTitleInert(chapter >= 0);
-    if (chapter === this.activeChapter()) return;
     this.activeChapter.set(chapter);
     this.syncPlayback();
   }
@@ -322,6 +343,7 @@ export class HeroComponent {
   onVideoPause(index: number): void {
     const video = this.videos[index];
     if (!video) return;
+    if (this.playingChapter() === index) this.playingChapter.set(-1);
     if (this.pausingByCode.delete(video)) return;
     this.manualPaused.add(video);
   }
@@ -333,8 +355,25 @@ export class HeroComponent {
       this.pauseVideo(video);
       return;
     }
+    this.playingChapter.set(index);
     this.manualPaused.delete(video);
     for (const other of this.videos) if (other !== video) this.pauseVideo(other);
+  }
+
+  onVideoCanPlay(index: number): void {
+    if (index === this.activeChapter()) this.syncPlayback();
+  }
+
+  togglePlayback(): void {
+    const video = this.videos[this.activeChapter()];
+    if (!video || !this.cinematic()) return;
+    if (!video.paused) {
+      this.manualPaused.add(video);
+      this.pauseVideo(video);
+      return;
+    }
+    this.manualPaused.delete(video);
+    this.syncPlayback();
   }
 
   private readonly onIntersection: IntersectionObserverCallback = (entries) => {
@@ -342,10 +381,17 @@ export class HeroComponent {
       if (entry.target instanceof HTMLVideoElement) {
         this.visibleRatios.set(entry.target, entry.intersectionRatio);
       } else {
-        this.stageVisible = entry.isIntersecting;
+        const bounds = entry.boundingClientRect;
+        const viewportHeight = this.document.defaultView?.innerHeight ?? 0;
+        this.stageVisible = entry.isIntersecting && (!bounds || (bounds.top < viewportHeight && bounds.bottom > 0));
+        if (this.stageVisible) this.stageNear.set(true);
       }
     }
     this.syncPlayback();
+  };
+
+  private readonly onNearIntersection: IntersectionObserverCallback = (entries) => {
+    this.stageNear.set(entries.some((entry) => entry.isIntersecting));
   };
 
   private readonly syncPlayback = (): void => {
@@ -354,8 +400,8 @@ export class HeroComponent {
     for (const video of this.videos) {
       if (this.cinematic()) {
         if (video !== active) this.pauseVideo(video);
-        else if (video.paused && !this.manualPaused.has(video)) {
-          // A blocked autoplay leaves the poster and native controls available.
+        else if (video.paused && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && !this.manualPaused.has(video)) {
+          // Keep the poster visible until enough of the clip is ready to play.
           void video.play().catch(() => this.manualPaused.add(video));
         }
       } else if (this.document.hidden || (this.visibleRatios.get(video) ?? 0) < 0.15) {
@@ -374,6 +420,7 @@ export class HeroComponent {
     this.mediaContext?.revert();
     this.storyTrigger?.kill();
     this.observer?.disconnect();
+    this.preloadObserver?.disconnect();
     this.motionMedia?.removeEventListener('change', this.onMotionChange);
     this.document.removeEventListener('visibilitychange', this.syncPlayback);
     for (const video of this.videos) this.pauseVideo(video);
