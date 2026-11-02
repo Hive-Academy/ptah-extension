@@ -31,7 +31,7 @@ describe('AgentDockMenuComponent', () => {
     document.body.appendChild(root);
     try {
       const trigger = root.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
-      expect(trigger.getAttribute('aria-label')).toBe('6 more agents');
+      expect(trigger.getAttribute('aria-label')).toBe('6 more agents, 1 waiting, needs you, 1 failed');
       expect(trigger.textContent).toContain('+6');
       expect(trigger.getAttribute('aria-expanded')).toBe('false');
       trigger.click();
@@ -50,6 +50,14 @@ describe('AgentDockMenuComponent', () => {
       expect(rows[4].getAttribute('aria-checked')).toBe('true');
       expect(rows[4].querySelector('.bg-secondary')).not.toBeNull();
     } finally { root.remove(); fixture.destroy(); }
+  });
+
+  it('announces a single hidden waiting agent with singular grammar', () => {
+    const fixture = create();
+    fixture.componentRef.setInput('hidden', [agent('Waiting', 'waiting')]);
+    fixture.detectChanges();
+    const trigger = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]');
+    expect(trigger?.getAttribute('aria-label')).toBe('1 more agent, 1 waiting, needs you');
   });
 
   it('closes on pointer selection and returns focus to the trigger after render', async () => {

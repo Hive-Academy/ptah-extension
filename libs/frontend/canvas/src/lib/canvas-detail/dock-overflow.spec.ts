@@ -53,6 +53,15 @@ describe('dock overflow planner', () => {
     expect(keys(planDockOverflow(changed, 'selected', 5).visible)).toEqual(['selected', 'a', 'b', 'c', 'd']);
   });
 
+  it('keeps a newly selected hidden agent reachable while focus freezes the dock', () => {
+    const agents = Array.from({ length: 6 }, (_, index) => agent(`a${index}`));
+    const frozen = ['a0', 'a1', 'a2', 'a3', 'a4'];
+    const plan = planDockOverflow(agents, 'a5', 5, frozen, 'a1');
+    expect(keys(plan.visible)).toEqual(['a0', 'a1', 'a2', 'a3', 'a5']);
+    expect(keys(plan.hidden)).toEqual(['a4']);
+    expect(keys(planDockOverflow(agents, 'a5', 1, frozen, 'a1').visible)).toEqual(['a5']);
+  });
+
   it('reserves a slot for a late selected running agent without moving it ahead of running peers', () => {
     const agents = Array.from({ length: 8 }, (_, index) => agent(`a${index}`));
     expect(keys(planDockOverflow(agents, 'a7', 5).visible)).toEqual(['a0', 'a1', 'a2', 'a3', 'a7']);

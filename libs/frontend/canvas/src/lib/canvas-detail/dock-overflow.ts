@@ -85,10 +85,12 @@ export function planDockOverflow(
   }
   let visible: SessionAgent[];
   if (frozenKeys) {
-    const frozen = [...new Set(frozenKeys)].flatMap((key) => {
+    const frozenAgents = [...new Set(frozenKeys)].flatMap((key) => {
       const agent = byKey.get(key);
       return agent ? [agent] : [];
     });
+    const frozen = selected && slots > 0 && !frozenAgents.includes(selected)
+      ? [...frozenAgents, selected] : frozenAgents;
     const kept = new Set<string>();
     // Selection and keyboard focus take priority when a resize reduces slots.
     if (selected && frozen.includes(selected)) kept.add(selected.key);

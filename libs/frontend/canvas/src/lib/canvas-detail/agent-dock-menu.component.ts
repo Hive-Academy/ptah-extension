@@ -135,7 +135,13 @@ export class AgentDockMenuComponent {
   protected readonly pile = computed(() => this.hidden().slice(0, 3));
 
   protected readonly triggerLabel = computed(() => {
-    return `${this.hidden().length} more agents`;
+    const hidden = this.hidden();
+    const parts = [`${hidden.length} more ${hidden.length === 1 ? 'agent' : 'agents'}`];
+    const waiting = hidden.filter((agent) => agent.status === 'waiting').length;
+    const failed = hidden.filter((agent) => agent.status === 'failed').length;
+    if (waiting) parts.push(`${waiting} waiting, needs you`);
+    if (failed) parts.push(`${failed} failed`);
+    return parts.join(', ');
   });
 
   protected readonly pipClass = computed(() => {

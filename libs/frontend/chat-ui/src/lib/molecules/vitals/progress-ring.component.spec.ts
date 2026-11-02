@@ -212,6 +212,14 @@ describe('ProgressRingComponent', () => {
     expect(host.querySelector('.ptah-ring__sub')?.textContent).toBe('ready');
   });
 
+  it('places checking text below the indeterminate pulse', () => {
+    render({ value: null, centerText: '', subText: 'checking', size: 'lg' });
+    expect(host.querySelector('.ptah-ring__sub')?.textContent?.trim()).toBe('checking');
+    const source = readFileSync(join(__dirname, 'progress-ring.component.ts'), 'utf8');
+    expect(source).toMatch(/:host\(\.ptah-ring--indeterminate\) \.ptah-ring__pulse\s*\{\s*transform: translateY\(-14px\)/);
+    expect(source).toMatch(/:host\(\.ptah-ring--indeterminate\) \.ptah-ring__sub\s*\{\s*transform: translateY\(16px\)/);
+  });
+
   it('renders no centre block when both texts are empty', () => {
     render({ value: 0.5 });
 

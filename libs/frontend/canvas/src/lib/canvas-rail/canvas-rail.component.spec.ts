@@ -434,9 +434,27 @@ describe('CanvasRailComponent', () => {
       ['a', 'b', 'c', 'd'].map(id => [id, 'done']))); fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('[aria-controls="rail-finished-cards"]')?.getAttribute('aria-expanded')).toBe('false');
-    expect(host.querySelectorAll('[data-rail-card]').length).toBe(0);
+    expect(host.querySelectorAll('#rail-finished-cards [data-rail-card]').length).toBe(4);
+    expect((host.querySelector('#rail-finished-cards') as HTMLElement).style.display).toBe('none');
     host.querySelector<HTMLButtonElement>('.rail-chips button')!.click(); fixture.detectChanges();
     expect(host.querySelectorAll('[data-rail-card]').length).toBe(4);
+  });
+  it('keeps collapsed Finished cards emitting state and leaves their requests unsuppressed', () => {
+    const notifications = TestBed.inject(NotificationService);
+    notifications.upsert(request('permission:finished', { tabId: 'a' }));
+    const fixture = mount(['a', 'b', 'c', 'd'].map((id, order) => tile(id, order)));
+    fixture.componentRef.setInput('workspacePath', '/local');
+    fixture.componentRef.setInput('states', new Map<string, CompactRailState>(
+      ['a', 'b', 'c', 'd'].map(id => [id, 'done'])));
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect((host.querySelector('#rail-finished-cards') as HTMLElement).style.display).toBe('none');
+    expect(stubs(fixture)).toHaveLength(4);
+    const emitted = jest.fn();
+    fixture.componentInstance.railState.subscribe(emitted);
+    stubs(fixture)[0].railState.emit('running');
+    expect(emitted).toHaveBeenCalledWith({ tabId: 'a', state: 'running' });
+    expect(notifications.snackbars().map(item => item.key)).toContain('permission:finished');
   });
   it('moves keyboard focus to the removed card’s next displayed neighbour, then its predecessor', async () => {
     const fixture = mount(['a', 'b', 'c', 'd'].map((id, order) => tile(id, order)));

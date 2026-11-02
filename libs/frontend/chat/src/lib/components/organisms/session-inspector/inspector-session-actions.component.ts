@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  Injector,
   afterNextRender,
   computed,
   inject,
@@ -27,6 +28,10 @@ interface SessionTarget { readonly id: SessionId; readonly title: string }
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './inspector-session-actions.component.html',
+  host: {
+    '(document:pointerdown)': 'onDocumentPointerDown($event)',
+    '(focusout)': 'onFocusOut($event)',
+  },
 })
 export class InspectorSessionActionsComponent {
   private readonly tabs = inject(TabManagerService);
@@ -35,6 +40,7 @@ export class InspectorSessionActionsComponent {
   private readonly chat = inject(ChatStore);
   private readonly logger = inject(LoggingService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly renameField = viewChild<ElementRef<HTMLInputElement>>('renameField');
 
@@ -79,7 +85,22 @@ export class InspectorSessionActionsComponent {
     });
   }
 
-  protected toggleMore(): void { this.moreOpen.update((open) => !open); }
+  protected toggleMore(): void {
+    if (this.moreOpen()) this.closeMore();
+    else this.openMore();
+  }
+
+  private openMore(last = false): void {
+    this.moreOpen.set(true);
+    afterNextRender(() => {
+      const items = this.menuItems();
+      items[last ? items.length - 1 : 0]?.focus();
+    }, { injector: this.injector });
+  }
+
+  private menuItems(): HTMLButtonElement[] {
+    return [...this.host.nativeElement.querySelectorAll<HTMLButtonElement>('[data-inspector-menu-action]:not(:disabled)')];
+  }
 
   protected closeMore(restoreFocus = true): void {
     this.moreOpen.set(false);
@@ -87,9 +108,55 @@ export class InspectorSessionActionsComponent {
   }
 
   protected onMenuKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && this.moreOpen()) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closeMore();
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    if (!this.moreOpen()) {
+      event.preventDefault();
+      this.openMore(event.key === 'ArrowUp' || event.key === 'End');
+      return;
+    }
+    const items = this.menuItems();
+    if (!items.length) return;
+    event.preventDefault();
+    const current = items.indexOf(this.host.nativeElement.ownerDocument.activeElement as HTMLButtonElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+      : event.key === 'ArrowDown' ? (current + 1) % items.length
+        : (current + items.length - 1) % items.length;
+    items[next].focus();
+  }
+
+  protected onDocumentPointerDown(event: PointerEvent): void {
+    if (this.moreOpen() && event.target instanceof Node && !this.host.nativeElement.contains(event.target))
+      this.closeMore(false);
+  }
+
+  protected onFocusOut(event: FocusEvent): void {
+    if (this.moreOpen() && event.relatedTarget instanceof Node && !this.host.nativeElement.contains(event.relatedTarget))
+      this.closeMore(false);
+  }
+
+  protected onRenameKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       event.preventDefault();
-      this.closeMore();
+      event.stopPropagation();
+      this.cancelRename();
+    } else if (event.key === 'Tab') {
+      const form = event.currentTarget as HTMLFormElement;
+      const controls = [...form.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)')];
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && this.host.nativeElement.ownerDocument.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && this.host.nativeElement.ownerDocument.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
     }
   }
 
@@ -119,7 +186,7 @@ export class InspectorSessionActionsComponent {
     this.renameError.set('');
     this.renameOpen.set(true);
     this.renameSequence++;
-    queueMicrotask(() => this.renameField()?.nativeElement.focus());
+    afterNextRender(() => this.renameField()?.nativeElement.focus(), { injector: this.injector });
   }
 
   protected cancelRename(): void {

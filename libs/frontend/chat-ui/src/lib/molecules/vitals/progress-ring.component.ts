@@ -163,6 +163,12 @@ const INDETERMINATE_FRACTION = 0.25;
         margin-top: 4px;
         font-size: 12px;
       }
+      :host(.ptah-ring--indeterminate) .ptah-ring__pulse {
+        transform: translateY(-14px);
+      }
+      :host(.ptah-ring--indeterminate) .ptah-ring__sub {
+        transform: translateY(16px);
+      }
       :host(.ptah-ring--lg) .ptah-ring__value {
         font-size: 28px;
       }

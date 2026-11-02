@@ -320,7 +320,7 @@ describe('CanvasLaneTabsComponent', () => {
     TestBed.tick();
     expect(fixture.nativeElement.querySelectorAll('[role="tab"]')).toHaveLength(5);
     expect(fixture.nativeElement.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
-    expect(fixture.nativeElement.querySelector('[aria-haspopup="menu"]')?.getAttribute('aria-label')).toBe('1 more agents');
+    expect(fixture.nativeElement.querySelector('[aria-haspopup="menu"]')?.getAttribute('aria-label')).toBe('1 more agent');
     fixture.destroy();
   });
 
@@ -427,7 +427,7 @@ describe('CanvasLaneTabsComponent', () => {
         ...root.querySelectorAll<HTMLElement>('[role="tab"][aria-selected="false"]'),
       ];
       expect(circles).toHaveLength(4);
-      expect(root.querySelector('[aria-haspopup="menu"]')?.getAttribute('aria-label')).toBe('1 more agents');
+      expect(root.querySelector('[aria-haspopup="menu"]')?.getAttribute('aria-label')).toBe('1 more agent');
       for (const circle of circles) {
         expect(circle.classList.contains('size-7')).toBe(true);
         expect(circle.querySelector('[data-testid="dock-chip-name"]')).toBeNull();
@@ -956,7 +956,7 @@ describe('CanvasLaneTabsComponent', () => {
         fixture.nativeElement
           .querySelector('[aria-haspopup="menu"]')
           .getAttribute('aria-label'),
-      ).toBe('6 more agents');
+      ).toBe('6 more agents, 1 waiting, needs you, 1 failed');
       const trigger = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
       trigger.click();
       fixture.detectChanges();
@@ -1131,7 +1131,7 @@ describe('CanvasLaneTabsComponent', () => {
     const menuRows = [...menu.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
     expect(menuRows).toHaveLength(1);
     expect(menuRows[0].textContent).toContain('Finished');
-    expect(trigger.getAttribute('aria-label')).toBe('1 more agents');
+    expect(trigger.getAttribute('aria-label')).toBe('1 more agent');
     menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[role="menu"]')).toBeNull();

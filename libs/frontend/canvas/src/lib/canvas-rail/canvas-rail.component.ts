@@ -227,8 +227,7 @@ const CHIP_STATES = [
                   </h2>
                 }
               }
-              @if (group.key !== 'finished' || collapsed() || isFinishedExpanded()) {
-                <ul role="list" class="flex flex-col gap-1.5 px-2 pb-2" [id]="group.key === 'finished' ? 'rail-finished-cards' : null">
+                <ul role="list" class="flex flex-col gap-1.5 px-2 pb-2" [style.display]="group.key === 'finished' && !collapsed() && !isFinishedExpanded() ? 'none' : null" [id]="group.key === 'finished' ? 'rail-finished-cards' : null">
                   @for (tile of group.tiles; track tile.tabId; let first = $first, last = $last) {
                     <li ptah-canvas-rail-card [tabId]="tile.tabId" [density]="density()"
                       [collapsed]="collapsed()" [focused]="focusedTabId() === tile.tabId"
@@ -246,7 +245,6 @@ const CHIP_STATES = [
                       (closeRequested)="closeRequested.emit($event)"></li>
                   }
                 </ul>
-              }
             </section>
           }
         </div>
@@ -327,7 +325,8 @@ export class CanvasRailComponent {
     .filter(item => this.isBlocked(item)).map(item => item.key)));
   /** Each card shows its first request inline, so the open rail stands in for that request's snackbar. */
   private readonly railShownKeys = computed(() => this.surfaceActive() && !this.collapsed()
-    ? new Set(this.orderedTiles().flatMap(tile => this.needsFor(tile).slice(0, 1))
+    ? new Set(this.orderedTiles().filter(tile => this.visibleIds().includes(tile.tabId))
+      .flatMap(tile => this.needsFor(tile).slice(0, 1))
       .filter(item => this.actionableInline(item)).map(item => item.key))
     : new Set<string>());
   private railSuppressed = new Set<string>();

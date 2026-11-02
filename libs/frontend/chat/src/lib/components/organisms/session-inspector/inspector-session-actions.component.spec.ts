@@ -11,9 +11,9 @@ import { InspectorSessionActionsComponent } from './inspector-session-actions.co
 @Component({
   standalone: true,
   imports: [InspectorSessionActionsComponent],
-  template: `<header><span>Session title</span><ptah-inspector-session-actions tabId="inspector-tab" [running]="running()" /><button data-panel-toggle>Panel</button></header>`,
+  template: `<header (keydown.escape)="escapes.update(count => count + 1)"><span>Session title</span><ptah-inspector-session-actions tabId="inspector-tab" [running]="running()" /><button data-panel-toggle>Panel</button></header>`,
 })
-class HostComponent { readonly running = signal(false); }
+class HostComponent { readonly running = signal(false); readonly escapes = signal(0); }
 
 describe('InspectorSessionActionsComponent', () => {
   const tab = signal<TabState | null>(null);
@@ -156,5 +156,72 @@ describe('InspectorSessionActionsComponent', () => {
     await Promise.resolve();
     expect(document.activeElement).toBe(button('rename'));
     root.remove();
+  });
+
+  it('navigates the More menu with arrow keys and dismisses it on focus loss and outside pointer', async () => {
+    persisted();
+    const { fixture, root, button } = await create();
+    document.body.appendChild(root);
+    await setWidth(fixture, 280);
+    button('more')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const items = [...root.querySelectorAll<HTMLButtonElement>('[data-inspector-menu-action]')];
+    expect(document.activeElement).toBe(items[0]);
+    items[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(items[items.length - 1]);
+    items[items.length - 1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(items[0]);
+    items[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(items[1]);
+    root.querySelector<HTMLButtonElement>('[data-panel-toggle]')?.focus();
+    fixture.detectChanges();
+    expect(button('more')?.getAttribute('aria-expanded')).toBe('false');
+    button('more')?.click();
+    fixture.detectChanges();
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    fixture.detectChanges();
+    expect(button('more')?.getAttribute('aria-expanded')).toBe('false');
+    root.remove();
+  });
+
+  it('contains rename focus and Escape, then restores focus after close', async () => {
+    persisted();
+    const { fixture, root, button } = await create();
+    document.body.appendChild(root);
+    button('rename')?.focus();
+    button('rename')?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const input = root.querySelector<HTMLInputElement>('#inspector-session-name')!;
+    const cancel = root.querySelector<HTMLButtonElement>('form button[type="button"]')!;
+    const save = root.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
+    expect(document.activeElement).toBe(input);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(save);
+    save.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(input);
+    cancel.focus();
+    cancel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    await Promise.resolve();
+    expect(root.querySelector('form[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(button('rename'));
+    expect(fixture.componentInstance.escapes()).toBe(0);
+    root.remove();
+  });
+
+  it('consumes Escape only while the More menu is open', async () => {
+    persisted();
+    const { fixture, root, button } = await create();
+    await setWidth(fixture, 280);
+    button('more')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(fixture.componentInstance.escapes()).toBe(1);
+    button('more')?.click();
+    fixture.detectChanges();
+    root.querySelector<HTMLElement>('[role="menu"]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.escapes()).toBe(1);
+    expect(button('more')?.getAttribute('aria-expanded')).toBe('false');
   });
 });
