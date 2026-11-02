@@ -364,6 +364,7 @@ function makeHarness(
     }),
     clearCache: jest.fn(),
     close: jest.fn(),
+    currentOwnerKey: jest.fn(() => null),
   };
   const sentry = createMockSentryService();
   const planLimits = createPlanLimitsFakes();

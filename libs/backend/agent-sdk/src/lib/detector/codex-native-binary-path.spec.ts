@@ -63,8 +63,11 @@ describe('resolveCodexNativeBinaryPath', () => {
       .mockImplementation((candidate: string) => candidate === cliCandidate);
 
     expect(resolveCodexNativeBinaryPath()).toBe(cliCandidate);
-    expect(mockExistsSync).toHaveBeenNthCalledWith(1, platformCandidate);
-    expect(mockExistsSync).toHaveBeenNthCalledWith(2, cliCandidate);
+    const probed = mockExistsSync.mock.calls.map(([candidate]) => candidate);
+    expect(probed[0]).toBe(platformCandidate);
+    // The platform package's legacy vendor layout is probed before the CLI
+    // root, so the CLI candidate is found later in the probe order.
+    expect(probed.indexOf(cliCandidate, 1)).toBeGreaterThan(0);
   });
 
   it('resolves only the direct CLI and platform packages', () => {
