@@ -12,6 +12,12 @@
  * @see https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json
  */
 
+import type {
+  PriceProvenance,
+  SessionCostBasis,
+  SessionStatsPricingCoverage,
+} from '../types/rpc/rpc-session.types';
+
 /**
  * Pricing information for a single model
  */
@@ -28,6 +34,10 @@ export interface ModelPricing {
   readonly maxTokens?: number;
   /** Provider name (anthropic, openai, etc.) */
   readonly provider?: string;
+  /** Optional non-secret catalog evidence supplied with this exact rate. */
+  readonly catalogSource?: string;
+  readonly catalogVersion?: string;
+  readonly effectiveDate?: string;
 }
 
 /**
@@ -433,6 +443,153 @@ export function pricesCacheTokens(
   const writePriced =
     !tokens.cacheCreation || pricing.cacheCreationCostPerToken !== undefined;
   return readPriced && writePriced;
+}
+
+/** Exact catalog key and its rate. No provider prefix or date-family fallback. */
+export interface ExactModelPricing {
+  readonly modelIdUsed: string;
+  readonly pricing: ModelPricing;
+}
+
+/**
+ * Resolve only the exact catalog key, except Claude's documented `[1m]`
+ * context tag: the SDK strips that tag before its API request. A distinct
+ * tagged catalog entry always wins. The base entry is useful for lookup, but
+ * its rate does not establish the price of long-context usage. Valuation
+ * requires a distinct tagged entry. Other tags, snapshots, prefixes and
+ * model families require their own explicit catalog entry.
+ */
+export function findExactModelPricing(
+  modelId: string,
+): ExactModelPricing | null {
+  if (!modelId || modelId.startsWith('<')) return null;
+  const key = modelId.toLowerCase();
+  if (Object.hasOwn(modelPricingMap, key)) {
+    const pricing = modelPricingMap[key];
+    return pricing ? { modelIdUsed: key, pricing } : null;
+  }
+  if (!/^claude-[a-z0-9.-]+\[1m\]$/.test(key)) return null;
+  const baseKey = key.slice(0, -4);
+  if (!Object.hasOwn(modelPricingMap, baseKey)) return null;
+  const pricing = modelPricingMap[baseKey];
+  return pricing ? { modelIdUsed: baseKey, pricing } : null;
+}
+
+export interface ExactCostOptions {
+  readonly billingMode: 'subscription' | 'api-key' | 'unknown';
+  /** Must be verified before cache counters can be treated as disjoint. */
+  readonly cacheSemantics?: 'disjoint' | 'ambiguous';
+  /** Explicit usage evidence permits a real zero-token turn to cost $0. */
+  readonly usageObserved?: boolean;
+}
+
+export interface ExactCostResult {
+  readonly totalCost: number | null;
+  readonly costBasis: SessionCostBasis;
+  readonly pricingCoverage: SessionStatsPricingCoverage;
+  readonly priceProvenance?: PriceProvenance;
+}
+
+function validRate(rate: number | undefined): rate is number {
+  return rate !== undefined && Number.isFinite(rate) && rate > 0;
+}
+
+/**
+ * Opt-in strict valuation. The four token classes are disjoint; reasoning
+ * output is already part of `output` and has no fifth charge. A missing or
+ * ambiguous used class makes the entire total unavailable.
+ */
+export function calculateExactMessageCost(
+  modelId: string,
+  tokens: TokenBreakdown,
+  options: ExactCostOptions,
+): ExactCostResult {
+  const unknown: ExactCostResult = {
+    totalCost: null,
+    costBasis: 'unknown',
+    pricingCoverage: 'none',
+  };
+  if (options.billingMode === 'unknown') return unknown;
+  const found = findExactModelPricing(modelId);
+  if (!found) return unknown;
+  // A base Claude rate does not establish the price of a [1m] request.
+  if (found.modelIdUsed !== modelId.toLowerCase()) return unknown;
+
+  const { pricing } = found;
+  const provenance: PriceProvenance = {
+    modelIdUsed: found.modelIdUsed,
+    catalogSource: pricing.catalogSource ?? null,
+    catalogVersion: pricing.catalogVersion ?? null,
+    effectiveDate: pricing.effectiveDate ?? null,
+  };
+  const availableBasis: SessionCostBasis =
+    options.billingMode === 'subscription'
+      ? 'covered-by-subscription'
+      : 'estimated';
+  const counts = [
+    tokens.input,
+    tokens.output,
+    tokens.cacheHit ?? 0,
+    tokens.cacheCreation ?? 0,
+  ];
+  if (counts.some((count) => !Number.isSafeInteger(count) || count < 0)) {
+    return {
+      totalCost: null,
+      costBasis: 'unknown',
+      pricingCoverage: 'none',
+      priceProvenance: provenance,
+    };
+  }
+  if (counts.every((count) => count === 0) && !options.usageObserved) {
+    return {
+      totalCost: null,
+      costBasis: 'unknown',
+      pricingCoverage: 'none',
+      priceProvenance: provenance,
+    };
+  }
+  const inputPriced = validRate(pricing.inputCostPerToken);
+  const outputPriced = validRate(pricing.outputCostPerToken);
+  const readPriced =
+    !tokens.cacheHit || validRate(pricing.cacheReadCostPerToken);
+  const writePriced =
+    !tokens.cacheCreation || validRate(pricing.cacheCreationCostPerToken);
+  const cacheUnverified =
+    ((tokens.cacheHit ?? 0) > 0 || (tokens.cacheCreation ?? 0) > 0) &&
+    options.cacheSemantics !== 'disjoint';
+  if (
+    !inputPriced ||
+    !outputPriced ||
+    !pricesCacheTokens(pricing, tokens) ||
+    !readPriced ||
+    !writePriced ||
+    cacheUnverified
+  ) {
+    const someUsedRate =
+      (tokens.input > 0 && inputPriced) ||
+      (tokens.output > 0 && outputPriced) ||
+      ((tokens.cacheHit ?? 0) > 0 && readPriced && !cacheUnverified) ||
+      ((tokens.cacheCreation ?? 0) > 0 && writePriced && !cacheUnverified);
+    return {
+      totalCost: null,
+      costBasis: 'unknown',
+      pricingCoverage: someUsedRate ? 'partial' : 'none',
+      priceProvenance: provenance,
+    };
+  }
+  const rounded = calculateMessageCost(modelId, tokens, pricing) ?? 0;
+  const unrounded =
+    tokens.input * pricing.inputCostPerToken +
+    tokens.output * pricing.outputCostPerToken +
+    (tokens.cacheHit ?? 0) * (pricing.cacheReadCostPerToken ?? 0) +
+    (tokens.cacheCreation ?? 0) * (pricing.cacheCreationCostPerToken ?? 0);
+  return {
+    // Rounding to 6 decimals must not turn real non-zero usage into $0.
+    totalCost: rounded === 0 && unrounded > 0 ? unrounded : rounded,
+    costBasis: availableBasis,
+    pricingCoverage: 'full',
+    priceProvenance: provenance,
+  };
 }
 
 /** Non-secret identity of the effective query route, captured at creation. */
