@@ -221,6 +221,7 @@ export class MessageSenderService {
       });
     };
     try {
+      // degradation-audit: reported — `warn` logs a failed offer check; the banner stays without a button.
       this.carryOver.offerFor(generation).catch(warn);
     } catch (error) {
       warn(error);

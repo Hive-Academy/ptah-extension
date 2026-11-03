@@ -904,6 +904,7 @@ export class ChatMessageHandler implements MessageHandler {
     try {
       return this.carryOver.claimSessionResolution(tabId, realSessionId);
     } catch (error) {
+      // degradation-audit: reported — a claim bug is logged and resolution continues as 'none'.
       console.warn(
         '[ChatMessageHandler] Carry-over claim failed; resolving as usual',
         {

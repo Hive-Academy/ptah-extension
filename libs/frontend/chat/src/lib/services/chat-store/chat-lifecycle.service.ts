@@ -197,6 +197,7 @@ export class ChatLifecycleService {
     try {
       return this.carryOver.claimSessionResolution(tabId, realSessionId);
     } catch (error) {
+      // degradation-audit: reported — a claim bug is logged and resolution continues as 'none'.
       console.warn('[ChatStore] Carry-over claim failed; resolving as usual', {
         tabId,
         realSessionId,

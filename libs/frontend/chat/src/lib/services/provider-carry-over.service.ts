@@ -232,6 +232,7 @@ export class ProviderCarryOverService {
         { timeout: CARRY_OVER_CHECK_TIMEOUT_MS },
       );
     } catch {
+      // degradation-audit: reported — 'check-failed' is a distinct result; the caller fails closed or keeps today's /compact (P4 = A).
       return 'check-failed';
     }
     if (!result.isSuccess()) return 'check-failed';
@@ -475,6 +476,7 @@ export class ProviderCarryOverService {
       });
     };
     try {
+      // degradation-audit: reported — `warn` logs a failed abort of a skipped carry-over session.
       this.rpc.call('chat:abort', { sessionId }).catch(warn);
     } catch (error) {
       warn(error);
