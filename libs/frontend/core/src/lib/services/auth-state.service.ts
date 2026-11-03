@@ -659,8 +659,8 @@ export class AuthStateService {
    * Force refresh of auth status from backend.
    * Bypasses the _isLoaded guard to always re-fetch.
    */
-  async refreshAuthStatus(): Promise<void> {
-    await this.fetchAndPopulateAuthStatus();
+  refreshAuthStatus(): Promise<boolean> {
+    return this.fetchAndPopulateAuthStatus();
   }
 
   /**
@@ -1199,14 +1199,6 @@ export class AuthStateService {
     this._copilotUsername.set(null);
     this._connectionStatus.set('idle');
     this._successMessage.set('');
-  }
-
-  /**
-   * Trigger Codex CLI login via terminal.
-   * Calls auth:codexLogin RPC which opens a terminal running `codex login`.
-   */
-  async codexLogin(): Promise<void> {
-    await this.rpc.call('auth:codexLogin', {});
   }
 
   /**

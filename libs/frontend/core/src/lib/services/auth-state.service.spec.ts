@@ -5,7 +5,7 @@
  *   - `loadAuthStatus` calls `auth:getAuthStatus`, populates hasApiKey +
  *     authMethod + providers, and is idempotent via `_isLoaded` guard.
  *   - `loadAuthStatus` deduplicates concurrent calls.
- *   - `refreshAuthStatus` always re-fetches.
+ *   - `refreshAuthStatus` always re-fetches and returns the applied read result.
  *   - `checkProviderKeyStatus` updates the single-provider entry in
  *     `_providerKeyMap`.
  *   - `setAuthMethod` / `setSelectedProviderId` reset status messages.
@@ -14,7 +14,6 @@
  *   - `saveAndTest` concurrent-guard via `_isSaving`.
  *   - `deleteApiKey` / `deleteProviderKey` propagate errors.
  *   - `copilotLogin` / `copilotLogout` toggle Copilot auth signals.
- *   - `codexLogin` triggers the RPC.
  *   - `clearStatus` resets status + error + success signals.
  *   - Computed derivations: `selectedProvider`, `persistedTileId`,
  *     `hasProviderKey`, `hasAnyCredential`, `showProviderModels`,
@@ -219,6 +218,20 @@ describe('AuthStateService', () => {
         (c: unknown[]) => c[0] === 'auth:getAuthStatus',
       );
       expect(calls).toHaveLength(3);
+    });
+
+    it('refreshAuthStatus resolves true after a successful read', async () => {
+      rpc.call.mockResolvedValue(rpcSuccess(makeAuthStatusResponse()));
+      const service = createService();
+
+      await expect(service.refreshAuthStatus()).resolves.toBe(true);
+    });
+
+    it('refreshAuthStatus resolves false after a failed read', async () => {
+      rpc.call.mockResolvedValue(rpcError('backend offline'));
+      const service = createService();
+
+      await expect(service.refreshAuthStatus()).resolves.toBe(false);
     });
   });
 
@@ -864,7 +877,7 @@ describe('AuthStateService', () => {
     });
   });
 
-  describe('copilotLogin / copilotLogout / codexLogin', () => {
+  describe('copilotLogin / copilotLogout', () => {
     it('copilotLogin flips authenticated + username + success status', async () => {
       const service = createService();
       rpc.call
@@ -931,13 +944,6 @@ describe('AuthStateService', () => {
       expect(service.copilotUsername()).toBeNull();
     });
 
-    it('codexLogin invokes the auth:codexLogin RPC', async () => {
-      const service = createService();
-      rpc.call.mockResolvedValueOnce(rpcSuccess({ success: true }));
-
-      await service.codexLogin();
-      expect(rpc.call).toHaveBeenCalledWith('auth:codexLogin', {});
-    });
   });
 
   // ---------------------------------------------------------------------------
@@ -1056,9 +1062,9 @@ describe('AuthStateService', () => {
       const older = service.refreshAuthStatus();
 
       statusOnce('thirdParty', 'kimi-code');
-      await service.refreshAuthStatus();
+      await expect(service.refreshAuthStatus()).resolves.toBe(true);
       releaseOlder();
-      await older;
+      await expect(older).resolves.toBe(true);
 
       expect(service.persistedProviderId()).toBe('kimi-code');
       expect(service.activeProviderId()).toBe('kimi-code');
@@ -1094,9 +1100,9 @@ describe('AuthStateService', () => {
       const older = service.refreshAuthStatus();
       await new Promise((r) => setTimeout(r, 0)); // older applied, awaits scope
 
-      await service.refreshAuthStatus();
+      await expect(service.refreshAuthStatus()).resolves.toBe(false);
       releaseScope();
-      await older;
+      await expect(older).resolves.toBe(false);
 
       expect(service.persistedProviderId()).toBe('kimi-code');
       expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
@@ -1139,7 +1145,7 @@ describe('AuthStateService', () => {
       modelState.refreshModels.mockRejectedValueOnce(new Error('offline'));
 
       statusOnce('thirdParty', 'kimi-code');
-      await expect(service.refreshAuthStatus()).resolves.toBeUndefined();
+      await expect(service.refreshAuthStatus()).resolves.toBe(true);
       expect(service.persistedProviderId()).toBe('kimi-code');
     });
   });

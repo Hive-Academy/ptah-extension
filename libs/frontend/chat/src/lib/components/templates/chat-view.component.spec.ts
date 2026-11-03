@@ -80,6 +80,7 @@ import {
   ClaudeRpcService,
   AppStateManager,
   AuthStateService,
+  CodexSignInService,
   LoggingService,
   NotificationService,
   PlanLimitsStore,
@@ -89,6 +90,8 @@ import {
 import { DisplayWindowSync } from '../../services/display-window/display-window-sync.service';
 import { ArtifactStore } from '../../services/artifact.store';
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
+import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
+import { CodexSignInBlockComponent } from '../../settings/providers/connection-drawer/codex-sign-in-block.component';
 import type {
   PlanLimitOwnerSnapshot,
   PlanLimitsSnapshot,
@@ -194,6 +197,8 @@ function makeHarness(
      * be exercised without wiring that component's own DI graph.
      */
     renderCompactTemplate?: boolean;
+    /** Render the production auth banner with its real child components. */
+    renderAuthBannerTemplate?: boolean;
     /** Initial `activeTabViewMode` stub value. Defaults to 'full'. */
     activeTabViewMode?: TabViewMode;
     /** When set, provide a tile-local signal that forces the compact card. */
@@ -218,6 +223,7 @@ function makeHarness(
     realPanelResize = false,
     renderOverlayTemplate = false,
     renderCompactTemplate = false,
+    renderAuthBannerTemplate = false,
     activeTabViewMode = 'full',
     forcedCard,
     startGuard,
@@ -519,13 +525,24 @@ function makeHarness(
     getConversationId: jest.fn(() => null),
   } as unknown as TabSessionBinding;
 
+  const authRequiredBannerSig = signal<{ providerId: string | null; message: string } | null>(null);
+  const codexStateSig = signal<{ attemptId: string; mode: 'browser'; status: 'starting' | 'running' | 'awaiting-user' | 'succeeded' } | null>(null);
+  const codexStartMock = jest.fn<Promise<void>, []>(async () => undefined);
+  const codexCancelMock = jest.fn<Promise<void>, []>(async () => undefined);
+  const refreshAuthStatusMock = jest.fn<Promise<boolean>, []>(async () => true);
+  const clearAuthRequiredBannerMock = jest.fn(() => authRequiredBannerSig.set(null));
   const authStateStub = {
-    authRequiredBanner: signal(null),
+    authRequiredBanner: authRequiredBannerSig.asReadonly(),
     authMethodLabel: signal<string | null>(null).asReadonly(),
     loadAuthStatus: jest.fn(async (): Promise<void> => undefined),
-    codexLogin: jest.fn(async () => undefined),
-    clearAuthRequiredBanner: jest.fn(),
+    refreshAuthStatus: refreshAuthStatusMock,
+    clearAuthRequiredBanner: clearAuthRequiredBannerMock,
   } as unknown as AuthStateService;
+  const codexSignInStub = {
+    state: codexStateSig.asReadonly(),
+    start: codexStartMock,
+    cancel: codexCancelMock,
+  } as unknown as CodexSignInService;
 
   const displaySidebarWidthSig = signal<number | null>(null);
   const layoutStub = {
@@ -586,6 +603,7 @@ function makeHarness(
       { provide: ConversationRegistry, useValue: conversationRegistryStub },
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
+      { provide: CodexSignInService, useValue: codexSignInStub },
       { provide: PlanLimitsStore, useValue: planLimitsStub },
       {
         provide: SessionInspectorStore,
@@ -642,7 +660,14 @@ function makeHarness(
     });
   }
 
-  if (renderCompactTemplate) {
+  if (renderAuthBannerTemplate) {
+    TestBed.overrideComponent(ChatViewComponent, {
+      set: {
+        imports: [AuthRequiredBannerComponent, CodexSignInBlockComponent],
+        schemas: [NO_ERRORS_SCHEMA],
+      },
+    });
+  } else if (renderCompactTemplate) {
     TestBed.overrideComponent(ChatViewComponent, {
       set: {
         imports: [],
@@ -658,6 +683,12 @@ function makeHarness(
   return {
     component,
     fixture,
+    authRequiredBannerSig,
+    codexStateSig,
+    codexStartMock,
+    codexCancelMock,
+    refreshAuthStatusMock,
+    clearAuthRequiredBannerMock,
     sessionId,
     displaySidebarWidthSig,
     layoutStub,
@@ -717,6 +748,77 @@ function makeHarness(
     requestComposerPrefillMock,
   };
 }
+
+describe('ChatViewComponent — Codex re-auth', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('starts in-app sign-in from the Codex auth banner', async () => {
+    const h = makeHarness();
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+
+    await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
+
+    expect(h.codexStartMock).toHaveBeenCalledTimes(1);
+    expect(h.clearAuthRequiredBannerMock).not.toHaveBeenCalled();
+  });
+
+  it('renders the compact block and Cancel while banner sign-in is active', async () => {
+    const h = makeHarness({ renderAuthBannerTemplate: true });
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    h.codexStateSig.set({ attemptId: 'attempt-1', mode: 'browser', status: 'running' });
+    await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
+    h.fixture.detectChanges();
+
+    expect(h.fixture.nativeElement.querySelector('[data-testid="codex-sign-in-block"]')).not.toBeNull();
+    const cancel = h.fixture.nativeElement.querySelector('button[data-testid="codex-reauth-cancel"]') as HTMLButtonElement | null;
+    expect(cancel?.textContent).toContain('Cancel sign-in');
+    cancel?.click();
+    expect(h.codexCancelMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not render Codex controls for another provider', async () => {
+    const h = makeHarness({ renderAuthBannerTemplate: true });
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    h.codexStateSig.set({ attemptId: 'attempt-2', mode: 'browser', status: 'running' });
+    await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
+    h.authRequiredBannerSig.set({ providerId: 'anthropic', message: 'Sign in again' });
+    h.fixture.detectChanges();
+
+    expect(h.fixture.nativeElement.querySelector('ptah-codex-sign-in-block')).toBeNull();
+    expect(h.fixture.nativeElement.querySelector('button[data-testid="codex-reauth-cancel"]')).toBeNull();
+  });
+
+  it('refreshes auth before clearing the banner after sign-in succeeds', async () => {
+    const h = makeHarness();
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    let resolveRefresh!: (value: boolean) => void;
+    h.refreshAuthStatusMock.mockReturnValue(new Promise<boolean>((resolve) => { resolveRefresh = resolve; }));
+    await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
+
+    h.codexStateSig.set({ attemptId: 'attempt-1', mode: 'browser', status: 'succeeded' });
+    h.fixture.detectChanges();
+    expect(h.refreshAuthStatusMock).toHaveBeenCalledTimes(1);
+    expect(h.clearAuthRequiredBannerMock).not.toHaveBeenCalled();
+
+    resolveRefresh(true);
+    await Promise.resolve();
+    expect(h.clearAuthRequiredBannerMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the banner when the post-sign-in auth refresh fails', async () => {
+    const h = makeHarness();
+    h.authRequiredBannerSig.set({ providerId: 'openai-codex', message: 'Sign in again' });
+    h.refreshAuthStatusMock.mockResolvedValue(false);
+    await (h.component as unknown as { onAuthReauth(): Promise<void> }).onAuthReauth();
+
+    h.codexStateSig.set({ attemptId: 'attempt-2', mode: 'browser', status: 'succeeded' });
+    h.fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(h.refreshAuthStatusMock).toHaveBeenCalledTimes(1);
+    expect(h.clearAuthRequiredBannerMock).not.toHaveBeenCalled();
+  });
+});
 
 describe('ChatViewComponent — older history orchestration', () => {
   afterEach(() => {

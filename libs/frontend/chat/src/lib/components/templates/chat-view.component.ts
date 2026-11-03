@@ -48,6 +48,7 @@ import {
 } from '@ptah-extension/chat-ui';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
+import { CodexSignInBlockComponent } from '../../settings/providers/connection-drawer/codex-sign-in-block.component';
 import { SessionBudgetBannerComponent } from '../molecules/notifications/session-budget-banner.component';
 import {
   InstallScopeMigrationNoticeComponent,
@@ -97,6 +98,7 @@ import {
   ClaudeRpcService,
   AppStateManager,
   AuthStateService,
+  CodexSignInService,
   PlanLimitsStore,
   RpcResult,
   VSCodeService,
@@ -197,6 +199,7 @@ const VIEW_PANEL_KEY = '';
     QuestionCardComponent,
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
+    CodexSignInBlockComponent,
     SessionBudgetBannerComponent,
     InstallScopeMigrationNoticeComponent,
     CompactionNotificationComponent,
@@ -274,9 +277,21 @@ export class ChatViewComponent implements OnDestroy {
   private readonly _claudeRpc = inject(ClaudeRpcService);
   private readonly _confirmDialog = inject(ConfirmationDialogService);
   private readonly _authState = inject(AuthStateService);
+  protected readonly codexSignIn = inject(CodexSignInService);
+  protected readonly codexReauthStarted = signal(false);
+  protected readonly codexReauthRunning = computed(() => {
+    if (!this.codexReauthStarted()) return false;
+    const status = this.codexSignIn.state()?.status;
+    return status === 'starting' || status === 'running' || status === 'awaiting-user';
+  });
 
   /** Inline re-auth banner state (set when a send fails needing auth). */
   protected readonly authRequiredBanner = this._authState.authRequiredBanner;
+  private async completeCodexReauth(): Promise<void> {
+    if (await this._authState.refreshAuthStatus()) {
+      this._authState.clearAuthRequiredBanner();
+    }
+  }
 
   private readonly staleOlderHistory = signal<{
     tabId: string;
@@ -335,15 +350,14 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   /**
-   * Handle the banner's re-authenticate action. For Codex this opens a terminal
-   * running `codex login`; the auth-file watcher then re-inits the adapter and
-   * the banner clears on the next auth-status refresh. Other providers route to
-   * Settings.
+   * Handle the banner's re-authenticate action. Codex uses in-app sign-in;
+   * other providers route to Settings.
    */
   protected async onAuthReauth(): Promise<void> {
     const banner = this.authRequiredBanner();
     if (banner?.providerId === 'openai-codex') {
-      await this._authState.codexLogin();
+      this.codexReauthStarted.set(true);
+      await this.codexSignIn.start();
       return;
     }
     this._appState.setCurrentView('settings');
@@ -352,7 +366,12 @@ export class ChatViewComponent implements OnDestroy {
 
   /** Dismiss the re-auth banner. */
   protected onAuthBannerDismiss(): void {
+    this.codexReauthStarted.set(false);
     this._authState.clearAuthRequiredBanner();
+  }
+
+  protected onCodexReauthCancel(): void {
+    void this.codexSignIn.cancel();
   }
 
   /**
@@ -1339,6 +1358,13 @@ export class ChatViewComponent implements OnDestroy {
   });
 
   constructor() {
+    effect(() => {
+      if (!this.codexReauthStarted()) return;
+      if (this.codexSignIn.state()?.status !== 'succeeded') return;
+      if (this.authRequiredBanner()?.providerId !== 'openai-codex') return;
+      this.codexReauthStarted.set(false);
+      void this.completeCodexReauth();
+    });
     this._budgetActions.connect({
       activeTab: this.resolvedActiveTab,
       tabId: this.resolvedTabId,

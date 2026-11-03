@@ -152,6 +152,16 @@
             (reauth)="onAuthReauth()"
             (dismiss)="onAuthBannerDismiss()"
           />
+          @if (authBanner.providerId === 'openai-codex' && codexReauthStarted()) {
+            <div class="mt-2">
+              <ptah-codex-sign-in-block layout="compact" role="chosen" />
+              @if (codexReauthRunning()) {
+                <button type="button" class="btn btn-ghost btn-sm mt-2" data-testid="codex-reauth-cancel" (click)="onCodexReauthCancel()">
+                  Cancel sign-in
+                </button>
+              }
+            </div>
+          }
         </div>
       }
 
