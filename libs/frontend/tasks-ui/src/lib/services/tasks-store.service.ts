@@ -6,6 +6,7 @@ import {
   inject,
   signal,
   untracked,
+  type Signal,
 } from '@angular/core';
 import {
   AppStateManager,
@@ -29,6 +30,7 @@ import {
   type TaskGraph,
   type TaskMetadataPatch,
   type TaskSortSpec,
+  isDocFile,
   type DocFile,
   type TasksSweepResult,
   type TaskSpecDetail,
@@ -44,6 +46,16 @@ import {
   type TasksUpdateMetadataResult,
 } from '@ptah-extension/shared';
 import { isTaskExclusionReason } from '../task-presentation';
+import {
+  TaskFolderStore,
+  type TaskDocumentState,
+  type TaskFolderListing,
+} from './task-folder.store';
+import {
+  isOpenableRootFile,
+  type TaskFolderBreadcrumb,
+  type TaskFolderEntry,
+} from './task-folder-entries';
 import { TASKS_CHANGED_MESSAGE_TYPE } from '../tasks-changed';
 
 /**
@@ -425,6 +437,8 @@ export class TasksStore implements MessageHandler {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly fileLinkOpener = inject(FILE_LINK_OPENER);
   private readonly appState = inject(AppStateManager);
+  /** Document and folder-browser state, exposed only through this facade. */
+  private readonly folder = inject(TaskFolderStore);
   private readonly destroyRef = inject(DestroyRef);
 
   /** Consumed by `MessageRouterService` — refresh on backend index changes. */
@@ -481,11 +495,6 @@ export class TasksStore implements MessageHandler {
   private readonly _selectedTaskId = signal<string | null>(null);
   private readonly _taskDetail = signal<TaskSpecDetail | null>(null);
   private readonly _detailLoading = signal(false);
-
-  /** The workflow document expanded in the detail panel — see {@link readDocument}. */
-  private readonly _openDocument = signal<DocFile | null>(null);
-  private readonly _documentContent = signal<string | null>(null);
-  private readonly _documentLoading = signal(false);
 
   /** The last sweep preview or report — see {@link previewSweep}. */
   private readonly _sweep = signal<TasksSweepResult | null>(null);
@@ -667,9 +676,6 @@ export class TasksStore implements MessageHandler {
    */
   private detailReqSeq = 0;
 
-  /** Same guard as {@link detailReqSeq}, for the workflow-document read. */
-  private documentReqSeq = 0;
-
   /**
    * Workspace key the switch effect last observed. Seeded synchronously at
    * construction with the same key the component's initial `loadBoard()` uses,
@@ -735,9 +741,37 @@ export class TasksStore implements MessageHandler {
   public readonly selectedTaskId = this._selectedTaskId.asReadonly();
   public readonly taskDetail = this._taskDetail.asReadonly();
   public readonly detailLoading = this._detailLoading.asReadonly();
-  public readonly openDocument = this._openDocument.asReadonly();
-  public readonly documentContent = this._documentContent.asReadonly();
-  public readonly documentLoading = this._documentLoading.asReadonly();
+  /**
+   * The workflow document open in the reader, or `null` when nothing is open
+   * or the open file is not one of the `DOC_FILES` (see {@link openFile}).
+   */
+  public readonly openDocument = computed<DocFile | null>(() => {
+    const file = this.folder.openFile();
+    return file !== null && isDocFile(file) ? file : null;
+  });
+  /** The reader's markdown when it is `ready`, otherwise `null`. */
+  public readonly documentContent = computed<string | null>(() => {
+    const state = this.folder.document();
+    return state.status === 'ready' ? state.content : null;
+  });
+  public readonly documentLoading = computed(
+    () => this.folder.document().status === 'loading',
+  );
+  /** Any direct-child file open in the reader (workflow or extra markdown). */
+  public readonly openFile: Signal<string | null> = this.folder.openFile;
+  /** The reader's typed state; see {@link TaskDocumentState}. */
+  public readonly documentState: Signal<TaskDocumentState> =
+    this.folder.document;
+  /** The browsed folder directory with its typed status and rows. */
+  public readonly folderListing: Signal<TaskFolderListing> =
+    this.folder.listing;
+  /** Rows of the browsed directory: actual entries plus missing workflow docs. */
+  public readonly folderEntries: Signal<readonly TaskFolderEntry[]> =
+    this.folder.entries;
+  /** Browsed directory relative to the task folder (`''` = the folder). */
+  public readonly folderDirectory: Signal<string> = this.folder.directory;
+  public readonly folderBreadcrumbs: Signal<readonly TaskFolderBreadcrumb[]> =
+    this.folder.breadcrumbs;
   public readonly sweep = this._sweep.asReadonly();
   public readonly sweeping = this._sweeping.asReadonly();
 
@@ -1207,7 +1241,7 @@ export class TasksStore implements MessageHandler {
     // underneath the new task's heading. Cleared unconditionally: re-opening
     // the SAME task is a re-read, and it is cheaper to reopen a document than
     // to reason about when the old content is still the right content.
-    this.closeDocument();
+    this.folder.selectTask(taskId, this.workspaceParam().workspaceRoot);
     this._selectedTaskId.set(taskId);
     this._detailLoading.set(true);
     try {
@@ -1218,6 +1252,7 @@ export class TasksStore implements MessageHandler {
       if (seq !== this.detailReqSeq) return;
       if (result.isSuccess() && result.data) {
         this._taskDetail.set(result.data.task);
+        this.folder.setDetail(result.data.task);
       } else {
         this._taskDetail.set(null);
         this._error.set(result.error ?? 'Failed to load task detail');
@@ -1236,7 +1271,7 @@ export class TasksStore implements MessageHandler {
     this._selectedTaskId.set(null);
     this._taskDetail.set(null);
     this._detailLoading.set(false);
-    this.closeDocument();
+    this.folder.reset();
   }
 
   /**
@@ -1253,32 +1288,34 @@ export class TasksStore implements MessageHandler {
    * fifteen recognised documents.
    */
   public async readDocument(file: DocFile | null): Promise<void> {
-    const taskId = this._selectedTaskId();
-    if (file === null || taskId === null) {
-      this.closeDocument();
+    await this.readFolderFile(file);
+  }
+
+  /**
+   * Read any direct-child file of the open task into the reader: a workflow
+   * document through `tasks:getArtifact`, other eligible markdown through
+   * `tasks:readFolderMarkdown`. `null` closes the reader.
+   *
+   * Every outcome lands in {@link documentState}, including `rejected` and
+   * transport failures; nothing is thrown. A transport failure is also put on
+   * the store-level {@link error}, as `readDocument` always did.
+   */
+  public async readFolderFile(file: string | null): Promise<void> {
+    if (this._selectedTaskId() === null) {
+      this.folder.closeDocument();
       return;
     }
+    const state = await this.folder.readFile(file);
+    if (state?.status === 'error') this._error.set(state.message);
+  }
 
-    const seq = ++this.documentReqSeq;
-    this._openDocument.set(file);
-    this._documentContent.set(null);
-    this._documentLoading.set(true);
-    try {
-      const result = await this.rpc.call('tasks:getArtifact', {
-        taskId,
-        file,
-        ...this.workspaceParam(),
-      });
-      if (seq !== this.documentReqSeq) return;
-      if (result.isSuccess() && result.data && result.data.file === file) {
-        this._documentContent.set(result.data.content);
-      } else {
-        this._documentContent.set(null);
-        this._error.set(result.error ?? `Failed to read ${file}`);
-      }
-    } finally {
-      if (seq === this.documentReqSeq) this._documentLoading.set(false);
-    }
+  /**
+   * Browse the open task's folder: `''` is the folder itself, otherwise a
+   * `/`-separated relative directory such as `prototype/assets`. Listing uses
+   * `tasks:listFolderEntries`; its typed result lands in {@link folderListing}.
+   */
+  public async openFolderDirectory(directory: string): Promise<void> {
+    await this.folder.openDirectory(directory);
   }
 
   /**
@@ -1342,10 +1379,7 @@ export class TasksStore implements MessageHandler {
 
   /** Close the expanded document and invalidate any read still in flight. */
   public closeDocument(): void {
-    this.documentReqSeq++;
-    this._openDocument.set(null);
-    this._documentContent.set(null);
-    this._documentLoading.set(false);
+    this.folder.closeDocument();
   }
 
   /**
@@ -1358,7 +1392,7 @@ export class TasksStore implements MessageHandler {
    */
   public async openArtifact(file: string): Promise<void> {
     const detail = this._taskDetail();
-    if (!detail || !detail.artifacts.includes(file)) return;
+    if (!detail || !isOpenableRootFile(detail, file)) return;
 
     const root = this.appState.workspaceInfo()?.path;
     if (!root) {
@@ -2488,7 +2522,25 @@ export class TasksStore implements MessageHandler {
     await this.refreshBoard(this.activeKey(), this.activeRoot());
     const selected = this._selectedTaskId();
     if (selected) {
+      // Re-reading the task resets the reader and the browser. Restore what
+      // the user had open, re-read from disk, so a change on disk refreshes
+      // the open document instead of closing it.
+      const file = this.folder.openFile();
+      const directory = this.folder.directory();
       await this.openTask(selected);
+      if (this._selectedTaskId() !== selected || this._taskDetail() === null) {
+        return;
+      }
+      // Only restore into an untouched reader: a file or directory the user
+      // opened while the task re-read is newer than the one remembered here.
+      await Promise.all([
+        directory === '' || this.folder.directory() !== ''
+          ? Promise.resolve()
+          : this.folder.openDirectory(directory),
+        file === null || this.folder.openFile() !== null
+          ? Promise.resolve()
+          : this.folder.readFile(file),
+      ]);
     }
   }
 
