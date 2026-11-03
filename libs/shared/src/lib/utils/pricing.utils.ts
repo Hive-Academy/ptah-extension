@@ -337,6 +337,9 @@ export function normalizeModelKey(modelId: string): string {
  *    deliberately removed: querying a shorter or generic model id (e.g. "supermodel")
  *    must never resolve to an arbitrary longer registered variant (such as
  *    "supermodel-2099-final-edition"), which would bill at the wrong rates.
+ * 4. Last, a dashed Claude id (`claude-opus-5-5`, optionally dated) resolves
+ *    to its dotted catalog spelling (`claude-opus-5.5`); see
+ *    {@link resolvePricingKey}.
  *
  * `stripVariantTags: false` keeps the pre-tag behaviour for the context-window
  * lookup: a `[1m]` variant must not inherit its base model's `maxTokens`.
@@ -388,7 +391,44 @@ function lookupPricingEntry(
     }
   }
 
-  return bestMatch;
+  if (bestMatch || !stripVariantTags) return bestMatch;
+  // A tagged dotted entry wins over the base entry, as rule 1 does. A dated
+  // id resolves like its undated model, as rule 2 does.
+  const key =
+    (lowerId === untaggedId
+      ? null
+      : resolvePricingKey(stripProviderPrefix(lowerId))) ??
+    resolvePricingKey(strippedId.replace(TRAILING_DATE_SNAPSHOT, ''));
+  return key === null ? null : modelPricingMap[key];
+}
+
+/** `claude-<family>-<major>-<minor>`, then at most a `[1m]` context tag. */
+const CLAUDE_DASHED_VERSION = /^(claude-[a-z]+-\d+)-(\d{1,2})(\[1m\])?$/;
+
+/**
+ * The map key a lowercase model id is priced under: the id itself when it
+ * has an entry, else, for a dashed Claude id, its dotted catalog spelling.
+ * The SDK names a model `claude-opus-5-5`, while OpenRouter, the catalog that
+ * hydrates Claude rates, publishes it as `anthropic/claude-opus-5.5` (also
+ * registered as `claude-opus-5.5`). Only the major-minor separator differs.
+ * Other families' dashes and dots name distinct models, so they never alias.
+ * A `[1m]` tag stays on the dotted spelling, so a tagged catalog entry
+ * (`claude-opus-5.5[1m]`) is found before any base entry.
+ * `null` when neither spelling has an entry.
+ *
+ * The one resolver behind both {@link findModelPricing} (rule 4) and
+ * {@link findExactModelPricing}, so the two never disagree about a spelling.
+ *
+ * @example resolvePricingKey('claude-opus-5-5'); // 'claude-opus-5.5'
+ */
+function resolvePricingKey(key: string): string | null {
+  if (Object.hasOwn(modelPricingMap, key) && modelPricingMap[key]) return key;
+  const match = CLAUDE_DASHED_VERSION.exec(key);
+  if (!match) return null;
+  const dotted = `${match[1]}.${match[2]}${match[3] ?? ''}`;
+  return Object.hasOwn(modelPricingMap, dotted) && modelPricingMap[dotted]
+    ? dotted
+    : null;
 }
 
 /**
@@ -467,8 +507,10 @@ export interface ExactModelPricing {
  * context tag: the SDK strips that tag before its API request. A distinct
  * tagged catalog entry always wins. The base entry is useful for lookup, but
  * its rate does not establish the price of long-context usage. Valuation
- * requires a distinct tagged entry. Other tags, snapshots, prefixes and
- * model families require their own explicit catalog entry.
+ * requires a distinct tagged entry. A dashed Claude id may use its dotted
+ * catalog spelling ({@link resolvePricingKey}), the same as the lookup path.
+ * Other tags, snapshots, prefixes and model families require their own
+ * explicit catalog entry.
  */
 export function findExactModelPricing(
   modelId: string,
@@ -479,11 +521,14 @@ export function findExactModelPricing(
     const pricing = modelPricingMap[key];
     return pricing ? { modelIdUsed: key, pricing } : null;
   }
+  const spelled = resolvePricingKey(key);
+  if (spelled !== null) {
+    return { modelIdUsed: spelled, pricing: modelPricingMap[spelled] };
+  }
   if (!/^claude-[a-z0-9.-]+\[1m\]$/.test(key)) return null;
-  const baseKey = key.slice(0, -4);
-  if (!Object.hasOwn(modelPricingMap, baseKey)) return null;
-  const pricing = modelPricingMap[baseKey];
-  return pricing ? { modelIdUsed: baseKey, pricing } : null;
+  const baseKey = resolvePricingKey(key.slice(0, -4));
+  if (baseKey === null) return null;
+  return { modelIdUsed: baseKey, pricing: modelPricingMap[baseKey] };
 }
 
 export interface ExactCostOptions {
@@ -563,7 +608,9 @@ export function calculateExactMessageCost(
       costUnavailableReason: 'usage-incomplete',
     };
   }
-  if (found.modelIdUsed !== modelId.toLowerCase()) {
+  // Only the id's own entry (or its catalog spelling) prices it: a `[1m]`
+  // request resolved to its base entry stays unpriced.
+  if (found.modelIdUsed !== resolvePricingKey(modelId.toLowerCase())) {
     return unavailable('rate-missing');
   }
   const availableBasis: SessionCostBasis =

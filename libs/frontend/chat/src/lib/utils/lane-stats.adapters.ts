@@ -13,9 +13,12 @@ import {
   type AgentLaneStatsView,
 } from '@ptah-extension/chat-ui';
 import {
+  calculateMessageCost,
   cliUsageTokenTotal,
+  findExactModelPricing,
   isValidTokenCount,
   messageTokenTotal,
+  pricesCacheTokens,
   type CliUsageTotals,
 } from '@ptah-extension/shared';
 import {
@@ -106,6 +109,43 @@ export function resolveCliLaneUsage(source: MonitoredAgent): CliLaneUsage {
     tokens: tokenTotal?.value ?? null,
     tokensExact: tokenTotal?.exact ?? false,
   };
+}
+
+/**
+ * Estimated USD cost of a CLI lane's tokens at the shared rate card's price
+ * for its model, for a lane whose CLI reports tokens but no cost. `null` when
+ * that is not knowable: another CLI, no model, no exact rate for the model
+ * (or for a cache class the lane used), or incomplete counts.
+ *
+ * Codex only. Its `inputTokens` include the cached and cache-written input
+ * (`counters` in codex-runtime's event translator subtracts both to get the
+ * uncached part), so the classes are split before pricing. Other CLIs do not
+ * document how their counts overlap, and a guessed split is a wrong price.
+ * A lane that reports cache writes is not priced: the translator marks Codex
+ * cache-write semantics as ambiguous, and their retention tier is unknown.
+ */
+export function estimateCliLaneCost(
+  agent: Pick<MonitoredAgent, 'cli' | 'model'>,
+  usage: CliUsageTotals | null,
+): number | null {
+  if (agent.cli !== 'codex' || !usage) return null;
+  const model = usage.model ?? agent.model;
+  const { inputTokens, outputTokens } = usage;
+  if (!model || !isValidTokenCount(inputTokens) || !isValidTokenCount(outputTokens)) {
+    return null;
+  }
+  const cacheHit = usage.cacheReadTokens ?? 0;
+  const cacheCreation = usage.cacheWriteTokens ?? 0;
+  if (!isValidTokenCount(cacheHit) || !isValidTokenCount(cacheCreation)) {
+    return null;
+  }
+  if (cacheCreation > 0) return null;
+  const uncached = inputTokens - cacheHit - cacheCreation;
+  if (uncached < 0) return null;
+  const pricing = findExactModelPricing(model)?.pricing ?? null;
+  const tokens = { input: uncached, output: outputTokens, cacheHit, cacheCreation };
+  if (!pricing || !pricesCacheTokens(pricing, tokens)) return null;
+  return calculateMessageCost(model, tokens, pricing);
 }
 
 /** Stats bar figures of a CLI lane (structured totals, else retained segments). */

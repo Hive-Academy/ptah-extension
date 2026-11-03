@@ -204,6 +204,9 @@ function laneUsage(
     ...(usage.cachedInputTokens === undefined
       ? {}
       : { cacheReadTokens: usage.cachedInputTokens }),
+    ...(usage.cacheWriteInputTokens === undefined
+      ? {}
+      : { cacheWriteTokens: usage.cacheWriteInputTokens }),
     ...(usage.totalTokens === undefined
       ? {}
       : { totalTokens: usage.totalTokens }),

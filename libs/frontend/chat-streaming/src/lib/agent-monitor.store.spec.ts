@@ -2444,6 +2444,73 @@ describe('AgentMonitorStore', () => {
       expect(card('live-done')?.restored).toBeUndefined();
       expect(card('restored-running')?.restored).toBe(true);
     });
+
+    it('keeps the usage and model a finished card folded live when a resume rebuilds it', () => {
+      const ref = (agentId: string, turnSeq?: number) =>
+        ({
+          agentId,
+          cli: 'codex',
+          task: `Task for ${agentId}`,
+          startedAt: '2026-09-01T00:00:00.000Z',
+          status: 'completed',
+          ...(turnSeq === undefined ? {} : { turnSeq }),
+        }) as unknown as CliSessionReference;
+      for (const id of ['live-a', 'live-other-turn']) {
+        spawnLane(id, { parentSessionId: 'sess-live', model: 'gpt-6-sol', turnSeq: 1 });
+        store.onAgentOutput({
+          agentId: id,
+          segments: [
+            {
+              type: 'info',
+              content: 'Codex turn usage.',
+              usage: { inputTokens: 900, outputTokens: 100, cacheReadTokens: 800, totalTokens: 1000 },
+            },
+          ],
+        } as AgentOutputDelta);
+        exitLane(id, { parentSessionId: 'sess-live', status: 'completed', exitCode: 0 });
+      }
+
+      // A resync hands the same runs back; neither persisted ref carries usage.
+      store.loadCliSessions(
+        [ref('live-a', 1), ref('live-other-turn', 2)],
+        'sess-live',
+      );
+
+      expect(card('live-a')).toMatchObject({
+        restored: true,
+        model: 'gpt-6-sol',
+        usageTotals: { inputTokens: 900, outputTokens: 100, totalTokens: 1000 },
+      });
+      // A later turn of the same id is not the run this app watched.
+      expect(card('live-other-turn')?.usageTotals).toBeNull();
+    });
+
+    it('reads a card without a turn as turn 1 when a resume names a later turn', () => {
+      spawnLane('live-no-turn', { parentSessionId: 'sess-no-turn', model: 'gpt-6-sol' });
+      store.onAgentOutput({
+        agentId: 'live-no-turn',
+        segments: [{ type: 'info', content: 'u', usage: { inputTokens: 5, outputTokens: 1 } }],
+      } as AgentOutputDelta);
+      exitLane('live-no-turn', { parentSessionId: 'sess-no-turn', status: 'completed', exitCode: 0 });
+      expect(card('live-no-turn')?.turnSeq).toBeUndefined();
+
+      store.loadCliSessions(
+        [
+          {
+            agentId: 'live-no-turn',
+            cli: 'codex',
+            task: 'Task for live-no-turn',
+            startedAt: '2026-09-01T00:00:00.000Z',
+            status: 'completed',
+            turnSeq: 2,
+          } as unknown as CliSessionReference,
+        ],
+        'sess-no-turn',
+      );
+
+      expect(card('live-no-turn')?.usageTotals).toBeNull();
+      expect(card('live-no-turn')?.model).toBeUndefined();
+    });
   });
 
   describe('resumeAgentWithMessage', () => {

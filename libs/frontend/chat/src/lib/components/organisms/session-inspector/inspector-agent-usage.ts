@@ -11,6 +11,7 @@ import type {
 import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
 import {
   cliLaneStats,
+  estimateCliLaneCost,
   resolveCliLaneUsage,
   subagentLaneStats,
 } from '../../../utils/lane-stats.adapters';
@@ -61,13 +62,18 @@ export function laneUsage(
   const partial = cliUsage
     ? cliUsage.partial || !cliUsage.tokensExact
     : stats ? stats.tokensPartial : fallback?.partial === true;
+  // A lane whose CLI reports tokens but no cost (Codex) is priced from the
+  // shared rate card; the row already reads every lane cost as an estimate.
+  const cliCost = cli && cliUsage
+    ? cliUsage.usage?.costUsd ?? estimateCliLaneCost(cli, cliUsage.usage)
+    : null;
   return {
     usage: {
       tokens,
       tokensPartial: tokens !== null && partial,
-      cost: (cliUsage ? cliUsage.usage?.costUsd : stats ? stats.cost : usage?.costUsd) ?? null,
+      cost: (cliUsage ? cliCost : stats ? stats.cost : usage?.costUsd) ?? null,
       costPartial: cliUsage
-        ? cliUsage.partial && cliUsage.usage?.costUsd !== undefined
+        ? cliUsage.partial && cliCost != null
         : stats ? stats.costPartial : fallback?.partial === true,
       costEstimated: true,
       input: subagent?.usage?.input ?? usage?.inputTokens ?? null,
