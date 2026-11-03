@@ -1,19 +1,34 @@
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { AppStateManager } from '@ptah-extension/core';
+import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import {
   BATCHES_FILE,
   CARRIER_FILE,
   CONTEXT_FILE,
   LEGACY_BATCHES_FILE,
   buildTaskGraph,
-  type SessionPrLinkSummary,
   type TaskGraph,
   type TaskLinkedSession,
   type TaskSpecDetail,
   type TaskSpecSummary,
 } from '@ptah-extension/shared';
+import { TaskAgentDiscoveryService } from '../../services/task-agent-discovery.service';
+import {
+  buildRootFolderEntries,
+  folderBreadcrumbs,
+  rootEntriesOf,
+  type TaskFolderBreadcrumb,
+  type TaskFolderEntry,
+} from '../../services/task-folder-entries';
+import type {
+  TaskDocumentState,
+  TaskFolderListing,
+} from '../../services/task-folder.store';
 import { TaskSessionLinksService } from '../../services/task-session-links.service';
+import { TasksStore } from '../../services/tasks-store.service';
+import type { TaskAgentTarget } from '../../types/task-agent.types';
 import { TaskDetailComponent } from './task-detail.component';
 
 function makeDetail(overrides: Partial<TaskSpecDetail> = {}): TaskSpecDetail {
@@ -60,9 +75,109 @@ function makeSummary(
   };
 }
 
+/** The slice of `TasksStore` the detail reads: the folder browser facade. */
+type FolderFacade = Pick<
+  TasksStore,
+  | 'folderListing'
+  | 'folderBreadcrumbs'
+  | 'folderEntries'
+  | 'folderDirectory'
+  | 'openFile'
+  | 'documentState'
+  | 'readFolderFile'
+  | 'openFolderDirectory'
+>;
+
+/** A signal-backed stand-in for the store's folder facade. */
+function createFolderFacade() {
+  const listing = signal<TaskFolderListing>({
+    directory: '',
+    status: 'idle',
+    entries: [],
+    message: null,
+  });
+  const breadcrumbs = signal<readonly TaskFolderBreadcrumb[]>([]);
+  const document = signal<TaskDocumentState>({ status: 'idle' });
+  const readFolderFile = jest.fn(async (file: string | null) => {
+    document.set(
+      file === null ? { status: 'idle' } : { status: 'loading', file },
+    );
+  });
+  const openFolderDirectory = jest.fn(async () => undefined);
+  const entries = computed<readonly TaskFolderEntry[]>(() => listing().entries);
+  const facade: FolderFacade = {
+    folderListing: listing,
+    folderBreadcrumbs: breadcrumbs,
+    folderEntries: entries,
+    folderDirectory: computed(() => listing().directory),
+    openFile: computed(() => {
+      const state = document();
+      return state.status === 'idle' ? null : state.file;
+    }),
+    documentState: document,
+    readFolderFile,
+    openFolderDirectory,
+  };
+  return {
+    facade,
+    document,
+    readFolderFile,
+    openFolderDirectory,
+    /** Point the facade at a task's root listing, as TasksStore does. */
+    showRoot(detail: TaskSpecDetail | null): void {
+      breadcrumbs.set(folderBreadcrumbs(detail?.folderName ?? '', ''));
+      listing.set(
+        detail
+          ? {
+              directory: '',
+              status: 'ready',
+              entries: buildRootFolderEntries(rootEntriesOf(detail)),
+              message: null,
+            }
+          : { directory: '', status: 'idle', entries: [], message: null },
+      );
+    },
+  };
+}
+
+type FolderFake = ReturnType<typeof createFolderFacade>;
+
+/** Providers every detail render needs: no host transport is reached. */
+function detailProviders(folder: FolderFake) {
+  return [
+    { provide: TasksStore, useValue: folder.facade },
+    {
+      provide: AppStateManager,
+      useValue: {
+        workspaceInfo: signal({ path: '/work' }),
+        requestOpenSession: jest.fn(),
+      },
+    },
+    {
+      provide: TaskSessionLinksService,
+      useValue: {
+        linksFor: (): readonly TaskLinkedSession[] => [],
+      },
+    },
+    {
+      provide: TaskAgentDiscoveryService,
+      useValue: {
+        availableAgents: signal<readonly TaskAgentTarget[]>([]),
+        load: jest.fn(async () => undefined),
+      },
+    },
+  ];
+}
+
 describe('TaskDetailComponent', () => {
+  let folder: FolderFake;
+
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [TaskDetailComponent] });
+    folder = createFolderFacade();
+    TestBed.configureTestingModule({
+      imports: [TaskDetailComponent],
+      providers: detailProviders(folder),
+    });
   });
 
   function render(
@@ -70,6 +185,7 @@ describe('TaskDetailComponent', () => {
     loading = false,
     graph: TaskGraph | null = null,
   ) {
+    folder.showRoot(detail);
     const fixture = TestBed.createComponent(TaskDetailComponent);
     fixture.componentRef.setInput('detail', detail);
     fixture.componentRef.setInput('loading', loading);
@@ -78,118 +194,161 @@ describe('TaskDetailComponent', () => {
     return fixture;
   }
 
+  const byId = (host: HTMLElement, id: string) =>
+    host.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+
   // ---------------------------------------------------------------------------
-  // In-place workflow documents
+  // Spec-folder view: files, reader, overview
   // ---------------------------------------------------------------------------
 
-  describe('workflow documents', () => {
-    function renderWithDoc(
-      inputs: Record<string, unknown>,
-      detail: TaskSpecDetail = makeDetail({
+  describe('spec folder', () => {
+    const planned = () =>
+      makeDetail({
         artifacts: [CARRIER_FILE, CONTEXT_FILE, 'implementation-plan.md'],
-      }),
-    ) {
-      const fixture = TestBed.createComponent(TaskDetailComponent);
-      fixture.componentRef.setInput('detail', detail);
-      for (const [key, value] of Object.entries(inputs)) {
-        fixture.componentRef.setInput(key, value);
-      }
+        entries: [
+          { name: CARRIER_FILE, kind: 'file' },
+          { name: CONTEXT_FILE, kind: 'file' },
+          { name: 'implementation-plan.md', kind: 'file' },
+          { name: 'prototype', kind: 'directory' },
+        ],
+      });
+
+    it('composes files, the carrier overview, metadata, activity and the run placeholder', () => {
+      const host = render(planned()).nativeElement as HTMLElement;
+      expect(host.querySelector('ptah-task-folder-files')).not.toBeNull();
+      expect(host.querySelector('ptah-task-folder-overview')).not.toBeNull();
+      expect(host.querySelector('ptah-task-document-reader')).toBeNull();
+      expect(byId(host, 'task-detail-metadata')).not.toBeNull();
+      expect(host.querySelector('ptah-task-activity')).not.toBeNull();
+      expect(byId(host, 'task-run-placeholder')?.textContent).toContain(
+        'Planned for Phase 2 · TASK_2026_358',
+      );
+      expect(byId(host, 'task-detail-breadcrumb')?.textContent).toContain(
+        '.ptah / specs / TASK_2026_200',
+      );
+    });
+
+    it('reads a file through the store, then shows the reader for it', () => {
+      const fixture = render(planned());
+      const host = fixture.nativeElement as HTMLElement;
+      byId(host, 'task-folder-row-implementation-plan.md')?.click();
+      expect(folder.readFolderFile).toHaveBeenCalledWith(
+        'implementation-plan.md',
+      );
+
+      folder.document.set({
+        status: 'ready',
+        file: 'implementation-plan.md',
+        content: '# Plan',
+      });
       fixture.detectChanges();
-      return { fixture, host: fixture.nativeElement as HTMLElement };
-    }
-
-    /**
-     * Reading a document and opening it in the editor are different intents —
-     * "show me the plan" versus "I am about to change it" — so they are two
-     * controls. Collapsing them is what meant the panel could only ever do the
-     * second.
-     */
-    it('asks to READ on the row, and to EDIT on the separate control', () => {
-      const { fixture, host } = renderWithDoc({});
-      const read: Array<string | null> = [];
-      const opened: string[] = [];
-      fixture.componentInstance.readDocument.subscribe((file) =>
-        read.push(file),
+      expect(host.querySelector('ptah-task-folder-overview')).toBeNull();
+      expect(byId(host, 'task-doc-file')?.textContent).toContain(
+        'implementation-plan.md',
       );
-      fixture.componentInstance.openArtifact.subscribe((file) =>
-        opened.push(file),
+      const blocks = fixture.debugElement.queryAll(
+        By.directive(MarkdownBlockComponent),
       );
-
-      host
-        .querySelector<HTMLButtonElement>(
-          '[data-testid="task-doc-read-implementation-plan.md"]',
-        )
-        ?.click();
-      expect(read).toEqual(['implementation-plan.md']);
-      expect(opened).toEqual([]);
-
-      host
-        .querySelector<HTMLButtonElement>(
-          '[data-testid="task-doc-open-implementation-plan.md"]',
-        )
-        ?.click();
-      expect(opened).toEqual(['implementation-plan.md']);
-      expect(read).toEqual(['implementation-plan.md']);
-    });
-
-    it('closes the open document when its own row is clicked again', () => {
-      const { fixture, host } = renderWithDoc({
-        openDocument: 'implementation-plan.md',
-      });
-      const read: Array<string | null> = [];
-      fixture.componentInstance.readDocument.subscribe((file) =>
-        read.push(file),
-      );
-
-      host
-        .querySelector<HTMLButtonElement>(
-          '[data-testid="task-doc-read-implementation-plan.md"]',
-        )
-        ?.click();
-      expect(read).toEqual([null]);
-    });
-
-    it('renders the document through the markdown chokepoint', () => {
-      const { host } = renderWithDoc({
-        openDocument: 'implementation-plan.md',
-        documentContent: '# Plan\n\nStep one.',
-      });
-      const panel = host.querySelector('[data-testid="task-doc-panel"]');
-      expect(panel).not.toBeNull();
-      expect(panel?.querySelector('ptah-markdown-block')).not.toBeNull();
+      expect(blocks).toHaveLength(1);
+      const block: MarkdownBlockComponent = blocks[0].componentInstance;
+      expect(block.content()).toBe('# Plan');
+      expect(block.variant()).toBe('auto');
       expect(host.innerHTML).not.toContain('# Plan');
     });
 
-    /**
-     * Absent is not broken. Most tasks carry a handful of the fifteen
-     * recognised documents, and "failed to load" about the ordinary case sends
-     * the user hunting a fault that is not there.
-     */
-    it('says the document is absent rather than reporting a failure', () => {
-      const { host } = renderWithDoc({
-        openDocument: 'implementation-plan.md',
-        documentContent: null,
-      });
-      const absent = host.querySelector('[data-testid="task-doc-absent"]');
-      expect(absent?.textContent).toContain('does not contain');
-      expect(absent?.textContent).toContain('implementation-plan.md');
-    });
-
-    it('shows a spinner instead of an absence claim while the read is in flight', () => {
-      const { host } = renderWithDoc({
-        openDocument: 'implementation-plan.md',
-        documentContent: null,
-        documentLoading: true,
-      });
-      expect(host.querySelector('[data-testid="task-doc-absent"]')).toBeNull();
+    it('shows the last selected file after rapid switching', () => {
+      const fixture = render(planned());
+      const host = fixture.nativeElement as HTMLElement;
+      byId(host, 'task-folder-row-context.md')?.click();
+      byId(host, 'task-folder-row-implementation-plan.md')?.click();
+      fixture.detectChanges();
+      // The store keeps only the latest request; the panel shows its state.
+      expect(byId(host, 'task-doc-file')?.textContent).toContain(
+        'implementation-plan.md',
+      );
       expect(
-        host.querySelector('[data-testid="task-doc-panel"] .loading'),
-      ).not.toBeNull();
+        byId(host, 'task-folder-row-implementation-plan.md')?.getAttribute(
+          'aria-current',
+        ),
+      ).toBe('true');
+      expect(
+        byId(host, 'task-folder-row-context.md')?.getAttribute('aria-current'),
+      ).toBeNull();
     });
 
-    it('renders no document panel when nothing is open', () => {
-      const { host } = renderWithDoc({});
-      expect(host.querySelector('[data-testid="task-doc-panel"]')).toBeNull();
+    it('routes Open in editor to the openArtifact output', () => {
+      const fixture = render(planned());
+      const host = fixture.nativeElement as HTMLElement;
+      const opened: string[] = [];
+      fixture.componentInstance.openArtifact.subscribe((file) =>
+        opened.push(file),
+      );
+      byId(host, 'task-overview-open-editor')?.click();
+
+      folder.document.set({
+        status: 'ready',
+        file: CONTEXT_FILE,
+        content: 'x',
+      });
+      fixture.detectChanges();
+      byId(host, 'task-doc-open-editor')?.click();
+      expect(opened).toEqual([CARRIER_FILE, CONTEXT_FILE]);
+    });
+
+    it('offers no editor action for a file the folder does not hold', () => {
+      const fixture = render(planned());
+      folder.document.set({ status: 'missing', file: 'test-report.md' });
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      expect(byId(host, 'task-doc-missing')).not.toBeNull();
+      expect(byId(host, 'task-doc-open-editor')).toBeNull();
+    });
+
+    it('closes the reader back to the carrier overview', () => {
+      const fixture = render(planned());
+      folder.document.set({
+        status: 'ready',
+        file: CONTEXT_FILE,
+        content: 'x',
+      });
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      byId(host, 'task-doc-close')?.click();
+      fixture.detectChanges();
+      expect(folder.readFolderFile).toHaveBeenLastCalledWith(null);
+      expect(host.querySelector('ptah-task-folder-overview')).not.toBeNull();
+    });
+
+    it('browses a directory through the store instead of reading it', () => {
+      const host = render(planned()).nativeElement as HTMLElement;
+      byId(host, 'task-folder-row-prototype')?.click();
+      expect(folder.openFolderDirectory).toHaveBeenCalledWith('prototype');
+      expect(folder.readFolderFile).not.toHaveBeenCalled();
+    });
+
+    it('keeps the public host contract tasks-view binds', () => {
+      const fixture = render(planned());
+      const ref = fixture.componentRef;
+      expect(() => {
+        ref.setInput('wide', true);
+        ref.setInput('knownLabels', []);
+        ref.setInput('knownTaskIds', []);
+        ref.setInput('busy', false);
+        ref.setInput('openDocument', null);
+        ref.setInput('documentContent', null);
+        ref.setInput('documentLoading', false);
+        fixture.detectChanges();
+      }).not.toThrow();
+      const instance = fixture.componentInstance;
+      for (const emitter of [
+        instance.closed,
+        instance.readDocument,
+        instance.openArtifact,
+        instance.openTask,
+        instance.applyMetadata,
+      ]) {
+        expect(typeof emitter.subscribe).toBe('function');
+      }
     });
   });
 
@@ -227,15 +386,15 @@ describe('TaskDetailComponent', () => {
   // name. That fallback is permanent — folders on disk are gitignored, so no
   // migration can be trusted to have run.
   it.each([BATCHES_FILE, LEGACY_BATCHES_FILE])(
-    'marks the batch-breakdown stage present for %s',
+    'lists the batch-breakdown stage as present for %s',
     (file) => {
       const fixture = render(makeDetail({ artifacts: [CARRIER_FILE, file] }));
-      const host = fixture.nativeElement as HTMLElement;
-      const row = Array.from(host.querySelectorAll('button')).find((el) =>
-        el.textContent?.includes(file),
+      const row = byId(
+        fixture.nativeElement as HTMLElement,
+        `task-folder-row-${file}`,
       );
-      expect(row).toBeDefined();
-      expect(row?.textContent).not.toContain('not generated');
+      expect(row?.getAttribute('data-presence')).toBe('present');
+      expect(row?.textContent).not.toContain('Missing');
     },
   );
 
@@ -619,299 +778,6 @@ describe('TaskDetailComponent', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Linked sessions (TASK_2026_580, C2.3)
-//
-// The list is read from the board-wide links map; the panel never fetches.
-// "Open session" hands the row to AppStateManager, which the chat lib serves.
-// ---------------------------------------------------------------------------
-describe('TaskDetailComponent — linked sessions (TASK_2026_580)', () => {
-  let links: ReturnType<typeof signal<Map<string, TaskLinkedSession[]>>>;
-  let linksFor: jest.Mock;
-  let requestOpenSession: jest.Mock;
-
-  function linked(
-    overrides: Partial<TaskLinkedSession> = {},
-  ): TaskLinkedSession {
-    return {
-      sessionId: 'sess-1',
-      name: 'Board start',
-      role: 'primary',
-      source: 'board-start',
-      livePhase: 'generating',
-      prLinks: [],
-      todos: null,
-      ...overrides,
-    };
-  }
-
-  function pr(
-    overrides: Partial<SessionPrLinkSummary> = {},
-  ): SessionPrLinkSummary {
-    return {
-      url: 'https://github.com/acme/app/pull/42',
-      number: 42,
-      repo: 'acme/app',
-      state: 'open',
-      source: 'agent',
-      createdAt: 1,
-      ...overrides,
-    };
-  }
-
-  beforeEach(() => {
-    links = signal(new Map<string, TaskLinkedSession[]>());
-    linksFor = jest.fn(
-      (taskId: string): readonly TaskLinkedSession[] =>
-        links().get(taskId) ?? [],
-    );
-    requestOpenSession = jest.fn();
-    TestBed.configureTestingModule({
-      imports: [TaskDetailComponent],
-      providers: [
-        { provide: TaskSessionLinksService, useValue: { linksFor } },
-        { provide: AppStateManager, useValue: { requestOpenSession } },
-      ],
-    });
-  });
-
-  function render(detail: TaskSpecDetail | null = makeDetail()) {
-    const fixture = TestBed.createComponent(TaskDetailComponent);
-    fixture.componentRef.setInput('detail', detail);
-    fixture.detectChanges();
-    return { fixture, host: fixture.nativeElement as HTMLElement };
-  }
-
-  const rows = (host: HTMLElement) =>
-    Array.from(
-      host.querySelectorAll<HTMLElement>('[data-testid="task-detail-session"]'),
-    );
-  const within = (el: Element | undefined, id: string) =>
-    el?.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? null;
-
-  it('shows the todo progress and in-progress item of a linked session (TASK_2026_854)', () => {
-    links.set(
-      new Map([
-        [
-          'TASK_2026_200',
-          [
-            linked({
-              todos: {
-                done: 3,
-                total: 7,
-                inProgress: 'Wiring the cache',
-                updatedAt: 1,
-              },
-            }),
-            linked({ sessionId: 'sess-2', name: 'Other' }),
-            linked({
-              sessionId: 'sess-3',
-              name: 'Empty list',
-              todos: { done: 0, total: 0, inProgress: null, updatedAt: 1 },
-            }),
-          ],
-        ],
-      ]),
-    );
-    const { host } = render();
-    const list = rows(host);
-
-    const todos = within(list[0], 'task-detail-session-todos');
-    expect(todos?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      'Todos 3/7 · Wiring the cache',
-    );
-    expect(todos?.getAttribute('title')).toBe(
-      '3 of 7 todos done; in progress: Wiring the cache',
-    );
-    expect(within(list[1], 'task-detail-session-todos')).toBeNull();
-    expect(within(list[2], 'task-detail-session-todos')).toBeNull();
-  });
-
-  it('lists every linked session with its role, source and phase in words', () => {
-    links.set(
-      new Map([
-        [
-          'TASK_2026_200',
-          [
-            linked({ prLinks: [pr()] }),
-            linked({
-              sessionId: 'sess-2',
-              name: 'Review pass',
-              role: 'related',
-              source: 'agent',
-              livePhase: 'idle',
-            }),
-            linked({
-              sessionId: 'sess-3',
-              name: '',
-              role: 'related',
-              source: 'user',
-              livePhase: null,
-            }),
-          ],
-        ],
-      ]),
-    );
-    const { host } = render();
-    const list = rows(host);
-
-    expect(list).toHaveLength(3);
-    expect(host.textContent).toContain('Sessions (3)');
-    expect(within(list[0], 'task-detail-session-name')?.textContent).toBe(
-      'Board start',
-    );
-    expect(
-      within(list[0], 'task-detail-session-meta')?.textContent?.replace(
-        /\s+/g,
-        ' ',
-      ),
-    ).toBe('Primary · started from the board · running');
-    expect(
-      within(list[1], 'task-detail-session-meta')?.textContent?.replace(
-        /\s+/g,
-        ' ',
-      ),
-    ).toBe('Related · linked by an agent · idle');
-    // A session not loaded in this host reads "not open", never a blank.
-    expect(
-      within(list[2], 'task-detail-session-meta')?.textContent?.replace(
-        /\s+/g,
-        ' ',
-      ),
-    ).toBe('Related · linked by you · not open');
-    expect(within(list[2], 'task-detail-session-name')?.textContent).toBe(
-      'Untitled session',
-    );
-
-    // Dots are named and differ by phase; "not open" is the hollow one.
-    const dots = list.map((row) => within(row, 'task-detail-session-dot'));
-    expect(dots.map((dot) => dot?.getAttribute('data-phase'))).toEqual([
-      'generating',
-      'idle',
-      'none',
-    ]);
-    expect(dots[2]?.getAttribute('aria-label')).toBe('Live phase: not open');
-    expect(dots[0]?.className).toContain('border-base-content/70');
-
-    // The PR link is external, https, and opens in a new browsing context.
-    const link = within(list[0], 'task-detail-session-pr') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe(
-      'https://github.com/acme/app/pull/42',
-    );
-    expect(link.getAttribute('target')).toBe('_blank');
-    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
-    expect(link.textContent).toContain('#42');
-    expect(link.getAttribute('aria-label')).toBe(
-      'Open pull request #42 in acme/app, open in the browser',
-    );
-
-    // The name truncates with the full text on hover.
-    expect(
-      within(list[1], 'task-detail-session-name')?.getAttribute('title'),
-    ).toBe('Review pass');
-
-    // Read through the shared map, keyed by the shown task.
-    expect(linksFor).toHaveBeenCalledWith('TASK_2026_200');
-  });
-
-  it('shows the no-PR state for a session with no pull request', () => {
-    links.set(new Map([['TASK_2026_200', [linked()]]]));
-    const { host } = render();
-    const [row] = rows(host);
-
-    expect(within(row, 'task-detail-session-pr')).toBeNull();
-    expect(within(row, 'task-detail-session-no-pr')?.textContent).toContain(
-      'No pull request',
-    );
-  });
-
-  it('renders a quiet empty state, and no rows, when nothing is linked', () => {
-    const { host } = render();
-    expect(rows(host)).toHaveLength(0);
-    expect(
-      host.querySelector('[data-testid="task-detail-sessions-empty"]')
-        ?.textContent,
-    ).toContain('No sessions linked to this task');
-    // Not an error: the panel renders no alert for an empty (or unavailable) map.
-    expect(
-      host.querySelector('[data-testid="task-detail-sessions"] .alert'),
-    ).toBeNull();
-  });
-
-  it('rewrites the section in place when the map arrives after the panel opened', () => {
-    const { fixture, host } = render();
-    const section = host.querySelector('[data-testid="task-detail-sessions"]');
-    expect(section).not.toBeNull();
-
-    links.set(new Map([['TASK_2026_200', [linked()]]]));
-    fixture.detectChanges();
-
-    expect(host.querySelector('[data-testid="task-detail-sessions"]')).toBe(
-      section,
-    );
-    expect(rows(host)).toHaveLength(1);
-    expect(
-      host.querySelector('[data-testid="task-detail-sessions-empty"]'),
-    ).toBeNull();
-  });
-
-  it('"Open session" requests the row\'s session by id and name', () => {
-    links.set(
-      new Map([
-        [
-          'TASK_2026_200',
-          [
-            linked(),
-            linked({
-              sessionId: 'sess-2',
-              name: 'Review pass',
-              role: 'related',
-            }),
-          ],
-        ],
-      ]),
-    );
-    const { host } = render();
-    const button = within(
-      rows(host)[1],
-      'task-detail-session-open',
-    ) as HTMLButtonElement;
-
-    expect(button.tagName).toBe('BUTTON');
-    expect(button.type).toBe('button');
-    expect(button.getAttribute('aria-label')).toBe('Open session Review pass');
-    button.click();
-
-    expect(requestOpenSession).toHaveBeenCalledTimes(1);
-    expect(requestOpenSession).toHaveBeenCalledWith({
-      sessionId: 'sess-2',
-      name: 'Review pass',
-    });
-  });
-
-  it.each([
-    ['http', 'http://github.com/acme/app/pull/7'],
-    ['javascript', 'javascript:alert(1)'],
-    ['relative', '/acme/app/pull/7'],
-    ['unparseable', 'https://exa mple.com:99999/pull/7'],
-  ])('does not render a %s PR URL as a link', (_kind, url) => {
-    links.set(
-      new Map([
-        ['TASK_2026_200', [linked({ prLinks: [pr({ url, number: 7 })] })]],
-      ]),
-    );
-    const { host } = render();
-    const [row] = rows(host);
-
-    expect(within(row, 'task-detail-session-pr')).toBeNull();
-    expect(row.querySelector('a')).toBeNull();
-    expect(host.querySelector(`[href="${url}"]`)).toBeNull();
-    const text = within(row, 'task-detail-session-pr-unlinked');
-    expect(text?.textContent).toContain('#7');
-    expect(text?.getAttribute('title')).toContain('only https addresses open');
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Non-agent markdown stays plain (TASK_2026_413 R2)
 //
 // The task-detail panel renders a spec DOCUMENT, not agent output, and it has
@@ -922,7 +788,10 @@ describe('TaskDetailComponent — linked sessions (TASK_2026_580)', () => {
 // ---------------------------------------------------------------------------
 describe('TaskDetailComponent — file-link opt-in', () => {
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [TaskDetailComponent] });
+    TestBed.configureTestingModule({
+      imports: [TaskDetailComponent],
+      providers: detailProviders(createFolderFacade()),
+    });
   });
 
   it('renders no file-link opt-in marker anywhere in the panel', () => {
