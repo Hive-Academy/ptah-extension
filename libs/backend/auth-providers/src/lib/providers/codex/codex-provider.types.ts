@@ -7,7 +7,14 @@
  */
 
 import type { CodexAccountUsageResult } from '@ptah-extension/codex-runtime';
-import type { ProviderModelInfo } from '@ptah-extension/shared';
+import type {
+  AuthGetCodexReadinessParams,
+  AuthGetCodexReadinessResponse,
+  CodexLoginMode,
+  CodexLoginState,
+  CodexSignInOutcome,
+  ProviderModelInfo,
+} from '@ptah-extension/shared';
 
 /** Historical marker recognized when refusing a retired Codex proxy route. */
 export const CODEX_PROXY_TOKEN_PLACEHOLDER = 'codex-proxy-managed';
@@ -77,6 +84,8 @@ export interface ICodexAuthService {
    * Returns whether credentials exist and whether OAuth tokens are stale.
    */
   getTokenStatus(): Promise<{ authenticated: boolean; stale: boolean }>;
+  /** Fresh local auth-file classification, independent of the token-status cache. */
+  getSignInOutcome(): Promise<Exclude<CodexSignInOutcome, 'timeout'>>;
   /**
    * Begin watching ~/.codex/auth.json for external changes. On change, the
    * cache is invalidated and an `authFileChanged` event is broadcast so the
@@ -85,6 +94,20 @@ export interface ICodexAuthService {
   startWatchingAuthFile(): void;
   /** Stop watching the auth file and release the watcher handle. */
   stopWatchingAuthFile(): void;
+}
+
+export interface ICodexLoginService {
+  start(
+    options: { mode?: CodexLoginMode; restart?: boolean },
+    onState: (state: CodexLoginState) => void,
+  ): Promise<CodexLoginState>;
+  cancel(): boolean;
+  isActive(): boolean;
+  dispose(): Promise<void>;
+}
+
+export interface ICodexReadinessReader {
+  read(options: AuthGetCodexReadinessParams): Promise<AuthGetCodexReadinessResponse>;
 }
 
 export type {

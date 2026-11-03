@@ -58,6 +58,9 @@ export class CodexAuthService implements ICodexAuthService {
   getTokenStatus() {
     return this.delegate.getTokenStatus();
   }
+  getSignInOutcome() {
+    return this.delegate.getSignInOutcome();
+  }
   clearCache(): void {
     this.delegate.clearCache();
   }
