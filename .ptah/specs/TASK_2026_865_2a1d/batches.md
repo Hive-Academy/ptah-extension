@@ -316,7 +316,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - `npm run verify -- -p @ptah-extension/agent-sdk` passes (header: 1 project).
 - A1 result recorded in the report.
 
-## Batch 3: Carry-over route, transcript renderer and refusal pins — PENDING
+## Batch 3: Carry-over route, transcript renderer and refusal pins — COMPLETE (CI pending)
 
 - Recommended executor: CLI lane, backend TypeScript capability, any family other than the phase
   reviewer's
@@ -331,7 +331,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   input from the router)
 - Phase: 1 | Phase review: Phase 1 code-logic
 
-### Task 3.1: `SessionHistoryRouter.readCarryOverTranscript` (Claude route; native disabled) — PENDING
+### Task 3.1: `SessionHistoryRouter.readCarryOverTranscript` (Claude route; native disabled) — COMPLETE (CI pending)
 
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/agent-sdk/src/lib/codex-app-server/session-history-router.ts` (MODIFY),
   `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/agent-sdk/src/lib/codex-app-server/session-history-router.spec.ts` (MODIFY)
@@ -351,7 +351,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   the port's `readHistory` is called 0 times (no native read while K2 is held); existing cases
   unchanged.
 
-### Task 3.2: Transcript renderer and redaction — PENDING
+### Task 3.2: Transcript renderer and redaction — COMPLETE (CI pending)
 
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/rpc-handlers/src/lib/chat/session/chat-carry-over-transcript.ts` (CREATE),
   `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/rpc-handlers/src/lib/chat/session/chat-carry-over-transcript.spec.ts` (CREATE)
@@ -379,7 +379,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   line; each secret pattern, in prose and in a summary, is absent from `prompt` (AC 8.2, 8.3);
   empty input gives `null`.
 
-### Task 3.3: Refusal contract pins (specs only) — PENDING
+### Task 3.3: Refusal contract pins (specs only) — COMPLETE (CI pending)
 
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/rpc-handlers/src/lib/chat/session/chat-session.native.spec.ts` (MODIFY),
   `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-router.native.spec.ts` (MODIFY)
@@ -565,7 +565,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   passes (header: 3 projects; only rpc-handlers files changed; the other two prove that the
   manifest, the RPC surface and DI resolution hold in both containers: P3, T7).
 
-## Batch 6: Banner identity and `ProviderCarryOverService` — PENDING
+## Batch 6: Banner identity and `ProviderCarryOverService` — COMPLETE (CI pending)
 
 - Pre-step: the Electron "before" screenshots (see the top of this file) exist before this batch
   starts.
@@ -585,7 +585,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
 - Tasks: 2 | Depends on: Batch 1 (types); the host side (Batches 4-5) is mocked in specs
 - Phase: 1 | Phase review: Phase 1 code-logic
 
-### Task 6.1: `AuthStateService` banner generation and origin — PENDING
+### Task 6.1: `AuthStateService` banner generation and origin — COMPLETE (CI pending)
 
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/frontend/core/src/lib/services/auth-state.service.ts` (MODIFY),
   `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/frontend/core/src/lib/services/auth-state.service.spec.ts` (MODIFY)
@@ -602,7 +602,7 @@ Reported, not fixed. Each item names the batch that carries a mitigation or the 
   is stored; a guarded clear with a stale generation is a no-op (AC 7.5); an unguarded clear
   still clears; the Codex healthy-auth clear still works.
 
-### Task 6.2: `ProviderCarryOverService` — PENDING
+### Task 6.2: `ProviderCarryOverService` — COMPLETE (CI pending)
 
 - Depends on: Task 6.1
 - Files: `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765/libs/frontend/chat/src/lib/services/provider-carry-over.service.ts` (CREATE),
