@@ -151,7 +151,9 @@ export class ProposalWorkspacePage implements OnInit {
     { id: 'proposal', label: 'Proposal', state: 'current' },
     { id: 'review', label: 'Review', state: 'upcoming' },
   ];
-  private readonly layout = viewChild<ElementRef<HTMLElement>>('layout', { read: ElementRef });
+  private readonly layout = viewChild<unknown, ElementRef<HTMLElement>>('layout', {
+    read: ElementRef,
+  });
   private readonly sessionLog = viewChild<DetailsLogComponent>('sessionLog');
   private readonly replyComposer = viewChild<ReplyComposerComponent>('replyComposer');
   protected readonly replyDraft = inject(ReplyDraftStore);
