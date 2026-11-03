@@ -369,4 +369,70 @@ describe('native slash runtime routing', () => {
     expect(broadcastMessage).not.toHaveBeenCalled();
   });
 
+  /** AC 1.5, 5.5, 6.3: /compact on a switched Claude session keeps this exact shape. */
+  it('pins the exact /compact AUTH_REQUIRED refusal shape after a provider switch', async () => {
+    const workspace = resolve('/original-workspace');
+    const resolver: WorkspaceProviderProfileResolver = Object.assign(
+      Object.create(WorkspaceProviderProfileResolver.prototype),
+      {
+        activeProviderResolver: {
+          resolveActiveAuthForPath: () => ({ providerId: 'openai-codex' }),
+          resolveActiveAuthWithDefault: jest.fn().mockResolvedValue({
+            providerId: 'openai-codex',
+          }),
+        },
+        resolveProviderProfileForWorkspace: jest.fn(),
+      },
+    );
+    const runtimeProfile = new ChatRuntimeProfileService(
+      resolver,
+      createMockWorkspaceProvider({ folders: [workspace] }),
+      { extensionPath: resolve('/application'), globalStoragePath: resolve('/storage') },
+      { broadcastMessage: jest.fn().mockResolvedValue(undefined) },
+      { nativeCodex: true },
+    );
+    const h = harness(native, 'compact');
+    Object.assign(h.service, {
+      runtimeProfile,
+      modelSettings: { selectedModel: { get: () => 'claude-sonnet' } },
+      metadata: { get: async () => ({ workspaceId: workspace, providerId: 'anthropic' }) },
+    });
+    const result = await h.service.routeFollowUpSlashCommand('/compact', sessionId, 'tab', workspace, {
+      prompt: '/compact', sessionId, tabId: 'tab',
+    });
+    expect(result).toStrictEqual({
+      success: false,
+      sessionId,
+      error:
+        "Cannot resume this session: its provider (anthropic) differs from the workspace's " +
+        'active provider (openai-codex). Restore the session\'s provider in Settings and retry.',
+      errorCode: 'AUTH_REQUIRED',
+      providerId: 'anthropic',
+    });
+    expect(Object.keys(result ?? {}).sort()).toEqual(
+      ['error', 'errorCode', 'providerId', 'sessionId', 'success'],
+    );
+    expect(h.compact).not.toHaveBeenCalled();
+    expect(h.executeSlashCommand).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The provider-switch /compact redirect lives only in the chat renderer, so
+   * a host caller keeps compacting a native thread on its own runtime even
+   * when the active provider is Claude.
+   */
+  it('still compacts a native identity on the host while the active provider is anthropic', async () => {
+    const h = harness(native, 'compact');
+    Object.assign(h.service, {
+      activeProvider: {
+        resolveActiveAuthForPath: jest.fn(() => ({ providerId: 'anthropic', authMethod: 'apiKey' })),
+      },
+    });
+    await expect(h.route()).resolves.toStrictEqual({ success: true, sessionId, settled: true });
+    expect(h.prepare).toHaveBeenCalledWith(expect.any(Object), identity, true);
+    expect(h.compact).toHaveBeenCalledTimes(1);
+    expect(h.compact).toHaveBeenCalledWith(sessionId);
+    expect(h.executeSlashCommand).not.toHaveBeenCalled();
+  });
+
 });

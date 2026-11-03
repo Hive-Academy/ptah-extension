@@ -3,7 +3,11 @@ import {
   type CodexSessionHistory,
 } from '@ptah-extension/codex-runtime';
 import type { SessionMetadata, SessionMetadataStore } from '../session-metadata-store';
-import type { SessionHistoryReaderService } from '../session-history-reader.service';
+import type {
+  CarryOverReadOptions,
+  SessionHistoryReaderService,
+} from '../session-history-reader.service';
+import type { CarryOverTranscript } from '../helpers/history/history.types';
 import { projectCodexHistory } from './codex-history-projector';
 
 export interface NativeSessionHistoryPort {
@@ -40,7 +44,7 @@ export class SessionHistoryRouter {
     private readonly getMetadata: () => Pick<SessionMetadataStore, 'get'>,
     private readonly getLegacy: () => Pick<
       SessionHistoryReaderService,
-      'readSessionHistory' | 'readSessionEvents'
+      'readSessionHistory' | 'readSessionEvents' | 'readCarryOverTranscript'
     >,
     private readonly getNative: () => NativeSessionHistoryPort | null | undefined,
   ) {}
@@ -66,6 +70,21 @@ export class SessionHistoryRouter {
     if (!session) return this.getLegacy().readSessionEvents(sessionId, workspacePath);
     const snapshot = await this.nativeHistory(session);
     return this.projectHistory(sessionId, snapshot).events;
+  }
+
+  /**
+   * The bounded transcript a provider carry-over renders. A Claude session
+   * reads its JSONL tail. A native session has no bounded read in this host
+   * yet, so it fails before any native or legacy read is attempted.
+   */
+  async readCarryOverTranscript(
+    sessionId: string,
+    workspacePath: string,
+    options: CarryOverReadOptions,
+  ): Promise<CarryOverTranscript> {
+    const session = await this.nativeSession(sessionId);
+    if (session) throw new SessionHistoryRouteError('nativePortUnavailable');
+    return this.getLegacy().readCarryOverTranscript(sessionId, workspacePath, options);
   }
 
   private async nativeSession(sessionId: string): Promise<SessionMetadata | null> {

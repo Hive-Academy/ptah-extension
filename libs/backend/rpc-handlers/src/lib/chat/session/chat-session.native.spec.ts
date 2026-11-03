@@ -626,6 +626,64 @@ describe('chat native session preparation', () => {
     expect(broadcastMessage).not.toHaveBeenCalled();
   });
 
+  /**
+   * AC 1.5, 5.5, 6.3: the carry-over never writes the stored session, so a
+   * later chat:continue keeps refusing with exactly this five-key shape.
+   */
+  it('pins the exact chat:continue AUTH_REQUIRED refusal shape after a provider switch', async () => {
+    const workspace = resolve(originalWorkspace);
+    const resolver: WorkspaceProviderProfileResolver = Object.assign(
+      Object.create(WorkspaceProviderProfileResolver.prototype),
+      {
+        activeProviderResolver: {
+          resolveActiveAuthForPath: () => ({ providerId: 'openai-codex' }),
+          resolveActiveAuthWithDefault: jest.fn().mockResolvedValue({
+            providerId: 'openai-codex',
+          }),
+        },
+        resolveProviderProfileForWorkspace: jest.fn(),
+      },
+    );
+    const runtimeProfile = new ChatRuntimeProfileService(
+      resolver,
+      createMockWorkspaceProvider({ folders: [workspace] }),
+      { extensionPath: resolve('/application'), globalStoragePath: resolve('/storage') },
+      { broadcastMessage: jest.fn().mockResolvedValue(undefined) },
+      { nativeCodex: true },
+    );
+    const h = harness();
+    Object.assign(h.service, {
+      runtimeProfile,
+      modelSettings: { selectedModel: { get: () => 'claude-sonnet' } },
+      sessionMetadataStore: {
+        get: async () => ({ workspaceId: workspace, providerId: 'anthropic' }),
+        upgradeLegacyPluginConfigAncestorRoots: h.upgradeLegacyPluginConfigAncestorRoots,
+      },
+      historyRead: { resolveSessionFolder: async () => workspace },
+      ptahCli: { handleContinue: async () => ({ error: '__NOT_PTAH_CLI__' }) },
+    });
+    const expected = {
+      success: false,
+      sessionId,
+      error:
+        "Cannot resume this session: its provider (anthropic) differs from the workspace's " +
+        'active provider (openai-codex). Restore the session\'s provider in Settings and retry.',
+      errorCode: 'AUTH_REQUIRED',
+      providerId: 'anthropic',
+    };
+
+    const result = await h.service.continueSession({ sessionId, tabId: 'tab', prompt: 'hello' });
+    expect(result).toStrictEqual(expected);
+    expect(Object.keys(result).sort()).toEqual(
+      ['error', 'errorCode', 'providerId', 'sessionId', 'success'],
+    );
+    // A second continue after a (failed or skipped) carry-over refuses the same way.
+    await expect(
+      h.service.continueSession({ sessionId, tabId: 'tab', prompt: 'again' }),
+    ).resolves.toStrictEqual(expected);
+    expect(h.resumeSession).not.toHaveBeenCalled();
+  });
+
 });
 
 /**
