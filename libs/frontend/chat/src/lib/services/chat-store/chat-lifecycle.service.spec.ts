@@ -38,6 +38,10 @@ import {
 import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { ConversationService } from './conversation.service';
+import {
+  ProviderCarryOverService,
+  type CarryOverClaim,
+} from '../provider-carry-over.service';
 import type { TabState, StreamingState } from '@ptah-extension/chat-types';
 import { SessionId } from '@ptah-extension/shared';
 
@@ -97,6 +101,9 @@ describe('ChatLifecycleService', () => {
   let rpcCallMock: jest.Mock;
   let finalizeCurrentMessageMock: jest.Mock;
   let clearCompactionStateMock: jest.Mock;
+  let claimMock: jest.Mock;
+  let completeBindingMock: jest.Mock;
+  let onChatErrorMock: jest.Mock;
   let warn: jest.SpyInstance;
   let error: jest.SpyInstance;
   beforeEach(() => {
@@ -184,6 +191,9 @@ describe('ChatLifecycleService', () => {
     rpcCallMock = jest.fn();
     finalizeCurrentMessageMock = jest.fn();
     clearCompactionStateMock = jest.fn();
+    claimMock = jest.fn((): CarryOverClaim => 'none');
+    completeBindingMock = jest.fn();
+    onChatErrorMock = jest.fn();
     warn = jest.spyOn(console, 'warn').mockImplementation();
     error = jest.spyOn(console, 'error').mockImplementation();
 
@@ -251,6 +261,14 @@ describe('ChatLifecycleService', () => {
         { provide: ClaudeRpcService, useValue: claudeRpcMock },
         { provide: AuthStateService, useValue: authStateMock },
         { provide: VSCodeService, useValue: vscodeServiceMock },
+        {
+          provide: ProviderCarryOverService,
+          useValue: {
+            claimSessionResolution: claimMock,
+            completeBinding: completeBindingMock,
+            onChatError: onChatErrorMock,
+          },
+        },
         // The real reconciler is exercised; its applier (which would pull the
         // whole chat-streaming write path into this spec) is not.
         { provide: TurnStateApplier, useValue: { apply: jest.fn() } },
@@ -428,9 +446,95 @@ describe('ChatLifecycleService', () => {
         { tabId: 'missing', realSessionId: 'real-uuid' },
       );
     });
+
+    // TASK_2026_865: a carry-over pending on the tab decides first.
+    describe('with a provider carry-over claim', () => {
+      it("'skip' with the tab gone attaches nothing, not even the active-tab fallback (AC 7.6)", () => {
+        // The fallback would otherwise light this sessionless streaming tab.
+        tabs = [
+          makeTab({ id: 'tab-2', status: 'streaming', claudeSessionId: null }),
+        ];
+        claimMock.mockReturnValue('skip');
+
+        service.handleSessionIdResolved({
+          tabId: 'tab-gone',
+          realSessionId: 'new-uuid',
+        });
+
+        expect(claimMock).toHaveBeenCalledWith('tab-gone', 'new-uuid');
+        expect(attachSessionMock).not.toHaveBeenCalled();
+        expect(completeBindingMock).not.toHaveBeenCalled();
+        expect(loadSessionsMock).toHaveBeenCalledTimes(1);
+      });
+
+      it("'skip' with the tab rebound keeps the tab's own session (AC 7.7)", () => {
+        tabs = [makeTab({ id: 'tab-1', claudeSessionId: SESS_2 })];
+        claimMock.mockReturnValue('skip');
+
+        service.handleSessionIdResolved({
+          tabId: 'tab-1',
+          realSessionId: 'new-uuid',
+        });
+
+        expect(attachSessionMock).not.toHaveBeenCalled();
+        expect(tabs[0].claudeSessionId).toBe(SESS_2);
+        expect(loadSessionsMock).toHaveBeenCalledTimes(1);
+      });
+
+      it("'bind' attaches the owning tab, then completes the binding (AC 4.1)", () => {
+        claimMock.mockReturnValue('bind');
+
+        service.handleSessionIdResolved({
+          tabId: 'tab-1',
+          realSessionId: 'new-uuid',
+        });
+
+        expect(attachSessionMock).toHaveBeenCalledWith('tab-1', 'new-uuid');
+        expect(completeBindingMock).toHaveBeenCalledWith('tab-1');
+        expect(
+          attachSessionMock.mock.invocationCallOrder[0],
+        ).toBeLessThan(completeBindingMock.mock.invocationCallOrder[0]);
+        expect(loadSessionsMock).toHaveBeenCalledTimes(1);
+      });
+
+      it("'none' keeps today's path and completes nothing", () => {
+        service.handleSessionIdResolved({
+          tabId: 'tab-1',
+          realSessionId: 'real-uuid',
+        });
+
+        expect(attachSessionMock).toHaveBeenCalledWith('tab-1', 'real-uuid');
+        expect(completeBindingMock).not.toHaveBeenCalled();
+      });
+
+      it("a claim throw follows today's path", () => {
+        claimMock.mockImplementation(() => {
+          throw new Error('guard bug');
+        });
+
+        service.handleSessionIdResolved({
+          tabId: 'tab-1',
+          realSessionId: 'real-uuid',
+        });
+
+        expect(attachSessionMock).toHaveBeenCalledWith('tab-1', 'real-uuid');
+        expect(completeBindingMock).not.toHaveBeenCalled();
+        expect(loadSessionsMock).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   describe('handleChatError', () => {
+    it('ends a carry-over that holds the tab', () => {
+      service.handleChatError({ tabId: 'tab-1', error: 'boom' });
+      expect(onChatErrorMock).toHaveBeenCalledWith('tab-1');
+    });
+
+    it('leaves carry-overs alone for an error without a tab id', () => {
+      service.handleChatError({ sessionId: SESS_1, error: 'boom' });
+      expect(onChatErrorMock).not.toHaveBeenCalled();
+    });
+
     it('clears compaction state first', () => {
       service.handleChatError({ tabId: 'tab-1', error: 'boom' });
       expect(clearCompactionStateMock).toHaveBeenCalled();

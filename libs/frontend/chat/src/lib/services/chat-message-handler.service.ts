@@ -40,6 +40,10 @@ import {
   parseSessionStatsLivePayload,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
+import {
+  ProviderCarryOverService,
+  type CarryOverClaim,
+} from './provider-carry-over.service';
 import { StreamFlushScheduler } from './stream-flush-scheduler.service';
 import { StreamViewportController } from './stream-viewport-controller.service';
 import { SessionOrganizerService } from './session-list/session-organizer.service';
@@ -96,6 +100,7 @@ export class ChatMessageHandler implements MessageHandler {
    * tree update (no behavior change for content rendering).
    */
   private readonly streamRouter = inject(StreamRouter);
+  private readonly carryOver = inject(ProviderCarryOverService);
 
   private static readonly METADATA_DEBOUNCE_MS = 250;
 
@@ -827,6 +832,26 @@ export class ChatMessageHandler implements MessageHandler {
       }) ?? {};
 
     if (realSessionId) {
+      const claimedSurface = this.renderedSurfaceFor(tabId);
+      // A carry-over pending on a surface-claimed tab decides before anything
+      // binds (F3). It runs before the liveness rekey so that a skipped
+      // resolution never rekeys the refused tab to the aborted session (P7).
+      // The lifecycle branch below claims for unclaimed tabs itself.
+      const claim =
+        claimedSurface && tabId
+          ? this.claimCarryOver(tabId, realSessionId)
+          : 'none';
+      if (claim === 'skip') {
+        // Nothing binds; only the session list learns of the new session
+        // (A9), as the lifecycle branch's skip does.
+        this.chatStore.loadSessions().catch((err) => {
+          console.warn(
+            '[ChatMessageHandler] Failed to refresh sessions after a skipped carry-over:',
+            err,
+          );
+        });
+        return;
+      }
       // The stream keeps carrying the placeholder id (the tab id) after this
       // resolve, while turn-end / stats / failure arrive under the real uuid.
       // Fold the two into one liveness entry, or the placeholder stays
@@ -834,7 +859,6 @@ export class ChatMessageHandler implements MessageHandler {
       if (tabId) {
         this.liveness.rekey(tabId, realSessionId);
       }
-      const claimedSurface = this.renderedSurfaceFor(tabId);
       if (claimedSurface) {
         // The surface conversation was minted before the backend knew the
         // real session id, so it does not contain `realSessionId` yet and
@@ -848,6 +872,11 @@ export class ChatMessageHandler implements MessageHandler {
         this.streamRouter.refreshQuestionTargetsForSession(
           realSessionId as ClaudeSessionId,
         );
+        if (claim === 'bind' && tabId) {
+          // Attach the owning tab and finish the carry-over through the one
+          // binding path (Decision K20); its claim is pure for 'bind'.
+          this.chatStore.handleSessionIdResolved({ tabId, realSessionId });
+        }
         return;
       }
       this.chatStore.handleSessionIdResolved({
@@ -864,6 +893,26 @@ export class ChatMessageHandler implements MessageHandler {
       console.warn(
         '[ChatMessageHandler] session:id-resolved received but realSessionId is undefined!',
       );
+    }
+  }
+
+  /**
+   * The carry-over claim for a surface-claimed tab. A throw counts as
+   * `'none'`, so a guard bug can never break session resolution.
+   */
+  private claimCarryOver(tabId: string, realSessionId: string): CarryOverClaim {
+    try {
+      return this.carryOver.claimSessionResolution(tabId, realSessionId);
+    } catch (error) {
+      console.warn(
+        '[ChatMessageHandler] Carry-over claim failed; resolving as usual',
+        {
+          tabId,
+          realSessionId,
+          error: error instanceof Error ? error.name : typeof error,
+        },
+      );
+      return 'none';
     }
   }
   private handleAskUserQuestion(payload: unknown): void {
