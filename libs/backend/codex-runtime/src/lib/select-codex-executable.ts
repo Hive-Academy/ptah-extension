@@ -7,7 +7,6 @@ import { promisify } from 'node:util';
 
 export const CODEX_MIN_SUPPORTED_VERSION = '0.165.0';
 const PROBE_TIMEOUT_MS = 7_000;
-const execFileAsync = promisify(execFile);
 export type CodexExecutableOrigin = 'installed' | 'bundled';
 export interface CodexExecutableSelection {
   readonly path: string;
@@ -97,7 +96,10 @@ export async function selectCodexExecutable(
   }
   const bundle = async (): Promise<string | undefined> => {
     try { return await probes.bundledCandidate(); }
-    catch { return undefined; } // degradation-audit: reported - the selector raises a safe unavailable error when the bundle cannot be found.
+    catch {
+      // degradation-audit: reported - the selector raises a safe unavailable error when the bundle cannot be found.
+      return undefined;
+    }
   };
   for (const candidate of installed) {
     const selected = await inspect(candidate, 'installed');
@@ -150,6 +152,12 @@ export class CodexSelectionSnapshot implements CodexSelectionSnapshotPort {
 export function createNodeCodexExecutableProbes(
   bundledCandidate: () => Promise<string | undefined>,
 ): CodexExecutableProbes {
+  const versionCache = new Map<string, {
+    readonly mtimeMs: number;
+    readonly size: number;
+    readonly parsedVersion: string;
+    readonly output: string;
+  }>();
   const windows = process.platform === 'win32';
   const nativeName = windows ? 'codex.exe' : 'codex';
   const target = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
@@ -218,10 +226,22 @@ export function createNodeCodexExecutableProbes(
       return undefined;
     },
     async readVersion(path, timeoutMs) {
+      const info = await stat(path);
+      const cached = versionCache.get(path);
+      if (cached?.mtimeMs === info.mtimeMs && cached.size === info.size)
+        return cached.output;
+      const execFileAsync = promisify(execFile);
       const { stdout, stderr } = await execFileAsync(path, ['--version'], {
         timeout: timeoutMs, windowsHide: true, shell: false, maxBuffer: 16 * 1024,
       });
-      return stdout || stderr;
+      const output = stdout || stderr;
+      const parsedVersion = parseCodexVersion(output);
+      // Keep the raw response too: the selector checks prerelease suffixes.
+      if (parsedVersion) versionCache.set(path, {
+        mtimeMs: info.mtimeMs, size: info.size, parsedVersion, output,
+      });
+      else versionCache.delete(path);
+      return output;
     },
   };
 }

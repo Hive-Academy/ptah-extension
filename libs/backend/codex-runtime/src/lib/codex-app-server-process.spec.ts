@@ -1,6 +1,8 @@
 import { CodexProtocolError } from './codex-protocol-validator';
 import { EventEmitter } from 'node:events';
-import { realpathSync } from 'node:fs';
+import { chmodSync, mkdtempSync, realpathSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import type {
@@ -111,8 +113,21 @@ describe('CodexAppServerProcess', () => {
   let runtime: CodexAppServerProcess;
   let onNotification: jest.Mock;
   let onRequest: jest.Mock<Promise<unknown>, [unknown, AbortSignal]>;
+  let windowsExecutableFixture: { dir: string; file: string } | undefined;
+
+  function useWindowsExecutableFixture(): void {
+    if (process.platform === 'win32') return;
+    const dir = mkdtempSync(join(tmpdir(), 'codex-process-spec-'));
+    const file = join(dir, 'codex.exe');
+    writeFileSync(file, 'fixture');
+    chmodSync(file, 0o755);
+    windowsExecutableFixture = { dir, file };
+    runtime = new CodexAppServerProcess(spawner, { ...executable, path: realpathSync(file) }, profile,
+      { onNotification, onRequest }, logger);
+  }
 
   beforeEach(() => {
+    windowsExecutableFixture = undefined;
     jest.useFakeTimers();
     jest.clearAllMocks();
     child = new FakeChild();
@@ -139,6 +154,10 @@ describe('CodexAppServerProcess', () => {
     expect(jest.getTimerCount()).toBe(0);
     jest.useRealTimers();
     jest.restoreAllMocks();
+    if (windowsExecutableFixture) {
+      unlinkSync(windowsExecutableFixture.file);
+      rmdirSync(windowsExecutableFixture.dir);
+    }
     if (platformDescriptor)
       Object.defineProperty(process, 'platform', platformDescriptor);
   });
@@ -479,6 +498,7 @@ describe('CodexAppServerProcess', () => {
   it.each(['linux', 'win32'] as const)(
     'inherits only allowlisted host variables on %s',
     async (platform) => {
+      if (platform === 'win32') useWindowsExecutableFixture();
       Object.defineProperty(process, 'platform', { value: platform });
       const allowed = {
         PATH: '/bin',
@@ -523,6 +543,7 @@ describe('CodexAppServerProcess', () => {
   );
 
   it('normalizes Windows case variants and excludes mixed-case secrets and home overrides', async () => {
+    useWindowsExecutableFixture();
     Object.defineProperty(process, 'platform', { value: 'win32' });
     jest.replaceProperty(process, 'env', {
       Path: 'C:\\bin',
@@ -696,7 +717,7 @@ describe('CodexAppServerProcess', () => {
     expect(jest.getTimerCount()).toBe(timersBeforeRequests);
     const retry = runtime.request('model/list', {});
     child.send({ id: 4, result: { data: [], nextCursor: null } });
-    await expect(retry).resolves.toEqual({ data: [], nextCursor: null });
+    await expect(retry).resolves.toEqual({ data: [], nextCursor: null, skippedCount: 0 });
   });
 
   it('keeps concurrent and following requests alive after an invalid thread/list result', async () => {

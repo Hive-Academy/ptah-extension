@@ -1514,7 +1514,7 @@ describe('WorkspaceProviderProfileResolver — resolveStoredModel', () => {
     expect(resolver.resolveStoredModel(WORKSPACE, '')).toBe('default');
   });
 
-  it('keeps a model in the serving provider static list but not in its stale catalogue', () => {
+  it('uses the serving provider catalogue instead of a removed static list', () => {
     const { resolver } = createHarness({
       workspaceSettings: CODEX,
       configValues: {
@@ -1525,9 +1525,7 @@ describe('WorkspaceProviderProfileResolver — resolveStoredModel', () => {
     expect(resolver.resolveStoredModel(WORKSPACE, 'gpt-7-nova')).toBe(
       'gpt-7-nova',
     );
-    expect(resolver.resolveStoredModel(WORKSPACE, 'gpt-6-luna')).toBe(
-      'gpt-6-luna',
-    );
+    expect(resolver.resolveStoredModel(WORKSPACE, 'gpt-6-luna')).toBe('default');
   });
 
   it.each([
@@ -1572,6 +1570,9 @@ describe('WorkspaceProviderProfileResolver — resolveStoredModel', () => {
     const { resolver } = createHarness({
       workspaceSettings: CODEX,
       settingsByPath: { [WORKSPACE]: { authMethod: 'claudeCli' } },
+      configValues: {
+        'provider.openai-codex.modelCatalog': catalog(['gpt-6-luna']),
+      },
     });
 
     expect(resolver.resolveStoredModel(WORKSPACE, 'gpt-6-luna')).toBe(

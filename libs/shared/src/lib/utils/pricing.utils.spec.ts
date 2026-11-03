@@ -602,11 +602,25 @@ describe('pricing.utils', () => {
 
     it('labels each null cost with one narrow cause, never a guess', () => {
       updatePricingMap({ 'cause-fixture': rates });
-      // A model that ran with no published rate: "not priced".
+      // A model with usage but no rate available to Ptah: "not priced".
       expect(calculateExactMessageCost(
         'gpt-future-unpriced', { input: 1000, output: 500 },
         { billingMode: 'subscription' },
       ).costUnavailableReason).toBe('rate-missing');
+      // A terminal without model or usage evidence must not imply a missing rate.
+      for (const modelId of ['', 'gpt-future-unpriced']) {
+        expect(calculateExactMessageCost(
+          modelId, { input: 0, output: 0 },
+          { billingMode: 'subscription', usageObserved: false },
+        )).toMatchObject({
+          totalCost: null,
+          costUnavailableReason: 'usage-incomplete',
+        });
+      }
+      expect(calculateExactMessageCost(
+        '', { input: 100, output: 50 },
+        { billingMode: 'subscription', usageObserved: true },
+      ).costUnavailableReason).toBe('usage-incomplete');
       // An unresolved billing mode is not "not priced".
       expect(calculateExactMessageCost(
         'cause-fixture', { input: 1000, output: 500 },
@@ -938,6 +952,7 @@ describe('pricing.utils', () => {
           totalCost: null,
           costBasis: 'unknown',
           pricingCoverage: 'none',
+          costUnavailableReason: 'rate-missing',
         });
       }
     });
@@ -961,6 +976,7 @@ describe('pricing.utils', () => {
           totalCost: null,
           costBasis: 'unknown',
           pricingCoverage: 'none',
+          costUnavailableReason: 'rate-missing',
         });
       }
     });

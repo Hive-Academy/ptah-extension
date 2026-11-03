@@ -95,7 +95,9 @@ describe('CostBadgeComponent', () => {
 
     const badge = fixture.nativeElement.querySelector('[data-testid="cost-not-priced"]');
     expect(badge.textContent).toContain('not priced');
-    expect(badge.getAttribute('title')).toContain('no published rate');
+    expect(badge.getAttribute('title')).toBe(
+      'Ptah does not have the rate needed to calculate this cost.',
+    );
     expect(fixture.nativeElement.querySelector('[data-testid="cost-unavailable"]')).toBeNull();
   });
 

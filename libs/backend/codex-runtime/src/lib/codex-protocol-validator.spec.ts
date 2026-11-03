@@ -609,8 +609,10 @@ describe('tolerant model catalog parsing', () => {
       },
     });
     expect(params.item).toMatchObject({ type: 'agentMessage', text: 'done' });
-    expect(params.item).not.toHaveProperty('phase');
-    expect(params.item).not.toHaveProperty('delivery');
+    expect(params.item).toHaveProperty('phase', undefined);
+    expect(params.item).toHaveProperty('delivery', undefined);
+    expect(JSON.stringify(params.item)).not.toContain('futurePhase');
+    expect(JSON.stringify(params.item)).not.toContain('futureDelivery');
     expect(() => validateCodexParams('item/completed', {
       threadId: 'thread',
       turnId: 'turn',
@@ -814,8 +816,8 @@ describe('tolerant nested command actions', () => {
     if (!(caught instanceof CodexProtocolError))
       throw new Error('Expected protocol error');
     expect(caught.issues).toContainEqual({
-      path: ['data', 0, 'item', 'agentsStates', '[redacted]', 'status'],
-      code: 'invalid_value',
+      path: ['data', 0, 'item'],
+      code: 'custom',
     });
     expect(JSON.stringify(caught.issues)).not.toContain(secretKey);
   });
@@ -1290,7 +1292,7 @@ describe('frozen schema contract', () => {
         if (!wire) throw new Error('Missing pinned method');
         const wireParams = record.parse(wire['properties'])['params'];
         const experimental = experimentalParams[`${group}/${method}`] ?? [];
-        const modeledFields = fields(z.toJSONSchema(modeled.params));
+        const modeledFields = fields(z.toJSONSchema(modeled.params, { io: 'input' }));
         const pinnedFields = wireParams === undefined ? {} : fields(wireParams);
         for (const name of Object.keys(modeledFields)) {
           if (experimental.includes(name)) continue;

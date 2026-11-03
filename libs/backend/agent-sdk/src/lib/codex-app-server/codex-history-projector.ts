@@ -202,6 +202,8 @@ function projectTurn(
           : { completedAtMs: timestamp }),
       },
     });
+    if (method === 'item/completed' && translated.length === 0 && item.type !== 'sleep')
+      skip(item.id, 'unsupportedItem');
     for (const event of translated) {
       if (event.type === 'error') {
         skip(item.id, event.error.code);

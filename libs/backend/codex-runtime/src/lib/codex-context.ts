@@ -193,7 +193,8 @@ class RuntimeContext implements CodexContext {
               this.followUps.delete(handle);
               if (this.state === 'closed' || signal.aborted) return;
               void this.steer({ text }).catch((error: unknown) => {
-                if (error instanceof CodexRequestRejectedError) {
+                if (error instanceof CodexRequestRejectedError ||
+                    error instanceof CodexUnsupportedMethodError) {
                   this.emitFollowUpRejected(turnId);
                 } else this.onFailure();
               });
@@ -767,10 +768,13 @@ class RuntimeContext implements CodexContext {
       } catch (error) {
         // degradation-audit: reported - A failed steer is logged without exposing the user's text.
         this.warnDenialFeedback(
-          error instanceof CodexRequestRejectedError ? 'refused' : 'failed',
+          error instanceof CodexRequestRejectedError ||
+            error instanceof CodexUnsupportedMethodError ? 'refused' : 'failed',
           kind,
         );
-        if (kind === 'user-input' && error instanceof CodexRequestRejectedError)
+        if (kind === 'user-input' &&
+            (error instanceof CodexRequestRejectedError ||
+              error instanceof CodexUnsupportedMethodError))
           this.emitFollowUpRejected(turnId);
       }
     }).catch(() => {

@@ -536,7 +536,7 @@ describe('Batch 26 typed Claude runtime policy', () => {
     expect(configured.resolveModel(CLAUDE, undefined)).toEqual({ model: 'claude-model-from-settings', source: 'setting' });
     expect(configured.resolveModel(CLAUDE, 'request-model')).toEqual({ model: 'request-model', source: 'request' });
     expect(environment({}).resolveModel(CLAUDE, undefined)).toEqual({ model: undefined, source: 'cli-default' });
-    expect(environment({}).resolveModel('codex', undefined).source).toBe('ptah-default');
+    expect(environment({}).resolveModel('codex', undefined).source).toBe('cli-default');
   });
 
   it('maps claudeReasoningEffort on the SDK scale without Codex coercion', () => {

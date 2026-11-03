@@ -1064,7 +1064,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(lanePolicyLines()[0][1]).toEqual(
         expect.objectContaining({
           cli: 'codex',
-          model: undefined,
+          model: 'cli-default',
           modelSource: 'cli-default',
           effort: 'high',
           effortStep: 5,
@@ -1138,7 +1138,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(lanePolicyLines()).toHaveLength(2);
       expect(lanePolicyLines()[1][1]).toEqual(
         expect.objectContaining({
-          model: undefined,
+          model: 'cli-default',
           prefixKeys: 'dropped (config rejected)',
         }),
       );

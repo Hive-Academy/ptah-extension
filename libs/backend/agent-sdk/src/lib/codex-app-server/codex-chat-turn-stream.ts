@@ -43,7 +43,7 @@ export interface CodexChatSession {
   readonly consumer?: 'chat' | 'gateway';
   context: CodexContext;
   readonly profile: CodexExecutionProfile;
-  readonly secrets?: CodexMcpSecrets;
+  secrets?: CodexMcpSecrets;
   readonly usageOwner: CodexSessionUsageOwner;
   readonly billingMode: 'subscription' | 'api-key' | 'unknown';
   messageCount: number;
@@ -196,11 +196,16 @@ export async function* streamCodexChatTurn(
       session.bundledRetryUsed = true;
       subscription.abort();
       await events.return?.();
-      await deps.retryFirstTurn(session);
+      try {
+        await deps.retryFirstTurn(session);
+      } finally {
+        session.secrets = undefined;
+      }
       subscription = new AbortController();
       events = session.context.events(subscription.signal)[Symbol.asyncIterator]();
       receipt = await session.context.startTurn({ ...input, signal: subscription.signal });
     }
+    session.secrets = undefined;
     session.turnId = receipt.turnId;
     admitted = true;
     deps.admission?.accepted();
@@ -696,6 +701,7 @@ async function drainInterruptedTurn(
       );
     }
   } finally {
+    session.secrets = undefined;
     if (!terminal) deps.turnState.forceIdle(session.id, 'aborted_streaming');
     if (session.turnId) session.sink.endTurn(session.id, session.turnId);
     try {

@@ -142,7 +142,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
   failMessage?: string;
   holdMethod?: string;
   steerResultTurnId?: string;
-  modelPages: unknown[] = [{ data: [catalogModel] }];
+  modelPages: unknown[] = [{ data: [catalogModel] }, { data: [catalogModel] }];
   historyThread?: Record<string, unknown>;
   reportedCodexHome = '/home/codex';
   completeBeforeReply = false;
@@ -310,6 +310,13 @@ describe('CodexRuntime', () => {
   let children: FakeChild[];
   let persist: jest.Mock<Promise<void>, [CodexThreadIdentity]>;
   let inactive: jest.Mock<Promise<void>, [CodexThreadIdentity]>;
+  async function waitForSpawnedChild(): Promise<FakeChild> {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      if (children[0]) return children[0];
+      await Promise.resolve();
+    }
+    throw new Error('Codex fixture did not spawn a child');
+  }
   beforeEach(() => {
     children = [];
     persist = jest.fn<Promise<void>, [CodexThreadIdentity]>(
@@ -795,8 +802,9 @@ describe('CodexRuntime', () => {
       ...profile,
       model: 'PRIVATE_REQUEST_SENTINEL',
     });
-    children[0].failMethod = 'thread/start';
-    children[0].stderr.write(
+    const child = await waitForSpawnedChild();
+    child.failMethod = 'thread/start';
+    child.stderr.write(
       'Authorization: Bearer secret-key\nstartup failed\n',
     );
     const failure: unknown = await opening.catch((error: unknown) => error);
@@ -910,9 +918,7 @@ describe('CodexRuntime', () => {
     async (response) => {
       const context = await runtime.open(profile);
       children[0].modelPages = [response];
-      await expect(context.listModels()).rejects.toThrow(
-        new Error('Codex model listing failed'),
-      );
+      await expect(context.listModels()).rejects.toThrow('Codex model listing failed');
       expect(children[0].stdin.writableEnded).toBe(false);
       children[0].modelPages = [{ data: [catalogModel] }];
       await expect(context.listModels()).resolves.toMatchObject([
@@ -935,7 +941,7 @@ describe('CodexRuntime', () => {
     );
     expect(
       children[0].frames.filter((frame) => frame['method'] === 'model/list'),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     await expect(
       context.startTurn({ text: 'still usable' }),
     ).resolves.toMatchObject({ turnId: 'turn-1' });
@@ -952,7 +958,7 @@ describe('CodexRuntime', () => {
     );
     expect(
       children[0].frames.filter((frame) => frame['method'] === 'model/list'),
-    ).toHaveLength(100);
+    ).toHaveLength(101);
     await expect(
       context.startTurn({ text: 'still usable' }),
     ).resolves.toMatchObject({ turnId: 'turn-1' });
@@ -971,6 +977,7 @@ describe('CodexRuntime', () => {
 
   it('rejects model listing on a closed context without sending a request', async () => {
     const context = await runtime.open(profile);
+    const requestsBeforeClose = children[0].frames.filter((frame) => frame['method'] === 'model/list').length;
     await context.close();
     await expect(context.listModels()).rejects.toThrow(
       'Codex context is not ready',
@@ -979,9 +986,7 @@ describe('CodexRuntime', () => {
       name: 'CodexContextStateError',
       state: 'closed',
     });
-    expect(
-      children[0].frames.some((frame) => frame['method'] === 'model/list'),
-    ).toBe(false);
+    expect(children[0].frames.filter((frame) => frame['method'] === 'model/list')).toHaveLength(requestsBeforeClose);
   });
 
   it('distinguishes an opening context from a closed context by type and state', () => {
@@ -1333,7 +1338,7 @@ describe('CodexRuntime', () => {
     });
   });
 
-  it('reports a rejected follow-up after exactly one decline and keeps the turn alive', async () => {
+  it.each([-1, -32601])('reports a refused follow-up for steer code %i and keeps the turn alive', async (rpcCode) => {
     runtime = new CodexRuntime({
       ...options,
       sink: {
@@ -1349,6 +1354,7 @@ describe('CodexRuntime', () => {
     const events = context.events(new AbortController().signal);
     const iterator = events[Symbol.asyncIterator]();
     children[0].failMethod = 'turn/steer';
+    children[0].failCode = rpcCode;
     children[0].approval();
     await flush();
     await flush();
@@ -1552,7 +1558,7 @@ describe('CodexRuntime', () => {
       .toHaveLength(0);
   });
 
-  it.each(['refused', 'different-turn'] as const)(
+  it.each(['refused', 'unsupported', 'different-turn'] as const)(
     'emits one error when an answered async question steer is %s on a live turn',
     async (outcome) => {
       const ask = jest.fn(async () => ({ 'question:0': { answers: ['Yes'] } }));
@@ -1560,8 +1566,10 @@ describe('CodexRuntime', () => {
       const context = await runtime.open(profile);
       await context.startTurn({ text: 'go' });
       const events = context.events(new AbortController().signal);
-      if (outcome === 'refused') children[0].failMethod = 'turn/steer';
-      else children[0].steerResultTurnId = 'turn-other';
+      if (outcome === 'refused' || outcome === 'unsupported') {
+        children[0].failMethod = 'turn/steer';
+        if (outcome === 'unsupported') children[0].failCode = -32601;
+      } else children[0].steerResultTurnId = 'turn-other';
       children[0].notify('item/completed', {
         threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
         item: { type: 'agentMessage', id: 'question', text: 'Choose one',
@@ -1571,7 +1579,7 @@ describe('CodexRuntime', () => {
       await flush();
       expect(options.logger.warn).toHaveBeenCalledWith(
         'Codex user answer was not delivered.',
-        { code: 'codex-user-input-undelivered', cause: outcome === 'refused' ? 'refused' : 'failed' },
+        { code: 'codex-user-input-undelivered', cause: outcome === 'different-turn' ? 'failed' : 'refused' },
       );
       children[0].complete();
       await context.close();
@@ -1735,7 +1743,7 @@ describe('CodexRuntime', () => {
     },
   );
 
-  it('keeps the decline when the denial steer is refused and logs a coded warning', async () => {
+  it.each([-1, -32601])('keeps the decline for denial steer code %i and logs a refused warning', async (rpcCode) => {
     const reason = 'too risky';
     const reply = {
       decision: 'decline' as const,
@@ -1749,6 +1757,7 @@ describe('CodexRuntime', () => {
     await context.startTurn({ text: 'go' });
     const events = context.events(new AbortController().signal);
     children[0].failMethod = 'turn/steer';
+    children[0].failCode = rpcCode;
     children[0].approval();
     await flush();
     await flush();
@@ -2555,6 +2564,7 @@ describe('CodexRuntime', () => {
 
   it('exposes a safe pre-turn config rejection after the failed context closes', async () => {
     const opening = runtime.open(laneProfile);
+    await waitForSpawnedChild();
     children[0].failMethod = 'thread/start';
     children[0].stderr.write('Error loading config.toml: invalid transport\nAuthorization: Bearer secret-key\n');
     const failure: unknown = await opening.catch((error: unknown) => error);
@@ -2576,6 +2586,7 @@ describe('CodexRuntime', () => {
     ['no key', 'Error loading config.toml: invalid transport', undefined],
   ] as const)('exposes %s safely on pre-turn config rejection', async (_case, diagnostic, expected) => {
     const opening = runtime.open(laneProfile);
+    await waitForSpawnedChild();
     children[0].failMethod = 'thread/start';
     children[0].stderr.write(`${diagnostic}\n`);
     const failure: unknown = await opening.catch((error: unknown) => error);
@@ -2594,6 +2605,7 @@ describe('CodexRuntime', () => {
     'classifies an RPC rejection with %s before a turn',
     async (_form, diagnostic) => {
       const opening = runtime.open(laneProfile);
+      await waitForSpawnedChild();
       children[0].failMethod = 'thread/start';
       children[0].stderr.write(`${diagnostic}\n`);
       const failure: unknown = await opening.catch((error: unknown) => error);
@@ -2608,6 +2620,7 @@ describe('CodexRuntime', () => {
 
   it('classifies a process failure with failed TOML deserialization before a turn', async () => {
     const opening = runtime.open(laneProfile);
+    await waitForSpawnedChild();
     children[0].holdMethod = 'thread/start';
     await flush();
     children[0].stderr.write('Failed to deserialize TOML config: invalid value\n');
@@ -2629,6 +2642,7 @@ describe('CodexRuntime', () => {
 
   it('classifies a signal-only exit with a config diagnostic before a turn', async () => {
     const opening = runtime.open(laneProfile);
+    await waitForSpawnedChild();
     children[0].holdMethod = 'thread/start';
     await flush();
     children[0].stderr.write('Error loading config.toml: invalid value\n');
@@ -2647,6 +2661,7 @@ describe('CodexRuntime', () => {
 
   it('does not classify a model rejection as a lane config rejection', async () => {
     const opening = runtime.open(laneProfile);
+    await waitForSpawnedChild();
     children[0].failMethod = 'thread/start';
     children[0].failMessage = 'Model rejected: unavailable';
     children[0].stderr.write('Model rejected: unavailable\n');

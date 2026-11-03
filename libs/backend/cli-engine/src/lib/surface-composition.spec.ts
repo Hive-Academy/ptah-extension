@@ -160,7 +160,7 @@ function composeFullMode(): {
 }
 
 describe('CLI surface composition — collaborator-level (Req 7.4, 11.2)', () => {
-  it('composes surface state without a native Codex runtime', async () => {
+  it('composes surface state with a lazy Codex lane factory', async () => {
     const { container, logger, state } = composeFullMode();
     try {
       registerCliCodexLaneFactory(container, logger, {
@@ -170,9 +170,11 @@ describe('CLI surface composition — collaborator-level (Req 7.4, 11.2)', () =>
       expect(state).toBeInstanceOf(SurfaceStateService);
       expect(
         container.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY, true),
-      ).toBe(false);
+      ).toBe(true);
       for (const token of Object.values(CODEX_RUNTIME_TOKENS)) {
-        expect(container.isRegistered(token, true)).toBe(false);
+        expect(container.isRegistered(token, true)).toBe(
+          token === CODEX_RUNTIME_TOKENS.SelectionSnapshot,
+        );
       }
       registerSurfaceRpc(container);
       expect(container.resolve(TOKENS.RPC_HANDLER)).toBeInstanceOf(RpcHandler);

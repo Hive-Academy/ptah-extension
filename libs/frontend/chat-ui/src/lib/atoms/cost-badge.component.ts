@@ -62,7 +62,7 @@ export function costBasisLabel(
       @if (notPriced()) {
         <span
           class="badge badge-sm badge-ghost opacity-70"
-          title="This model has no published rate, so no cost can be calculated."
+          title="Ptah does not have the rate needed to calculate this cost."
           data-testid="cost-not-priced"
         >
           not priced
@@ -95,7 +95,7 @@ export class CostBadgeComponent {
 
   /**
    * Backend's narrow cause of a null cost. Only `rate-missing` changes the
-   * label: a model that ran with no published rate is "not priced", while
+   * label: Ptah lacks a rate needed for the model, while
    * every other null-cost reason (unknown billing, unusable usage) keeps
    * "cost unavailable" so the badge never claims more than it knows.
    */
@@ -106,7 +106,7 @@ export class CostBadgeComponent {
   );
 
   /**
-   * Whether the null cost is a model with no published rate, from the same
+   * Whether the null cost is a model without a rate available to Ptah, from the same
    * known-cost gate the template's `@if` uses, so a genuine `0` stays priced.
    */
   protected readonly notPriced = computed(() =>

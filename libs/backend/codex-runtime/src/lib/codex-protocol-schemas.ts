@@ -69,6 +69,7 @@ export const serverSandbox = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('externalSandbox'),
+    // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
     networkAccess: z
       .enum(['enabled', 'restricted'])
       .optional()
@@ -120,6 +121,7 @@ const serverTextElement = z.object({
   }),
   placeholder: string.nullish(),
 });
+// degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
 const serverImageDetail = z
   .enum(['auto', 'low', 'high', 'original'])
   .nullish()
@@ -294,7 +296,9 @@ export const knownItem = z.discriminatedUnion('type', [
     type: z.literal('agentMessage'),
     id: string,
     text: string,
+    // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
     phase: z.enum(['commentary', 'final_answer']).nullish().catch(undefined),
+    // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
     delivery: z.literal('async').nullish().catch(undefined),
     memoryCitation: z
       .object({
@@ -331,6 +335,7 @@ export const knownItem = z.discriminatedUnion('type', [
     processId: string.nullish(),
     pluginId: string.nullish(),
     scriptPath: string.nullish(),
+    // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
     source: z
       .enum([
         'agent',
@@ -532,6 +537,7 @@ export const turnError = z.object({
 });
 const activeFlag = z.enum(['waitingOnApproval', 'waitingOnUserInput']);
 export const activeFlags = z
+  // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
   .array(activeFlag.optional().catch(undefined))
   .transform((flags) =>
     flags.filter((flag): flag is z.infer<typeof activeFlag> => flag !== undefined),
@@ -544,6 +550,7 @@ export const turn = z.object({
   startedAt: integer.nullish(),
   completedAt: integer.nullish(),
   durationMs: integer.nullish(),
+  // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
   itemsView: z
     .enum(['notLoaded', 'summary', 'full'])
     .optional()
@@ -588,6 +595,7 @@ export const thread = z.object({
   reasoningEffort: string.nullish(),
   recencyAt: integer.nullish(),
   sectionEnteredAt: integer.nullish(),
+  // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
   historyMode: z
     .enum(['legacy', 'paginated'])
     .optional()

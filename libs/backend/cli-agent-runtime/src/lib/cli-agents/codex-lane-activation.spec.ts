@@ -264,8 +264,11 @@ function nativeAdapter(home: string, workDirectory: string) {
     openCatalog: jest.fn(async () => { throw new Error('No catalog in activation fixture'); }),
   };
   const binary: CodexLaneBinaryProbe = {
-    resolve: jest.fn(async () => ({ path: resolve(home, 'codex-test'), version: '0.165.0',
-      source: 'bundled' as const, reason: 'Test fixture' })),
+    resolve: jest.fn(async () => {
+      const selected = { path: resolve(home, 'codex-test'), version: '0.165.0',
+        source: 'bundled' as const, reason: 'Test fixture' };
+      return { ...selected, selection: { selected } };
+    }),
   };
   const credentials: CodexLaneCredentialProbe = { check: jest.fn(async () => 'fresh' as const) };
   type ManagerArgs = ConstructorParameters<typeof AgentProcessManager>;
@@ -329,6 +332,7 @@ describe('native Codex lane activation at the manager boundary', () => {
         expect.objectContaining({ consumer: 'lane' }),
         expect.objectContaining({ threadId: THREAD }),
         expect.anything(), expect.any(String),
+        expect.objectContaining({ selected: expect.objectContaining({ source: 'bundled' }) }),
       );
       native.contexts[1].terminal(10);
       await settled();

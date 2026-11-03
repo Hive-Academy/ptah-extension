@@ -501,7 +501,7 @@ export interface ExactCostResult {
   readonly priceProvenance?: PriceProvenance;
   /**
    * Present only when `totalCost` is null, naming the one narrow cause. A
-   * `rate-missing` result is a model that ran with no published rate, so the
+   * `rate-missing` result is a model for which Ptah lacks a needed rate, so the
    * UI can say "not priced" without mislabeling unknown billing or unusable
    * usage. Absent on every priced result.
    */
@@ -532,15 +532,21 @@ export function calculateExactMessageCost(
     costUnavailableReason,
   });
   if (options.billingMode === 'unknown') return unavailable('billing-unknown');
+  if (!modelId.trim()) return unavailable('usage-incomplete');
+  const counts = [
+    tokens.input,
+    tokens.output,
+    tokens.cacheHit ?? 0,
+    tokens.cacheCreation ?? 0,
+  ];
+  const usageIncomplete = counts.some((count) =>
+    !Number.isSafeInteger(count) || count < 0) ||
+    (counts.every((count) => count === 0) && !options.usageObserved);
   const found = findExactModelPricing(modelId);
   // No catalog entry (or only a base Claude entry for a `[1m]` request) means
-  // the model ran without a published rate: "not priced", never a fabricated
+  // Ptah lacks a needed rate: "not priced", never a fabricated
   // substitute rate or zero.
-  if (!found) return unavailable('rate-missing');
-  if (found.modelIdUsed !== modelId.toLowerCase()) {
-    return unavailable('rate-missing');
-  }
-
+  if (!found) return unavailable(usageIncomplete ? 'usage-incomplete' : 'rate-missing');
   const { pricing } = found;
   const provenance: PriceProvenance = {
     modelIdUsed: found.modelIdUsed,
@@ -548,34 +554,22 @@ export function calculateExactMessageCost(
     catalogVersion: pricing.catalogVersion ?? null,
     effectiveDate: pricing.effectiveDate ?? null,
   };
+  if (usageIncomplete) {
+    return {
+      totalCost: null,
+      costBasis: 'unknown',
+      pricingCoverage: 'none',
+      priceProvenance: provenance,
+      costUnavailableReason: 'usage-incomplete',
+    };
+  }
+  if (found.modelIdUsed !== modelId.toLowerCase()) {
+    return unavailable('rate-missing');
+  }
   const availableBasis: SessionCostBasis =
     options.billingMode === 'subscription'
       ? 'covered-by-subscription'
       : 'estimated';
-  const counts = [
-    tokens.input,
-    tokens.output,
-    tokens.cacheHit ?? 0,
-    tokens.cacheCreation ?? 0,
-  ];
-  if (counts.some((count) => !Number.isSafeInteger(count) || count < 0)) {
-    return {
-      totalCost: null,
-      costBasis: 'unknown',
-      pricingCoverage: 'none',
-      priceProvenance: provenance,
-      costUnavailableReason: 'usage-incomplete',
-    };
-  }
-  if (counts.every((count) => count === 0) && !options.usageObserved) {
-    return {
-      totalCost: null,
-      costBasis: 'unknown',
-      pricingCoverage: 'none',
-      priceProvenance: provenance,
-      costUnavailableReason: 'usage-incomplete',
-    };
-  }
   const inputPriced = validRate(pricing.inputCostPerToken);
   const outputPriced = validRate(pricing.outputCostPerToken);
   const readPriced =

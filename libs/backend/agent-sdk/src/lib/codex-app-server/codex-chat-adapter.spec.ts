@@ -879,6 +879,20 @@ describe('CodexChatAdapter', () => {
     expect(lifecycle.closed).toHaveBeenCalledWith(id);
   });
 
+  it('does not label a terminal without model or usage evidence as a missing rate', async () => {
+    const h = setup();
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    const stream = await h.adapter.startChatSession({ tabId, prompt: 'hello' });
+    for await (const event of stream) void event;
+
+    expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+      turnCost: null,
+      sessionStats: expect.not.objectContaining({ costUnavailableReason: 'rate-missing' }),
+    }));
+    await h.adapter.reset();
+  });
+
   it('passes a start tab name to metadata when it is the only title', async () => {
     const { adapter, ports } = setup();
     await adapter.startChatSession({ tabId, name: 'Tab title' });
@@ -928,14 +942,13 @@ describe('CodexChatAdapter', () => {
     expect(ports.metadata.save).toHaveBeenCalledWith(id, identity, 'Resumed title');
   });
 
-  it('refuses a closed gate without opening a context', async () => {
+  it('opens a chat session without a legacy gate', async () => {
     const { adapter, open, dispose, lifecycle } = setup();
-    await expect(adapter.startChatSession({ tabId })).rejects.toMatchObject({
-      code: 'runtime-failed',
-    });
-    expect(open).not.toHaveBeenCalled();
-    expect(lifecycle.opened).not.toHaveBeenCalled();
+    await expect(adapter.startChatSession({ tabId })).resolves.toBeDefined();
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(lifecycle.opened).toHaveBeenCalledWith(id, expect.anything());
     expect(lifecycle.closed).not.toHaveBeenCalled();
+    await adapter.reset();
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 
@@ -1168,6 +1181,19 @@ describe('CodexChatAdapter', () => {
     await first.adapter.reset();
   });
 
+  it('clears open-only MCP secrets from the tracked session after the first turn receipt', async () => {
+    const h = setup();
+    const secrets = new Map([['ref:auth', 'Bearer secret']]);
+    h.ports.profile = jest.fn(async () => ({ profile, secrets }));
+
+    const stream = await h.adapter.startChatSession({ tabId, prompt: 'hello' });
+    for await (const event of stream) void event;
+
+    expect(h.context.startTurn).toHaveBeenCalledTimes(1);
+    expect(h.adapter['sessions'].get(id)?.secrets).toBeUndefined();
+    await h.adapter.reset();
+  });
+
   it('fails unsupported methods visibly', async () => {
     const { adapter } = setup();
     for (const action of [
@@ -1265,6 +1291,8 @@ describe('CodexChatAdapter', () => {
   });
   it('keeps the active turn permission level in the sink until the next turn', async () => {
     const { adapter, ports, sink, context } = setup();
+    const cwd = process.platform === 'win32' ? 'C:\\repo' : '/repo';
+    jest.mocked(ports.profile).mockResolvedValue({ profile: { ...profile, cwd } });
     await adapter.startChatSession({ tabId });
     const request = {
       ...identity,
@@ -1272,7 +1300,7 @@ describe('CodexChatAdapter', () => {
       requestId: 31,
       kind: 'command' as const,
       message: 'Read?',
-      details: { command: 'Get-Content README.md', cwd: 'C:\\repo' },
+      details: { command: process.platform === 'win32' ? 'Get-Content README.md' : 'cat README.md', cwd },
     };
     await expect(sink().request(request, new AbortController().signal))
       .resolves.toBe('accept');

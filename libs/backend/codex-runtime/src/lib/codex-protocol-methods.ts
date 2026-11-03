@@ -57,6 +57,7 @@ const modelListEntry = z.object({
   availabilityNux: z.object({ message: string }).nullish(),
   defaultServiceTier: string.nullish(),
   inputModalities: z
+    // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
     .array(inputModality.optional().catch(undefined))
     .transform((modalities) =>
       modalities.filter(
@@ -66,6 +67,7 @@ const modelListEntry = z.object({
     )
     .optional(),
   modelSpecialty: string.nullish(),
+  // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
   multiAgentVersion: z
     .enum(['disabled', 'v1', 'v2'])
     .nullish()
@@ -257,6 +259,7 @@ export const codexServerRequestSchemas = {
       commandActions: commandActions.nullish(),
       cwd: string.nullish(),
       environmentId: string.nullish(),
+      // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
       kind: z.enum(['command', 'writeStdin']).optional().catch(undefined),
       reason: string.nullish(),
       proposedExecpolicyAmendment: z.array(string).nullish(),
@@ -339,6 +342,7 @@ const notificationStatus = z.discriminatedUnion('type', [
 const notificationRateLimits = rateLimits.strip().extend({
   primary: rateWindow.strip().nullish(),
   secondary: rateWindow.strip().nullish(),
+  // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
   planType: z
     .enum([
       'free',
@@ -361,6 +365,7 @@ const notificationRateLimits = rateLimits.strip().extend({
     ])
     .nullish()
     .catch(undefined),
+  // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
   rateLimitReachedType: z
     .enum([
       'rate_limit_reached',
@@ -388,6 +393,7 @@ export const codexNotificationSchemas = {
     name: string,
     status: z.enum(['starting', 'ready', 'failed', 'cancelled']),
     error: string.nullish(),
+    // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
     failureReason: z
       .literal('reauthenticationRequired')
       .nullish()

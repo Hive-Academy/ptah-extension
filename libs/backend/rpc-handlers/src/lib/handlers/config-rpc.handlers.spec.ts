@@ -1107,7 +1107,7 @@ describe('ConfigRpcHandlers', () => {
         return h;
       }
 
-      it('offers and selects a saved provider model missing from the tier list', async () => {
+      it('does not offer a saved Codex model absent from the live catalog', async () => {
         const h = codexHarness('gpt-6-luna');
         h.handlers.register();
 
@@ -1116,9 +1116,8 @@ describe('ConfigRpcHandlers', () => {
         }>(h, 'config:models-list');
 
         const selected = result.models.filter((m) => m.isSelected);
-        expect(selected).toEqual([
-          expect.objectContaining({ id: 'gpt-6-luna', name: 'GPT 6 Luna' }),
-        ]);
+        expect(selected).toEqual([]);
+        expect(result.models.some((model) => model.id === 'gpt-6-luna')).toBe(false);
       });
 
       it('offers a saved model found only in the live catalog', async () => {
@@ -1214,6 +1213,7 @@ describe('ConfigRpcHandlers', () => {
         });
         h.sdkAdapter.getSupportedModels.mockResolvedValue(CODEX_BASE_LIST);
         h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        h.providerModels.getCachedModelIds.mockReturnValue(['gpt-6-sol']);
         h.handlers.register();
 
         const result = await call<{
@@ -1253,16 +1253,15 @@ describe('ConfigRpcHandlers', () => {
           catalogGate.then(() => CODEX_BASE_LIST),
         );
         h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        h.providerModels.getCachedModelIds.mockReturnValue(['gpt-6-sol']);
         h.handlers.register();
 
         const workspaceResult = call<{
           workspacePath: string | null;
           models: Array<{ id: string; isSelected: boolean }>;
         }>(h, 'config:models-list', { workspacePath });
-        // The live catalog that arrives later does not name gpt-6-sol. The
-        // workspace request already snapped a null catalog, so the static
-        // saved-model option still offers it. The global request snaps this
-        // catalog and therefore offers gpt-6-astra.
+        // Each request uses the catalogue for its own scope even when the
+        // ambient selection changes before model discovery resolves.
         h.providerModels.getCachedModelIds.mockReturnValue(['gpt-6-astra']);
         const globalResult = call<{
           workspacePath: string | null;
