@@ -146,6 +146,13 @@ import type {
   ChatAgentSessionsParams,
   ChatAgentSessionsResult,
 } from './rpc/rpc-chat.types';
+// Carry-over (TASK_2026_865)
+import type {
+  ChatCarryOverCheckParams,
+  ChatCarryOverCheckResult,
+  ChatCarryOverParams,
+  ChatCarryOverResult,
+} from './rpc/rpc-chat.types';
 
 import type {
   SessionListParams,
@@ -1039,6 +1046,15 @@ export interface RpcMethodRegistry
   };
   'chat:start': { params: ChatStartParams; result: ChatStartResult };
   'chat:continue': { params: ChatContinueParams; result: ChatContinueResult };
+  // Carry-over (TASK_2026_865)
+  'chat:carry-over-check': {
+    params: ChatCarryOverCheckParams;
+    result: ChatCarryOverCheckResult;
+  };
+  'chat:carry-over': {
+    params: ChatCarryOverParams;
+    result: ChatCarryOverResult;
+  };
   'chat:setStreamViewport': {
     params: ChatSetStreamViewportParams;
     result: ChatSetStreamViewportResult;
@@ -3395,6 +3411,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'attention:getSnapshot': true,
   'chat:start': true,
   'chat:continue': true,
+  // Carry-over (TASK_2026_865)
+  'chat:carry-over-check': true,
+  'chat:carry-over': true,
   'chat:setStreamViewport': true,
   'chat:abort': true,
   'chat:pending-questions': true,

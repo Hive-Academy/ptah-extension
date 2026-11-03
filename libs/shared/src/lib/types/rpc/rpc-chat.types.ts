@@ -467,3 +467,42 @@ export interface ChatHistoryPageResult {
   readonly olderCursor: string | null;
   readonly resumableSubagents: readonly SubagentRecord[];
 }
+
+/** Parameters for chat:carry-over-check RPC method. */
+export interface ChatCarryOverCheckParams {
+  sessionId: SessionId;
+  workspacePath: string;
+}
+
+/** Response from chat:carry-over-check RPC method. */
+export type ChatCarryOverCheckResult =
+  | { eligible: true; providerId: string; providerName: string }
+  | { eligible: false };
+
+/** Parameters for chat:carry-over RPC method. */
+export interface ChatCarryOverParams {
+  sessionId: SessionId;
+  tabId: string;
+  workspacePath: string;
+  name?: string;
+  ptahUiFence?: boolean;
+}
+
+/** Reason a chat:carry-over RPC request did not start a session. */
+export type ChatCarryOverFailureReason =
+  | 'NOT_ELIGIBLE'
+  | 'IN_FLIGHT'
+  | 'HISTORY_UNREADABLE'
+  | 'START_FAILED';
+
+/** Response from chat:carry-over RPC method. */
+export type ChatCarryOverResult =
+  | { success: true; providerId: string; providerName: string }
+  | {
+      success: false;
+      reason: ChatCarryOverFailureReason;
+      /** Fixed host text; never contains transcript content. */
+      error: string;
+      errorCode?: RpcUserErrorCode;
+      providerId?: string;
+    };
