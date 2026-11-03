@@ -163,7 +163,7 @@ test.describe('plan limits > session inspector', () => {
         await expect(providerRows).toHaveCount(4);
         await expect(planTiles.first()).toBeVisible();
         await providerRow('ptah-cli').getByRole('button', { name: 'More detail' }).click();
-        await expect(providerRow('ptah-cli')).toContainText('Resets');
+        await expect(providerRow('ptah-cli')).toContainText('resets');
         const agents = inspector.locator('ptah-inspector-agents-section');
         await expect(agents.locator('[data-testid="agents-lane-subtotal"]')).toBeVisible();
         await fitViewportHeight(page, limits, width);
