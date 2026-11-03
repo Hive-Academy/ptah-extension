@@ -58,3 +58,13 @@ convert icon.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
 - Keep the design simple and recognizable at 16x16
 - Follow the Ptah brand guidelines for colors and style
 - Test visibility on both light and dark OS themes
+
+## Microsoft Store Tiles
+
+The MSIX (appx) target reads its tiles from `../appx/` (`StoreLogo.png` 50x50,
+`Square44x44Logo.png`, `Square150x150Logo.png`, `Wide310x150Logo.png`). They are generated
+from `icon.png` and committed. Regenerate after changing the icon:
+
+```bash
+node apps/ptah-electron/scripts/generate-appx-assets.mjs
+```

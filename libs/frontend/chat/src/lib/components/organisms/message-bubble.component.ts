@@ -35,6 +35,7 @@ import {
   StreamingQuotesComponent,
   CopyButtonComponent,
   AgentAvatarComponent,
+  ReportResponseButtonComponent,
   formatAgentDuration,
 } from '@ptah-extension/chat-ui';
 import { formatUsdCost } from '@ptah-extension/shared';
@@ -98,7 +99,7 @@ function turnHasActivityData(turn: TurnContext): boolean {
  * MessageBubbleComponent - one transcript message.
  *
  * Assistant messages render the clean turn (design-spec §3): disclosure row,
- * collapsible work log, answer, agent chips, action row (copy, `Show
+ * collapsible work log, answer, agent chips, action row (copy, report, `Show
  * activity`), activity panel and live line. Turn-level rows sit on the turn's
  * first (disclosure) or last (chips, actions, panel, live line) assistant
  * message; the transcript supplies the turn facts, the per-turn log flag,
@@ -120,6 +121,7 @@ function turnHasActivityData(turn: TurnContext): boolean {
     StreamingQuotesComponent,
     CopyButtonComponent,
     AgentAvatarComponent,
+    ReportResponseButtonComponent,
     TurnDisclosureRowComponent,
     TurnActivityPanelComponent,
     TurnLiveLineComponent,
