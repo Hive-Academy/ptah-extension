@@ -999,6 +999,7 @@ export class StreamTransformer {
                       totalCost:
                         typeof totalCost === 'number' ? totalCost : null,
                       costSource: usageCostSource,
+                      providerId: capacityRoute?.providerId ?? null,
                       isErrorResult:
                         sdkMessage.subtype !== 'success' || sdkMessage.is_error,
                       // Per turn; the owner adds it only when it accepts the

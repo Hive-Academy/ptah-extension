@@ -34,6 +34,7 @@
 
 import type { DependencyContainer } from 'tsyringe';
 import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 
 /**
  * `TOKENS.AGENT_PROCESS_MANAGER` from `@ptah-extension/vscode-core`, resolved
@@ -177,5 +178,25 @@ export async function shutdownHostRuntime(
   await shutdownAgentProcesses(container);
   await shutdownPtahCliProxies(container);
   await shutdownLaneOutcomes(container);
+  if (container) {
+    try {
+      if (typeof container.isRegistered === 'function' && container.isRegistered(PLATFORM_TOKENS.SESSION_USAGE_SINK)) {
+        const sink = container.resolve<{ flush: () => Promise<void> }>(PLATFORM_TOKENS.SESSION_USAGE_SINK);
+        let deadline: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            sink.flush(),
+            new Promise<never>((_, reject) => {
+              deadline = setTimeout(() => reject(new Error('session usage drain timed out')), 2000);
+            }),
+          ]);
+        } finally {
+          if (deadline) clearTimeout(deadline);
+        }
+      }
+    } catch (error: unknown) {
+      process.stderr.write(`[ptah] session usage drain failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    }
+  }
   await shutdownWorkspaceWatcher(container);
 }

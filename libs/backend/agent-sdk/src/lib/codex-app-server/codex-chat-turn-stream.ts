@@ -139,7 +139,7 @@ export async function* streamCodexChatTurn(
   if (session.busy) throw deps.error('busy', 'turn');
   if (session.blocked || session.closing) throw deps.error('unavailable', 'turn');
   session.busy = true;
-  let subscription = new AbortController();
+  const subscription = new AbortController();
   const abort = () => subscription.abort();
   session.abort.signal.addEventListener('abort', abort, { once: true });
   let terminal = false;
