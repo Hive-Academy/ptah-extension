@@ -194,9 +194,20 @@ Every tool call in any agent or lane resends its whole thread, so cost is reques
    needs a specific reason and a weaker-evidence label; record the `Review family`. Batches that change
    only types, tests, docs or measurement get no review. Add a style review only for new public API.
 4. **One fix round.** Blocking and Serious are fixed in one round. Moderate is fixed only if it can
-   break a lane config or lose data; otherwise it becomes a named later task. Minor is recorded,
-   not fixed. After the round, one short re-review scoped to the fixes.
-5. **Short updates.** Keep orchestrator messages brief; no status message per notification.
+   break a lane config or lose data; otherwise it becomes a named later task. Minor is fixed in the
+   same round when the fix is local (one file, no contract or public API change); otherwise it is
+   recorded. After the round, one short re-review scoped to the fixes.
+5. **Final PR review.** Before the first push, run one independent code-logic review of the whole
+   task diff at the current HEAD (`git diff main...HEAD`). The reviewer's family differs from every
+   family that wrote code in that diff; when none is left, a same-family reviewer needs a specific
+   reason and a weaker-evidence label. It covers what phase reviews skip: fix-round commits, batches
+   that change only types, tests or docs, and the callers of each changed export outside the diff,
+   which the reviewer finds with `ptah_lsp_references` (`ptah_get_dependents` only widens the
+   candidate files). This review gets its own fix round under the severity rules of rule 4, inside
+   the revise cap of agent-lanes §6, which it does not reset. Re-review the fix commits, then push.
+   Defects still open after that round go to the user before any push. Skip this review only when
+   the run had one phase and no commit followed that phase review.
+6. **Short updates.** Keep orchestrator messages brief; no status message per notification.
 
 ## References — load on demand, never all at once
 
