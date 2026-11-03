@@ -11,6 +11,7 @@
  */
 
 import type { DependencyContainer } from 'tsyringe';
+import { registerElectronCodexReadinessAndLogin } from './codex-login-composition';
 
 import {
   TOKENS,
@@ -220,6 +221,7 @@ export function registerPhase2Libraries(
       new TreeSitterCodeOutliner(c.resolve(TOKENS.TREE_SITTER_PARSER_SERVICE)),
   });
   registerSdkServices(container, logger);
+  registerElectronCodexReadinessAndLogin(container, logger);
   container.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
     useValue: new ElectronEditorLauncher(
       container.resolve<IProcessSpawner>(SDK_TOKENS.SDK_PROCESS_SPAWNER),
