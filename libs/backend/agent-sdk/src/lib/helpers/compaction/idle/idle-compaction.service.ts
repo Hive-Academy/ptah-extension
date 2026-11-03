@@ -62,6 +62,13 @@ import type {
 
 /** Multi-session idle compaction orchestrator. All producer calls are synchronous and safe. */
 export class IdleCompactionService implements IdleCompactionSignals {
+  private safeInfo(message: string, context: Record<string, unknown>): void {
+    try {
+      this.logger.info(message, context);
+    } catch {
+      // degradation-audit: optional-capability - logging failure must not stop compaction.
+    }
+  }
   private readonly signals$ = new Subject<KeyedSignal>();
   private readonly aliases = new Map<string, string>();
   private readonly keys = new Map<string, Set<string>>();
@@ -188,14 +195,14 @@ export class IdleCompactionService implements IdleCompactionSignals {
         if (latest.attempt?.kind === 'pending') pending = latest.attempt;
         this.projectCache(step, nativeAnthropic);
         if (step.state.attempt?.kind === 'pending' && step.signal.type === 'turn-context') {
-          this.logger.info('[IdleCompactionService] armed', {
+          this.safeInfo('[IdleCompactionService] armed', {
             sessionId: step.state.sessionId,
             attemptId: step.state.attempt.attemptId,
             fireAt: step.state.attempt.fireAt,
           });
         }
         if (step.signal.type === 'session-released') {
-          this.logger.info('[IdleCompactionService] released', { sessionId: step.state.sessionId });
+          this.safeInfo('[IdleCompactionService] released', { sessionId: step.state.sessionId });
         }
         this.runEffects(step);
       }),
@@ -398,7 +405,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
       safeWarn(this.logger, 'lookup-failed', current.sessionId, undefined, error);
     }
     if (refusal) {
-      this.logger.info('[IdleCompactionService] fire skipped', { sessionId: current.sessionId, reason: refusal });
+      this.safeInfo('[IdleCompactionService] fire skipped', { sessionId: current.sessionId, reason: refusal });
       this.enqueue({
         type: 'fire-skipped',
         sessionId: current.sessionId,
@@ -408,7 +415,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
       return EMPTY;
     }
     const sessionId = current.sessionId;
-    this.logger.info('[IdleCompactionService] firing', { sessionId, attemptId: effect.attemptId });
+    this.safeInfo('[IdleCompactionService] firing', { sessionId, attemptId: effect.attemptId });
     const beforeEnqueue = (): void => {
       const attempt = state().attempt;
       if (

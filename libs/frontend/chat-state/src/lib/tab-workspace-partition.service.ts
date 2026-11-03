@@ -409,6 +409,9 @@ export class TabWorkspacePartitionService {
     // Same immutable swap as `updateBackgroundTab`: holders of the old array
     // (e.g. an in-flight `getWorkspaceTabs` result) keep a stable view.
     tabSet.tabs = tabSet.tabs.filter((_, i) => i !== index);
+    if (tabSet.activeTabId === tabId) {
+      tabSet.activeTabId = tabSet.tabs[Math.min(index, tabSet.tabs.length - 1)]?.id ?? null;
+    }
     if (removed.claudeSessionId) {
       this._sessionToWorkspace.delete(removed.claudeSessionId);
     }

@@ -190,6 +190,15 @@ describe('IdleCompactionService', () => {
     h.coordinator.dispose();
   });
 
+  it('still fires when structured info logging throws', async () => {
+    const h = harness();
+    h.info.mockImplementation(() => { throw new Error('logger failed'); });
+    h.arm();
+    h.advance(DUE);
+    await Promise.resolve();
+    expect(h.sender.sendIdleCompact).toHaveBeenCalledTimes(1);
+  });
+
   it('cancels the background timer on session release', () => {
     const h = harness();
     h.arm();

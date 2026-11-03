@@ -171,17 +171,15 @@ export class MessageDispatchService {
   }
 
   private settleQueuedCommand(
-    tabId: string,
-    content: string,
+    command: QueuedCommand | null,
     failed: boolean,
   ): void {
-    for (const [command, listener] of this.queuedOutcomeListeners) {
-      if (command.tabId !== tabId || !content.startsWith(command.content))
-        continue;
-      listener(!failed);
-      if (!failed || !this.conversation.isQueuedCommand(command)) {
-        this.queuedOutcomeListeners.delete(command);
-      }
+    if (!command) return;
+    const listener = this.queuedOutcomeListeners.get(command);
+    if (!listener) return;
+    listener(!failed);
+    if (!failed || !this.conversation.isQueuedCommand(command)) {
+      this.queuedOutcomeListeners.delete(command);
     }
   }
 
@@ -310,6 +308,7 @@ export class MessageDispatchService {
     if (this.sendLock.isHeld(tabId, options?.ownerToken)) return;
     let queuedOptions: SendMessageOptions | undefined;
     let queuedContent = content;
+    const queuedCommand = this.conversation.queuedCommandForFlush(tabId);
     let delivered = false;
     try {
       const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
@@ -326,7 +325,7 @@ export class MessageDispatchService {
           { tabId },
         );
         this.tabManager.setQueuedContent(tabId, content);
-        this.settleQueuedCommand(tabId, content, true);
+        this.settleQueuedCommand(queuedCommand, true);
         return;
       }
       queuedContent = tab?.queuedContent ?? content;
@@ -343,26 +342,26 @@ export class MessageDispatchService {
       if (outcome?.cancelled === true) {
         this.restoreCancelledSend(tabId, previousTerminalReason);
         this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
-        this.settleQueuedCommand(tabId, queuedContent, true);
+        this.settleQueuedCommand(queuedCommand, true);
         return;
       }
       if (outcome?.errorAlreadyShown === true) {
         // CHAT_ERROR already settled this command. Do not requeue it or
         // release a held command as though the failed operation succeeded.
-        this.settleQueuedCommand(tabId, queuedContent, true);
+        this.settleQueuedCommand(queuedCommand, true);
         return;
       }
       if (outcome && !outcome.success) {
         this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
-        this.settleQueuedCommand(tabId, queuedContent, true);
+        this.settleQueuedCommand(queuedCommand, true);
         this.showSendFailure(tabId, outcome.error);
       } else {
         delivered = true;
-        this.settleQueuedCommand(tabId, queuedContent, false);
+        this.settleQueuedCommand(queuedCommand, false);
       }
     } catch (error) {
       this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
-      this.settleQueuedCommand(tabId, queuedContent, true);
+      this.settleQueuedCommand(queuedCommand, true);
       console.error('[ChatStore] sendQueuedMessage failed:', error);
       this.showSendFailure(
         tabId,

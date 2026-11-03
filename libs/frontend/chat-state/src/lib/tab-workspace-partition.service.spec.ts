@@ -177,6 +177,16 @@ describe('TabWorkspacePartitionService', () => {
   });
 
   describe('removeBackgroundTab', () => {
+    it('selects the adjacent tab when removing the background active tab', () => {
+      svc.switchWorkspace('/ws/a', [], null);
+      svc.switchWorkspace('/ws/b', [makeTab('a-1'), makeTab('a-2')], 'a-1');
+      svc.removeBackgroundTab('a-1', '/ws/a');
+      const restored = svc.switchWorkspace('/ws/a', [], null);
+      expect(restored?.activeTabId).toBe('a-2');
+      svc.switchWorkspace('/ws/b', restored?.tabs ?? [], restored?.activeTabId ?? null);
+      svc.removeBackgroundTab('a-2', '/ws/a');
+      expect(svc.switchWorkspace('/ws/a', [], null)?.activeTabId).toBeNull();
+    });
     it('removes a background tab and drops its session index entry', () => {
       svc.switchWorkspace('/ws/a', [], null);
       svc.switchWorkspace(

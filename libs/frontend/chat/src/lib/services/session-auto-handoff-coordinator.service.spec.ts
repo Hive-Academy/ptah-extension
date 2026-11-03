@@ -503,6 +503,18 @@ describe('SessionAutoHandoffCoordinatorService', () => {
   });
 
   describe('a failed send', () => {
+    it('releases the claim when a held hand-off becomes queued then its flush fails', async () => {
+      start({ active: [makeTab(TAB, { status: 'streaming' })] });
+      await TestBed.inject(MessageDispatchService).sendOrQueueMessage('Please check tests', { tabId: TAB });
+      await run();
+      expect(autoHandoff.entry(SESSION)?.held).toBe(true);
+      await endTurn(TAB);
+      await settle();
+      expect(autoHandoff.entry(SESSION)?.held).toBe(false);
+      flushFails = true;
+      await endTurn(TAB);
+      expect(autoHandoff.entry(SESSION)).toBeNull();
+    });
     it('releases a failed streaming queue head and waits while its text remains queued', async () => {
       start({ active: [makeTab(TAB, { status: 'streaming' })] });
       await run();

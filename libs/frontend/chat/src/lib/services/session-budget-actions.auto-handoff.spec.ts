@@ -289,7 +289,16 @@ describe('SessionBudgetActionsService automatic hand-off (view side)', () => {
     await endTurn();
     expect(flushed).toEqual([COMMAND]);
     expect(service.autoHandoffQueued()).toBe(false);
+    expect(service.wrapUpSent()).toBe(true);
     expect(handoffSends()).toEqual([COMMAND]);
+  });
+
+  it('keeps wrap-up disabled after a direct automatic hand-off', async () => {
+    start({}, 'loaded');
+    await seedAutoHandoff();
+    expect(autoHandoff.entry(SESSION)?.state).toBe('fired');
+    expect(autoHandoff.entry(SESSION)?.queued).toBeNull();
+    expect(service.wrapUpSent()).toBe(true);
   });
 
   it('every view of the session projects the same claim-store entry', async () => {

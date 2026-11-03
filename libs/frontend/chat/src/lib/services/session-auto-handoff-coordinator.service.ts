@@ -202,20 +202,7 @@ export class SessionAutoHandoffCoordinatorService {
         outcome.heldCommand !== undefined,
       );
       if (outcome.queuedCommand && outcome.heldCommand === undefined) {
-        const head = outcome.queuedCommand;
-        this.messageDispatch.onQueuedCommandOutcome(head, (delivered) => {
-          if (delivered) {
-            this.failedQueueHeads.delete(sessionId);
-            if (this.autoHandoff.entry(sessionId) === null) {
-              this.autoHandoff.claim(sessionId);
-            }
-            return;
-          }
-          if (this.autoHandoff.entry(sessionId)?.state === 'cancelled') return;
-          this.failedQueueHeads.set(sessionId, head);
-          this.autoHandoff.release(sessionId);
-          this.deferAttempt(sessionId, 'the queued hand-off send failed');
-        });
+        this.watchQueuedCommand(sessionId, outcome.queuedCommand);
       }
       if (outcome.heldCommand === undefined) return;
       const delivered = await outcome.heldCommand;
@@ -224,6 +211,9 @@ export class SessionAutoHandoffCoordinatorService {
         outcome.queuedCommand ?? null,
         false,
       );
+      if (delivered && outcome.queuedCommand) {
+        this.watchQueuedCommand(sessionId, outcome.queuedCommand);
+      }
       if (delivered) return;
       if (this.autoHandoff.entry(sessionId)?.state === 'cancelled') {
         return; // the user withdrew it; the claim store keeps the cancel
@@ -245,6 +235,22 @@ export class SessionAutoHandoffCoordinatorService {
     } finally {
       this.inFlight.delete(sessionId);
     }
+  }
+
+  private watchQueuedCommand(sessionId: string, head: QueuedCommand): void {
+    this.messageDispatch.onQueuedCommandOutcome(head, (delivered) => {
+      if (delivered) {
+        this.failedQueueHeads.delete(sessionId);
+        if (this.autoHandoff.entry(sessionId) === null) {
+          this.autoHandoff.claim(sessionId);
+        }
+        return;
+      }
+      if (this.autoHandoff.entry(sessionId)?.state === 'cancelled') return;
+      this.failedQueueHeads.set(sessionId, head);
+      this.autoHandoff.release(sessionId);
+      this.deferAttempt(sessionId, 'the queued hand-off send failed');
+    });
   }
 
   /**

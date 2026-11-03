@@ -133,7 +133,8 @@ export class SessionBudgetActionsService {
     const sessionId = this.budget()?.sessionId;
     return (
       (!!sessionId && this.wrapUpSessions().has(sessionId)) ||
-      this.autoHandoffQueued()
+      this.autoHandoffQueued() ||
+      (!!sessionId && this.autoHandoff.entry(sessionId)?.state === 'fired')
     );
   });
 

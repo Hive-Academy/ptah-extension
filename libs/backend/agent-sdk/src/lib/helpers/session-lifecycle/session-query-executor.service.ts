@@ -432,11 +432,15 @@ class CompactionSessionTap {
     }
     this.trackedIds.clear();
     this.subagentIds.clear();
-    this.logger.debug('[SessionQueryExecutor] Releasing idle query ownership', {
-      reason,
-      sessionIds: [...ids],
-      runToken: this.runToken,
-    });
+    try {
+      this.logger.debug('[SessionQueryExecutor] Releasing idle query ownership', {
+        reason,
+        sessionIds: [...ids],
+        runToken: this.runToken,
+      });
+    } catch {
+      // degradation-audit: optional-capability - logging failure must not skip release callbacks.
+    }
     for (const id of ids) {
       const owner = this.runOwners.get(id);
       if (owner !== undefined && owner !== this.runOrder) continue;
