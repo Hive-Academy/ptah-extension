@@ -3,7 +3,10 @@ export interface LiveDemoCatalogEntry {
   readonly label: string;
   readonly description: string;
   readonly poster: string;
+  /** H.264 MP4, the primary source. */
   readonly video: string;
+  /** VP9 WebM fallback for browsers without H.264. */
+  readonly videoWebm: string;
 }
 
 export const LIVE_DEMO_CATALOG: readonly LiveDemoCatalogEntry[] = [
@@ -12,27 +15,31 @@ export const LIVE_DEMO_CATALOG: readonly LiveDemoCatalogEntry[] = [
     label: 'Orchestration',
     description: 'Watch a real PtahCode session coordinate work from a single prompt.',
     poster: '/assets/live-demo/orchestration.jpg',
-    video: '/assets/live-demo/orchestration.webm',
+    video: '/assets/live-demo/orchestration.mp4',
+    videoWebm: '/assets/live-demo/orchestration.webm',
   },
   {
     id: 'tribunal-council',
     label: 'Tribunal Council',
     description: 'See PtahCode bring several perspectives into one decision.',
     poster: '/assets/live-demo/tribunal-council.jpg',
-    video: '/assets/live-demo/tribunal-council.webm',
+    video: '/assets/live-demo/tribunal-council.mp4',
+    videoWebm: '/assets/live-demo/tribunal-council.webm',
   },
   {
     id: 'command-center',
     label: 'Command Center',
     description: 'Follow work and activity across PtahCode in one place.',
     poster: '/assets/live-demo/command-center.jpg',
-    video: '/assets/live-demo/command-center.webm',
+    video: '/assets/live-demo/command-center.mp4',
+    videoWebm: '/assets/live-demo/command-center.webm',
   },
   {
     id: 'multi-agent',
     label: 'Multi-agent orchestration',
     description: 'See PtahCode coordinate multiple agents through a shared task.',
     poster: '/assets/live-demo/multi-agent.jpg',
-    video: '/assets/live-demo/multi-agent.webm',
+    video: '/assets/live-demo/multi-agent.mp4',
+    videoWebm: '/assets/live-demo/multi-agent.webm',
   },
 ];

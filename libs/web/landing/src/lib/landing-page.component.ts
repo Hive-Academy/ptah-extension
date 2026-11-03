@@ -56,13 +56,13 @@ import { ProviderStripComponent } from './sections/provider-strip/provider-strip
 export class LandingPageComponent {
   constructor() {
     inject(SeoService).setPage({
-      title: 'PtahCode — It Knows Your Architecture. It Ships the SaaS.',
+      title: 'PtahCode — Your AI dev team. Free and open source.',
       description:
-        'The AI dev team that ships production-shaped SaaS — multi-tenant, billing-integrated, security-reviewed, and architecturally consistent from the first commit. Free and open source.',
+        'PtahCode is a free, MIT-licensed desktop app that runs a team of AI agents on your own machine. Bring any model — open-weight or frontier — and keep your code and keys with you.',
       url: 'https://ptah.live',
-      ogTitle: 'PtahCode — It Knows Your Architecture. It Ships the SaaS.',
+      ogTitle: 'PtahCode — Your AI dev team. Free and open source.',
       ogDescription:
-        'The AI dev team that ships production-shaped SaaS — multi-tenant, billing-integrated, security-reviewed, and architecturally consistent from the first commit. Free and open source.',
+        'PtahCode is a free, MIT-licensed desktop app that runs a team of AI agents on your own machine. Bring any model — open-weight or frontier — and keep your code and keys with you.',
     });
   }
 }
