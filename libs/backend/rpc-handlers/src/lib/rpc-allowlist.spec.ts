@@ -78,6 +78,9 @@ describe('RPC handler manifest', () => {
 });
 
 describe('RPC allowlist dual-registration guard', () => {
+  it('accepts the review RPC prefix', () => {
+    expect(ALLOWED_METHOD_PREFIXES).toContain('review:');
+  });
   it('every manifest method has its prefix in ALLOWED_METHOD_PREFIXES', () => {
     const missing: string[] = [];
 

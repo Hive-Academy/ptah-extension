@@ -5,6 +5,7 @@ import {
   OperatorSettingsSchema,
   RepoReviewConfigV1Schema,
   ReviewRpcSchemas,
+  ReviewFindingSchema,
   ReviewRunSchema,
   VerifierVerdictSchema,
 } from '../index';
@@ -140,5 +141,11 @@ describe('review contracts', () => {
         .success,
     ).toBe(false);
     expect(ReviewRunSchema.safeParse({}).success).toBe(false);
+    expect(ReviewRpcSchemas['review:listRuns'].params.safeParse({ state: 'interrupted' }).success).toBe(true);
+    expect(CandidateFindingSchema.safeParse({ ...finding, verification: 'cross-family' }).success).toBe(true);
+    expect(CandidateFindingSchema.safeParse({ ...finding, verification: 'unverified' }).success).toBe(false);
+    expect(ReviewFindingSchema.safeParse(finding).success).toBe(false);
+    expect(ReviewFindingSchema.safeParse({ ...finding, verification: 'same-family-weaker' }).success).toBe(true);
+    expect(ReviewRpcSchemas['review:listFindings'].params.safeParse({ attemptId: 'attempt-1' }).success).toBe(true);
   });
 });

@@ -47,11 +47,16 @@ export const CandidateFindingSchema = z
       'performance',
     ]),
     confidence: z.number().min(0).max(1),
+    verification: z.enum(['cross-family', 'same-family-weaker']).optional(),
     suggestedDiff: z.string().max(16000).nullable(),
     fixPrompt: prose,
   })
   .strict();
 export type CandidateFinding = z.infer<typeof CandidateFindingSchema>;
+export const ReviewFindingSchema = CandidateFindingSchema.extend({
+  verification: z.enum(['cross-family', 'same-family-weaker']),
+});
+export type ReviewFinding = z.infer<typeof ReviewFindingSchema>;
 
 export const LensOutputSchema = z
   .object({

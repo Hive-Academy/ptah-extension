@@ -2,6 +2,8 @@ import type { RepoIdentity } from './review-run.schema';
 
 export interface GitHubPull {
   number: number;
+  title?: string;
+  bodyExcerpt?: string | null;
   headSha: string;
   baseSha: string;
   state: 'open' | 'closed';

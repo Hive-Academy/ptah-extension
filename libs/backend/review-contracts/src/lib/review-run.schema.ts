@@ -23,7 +23,18 @@ export const ReviewStateSchema = z.enum([
   'failed',
   'superseded',
   'skipped',
+  'interrupted',
 ]);
+export const ReviewLaneAvailabilitySchema = z.object({
+  confirmed: z.number().int().min(0).max(1000),
+  unknown: z.number().int().min(0).max(1000),
+  atLimit: z.number().int().min(0).max(1000),
+}).strict();
+export const ReviewPollResultSchema = z.object({
+  at: z.string().datetime(),
+  enqueued: z.number().int().min(0).max(10000),
+  error: z.string().max(500).nullable(),
+}).strict();
 export const StageRecordSchema = z
   .object({
     name: ReviewStageNameSchema,
@@ -41,6 +52,8 @@ export const ReviewRunSchema = z
   .object({
     repo: RepoIdentitySchema,
     prNumber: z.number().int().min(1).max(1_000_000_000),
+    prTitle: z.string().trim().min(1).max(256).optional(),
+    prBodyExcerpt: z.string().trim().max(1000).nullable().optional(),
     headSha: ShaSchema,
     attemptId: z.string().trim().min(1).max(64),
     trigger: z.enum(['poll', 'manual']),
@@ -51,6 +64,11 @@ export const ReviewRunSchema = z
     completedAt: z.string().datetime().nullable(),
     deadlineAt: z.string().datetime(),
     coverage: z.array(z.string().trim().min(1).max(256)).max(100),
+    postedCount: z.number().int().min(0).max(10000).optional(),
+    suppressedCount: z.number().int().min(0).max(10000).optional(),
+    laneAvailability: ReviewLaneAvailabilitySchema.optional(),
+    lastPoll: ReviewPollResultSchema.nullable().optional(),
+    health: z.enum(['online', 'offline', 'degraded']).optional(),
     stages: z.array(StageRecordSchema).max(8),
   })
   .strict();

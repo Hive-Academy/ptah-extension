@@ -13,6 +13,8 @@ import { GitHubReviewError } from './github-review.error';
 const identity = z.object({ id: z.number().int().positive() });
 const pullSchema = z.object({
   number: z.number().int().positive(),
+  title: z.string().max(256).optional(),
+  body: z.string().nullable().optional(),
   head: z.object({ sha: ShaSchema, repo: identity.nullable() }),
   base: z.object({ sha: ShaSchema, repo: identity }),
   state: z.enum(['open', 'closed']),
@@ -64,6 +66,7 @@ function nextPage(link: string | null): number | null {
 function mapPull(raw: z.infer<typeof pullSchema>): GitHubPull {
   return {
     number: raw.number, headSha: raw.head.sha, baseSha: raw.base.sha,
+    title: raw.title, bodyExcerpt: raw.body?.slice(0, 1000) ?? null,
     state: raw.state, draft: raw.draft, authorLogin: raw.user.login,
     headRepoId: raw.head.repo?.id ?? null, baseRepoId: raw.base.repo.id,
     headIsFork: raw.head.repo === null || raw.head.repo.id !== raw.base.repo.id,

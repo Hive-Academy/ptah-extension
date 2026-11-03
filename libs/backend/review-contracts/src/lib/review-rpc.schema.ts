@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ReviewFindingSchema } from './review-finding.schema';
 import {
   OperatorSettingsSchema,
   RepositorySettingsSchema,
@@ -35,6 +36,10 @@ export const ReviewRpcSchemas = {
       .strict(),
   },
   'review:getRun': { params: attempt, result: ReviewRunSchema.nullable() },
+  'review:listFindings': {
+    params: attempt,
+    result: z.object({ findings: z.array(ReviewFindingSchema).max(100) }).strict(),
+  },
   'review:listRepositories': {
     params: noParams,
     result: z.array(RepositorySettingsSchema).max(1),
