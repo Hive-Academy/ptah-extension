@@ -353,8 +353,9 @@ test.describe('Tasks list layout (visual + measured)', () => {
     await ui.goto('tasks');
     await expect(ui.page.locator('ptah-tasks-view')).toBeVisible();
 
-    // Kanban first — it is the default, so this is the board as it shipped.
-    const card = ui.page.locator('ptah-task-card > div').first();
+    // Explicitly select Kanban: the view mode can persist between launches.
+    await ui.page.locator('[data-testid="tasks-view-mode-kanban"]').click();
+    const card = ui.page.locator('[data-testid="task-card-body"]').first();
     await expect(card).toBeVisible();
     const cardBox = await card.boundingBox();
     await saveArtifact(
@@ -572,77 +573,50 @@ test.describe('Tasks list layout (visual + measured)', () => {
     );
   });
 
-  test('opening a task narrows the list to a rail and widens the detail', async ({
+  test('opening a task shows the full detail page and Back restores the list', async ({
     ui,
   }, testInfo) => {
     await openTasksList(ui);
     const page = ui.page;
 
-    const listBefore = await page.locator('ptah-task-list').boundingBox();
-
-    await page.locator('[data-task-id="TASK_2026_230"]').first().click();
-    await expect(page.locator('ptah-task-detail')).toBeVisible();
-    await page.waitForTimeout(250);
-
-    const listAfter = await page.locator('ptah-task-list').boundingBox();
-    const detail = await page.locator('ptah-task-detail aside').boundingBox();
-
-    const widthBefore = listBefore?.width ?? 0;
-    const widthAfter = listAfter?.width ?? 0;
-    const detailWidth = detail?.width ?? 0;
-
-    console.log(
-      `[tasks-list] listWidth ${widthBefore.toFixed(0)} -> ${widthAfter.toFixed(0)}, detail=${detailWidth.toFixed(0)}`,
-    );
-
-    expect(widthAfter, 'the list must collapse to a rail').toBeLessThan(
-      widthBefore / 2,
-    );
-    expect(
-      detailWidth,
-      'the detail panel must take more than the old fixed 384px',
-    ).toBeGreaterThan(384);
-
-    // Compact drops the description and the metadata; title and type stay.
-    await expect(
-      page.locator('[data-testid="task-row-description"]'),
-    ).toHaveCount(0);
-    await expect(page.locator('[data-testid="task-row-updated"]')).toHaveCount(
-      0,
-    );
-    await expect(
-      page.locator('[data-testid="task-row-title"]').first(),
-    ).toBeVisible();
-    await expect(
-      page.locator('[data-testid="task-row-type"]').first(),
-    ).toBeVisible();
+    const list = page.locator('ptah-task-list');
+    const listBefore = await list.boundingBox();
+    await page.locator('[data-testid="task-row"][data-task-id="TASK_2026_230"]').click();
+    const detail = page.locator('[data-testid="task-detail-page"]');
+    await expect(detail).toBeVisible();
+    await expect(list).toBeHidden();
+    await expect(detail.locator('[data-testid="task-folder-files"]')).toBeVisible();
+    await expect(detail.locator('[data-testid="task-detail-metadata"]')).toBeVisible();
+    const detailBox = await detail.boundingBox();
+    expect(listBefore, 'the list must be laid out before opening').not.toBeNull();
+    expect(detailBox?.width ?? 0, 'detail must use the available Tasks width').toBeGreaterThanOrEqual((listBefore?.width ?? 0) - 2);
 
     await saveArtifact(
       testInfo,
-      'list-rail-with-detail.png',
+      'list-full-page-detail.png',
       await page.screenshot({ scale: 'css' }),
     );
+    await detail.locator('[data-testid="task-detail-back"]').click();
+    await expect(detail).toHaveCount(0);
+    await expect(list).toBeVisible();
+    await expect(list.locator('[data-testid="task-row"][data-task-id="TASK_2026_230"]')).toBeVisible();
   });
 
-  test('the implementation plan renders in the panel, not the editor', async ({
+  test('the implementation plan renders in the detail reader, not the editor', async ({
     ui,
   }, testInfo) => {
     await openTasksList(ui);
     const page = ui.page;
 
-    await page.locator('[data-task-id="TASK_2026_230"]').first().click();
-    await expect(page.locator('ptah-task-detail')).toBeVisible();
+    await page.locator('[data-testid="task-row"][data-task-id="TASK_2026_230"]').click();
+    const detail = page.locator('[data-testid="task-detail-page"]');
+    await expect(detail).toBeVisible();
 
-    await page
-      .locator('[data-testid="task-doc-read-implementation-plan.md"]')
-      .click();
+    await detail.locator('[data-testid="task-folder-row-implementation-plan.md"][data-action="read"]').click();
 
-    const panel = page.locator('[data-testid="task-doc-panel"]');
+    const panel = detail.locator('[data-testid="task-doc-panel"]');
     await expect(panel).toBeVisible();
-    // `toBeVisible` is NOT enough here and that is the point: it means laid out
-    // and not hidden, so it passed happily over a panel that opened 400px below
-    // the fold, under a fifteen-stage Workflow list. The user clicked Read and
-    // saw nothing move. This is the assertion that holds the scroll-into-view.
+    // The selected file must be in the detail reader and on screen.
     await expect(
       panel,
       'the opened document must be ON SCREEN, not merely in the DOM',
@@ -662,10 +636,8 @@ test.describe('Tasks list layout (visual + measured)', () => {
     );
 
     // A document the folder does not hold says so, rather than reporting a fault.
-    await page
-      .locator('[data-testid="task-doc-read-task-description.md"]')
-      .click();
-    await expect(page.locator('[data-testid="task-doc-absent"]')).toContainText(
+    await detail.locator('[data-testid="task-folder-row-task-description.md"][data-action="read"]').click();
+    await expect(detail.locator('[data-testid="task-doc-missing"]')).toContainText(
       'does not contain',
     );
 
