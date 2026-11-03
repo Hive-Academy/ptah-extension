@@ -1,32 +1,18 @@
-import {
-  Injectable,
-  computed,
-  effect,
-  inject,
-  signal,
-  untracked,
-  type Signal,
-} from '@angular/core';
+import { Injectable, computed, inject, signal, type Signal } from '@angular/core';
 import type { SessionStatus } from '@ptah-extension/chat-types';
-import {
-  ClaudeRpcService,
-  VSCodeService,
-  pickerWorkspaceScope,
-} from '@ptah-extension/core';
 import type {
   SessionBudgetStage,
   SessionBudgetState,
 } from '@ptah-extension/shared';
-import {
-  displayBudgetStage,
-  formatTokens,
-  formatUsd,
-  isCostMeasure,
-} from '../components/molecules/notifications/session-budget-format';
+import { displayBudgetStage } from '../components/molecules/notifications/session-budget-format';
 import { ActionBannerService } from './action-banner.service';
 import { ChatStore } from './chat.store';
 import { SessionAutoHandoffService } from './session-auto-handoff.service';
-import { SESSION_START_GUARD } from '../tokens/session-context.token';
+import { SessionHandoffSkillService } from './session-handoff-skill.service';
+import {
+  buildHandoffCommand,
+  buildWrapUpPrompt,
+} from './session-handoff-prompts';
 
 /** The chat view's resolved tab and session, as the budget banner sees them. */
 export interface SessionBudgetView {
@@ -45,42 +31,6 @@ export interface SessionBudgetView {
   readonly bannerVisible: Signal<boolean>;
 }
 
-/**
- * The message "Wrap up & hand off" sends. `{used}` is replaced with the
- * session's formatted usage (for example `41.2M`).
- */
-export const SESSION_WRAP_UP_PROMPT = `This session has used {used} tokens. Please wrap up and prepare a handoff.
-
-1. Do not start new work. Collect the results of subagents and CLI agent lanes that already reported. Do not poll or call wait tools for the ones still running: each one pushes its report and a completion signal with its final status into this session when it ends. List each running one in the handoff (its id, its task, how to read its result) and continue.
-2. Write a handoff document named \`HANDOFF.md\` in the folder of the task you are working on (for example its task-tracking folder). If there is no task folder, write it in the root of the current worktree. Include: the goal, what is done (commits, branches, PRs), what is in progress, open problems and decisions, the key files, and the exact next steps with the verification commands.
-3. Finish your reply with one fenced code block that contains a self-contained prompt I can paste into a new session to continue. The prompt must give the absolute path of the handoff document and tell the new session to read it first.`;
-
-/** The wrap-up prompt with the session's usage filled in. */
-export function buildWrapUpPrompt(budget: SessionBudgetState | null): string {
-  return SESSION_WRAP_UP_PROMPT.replace('{used}', usedFigure(budget));
-}
-
-/**
- * The `session-handoff` skill's slash command (TASK_2026_655). Un-namespaced:
- * the SDK resolves `/session-handoff`, not `/ptah-core:session-handoff`.
- */
-export const SESSION_HANDOFF_COMMAND = '/session-handoff';
-
-/** The skill's command name as the command discovery lists it. */
-const SESSION_HANDOFF_SKILL = SESSION_HANDOFF_COMMAND.slice(1);
-
-/** `/session-handoff` with the session's usage as its argument. */
-export function buildHandoffCommand(budget: SessionBudgetState | null): string {
-  return `${SESSION_HANDOFF_COMMAND} This session has used ${usedFigure(budget)} tokens.`;
-}
-
-/** `41.2M`, or `$8.96 worth of` for a cost budget, so "… {used} tokens" reads. */
-function usedFigure(budget: SessionBudgetState | null): string {
-  if (!budget || budget.used === null) return 'a large number of';
-  if (isCostMeasure(budget)) return `${formatUsd(budget.used)} worth of`;
-  return formatTokens(budget.used);
-}
-
 const NO_VIEW: SessionBudgetView = {
   activeTab: signal(null),
   tabId: signal(null),
@@ -90,22 +40,23 @@ const NO_VIEW: SessionBudgetView = {
 
 /**
  * State behind the session budget banner: the stage to display, the stage the
- * user dismissed per session, and "Wrap up & hand off", which sends one normal
- * chat message to the agent through the composer's send path (so a running
- * turn queues it like any typed message). The agent does the rest.
+ * user dismissed per session, and the "Wrap up & hand off" button, which sends
+ * one normal chat message through the composer's send path (so a running turn
+ * queues it like any typed message). The agent does the rest.
  *
  * That message is the `/session-handoff` slash command when the workspace has
  * the `session-handoff` skill, which opens the continuation session itself;
- * otherwise it is the inline {@link SESSION_WRAP_UP_PROMPT}.
+ * otherwise it is the inline wrap-up prompt (see `session-handoff-prompts.ts`).
  *
- * With `sessionBudget.autoHandoffAtLimit` on (`budget.autoHandoff`), the
- * same request goes out by itself once per session when the display stage
- * reaches `limit` and the skill is available (never the inline prompt). A
- * running turn queues it like the button does. It waits while the tab has a
- * pending permission prompt, which a queued message would deny, and fires once
- * the prompt is answered. {@link SessionAutoHandoffService} keeps it to one
- * run per session across views (claimed when it is sent); a failed send does
- * not re-arm it, and {@link cancelAutoHandoff} withdraws it while queued.
+ * The AUTOMATIC hand-off no longer lives here: this service is provided by the
+ * chat view, so it sees only the SHOWN tab and only while its banner shows —
+ * a background tab at its limit never fired (TASK_2026_863). The root
+ * `SessionAutoHandoffCoordinatorService` triggers it for every mounted tab
+ * now; this service keeps only the view's DISPLAY and CANCEL roles:
+ * {@link autoHandoffQueued} projects the queued state onto the banner, and
+ * {@link cancelAutoHandoff} withdraws it. A manual wrap-up marks the session in
+ * {@link SessionAutoHandoffService} so the automatic trigger never adds a
+ * second hand-off to it.
  *
  * Provided by the chat view, one instance per view. The view calls
  * {@link connect} once with its resolved tab and session.
@@ -114,12 +65,8 @@ const NO_VIEW: SessionBudgetView = {
 export class SessionBudgetActionsService {
   private readonly actionBanner = inject(ActionBannerService);
   private readonly chatStore = inject(ChatStore);
-  private readonly rpc = inject(ClaudeRpcService);
-  private readonly vscodeService = inject(VSCodeService);
   private readonly autoHandoff = inject(SessionAutoHandoffService);
-  private readonly sessionStartGuard = inject(SESSION_START_GUARD, {
-    optional: true,
-  });
+  private readonly handoffSkill = inject(SessionHandoffSkillService);
 
   private readonly view = signal<SessionBudgetView>(NO_VIEW);
 
@@ -127,12 +74,6 @@ export class SessionBudgetActionsService {
   private readonly dismissedStages = signal<
     ReadonlyMap<string, SessionBudgetStage>
   >(new Map());
-
-  /**
-   * Sessions this view found without the `session-handoff` skill: the
-   * automatic hand-off does not probe them again (no RPC loop).
-   */
-  private readonly autoSkillMissing = new Set<string>();
 
   /** Sessions whose wrap-up prompt was sent from this view. */
   private readonly wrapUpSessions = signal<ReadonlySet<string>>(new Set());
@@ -196,30 +137,6 @@ export class SessionBudgetActionsService {
     );
   });
 
-  constructor() {
-    // The automatic hand-off: armed by the setting, fired once per session.
-    effect(() => {
-      const budget = this.budget();
-      const tabId = this.view().tabId();
-      if (
-        budget?.autoHandoff !== true ||
-        this.displayStage() !== 'limit' ||
-        !tabId ||
-        // Only where the banner shows: the user must be able to cancel it.
-        !this.view().bannerVisible() ||
-        this.wrapUpSent() ||
-        this.autoHandoff.entry(budget.sessionId) !== null ||
-        this.autoSkillMissing.has(budget.sessionId) ||
-        this.sessionStartGuard?.() ||
-        // A queued message would deny the prompt; re-run once it is answered.
-        this.chatStore.hasPendingPermissionForTab(tabId)
-      ) {
-        return;
-      }
-      untracked(() => void this.requestWrapUp(true));
-    });
-  }
-
   /** Binds this service to the view's resolved tab and session. */
   connect(view: SessionBudgetView): void {
     this.view.set(view);
@@ -253,56 +170,52 @@ export class SessionBudgetActionsService {
   }
 
   /**
-   * "Wrap up & hand off": send {@link buildHandoffCommand} when the
-   * `session-handoff` skill is available, else {@link SESSION_WRAP_UP_PROMPT},
-   * as a normal message through `ChatStore.sendOrQueueMessage`, the
-   * composer's send path. The button is disabled before the skill probe, so a
-   * second click during it sends nothing. A failed send re-enables the
-   * button; a thrown error is also shown.
+   * "Wrap up & hand off": send the `/session-handoff` command when the
+   * `session-handoff` skill is available, else the inline wrap-up prompt, as
+   * a normal message through `ChatStore.sendOrQueueMessage`, the composer's
+   * send path. The button is disabled before the skill probe, so a second
+   * click during it sends nothing. A failed send re-enables the button; a
+   * thrown error is also shown.
+   *
+   * The session is marked in {@link SessionAutoHandoffService} while the
+   * wrap-up is out, so the automatic trigger (the root coordinator) never
+   * adds a second hand-off to it. A send that fails or never reaches the
+   * captured tab clears the mark again.
    *
    * When the tab already has queued text, the slash command waits behind it
    * as its own turn. The button stays disabled meanwhile; if the command is
    * dropped (Stop, failed turn), it is enabled again with a notice.
    */
   sendWrapUp(): Promise<void> {
-    return this.requestWrapUp(false);
+    return this.requestWrapUp();
   }
 
   /**
-   * The button's send, or with `auto` the automatic hand-off's: that one
-   * sends only the slash command, records what it queued for
-   * {@link autoHandoffQueued}, and stays silent when the user cancelled it.
+   * The button's send. Any probe outcome but `available` (skill missing, or
+   * the discovery RPC failed) sends the inline wrap-up prompt, which does the
+   * same job without the skill.
    */
-  private async requestWrapUp(auto: boolean): Promise<void> {
+  private async requestWrapUp(): Promise<void> {
     const tabId = this.view().tabId();
     const budget = this.budget();
     const sessionId = budget?.sessionId;
     if (!tabId || !sessionId || this.wrapUpSent()) return;
     this.setWrapUpSent(sessionId, true);
     try {
-      const skill = await this.handoffSkillAvailable();
+      const probe = await this.handoffSkill.probe();
       // The probe is asynchronous: the view may show another tab or session
-      // now, or the session may no longer qualify. Never send into those.
-      if (
-        !this.stillTargets(tabId, sessionId, auto) ||
-        (auto && !this.claimAutoHandoff(sessionId, tabId, skill))
-      ) {
+      // now. Never send into those.
+      if (!this.stillTargets(tabId, sessionId)) {
         this.setWrapUpSent(sessionId, false);
         return;
       }
-      const prompt = skill
-        ? buildHandoffCommand(budget)
-        : buildWrapUpPrompt(budget);
+      const prompt =
+        probe === 'available'
+          ? buildHandoffCommand(budget)
+          : buildWrapUpPrompt(budget);
       const outcome = await this.chatStore.sendOrQueueMessage(prompt, {
         tabId,
       });
-      if (auto) {
-        this.autoHandoff.recordQueued(
-          sessionId,
-          outcome?.queuedCommand ?? null,
-          !!outcome?.heldCommand,
-        );
-      }
       // The send path already shows its own failure notice in the transcript.
       if (!outcome?.success) {
         this.setWrapUpSent(sessionId, false);
@@ -310,18 +223,8 @@ export class SessionBudgetActionsService {
       }
       if (!outcome.heldCommand) return;
       const queued = await outcome.heldCommand;
-      if (auto) {
-        this.autoHandoff.recordQueued(
-          sessionId,
-          outcome.queuedCommand ?? null,
-          false,
-        );
-      }
       if (queued) return;
       this.setWrapUpSent(sessionId, false);
-      if (auto && this.autoHandoff.entry(sessionId)?.state === 'cancelled') {
-        return;
-      }
       this.actionBanner.showError(
         'The wrap-up request was not sent: the queued messages before it were stopped or failed.',
         tabId,
@@ -336,73 +239,20 @@ export class SessionBudgetActionsService {
   }
 
   /**
-   * Whether this workspace has the `session-handoff` skill: the command
-   * discovery lists the workspace `.claude/skills` the SDK resolves slash
-   * commands from. Any failure means "not available", so the button falls
-   * back to the inline prompt instead of failing.
+   * After an await: the view still shows the captured tab and session. False
+   * means the user switched away (or the session changed) while the probe
+   * ran, so the send must not land in the new view's tab.
    */
-  private async handoffSkillAvailable(): Promise<boolean> {
-    try {
-      const result = await this.rpc.call('autocomplete:commands', {
-        query: SESSION_HANDOFF_SKILL,
-        maxResults: 10,
-        ...pickerWorkspaceScope(this.vscodeService.config().workspaceRoot),
-      });
-      return (
-        result.success &&
-        (result.data?.commands ?? []).some(
-          (command) => command.name === SESSION_HANDOFF_SKILL,
-        )
-      );
-    } catch {
-      // degradation-audit: optional-capability - a failed probe sends the
-      // inline wrap-up prompt, which does the same job without the skill.
-      return false;
-    }
-  }
-
-  /**
-   * The automatic hand-off's last checks before it sends, then the claim:
-   * the skill is there, no permission prompt arrived during the probe, and no
-   * other view claimed the session meanwhile. False means do not send.
-   */
-  private claimAutoHandoff(
-    sessionId: string,
-    tabId: string,
-    skill: boolean,
-  ): boolean {
-    if (!skill) {
-      this.autoSkillMissing.add(sessionId);
-      return false;
-    }
-    if (this.chatStore.hasPendingPermissionForTab(tabId)) return false;
-    return this.autoHandoff.claim(sessionId);
-  }
-
-  /**
-   * After an await: the view still shows the captured tab and session, and,
-   * for the automatic hand-off, the session still qualifies (limit stage,
-   * setting on, a session may be started).
-   */
-  private stillTargets(
-    tabId: string,
-    sessionId: string,
-    auto: boolean,
-  ): boolean {
+  private stillTargets(tabId: string, sessionId: string): boolean {
     const budget = this.budget();
-    if (this.view().tabId() !== tabId || budget?.sessionId !== sessionId) {
-      return false;
-    }
-    if (!auto) return true;
-    return (
-      budget.autoHandoff === true &&
-      this.displayStage() === 'limit' &&
-      this.view().bannerVisible() &&
-      !this.sessionStartGuard?.()
-    );
+    return this.view().tabId() === tabId && budget?.sessionId === sessionId;
   }
 
   private setWrapUpSent(sessionId: string, sent: boolean): void {
+    // The mark the root coordinator checks: a manual wrap-up must suppress
+    // the automatic one for the session, and a failed one must un-suppress it.
+    if (sent) this.autoHandoff.markManualWrapUp(sessionId);
+    else this.autoHandoff.clearManualWrapUp(sessionId);
     this.wrapUpSessions.update((current) => {
       const next = new Set(current);
       if (sent) next.add(sessionId);
