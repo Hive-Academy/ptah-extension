@@ -245,6 +245,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
     const resume = await this.resumeIdentity(options.resumeSessionId, profile);
     const output = createBufferedEmitter<string>();
     const segments = createBufferedEmitter<CliOutputSegment>();
+    const sessionResolved = createBufferedEmitter<string>();
     const abort = new AbortController();
     let eventAbort = new AbortController();
     let context: CodexContext | undefined;
@@ -376,6 +377,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
           accountBindingId: options.accountBindingId,
         }, sessionId);
       }
+      sessionResolved.emit(sessionId);
       return context;
     };
     const retryConfig = async (error: CodexPreTurnConfigRejectedError): Promise<CodexContext> => {
@@ -556,6 +558,7 @@ export class CodexAppServerLaneAdapter implements CliAdapter {
       ...(options.accountBinding ? { accountBinding: options.accountBinding } : {}),
       ...(options.accountBindingId ? { accountBindingId: options.accountBindingId } : {}),
       getSessionId: () => sessionId,
+      onSessionResolved: sessionResolved.subscribe,
       getLanePolicyDelivery: () => 'developer-instructions',
       getRoleDelivery: () => roleDelivery,
       onOutput: output.subscribe,

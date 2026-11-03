@@ -13,6 +13,8 @@ export interface CodexExecutableSelection {
   readonly version: string;
   readonly source: CodexExecutableOrigin;
   readonly reason: string;
+  /** Raw `--version` output (bounded), so prerelease and stable builds stay distinct. */
+  readonly reportedVersion?: string;
 }
 export interface CodexExecutableProbes {
   installedCandidates(): Promise<readonly string[]>;
@@ -79,7 +81,7 @@ export async function selectCodexExecutable(
         if (source === 'installed' && version) oldInstalled ??= version;
         return undefined;
       }
-      return { path, version, source, reason: source === 'installed'
+      return { path, version, source, reportedVersion: output.trim().slice(0, 128), reason: source === 'installed'
         ? `Using installed Codex ${version}.`
         : oldInstalled
           ? `Installed Codex ${oldInstalled} is below the supported minimum ${minimum}; using bundled Codex ${version}.`
@@ -121,13 +123,18 @@ export class CodexSelectionSnapshot implements CodexSelectionSnapshotPort {
   private selection?: CodexSelection;
   private generation = 0;
   private readonly fallbackByInstalled = new WeakMap<CodexExecutableSelection, CodexExecutableSelection>();
-  private readonly unsupportedInstalledVersions = new Map<string, string>();
+  // Keyed by canonical path + reported version: another executable, or a new
+  // build at the same path, is probed again instead of inheriting the mark.
+  private readonly unsupportedInstalled = new Map<string, string>();
+  private static unsupportedKey(selection: CodexExecutableSelection): string {
+    return `${selection.path}\u0000${selection.reportedVersion ?? selection.version}`;
+  }
   constructor(private readonly probes: CodexExecutableProbes) {}
   async selectForOpen(): Promise<CodexSelection> {
     const generation = ++this.generation;
     const resolved = await selectCodexExecutable(this.probes);
     const method = resolved.selected.source === 'installed'
-      ? this.unsupportedInstalledVersions.get(resolved.selected.version) : undefined;
+      ? this.unsupportedInstalled.get(CodexSelectionSnapshot.unsupportedKey(resolved.selected)) : undefined;
     const bundledFallback = resolved.bundledFallback;
     const selected = method && bundledFallback
       ? { ...bundledFallback,
@@ -145,7 +152,7 @@ export class CodexSelectionSnapshot implements CodexSelectionSnapshotPort {
   current(): CodexExecutableSelection | undefined { return this.selection?.selected; }
   markUnsupported(failed: CodexExecutableSelection, method: string): void {
     if (failed.source !== 'installed') return;
-    this.unsupportedInstalledVersions.set(parseCodexVersion(failed.version) ?? failed.version, method);
+    this.unsupportedInstalled.set(CodexSelectionSnapshot.unsupportedKey(failed), method);
     const bundledFallback = this.fallbackByInstalled.get(failed);
     if (this.selection?.selected === failed && bundledFallback)
       this.selection = { selected: {

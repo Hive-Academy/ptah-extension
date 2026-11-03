@@ -370,6 +370,33 @@ describe('AgentProcessManager account reference lifecycle', () => {
     expect(registry.lookupBySdkSession.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 
+  it('records the abandoned thread ID as soon as a Codex lane resolves a new one', async () => {
+    const { manager, spawnHandle } = harness();
+    const running = lane(reference);
+    let currentId = 'sdk-session';
+    await spawnHandle({ ...running.handle, getSessionId: () => currentId }, { cli: 'codex' });
+    currentId = 'bundled-thread';
+    running.sessions[0]?.(currentId);
+
+    expect(manager.findAgentInfo(ID)).toMatchObject({
+      cliSessionId: 'bundled-thread',
+      replacesCliSessionIds: ['sdk-session'],
+    });
+  });
+
+  it('does not mark a resumed non-Codex session ID as replaced', async () => {
+    const { manager, spawnHandle } = harness();
+    const running = lane(reference);
+    let currentId = 'sdk-session';
+    await spawnHandle({ ...running.handle, getSessionId: () => currentId });
+    currentId = 'resolved-session';
+    running.sessions[0]?.(currentId);
+
+    const info = manager.findAgentInfo(ID);
+    expect(info?.cliSessionId).toBe('resolved-session');
+    expect(info?.replacesCliSessionIds).toBeUndefined();
+  });
+
   it('ignores late completion, output, session resolution and cleanup from a replaced lane', async () => {
     const { manager, spawnHandle, output } = harness();
     const old = lane(reference);

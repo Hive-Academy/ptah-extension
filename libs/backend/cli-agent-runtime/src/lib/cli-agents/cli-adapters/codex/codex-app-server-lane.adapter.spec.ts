@@ -895,12 +895,15 @@ describe('CodexAppServerLaneAdapter', () => {
       return bundled;
     });
     const handle = await h.adapter.runSdk(options({ model: 'future-codex-model' }));
+    const resolvedIds: string[] = [];
+    handle.onSessionResolved?.((id) => resolvedIds.push(id));
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(h.runtime.openFallback).toHaveBeenCalledWith(
         h.profile, undefined, expect.any(Object), '/bin/codex', 'turn/start', undefined,
     );
     expect(h.context.close).toHaveBeenCalledTimes(1);
     expect(handle.getSessionId?.()).toBe('thread-2');
+    expect(resolvedIds).toEqual(['thread-1', 'thread-2']);
     expect(h.writers.has('thread-1')).toBe(false);
     expect(h.writers.has('thread-2')).toBe(true);
     expect(bundled).toBeDefined();

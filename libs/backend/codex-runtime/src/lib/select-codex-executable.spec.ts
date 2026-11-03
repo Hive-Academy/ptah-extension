@@ -112,6 +112,31 @@ describe('Codex executable selection', () => {
     expect(snapshot.current()).toBe(upgraded.selected);
   });
 
+  it('keys the unsupported mark by path and reported version, not the base version', async () => {
+    const installed = ['/installed/a'];
+    const versions: Record<string, string> = {
+      '/installed/a': 'codex-cli 0.167.0-alpha.1',
+      '/installed/b': 'codex-cli 0.167.0',
+      '/bundle/codex': 'codex-cli 0.165.0',
+    };
+    const snapshot = new CodexSelectionSnapshot(probes(installed, versions));
+    const prerelease = await snapshot.selectForOpen();
+    expect(prerelease.selected).toMatchObject({ source: 'installed', version: '0.167.0' });
+    snapshot.markUnsupported(prerelease.selected, 'turn/start');
+    expect((await snapshot.selectForOpen()).selected.source).toBe('bundled');
+
+    // The stable build with the same base version at the same path is probed again.
+    versions['/installed/a'] = 'codex-cli 0.167.0';
+    const stable = await snapshot.selectForOpen();
+    expect(stable.selected).toMatchObject({ source: 'installed', path: '/installed/a' });
+
+    // Another executable that reports the marked version is probed, not skipped.
+    snapshot.markUnsupported(stable.selected, 'turn/start');
+    installed.splice(0, installed.length, '/installed/b');
+    expect((await snapshot.selectForOpen()).selected)
+      .toMatchObject({ source: 'installed', path: '/installed/b' });
+  });
+
   it('keeps installed Codex when an unsupported version has no bundle', async () => {
     const probe = probes(['/installed'], { '/installed': 'codex-cli 0.166.0' });
     probe.bundledCandidate = jest.fn(async () => undefined);

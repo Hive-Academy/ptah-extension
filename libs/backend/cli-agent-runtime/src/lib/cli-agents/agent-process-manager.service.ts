@@ -1209,6 +1209,21 @@ export class AgentProcessManager {
       if (this.agents.get(agentId) !== tracked) return;
       this.flushDelta(agentId);
     };
+    const updateCliSessionId = (sessionId: string | undefined): void => {
+      if (!sessionId || sessionId === tracked.info.cliSessionId) return;
+      const previous = tracked.info.cliSessionId;
+      // Only a Codex lane abandons its first thread (bundled fallback before
+      // any turn). For other CLIs a different resolved id is not a
+      // replacement: the pre-set resume id must keep its own reference.
+      const replaced = previous && tracked.info.cli === 'codex'
+        ? [...new Set([...(tracked.info.replacesCliSessionIds ?? []), previous])]
+        : tracked.info.replacesCliSessionIds;
+      tracked.info = {
+        ...tracked.info,
+        cliSessionId: sessionId,
+        ...(replaced ? { replacesCliSessionIds: replaced } : {}),
+      };
+    };
     sdkHandle.onOutput((data: string) => {
       const current = this.agents.get(agentId);
       if (current !== tracked) return;
@@ -1307,9 +1322,7 @@ export class AgentProcessManager {
         this.applyLaneGuard(agentId, segment);
         if (captureSessionId) {
           const sessionId = captureSessionId();
-          if (sessionId && sessionId !== tracked.info.cliSessionId) {
-            tracked.info = { ...tracked.info, cliSessionId: sessionId };
-          }
+          updateCliSessionId(sessionId);
         }
       });
     }
@@ -1327,9 +1340,7 @@ export class AgentProcessManager {
     if (sdkHandle.onSessionResolved) {
       sdkHandle.onSessionResolved((sessionId: string) => {
         if (this.agents.get(agentId) !== tracked) return;
-        if (sessionId && sessionId !== tracked.info.cliSessionId) {
-          tracked.info = { ...tracked.info, cliSessionId: sessionId };
-        }
+        updateCliSessionId(sessionId);
       });
     }
     sdkHandle.done.then(
