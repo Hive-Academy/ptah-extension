@@ -139,8 +139,11 @@ const LIVE_HISTORY_REFRESH_MS = 5000;
         {{ err.message }}
       </p>
     }
+    <!-- relative: the scroller is the containing block of positioned rows
+         (streaming bubbles), so it clips them. Without it they escape to the
+         canvas lane host, which scrolls past the composer. -->
     <div
-      class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]"
+      class="relative min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]"
       data-testid="lane-scroll"
     >
       <div [class]="columnClass + ' space-y-2 pt-2'">
