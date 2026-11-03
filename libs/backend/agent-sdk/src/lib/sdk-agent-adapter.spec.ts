@@ -3267,20 +3267,25 @@ describe('SdkAgentAdapter', () => {
   });
 
   describe('dispose()', () => {
-    it('settles only after session teardown queues finalization', async () => {
+    it('queues finalization before slow teardown and settles after it', async () => {
+      const LIVE_ID = '6f1c2a5e-4b7d-4c1e-9a3f-2d8e5b0c7a91';
       const h = makeAdapter();
       let finish!: () => void;
-      h.sessionLifecycle.getLiveSessionIds.mockReturnValue([REAL_ID]);
+      h.sessionLifecycle.getLiveSessionIds.mockReturnValue([LIVE_ID]);
       h.sessionLifecycle.disposeAllSessions.mockImplementation(() =>
         new Promise<void>((resolve) => { finish = resolve; }),
       );
       const finalize = jest.spyOn(h.statsOwner, 'requestFinalization');
+      let settled = false;
 
-      const disposal = h.adapter.dispose();
-      expect(finalize).not.toHaveBeenCalled();
+      const disposal = h.adapter.dispose().then(() => { settled = true; });
+      // Requests are queued before the slow interrupt so quit cannot lose them.
+      expect(finalize).toHaveBeenCalledWith(LIVE_ID);
+      await Promise.resolve();
+      expect(settled).toBe(false);
       finish();
       await disposal;
-      expect(finalize).toHaveBeenCalledWith(REAL_ID);
+      expect(settled).toBe(true);
       expect(h.sessionLifecycle.dispose).toHaveBeenCalled();
     });
     it('emits disposed on the events bus, clears auth, and clears the model cache', async () => {
