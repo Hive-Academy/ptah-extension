@@ -21,8 +21,8 @@ import { createDocsSampleRepo } from './docs-repo';
  *   table. Every surface then paints an empty state (or an error, as the
  *   dashboard does when `session:list` returns `{}`), which is exactly what a
  *   documentation screenshot must never show.
- * - `showcase/_harness` boots the developer's own authenticated profile to film
- *   live agent turns — too much real, private state to publish as an asset.
+ * - The developer's own authenticated profile holds too much real, private
+ *   state to publish as an asset.
  *
  * So: the e2e launcher (throwaway profile, no leaked keys) pointed at a real
  * workspace via the CLI argument `bootstrap.ts` already accepts, with NO RPC

@@ -18,16 +18,16 @@ what the Ptah plugin packs contribute.
 
 The recommended default pack includes skills and slash commands.
 
-| Skill                      | What it does                                                                                                                             | When it triggers                                           |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `orchestration`            | Development-workflow orchestrator with 8 task types (FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, SAAS_INIT, CREATIVE) | Any implementation task. The default entry point.          |
-| `agent-lanes` | CLI lane discovery, addressing, tasks, spawn/status/read, recovery, messaging, and verification | Before running a CLI lane; required by orchestration and tribunal |
-| `tribunal`                 | Multi-vendor ensemble workflows — Council, Forge, Race, Crucible                                                                  | You want several AI vendors on one problem                 |
-| `ddd-architecture`         | Domain-driven design guardrails for boundaries, aggregates, bounded contexts                                                             | Designing a new domain or restructuring libraries          |
-| `humanize-library`         | Behavior-preserving refactor for readability, SOLID, and file size                                                                       | "Clean this up", "split large files", "remove duplication" |
-| `skill-creator`            | Guide for authoring effective skills — structure, triggers, references                                                                   | Creating or updating a skill                               |
-| `technical-content-writer` | Marketing pages, blog posts, technical docs, and video scripts                                                                           | Producing external-facing content                          |
-| `ui-ux-designer`           | Visual design discovery, design systems, production-ready asset specs                                                                    | Landing pages, brand identity, visual specs                |
+| Skill                      | What it does                                                                                                                             | When it triggers                                                  |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `orchestration`            | Development-workflow orchestrator with 8 task types (FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, SAAS_INIT, CREATIVE) | Any implementation task. The default entry point.                 |
+| `agent-lanes`              | CLI lane discovery, addressing, tasks, spawn/status/read, recovery, messaging, and verification                                          | Before running a CLI lane; required by orchestration and tribunal |
+| `tribunal`                 | Multi-vendor ensemble workflows — Council, Forge, Race, Crucible                                                                         | You want several AI vendors on one problem                        |
+| `ddd-architecture`         | Domain-driven design guardrails for boundaries, aggregates, bounded contexts                                                             | Designing a new domain or restructuring libraries                 |
+| `humanize-library`         | Behavior-preserving refactor for readability, SOLID, and file size                                                                       | "Clean this up", "split large files", "remove duplication"        |
+| `skill-creator`            | Guide for authoring effective skills — structure, triggers, references                                                                   | Creating or updating a skill                                      |
+| `technical-content-writer` | Marketing pages, blog posts, technical docs, and video scripts                                                                           | Producing external-facing content                                 |
+| `ui-ux-designer`           | Visual design discovery, design systems, production-ready asset specs                                                                    | Landing pages, brand identity, visual specs                       |
 
 `orchestration` assigns phases to sub-agents or CLI lanes; a whole pipeline on lanes is [Relay](/tribunal/relay/). Both `orchestration` and `tribunal` require `agent-lanes` when running lanes. See [skill dependencies](/mcp-and-skills/skills/#skill-dependencies) before narrowing your selection.
 
@@ -71,12 +71,6 @@ security.
 | `dotnet-solution-architect`   | Solution and project structure, layering, boundaries |
 | `dotnet-solution-initializer` | Scaffolding a new .NET solution                      |
 | `nx-dotnet-workspace`         | Running .NET projects inside an Nx workspace         |
-
-## `ptah-video` — marketing video
-
-| Skill            | What it does                                                                      |
-| ---------------- | --------------------------------------------------------------------------------- |
-| `video-showcase` | Narrated, captioned, camera-animated demo videos from an automated UI walkthrough |
 
 ## Next steps
 

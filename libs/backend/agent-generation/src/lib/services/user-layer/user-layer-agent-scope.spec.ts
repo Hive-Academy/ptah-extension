@@ -197,7 +197,7 @@ describe('user layer — the legacy flat clones are seeded for owned slugs only,
 
   it('seeds only the slugs this workspace’s source owns (TASK_2026_609)', async () => {
     // The flat base holds every project's agents. Seeding all of it is how
-    // `video-director` from one project reached the `.codex/agents` of another.
+    // `sample-agent` from one project reached the `.codex/agents` of another.
     await writeFile(
       join(legacyRoot, 'team-leader.md'),
       'LEGACY TEAM LEADER',
@@ -220,7 +220,7 @@ describe('user layer — the legacy flat clones are seeded for owned slugs only,
       'utf-8',
     );
     await writeFile(
-      join(legacyRoot, 'video-director.md'),
+      join(legacyRoot, 'sample-agent.md'),
       'ANOTHER PROJECT',
       'utf-8',
     );
@@ -239,7 +239,7 @@ describe('user layer — the legacy flat clones are seeded for owned slugs only,
         await readFile(join(scoped, 'team-leader.ptah-origin.json'), 'utf-8'),
       ).sourceHash,
     ).toBe('sha256:legacy');
-    expect(await exists(join(scoped, 'video-director.md'))).toBe(false);
+    expect(await exists(join(scoped, 'sample-agent.md'))).toBe(false);
     expect(logger.info).toHaveBeenCalledWith(
       '[UserLayerMirror] seeded agent clones from legacy root',
       expect.objectContaining({ seeded: 1, flatClonesNotSeeded: 1 }),

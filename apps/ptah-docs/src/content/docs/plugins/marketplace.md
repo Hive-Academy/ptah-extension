@@ -22,7 +22,6 @@ Plugins are grouped into five categories, always rendered in this order. A categ
 | **Core Tools**     | `ptah-core` — orchestration, review, refactoring, docs, design                                                                              |
 | **Backend Tools**  | `ptah-nx-saas` — Nx, NestJS, webhooks, resilience, SaaS platform, deployment, and `ptah-dotnet` — .NET solution layout and domain modelling |
 | **Frontend Tools** | `ptah-angular` and `ptah-react`                                                                                                             |
-| **Creative Tools** | `ptah-video` — the marketing-video pipeline                                                                                                 |
 | **Your Skills**    | Every `ptah-harness-*` plugin you authored — see [Harness plugins](/plugins/harness-plugins/)                                               |
 
 ## Search
@@ -31,7 +30,7 @@ The search box filters the list as you type. A plugin matches if your query appe
 
 - the plugin **name**,
 - the plugin **description**, or
-- one of its **keywords** — so searching `prisma`, `gsap`, `remotion`, or `solid` finds the right pack even though none of those words is in a plugin's name.
+- one of its **keywords** — so searching `prisma`, `gsap`, or `solid` finds the right pack even though none of those words is in a plugin's name.
 
 Search does **not** look inside individual skill names or `SKILL.md` bodies. If nothing matches you get "No plugins match your search." The query resets each time the modal closes.
 

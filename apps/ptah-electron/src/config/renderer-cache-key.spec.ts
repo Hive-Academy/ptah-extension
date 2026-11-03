@@ -517,19 +517,18 @@ describe('apps/ptah-electron/project.json output nesting', () => {
 
 describe('apps/ptah-electron-e2e/project.json dev renderer wiring (TASK_2026_229)', () => {
   // Anti-vacuity.
-  it('anti-vacuity: e2e project.json parses and declares the three dev-build targets', () => {
+  it('anti-vacuity: e2e project.json parses and declares the two dev-build targets', () => {
     expect(e2eConfig.targets).toBeDefined();
     expect(e2eConfig.targets['e2e']).toBeDefined();
-    expect(e2eConfig.targets['showcase']).toBeDefined();
     expect(e2eConfig.targets['e2e:nightly']).toBeDefined();
   });
 
-  // RI-11/12/13 -- each of the three e2e-family targets must depend on
+  // RI-11/13 -- each remaining e2e-family target must depend on
   // copy-renderer-dev, not plain copy-renderer. Plain copy-renderer always
   // resolves ptah-extension-webview:build to production (its dependsOn is
   // unpinned and Nx has no per-edge configuration override) -- pointing
   // these targets back at it silently reintroduces TASK_2026_229's bug.
-  it.each(['e2e', 'showcase', 'e2e:nightly'])(
+  it.each(['e2e', 'e2e:nightly'])(
     'RI: %s depends on ptah-electron:copy-renderer-dev, not plain copy-renderer',
     (targetName) => {
       const dependsOn = e2eConfig.targets[targetName].dependsOn ?? [];

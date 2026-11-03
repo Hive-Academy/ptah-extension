@@ -4,7 +4,7 @@
  * This suite is a GUARD, not a unit test. Nothing in the build opened a
  * `.template.md` before it existed, and that is how the corpus reached 8,375
  * lines with ~1,267 of them being the same four cross-cutting rules pasted
- * fifteen times. Every failure it prevents is silent:
+ * across the role templates. Every failure it prevents is silent:
  *
  *  - A shared rule copied into a second template drifts. The clarification
  *    protocol had eleven copies in eleven variants; all six copies of the
@@ -49,7 +49,7 @@ const TEMPLATES_DIR = path.join(
 const PARTIALS_DIR = path.join(TEMPLATES_DIR, SHARED_PARTIALS_DIR);
 
 /** The corpus is a fixed set of specialists, not a growing directory. */
-const EXPECTED_TEMPLATE_COUNT = 15;
+const EXPECTED_TEMPLATE_COUNT = 14;
 
 function templateFiles(): string[] {
   return fs
@@ -1050,7 +1050,6 @@ const ROLE_PARTIALS: Readonly<Record<string, readonly SharedBlockId[]>> = {
   'team-leader': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
   'technical-content-writer': [TOOLING, TASK_SPEC, CLARIFY, DELEGATE],
   'ui-ux-designer': [TOOLING, TASK_SPEC, CLARIFY, REPLACE],
-  'video-director': [TOOLING, TASK_SPEC, CLARIFY, REPLACE, DELEGATE],
   'visual-reviewer': [TOOLING, TASK_SPEC, CLARIFY, STANCE],
 };
 

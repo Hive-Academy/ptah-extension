@@ -23,7 +23,6 @@ agent's work may run on a CLI lane instead is in [lane-assignment.md](lane-assig
 | modernization-detector   |     -      |   -    |   S    |   -   |  **P**   |    -    |    -    |       S        |
 | ui-ux-designer           |     -      | **P**  |   -    |   S   |    -     |    S    |    -    |       -        |
 | technical-content-writer |     -      |   S    |   -    |   -   |    -     |  **P**  |    -    |       S        |
-| video-director           |   **P**    | **P**  |   -    |   -   |    -     |    S    |  **P**  |       S        |
 
 **P** = primary, **S** = secondary, **-** = not applicable.
 
@@ -44,7 +43,6 @@ agent's work may run on a CLI lane instead is in [lane-assignment.md](lane-assig
 | Landing page   | ui-ux-designer → prototype → Gate 1.7 → technical-content-writer          |
 | Brand / visual | ui-ux-designer → prototype → Gate 1.7             |
 | Content        | technical-content-writer                           |
-| Demo video     | video-director                                     |
 | Infrastructure | devops-engineer                                    |
 
 These paths include the conditional inventory → design → Gate 1.7 steps in
@@ -92,7 +90,6 @@ absolute paths: `<absolute task folder>/design-spec.md` and `<absolute task fold
 | modernization-detector | Analyze future improvements | `**Changes**: batches.md` | `future-enhancements.md` | Find follow-up improvements and tech debt. |
 | ui-ux-designer | Create design and prototype | `**Goal**: <what to design>`<br>`**Parity**: parity-inventory.md when required` | `design-spec.md` + `prototype/` | Run niche discovery, build the design system and prototype (README.md + screenshots/); disclose lane-introduced constraints; revise until Gate 1.7 is approved. The visual-reviewer still gives the independent dark+light evidence. |
 | technical-content-writer | Create content | `**Design System**: the project's design system in docs/design-system/`<br>`**Goal**: <what to write>` | `content-specification.md` | Write design-integrated content. |
-| video-director | Author showcase scene | `**Goal**: <feature or flow>`<br>`**App**: <what to launch, which URL>` | scene + render | Read the `video-showcase` skill first, then author, capture, render. |
 
 The designer owns `<taskFolder>/prototype/`. Any flow adding or redesigning UI runs
 designer → prototype → cross-side review → Gate 1.7 before the next phase of the flow (architect, team-leader, or content writer).
@@ -147,7 +144,6 @@ Check the lane's tool list; lanes that have `ptah_browser_*` render and screensh
 | modernization-detector | Final phase, after QA | `batches.md`, changed files | — |
 | ui-ux-designer | CREATIVE; any flow with added/redesigned UI, after required inventory | brand input, references, `context.md`, parity inventory | — (prototype + Gate 1.7 before the next phase of the flow) |
 | technical-content-writer | CREATIVE after the design system exists; blogs, docs, scripts | the project's design system (docs/design-system/), brief, source | other content-writer instances |
-| video-director | Demo, tour or showcase video | the flow to demo, a runnable app | — (capture owns the app) |
 
 Only the team-leader sets task states in `batches.md`. Specialists never edit `task.md` or `batches.md`.
 

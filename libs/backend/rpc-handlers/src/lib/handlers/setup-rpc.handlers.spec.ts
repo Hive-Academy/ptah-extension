@@ -980,9 +980,8 @@ describe('SetupRpcHandlers', () => {
         }>
       >(h, 'wizard:recommend-agents', { isMultiPhase: true });
 
-      // Every catalog agent at relevanceScore=100; all recommended except
-      // opt-in specialists (video-director), which are offered but not preselected.
-      expect(result.length).toBeGreaterThanOrEqual(15);
+      // Every catalog agent is recommended at relevanceScore=100.
+      expect(result.length).toBeGreaterThanOrEqual(14);
       expect(result.every((r) => r.relevanceScore === 100)).toBe(true);
       expect(
         result.every(
@@ -991,11 +990,7 @@ describe('SetupRpcHandlers', () => {
             'Deep codebase analysis,All agents recommended',
         ),
       ).toBe(true);
-      expect(
-        result.every((r) =>
-          r.agentId === 'video-director' ? !r.recommended : r.recommended,
-        ),
-      ).toBe(true);
+      expect(result.every((r) => r.recommended)).toBe(true);
 
       // Spot-check: anchor agents from each category, including the agents
       // that historically drifted out of the catalog.
@@ -1004,7 +999,6 @@ describe('SetupRpcHandlers', () => {
       expect(ids.has('ui-ux-designer')).toBe(true);
       expect(ids.has('senior-tester')).toBe(true);
       expect(ids.has('visual-reviewer')).toBe(true);
-      expect(ids.has('video-director')).toBe(true);
     });
 
     it('throws "Invalid analysis input" for malformed single-phase input', async () => {
@@ -1096,16 +1090,26 @@ describe('SetupRpcHandlers', () => {
       const h = makeHarness();
       const loaded = {
         isMultiPhase: true,
-        manifest: { lifecycle: 'completed', phases: { 'project-profile': { file: '01-project-profile.md' } } },
+        manifest: {
+          lifecycle: 'completed',
+          phases: { 'project-profile': { file: '01-project-profile.md' } },
+        },
         phaseContents: {},
         analysisDir: '/fake/workspace/.ptah/analysis/demo',
       };
       const loadMultiPhase = jest.fn().mockResolvedValue(loaded);
       const link = jest.fn().mockResolvedValue({ written: true });
-      h.container.__register(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE, { loadMultiPhase });
-      h.container.__register(AGENT_GENERATION_TOKENS.ANALYSIS_CLAUDE_MD_LINKER, { link });
+      h.container.__register(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE, {
+        loadMultiPhase,
+      });
+      h.container.__register(
+        AGENT_GENERATION_TOKENS.ANALYSIS_CLAUDE_MD_LINKER,
+        { link },
+      );
       h.handlers.register();
-      expect(await call(h, 'wizard:load-analysis', { filename: 'demo' })).toEqual(loaded);
+      expect(
+        await call(h, 'wizard:load-analysis', { filename: 'demo' }),
+      ).toEqual(loaded);
       expect(link).toHaveBeenCalledWith(WORKSPACE);
     });
     it('throws when no workspace is open', async () => {

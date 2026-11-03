@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:8ead47fc98143c58ef7317a02a3f55bf5fb4cb74a478fe6742d8d490a37aaa90",
-  "generatedAt": "2026-11-02T08:44:14.036Z",
+  "contentHash": "sha256:0343e8110f15513ff81d82b571dd367ca7aa17d829c6d78caad31a85de8a8c56",
+  "generatedAt": "2026-11-03T03:07:42.515Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/PtahCode/main",
   "plugins": {
     "basePath": "plugins",
@@ -81,7 +81,6 @@
       "ptah-core/skills/technical-content-writer/DOCUMENTATION.md",
       "ptah-core/skills/technical-content-writer/LANDING-PAGES.md",
       "ptah-core/skills/technical-content-writer/SKILL.md",
-      "ptah-core/skills/technical-content-writer/VIDEO-SCRIPTS.md",
       "ptah-core/skills/tribunal/SKILL.md",
       "ptah-core/skills/tribunal/references/council.md",
       "ptah-core/skills/tribunal/references/crucible.md",
@@ -213,13 +212,7 @@
       "ptah-react/skills/react-nx-patterns/references/client-components.md",
       "ptah-react/skills/react-nx-patterns/references/module-boundaries.md",
       "ptah-react/skills/react-nx-patterns/references/server-components.md",
-      "ptah-react/skills/react-nx-patterns/references/workspace-setup.md",
-      "ptah-video/.claude-plugin/plugin.json",
-      "ptah-video/skills/video-showcase/SKILL.md",
-      "ptah-video/skills/video-showcase/reference/brand-and-runtime.md",
-      "ptah-video/skills/video-showcase/reference/camera-and-render.md",
-      "ptah-video/skills/video-showcase/reference/install.md",
-      "ptah-video/skills/video-showcase/reference/scene-authoring.md"
+      "ptah-react/skills/react-nx-patterns/references/workspace-setup.md"
     ]
   },
   "templates": {
@@ -243,7 +236,6 @@
       "team-leader.template.md",
       "technical-content-writer.template.md",
       "ui-ux-designer.template.md",
-      "video-director.template.md",
       "visual-reviewer.template.md"
     ]
   }

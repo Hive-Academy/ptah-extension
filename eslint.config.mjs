@@ -203,14 +203,6 @@ export default [
   {
     ignores: [
       '**/dist',
-      '**/.vscode-test/**',
-      // ptah-video-studio transient artifacts: Remotion bundle output, the
-      // whisper.cpp binary/model cache, and rendered mp4 output. All are
-      // generated/downloaded (gitignored) and must never be linted.
-      'apps/ptah-video-studio/build/**',
-      'apps/ptah-video-studio/.whisper/**',
-      'apps/ptah-video-studio/out/**',
-      'apps/ptah-video-studio/.remotion/**',
       // Transient developer scratch. Mutation-testing a fix means copying a
       // source file, stubbing it out, running the spec and restoring it, and
       // scratch render/bundle harnesses land beside the code they drive. Both
@@ -303,47 +295,18 @@ export default [
                 'scope:shared',
                 'scope:landing',
                 'scope:web',
-                'scope:api-contracts',
               ],
             },
             // --- domain-extraction scopes (tools/migration) -------------
             // libs/web/*  (@ptah-web/*) — Angular domains carved out of the
-            // landing app. They may talk to each other and to the shared
-            // HTTP contracts, never to a server-side lib.
+            // landing app. They may talk to each other and to retained shared
+            // libraries, never to a server-side lib.
             {
               sourceTag: 'scope:web',
               onlyDependOnLibsWithTags: [
                 'scope:shared',
                 'scope:web',
-                'scope:api-contracts',
               ],
-            },
-            // The license server (its own `scope:app` tag) is being decomposed
-            // into libs/api/* by tools/migration. Until it is fully emptied it
-            // consumes both its remaining in-app code and the api domains.
-            {
-              sourceTag: 'scope:app',
-              onlyDependOnLibsWithTags: [
-                'scope:shared',
-                'scope:api',
-                'scope:api-contracts',
-              ],
-            },
-            // libs/api/* (@ptah-api/*) — NestJS domains carved out of the
-            // license server.
-            {
-              sourceTag: 'scope:api',
-              onlyDependOnLibsWithTags: [
-                'scope:shared',
-                'scope:api',
-                'scope:api-contracts',
-              ],
-            },
-            // libs/api-contracts/* (@ptah-contracts/*) — the wire contract
-            // between scope:web and scope:api. Depends on nothing but itself.
-            {
-              sourceTag: 'scope:api-contracts',
-              onlyDependOnLibsWithTags: ['scope:api-contracts'],
             },
             {
               sourceTag: 'scope:electron',
@@ -362,7 +325,7 @@ export default [
               ],
             },
             // e2e harnesses drive the runtime apps and consume shared
-            // contracts (e.g. @ptah-extension/showcase-manifest). Without
+            // contracts. Without
             // this entry, scope:e2e matches no sourceTag and any workspace
             // import trips projectWithoutTagsCannotHaveDependencies.
             {
@@ -549,7 +512,6 @@ export default [
     ignores: [
       '**/*.spec.ts',
       '**/*.d.ts',
-      'libs/api/core/src/lib/generated-prisma-client/**',
     ],
     rules: {
       'max-lines': [

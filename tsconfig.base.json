@@ -16,15 +16,16 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "paths": {
-      "@ptah-extension/codex-runtime": ["./libs/backend/codex-runtime/src/index.ts"],
-      "@ptah-extension/showcase-manifest": [
-        "./libs/showcase-manifest/src/index.ts"
+      "@ptah-extension/codex-runtime": [
+        "./libs/backend/codex-runtime/src/index.ts"
       ],
       "@ptah-extension/agent-generation": [
         "./libs/backend/agent-generation/src/index.ts"
       ],
       "@ptah-extension/agent-sdk": ["./libs/backend/agent-sdk/src/index.ts"],
-      "@ptah-extension/usage-analytics": ["./libs/backend/usage-analytics/src/index.ts"],
+      "@ptah-extension/usage-analytics": [
+        "./libs/backend/usage-analytics/src/index.ts"
+      ],
       "@ptah-extension/auth-providers": [
         "./libs/backend/auth-providers/src/index.ts"
       ],
@@ -196,9 +197,7 @@
       "@ptah-extension/harness-builder/services": [
         "./libs/frontend/harness-builder/src/services.ts"
       ],
-      "@ptah-extension/onboarding": [
-        "./libs/frontend/onboarding/src/index.ts"
-      ],
+      "@ptah-extension/onboarding": ["./libs/frontend/onboarding/src/index.ts"],
       "@ptah-extension/onboarding/services": [
         "./libs/frontend/onboarding/src/services.ts"
       ],

@@ -98,7 +98,6 @@
         "messaging-gateway-ui",
         "skill-synthesis-ui",
         "webview-e2e-harness",
-        "showcase-manifest",
         "web-core",
         "web-ui",
         "web-landing",

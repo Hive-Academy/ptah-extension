@@ -46,7 +46,7 @@ The scan results are summarized into a **detected stack** — languages, framewo
 
 ### Step 4 — Agent selection
 
-Ptah uses the detected stack to propose an agent roster. All 14 built-ins are recommended by default. The wizard also proposes **stack-specific variations** (for example, a `backend-developer` tuned for NestJS and Prisma) and offers **opt-in specialists** such as `video-director` unchecked.
+Ptah uses the detected stack to propose an agent roster. All 14 built-ins are recommended by default. The wizard also proposes **stack-specific variations** (for example, a `backend-developer` tuned for NestJS and Prisma).
 
 Each proposal shows:
 

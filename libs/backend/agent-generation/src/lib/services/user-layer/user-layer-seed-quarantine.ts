@@ -5,7 +5,7 @@
  * The seed used to copy EVERY flat `~/.ptah/user/agents/*.md` into a workspace's
  * new scoped directory. The flat base is the interleaved record of every
  * project on the machine, so a workspace received other projects' agents
- * (`video-director`, `figma-designer`, ...) and the reconciler fanned them into
+ * (`sample-agent`, `figma-designer`, ...) and the reconciler fanned them into
  * its `.codex`, `.github`, `.cursor` and `.opencode` agent directories. The
  * seed now copies only slugs the workspace owns; this pass removes what the old
  * seed already left behind.

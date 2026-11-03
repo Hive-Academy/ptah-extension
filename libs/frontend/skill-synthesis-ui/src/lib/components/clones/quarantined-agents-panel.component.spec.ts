@@ -59,11 +59,11 @@ function entry(
   overrides: Partial<QuarantinedAgentEntry> = {},
 ): QuarantinedAgentEntry {
   return {
-    slug: 'video-director',
+    slug: 'sample-agent',
     state: 'quarantined',
     quarantinedAt: '2026-09-30T12:00:00.000Z',
     hasSnapshot: true,
-    sourcePath: '/ws/.claude/agents/video-director.md',
+    sourcePath: '/ws/.claude/agents/sample-agent.md',
     ...overrides,
   };
 }
@@ -85,7 +85,7 @@ function restoreResult(
 ): SkillSynthesisRestoreQuarantinedAgentResult {
   return {
     outcome: 'restored',
-    path: '/ws/.claude/agents/video-director.md',
+    path: '/ws/.claude/agents/sample-agent.md',
     agentSync: 'enabled',
     ...overrides,
   };
@@ -110,7 +110,7 @@ const partialReport: HarnessHealth = {
     {
       target: 'codex',
       writeFailed: [
-        { relPath: '.codex/agents/video-director.toml', reason: 'EACCES' },
+        { relPath: '.codex/agents/sample-agent.toml', reason: 'EACCES' },
       ],
     } as unknown as HarnessHealth['targets'][number],
   ],
@@ -207,7 +207,7 @@ describe('QuarantinedAgentsPanelComponent', () => {
       expect(q('quarantine-count')?.textContent?.trim()).toBe('2');
       const items = all('quarantine-item');
       expect(items).toHaveLength(2);
-      expect(items[0].textContent).toContain('video-director');
+      expect(items[0].textContent).toContain('sample-agent');
       expect(items[0].querySelector('time')?.getAttribute('datetime')).toBe(
         '2026-09-30T12:00:00.000Z',
       );
@@ -302,7 +302,7 @@ describe('QuarantinedAgentsPanelComponent', () => {
       await click('quarantine-restore-btn');
 
       expect(q('quarantine-restore-disclosure')?.textContent?.trim()).toBe(
-        'Adds .claude/agents/video-director.md to this workspace as a source file it owns (visible to git); the quarantine snapshot is kept.',
+        'Adds .claude/agents/sample-agent.md to this workspace as a source file it owns (visible to git); the quarantine snapshot is kept.',
       );
       expect(q('quarantine-restore-sync-off')).toBeNull();
 
@@ -336,14 +336,13 @@ describe('QuarantinedAgentsPanelComponent', () => {
       expect(log).toEqual([
         'list',
         'harness:health',
-        'restore:video-director',
+        'restore:sample-agent',
         'harness:reconcile',
         'list',
         'refreshClones',
       ]);
       expect(host.notices.at(-1)).toEqual({
-        message:
-          'Restored "video-director" to .claude/agents/video-director.md.',
+        message: 'Restored "sample-agent" to .claude/agents/sample-agent.md.',
         kind: 'success',
       });
     });
@@ -373,7 +372,7 @@ describe('QuarantinedAgentsPanelComponent', () => {
       rpc.restoreQuarantinedAgent.mockResolvedValueOnce(
         restoreResult({
           outcome: 'conflict',
-          path: '/ws/.claude/agents/video-director.md',
+          path: '/ws/.claude/agents/sample-agent.md',
         }),
       );
 
@@ -384,7 +383,7 @@ describe('QuarantinedAgentsPanelComponent', () => {
 
       expect(host.notices.at(-1)?.kind).toBe('error');
       expect(host.notices.at(-1)?.message).toContain(
-        '/ws/.claude/agents/video-director.md',
+        '/ws/.claude/agents/sample-agent.md',
       );
       expect(log).not.toContain('harness:reconcile');
     });
@@ -403,7 +402,7 @@ describe('QuarantinedAgentsPanelComponent', () => {
 
       const last = host.notices.at(-1);
       expect(last?.kind).toBe('error');
-      expect(last?.message).toContain('/ws/.claude/agents/video-director.md');
+      expect(last?.message).toContain('/ws/.claude/agents/sample-agent.md');
       expect(last?.message).toContain('EACCES');
       expect(log).not.toContain('harness:reconcile');
     });
@@ -426,10 +425,10 @@ describe('QuarantinedAgentsPanelComponent', () => {
       const last = host.notices.at(-1);
       expect(last?.kind).toBe('warning');
       expect(last?.message).toContain(
-        'Restored "video-director" to .claude/agents/video-director.md, but provider copies were not fully updated',
+        'Restored "sample-agent" to .claude/agents/sample-agent.md, but provider copies were not fully updated',
       );
       expect(last?.message).toContain(
-        '.codex/agents/video-director.toml (EACCES)',
+        '.codex/agents/sample-agent.toml (EACCES)',
       );
       expect(last?.message).toContain(QUARANTINE_SYNC_RETRY_COPY);
     });
@@ -452,7 +451,7 @@ describe('QuarantinedAgentsPanelComponent', () => {
         QUARANTINE_SYNC_OFF_COPY,
       );
       expect(q('quarantine-restore-disclosure')?.textContent).toContain(
-        '.claude/agents/video-director.md',
+        '.claude/agents/sample-agent.md',
       );
 
       await click('quarantine-restore-confirm');
@@ -461,7 +460,7 @@ describe('QuarantinedAgentsPanelComponent', () => {
       expect(q('reconcile-guard-confirm')).toBeNull();
       expect(log).toEqual([
         'list',
-        'restore:video-director',
+        'restore:sample-agent',
         'list',
         'refreshClones',
       ]);
@@ -512,7 +511,7 @@ describe('QuarantinedAgentsPanelComponent', () => {
       expect(last?.kind).toBe('warning');
       expect(last?.message).not.toContain('Updated provider copies');
       expect(last?.message).toContain(
-        '1 file could not be written: .codex/agents/video-director.toml (EACCES)',
+        '1 file could not be written: .codex/agents/sample-agent.toml (EACCES)',
       );
       expect(last?.message).toContain(QUARANTINE_SYNC_RETRY_COPY);
     });

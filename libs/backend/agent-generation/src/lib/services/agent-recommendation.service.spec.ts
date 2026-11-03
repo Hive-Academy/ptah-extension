@@ -54,17 +54,16 @@ describe('AgentRecommendationService', () => {
     }
   });
 
-  it('includes visual-reviewer and video-director (previously drifted out of the catalog)', () => {
+  it('includes visual-reviewer in the catalog', () => {
     const service = createService();
     const recommendedIds = service
       .calculateRecommendations(MINIMAL_ANALYSIS)
       .map((r) => r.agentId);
 
     expect(recommendedIds).toContain('visual-reviewer');
-    expect(recommendedIds).toContain('video-director');
   });
 
-  it('recommends every agent at max relevance except opt-in specialists', () => {
+  it('recommends every agent at max relevance', () => {
     const service = createService();
     const recommendations = service.calculateRecommendations(MINIMAL_ANALYSIS);
 
@@ -72,11 +71,7 @@ describe('AgentRecommendationService', () => {
     for (const rec of recommendations) {
       expect(rec.relevanceScore).toBe(100);
     }
-    // Opt-in specialists are offered but not pre-selected.
-    const byId = new Map(recommendations.map((r) => [r.agentId, r]));
-    expect(byId.get('video-director')?.recommended).toBe(false);
     for (const rec of recommendations) {
-      if (rec.agentId === 'video-director') continue;
       expect(rec.recommended).toBe(true);
     }
   });
