@@ -439,7 +439,16 @@ export class ContentDownloadService {
     // skill discovery treats every folder there as a skill. Sweep the empty
     // directories, but only inside the same manifest-owned roots.
     for (const root of manifestRoots) {
-      if (RESERVED_PRUNE_ROOTS.has(root)) {
+      // Accept only a plain directory name. A manifest path such as
+      // `./ptah-core/...` yields root `.`, and `..` would leave `localDir`:
+      // either would sweep far more than the manifest owns.
+      if (
+        RESERVED_PRUNE_ROOTS.has(root) ||
+        root === '' ||
+        root === '.' ||
+        root === '..' ||
+        /[\\/:]/.test(root)
+      ) {
         continue;
       }
       this.removeEmptyDirs(path.join(localDir, root));

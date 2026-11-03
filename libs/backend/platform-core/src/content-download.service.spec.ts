@@ -689,6 +689,32 @@ describe('ContentDownloadService', () => {
       ).toBe(true);
     });
 
+    it('does NOT sweep from a noncanonical manifest root such as "."', async () => {
+      const externalEmpty = path.join(PLUGINS_DIR, 'external', 'x', 'empty');
+      const foreignEmpty = path.join(PLUGINS_DIR, 'my-own-plugin', 'empty');
+      fs.mkdirSync(externalEmpty, { recursive: true });
+      fs.mkdirSync(foreignEmpty, { recursive: true });
+      addRoute(
+        (url) => url === MANIFEST_URL,
+        () => ({
+          statusCode: 200,
+          body: buildManifest({
+            pluginFiles: ['./ptah-core/skills/example/SKILL.md'],
+            templateFiles: [],
+          }),
+        }),
+      );
+      addRoute(
+        () => true,
+        () => ({ statusCode: 200, body: '# example' }),
+      );
+
+      await new ContentDownloadService().ensureContent();
+
+      expect(fs.existsSync(externalEmpty)).toBe(true);
+      expect(fs.existsSync(foreignEmpty)).toBe(true);
+    });
+
     it('announces the prune on STDERR and writes nothing to stdout', async () => {
       // `ptah`'s stdout is the JSON-RPC NDJSON channel and nothing else, and
       // `ensureContent()` runs fire-and-forget on every
