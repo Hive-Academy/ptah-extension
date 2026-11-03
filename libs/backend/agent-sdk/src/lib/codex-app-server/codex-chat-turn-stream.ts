@@ -293,10 +293,12 @@ export async function* streamCodexChatTurn(
           // The session reason is published only when nothing in the session
           // was priced AND this turn's own unpriced cause is a missing rate,
           // so "not priced" never mislabels an unknown billing mode or
-          // unusable usage. Any other null-cost cause omits the field and the
-          // UI keeps "cost unavailable".
+          // unusable usage. Lifetime usage coverage must also be complete: an
+          // earlier turn without usage evidence keeps "cost unavailable". Any
+          // other null-cost cause omits the field and the UI keeps that label.
           ...(lifetimePrice.totalCost === null &&
               lifetimePrice.pricingCoverage === 'none' &&
+              lifetime.coverage === 'complete' &&
               turnPrice.totalCost === null &&
               turnPrice.costUnavailableReason === 'rate-missing'
             ? { costUnavailableReason: 'rate-missing' as const } : {}),
@@ -625,6 +627,27 @@ export async function* streamCodexChatTurn(
     }
   }
 }
+const REFUSED_INTERRUPT_DRAIN_MS = 5_000;
+
+/** The next event, or undefined when none arrives within `ms` (or `ms` <= 0). */
+async function nextWithin(
+  events: AsyncIterator<CodexRuntimeEvent>,
+  ms: number,
+): Promise<IteratorResult<CodexRuntimeEvent> | undefined> {
+  if (ms <= 0) return undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      events.next(),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function drainInterruptedTurn(
   session: CodexChatSession,
   events: AsyncIterator<CodexRuntimeEvent>,
@@ -636,9 +659,19 @@ async function drainInterruptedTurn(
 ): Promise<void> {
   let terminal = false;
   try {
-    if (!session.stopRequested) await deps.interrupt(session.id);
+    // interrupt() returns false both when the turn already ended (its terminal
+    // is queued) and when the interrupt was refused or is unsupported (no
+    // watchdog is armed). Keep draining, but under one overall deadline so a
+    // missing terminal (or a stream that never ends) cannot keep the session
+    // busy forever.
+    const unguarded =
+      !session.stopRequested && !(await deps.interrupt(session.id));
+    const deadline = Date.now() + REFUSED_INTERRUPT_DRAIN_MS;
     while (!session.abort.signal.aborted) {
-      const next = await events.next();
+      const next = unguarded
+        ? await nextWithin(events, deadline - Date.now())
+        : await events.next();
+      if (next === undefined) break;
       if (next.done) break;
       observeUsage(next.value);
       if (session.stopRequested) {

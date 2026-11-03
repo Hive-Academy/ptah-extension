@@ -407,6 +407,67 @@ describe('Codex chat turn lifecycle', () => {
     await h.adapter.dispose();
   });
 
+  it('keeps a missing rate generic when an earlier turn had no usage evidence', async () => {
+    const h = setup('chat', 'api-key', 'unpriced-native-model');
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.startTurn
+      .mockResolvedValueOnce({ threadId: id, turnId: 'turn', revision: 1 })
+      .mockResolvedValueOnce({ threadId: id, turnId: 'turn-2', revision: 2 });
+    h.context.events
+      .mockImplementationOnce(() => (async function* () {
+        yield terminal;
+      })())
+      .mockImplementationOnce(() => (async function* () {
+        yield {
+          ...terminal,
+          turnId: 'turn-2',
+          evidence: {
+            ...evidence,
+            turnId: 'turn-2',
+            modelId: 'unpriced-native-model',
+          },
+          usage: { inputTokens: 100, outputTokens: 20 },
+        };
+      })());
+
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(stats.mock.lastCall?.[0].sessionStats.coverage).toBe('partial');
+    await h.adapter.sendMessageToSession(id, 'follow-up');
+    expect(stats.mock.lastCall?.[0]).toMatchObject({
+      turnCost: null,
+      sessionStats: expect.objectContaining({
+        totalCost: null,
+        coverage: 'partial',
+        pricingCoverage: 'none',
+      }),
+    });
+    expect(stats.mock.lastCall?.[0].sessionStats)
+      .not.toHaveProperty('costUnavailableReason', 'rate-missing');
+    await h.adapter.dispose();
+  });
+
+  it('labels a missing rate when every turn has usage evidence', async () => {
+    const h = setup('chat', 'api-key', 'unpriced-native-model');
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield {
+        ...terminal,
+        evidence: { ...evidence, modelId: 'unpriced-native-model' },
+        usage: { inputTokens: 100, outputTokens: 20 },
+      };
+    })());
+
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(stats.mock.lastCall?.[0].sessionStats).toMatchObject({
+      coverage: 'complete',
+      totalCost: null,
+      costUnavailableReason: 'rate-missing',
+    });
+    await h.adapter.dispose();
+  });
+
   it('keeps a known rate unavailable when auth mode is unknown', async () => {
     const h = setup('chat', 'unknown', 'gpt-4o');
     const stats = jest.fn();
@@ -1122,6 +1183,73 @@ describe('Codex chat turn lifecycle', () => {
       await h.adapter.dispose();
     },
   );
+
+  it('closes a detached session when interrupt is refused without a terminal', async () => {
+    const h = setup();
+    let finish: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    h.context.interrupt.mockResolvedValue(false);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield delta;
+      await gate;
+    })());
+    h.context.close.mockImplementation(async () => { finish?.(); });
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick', 'queueMicrotask'] });
+
+    try {
+      const stream = await h.adapter.startChatSession({ tabId });
+      const iterator = stream[Symbol.asyncIterator]();
+      await iterator.next();
+      await iterator.return?.();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      // No terminal is queued: the bounded drain wait expires, then the session closes.
+      expect(h.context.close).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(5_000);
+
+      expect(h.context.interrupt).toHaveBeenCalledWith('turn');
+      expect(h.context.close).toHaveBeenCalledTimes(1);
+      expect(h.lifecycle.closed).toHaveBeenCalledTimes(1);
+      expect(h.adapter.owns(id)).toBe(false);
+      expect(h.turnState.get(id)).toMatchObject({
+        phase: 'idle', terminalReason: 'aborted_streaming',
+      });
+      expect(stats).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+      finish?.();
+      await h.adapter.dispose();
+    }
+  });
+
+  it('drains a queued completed terminal when interrupt reports the turn already finished', async () => {
+    const h = setup('chat', 'api-key', 'gpt-4o');
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.interrupt.mockResolvedValue(false);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield delta;
+      yield { ...terminal, evidence, usage: { inputTokens: 100, outputTokens: 20 } };
+    })());
+
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    await iterator.return?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(h.context.interrupt).toHaveBeenCalledWith('turn');
+    expect(h.context.close).not.toHaveBeenCalled();
+    expect(h.adapter.owns(id)).toBe(true);
+    expect(h.turnState.get(id)).toMatchObject({
+      phase: 'idle', terminalReason: 'completed',
+    });
+    expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+      turnCost: expect.any(Number),
+    }));
+    await h.adapter.dispose();
+  });
 
   it.each(['completed', 'interrupted', 'failed'] as const)(
     'ends pending approvals on a %s terminal',
