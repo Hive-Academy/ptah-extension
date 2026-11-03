@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, input, OnDestroy } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
   SessionEmbedComponent,
@@ -12,19 +12,22 @@ import type { SessionStatsEntry } from '@ptah-extension/shared';
 import { DetailsLogComponent } from './details-log.component';
 
 let embedInstanceSeq = 0;
+const embedEvents: string[] = [];
 
 @Component({
   selector: 'ptah-session-embed',
   standalone: true,
   template: '<div data-testid="session-embed-stub"></div>',
 })
-class SessionEmbedStubComponent {
+class SessionEmbedStubComponent implements OnDestroy {
   public readonly instanceId = ++embedInstanceSeq;
   public readonly tabId = input.required<string>();
   public readonly chrome = input('full');
   public readonly readOnly = input(false);
   public readonly startGuard = input<SessionStartGuard | null>(null);
   public readonly stopHandler = input<SessionStopHandler | null>(null);
+  constructor() { embedEvents.push(`create:${this.instanceId}`); }
+  ngOnDestroy(): void { embedEvents.push(`destroy:${this.instanceId}`); }
 }
 
 @Component({
@@ -95,6 +98,62 @@ describe('DetailsLogComponent', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     embedInstanceSeq = 0;
+    embedEvents.length = 0;
+  });
+
+  it('mounts the pane immediately with a focusable log and no disclosure', () => {
+    const el = render('tab', { tabId: 'tab-1' });
+    fixture.componentRef.setInput('variant', 'pane');
+    fixture.detectChanges();
+    const region = el.querySelector('[data-testid="details-log-body"]') as HTMLElement;
+    expect(el.querySelector('details, summary')).toBeNull();
+    expect(el.querySelector('[data-testid="session-embed-stub"]')).not.toBeNull();
+    expect(region.getAttribute('role')).toBe('log');
+    expect(region.getAttribute('aria-label')).toBe('Session log');
+    expect(region.tabIndex).toBe(0);
+    expect(region.classList.contains('overflow-hidden')).toBe(true);
+    fixture.componentInstance.focus();
+    expect(document.activeElement).toBe(region);
+  });
+
+  it('releases the old pane embed before mounting the new tab', () => {
+    render('tab', { tabId: 'tab-1' });
+    fixture.componentRef.setInput('variant', 'pane');
+    fixture.detectChanges();
+    fixture.componentRef.setInput('tabId', 'tab-2');
+    fixture.detectChanges();
+    expect(embedEvents).toEqual(['create:1', 'destroy:1', 'create:2']);
+  });
+
+  it('forwards page keys from the focused region to the transcript scroller', () => {
+    const el = render('tab', { tabId: 'tab-1' });
+    fixture.componentRef.setInput('variant', 'pane');
+    fixture.detectChanges();
+    const region = el.querySelector('[data-testid="details-log-body"]') as HTMLElement;
+    const scroller = el.querySelector('[data-testid="session-embed-stub"]') as HTMLElement;
+    scroller.style.overflowY = 'auto';
+    Object.defineProperty(scroller, 'scrollHeight', { value: 600 });
+    Object.defineProperty(scroller, 'clientHeight', { value: 200 });
+    region.focus();
+    const event = new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true, cancelable: true });
+    region.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(scroller.scrollTop).toBe(180);
+    expect(document.activeElement).toBe(region);
+  });
+
+  it('keeps the composer slot after the region with a transcript floor', () => {
+    const el = render('tab', { tabId: null });
+    fixture.componentRef.setInput('variant', 'pane');
+    fixture.componentRef.setInput('composer', true);
+    fixture.componentRef.setInput('footerNote', '');
+    fixture.detectChanges();
+    const region = el.querySelector('[data-testid="details-log-body"]') as HTMLElement;
+    expect(el.querySelector('.session-log-container')).not.toBeNull();
+    expect(region.classList.contains('min-h-[160px]')).toBe(true);
+    expect(region.nextElementSibling?.classList.contains('log-composer-slot')).toBe(true);
+    expect(el.textContent).not.toContain('Read-only view.');
+    expect(el.querySelector('[data-testid="details-log-unavailable"]')).not.toBeNull();
   });
 
   it('keeps the tab embed unmounted while collapsed and releases it on close', () => {
