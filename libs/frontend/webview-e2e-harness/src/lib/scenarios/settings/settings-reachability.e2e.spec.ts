@@ -14,7 +14,12 @@
  */
 import type { Page } from '@playwright/test';
 import { test, expect } from '../../test-fixtures';
-import { bootSettings, gotoSettingsTab, SETTINGS_TAB_LABELS, waitForSettled } from './settings.fixtures';
+import {
+  bootSettings,
+  gotoSettingsTab,
+  SETTINGS_TAB_LABELS,
+  waitForSettled,
+} from './settings.fixtures';
 import {
   BASELINE_PRESENT_IDS,
   EXPECTED_CAPABILITY_COUNT,
@@ -36,11 +41,15 @@ test.describe('webview > settings > reachability > guards', () => {
     // (a deleted or renamed id) used to satisfy `.not.toBe('pending')`
     // silently. `toBeDefined()` closes that hole; `toContain` then pins the
     // only two statuses a baseline id may legitimately carry.
-    const byId = new Map(REACHABILITY_TABLE.map((entry) => [entry.id, entry.status]));
+    const byId = new Map(
+      REACHABILITY_TABLE.map((entry) => [entry.id, entry.status]),
+    );
     for (const id of BASELINE_PRESENT_IDS) {
       const status = byId.get(id);
       expect(status, `${id} is missing from REACHABILITY_TABLE`).toBeDefined();
-      expect(['present', 'restored'], `${id} regressed to ${status}`).toContain(status);
+      expect(['present', 'restored'], `${id} regressed to ${status}`).toContain(
+        status,
+      );
     }
   });
 
@@ -63,7 +72,9 @@ test.describe('webview > settings > reachability > guards', () => {
 });
 
 /** The Settings tab that is active now (`tab-active`), or `undefined` when none reads as active. Never throws. */
-async function activeTab(page: Page): Promise<(typeof SETTINGS_TAB_LABELS)[number] | undefined> {
+async function activeTab(
+  page: Page,
+): Promise<(typeof SETTINGS_TAB_LABELS)[number] | undefined> {
   for (const label of SETTINGS_TAB_LABELS) {
     const active = await page
       .getByRole('button', { name: label, exact: true })
@@ -77,7 +88,10 @@ async function activeTab(page: Page): Promise<(typeof SETTINGS_TAB_LABELS)[numbe
 for (const host of HOSTS) {
   test.describe(`webview > settings > reachability (${host})`, () => {
     // TODO(PR 880): fails since the motion presets landed; fix and re-enable.
-    test.fixme('every present/restored capability is reachable', async ({ page, fixtureServer }) => {
+    test.fixme('every present/restored capability is reachable', async ({
+      page,
+      fixtureServer,
+    }) => {
       // 64 sequential real-click entries in one session (each opens and
       // closes its own control) comfortably exceed the 30s default. Batch 49
       // added the Advanced and Search & Voice entries (about 2 minutes more,
@@ -95,7 +109,9 @@ for (const host of HOSTS) {
           try {
             await entry.reach(page);
           } catch (error) {
-            failures.push(`${entry.id} (${entry.capability}): ${error instanceof Error ? error.message : String(error)}`);
+            failures.push(
+              `${entry.id} (${entry.capability}): ${error instanceof Error ? error.message : String(error)}`,
+            );
           } finally {
             // code-logic-review Serious #4 / FM-4: a step that throws
             // before its own cleanup ran (or whose cleanup itself failed
@@ -105,16 +121,23 @@ for (const host of HOSTS) {
             // for the unhappy one. Every recovery action is best-effort —
             // only the NEXT entry's own assertion is allowed to fail loudly.
             if (await page.locator('[data-testid="wizard-body"]').count()) {
-              await page.locator('[data-testid="wizard-cancel"]').click({ timeout: 3000 }).catch(() => undefined);
+              await page
+                .locator('[data-testid="wizard-cancel"]')
+                .click({ timeout: 3000 })
+                .catch(() => undefined);
               await page.keyboard.press('Escape').catch(() => undefined);
             }
             if (await page.locator('[data-testid="wizard-body"]').count()) {
               // Still stuck: force a remount by leaving and re-entering
               // Providers (`ProvidersSettingsComponent` is torn down by the
               // `@if` in settings.component.html on tab switch).
-              await page.getByRole('button', { name: 'Advanced', exact: true }).click().catch(() => undefined);
+              await page
+                .getByRole('button', { name: 'Advanced', exact: true })
+                .click()
+                .catch(() => undefined);
               // NW-3: the remount detour must not leave the page on Advanced for the next entry.
-              if (startTab) await gotoSettingsTab(page, startTab).catch(() => undefined);
+              if (startTab)
+                await gotoSettingsTab(page, startTab).catch(() => undefined);
             }
           }
         });
@@ -122,7 +145,7 @@ for (const host of HOSTS) {
       expect(failures, failures.join('\n')).toEqual([]);
     });
 
-    test('kept selectors survive (settings-tour.scene.ts, workspace-settings.shot.ts)', async ({
+    test('kept selectors survive (workspace-settings.shot.ts)', async ({
       page,
       fixtureServer,
     }) => {
@@ -134,13 +157,28 @@ for (const host of HOSTS) {
         await expect(page.locator(selector).first()).toBeVisible();
       }
       // Tab buttons by role and name (plan §6 finding 7's fourth kept item).
-      for (const label of ['Providers', 'Context Management', 'Advanced', 'Search & Voice']) {
-        await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible();
+      for (const label of [
+        'Providers',
+        'Context Management',
+        'Advanced',
+        'Search & Voice',
+      ]) {
+        await expect(
+          page.getByRole('button', { name: label, exact: true }),
+        ).toBeVisible();
       }
       await page.getByRole('button', { name: 'Advanced', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Export settings' })).toBeVisible();
-      await page.getByRole('button', { name: 'Search & Voice', exact: true }).click();
-      await expect(page.locator('[data-testid^="settings-toggle-web-search-provider"]').first()).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: 'Export settings' }),
+      ).toBeVisible();
+      await page
+        .getByRole('button', { name: 'Search & Voice', exact: true })
+        .click();
+      await expect(
+        page
+          .locator('[data-testid^="settings-toggle-web-search-provider"]')
+          .first(),
+      ).toBeVisible();
     });
   });
 }

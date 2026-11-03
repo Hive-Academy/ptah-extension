@@ -207,11 +207,6 @@ export const PROMPT_CATALOGUE: readonly PromptCategory[] = [
         text: '/technical-content-writer Write a technical blog post about [topic] grounded in our codebase',
         description: 'Blog grounded in code',
       },
-      {
-        label: 'Record video showcase',
-        text: '/video-showcase Record a narrated marketing demo of [feature]',
-        description: 'Narrated product demo',
-      },
     ],
   },
 ];

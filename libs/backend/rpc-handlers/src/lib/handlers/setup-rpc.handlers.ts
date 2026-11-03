@@ -673,13 +673,6 @@ export class SetupRpcHandlers {
                 'Hunts UI/UX visual bugs, responsive breakpoints, and accessibility issues via browser testing',
               category: 'qa',
             },
-            {
-              id: 'video-director',
-              name: 'Video Director',
-              description:
-                'Authors and renders narrated, camera-animated marketing/demo videos from automated UI walkthroughs',
-              category: 'creative',
-            },
           ];
 
           const recommendations: AgentRecommendation[] = agentCatalog.map(
@@ -688,9 +681,7 @@ export class SetupRpcHandlers {
               agentName: name,
               category,
               relevanceScore: 100,
-              // Opt-in specialists (e.g. video-director) are offered but not
-              // pre-selected, so they aren't force-generated into every project.
-              recommended: agentId !== 'video-director',
+              recommended: true,
               matchedCriteria: catalogMode
                 ? ['Workspace catalog', 'All agents available']
                 : ['Deep codebase analysis', 'All agents recommended'],
@@ -897,14 +888,18 @@ export class SetupRpcHandlers {
       );
 
       const safeFilename = path.basename(params.filename);
-      const loaded = await storageService.loadMultiPhase(workspaceRoot, safeFilename);
+      const loaded = await storageService.loadMultiPhase(
+        workspaceRoot,
+        safeFilename,
+      );
       if (loaded.manifest.lifecycle === 'completed') {
         const linker = this.resolveService<AnalysisClaudeMdLinker>(
           AGENT_GENERATION_TOKENS.ANALYSIS_CLAUDE_MD_LINKER,
           'AnalysisClaudeMdLinker',
         );
         const linked = await linker.link(workspaceRoot);
-        if (linked.error) this.logger.warn(`Analysis CLAUDE.md link: ${linked.error}`);
+        if (linked.error)
+          this.logger.warn(`Analysis CLAUDE.md link: ${linked.error}`);
       }
       return loaded;
     });

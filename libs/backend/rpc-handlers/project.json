@@ -29,17 +29,12 @@
           "discord.js",
           "@slack/bolt",
           "ffmpeg-static",
-          "nodejs-whisper",
           "node:worker_threads"
         ]
       }
     },
     "test": {
-      "inputs": [
-        "default",
-        "^production",
-        "jestRuntime"
-      ],
+      "inputs": ["default", "^production", "jestRuntime"],
       "options": {
         "passWithNoTests": true
       }

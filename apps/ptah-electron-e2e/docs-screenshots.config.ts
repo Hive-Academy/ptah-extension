@@ -7,9 +7,9 @@ import { defineConfig } from '@playwright/test';
  * `apps/ptah-docs/public/screenshots/`, so they must never run as part of the
  * ordinary `e2e` target. Run them with `nx run ptah-docs:screenshots`.
  *
- * They reuse the e2e fixtures (mocked RPC, throwaway profile) rather than the
- * showcase harness, because a docs screenshot must be reproducible on any
- * machine without a real authenticated profile or live LLM calls.
+ * They reuse the e2e fixtures (mocked RPC, throwaway profile) rather than a
+ * real authenticated profile, because a docs screenshot must be reproducible
+ * on any machine without live LLM calls.
  */
 const isCI = !!process.env['CI'];
 

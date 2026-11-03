@@ -1478,8 +1478,8 @@ describe('AgentGenerationOrchestratorService', () => {
     it('emits a `model:` frontmatter field when the template declares one', async () => {
       const { service, mocks } = createOrchestrator();
       const template = createMockTemplate({
-        id: 'video-director',
-        name: 'video-director',
+        id: 'technical-content-writer',
+        name: 'technical-content-writer',
         model: 'opus',
       });
       wireHappyPath(mocks, template);

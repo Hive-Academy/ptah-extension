@@ -4,12 +4,6 @@
 dist
 tmp
 
-# Finished videos (renders, exports). Not under dist/: `npm run clean` does rm -rf dist.
-# tools/hyperframes/render.mjs writes here from any worktree.
-video-output/
-
-# @vscode/test-electron downloads VS Code into this dir
-.vscode-test/
 out-tsc
 
 # dependencies
@@ -79,9 +73,6 @@ docker-compose.override.yml
 # Database backups
 backups/
 
-# ============================================
-# License Server Environment Files
-# ============================================
 # Local environment files (contain secrets)
 .env
 
@@ -89,7 +80,6 @@ backups/
 # Build Output
 # ============================================
 build-output.txt
-generated-prisma-client
 
 # ============================================
 # Google OAuth Client Secrets
@@ -224,8 +214,6 @@ skills-lock.json
 .remocn-fetch
 
 apps/coverage/**
-apps/ptah-video-studio/build/**
-apps/ptah-video-studio/selfshot/**
 libs/frontend/webview-e2e-harness/test-results/**
 
 # Developer scratch, matching the eslint `ignores` in eslint.config.mjs.
@@ -236,23 +224,6 @@ libs/frontend/webview-e2e-harness/test-results/**
 # alone once silently un-linted a tracked file that merely started with `tmp-`.
 *.bak
 tmp-scratch-*
-
-# tools/video-editor is a local editorial workspace, ignored WHOLE.
-#
-# An earlier version of this block tried to track the editorial record — the
-# transcript, the cut lists, the graphics compositions — while ignoring the
-# media beside it. That is a per-directory allowlist maintained by hand, and it
-# had already failed once: `vendor/`, `raw/`, `outputs/` and the graphics
-# renders were listed, `export/` and `.scratch/` were not, and `export/` was
-# where the weight actually sat. Measured 2026-09-07: 2,216 MB untracked, of
-# which 2,103 MB was three MP4 cuts of 795, 787 and 513 MB. GitHub refuses any
-# blob over 100 MB, so one such file does not merely bloat the history — it
-# makes the branch unpushable, and the way back out is a history rewrite.
-#
-# A rule that must enumerate every directory a video tool might invent is a
-# rule that fails again on the next one. Ignoring the tree whole cannot.
-tools/video-editor/
-tools/video-editor/projects/*/graphics/**/node_modules/
 
 # ptah:harness:begin
 # Managed by Ptah. Derived copies of ~/.ptah/user — edit the source, not these.

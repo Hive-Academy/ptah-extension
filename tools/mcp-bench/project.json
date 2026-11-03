@@ -161,7 +161,6 @@
           "discord.js",
           "@slack/bolt",
           "ffmpeg-static",
-          "nodejs-whisper",
           "bottleneck",
           "typescript"
         ]
@@ -326,7 +325,6 @@
           "discord.js",
           "@slack/bolt",
           "ffmpeg-static",
-          "nodejs-whisper",
           "bottleneck",
           "typescript"
         ]

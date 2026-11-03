@@ -5,7 +5,7 @@ description: Send audio, get transcribed text into the agent.
 
 # Voice Messages
 
-When `gateway.voice.enabled = true` (the default), inbound voice notes and audio attachments are decoded with ffmpeg, transcribed by [`nodejs-whisper`](https://github.com/ChetanXpro/nodejs-whisper), and the transcript is sent to the agent as if you'd typed it.
+When `gateway.voice.enabled = true` (the default), inbound voice notes and audio attachments are decoded with ffmpeg, transcribed locally by a Whisper model that runs through [`@huggingface/transformers`](https://www.npmjs.com/package/@huggingface/transformers), and the transcript is sent to the agent as if you'd typed it.
 
 ## Pipeline
 
@@ -14,7 +14,7 @@ Inbound audio attachment
         ↓
 ffmpeg              → decode to 16kHz mono WAV
         ↓
-nodejs-whisper      → local ASR transcription (no network)
+Whisper (local)     → ASR transcription through @huggingface/transformers
         ↓
 Transcript          → forwarded to the agent like a normal text message
 ```
@@ -26,7 +26,7 @@ Telegram, Discord, and Slack deliver voice messages as compressed audio (Telegra
 ## Requirements
 
 - **ffmpeg** ships bundled with the PtahCode desktop app via the [`ffmpeg-static`](https://www.npmjs.com/package/ffmpeg-static) npm package — no separate install, no `PATH` setup. The pinned binary is platform-specific (Windows / macOS / Linux) and is selected automatically by `electron-builder` at packaging time.
-- **whisper** model files are downloaded on first run by `nodejs-whisper` and cached locally under the user data directory.
+- **whisper** model files are downloaded on first run and cached locally under the user data directory.
 
 :::note[Developers running from source]
 When running `nx serve ptah-electron` from a fresh checkout, `npm install` pulls `ffmpeg-static` automatically. No manual ffmpeg install required.

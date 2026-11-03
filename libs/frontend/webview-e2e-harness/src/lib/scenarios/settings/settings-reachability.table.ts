@@ -739,11 +739,7 @@ const mainAgentModel: readonly ReachabilityEntry[] = [
         'connection-models',
         async (panel) => {
           const before = getFixtureState(page).calls.length;
-          await applyManualTierModel(
-            panel,
-            'sonnet',
-            'k3.1-pro[1m]',
-          );
+          await applyManualTierModel(panel, 'sonnet', 'k3.1-pro[1m]');
           await expectCall(page, before, 'provider:setModelTier', {
             providerId: 'kimi-code',
             tier: 'sonnet',
@@ -1096,7 +1092,9 @@ const other: readonly ReachabilityEntry[] = [
     reach: async (page) => {
       await providersTab(page);
       await openCardDrawer(page, 'Claude (Subscription)');
-      await page.getByRole('tab', { name: 'Overview & Used By', exact: true }).click();
+      await page
+        .getByRole('tab', { name: 'Overview & Used By', exact: true })
+        .click();
       const link = page.locator(
         '[data-used-by="enhancement"] [data-testid="connection-follows-main"]',
       );
@@ -1110,7 +1108,9 @@ const other: readonly ReachabilityEntry[] = [
       ).toHaveClass(/tab-active/);
       const details = page.locator('[data-testid="background-roles-details"]');
       await expect(details).toHaveAttribute('open', '');
-      const editor = page.locator('[data-testid="consumer-editor-enhancement"]');
+      const editor = page.locator(
+        '[data-testid="consumer-editor-enhancement"]',
+      );
       await expect(editor).toBeVisible();
       await page.locator('[data-testid="consumer-close-enhancement"]').click();
       await expect(editor).toHaveCount(0);
@@ -1679,10 +1679,9 @@ const regressedUx: readonly ReachabilityEntry[] = [
 
 // ---------------------------------------------------------------------------
 // The kept-selector set (plan §6 finding 7): selectors
-// `apps/ptah-electron-e2e/src/showcase/settings-tour.scene.ts` and
-// `docs-screenshots/workspace-settings.shot.ts` depend on. Checked directly
+// `docs-screenshots/workspace-settings.shot.ts` depends on. Checked directly
 // by the spec, not through this table (they are not user-facing
-// "capabilities", they are the exact strings those two scripts key off).
+// "capabilities", they are the exact strings that script keys off).
 // ---------------------------------------------------------------------------
 
 export interface KeptSelector {

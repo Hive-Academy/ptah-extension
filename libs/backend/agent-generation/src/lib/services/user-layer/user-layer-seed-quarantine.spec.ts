@@ -59,7 +59,7 @@ import type { AgentSlugLock } from './user-layer-seed-quarantine';
  * TASK_2026_609 — one-time quarantine of the foreign clones the TASK_2026_365
  * seed copied into every newly scoped workspace.
  *
- * Measured on the reporting machine: `video-director` and `visual-reviewer`
+ * The neutral `sample-agent` fixture and `visual-reviewer`
  * (ptah-extension only) sat in ALL four scoped agent dirs, and `figma-designer`
  * in property-hub's. The orphan reaper had not removed them, because it trusts
  * the origin sidecar and these clones either have none or carry local-work
@@ -128,7 +128,7 @@ describe('classifySeededClone', () => {
   it('quarantines a foreign clone byte-identical to its flat file', () => {
     expect(
       classifySeededClone({
-        slug: 'video-director',
+        slug: 'sample-agent',
         ownedSlugs: owned,
         cloneBytes: Buffer.from('SAME'),
         flatBytes: Buffer.from('SAME'),
@@ -139,7 +139,7 @@ describe('classifySeededClone', () => {
   it('keeps a foreign clone that changed since the seed', () => {
     expect(
       classifySeededClone({
-        slug: 'video-director',
+        slug: 'sample-agent',
         ownedSlugs: owned,
         cloneBytes: Buffer.from('EDITED HERE'),
         flatBytes: Buffer.from('SEED'),
@@ -150,7 +150,7 @@ describe('classifySeededClone', () => {
   it('keeps a foreign clone whose flat file is gone — origin unprovable', () => {
     expect(
       classifySeededClone({
-        slug: 'video-director',
+        slug: 'sample-agent',
         ownedSlugs: owned,
         cloneBytes: bytes,
         flatBytes: null,
@@ -235,34 +235,31 @@ describe('user layer — one-time quarantine of foreign seeded agent clones', ()
   it('moves a byte-identical foreign clone and its sidecar into .history/<slug>/<ts>/', async () => {
     await writeSource('team-leader', 'OWN TEAM LEADER');
     await leakedClone(
-      'video-director',
-      'PTAH VIDEO DIRECTOR',
-      sidecarJson('video-director'),
+      'sample-agent',
+      'SAMPLE AGENT',
+      sidecarJson('sample-agent'),
     );
 
     await service.mirrorAll(sources());
 
-    expect(await exists(join(scoped, 'video-director.md'))).toBe(false);
-    expect(await exists(join(scoped, 'video-director.ptah-origin.json'))).toBe(
+    expect(await exists(join(scoped, 'sample-agent.md'))).toBe(false);
+    expect(await exists(join(scoped, 'sample-agent.ptah-origin.json'))).toBe(
       false,
     );
-    const [snapshot, ...rest] = await historySnapshots('video-director');
+    const [snapshot, ...rest] = await historySnapshots('sample-agent');
     expect(rest).toEqual([]);
-    expect(await readFile(join(snapshot, 'video-director.md'), 'utf-8')).toBe(
-      'PTAH VIDEO DIRECTOR',
+    expect(await readFile(join(snapshot, 'sample-agent.md'), 'utf-8')).toBe(
+      'SAMPLE AGENT',
     );
     expect(
-      await readFile(
-        join(snapshot, 'video-director.ptah-origin.json'),
-        'utf-8',
-      ),
-    ).toBe(sidecarJson('video-director'));
+      await readFile(join(snapshot, 'sample-agent.ptah-origin.json'), 'utf-8'),
+    ).toBe(sidecarJson('sample-agent'));
     // The flat base is never touched.
-    expect(await readFile(join(legacyRoot, 'video-director.md'), 'utf-8')).toBe(
-      'PTAH VIDEO DIRECTOR',
+    expect(await readFile(join(legacyRoot, 'sample-agent.md'), 'utf-8')).toBe(
+      'SAMPLE AGENT',
     );
     expect(
-      await exists(join(legacyRoot, 'video-director.ptah-origin.json')),
+      await exists(join(legacyRoot, 'sample-agent.ptah-origin.json')),
     ).toBe(true);
     // The workspace's own agent is mirrored as usual.
     expect(await readFile(join(scoped, 'team-leader.md'), 'utf-8')).toBe(
@@ -272,7 +269,7 @@ describe('user layer — one-time quarantine of foreign seeded agent clones', ()
       '[UserLayerMirror] seed quarantine pass',
       expect.objectContaining({
         quarantined: 1,
-        quarantinedSlugs: ['video-director'],
+        quarantinedSlugs: ['sample-agent'],
         markerWritten: true,
       }),
     );
@@ -309,86 +306,82 @@ describe('user layer — one-time quarantine of foreign seeded agent clones', ()
 
   it('keeps a foreign clone with local work and reports it', async () => {
     await writeSource('team-leader', 'OWN');
-    await leakedClone(
-      'video-director',
-      'SEEDED',
-      sidecarJson('video-director'),
-    );
+    await leakedClone('sample-agent', 'SEEDED', sidecarJson('sample-agent'));
     await writeFile(
-      join(scoped, 'video-director.md'),
+      join(scoped, 'sample-agent.md'),
       'EDITED IN THIS WORKSPACE',
       'utf-8',
     );
 
     await service.mirrorAll(sources());
 
-    expect(await readFile(join(scoped, 'video-director.md'), 'utf-8')).toBe(
+    expect(await readFile(join(scoped, 'sample-agent.md'), 'utf-8')).toBe(
       'EDITED IN THIS WORKSPACE',
     );
-    expect(await exists(join(scoped, 'video-director.ptah-origin.json'))).toBe(
+    expect(await exists(join(scoped, 'sample-agent.ptah-origin.json'))).toBe(
       true,
     );
-    expect(await historySnapshots('video-director')).toEqual([]);
+    expect(await historySnapshots('sample-agent')).toEqual([]);
     expect(logger.info).toHaveBeenCalledWith(
       '[UserLayerMirror] seed quarantine pass',
       expect.objectContaining({
         keptWithLocalWork: 1,
-        keptWithLocalWorkSlugs: ['video-director'],
+        keptWithLocalWorkSlugs: ['sample-agent'],
       }),
     );
   });
 
   it('keeps a foreign clone whose flat file is gone', async () => {
     await writeSource('team-leader', 'OWN');
-    await leakedClone('video-director', 'SEEDED', null);
-    await rm(join(legacyRoot, 'video-director.md'));
+    await leakedClone('sample-agent', 'SEEDED', null);
+    await rm(join(legacyRoot, 'sample-agent.md'));
 
     await service.mirrorAll(sources());
 
-    expect(await exists(join(scoped, 'video-director.md'))).toBe(true);
+    expect(await exists(join(scoped, 'sample-agent.md'))).toBe(true);
     expect(logger.info).toHaveBeenCalledWith(
       '[UserLayerMirror] seed quarantine pass',
       expect.objectContaining({
         keptUnprovable: 1,
-        keptUnprovableSlugs: ['video-director'],
+        keptUnprovableSlugs: ['sample-agent'],
       }),
     );
   });
 
   it('never quarantines a slug the workspace owns, even when identical to the flat file', async () => {
-    await writeSource('video-director', 'SAME');
-    await leakedClone('video-director', 'SAME', sidecarJson('video-director'));
+    await writeSource('sample-agent', 'SAME');
+    await leakedClone('sample-agent', 'SAME', sidecarJson('sample-agent'));
 
     await service.mirrorAll(sources());
 
-    expect(await readFile(join(scoped, 'video-director.md'), 'utf-8')).toBe(
+    expect(await readFile(join(scoped, 'sample-agent.md'), 'utf-8')).toBe(
       'SAME',
     );
-    expect(await historySnapshots('video-director')).toEqual([]);
+    expect(await historySnapshots('sample-agent')).toEqual([]);
   });
 
   it('does not run when the source directory is ABSENT — unknown is not gone', async () => {
-    await leakedClone('video-director', 'SEEDED', null);
+    await leakedClone('sample-agent', 'SEEDED', null);
 
     await service.mirrorAll(sources());
 
-    expect(await exists(join(scoped, 'video-director.md'))).toBe(true);
+    expect(await exists(join(scoped, 'sample-agent.md'))).toBe(true);
     expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
   });
 
   it('runs when the source directory is EMPTY — the workspace owns no agents', async () => {
     await mkdir(join(ws, '.claude', 'agents'), { recursive: true });
-    await leakedClone('video-director', 'SEEDED', null);
+    await leakedClone('sample-agent', 'SEEDED', null);
 
     await service.mirrorAll(sources());
 
-    expect(await exists(join(scoped, 'video-director.md'))).toBe(false);
+    expect(await exists(join(scoped, 'sample-agent.md'))).toBe(false);
     expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(true);
   });
 
   it('runs once: after a clean pass the marker turns every later pass into a no-op', async () => {
     await writeSource('team-leader', 'OWN');
-    await leakedClone('video-director', 'SEEDED', null);
+    await leakedClone('sample-agent', 'SEEDED', null);
     await service.mirrorAll(sources());
     expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(true);
 
@@ -415,7 +408,7 @@ describe('user layer — one-time quarantine of foreign seeded agent clones', ()
   });
 
   it('does nothing without a workspace root', async () => {
-    await writeFile(join(legacyRoot, 'video-director.md'), 'FLAT', 'utf-8');
+    await writeFile(join(legacyRoot, 'sample-agent.md'), 'FLAT', 'utf-8');
     await writeSource('team-leader', 'OWN');
 
     await service.mirrorAll({
@@ -424,7 +417,7 @@ describe('user layer — one-time quarantine of foreign seeded agent clones', ()
     });
 
     // The unscoped root IS the flat base; nothing in it may move.
-    expect(await readFile(join(legacyRoot, 'video-director.md'), 'utf-8')).toBe(
+    expect(await readFile(join(legacyRoot, 'sample-agent.md'), 'utf-8')).toBe(
       'FLAT',
     );
     expect(await exists(join(legacyRoot, '.history'))).toBe(false);
@@ -521,7 +514,7 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
 
   it('a failed move (Windows EBUSY) keeps that clone, lets the others proceed, and withholds the marker', async () => {
     await leak('figma-designer', 'FIGMA');
-    await leak('video-director', 'VIDEO');
+    await leak('sample-agent', 'VIDEO');
     renameHook = async (from, to) => {
       if (from === join(scoped, 'figma-designer.md')) throw ebusy();
       await rename(from, to);
@@ -530,7 +523,7 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
     const first = await run();
 
     expect(first.failed).toEqual(['figma-designer']);
-    expect(first.quarantined).toEqual(['video-director']);
+    expect(first.quarantined).toEqual(['sample-agent']);
     expect(first.markerWritten).toBe(false);
     expect(await exists(join(scoped, 'figma-designer.md'))).toBe(true);
     expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
@@ -551,14 +544,14 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
     // record that the Agents tab lists and Restore reads.
     expect((await readMarker()).quarantined.sort()).toEqual([
       'figma-designer',
-      'video-director',
+      'sample-agent',
     ]);
     const listing = await quarantine.listQuarantined(location());
     expect(listing.quarantined.map((i) => i.slug).sort()).toEqual([
       'figma-designer',
-      'video-director',
+      'sample-agent',
     ]);
-    for (const slug of ['figma-designer', 'video-director']) {
+    for (const slug of ['figma-designer', 'sample-agent']) {
       const restored = await quarantine.restore({
         ...location(),
         slug,
@@ -566,15 +559,15 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
       });
       expect(restored.outcome).toBe('restored');
     }
-    expect(await readFile(join(sourceDir, 'video-director.md'), 'utf-8')).toBe(
+    expect(await readFile(join(sourceDir, 'sample-agent.md'), 'utf-8')).toBe(
       'VIDEO',
     );
   });
 
   it('F2: a save between classification and detach is put back as user work, not quarantined', async () => {
-    await leak('video-director', 'VIDEO');
-    await writeFile(join(scoped, 'video-director.ptah-origin.json'), 'SIDE');
-    const clone = join(scoped, 'video-director.md');
+    await leak('sample-agent', 'VIDEO');
+    await writeFile(join(scoped, 'sample-agent.ptah-origin.json'), 'SIDE');
+    const clone = join(scoped, 'sample-agent.md');
     renameHook = async (from, to) => {
       if (from === clone) await writeFile(clone, 'USER SAVE', 'utf-8');
       await rename(from, to);
@@ -582,20 +575,20 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
 
     const result = await run();
 
-    expect(result.failed).toEqual(['video-director']);
+    expect(result.failed).toEqual(['sample-agent']);
     expect(result.quarantined).toEqual([]);
     expect(await readFile(clone, 'utf-8')).toBe('USER SAVE');
     expect(
-      await readFile(join(scoped, 'video-director.ptah-origin.json'), 'utf-8'),
+      await readFile(join(scoped, 'sample-agent.ptah-origin.json'), 'utf-8'),
     ).toBe('SIDE');
-    expect(await historyEntries('video-director')).toEqual([]);
+    expect(await historyEntries('sample-agent')).toEqual([]);
     expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
     expect(await readJournal()).toBeNull();
   });
 
   it('F2: a changed clone whose path is taken again stays in history with a warning', async () => {
-    await leak('video-director', 'VIDEO');
-    const clone = join(scoped, 'video-director.md');
+    await leak('sample-agent', 'VIDEO');
+    const clone = join(scoped, 'sample-agent.md');
     renameHook = async (from, to) => {
       if (from !== clone) return rename(from, to);
       await writeFile(clone, 'FIRST SAVE', 'utf-8');
@@ -605,10 +598,16 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
 
     const result = await run();
 
-    expect(result.failed).toEqual(['video-director']);
+    expect(result.failed).toEqual(['sample-agent']);
     expect(await readFile(clone, 'utf-8')).toBe('SECOND SAVE');
-    const [ts] = await historyEntries('video-director');
-    const kept = join(scoped, '.history', 'video-director', ts, 'video-director.md');
+    const [ts] = await historyEntries('sample-agent');
+    const kept = join(
+      scoped,
+      '.history',
+      'sample-agent',
+      ts,
+      'sample-agent.md',
+    );
     expect(await readFile(kept, 'utf-8')).toBe('FIRST SAVE');
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('changed during seed quarantine'),
@@ -618,8 +617,8 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
   });
 
   it('re-review #1: a rollback whose fallback copy fails never unlinks an editor file created at the live path', async () => {
-    await leak('video-director', 'VIDEO');
-    const clone = join(scoped, 'video-director.md');
+    await leak('sample-agent', 'VIDEO');
+    const clone = join(scoped, 'sample-agent.md');
     renameHook = async (from, to) => {
       if (from === clone) await writeFile(clone, 'USER SAVE', 'utf-8');
       await rename(from, to);
@@ -657,16 +656,16 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
       clone,
       expect.anything(),
     );
-    expect(result.failed).toEqual(['video-director']);
+    expect(result.failed).toEqual(['sample-agent']);
     expect(result.quarantined).toEqual([]);
     expect(await readFile(clone, 'utf-8')).toBe('EDITOR REPLACEMENT');
-    const [ts] = await historyEntries('video-director');
+    const [ts] = await historyEntries('sample-agent');
     const kept = join(
       scoped,
       '.history',
-      'video-director',
+      'sample-agent',
       ts,
-      'video-director.md',
+      'sample-agent.md',
     );
     expect(await readFile(kept, 'utf-8')).toBe('USER SAVE');
     expect(logger.warn).toHaveBeenCalledWith(
@@ -678,8 +677,8 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
   });
 
   it('F2: a save after the detach is a new file that survives; the detached seed is recorded', async () => {
-    await leak('video-director', 'VIDEO');
-    const clone = join(scoped, 'video-director.md');
+    await leak('sample-agent', 'VIDEO');
+    const clone = join(scoped, 'sample-agent.md');
     renameHook = async (from, to) => {
       await rename(from, to);
       if (from === clone) await writeFile(clone, 'NEW FILE', 'utf-8');
@@ -687,41 +686,41 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
 
     const result = await run();
 
-    expect(result.quarantined).toEqual(['video-director']);
+    expect(result.quarantined).toEqual(['sample-agent']);
     expect(await readFile(clone, 'utf-8')).toBe('NEW FILE');
-    const [ts] = await historyEntries('video-director');
+    const [ts] = await historyEntries('sample-agent');
     expect(
       await readFile(
-        join(scoped, '.history', 'video-director', ts, 'video-director.md'),
+        join(scoped, '.history', 'sample-agent', ts, 'sample-agent.md'),
         'utf-8',
       ),
     ).toBe('VIDEO');
-    expect((await readMarker()).quarantined).toEqual(['video-director']);
+    expect((await readMarker()).quarantined).toEqual(['sample-agent']);
   });
 
   it('a failed clone rename (EBUSY) leaves clone and sidecar in place and no <ts> dir', async () => {
-    await leak('video-director', 'VIDEO');
-    const sidecar = join(scoped, 'video-director.ptah-origin.json');
+    await leak('sample-agent', 'VIDEO');
+    const sidecar = join(scoped, 'sample-agent.ptah-origin.json');
     await writeFile(sidecar, 'SIDE');
     renameHook = async (from, to) => {
-      if (from === join(scoped, 'video-director.md')) throw ebusy();
+      if (from === join(scoped, 'sample-agent.md')) throw ebusy();
       await rename(from, to);
     };
 
     const result = await run();
 
-    expect(result.failed).toEqual(['video-director']);
-    expect(await readFile(join(scoped, 'video-director.md'), 'utf-8')).toBe(
+    expect(result.failed).toEqual(['sample-agent']);
+    expect(await readFile(join(scoped, 'sample-agent.md'), 'utf-8')).toBe(
       'VIDEO',
     );
     expect(await readFile(sidecar, 'utf-8')).toBe('SIDE');
-    expect(await historyEntries('video-director')).toEqual([]);
+    expect(await historyEntries('sample-agent')).toEqual([]);
     expect(result.markerWritten).toBe(false);
     expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
   });
 
   it('a failed journal write puts the clone back; the next pass moves and records it', async () => {
-    await leak('video-director', 'VIDEO');
+    await leak('sample-agent', 'VIDEO');
     const realWrite = fsOps.writeTextAtomic.bind(fsOps);
     jest
       .spyOn(fsOps, 'writeTextAtomic')
@@ -732,21 +731,21 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
 
     const first = await run();
 
-    expect(first.failed).toEqual(['video-director']);
+    expect(first.failed).toEqual(['sample-agent']);
     expect(first.markerWritten).toBe(false);
-    expect(await readFile(join(scoped, 'video-director.md'), 'utf-8')).toBe(
+    expect(await readFile(join(scoped, 'sample-agent.md'), 'utf-8')).toBe(
       'VIDEO',
     );
-    expect(await historyEntries('video-director')).toEqual([]);
+    expect(await historyEntries('sample-agent')).toEqual([]);
     expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
 
     jest.restoreAllMocks();
     const second = await run();
 
-    expect(second.quarantined).toEqual(['video-director']);
-    expect(await exists(join(scoped, 'video-director.md'))).toBe(false);
-    expect((await readJournal())?.quarantined).toEqual(['video-director']);
-    expect((await readMarker()).quarantined).toEqual(['video-director']);
+    expect(second.quarantined).toEqual(['sample-agent']);
+    expect(await exists(join(scoped, 'sample-agent.md'))).toBe(false);
+    expect((await readJournal())?.quarantined).toEqual(['sample-agent']);
+    expect((await readMarker()).quarantined).toEqual(['sample-agent']);
   });
 
   it('an interrupted pass: the next clean pass writes the journal slugs into the marker', async () => {
@@ -759,45 +758,45 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
         keptUnprovable: [],
       }),
     );
-    await leak('video-director', 'VIDEO');
+    await leak('sample-agent', 'VIDEO');
 
     const result = await run();
 
-    expect(result.quarantined).toEqual(['video-director']);
+    expect(result.quarantined).toEqual(['sample-agent']);
     expect(await readMarker()).toMatchObject({
       version: 1,
-      quarantined: ['figma-designer', 'video-director'],
+      quarantined: ['figma-designer', 'sample-agent'],
       keptWithLocalWork: ['old-local'],
       keptUnprovable: [],
     });
   });
 
   it('two concurrent passes on one scoped root: one moves, the other no-ops, the marker has every move', async () => {
-    await leak('video-director', 'VIDEO');
+    await leak('sample-agent', 'VIDEO');
     await leak('figma-designer', 'FIGMA');
 
     const [a, b] = await Promise.all([run(), run()]);
 
     const moved = [...a.quarantined, ...b.quarantined].sort();
-    expect(moved).toEqual(['figma-designer', 'video-director']);
+    expect(moved).toEqual(['figma-designer', 'sample-agent']);
     expect([a.ran, b.ran].sort()).toEqual([false, true]);
     expect((await readMarker()).quarantined.sort()).toEqual([
       'figma-designer',
-      'video-director',
+      'sample-agent',
     ]);
   });
 
   it('a malformed journal stops the pass: nothing moves, no marker, a warning', async () => {
     await writeFile(join(scoped, SEED_QUARANTINE_JOURNAL), '{not json');
-    await leak('video-director', 'VIDEO');
+    await leak('sample-agent', 'VIDEO');
 
     const result = await run();
 
     expect(result.ran).toBe(false);
-    expect(await readFile(join(scoped, 'video-director.md'), 'utf-8')).toBe(
+    expect(await readFile(join(scoped, 'sample-agent.md'), 'utf-8')).toBe(
       'VIDEO',
     );
-    expect(await historyEntries('video-director')).toEqual([]);
+    expect(await historyEntries('sample-agent')).toEqual([]);
     expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
     expect(logger.warn).toHaveBeenCalledWith(
       '[UserLayerMirror] seed quarantine journal unreadable; nothing moved',
@@ -811,16 +810,16 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
       JSON.stringify({
         version: 1,
         quarantined: [],
-        keptWithLocalWork: ['video-director'],
+        keptWithLocalWork: ['sample-agent'],
         keptUnprovable: [],
       }),
     );
-    await leak('video-director', 'VIDEO');
+    await leak('sample-agent', 'VIDEO');
 
     await run();
 
     expect(await readMarker()).toMatchObject({
-      quarantined: ['video-director'],
+      quarantined: ['sample-agent'],
       keptWithLocalWork: [],
     });
   });
@@ -828,16 +827,13 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
   it('takes the slug lock once per foreign slug and never for an owned one', async () => {
     await writeFile(join(sourceDir, 'team-leader.md'), 'OWN', 'utf-8');
     await writeFile(join(scoped, 'team-leader.md'), 'OWN', 'utf-8');
-    await leak('video-director', 'VIDEO');
+    await leak('sample-agent', 'VIDEO');
     const lockSpy = jest.fn(lock) as unknown as AgentSlugLock;
 
     await run(lockSpy);
 
     expect(lockSpy).toHaveBeenCalledTimes(1);
-    expect(lockSpy).toHaveBeenCalledWith(
-      'video-director',
-      expect.any(Function),
-    );
+    expect(lockSpy).toHaveBeenCalledWith('sample-agent', expect.any(Function));
   });
 
   it('skips silently when the scoped root does not exist yet, and writes no marker', async () => {
@@ -850,7 +846,7 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
   });
 
   it('refuses to run against the flat base itself', async () => {
-    await leak('video-director', 'VIDEO');
+    await leak('sample-agent', 'VIDEO');
 
     const result = await quarantine.run({
       workspaceRoot: join(workRoot, 'ws'),
@@ -861,7 +857,7 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
     });
 
     expect(result.ran).toBe(false);
-    expect(await exists(join(legacyRoot, 'video-director.md'))).toBe(true);
+    expect(await exists(join(legacyRoot, 'sample-agent.md'))).toBe(true);
   });
 
   it('reports an empty source as ok, a missing one as absent', async () => {
@@ -884,7 +880,7 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
   posixOnly(
     'does not run when the source directory is unreadable',
     async () => {
-      await leak('video-director', 'VIDEO');
+      await leak('sample-agent', 'VIDEO');
       await chmod(sourceDir, 0o000);
       try {
         const listing = await readAgentSourceListing(sourceDir, fsOps);
@@ -897,7 +893,7 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
           withSlugLock: lock,
         });
         expect(result.ran).toBe(false);
-        expect(await exists(join(scoped, 'video-director.md'))).toBe(true);
+        expect(await exists(join(scoped, 'sample-agent.md'))).toBe(true);
       } finally {
         await chmod(sourceDir, 0o755);
       }
@@ -909,7 +905,7 @@ describe('validateSeedQuarantineMarker', () => {
   const good = {
     version: 1,
     completedAt: '2026-10-01T10:00:00.000Z',
-    quarantined: ['video-director'],
+    quarantined: ['sample-agent'],
     keptWithLocalWork: ['figma-designer'],
     keptUnprovable: [],
   };
@@ -933,7 +929,7 @@ describe('validateSeedQuarantineMarker', () => {
     ['a wrong version', { ...good, version: 2 }],
     ['a missing completedAt', { ...good, completedAt: undefined }],
     ['an unparseable completedAt', { ...good, completedAt: 'yesterday' }],
-    ['a list that is a string', { ...good, quarantined: 'video-director' }],
+    ['a list that is a string', { ...good, quarantined: 'sample-agent' }],
     ['a list holding a non-string', { ...good, keptUnprovable: [1] }],
     ['a missing list', { ...good, keptWithLocalWork: undefined }],
   ])('rejects %s', (_label, raw) => {
@@ -943,12 +939,12 @@ describe('validateSeedQuarantineMarker', () => {
   it('drops each unsafe slug on its own and keeps the rest', () => {
     const result = validateSeedQuarantineMarker({
       ...good,
-      quarantined: ['video-director', '..', '.', '../etc', 'a/b', 'a\\b', ''],
+      quarantined: ['sample-agent', '..', '.', '../etc', 'a/b', 'a\\b', ''],
       keptUnprovable: ['ok-slug', 'x'.repeat(129)],
     });
     expect(result.status).toBe('valid');
     if (result.status !== 'valid') return;
-    expect(result.marker.quarantined).toEqual(['video-director']);
+    expect(result.marker.quarantined).toEqual(['sample-agent']);
     expect(result.marker.keptUnprovable).toEqual(['ok-slug']);
     expect(result.droppedSlugs).toHaveLength(7);
   });
@@ -1009,7 +1005,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
     scoped = service.getUserLayerRoots(ws).agents;
     otherScoped = service.getUserLayerRoots(otherWs).agents;
     sourceDir = join(ws, '.claude', 'agents');
-    dest = join(sourceDir, 'video-director.md');
+    dest = join(sourceDir, 'sample-agent.md');
     // Stand-in for the harness agent-sync gate file: Restore must never
     // write consent, so these bytes must survive every test unchanged.
     gateStateFile = join(ws, '.ptah', 'harness', 'state.json');
@@ -1031,18 +1027,18 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
     return { pluginPaths: [], agentSourceDir: sourceDir, workspaceRoot: ws };
   }
 
-  /** Run the real pass: `video-director` quarantined, `figma-designer` kept. */
+  /** Run the real pass: `sample-agent` quarantined, `figma-designer` kept. */
   async function quarantineForeignAgents(): Promise<void> {
     await mkdir(sourceDir, { recursive: true });
     await writeFile(join(sourceDir, 'team-leader.md'), 'OWN', 'utf-8');
     await mkdir(scoped, { recursive: true });
-    await writeFile(join(legacyRoot, 'video-director.md'), 'VIDEO', 'utf-8');
-    await writeFile(join(scoped, 'video-director.md'), 'VIDEO', 'utf-8');
+    await writeFile(join(legacyRoot, 'sample-agent.md'), 'VIDEO', 'utf-8');
+    await writeFile(join(scoped, 'sample-agent.md'), 'VIDEO', 'utf-8');
     await writeFile(join(legacyRoot, 'figma-designer.md'), 'SEED', 'utf-8');
     await writeFile(join(scoped, 'figma-designer.md'), 'EDITED', 'utf-8');
     await service.mirrorAll(sources());
     expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(true);
-    expect(await exists(join(scoped, 'video-director.md'))).toBe(false);
+    expect(await exists(join(scoped, 'sample-agent.md'))).toBe(false);
   }
 
   async function writeMarker(content: unknown): Promise<void> {
@@ -1097,7 +1093,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
       {
         version: 1,
         completedAt: '2026-10-01T10:00:00.000Z',
-        quarantined: 'video-director',
+        quarantined: 'sample-agent',
         keptWithLocalWork: [],
         keptUnprovable: [],
       },
@@ -1107,7 +1103,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
       {
         version: 1,
         completedAt: 'not a date',
-        quarantined: ['video-director'],
+        quarantined: ['sample-agent'],
         keptWithLocalWork: [],
         keptUnprovable: [],
       },
@@ -1119,10 +1115,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
       const scopedBefore = await tree(scoped);
 
       const listing = await service.listQuarantinedAgents(ws);
-      const restore = await service.restoreQuarantinedAgent(
-        ws,
-        'video-director',
-      );
+      const restore = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
       expect(listing).toEqual({
         recordUnreadable: true,
@@ -1139,7 +1132,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
   it('lists a quarantined agent with its snapshot date, and kept clones as notOwned', async () => {
     await quarantineForeignAgents();
     const [snapshotTs] = await readdir(
-      join(scoped, '.history', 'video-director'),
+      join(scoped, '.history', 'sample-agent'),
     );
 
     const listing = await service.listQuarantinedAgents(ws);
@@ -1148,7 +1141,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
       recordUnreadable: false,
       quarantined: [
         {
-          slug: 'video-director',
+          slug: 'sample-agent',
           state: 'quarantined',
           quarantinedAt: new Date(Number(snapshotTs)).toISOString(),
           hasSnapshot: true,
@@ -1163,7 +1156,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
     await writeMarker({
       version: 1,
       completedAt: new Date().toISOString(),
-      quarantined: ['../../evil', 'video-director'],
+      quarantined: ['../../evil', 'sample-agent'],
       keptWithLocalWork: [],
       keptUnprovable: [],
     });
@@ -1171,7 +1164,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
     const listing = await service.listQuarantinedAgents(ws);
     const restore = await service.restoreQuarantinedAgent(ws, '../../evil');
 
-    expect(listing.quarantined.map((i) => i.slug)).toEqual(['video-director']);
+    expect(listing.quarantined.map((i) => i.slug)).toEqual(['sample-agent']);
     expect(logger.warn).toHaveBeenCalledWith(
       '[UserLayerMirror] seed quarantine marker: unsafe slugs dropped',
       expect.objectContaining({ droppedSlugs: [JSON.stringify('../../evil')] }),
@@ -1189,13 +1182,13 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
     await writeMarker({
       version: 1,
       completedAt: new Date().toISOString(),
-      quarantined: ['video-director'],
+      quarantined: ['sample-agent'],
       keptWithLocalWork: [],
       keptUnprovable: [],
     });
 
     const [item] = (await service.listQuarantinedAgents(ws)).quarantined;
-    const restore = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const restore = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     expect(item).toMatchObject({ hasSnapshot: false, quarantinedAt: null });
     expect(restore.outcome).toBe('no-snapshot');
@@ -1207,13 +1200,13 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
     const later = join(
       scoped,
       '.history',
-      'video-director',
+      'sample-agent',
       String((await markerCompletedAtMs()) + 60_000),
     );
     await mkdir(later, { recursive: true });
-    await writeFile(join(later, 'video-director.md'), 'LATER EDIT', 'utf-8');
+    await writeFile(join(later, 'sample-agent.md'), 'LATER EDIT', 'utf-8');
 
-    const restore = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const restore = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     expect(restore.outcome).toBe('restored');
     expect(await readFile(dest, 'utf-8')).toBe('VIDEO');
@@ -1224,23 +1217,18 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
     await writeMarker({
       version: 1,
       completedAt: completedAt.toISOString(),
-      quarantined: ['video-director'],
+      quarantined: ['sample-agent'],
       keptWithLocalWork: [],
       keptUnprovable: [],
     });
-    const later = join(
-      scoped,
-      '.history',
-      'video-director',
-      String(Date.now()),
-    );
+    const later = join(scoped, '.history', 'sample-agent', String(Date.now()));
     await mkdir(later, { recursive: true });
-    await writeFile(join(later, 'video-director.md'), 'LATER', 'utf-8');
+    await writeFile(join(later, 'sample-agent.md'), 'LATER', 'utf-8');
 
     const [item] = (await service.listQuarantinedAgents(ws)).quarantined;
     expect(item.hasSnapshot).toBe(false);
     expect(
-      (await service.restoreQuarantinedAgent(ws, 'video-director')).outcome,
+      (await service.restoreQuarantinedAgent(ws, 'sample-agent')).outcome,
     ).toBe('no-snapshot');
     expect(await exists(dest)).toBe(false);
   });
@@ -1248,13 +1236,13 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
   it('restores the snapshot as the workspace source, touching nothing else', async () => {
     await quarantineForeignAgents();
     await mkdir(otherScoped, { recursive: true });
-    await writeFile(join(otherScoped, 'video-director.md'), 'OTHER', 'utf-8');
+    await writeFile(join(otherScoped, 'sample-agent.md'), 'OTHER', 'utf-8');
     const historyBefore = await tree(join(scoped, '.history'));
     const flatBefore = await tree(legacyRoot);
     const otherBefore = await tree(otherScoped);
     const wsBefore = await tree(ws);
 
-    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const result = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     expect(result).toEqual({ outcome: 'restored', path: dest });
     expect(await readFile(dest, 'utf-8')).toBe('VIDEO');
@@ -1273,7 +1261,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
     expect(await sourceDirLeftovers()).toEqual([]);
     expect(logger.info).toHaveBeenCalledWith(
       '[UserLayerMirror] quarantined agent restore',
-      expect.objectContaining({ slug: 'video-director', outcome: 'restored' }),
+      expect.objectContaining({ slug: 'sample-agent', outcome: 'restored' }),
     );
   });
 
@@ -1293,10 +1281,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
       await rm(linkPath, { recursive: true, force: true });
       await symlink(outside, linkPath, 'junction');
 
-      const result = await service.restoreQuarantinedAgent(
-        ws,
-        'video-director',
-      );
+      const result = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
       expect(result.outcome).toBe('conflict');
       expect(result.path).toBe(linkPath);
@@ -1307,20 +1292,20 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
 
   it('stays listed as source-restored until propagation re-creates the clone, then leaves the list', async () => {
     await quarantineForeignAgents();
-    await service.restoreQuarantinedAgent(ws, 'video-director');
+    await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     // Gate off / reconcile failed: nothing has mirrored the source yet.
     const pending = await service.listQuarantinedAgents(ws);
     expect(pending.quarantined).toEqual([
       expect.objectContaining({
-        slug: 'video-director',
+        slug: 'sample-agent',
         state: 'source-restored',
       }),
     ]);
 
     // A successful mirror pass (the propagation step) re-creates the clone.
     await service.mirrorAll(sources());
-    expect(await readFile(join(scoped, 'video-director.md'), 'utf-8')).toBe(
+    expect(await readFile(join(scoped, 'sample-agent.md'), 'utf-8')).toBe(
       'VIDEO',
     );
     expect((await service.listQuarantinedAgents(ws)).quarantined).toEqual([]);
@@ -1328,10 +1313,10 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
 
   it('a retry with identical bytes is already-restored and writes nothing', async () => {
     await quarantineForeignAgents();
-    await service.restoreQuarantinedAgent(ws, 'video-director');
+    await service.restoreQuarantinedAgent(ws, 'sample-agent');
     linkMock.mockClear();
 
-    const retry = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const retry = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     expect(retry).toEqual({ outcome: 'already-restored', path: dest });
     expect(linkMock).not.toHaveBeenCalled();
@@ -1343,8 +1328,8 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
 
     const outcomes = (
       await Promise.all([
-        service.restoreQuarantinedAgent(ws, 'video-director'),
-        service.restoreQuarantinedAgent(ws, 'video-director'),
+        service.restoreQuarantinedAgent(ws, 'sample-agent'),
+        service.restoreQuarantinedAgent(ws, 'sample-agent'),
       ])
     ).map((r) => r.outcome);
 
@@ -1356,7 +1341,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
     await writeFile(dest, 'MY OWN VIDEO DIRECTOR', 'utf-8');
     const historyBefore = await tree(join(scoped, '.history'));
 
-    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const result = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     expect(result.outcome).toBe('conflict');
     expect(result.path).toBe(dest);
@@ -1366,10 +1351,10 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
 
   it('refuses when a scoped clone already exists, leaving both files unchanged', async () => {
     await quarantineForeignAgents();
-    const clone = join(scoped, 'video-director.md');
+    const clone = join(scoped, 'sample-agent.md');
     await writeFile(clone, 'A CLONE', 'utf-8');
 
-    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const result = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     expect(result).toMatchObject({ outcome: 'conflict', path: clone });
     expect(await readFile(clone, 'utf-8')).toBe('A CLONE');
@@ -1382,14 +1367,14 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
       Object.assign(new Error('EIO: i/o error, link'), { code: 'EIO' }),
     );
 
-    const failed = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const failed = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     expect(failed.outcome).toBe('copy-failed');
     expect(failed.reason).toContain('EIO');
     expect(await exists(dest)).toBe(false);
     expect(await sourceDirLeftovers()).toEqual([]);
 
-    const retry = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const retry = await service.restoreQuarantinedAgent(ws, 'sample-agent');
     expect(retry.outcome).toBe('restored');
     expect(await readFile(dest, 'utf-8')).toBe('VIDEO');
   });
@@ -1402,7 +1387,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
       }),
     );
 
-    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const result = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     expect(result.outcome).toBe('restored');
     expect(copyFileMock).toHaveBeenCalledTimes(1);
@@ -1412,8 +1397,8 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
 
   /** The quarantine snapshot file, for "history bytes intact" assertions. */
   async function snapshotFile(): Promise<string> {
-    const [ts] = await readdir(join(scoped, '.history', 'video-director'));
-    return join(scoped, '.history', 'video-director', ts, 'video-director.md');
+    const [ts] = await readdir(join(scoped, '.history', 'sample-agent'));
+    return join(scoped, '.history', 'sample-agent', ts, 'sample-agent.md');
   }
 
   it('B-2a: a fallback copy that fails verification is kept as a conflict, never unlinked', async () => {
@@ -1426,7 +1411,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
       await writeFile(to, 'TRUNCAT', { flag: 'wx' });
     });
 
-    const failed = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const failed = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     expect(failed.outcome).toBe('conflict');
     expect(failed.path).toBe(dest);
@@ -1436,7 +1421,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
     expect(await sourceDirLeftovers()).toEqual([]);
 
     // The kept file is the user's to resolve: a retry reports it, unchanged.
-    const retry = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const retry = await service.restoreQuarantinedAgent(ws, 'sample-agent');
     expect(retry.outcome).toBe('conflict');
     expect(await readFile(dest, 'utf-8')).toBe('TRUNCAT');
   });
@@ -1453,7 +1438,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
       await actual.writeFile(to, 'EDITOR REPLACEMENT', 'utf-8');
     });
 
-    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const result = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     expect(result.outcome).toBe('conflict');
     expect(result.path).toBe(dest);
@@ -1479,7 +1464,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
       });
     });
 
-    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const result = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     expect(result.outcome).toBe('conflict');
     expect(result.path).toBe(dest);
@@ -1498,7 +1483,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
       throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' });
     });
 
-    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+    const result = await service.restoreQuarantinedAgent(ws, 'sample-agent');
 
     expect(result.outcome).toBe('conflict');
     expect(await readFile(dest, 'utf-8')).toBe('USER WROTE THIS');
@@ -1519,7 +1504,7 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
 
   it('refuses a relative workspace root rather than resolving it against cwd', async () => {
     await expect(
-      service.restoreQuarantinedAgent('relative/ws', 'video-director'),
+      service.restoreQuarantinedAgent('relative/ws', 'sample-agent'),
     ).rejects.toThrow('absolute workspace root');
     await expect(service.listQuarantinedAgents('')).rejects.toThrow(
       'absolute workspace root',

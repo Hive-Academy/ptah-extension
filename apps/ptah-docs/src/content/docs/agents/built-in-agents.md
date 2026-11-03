@@ -5,28 +5,28 @@ description: The built-in agents that ship with Ptah — roles, triggers, and wh
 
 # Built-in Agents
 
-Ptah ships with 14 built-in agents covering planning, implementation, review, research, design, and visual QA. They are always available from the agent picker and never need to be installed. A 15th agent, `video-director`, is offered as an [opt-in specialist](#opt-in-specialists) for marketing and demo videos.
+Ptah ships with 14 built-in agents covering planning, implementation, review, research, design, and visual QA. They are always available from the agent picker and never need to be installed.
 
 ![Built-in agents catalog](/screenshots/agents-catalog.png)
 
 ## The catalog
 
-| Agent                        | Role                                                         | Reach for it when…                                               |
-| ---------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------- |
-| **project-manager**          | Breaks work into tasks, tracks status, coordinates handoffs  | You have a vague goal and need it turned into actionable tickets |
-| **software-architect**       | Designs systems, picks patterns, authors ADRs                | You're starting a new module or making a cross-cutting change    |
-| **team-leader**              | Recommends batch executors, verifies work, records batch state | A plan needs batches, executor recommendations, and review gates        |
-| **backend-developer**        | Server code, APIs, databases, services                       | Implementing endpoints, migrations, business logic, workers      |
-| **frontend-developer**       | UI components, state, routing, accessibility                 | Building pages, components, or fixing frontend bugs              |
-| **devops-engineer**          | CI/CD, containers, infra-as-code, release automation         | Wiring GitHub Actions, Docker, deploy pipelines, monitoring      |
-| **senior-tester**            | Unit, integration, and e2e test strategy                     | You need coverage for new code or a regression suite             |
-| **code-style-reviewer**      | Lint, formatting, naming, idioms, readability                | Pre-merge style pass or cleanup sprint                           |
-| **code-logic-reviewer**      | Business logic, edge cases, state transitions, concurrency   | Critical paths, payment flows, auth, anything load-bearing       |
-| **visual-reviewer**          | UI/UX visual bugs, responsive breakpoints, accessibility     | Verifying a UI change looks right across viewports and states    |
-| **researcher-expert**        | Evaluates libraries, patterns, API docs, RFCs                | Choosing a dependency or exploring an unfamiliar domain          |
-| **modernization-detector**   | Spots outdated patterns, deprecated APIs, legacy idioms      | Before a refactor sprint or framework upgrade                    |
-| **ui-ux-designer**           | Visual design, design systems, component specs               | Creating landing pages, brand assets, design tokens              |
-| **technical-content-writer** | Marketing copy, docs, blogs, video scripts                   | Release notes, launch pages, tutorials, API references           |
+| Agent                        | Role                                                           | Reach for it when…                                               |
+| ---------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------- |
+| **project-manager**          | Breaks work into tasks, tracks status, coordinates handoffs    | You have a vague goal and need it turned into actionable tickets |
+| **software-architect**       | Designs systems, picks patterns, authors ADRs                  | You're starting a new module or making a cross-cutting change    |
+| **team-leader**              | Recommends batch executors, verifies work, records batch state | A plan needs batches, executor recommendations, and review gates |
+| **backend-developer**        | Server code, APIs, databases, services                         | Implementing endpoints, migrations, business logic, workers      |
+| **frontend-developer**       | UI components, state, routing, accessibility                   | Building pages, components, or fixing frontend bugs              |
+| **devops-engineer**          | CI/CD, containers, infra-as-code, release automation           | Wiring GitHub Actions, Docker, deploy pipelines, monitoring      |
+| **senior-tester**            | Unit, integration, and e2e test strategy                       | You need coverage for new code or a regression suite             |
+| **code-style-reviewer**      | Lint, formatting, naming, idioms, readability                  | Pre-merge style pass or cleanup sprint                           |
+| **code-logic-reviewer**      | Business logic, edge cases, state transitions, concurrency     | Critical paths, payment flows, auth, anything load-bearing       |
+| **visual-reviewer**          | UI/UX visual bugs, responsive breakpoints, accessibility       | Verifying a UI change looks right across viewports and states    |
+| **researcher-expert**        | Evaluates libraries, patterns, API docs, RFCs                  | Choosing a dependency or exploring an unfamiliar domain          |
+| **modernization-detector**   | Spots outdated patterns, deprecated APIs, legacy idioms        | Before a refactor sprint or framework upgrade                    |
+| **ui-ux-designer**           | Visual design, design systems, component specs                 | Creating landing pages, brand assets, design tokens              |
+| **technical-content-writer** | Marketing copy, docs, blogs, video scripts                     | Release notes, launch pages, tutorials, API references           |
 
 ## Agent groups at a glance
 
@@ -73,16 +73,6 @@ The orchestrator spawns sub-agents, batch executors, and phase lanes. Other elig
 Specialist templates receive a task-spec block for their assigned role: no task-ID allocation and no edits to `task.md` or `batches.md`. They report completion with evidence. The team-leader alone records batch states; task status belongs to the orchestrator, project-manager, and team-leader.
 
 When `ptah_*` tools are listed in the session, templates use them first. If absent, they use native tools without probing for Ptah tools. CLI work follows the [agent-lanes skill](/mcp-and-skills/skills/#skill-dependencies).
-
-## Opt-in specialists
-
-Some agents ship with Ptah but aren't pre-selected, so they're only generated when you add them. The setup wizard offers them unchecked — tick the box to include one in your workspace.
-
-| Agent              | Role                                                                 | Reach for it when…                                                |
-| ------------------ | -------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| **video-director** | Narrated, camera-animated marketing/demo videos from UI walkthroughs | You want to generate product tours or launch videos from your app |
-
-`video-director` pairs with the `video-showcase` skill (bundled via the `ptah-video` plugin) to drive the capture → narrate → render pipeline. See the skill's docs for authoring scenes and tuning the camera.
 
 ## Customizing built-ins
 

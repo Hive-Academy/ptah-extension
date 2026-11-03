@@ -34,7 +34,7 @@ export const WINDOW_SIZE = { width: 1600, height: 1000 };
 /**
  * Force the window to the documented capture size. Playwright screenshots the
  * renderer, not the screen, so this only has to fit the CSS viewport — no
- * display-placement dance like the showcase launcher needs for video.
+ * display-placement dance.
  */
 export async function sizeForCapture(
   app: ElectronApplication,

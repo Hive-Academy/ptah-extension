@@ -19,7 +19,7 @@
  *    is a path-prefix comparison against the rules OUTSIDE our own block, in
  *    both directions. The downward direction (`.claude/*` covers
  *    `.claude/commands/`) saves a redundant line; the UPWARD direction
- *    (`!.claude/skills/video-showcase/**` blocks `.claude/skills/`) prevents a
+ *    (`!.claude/skills/example-skill/**` blocks `.claude/skills/`) prevents a
  *    blanket rule appended at the end of the file from silently defeating an
  *    earlier negation and dropping tracked files out of `git status`.
  * 3. **A deleted block stays deleted.** Absence alone cannot distinguish "never
@@ -287,7 +287,7 @@ function selectPatterns(
 
 /**
  * The path a rule talks about: leading `!` and trailing `/`, `/*` or `/**`
- * stripped, so `!.claude/skills/video-showcase/**` and `.claude/skills/*` both
+ * stripped, so `!.claude/skills/example-skill/**` and `.claude/skills/*` both
  * reduce to a path this can compare against a candidate directory.
  */
 function rulePath(line: string): string | null {
@@ -310,7 +310,7 @@ function rulePath(line: string): string | null {
  * to add. The first two are redundancy; the THIRD is the one that matters.
  *
  * A rule mentioning something INSIDE the candidate — `.claude/skills/*` paired
- * with `!.claude/skills/video-showcase/**` — means the user (or this repo's own
+ * with `!.claude/skills/example-skill/**` — means the user (or this repo's own
  * `.gitignore`) is managing that subtree deliberately, and appending a blanket
  * `.claude/skills/` AFTER it re-ignores the whole directory: git cannot
  * re-include a file whose parent directory is excluded, so the later broad rule

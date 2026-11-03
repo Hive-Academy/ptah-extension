@@ -45,7 +45,6 @@ For detailed templates and patterns, see:
 - [LANDING-PAGES.md](LANDING-PAGES.md) - **Rich visual** marketing page content with design integration
 - [BLOG-POSTS.md](BLOG-POSTS.md) - Technical articles
 - [DOCUMENTATION.md](DOCUMENTATION.md) - User documentation
-- [VIDEO-SCRIPTS.md](VIDEO-SCRIPTS.md) - Video content
 - [CODEBASE-MINING.md](CODEBASE-MINING.md) - How to extract content from code
 
 ## Design System Reference

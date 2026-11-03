@@ -61,7 +61,7 @@ const NO_WEB_SCRAPE: readonly string[] = [...WEB_SCRAPE_SERVERS];
 /**
  * Deny list per agent type (the template `name`). An empty list means the type
  * keeps every tool: visual-reviewer needs the browser, researcher-expert needs
- * web search and scraping, video-director drives its own capture pipeline.
+ * web search and scraping.
  */
 export const SUBAGENT_DISALLOWED_TOOLS: Readonly<
   Record<string, readonly string[]>
@@ -80,7 +80,6 @@ export const SUBAGENT_DISALLOWED_TOOLS: Readonly<
   'ui-ux-designer': NO_WEB_SCRAPE,
   'visual-reviewer': [],
   'researcher-expert': [],
-  'video-director': [],
 };
 
 /**

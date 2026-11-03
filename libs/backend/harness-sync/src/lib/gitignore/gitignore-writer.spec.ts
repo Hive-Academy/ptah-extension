@@ -48,8 +48,8 @@ const NEGATION_LADDER = [
   '',
   '!.claude/skills/',
   '.claude/skills/*',
-  '!.claude/skills/video-showcase/',
-  '!.claude/skills/video-showcase/**',
+  '!.claude/skills/example-skill/',
+  '!.claude/skills/example-skill/**',
   '',
 ].join('\n');
 
@@ -215,7 +215,7 @@ describe('HarnessGitignoreWriter (E23)', () => {
    * The presence test compares rule PATHS, not literal lines.
    *
    * The defect this section pins was found on this very repo. Its `.gitignore`
-   * re-includes the tracked `.claude/skills/video-showcase` skill through a
+   * re-includes the tracked `.claude/skills/example-skill` skill through a
    * `.claude/*` + negation ladder, and no line in it read exactly
    * `.claude/skills/` — so the old literal match appended one. A blanket
    * directory rule placed AFTER those negations re-ignores the whole subtree,
@@ -262,9 +262,9 @@ describe('HarnessGitignoreWriter (E23)', () => {
     });
 
     it.each([
-      '!.claude/skills/video-showcase/**',
-      '!.claude/skills/video-showcase/',
-      '.claude/skills/video-showcase/build/',
+      '!.claude/skills/example-skill/**',
+      '!.claude/skills/example-skill/',
+      '.claude/skills/example-skill/build/',
     ])('refuses to write a blanket rule over %s', (rule) => {
       // A rule mentioning something INSIDE the candidate means that subtree is
       // being managed deliberately. Appending `.claude/skills/` after it wins

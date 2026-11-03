@@ -17,7 +17,6 @@ Ptah keeps the desktop installer small by **not bundling plugins**. Instead, a d
 │   ├── ptah-nx-saas/
 │   ├── ptah-angular/
 │   ├── ptah-react/
-│   └── ptah-video/
 ├── templates/
 │   └── agents/
 ├── settings.json

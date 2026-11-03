@@ -11,7 +11,7 @@
     }
   },
   "//jestRuntime": "What every Jest test task reads outside its project: the root preset, the root __mocks__ and the Jest packages. externalDependencies, not rootPackageFiles, so an unrelated dependency bump does not invalidate every test.",
-  "//targetDefaults*": "Executor keys beat target-name keys in Nx 24 (orderedMatchingKeys: executor, then target name, then globs) and the first matching key wins whole. An \"nx:run-commands\" key would therefore replace the test, lint and typecheck defaults above for every run-commands target. As a glob it applies only to run-commands targets with no target-name default: the CLI-calling targets (vsce, astro) that read the root package files.",
+  "//targetDefaults*": "Executor keys beat target-name keys in Nx 24 (orderedMatchingKeys: executor, then target name, then globs) and the first matching key wins whole. An \"nx:run-commands\" key would therefore replace the test, lint and typecheck defaults above for every run-commands target. As a glob it applies only to run-commands targets with no target-name default: the CLI-calling targets (for example, astro) that read the root package files.",
   "namedInputs": {
     "default": ["{projectRoot}/**/*", "sharedGlobals"],
     "production": [
@@ -181,7 +181,6 @@
         "apps/ptah-extension-webview/**/*",
         "apps/ptah-landing-page/**/*",
         "apps/ptah-landing-page-e2e/**/*",
-        "apps/ptah-video-studio/**/*",
         "libs/backend/agent-generation/**/*",
         "libs/backend/agent-sdk/**/*",
         "libs/backend/auth-providers/**/*",

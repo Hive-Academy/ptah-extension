@@ -18,7 +18,7 @@ Send a message, get an AI reply with full workspace tools. The Messaging Gateway
 ## What works the same everywhere
 
 - **Pairing** — first inbound message from a new sender produces a 6-digit code; you approve the binding in the Bindings UI before any agent work happens
-- **Voice** — audio attachments are decoded with ffmpeg and transcribed by `nodejs-whisper`
+- **Voice** — audio attachments are decoded with ffmpeg and transcribed locally by Whisper through `@huggingface/transformers`
 - **One reply per turn** — the agent's output is accumulated while it works and delivered as a single message when the turn completes (see [Stream coalescing](/automation/messaging/stream-coalescing/))
 - **Auto-approved tools** — gateway turns run with tool use auto-approved; there is no per-tool prompt to answer from chat. This is why pairing and allowlists are strict, and why the gateway ships disabled by default
 - **Turn ceiling** — a turn that produces nothing for 10 minutes is stopped automatically and you get an error reply; the conversation stays usable and your next message runs normally

@@ -6,5 +6,11 @@
     "moduleResolution": "node",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "playwright.config.ts"]
+  "include": [
+    "src/specs/**/*.ts",
+    "src/support/**/*.ts",
+    "src/docs-screenshots/**/*.ts",
+    "playwright.config.ts",
+    "docs-screenshots.config.ts"
+  ]
 }

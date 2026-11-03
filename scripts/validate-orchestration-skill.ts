@@ -101,7 +101,7 @@ const REQUIRED_STRATEGIES: readonly string[] = [
  * Required agents that must be documented (the 14 orchestration-roster agents).
  *
  * NOTE: this is the orchestration skill's roster, NOT the full agent-template
- * set. Standalone templates such as `video-director` are intentionally absent
+ * set. Standalone templates such as `sample-agent` are intentionally absent
  * here — they are not part of the /orchestrate workflow and must not be forced
  * into agent-catalog.md or the shipped agent templates by this validator.
  */
@@ -160,7 +160,11 @@ const AGENTS_DIR: string = path.join(
   'templates',
   'agents',
 );
-const LANE_SKILL_FILE = path.join(path.dirname(SKILL_ROOT), 'agent-lanes', 'SKILL.md');
+const LANE_SKILL_FILE = path.join(
+  path.dirname(SKILL_ROOT),
+  'agent-lanes',
+  'SKILL.md',
+);
 const TEAM_LEADER_TEMPLATE = path.join(AGENTS_DIR, 'team-leader.template.md');
 const REFERENCES_DIR: string = path.join(SKILL_ROOT, 'references');
 
@@ -558,7 +562,14 @@ function validateRuleMarkers(
   if (!fs.existsSync(filePath)) {
     // The required-file checks report missing references and agent templates.
     return filePath === LANE_SKILL_FILE
-      ? [{ file, type: 'content', message: 'Agent-lanes skill missing', suggestion: `Create ${file}` }]
+      ? [
+          {
+            file,
+            type: 'content',
+            message: 'Agent-lanes skill missing',
+            suggestion: `Create ${file}`,
+          },
+        ]
       : [];
   }
 
@@ -568,7 +579,14 @@ function validateRuleMarkers(
     return heading?.[2]?.toLowerCase() === section.toLowerCase();
   });
   if (start < 0) {
-    return [{ file, type: 'content', message: `Missing policy section: ${section}`, suggestion: `Add the ${section} section` }];
+    return [
+      {
+        file,
+        type: 'content',
+        message: `Missing policy section: ${section}`,
+        suggestion: `Add the ${section} section`,
+      },
+    ];
   }
 
   const level = /^(#+)/.exec((lines[start] ?? '').trim())?.[1]?.length ?? 6;
@@ -591,7 +609,10 @@ function validateRuleMarkers(
   let sectionContent = lines.slice(start + 1, end).join('\n');
   if (stopAtNextBoldBullet) {
     const first = sectionContent.indexOf(markers[0] ?? '');
-    const next = sectionContent.indexOf('\n- **', first + (markers[0]?.length ?? 0));
+    const next = sectionContent.indexOf(
+      '\n- **',
+      first + (markers[0]?.length ?? 0),
+    );
     if (first >= 0 && next >= 0) sectionContent = sectionContent.slice(0, next);
   }
   const content = sectionContent.replace(/\s+/g, ' ');
@@ -622,53 +643,103 @@ function validateLanesFirstRules(): ValidationError[] {
   const gitStandards = path.join(REFERENCES_DIR, 'git-standards.md');
   return [
     ...validateRuleMarkers(checkpoints, 'Checkpoint 0.1: CLI Lane Mode', [
-      'ptah_memory_search', 'no recorded preference | `enabled`', 'No spawnable lane', '`disabled`',
+      'ptah_memory_search',
+      'no recorded preference | `enabled`',
+      'No spawnable lane',
+      '`disabled`',
     ]),
     ...validateRuleMarkers(checkpoints, 'Checkpoint 0.1: CLI Lane Mode', [
-      '"use lanes more"', '`lane-review` with a spawnable lane, unless "gate me"',
+      '"use lanes more"',
+      '`lane-review` with a spawnable lane, unless "gate me"',
     ]),
     ...validateRuleMarkers(checkpoints, 'Approval mode', [
-      'Escalate to the user', 'REVISE', 'same-side', 'removal',
+      'Escalate to the user',
+      'REVISE',
+      'same-side',
+      'removal',
     ]),
-    ...validateRuleMarkers(assignment, 'Batches on lanes', ['CLI lane', 'Subagent reason']),
+    ...validateRuleMarkers(assignment, 'Batches on lanes', [
+      'CLI lane',
+      'Subagent reason',
+    ]),
     ...validateRuleMarkers(TEAM_LEADER_TEMPLATE, 'Mode 1 — Decomposition', [
-      'Recommended executor: CLI lane', 'Subagent reason:',
+      'Recommended executor: CLI lane',
+      'Subagent reason:',
     ]),
     ...validateRuleMarkers(TEAM_LEADER_TEMPLATE, 'Batch', [
-      'Recommend `CLI lane` for every bounded batch by default', 'Put that reason in `Subagent reason`',
+      'Recommend `CLI lane` for every bounded batch by default',
+      'Put that reason in `Subagent reason`',
     ]),
     ...validateRuleMarkers(LANE_SKILL_FILE, '4. Run', [
-      'one `<agent-lane-completed>` signal per lane turn', 'queued', 'later signal', 'supersedes', 'pending',
+      'one `<agent-lane-completed>` signal per lane turn',
+      'queued',
+      'later signal',
+      'supersedes',
+      'pending',
     ]),
     ...validateRuleMarkers(LANE_SKILL_FILE, '4. Run', [
-      'push is unavailable', 'make one status/read check', 'at most 5 status checks per lane',
-      'at least 60 s apart', 'fifth check',
+      'push is unavailable',
+      'make one status/read check',
+      'at most 5 status checks per lane',
+      'at least 60 s apart',
+      'fifth check',
     ]),
     ...validateRuleMarkers(LANE_SKILL_FILE, '5. Recover', [
-      'AT LIMIT', 'reset unknown',
+      'AT LIMIT',
+      'reset unknown',
     ]),
     ...validateRuleMarkers(LANE_SKILL_FILE, '5. Recover', [
-      'other family same capability', 'same family other provider/model', 'subagent',
+      'other family same capability',
+      'same family other provider/model',
+      'subagent',
     ]),
-    ...validateRuleMarkers(LANE_SKILL_FILE, '5. Recover', ['reset unknown', 'skip']),
-    ...validateRuleMarkers(LANE_SKILL_FILE, '6. Verify and revise', [
-      '**Document gates', '**Shipping code',
+    ...validateRuleMarkers(LANE_SKILL_FILE, '5. Recover', [
+      'reset unknown',
+      'skip',
     ]),
     ...validateRuleMarkers(LANE_SKILL_FILE, '6. Verify and revise', [
-      '**Shipping code', 'different family', 'specific reason', 'weaker-evidence label',
-    ], true),
+      '**Document gates',
+      '**Shipping code',
+    ]),
+    ...validateRuleMarkers(
+      LANE_SKILL_FILE,
+      '6. Verify and revise',
+      [
+        '**Shipping code',
+        'different family',
+        'specific reason',
+        'weaker-evidence label',
+      ],
+      true,
+    ),
     ...validateRuleMarkers(LANE_SKILL_FILE, '6. Verify and revise', [
-      'same-side', 'REVISE at the cap', 'removal', 'user',
+      'same-side',
+      'REVISE at the cap',
+      'removal',
+      'user',
     ]),
     ...validateRuleMarkers(fleet, 'Disjoint batching', [
       'At most 6 files across at most 2 libraries/projects per batch, with one scoped verification command',
     ]),
     ...validateRuleMarkers(fleet, 'Checkpoints', [
-      'taskId', 'round', 'pass', 'defects', 'testsRan', 'mentorNote',
+      'taskId',
+      'round',
+      'pass',
+      'defects',
+      'testsRan',
+      'mentorNote',
     ]),
     ...validateRuleMarkers(gitStandards, 'Destructive operations', [
-      'Ask first', 'git reset --hard', 'git clean -fd', 'git checkout .', 'git restore .',
-      'git branch -D', 'git push --force', 'git rebase', 'git stash drop', 'git stash clear',
+      'Ask first',
+      'git reset --hard',
+      'git clean -fd',
+      'git checkout .',
+      'git restore .',
+      'git branch -D',
+      'git push --force',
+      'git rebase',
+      'git stash drop',
+      'git stash clear',
     ]),
   ];
 }

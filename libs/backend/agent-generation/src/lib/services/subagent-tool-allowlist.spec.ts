@@ -51,7 +51,6 @@ describe('subagent tool allowlist (N3)', () => {
     ['ui-ux-designer', NO_WEB_SCRAPE],
     ['visual-reviewer', []],
     ['researcher-expert', []],
-    ['video-director', []],
   ])('%s denies exactly its row', (agentType, expected) => {
     expect(getSubagentDisallowedTools(agentType)).toEqual(expected);
   });
@@ -65,7 +64,7 @@ describe('subagent tool allowlist (N3)', () => {
     expect(Object.keys(SUBAGENT_DISALLOWED_TOOLS).sort()).toEqual(
       templateNames,
     );
-    expect(templateNames).toHaveLength(15);
+    expect(templateNames).toHaveLength(14);
   });
 
   it('never uses a form the runtime ignores (bare * or a partial wildcard)', () => {
@@ -153,7 +152,7 @@ describe('least-privilege effective set (Phase C, decision #20)', () => {
     const others = Object.keys(SUBAGENT_DISALLOWED_TOOLS).filter(
       (role) => !SIX_NO_BROWSER_NO_WEB_ROLES.includes(role),
     );
-    expect(others).toHaveLength(9);
+    expect(others).toHaveLength(8);
     for (const role of others) {
       expect(getSubagentDisallowedTools(role).length).toBeLessThanOrEqual(1);
     }
