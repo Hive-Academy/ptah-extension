@@ -8,8 +8,6 @@ import { HeroComponent } from './sections/hero/hero.component';
 import { ProblemSectionComponent } from './sections/problem/problem-section.component';
 import { PillarsSpineComponent } from './sections/pillars/pillars-spine.component';
 import { ProviderStripComponent } from './sections/provider-strip/provider-strip.component';
-import { BuildersSectionComponent } from './sections/builders/builders-section.component';
-import { WaitlistFormComponent } from './sections/builders/waitlist-form.component';
 
 @Component({
   selector: 'ptah-landing-page',
@@ -21,8 +19,6 @@ import { WaitlistFormComponent } from './sections/builders/waitlist-form.compone
     PillarsSpineComponent,
     ProviderStripComponent,
     ComparisonSectionComponent,
-    BuildersSectionComponent,
-    WaitlistFormComponent,
     CTASectionComponent,
     FooterComponent,
   ],
@@ -31,37 +27,19 @@ import { WaitlistFormComponent } from './sections/builders/waitlist-form.compone
       <ptah-navigation />
 
       <main>
-        <!-- S1 Promise + live PtahCode demo (?demo=a|b|c picks the layout) -->
         <ptah-hero />
-
-        <!-- S2 Problem -->
         <ptah-problem-section />
 
         <!--
-          S4–S7 render eagerly (not @defer) so their SEO/GEO-bearing copy and
-          citable claims ship in the prerendered static HTML. They are lightweight
-          coded DOM (no images), and their entrance animations are SSG-safe
-          (final DOM state fully opaque; the from-state is applied post-hydration).
+          Render eagerly so SEO copy ships in the prerendered static HTML.
+          Entrance animations apply their from-state only after hydration.
         -->
         <ptah-pillars-spine />
-
         <ptah-provider-strip />
-
-        <!-- S8 Comparison -->
         <ptah-comparison-section />
-
-        <!-- S8.5 Ptah Builders -->
-        <ptah-builders-section />
-
-        <!-- Early Adopter apply form — scroll target for #waitlist (this page
-             and /#waitlist from any other page, incl. the pricing CTA) -->
-        <ptah-waitlist-form source="early-adopter" />
-
-        <!-- S10 Final CTA -->
         <ptah-cta-section />
       </main>
 
-      <!-- S11 Footer -->
       <ptah-footer />
     </div>
   `,

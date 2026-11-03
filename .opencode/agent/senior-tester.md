@@ -118,7 +118,7 @@ challenge your reading rather than guess at it.
 - Any new port or adapter must pass the contract runners in `libs/backend/platform-core/src/testing/contracts/`.
 - Tests that need the `vscode` module use the root mock at `__mocks__/vscode.ts`.
 - Run only the project you changed: `npm run verify -- -t test -p <project>`. It waits for the machine-wide verify lock, so do not coordinate a check slot with other sessions. These rules come from `CLAUDE.md`.
-- License-server e2e lives in `apps/ptah-license-server-e2e/jest.config.cts`. Never run e2e targets unless asked.
+- Never run e2e targets unless asked.
 
 ## Escalation protocol
 

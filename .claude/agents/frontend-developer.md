@@ -168,7 +168,7 @@ Working sequence:
 
 ## Frontend architecture patterns
 
-- `eslint.config.mjs` enforces boundaries through `@nx/enforce-module-boundaries`. A `scope:webview` lib may depend only on `scope:webview` and `scope:shared`, and a `scope:web` (landing site) lib only on `scope:web`, `scope:shared` and `scope:api-contracts`. Never suppress the rule; fix the dependency instead.
+- `eslint.config.mjs` enforces boundaries through `@nx/enforce-module-boundaries`. A `scope:webview` lib may depend only on `scope:webview` and `scope:shared`, and a `scope:web` (landing site) lib only on `scope:web` and `scope:shared`. Never suppress the rule; fix the dependency instead.
 - Every new lib's `project.json` carries both a `scope:*` and a `type:*` tag, as `libs/frontend/chat-ui/project.json` does. A `type:ui` lib may import only `type:ui` and `type:util` libs, as `eslint.config.mjs` defines.
 - Webview code never imports backend libs or `vscode`. Its only contract with the host is `libs/shared/src/lib/types/rpc.types.ts`, consumed through `libs/frontend/core/src/lib/services/message-router.service.ts`.
 - Presentational pieces go into `libs/frontend/chat-ui/src/lib/` by size: `atoms/`, `molecules/` and `organisms/`. Orchestrating logic stays in feature libs such as `libs/frontend/chat`, and dependencies point only from feature libs to presentation libs.

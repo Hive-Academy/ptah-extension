@@ -391,11 +391,7 @@ jobs:
       # hash), but namespaced `node-modules-realgit-...` so this job's save
       # never collides with the main job's save of the plain
       # `node-modules-${{ runner.os }}-...` key when both run concurrently on
-      # ubuntu-latest (round-1 review, serious finding: the two jobs
-      # previously raced on the identical key, and `main` additionally
-      # populates node_modules/.prisma via prisma:generate, which this job
-      # does not run -- a shared cache entry could hand either job the
-      # other's incomplete artifact set).
+      # ubuntu-latest.
       - name: Cache node_modules
         id: cache-modules
         uses: actions/cache@v4

@@ -16,10 +16,10 @@ export const PtahUrls = {
   FRONTEND_URL: 'https://ptah.live',
   /** License server API */
   API_URL: 'https://api.ptah.live',
-  /** Pricing page */
-  PRICING_URL: 'https://ptah.live/pricing',
-  /** Signup page */
-  SIGNUP_URL: 'https://ptah.live/signup',
+  /** Pricing page on the Builders portal */
+  PRICING_URL: 'https://builders.ptah.live/pricing',
+  /** Signup page on the Builders portal */
+  SIGNUP_URL: 'https://builders.ptah.live/signup',
 } as const;
 
 /** Production environment defaults */

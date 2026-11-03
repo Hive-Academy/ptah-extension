@@ -28,7 +28,7 @@ import {
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const SAMPLE_SCENARIO_PATH = path.join(
   REPO_ROOT,
-  'libs/web/landing/src/lib/live-demo/scenarios/chat-tool-call.json',
+  'apps/ptah-electron/src/replay/__fixtures__/chat-tool-call.json',
 );
 const CLI_SCRIPT_PATH = path.join(
   REPO_ROOT,
@@ -36,7 +36,7 @@ const CLI_SCRIPT_PATH = path.join(
 );
 
 /**
- * Shared privacy canary corpus mirroring `libs/web/landing/src/lib/live-demo/scenario/privacy-scan.ts`
+ * Privacy canary corpus (originally mirrored from the removed landing live-demo privacy scan)
  * rules (copied locally so `ptah-electron` never imports `scope:web` code).
  */
 const SHARED_PRIVACY_CANARY_CORPUS: ReadonlyArray<{

@@ -32,7 +32,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             >
               Privacy Policy
             </h1>
-            <p class="text-white/40">Last Updated: July 2026</p>
+            <p class="text-white/40">Last Updated: November 2026</p>
           </div>
 
           <!-- 1. Introduction -->
@@ -46,8 +46,8 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               1. Introduction
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              Ptah Extension ("we," "us," or "our") operates the Ptah VS Code
-              extension and the website
+              PtahCode ("we," "us," or "our") provides the PtahCode desktop
+              application and the website
               <a href="https://ptah.live" class="text-amber-400 hover:underline"
                 >ptah.live</a
               >
@@ -73,68 +73,47 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             </h2>
 
             <h3 class="text-lg font-semibold text-white/90 mb-3">
-              2.1 Account Information
-            </h3>
-            <p class="text-white/70 mb-4 leading-relaxed">
-              When you create an account, we collect information through our
-              authentication provider, WorkOS:
-            </p>
-            <ul
-              class="list-disc list-inside text-white/70 space-y-2 ml-4 mb-6 leading-relaxed"
-            >
-              <li>Email address</li>
-              <li>Display name</li>
-              <li>Authentication tokens (managed securely by WorkOS)</li>
-            </ul>
-
-            <h3 class="text-lg font-semibold text-white/90 mb-3">
-              2.2 Payment Information
+              2.1 Information You Provide
             </h3>
             <p class="text-white/70 mb-6 leading-relaxed">
-              Payment data (credit card numbers, billing addresses) is collected
-              and processed entirely by
-              <strong class="text-white/90">Paddle</strong> (paddle.com), our
-              merchant of record. We do not store or have direct access to your
-              full payment details. We receive only transaction confirmations,
-              subscription status, and invoice references from Paddle.
+              When you contact us for support, we receive your email address and
+              the information you include in your message. Do not include API
+              keys, passwords, or other secrets in support requests.
             </p>
 
             <h3 class="text-lg font-semibold text-white/90 mb-3">
-              2.3 Usage Data
+              2.2 Local Application Data
+            </h3>
+            <p class="text-white/70 mb-6 leading-relaxed">
+              PtahCode stores workspace settings and provider credentials on
+              your device. Provider credentials go directly to the AI providers
+              you configure. We do not receive those credentials through the
+              ptah.live website.
+            </p>
+
+            <h3 class="text-lg font-semibold text-white/90 mb-3">
+              2.3 Website Data
             </h3>
             <p class="text-white/70 mb-4 leading-relaxed">
-              We collect anonymized usage analytics to improve the Service,
-              including:
+              The website does not provide accounts, checkout, or waitlist
+              registration. Our hosting provider can process standard technical
+              logs, including:
             </p>
             <ul
               class="list-disc list-inside text-white/70 space-y-2 ml-4 mb-6 leading-relaxed"
             >
-              <li>Feature usage patterns within the VS Code extension</li>
-              <li>Session duration and frequency</li>
+              <li>IP address and browser information</li>
+              <li>Requested pages and timestamps</li>
               <li>Error reports and performance metrics</li>
             </ul>
 
             <h3 class="text-lg font-semibold text-white/90 mb-3">
-              2.4 License and Membership Data
-            </h3>
-            <p class="text-white/70 mb-6 leading-relaxed">
-              Ptah is free and open source, and the extension works fully
-              without any key. We store license/membership keys and subscription
-              status to identify your account and, for Ptah Builders members, to
-              mark that membership -- not to gate access to the Service. This
-              data is linked to your account and managed through our license
-              server.
-            </p>
-
-            <h3 class="text-lg font-semibold text-white/90 mb-3">
-              2.5 Waitlist Information
+              2.4 Download Data
             </h3>
             <p class="text-white/70 leading-relaxed">
-              If you join the Ptah Builders waitlist, we collect your email
-              address, the time you joined, and where you joined from (e.g. the
-              landing page, pricing page, or your profile). We use this solely
-              to contact you about Ptah Builders availability and pricing. You
-              may request deletion of your waitlist entry at any time.
+              Desktop downloads are hosted by GitHub Releases. When you download
+              PtahCode, GitHub processes technical data under its own privacy
+              policy.
             </p>
           </section>
 
@@ -155,23 +134,9 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
             >
               <li>Provide, maintain, and improve the Service</li>
-              <li>Manage your account and process subscription transactions</li>
-              <li>
-                Identify Ptah Builders members via license/membership keys (the
-                Service itself is never gated)
-              </li>
-              <li>
-                Send important service notifications (security alerts, billing
-                updates)
-              </li>
-              <li>
-                Contact you about Ptah Builders availability and pricing if you
-                joined the waitlist
-              </li>
-              <li>
-                Analyze usage patterns to improve features and performance
-              </li>
               <li>Respond to support requests and inquiries</li>
+              <li>Protect the website and its users from abuse</li>
+              <li>Analyze technical logs to improve reliability</li>
               <li>Comply with legal obligations</li>
             </ul>
           </section>
@@ -194,22 +159,21 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
             >
               <li>
-                <strong class="text-white/90">Paddle</strong> (paddle.com) --
-                Payment processing, invoicing, VAT/sales tax handling as
-                merchant of record
-              </li>
-              <li>
-                <strong class="text-white/90">WorkOS</strong> (workos.com) --
-                Authentication, single sign-on (SSO), and magic link login
+                <strong class="text-white/90">GitHub</strong> (github.com) --
+                Source code, releases, and desktop downloads
               </li>
               <li>
                 <strong class="text-white/90">DigitalOcean</strong>
-                (digitalocean.com) -- Server hosting and infrastructure for our
-                license server and API
+                (digitalocean.com) -- Website hosting and technical logs
               </li>
               <li>
                 <strong class="text-white/90">Discord</strong> (discord.com) --
                 Community support and communication (voluntary participation)
+              </li>
+              <li>
+                <strong class="text-white/90">AI providers</strong> -- Provider
+                credentials and prompts sent only when you configure and use a
+                provider in the desktop application
               </li>
             </ul>
             <p class="text-white/70 mt-4 leading-relaxed">
@@ -230,34 +194,24 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               5. Data Retention
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              We retain your personal data for as long as your account is active
-              or as needed to provide the Service. Specifically:
+              We retain personal data only as needed for the purposes described
+              in this policy:
             </p>
             <ul
               class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
             >
               <li>
-                <strong class="text-white/90">Account data</strong> is retained
-                until you request account deletion
+                <strong class="text-white/90">Support correspondence</strong> is
+                retained as needed to respond and maintain support records
               </li>
               <li>
-                <strong class="text-white/90">Usage analytics</strong> are
-                retained in anonymized form and may be kept indefinitely
+                <strong class="text-white/90">Technical logs</strong> are
+                retained according to our hosting provider's policies
               </li>
               <li>
-                <strong class="text-white/90">Transaction records</strong> are
-                retained as required by applicable tax and accounting laws
-              </li>
-              <li>
-                <strong class="text-white/90"
-                  >License/membership records</strong
-                >
-                are deleted upon account deletion
-              </li>
-              <li>
-                <strong class="text-white/90">Waitlist entries</strong>
-                (email, timestamp, source) are retained until Ptah Builders
-                launches or you request deletion, whichever comes first
+                <strong class="text-white/90">Local application data</strong>
+                remains on your device until you delete it or uninstall the
+                application
               </li>
             </ul>
           </section>
@@ -288,7 +242,7 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               </li>
               <li>
                 <strong class="text-white/90">Deletion</strong> -- Request
-                deletion of your personal data and account
+                deletion of your personal data
               </li>
               <li>
                 <strong class="text-white/90">Portability</strong> -- Request
@@ -320,19 +274,14 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
               7. Cookies and Tracking
             </h2>
             <p class="text-white/70 mb-4 leading-relaxed">
-              Our website uses essential cookies to:
+              The PtahCode desktop application stores preferences and provider
+              settings locally on your device. The website does not use cookies
+              for accounts, checkout, or waitlist registration.
             </p>
-            <ul
-              class="list-disc list-inside text-white/70 space-y-2 ml-4 leading-relaxed"
-            >
-              <li>Maintain your authentication session</li>
-              <li>Remember your preferences</li>
-              <li>Ensure the security of your account</li>
-            </ul>
             <p class="text-white/70 mt-4 leading-relaxed">
               We do not use third-party advertising cookies or cross-site
-              tracking. Analytics data is collected in anonymized form to
-              improve the Service.
+              tracking. Our hosting provider can use necessary technical cookies
+              for security and reliability.
             </p>
           </section>
 
@@ -373,12 +322,10 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             </h2>
             <p class="text-white/70 leading-relaxed">
               Your data may be processed and stored in locations outside your
-              country of residence. Our servers are hosted on DigitalOcean
-              infrastructure. Paddle, as our merchant of record, handles EU GDPR
-              compliance for payment-related data and manages VAT/sales tax
-              obligations across jurisdictions. We take reasonable measures to
-              ensure your data is treated securely and in accordance with this
-              Privacy Policy regardless of where it is processed.
+              country of residence. Our website hosting, GitHub, Discord, and
+              the AI providers you select can process data in other countries.
+              We take reasonable measures to protect data that we control in
+              accordance with this Privacy Policy.
             </p>
           </section>
 
@@ -394,11 +341,10 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
             </h2>
             <p class="text-white/70 leading-relaxed">
               For users in the European Economic Area (EEA), we process personal
-              data based on legitimate interest (providing and improving the
-              Service) and contractual necessity (fulfilling your subscription).
-              Paddle, as our merchant of record, independently handles GDPR
-              compliance for all payment processing and related data. You may
-              exercise your GDPR rights as described in Section 6 above.
+              data based on legitimate interest in operating and securing the
+              Service. We process support correspondence to respond to your
+              requests. You may exercise your GDPR rights as described in
+              Section 6 above.
             </p>
           </section>
 
@@ -486,7 +432,7 @@ export class PrivacyPageComponent {
     inject(SeoService).setPage({
       title: 'Privacy Policy — PtahCode',
       description:
-        'How Ptah collects, stores, and protects your data across the desktop app, VS Code extension, and CLI.',
+        'How PtahCode handles website support data and local desktop application data.',
       url: 'https://ptah.live/privacy',
     });
   }

@@ -64,6 +64,18 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
 
       <!-- Main Content -->
       <div class="max-w-5xl mx-auto px-6 sm:px-10 pb-24">
+        <div class="grid gap-3 py-8 sm:grid-cols-3" aria-label="Download platforms">
+          <a href="https://github.com/Hive-Academy/PtahCode/releases/latest" target="_blank" rel="noopener noreferrer" class="rounded-xl border border-secondary/30 bg-base-200 px-5 py-4 text-center text-secondary hover:border-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-secondary">
+            Download for Windows
+          </a>
+          <a href="https://github.com/Hive-Academy/PtahCode/releases/latest" target="_blank" rel="noopener noreferrer" class="rounded-xl border border-secondary/30 bg-base-200 px-5 py-4 text-center text-secondary hover:border-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-secondary">
+            Download for macOS
+          </a>
+          <a href="https://github.com/Hive-Academy/PtahCode/releases/latest" target="_blank" rel="noopener noreferrer" class="rounded-xl border border-secondary/30 bg-base-200 px-5 py-4 text-center text-secondary hover:border-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-secondary">
+            Download for Linux
+          </a>
+        </div>
+        <p class="mb-8 text-sm text-neutral-content">Choose your installer on the latest GitHub release page. Direct downloads appear below when release details load.</p>
         @if (loading()) {
           <!-- Loading State -->
           <div class="flex flex-col items-center justify-center py-24 gap-4">
@@ -307,8 +319,9 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
                 </div>
               }
             </div>
+          } @empty {
+            <p class="py-12 text-center text-neutral-content">No release details are available right now. Use the platform links above to check the latest GitHub release.</p>
           }
-
         }
       </div>
 

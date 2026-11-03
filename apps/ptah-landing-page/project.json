@@ -52,39 +52,7 @@
           "optimization": false,
           "extractLicenses": false,
           "sourceMap": true
-        },
-        "checkout": {
-          "optimization": false,
-          "extractLicenses": false,
-          "sourceMap": true,
-          "fileReplacements": [
-            {
-              "replace": "apps/ptah-landing-page/src/environments/environment.ts",
-              "with": "apps/ptah-landing-page/src/environments/environment.checkout.ts"
-            }
-          ]
         }
-      }
-    },
-    "build-demo": {
-      "executor": "nx:run-commands",
-      "dependsOn": [
-        "build",
-        {
-          "projects": ["ptah-extension-webview"],
-          "target": "build"
-        }
-      ],
-      "inputs": [
-        "production",
-        "^production",
-        "{workspaceRoot}/scripts/landing/**",
-        "{workspaceRoot}/libs/web/landing/src/lib/live-demo/**",
-        "{workspaceRoot}/libs/frontend/webview-e2e-harness/src/lib/fonts/**"
-      ],
-      "outputs": ["{workspaceRoot}/dist/ptah-landing-page/browser/demo"],
-      "options": {
-        "command": "node scripts/landing/build-live-demo.mjs"
       }
     },
     "serve": {
@@ -95,8 +63,7 @@
         "signal": true
       },
       "options": {
-        "port": 4200,
-        "proxyConfig": "apps/ptah-landing-page/proxy.conf.json"
+        "port": 4200
       },
       "configurations": {
         "production": {
@@ -104,9 +71,6 @@
         },
         "development": {
           "buildTarget": "ptah-landing-page:build:development"
-        },
-        "checkout": {
-          "buildTarget": "ptah-landing-page:build:checkout"
         }
       }
     },

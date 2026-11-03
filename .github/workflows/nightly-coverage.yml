@@ -58,17 +58,6 @@ jobs:
           npm ci || npm install --no-audit --no-fund
           npm install @rollup/rollup-linux-x64-gnu --no-save --force
 
-      - name: Cache Prisma client
-        id: cache-prisma
-        uses: actions/cache@v4
-        with:
-          path: node_modules/.prisma
-          key: prisma-${{ runner.os }}-${{ hashFiles('apps/ptah-license-server/prisma/schema.prisma') }}
-
-      - name: Generate Prisma client
-        if: steps.cache-prisma.outputs.cache-hit != 'true'
-        run: npx nx run ptah-license-server:prisma:generate
-
       - name: Run all project tests with coverage
         run: npx nx run-many -t test --all --coverage --parallel=3
 

@@ -54,9 +54,6 @@ jobs:
       - name: Build landing page
         run: npx nx run-many -t build --projects=ptah-landing-page
 
-      - name: Build PtahCode live demo
-        run: bash scripts/do-build.sh --demo-only
-
       # Fail loudly if the SSG build silently degraded to an empty CSR shell.
       # Asserts the prerendered routes shipped real content instead of an empty
       # <app-root>. Copy-specific greps are structural for now (old design) and
@@ -67,8 +64,8 @@ jobs:
           DIST="dist/ptah-landing-page/browser"
           fail() { echo "::error::prerender assertion failed: $1"; exit 1; }
 
-          for route in "index.html" "download/index.html" "pricing/index.html" \
-            "terms-and-conditions/index.html" "privacy/index.html" "refund/index.html"; do
+          for route in "index.html" "download/index.html" \
+            "terms-and-conditions/index.html" "privacy/index.html"; do
             [ -f "$DIST/$route" ] || fail "$route missing from build output"
             grep -qi "<h1" "$DIST/$route" || fail "$route has no <h1> (empty prerender?)"
             grep -q "<app-root></app-root>" "$DIST/$route" && fail "$route is an empty CSR shell"
@@ -80,15 +77,7 @@ jobs:
           # Home route must carry structured data for SEO/GEO.
           grep -q 'application/ld+json' "$DIST/index.html" || fail "index.html missing JSON-LD"
 
-          # PtahCode live demo (/demo/) artifacts, hashed assets, and security/base contracts
-          bash scripts/do-build.sh --assert-demo-only "$DIST" || fail "PtahCode live demo artifact assertion failed"
-
-          echo "Prerender content assertion passed for 6 routes + catchall shell + /demo/."
-
-      - name: Smoke check PtahCode live demo
-        run: |
-          npx playwright install --with-deps chromium
-          node scripts/landing/check-live-demo.mjs --root dist/ptah-landing-page/browser
+          echo "Prerender content assertion passed for 4 routes + catchall shell."
 
       - name: Install doctl
         uses: digitalocean/action-doctl@v2

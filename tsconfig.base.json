@@ -272,33 +272,7 @@
       "@ptah-web/core": ["./libs/web/core/src/index.ts"],
       "@ptah-web/ui": ["./libs/web/ui/src/index.ts"],
       "@ptah-web/legal": ["./libs/web/legal/src/index.ts"],
-      "@ptah-web/pricing": ["./libs/web/pricing/src/index.ts"],
-      "@ptah-web/auth": ["./libs/web/auth/src/index.ts"],
-      "@ptah-web/account": ["./libs/web/account/src/index.ts"],
       "@ptah-web/landing": ["./libs/web/landing/src/index.ts"],
-      "@ptah-web/admin": ["./libs/web/admin/src/index.ts"],
-      "@ptah-web/panel-ui": ["./libs/web/panel-ui/src/index.ts"],
-      "@ptah-web/members": ["./libs/web/members/src/index.ts"],
-      "@ptah-api/core": ["./libs/api/core/src/index.ts"],
-      "@ptah-api/core/testing": ["./libs/api/core/src/testing/index.ts"],
-      "@ptah-api/audit": ["./libs/api/audit/src/index.ts"],
-      "@ptah-api/email": ["./libs/api/email/src/index.ts"],
-      "@ptah-api/identity": ["./libs/api/identity/src/index.ts"],
-      "@ptah-api/membership": ["./libs/api/membership/src/index.ts"],
-      "@ptah-api/youtube": ["./libs/api/youtube/src/index.ts"],
-      "@ptah-api/member-hub": ["./libs/api/member-hub/src/index.ts"],
-      "@ptah-api/notifications": ["./libs/api/notifications/src/index.ts"],
-      "@ptah-api/forum": ["./libs/api/forum/src/index.ts"],
-      "@ptah-api/learning": ["./libs/api/learning/src/index.ts"],
-      "@ptah-api/community": ["./libs/api/community/src/index.ts"],
-      "@ptah-api/marketing": ["./libs/api/marketing/src/index.ts"],
-      "@ptah-api/licensing": ["./libs/api/licensing/src/index.ts"],
-      "@ptah-api/billing": ["./libs/api/billing/src/index.ts"],
-      "@ptah-api/billing/testing": ["./libs/api/billing/src/testing/index.ts"],
-      "@ptah-api/admin": ["./libs/api/admin/src/index.ts"],
-      "@ptah-contracts/community": [
-        "./libs/api-contracts/community/src/index.ts"
-      ],
       "@ptah-extension/tool-output-reducers": [
         "./libs/backend/tool-output-reducers/src/index.ts"
       ]

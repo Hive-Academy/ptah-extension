@@ -151,7 +151,6 @@ libs/web/      # Angular libraries for the marketing site
 ```bash
 git clone https://github.com/Hive-Academy/PtahCode.git
 cd PtahCode
-cp .env.example .env
 npm install
 
 npm run electron:serve   # run the desktop app

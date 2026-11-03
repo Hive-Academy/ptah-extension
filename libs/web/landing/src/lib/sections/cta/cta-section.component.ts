@@ -10,8 +10,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
 /**
  * CTASectionComponent — S10 Final CTA (design spec §4 S10, copy deck S10).
  *
- * Repeats the single primary action (Download) with trial framing, and absorbs
- * the "Open Source (MIT)" fact from the retired open-source section into
+ * Repeats the primary Download action and carries the open-source facts in
  * its trust row. Bookends the page on the same ConsoleGridBackground + amber
  * glow treatment as the hero.
  */
@@ -66,19 +65,6 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
           </a>
         </div>
 
-        <div
-          viewportAnimation
-          [viewportConfig]="tertiaryCtaConfig"
-          class="mt-6"
-        >
-          <a
-            routerLink="/pricing"
-            class="text-amber-500 hover:text-amber-400 text-sm font-medium underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded"
-          >
-            or view pricing →
-          </a>
-        </div>
-
         <div class="mt-12 flex flex-wrap justify-center gap-x-8 gap-y-3">
           @for (signal of trustSignals; track signal; let i = $index) {
             <div
@@ -129,13 +115,6 @@ export class CTASectionComponent {
     delay: 0.2,
     threshold: 0.2,
     ease: 'power2.out',
-  };
-
-  protected readonly tertiaryCtaConfig: ViewportAnimationConfig = {
-    animation: 'fadeIn',
-    duration: 0.6,
-    delay: 0.3,
-    threshold: 0.2,
   };
 
   public getTrustSignalConfig(index: number): ViewportAnimationConfig {

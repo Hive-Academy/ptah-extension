@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
  * Asserting the path is preserved confirms the route exists and rendered
  * content; a missing route would bounce to `/`.
  */
-const LEGAL_ROUTES = ['/terms-and-conditions', '/privacy', '/refund'];
+const LEGAL_ROUTES = ['/terms-and-conditions', '/privacy'];
 
 test.describe('Legal pages @legal', () => {
   for (const path of LEGAL_ROUTES) {

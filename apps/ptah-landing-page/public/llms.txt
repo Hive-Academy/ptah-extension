@@ -4,7 +4,7 @@
 
 ## What PtahCode is
 
-PtahCode's desktop app is the primary product. Unlike autocomplete-class tools (Cursor, GitHub Copilot inline completion), PtahCode is designed around four properties: persistence (it remembers), multi-agent execution (it parallelizes), schedulability (it runs unattended), and reachability (it answers outside the editor). PtahCode also ships as a VS Code extension and a headless CLI, sharing one license with the desktop app, for users who want a lighter footprint without the desktop-exclusive suite below.
+PtahCode's desktop app is the product. Unlike autocomplete-class tools (Cursor, GitHub Copilot inline completion), PtahCode is designed around four properties: persistence (it remembers), multi-agent execution (it parallelizes), schedulability (it runs unattended), and reachability (it answers outside the editor).
 
 ## The seven differentiators
 
@@ -22,19 +22,13 @@ Bonus: **Orchestra Canvas** — up to 9 concurrent agent sessions in one drag-an
 
 Claude, GitHub Copilot, OpenAI Codex, OpenRouter (200+ models), Ollama (local models), Kimi K2, GLM.
 
-## Pricing
+## Cost
 
-- **Community**: free forever, install from the VS Code Marketplace.
-- **Pro**: $5/month or $50/year, 100-day free trial, no credit card required. Unlocks the desktop-exclusive Memory, Skills, Cron, and Gateway suite.
-
-## License
-
-PtahCode is open source under the MIT license.
+PtahCode is free and open source under the MIT license.
 
 ## Canonical links
 
 - Homepage: https://ptah.live
 - Download: https://ptah.live/download
-- Pricing: https://ptah.live/pricing
 - Documentation: https://docs.ptah.live
 - GitHub: https://github.com/Hive-Academy/PtahCode
