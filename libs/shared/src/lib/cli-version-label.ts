@@ -13,6 +13,23 @@ export function isCliProcessDump(value: string): boolean {
   return /^\s*(usage:|error:|warning:|stdout|stderr)\b/i.test(value);
 }
 
+/** A bare calendar date such as 2026.11.03 (no pre-release suffix) is not a version. */
+const DATE_TOKEN = /^(?:19|20)\d{2}\.\d{1,2}\.\d{1,2}$/;
+
+/**
+ * The first version token of the probe line, or undefined when the first token is a bare date or
+ * follows the word "build" ("build 2026.11.03"). Any vendor name may precede the token, so
+ * "2.1.0 (Claude Code)" and "cursor 2025.11.06-8fe8a63" keep their versions.
+ */
+function versionToken(raw: string): string | undefined {
+  const match = VERSION_TOKEN.exec(raw);
+  const token = match?.[1];
+  if (!match || !token) return undefined;
+  const before = raw.slice(0, match.index + match[0].length - token.length);
+  if (DATE_TOKEN.test(token) || /\bbuild\s*v?$/i.test(before)) return undefined;
+  return token;
+}
+
 /**
  * Batch 52.1: the detected version is the CLI's raw `--version` line (`probeCliVersion`), e.g. "codex-cli 0.155.1",
  * "opencode v2.0.12" or "GitHub Copilot CLI 1.0.83.". Shows the version token as "v0.155.1"; a line with no such token
@@ -20,7 +37,7 @@ export function isCliProcessDump(value: string): boolean {
  * still yields the token when it has one, and otherwise nothing — the stdout is not the label.
  */
 export function cliVersionLabel(raw: string): string {
-  const token = VERSION_TOKEN.exec(raw)?.[1];
+  const token = versionToken(raw);
   if (token) return `v${token}`;
   if (isCliProcessDump(raw)) return '';
   return raw.trim();

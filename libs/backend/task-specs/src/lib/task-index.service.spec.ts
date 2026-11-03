@@ -738,6 +738,50 @@ describe('TaskIndexService.readRoundJudge', () => {
 });
 
 describe('task folder read and listing', () => {
+  it('rejects a linked recognized document and a linked carrier', async () => {
+    const fs = new FakeFs();
+    fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
+    const document = path.join(specsDir(), 'TASK_2026_001', 'context.md');
+    fs.setFile(document, 'outside');
+    const original = fs.lstat.bind(fs);
+    fs.lstat = jest.fn(async (p) => norm(p) === norm(document)
+      ? { type: FileType.SymbolicLink, size: 0, ctime: 0, mtime: 0 }
+      : original(p));
+    const service = buildService(fs);
+    await expect(service.readArtifact(ROOT, 'TASK_2026_001', 'context.md')).rejects.toThrow('rejected');
+    fs.lstat = jest.fn(async (p) => norm(p) === norm(carrier('TASK_2026_001'))
+      ? { type: FileType.SymbolicLink, size: 0, ctime: 0, mtime: 0 }
+      : original(p));
+    await expect(service.getDetail(ROOT, 'TASK_2026_001')).rejects.toThrow('rejected');
+    service.dispose();
+  });
+
+  it('rejects an oversized recognized document before reading it', async () => {
+    const fs = new FakeFs();
+    const document = path.join(specsDir(), 'TASK_2026_001', 'context.md');
+    fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
+    fs.setFile(document, 'x'.repeat(1048577));
+    const read = jest.spyOn(fs, 'readFileBoundedNoFollow');
+    const service = buildService(fs);
+    await expect(service.readArtifact(ROOT, 'TASK_2026_001', 'context.md')).rejects.toThrow('too_large');
+    expect(read).not.toHaveBeenCalled();
+    service.dispose();
+  });
+
+  it('rejects a directory swapped during enumeration', async () => {
+    const fs = new FakeFs();
+    fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
+    const directory = norm(path.join(specsDir(), 'TASK_2026_001'));
+    const original = fs.realpath.bind(fs);
+    let swapped = false;
+    const read = fs.readDirectory.bind(fs);
+    fs.readDirectory = jest.fn(async (p) => { const entries = await read(p); swapped = true; return entries; });
+    fs.realpath = jest.fn(async (p) => swapped && norm(p) === directory ? '/outside' : original(p));
+    const service = buildService(fs);
+    expect((await service.listFolderEntries(ROOT, 'TASK_2026_001', '')).state).toBe('rejected');
+    service.dispose();
+  });
+
   it('reads a direct markdown child and rejects traversal as a result', async () => {
     const fs = new FakeFs();
     fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));

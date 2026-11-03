@@ -48,3 +48,23 @@ The stopped subagent had written all 12 files, and they typechecked, linted and 
 - `npm run verify -- -t test -p @ptah-extension/tasks-ui -- --testPathPatterns="components/detail"` → exit 0; `Test Suites: 8 passed, 8 total`, `Tests: 127 passed, 127 total` (counts read from the cached run with `--output-style=static`).
 - One mistaken combined run (`-t test,lint` with the Jest flag) failed only because eslint rejected `--testPathPatterns`. It was not a code failure. The two commands were then run separately as prescribed.
 - Not run: `ptah-extension-webview` project checks, the full tasks-ui suite, and the markdown lib spec, as instructed.
+
+## Fix round 1 — finding 3
+
+**Change** (`libs/frontend/tasks-ui/src/lib/services/tasks-store.service.ts`):
+
+- `openTask` (:1238) now wraps a new private `loadTaskDetail` (:1257) and catches a rejected `tasks:get` into the existing store-level `_error` signal (`Failed to load task detail (<message>)`). A rejection from a request superseded by a newer open or a `closeTask` stays silent (same `detailReqSeq` guard). It no longer rejects into template handlers.
+- `loadTaskDetail` sets `_taskDetail` to `null` before awaiting, so task A's detail can never render under task B's selection, whatever B's outcome. The sequence guard is unchanged: a late A response is dropped. The failure branch no longer needs its own `_taskDetail.set(null)`.
+- The two post-write refreshes (`reconcile…` :2154, `applyMetadata` :2316) call `loadTaskDetail` directly, so their own catch still reports "The change was saved, but…" (the existing spec "catches a failing DETAIL refresh too" pins this). `refreshActiveFromPush` keeps `openTask`, so a push-driven re-read can no longer reject unhandled.
+- No logger is used in this store; none added.
+
+**Tests** (`tasks-store.service.spec.ts`, workspace-awareness block, after "drops a detail response that resolves after closeTask()"):
+
+- `clears the previous detail and shows an error when the next open rejects` — A loaded, B rejects: `openTask('B')` resolves, `taskDetail()` null, `detailLoading()` false, `error()` contains the transport message.
+- `ignores a late A response after B was selected and B rejected` — A pending, B rejects, A resolves late: selection stays B, detail stays null, error kept.
+
+**Verification**:
+
+- `npm run verify -- -t test -p @ptah-extension/tasks-ui -- --testPathPatterns="tasks-store"` → exit 0; `Tests: 139 passed, 139 total`. (A first run before the `loadTaskDetail` split failed 1 test, the applyMetadata detail-refresh message; fixed by the split, not by changing the test.)
+- `npm run verify -- -t typecheck,lint -p @ptah-extension/tasks-ui` → `2 tasks: 2 succeeded`, exit 0.
+- `tasks-view.component.ts` not touched.

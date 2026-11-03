@@ -7,9 +7,17 @@ import {
 describe('cli-version-label', () => {
   it.each([
     ['codex-cli 0.155.1', 'v0.155.1'],
+    ['codex-cli 0.50.1', 'v0.50.1'],
+    ['1.2.3', 'v1.2.3'],
+    ['build 2026.11.03', 'build 2026.11.03'],
+    ['2026.11.03', '2026.11.03'],
+    ['2026.11.03 release date', '2026.11.03 release date'],
     ['opencode v2.0.12', 'v2.0.12'],
     ['GitHub Copilot CLI 1.0.83.', 'v1.0.83'],
     ['1.2.14', 'v1.2.14'],
+    ['2.1.0 (Claude Code)', 'v2.1.0'],
+    ['cursor 2025.11.06-8fe8a63', 'v2025.11.06-8fe8a63'],
+    ['Version: 3.4.5', 'v3.4.5'],
     ['pi 0.9.0-beta.2 (build 7)', 'v0.9.0-beta.2'],
     ['  2024 edition  ', '2024 edition'],
     ['grok 1.0.46\nUsage: grok models\nstdout follows', 'v1.0.46'],

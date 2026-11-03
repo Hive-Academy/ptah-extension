@@ -344,10 +344,14 @@ export class TaskIndexService implements ITaskIndexNotifier {
   ): Promise<TaskSpecDetail | null> {
     const root = normalizeWorkspaceRoot(workspaceRoot);
     const folderDir = path.join(root, '.ptah', 'specs', folderName);
-    const carrier = path.join(folderDir, CARRIER_FILE);
+    const carrier = await this.readFolderMarkdown(root, folderName, CARRIER_FILE);
+    if (carrier.state === 'missing') return null;
+    if (carrier.state !== 'ready' || carrier.content === null) {
+      this.logger.warn('[task-specs] getDetail carrier read failed', { folderName, state: carrier.state });
+      throw new Error(`Task carrier read failed: ${carrier.state}`);
+    }
     try {
-      if (!(await this.fs.exists(carrier))) return null;
-      const raw = await this.fs.readFile(carrier);
+      const raw = carrier.content;
       const parsed = parseTaskFile(folderName, raw);
       if (parsed.kind !== 'task') return null;
       const entries = await this.listEntries(folderDir);
@@ -358,7 +362,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
         folderName,
         error: error instanceof Error ? error.message : String(error),
       });
-      return null;
+      throw error;
     }
   }
 
@@ -380,19 +384,11 @@ export class TaskIndexService implements ITaskIndexNotifier {
     folderName: string,
     file: DocFile,
   ): Promise<string | null> {
-    const root = normalizeWorkspaceRoot(workspaceRoot);
-    const target = path.join(root, '.ptah', 'specs', folderName, file);
-    try {
-      if (!(await this.fs.exists(target))) return null;
-      return await this.fs.readFile(target);
-    } catch (error: unknown) {
-      this.logger.warn('[task-specs] readArtifact failed', {
-        folderName,
-        file,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
+    const read = await this.readFolderMarkdown(workspaceRoot, folderName, file);
+    if (read.state === 'missing') return null;
+    if (read.state === 'ready') return read.content;
+    this.logger.warn('[task-specs] readArtifact failed', { folderName, file, state: read.state });
+    throw new Error(`Task document read failed: ${read.state}`);
   }
 
   private inside(parent: string, child: string): boolean {
@@ -451,8 +447,16 @@ export class TaskIndexService implements ITaskIndexNotifier {
         const stat = await this.fs.lstat(current);
         if (stat.type !== FileType.Directory || !this.inside(folder, await this.fs.realpath(current))) return result('rejected');
       }
+      const before = await this.fs.lstat(current);
+      const canonicalBefore = await this.fs.realpath(current);
+      if (before.type !== FileType.Directory || !this.inside(folder, canonicalBefore)) return result('rejected');
       const entries = await this.fs.readDirectory(current);
       if (entries.length > 200) return result('too_many');
+      const after = await this.fs.lstat(current);
+      const canonicalAfter = await this.fs.realpath(current);
+      if (after.type !== FileType.Directory || canonicalAfter !== canonicalBefore ||
+          before.ctime !== after.ctime || before.mtime !== after.mtime ||
+          !this.inside(folder, canonicalAfter)) return result('rejected');
       return result('ready', entries.map(({ name, type }) => ({ name, kind: type === FileType.File ? 'file' : type === FileType.Directory ? 'directory' : type === FileType.SymbolicLink ? 'symlink' : 'other' })));
     } catch (error: unknown) {
       const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
