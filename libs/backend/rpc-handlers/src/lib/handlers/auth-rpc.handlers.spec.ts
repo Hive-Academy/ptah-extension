@@ -2077,6 +2077,19 @@ describe('AuthRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('auth:codexLogin', () => {
+    it.each([null, 'bad', [], { mode: 'unknown' }, { restart: 'yes' }])(
+      'rejects invalid params before starting login', async params => {
+        const login = createFakeCodexLogin();
+        const h = makeHarness({ codexLogin: login });
+        h.handlers.register();
+        const response = await h.rpcHandler.handleMessage({
+          method: 'auth:codexLogin', params: params as Record<string, unknown>, correlationId: 'invalid-codex-login',
+        });
+        expect(response).toMatchObject({ success: false, errorCode: 'INVALID_PARAMS' });
+        expect(login.start).not.toHaveBeenCalled();
+      },
+    );
+
     it('reports a fixed failure without a service or runner', async () => {
       const h = makeHarness();
       h.handlers.register();

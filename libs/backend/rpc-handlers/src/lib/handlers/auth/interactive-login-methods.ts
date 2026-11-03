@@ -4,6 +4,7 @@ import type {
   SentryService,
   WebviewManager,
 } from '@ptah-extension/vscode-core';
+import { RpcUserError } from '@ptah-extension/vscode-core';
 import type {
   IPlatformAuthProvider,
   IPlatformCommands,
@@ -19,6 +20,7 @@ import type {
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { AuthDeviceCodePayload, AuthCodexLoginParams, AuthCodexLoginResponse, AuthCodexLoginCancelParams, AuthCodexLoginCancelResponse, CodexLoginState } from '@ptah-extension/shared';
 import { asAuthCommandRunner } from '../auth-command-runner';
+import { CodexLoginParamsSchema } from '../provider-account-rpc.schema';
 import { CODEX_PROVIDER_ID, COPILOT_PROVIDER_ID } from './auth-provider-ids';
 import { getGitHubUsername } from './github-username';
 import { autoMapProviderTiers } from './provider-tier-auto-map';
@@ -196,13 +198,13 @@ export class InteractiveLoginMethods {
     const { logger, sentryService, sdkAdapter, codexAuth, platformCommands } =
       this.deps;
     this.deps.rpcHandler.registerMethod<AuthCodexLoginParams, AuthCodexLoginResponse>('auth:codexLogin', async (raw: unknown) => {
+      const parsed = CodexLoginParamsSchema.safeParse(raw);
+      if (!parsed.success) throw new RpcUserError('auth:codexLogin: invalid params', 'INVALID_PARAMS');
       if (this.deps.codexLogin) {
-        const params = raw !== null && typeof raw === 'object' && !Array.isArray(raw)
-          ? raw as Record<string, unknown> : {};
         try {
           const state = await this.deps.codexLogin.start({
-            mode: params['mode'] === 'device' ? 'device' : 'browser',
-            restart: params['restart'] === true,
+            mode: parsed.data.mode ?? 'browser',
+            restart: parsed.data.restart ?? false,
           }, (next) => this.onCodexStateChange(next));
           if (state.status === 'failed') return { success: false, error: this.codexErrorCopy(state), state };
           if (state.status === 'cancelled') return { success: false, state };

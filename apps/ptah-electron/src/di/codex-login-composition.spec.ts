@@ -10,7 +10,7 @@ import { CODEX_RUNTIME_TOKENS, type CodexSelection, type CodexSelectionSnapshotP
 import { PLATFORM_TOKENS, type IProcessSpawner, type IUserInteraction } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { sanitizeScenario } from '../replay/scenario-sanitizer';
-import { codexSignInQuitHandle, registerElectronCodexReadinessAndLogin } from './codex-login-composition';
+import { CODEX_SIGN_IN_QUIT_HANDLE, type CodexSignInQuitHandle, registerElectronCodexReadinessAndLogin } from './codex-login-composition';
 
 describe('Electron Codex sign-in composition', () => {
   const logger = { info: jest.fn(), warn: jest.fn() } as unknown as Logger;
@@ -23,6 +23,7 @@ describe('Electron Codex sign-in composition', () => {
     scope.register(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH, { useValue: { getSignInOutcome: jest.fn(), clearCache: jest.fn() } });
 
     registerElectronCodexReadinessAndLogin(scope, logger);
+    const codexSignInQuitHandle = scope.resolve<CodexSignInQuitHandle>(CODEX_SIGN_IN_QUIT_HANDLE);
     expect(scope.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_CODEX_LOGIN)).toBe(true);
     expect(scope.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_CODEX_READINESS)).toBe(true);
     expect(codexSignInQuitHandle.isActive()).toBe(false);
@@ -48,6 +49,26 @@ describe('Electron Codex sign-in composition', () => {
     expect(spawnProcess).not.toHaveBeenCalled();
     resolveSelection({ selected: { path: '/synthetic/codex', version: '0.165.0', source: 'installed', reason: 'test' } });
     await started;
+  });
+
+  it('keeps quit state inside each container', async () => {
+    const first = container.createChildContainer();
+    const second = container.createChildContainer();
+    for (const scope of [first, second]) {
+      scope.register(SDK_TOKENS.SDK_PROCESS_SPAWNER, { useValue: { spawnProcess: jest.fn() } });
+      scope.register(PLATFORM_TOKENS.USER_INTERACTION, { useValue: { openExternal: jest.fn() } });
+      scope.register(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH, { useValue: { getSignInOutcome: jest.fn(), clearCache: jest.fn() } });
+      registerElectronCodexReadinessAndLogin(scope, logger);
+    }
+    const firstHandle = first.resolve<CodexSignInQuitHandle>(CODEX_SIGN_IN_QUIT_HANDLE);
+    const secondHandle = second.resolve<CodexSignInQuitHandle>(CODEX_SIGN_IN_QUIT_HANDLE);
+    const login = first.resolve<ICodexLoginService>(AUTH_PROVIDERS_TOKENS.SDK_CODEX_LOGIN);
+    const pending = login.start({}, jest.fn());
+    expect(firstHandle.isActive()).toBe(true);
+    expect(secondHandle.isActive()).toBe(false);
+    await firstHandle.stop();
+    await pending;
+    expect(secondHandle.isActive()).toBe(false);
   });
 
   it('drops Codex sign-in payloads even with custom allow lists', () => {

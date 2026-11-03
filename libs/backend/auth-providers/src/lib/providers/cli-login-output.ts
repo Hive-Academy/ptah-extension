@@ -48,9 +48,18 @@ export class LineSplitter {
     this.buffer += chunk.toString();
     const lines = this.buffer.split(/\r?\n|\r/);
     this.buffer = lines.pop() ?? '';
-    if (this.buffer.length > MAX_LINE_CHARS) this.buffer = '';
+    while (this.buffer.length > MAX_LINE_CHARS) {
+      this.onLine(this.buffer.slice(0, MAX_LINE_CHARS));
+      this.buffer = this.buffer.slice(MAX_LINE_CHARS);
+    }
     for (const line of lines) {
       if (line.length <= MAX_LINE_CHARS) this.onLine(line);
     }
+  }
+
+  flush(): void {
+    if (!this.buffer) return;
+    this.onLine(this.buffer);
+    this.buffer = '';
   }
 }

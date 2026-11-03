@@ -4,8 +4,7 @@ import type {
   AuthGetCodexReadinessResponse,
 } from '@ptah-extension/shared';
 import { RpcUserError, type RpcHandler } from '@ptah-extension/vscode-core';
-
-const TRIGGERS = ['mount', 'follow-up', 'recheck'] as const;
+import { CodexReadinessParamsSchema } from '../provider-account-rpc.schema';
 
 /** The auth RPC boundary for the host's Codex readiness reader. */
 export class CodexReadinessMethod {
@@ -18,21 +17,13 @@ export class CodexReadinessMethod {
     this.rpcHandler.registerMethod<AuthGetCodexReadinessParams, AuthGetCodexReadinessResponse>(
       'auth:getCodexReadiness',
       async (raw: unknown): Promise<AuthGetCodexReadinessResponse> => {
-        if (
-          raw !== undefined &&
-          (raw === null || typeof raw !== 'object' || Array.isArray(raw))
-        ) {
-          throw new RpcUserError('auth:getCodexReadiness: invalid params', 'INVALID_PARAMS');
-        }
-        const params = (raw ?? {}) as Record<string, unknown>;
-        if (params['refresh'] !== undefined && typeof params['refresh'] !== 'boolean') {
+        const parsed = CodexReadinessParamsSchema.safeParse(raw);
+        if (!parsed.success) {
           throw new RpcUserError('auth:getCodexReadiness: invalid params', 'INVALID_PARAMS');
         }
         const options: AuthGetCodexReadinessParams = {
-          ...(params['refresh'] !== undefined ? { refresh: params['refresh'] as boolean } : {}),
-          ...(TRIGGERS.some(trigger => trigger === params['trigger'])
-            ? { trigger: params['trigger'] as AuthGetCodexReadinessParams['trigger'] }
-            : {}),
+          ...(parsed.data.refresh !== undefined ? { refresh: parsed.data.refresh } : {}),
+          ...(parsed.data.trigger !== undefined ? { trigger: parsed.data.trigger } : {}),
         };
         if (this.reader) return this.reader.read(options);
         return {

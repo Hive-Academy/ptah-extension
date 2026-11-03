@@ -26,4 +26,21 @@ describe('CLI login output', () => {
     splitter.push('\r\ntwo\n');
     expect(lines).toEqual(['one', 'two']);
   });
+
+  it('flushes an unterminated tail once', () => {
+    const lines: string[] = [];
+    const splitter = new LineSplitter(line => lines.push(line));
+    splitter.push('https://auth.example.test/finish');
+    splitter.flush();
+    splitter.flush();
+    expect(lines).toEqual(['https://auth.example.test/finish']);
+  });
+
+  it('emits oversized partial lines instead of discarding them', () => {
+    const lines: string[] = [];
+    const splitter = new LineSplitter(line => lines.push(line));
+    splitter.push('x'.repeat(8192) + 'https://auth.example.test/finish');
+    splitter.flush();
+    expect(lines).toEqual(['x'.repeat(8192), 'https://auth.example.test/finish']);
+  });
 });

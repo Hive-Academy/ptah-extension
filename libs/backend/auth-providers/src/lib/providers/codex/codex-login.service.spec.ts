@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import type { ProcessSpawnRequest, SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import type { CodexLoginState } from '@ptah-extension/shared';
-import { CodexLoginService, extractSignInUrl, validateSignInUrl } from './codex-login.service';
+import { CODEX_LOGIN_KILL_TIMEOUT_MS, CodexLoginService, extractSignInUrl, validateSignInUrl } from './codex-login.service';
 
 class FakeChild extends EventEmitter implements SpawnedProcessHandle {
   readonly stdin = new PassThrough();
@@ -110,6 +110,51 @@ describe('CodexLoginService', () => {
     await tick();
     expect(states.at(-1)).toMatchObject({ status: 'failed', errorCode: 'exited', exitCode: 1 });
     expect(JSON.stringify(states) + logs.join(' ')).not.toContain('secret token');
+  });
+
+  it('flushes a trailing sign-in URL on close', async () => {
+    await login.start({}, state => states.push(state));
+    child.stdout.write('https://auth.example.test/finish');
+    child.emit('close', 1, null);
+    expect(states.some(state => state.verificationUrl === 'https://auth.example.test/finish')).toBe(true);
+  });
+
+  it.each(['spawn', 'kill'] as const)('bounds a hung %s operation and directly kills the child', async hanging => {
+    jest.useFakeTimers();
+    try {
+      if (hanging === 'spawn') child.whenSpawned = new Promise<number | null>(() => undefined);
+      if (hanging === 'kill') killTree.mockImplementation(() => new Promise<void>(() => undefined));
+      const firstChild = child;
+      const started = login.start({}, state => states.push(state));
+      if (hanging === 'kill') await started;
+      else await jest.advanceTimersByTimeAsync(0);
+      login.cancel();
+      await jest.advanceTimersByTimeAsync(CODEX_LOGIN_KILL_TIMEOUT_MS);
+      expect(firstChild.kill).toHaveBeenCalledWith('SIGKILL');
+      if (hanging === 'spawn') {
+        child = new FakeChild();
+        await expect(login.start({}, state => states.push(state))).resolves.toMatchObject({ status: 'running' });
+        expect(requests).toHaveLength(2);
+      }
+      await expect(login.dispose()).resolves.toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('waits for a cancelled child to be killed before spawning a retry', async () => {
+    await login.start({}, state => states.push(state));
+    let releaseKill!: () => void;
+    killTree.mockImplementationOnce(() => new Promise<void>(resolve => { releaseKill = resolve; }));
+    login.cancel();
+    child = new FakeChild();
+    const retry = login.start({}, state => states.push(state));
+    await Promise.resolve();
+    expect(requests).toHaveLength(1);
+    releaseKill();
+    expect((await retry).status).toBe('running');
+    expect(requests).toHaveLength(2);
+    await login.dispose();
   });
 
   it('does not retry a different executable when selection fails', async () => {

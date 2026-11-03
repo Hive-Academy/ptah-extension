@@ -35,7 +35,7 @@ describe('CodexReadinessMethod', () => {
     expect(read).toHaveBeenNthCalledWith(2, { refresh: false });
   });
 
-  it.each([null, 'bad', { refresh: 'yes' }, { refresh: 1 }])(
+  it.each([null, 'bad', [], { refresh: 'yes' }, { refresh: 1 }])(
     'rejects invalid params before reading', async params => {
       const read = jest.fn<Promise<AuthGetCodexReadinessResponse>, [Parameters<ICodexReadinessReader['read']>[0]]>(
         async () => answer,

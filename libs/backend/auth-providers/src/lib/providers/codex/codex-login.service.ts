@@ -7,6 +7,7 @@ import { httpsUrlCandidates, parseHttpsUrl, stripAnsi, LineSplitter } from '../c
 import type { ICodexAuthService, ICodexLoginService } from './codex-provider.types';
 
 export const CODEX_LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
+export const CODEX_LOGIN_KILL_TIMEOUT_MS = 1_500;
 const CODEX_SIGN_IN_URL_MAX = 4096;
 const CODE = /\b[A-Z0-9]{4,}(?:-[A-Z0-9]{4,})+\b/;
 const ERROR_COPY: Record<CodexLoginErrorCode, string> = {
@@ -76,11 +77,16 @@ export class CodexLoginService implements ICodexLoginService {
   async start(options: { mode?: CodexLoginMode; restart?: boolean }, onState: (state: CodexLoginState) => void): Promise<CodexLoginState> {
     const mode = options.mode ?? 'browser';
     if (this.disposed) return this.cancelledState(mode);
+    const previous = this.active;
+    if (previous?.stopPromise) {
+      await previous.stopPromise;
+      if (this.active === previous) this.starting = null;
+    }
     if (this.active && !this.active.settled) {
       if (!options.restart) return this.active.state;
       this.cancel();
       await this.active.stopPromise;
-      if (this.starting) await this.starting;
+      this.starting = null;
     }
     if (this.disposed) return this.cancelledState(mode);
     if (this.starting) return this.starting;
@@ -163,7 +169,12 @@ export class CodexLoginService implements ICodexLoginService {
     const stderr = new LineSplitter(line => this.onLine(attempt, line));
     const onStdout = (chunk: unknown): void => stdout.push(chunk);
     const onStderr = (chunk: unknown): void => stderr.push(chunk);
-    const onClose = (code: number | null): void => { attempt.cleanup?.(); void this.complete(attempt, code); };
+    const onClose = (code: number | null): void => {
+      stdout.flush();
+      stderr.flush();
+      attempt.cleanup?.();
+      void this.complete(attempt, code);
+    };
     const onError = (error: Error): void => {
       attempt.cleanup?.();
       this.deps.logger.warn(`[CodexLogin] Process failed (${error.name})`);
@@ -239,12 +250,24 @@ export class CodexLoginService implements ICodexLoginService {
     attempt.stopPromise = (async () => {
       const child = attempt.child;
       if (!child) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        const pid = await child.whenSpawned;
-        if (pid !== null) await this.killTree(pid);
+        await Promise.race([
+          (async () => {
+            const pid = await child.whenSpawned;
+            if (pid === null) throw new Error('spawn unavailable');
+            await this.killTree(pid);
+          })(),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error('kill timeout')), CODEX_LOGIN_KILL_TIMEOUT_MS);
+            timer.unref?.();
+          }),
+        ]);
       } catch (error: unknown) {
         this.deps.logger.warn(`[CodexLogin] Process tree kill failed (${error instanceof Error ? error.name : 'unknown'})`);
         try { child.kill('SIGKILL'); } catch { /* The attempt is already settled. */ }
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     })();
     return attempt.stopPromise;

@@ -15,21 +15,24 @@ import {
 import { PLATFORM_TOKENS, type IProcessSpawner, type IUserInteraction } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 
-let created: CodexLoginService | undefined;
-
-export const codexSignInQuitHandle: {
+export const CODEX_SIGN_IN_QUIT_HANDLE = Symbol.for('CodexSignInQuitHandle');
+export interface CodexSignInQuitHandle {
   isActive(): boolean;
   stop(): Promise<void>;
-} = {
-  isActive: () => created?.isActive() ?? false,
-  stop: () => created?.dispose() ?? Promise.resolve(),
-};
+}
 
 /** Electron owns the login process; selecting its executable happens only on use. */
 export function registerElectronCodexReadinessAndLogin(
   container: DependencyContainer,
   logger: Logger,
 ): void {
+  let created: CodexLoginService | undefined;
+  container.register<CodexSignInQuitHandle>(CODEX_SIGN_IN_QUIT_HANDLE, {
+    useValue: {
+      isActive: () => created?.isActive() ?? false,
+      stop: () => created?.dispose() ?? Promise.resolve(),
+    },
+  });
   const selection = () => {
     if (!container.isRegistered(CODEX_RUNTIME_TOKENS.SelectionSnapshot, true)) {
       throw new CodexExecutableUnavailableError(CODEX_MIN_SUPPORTED_VERSION);

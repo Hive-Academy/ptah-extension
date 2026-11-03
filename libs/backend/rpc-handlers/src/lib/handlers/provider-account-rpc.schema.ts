@@ -27,6 +27,17 @@ const OpaqueIdSchema = z.string().refine(isProviderAccountOpaqueId);
 const LabelSchema = z.string().refine(isSafeProviderAccountLabel);
 const ProviderSchema = z.enum(PROVIDER_ACCOUNT_PROVIDERS);
 const ScopeSchema = z.enum(PROVIDER_ACCOUNT_SCOPES);
+const ReadinessTriggerSchema = z.enum(['mount', 'follow-up', 'recheck']);
+const OptionalParamsSchema = z.preprocess(value => value === undefined ? {} : value,
+  z.object({}).passthrough());
+export const CodexReadinessParamsSchema = OptionalParamsSchema.pipe(z.object({
+  refresh: z.boolean().optional(),
+  trigger: ReadinessTriggerSchema.optional().catch(undefined),
+}));
+export const CodexLoginParamsSchema = OptionalParamsSchema.pipe(z.object({
+  mode: z.enum(['browser', 'device']).optional(),
+  restart: z.boolean().optional(),
+}));
 const WorkspaceRootSchema = z
   .string()
   .min(1)
@@ -128,7 +139,7 @@ export const ProviderGetAmbientClaudeStatusSchema = z
   .object({
     provider: ProviderSchema,
     refresh: z.boolean().optional(),
-    trigger: z.enum(['mount', 'follow-up', 'recheck']).optional(),
+    trigger: ReadinessTriggerSchema.optional(),
   })
   .strict();
 
