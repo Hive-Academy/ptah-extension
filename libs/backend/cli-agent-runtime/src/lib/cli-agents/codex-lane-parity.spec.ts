@@ -200,7 +200,8 @@ function harness(fixture?: LaneFixture, laneFixtures?: Readonly<Record<string, L
     }),
   };
   const binary: CodexLaneBinaryProbe = {
-    resolve: jest.fn(async () => ({ path: resolve(tmpdir(), 'codex-test-binary'), version: '0.165.0' })),
+    resolve: jest.fn(async () => ({ path: resolve(tmpdir(), 'codex-test-binary'), version: '0.165.0',
+      source: 'bundled' as const, reason: 'Test fixture' })),
   };
   const credentials: CodexLaneCredentialProbe = {
     check: jest.fn(async (): Promise<CodexLaneCredentialStatus> => 'fresh'),

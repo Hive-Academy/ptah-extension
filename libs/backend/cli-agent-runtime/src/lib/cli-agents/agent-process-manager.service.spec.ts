@@ -1064,8 +1064,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(lanePolicyLines()[0][1]).toEqual(
         expect.objectContaining({
           cli: 'codex',
-          model: 'gpt-6-sol',
-          modelSource: 'ptah-default',
+          model: 'cli-default',
+          modelSource: 'cli-default',
           effort: 'high',
           effortStep: 5,
           detectedCliVersion: '1.0.0',
@@ -1113,8 +1113,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const runSdkCall = await spawnCodex();
 
-      expect(runSdkCall.model).toBe('gpt-6-sol');
-      expect(runSdkCall.modelSource).toBe('ptah-default');
+      expect(runSdkCall.model).toBeUndefined();
+      expect(runSdkCall.modelSource).toBe('cli-default');
       expect(runSdkCall.laneBudgets).toEqual({
         autoCompactTokens: 90000,
         toolOutputTokenLimit: 2500,
@@ -1138,7 +1138,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(lanePolicyLines()).toHaveLength(2);
       expect(lanePolicyLines()[1][1]).toEqual(
         expect.objectContaining({
-          model: 'gpt-6-sol',
+          model: 'cli-default',
           prefixKeys: 'dropped (config rejected)',
         }),
       );
@@ -2428,7 +2428,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       );
       const ptahCliClaude = await spawnLane('ptah-cli', 'claude-sonnet-4-5');
       const ptahCliOther = await spawnLane('ptah-cli', 'Qwen3-Coder ');
-      // No model on a codex lane resolves to the Ptah default model.
+      // No model on a Codex lane leaves the CLI to choose.
       const defaultId = await spawnLane('codex');
       const emptyId = await spawnLane('opencode');
 
@@ -2450,7 +2450,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       );
       expect(manager.getStatus(defaultId)).toHaveProperty(
         'modelScope',
-        'gpt-6-sol',
+        null,
       );
       expect(manager.getStatus(emptyId)).toHaveProperty('modelScope', null);
     });

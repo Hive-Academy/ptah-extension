@@ -51,6 +51,7 @@ import {
   runCase,
   type MarkerApproval,
   errorCode,
+  loadProtocolEvidence,
 } from './evidence-harness';
 import { FrameDecoder, MAX_FRAME_BYTES } from './evidence-frames';
 import {
@@ -58,6 +59,21 @@ import {
   recordCaseFailure,
   recordCommandShape,
 } from './evidence-failure-notes';
+
+describe('frozen protocol evidence', () => {
+  it('derives method evidence from the frozen schema', () => {
+    const { manifest, schemaText } = loadProtocolEvidence();
+    expect(manifest.methods.requests).toEqual(
+      expect.arrayContaining(['initialize', 'model/list']),
+    );
+    expect(manifest.methods.serverRequests).toContain(
+      'item/commandExecution/requestApproval',
+    );
+    expect(manifest.methods.clientNotifications).toContain('initialized');
+    expect(manifest.methods.serverNotifications).toContain('item/started');
+    expect(schemaText).toContain('"ClientRequest"');
+  });
+});
 
 describe('tolerated marker read identity', () => {
   const marker = 'C:\\work\\ask-command-edit.marker';
@@ -1825,12 +1841,6 @@ describe('ask-command-edit evidence flow', () => {
         budget,
         usage,
         {
-          pinnedVersion: '0.165.0',
-          binaryPath: 'unused',
-          binarySha256: '',
-          schemaSha256: '',
-          platform: '',
-          arch: '',
           methods: {
             requests: ['turn/steer'],
             serverRequests: [approvalMethod],
@@ -2528,7 +2538,7 @@ describe('MCP elicitation evidence flow', () => {
     });
     let failure: unknown;
     try {
-      const protocolDirectory = join(__dirname, '../src/lib/protocol');
+      const { manifest, schemaText } = loadProtocolEvidence();
       await runCase(
         {
           id: result.id,
@@ -2545,16 +2555,8 @@ describe('MCP elicitation evidence flow', () => {
         'test-model',
         new TurnBudget(),
         new UsageBudget(),
-        JSON.parse(
-          readFileSync(
-            join(protocolDirectory, 'codex-app-server-protocol.manifest.json'),
-            'utf8',
-          ),
-        ),
-        readFileSync(
-          join(protocolDirectory, 'codex-app-server-protocol.schema.json'),
-          'utf8',
-        ),
+        manifest,
+        schemaText,
         false,
         new Set(),
         root,

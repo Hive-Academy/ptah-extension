@@ -15,6 +15,7 @@
 import type {
   PriceProvenance,
   SessionCostBasis,
+  SessionCostUnavailableReason,
   SessionStatsPricingCoverage,
 } from '../types/rpc/rpc-session.types';
 
@@ -498,6 +499,13 @@ export interface ExactCostResult {
   readonly costBasis: SessionCostBasis;
   readonly pricingCoverage: SessionStatsPricingCoverage;
   readonly priceProvenance?: PriceProvenance;
+  /**
+   * Present only when `totalCost` is null, naming the one narrow cause. A
+   * `rate-missing` result is a model for which Ptah lacks a needed rate, so the
+   * UI can say "not priced" without mislabeling unknown billing or unusable
+   * usage. Absent on every priced result.
+   */
+  readonly costUnavailableReason?: SessionCostUnavailableReason;
 }
 
 function validRate(rate: number | undefined): rate is number {
@@ -507,24 +515,38 @@ function validRate(rate: number | undefined): rate is number {
 /**
  * Opt-in strict valuation. The four token classes are disjoint; reasoning
  * output is already part of `output` and has no fifth charge. A missing or
- * ambiguous used class makes the entire total unavailable.
+ * ambiguous used class makes the entire total unavailable, and each null
+ * result names its narrow cause in `costUnavailableReason`.
  */
 export function calculateExactMessageCost(
   modelId: string,
   tokens: TokenBreakdown,
   options: ExactCostOptions,
 ): ExactCostResult {
-  const unknown: ExactCostResult = {
+  const unavailable = (
+    costUnavailableReason: SessionCostUnavailableReason,
+  ): ExactCostResult => ({
     totalCost: null,
     costBasis: 'unknown',
     pricingCoverage: 'none',
-  };
-  if (options.billingMode === 'unknown') return unknown;
+    costUnavailableReason,
+  });
+  if (options.billingMode === 'unknown') return unavailable('billing-unknown');
+  if (!modelId.trim()) return unavailable('usage-incomplete');
+  const counts = [
+    tokens.input,
+    tokens.output,
+    tokens.cacheHit ?? 0,
+    tokens.cacheCreation ?? 0,
+  ];
+  const usageIncomplete = counts.some((count) =>
+    !Number.isSafeInteger(count) || count < 0) ||
+    (counts.every((count) => count === 0) && !options.usageObserved);
   const found = findExactModelPricing(modelId);
-  if (!found) return unknown;
-  // A base Claude rate does not establish the price of a [1m] request.
-  if (found.modelIdUsed !== modelId.toLowerCase()) return unknown;
-
+  // No catalog entry (or only a base Claude entry for a `[1m]` request) means
+  // Ptah lacks a needed rate: "not priced", never a fabricated
+  // substitute rate or zero.
+  if (!found) return unavailable(usageIncomplete ? 'usage-incomplete' : 'rate-missing');
   const { pricing } = found;
   const provenance: PriceProvenance = {
     modelIdUsed: found.modelIdUsed,
@@ -532,32 +554,22 @@ export function calculateExactMessageCost(
     catalogVersion: pricing.catalogVersion ?? null,
     effectiveDate: pricing.effectiveDate ?? null,
   };
+  if (usageIncomplete) {
+    return {
+      totalCost: null,
+      costBasis: 'unknown',
+      pricingCoverage: 'none',
+      priceProvenance: provenance,
+      costUnavailableReason: 'usage-incomplete',
+    };
+  }
+  if (found.modelIdUsed !== modelId.toLowerCase()) {
+    return unavailable('rate-missing');
+  }
   const availableBasis: SessionCostBasis =
     options.billingMode === 'subscription'
       ? 'covered-by-subscription'
       : 'estimated';
-  const counts = [
-    tokens.input,
-    tokens.output,
-    tokens.cacheHit ?? 0,
-    tokens.cacheCreation ?? 0,
-  ];
-  if (counts.some((count) => !Number.isSafeInteger(count) || count < 0)) {
-    return {
-      totalCost: null,
-      costBasis: 'unknown',
-      pricingCoverage: 'none',
-      priceProvenance: provenance,
-    };
-  }
-  if (counts.every((count) => count === 0) && !options.usageObserved) {
-    return {
-      totalCost: null,
-      costBasis: 'unknown',
-      pricingCoverage: 'none',
-      priceProvenance: provenance,
-    };
-  }
   const inputPriced = validRate(pricing.inputCostPerToken);
   const outputPriced = validRate(pricing.outputCostPerToken);
   const readPriced =
@@ -567,14 +579,13 @@ export function calculateExactMessageCost(
   const cacheUnverified =
     ((tokens.cacheHit ?? 0) > 0 || (tokens.cacheCreation ?? 0) > 0) &&
     options.cacheSemantics !== 'disjoint';
-  if (
+  const rateMissing =
     !inputPriced ||
     !outputPriced ||
     !pricesCacheTokens(pricing, tokens) ||
     !readPriced ||
-    !writePriced ||
-    cacheUnverified
-  ) {
+    !writePriced;
+  if (rateMissing || cacheUnverified) {
     const someUsedRate =
       (tokens.input > 0 && inputPriced) ||
       (tokens.output > 0 && outputPriced) ||
@@ -585,6 +596,11 @@ export function calculateExactMessageCost(
       costBasis: 'unknown',
       pricingCoverage: someUsedRate ? 'partial' : 'none',
       priceProvenance: provenance,
+      // A missing used rate is an absent published rate; only ambiguous cache
+      // semantics alone keeps the cause on the usage side.
+      costUnavailableReason: rateMissing
+        ? 'rate-missing'
+        : 'usage-incomplete',
     };
   }
   const rounded = calculateMessageCost(modelId, tokens, pricing) ?? 0;

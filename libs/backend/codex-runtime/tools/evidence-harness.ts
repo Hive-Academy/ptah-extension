@@ -2,7 +2,6 @@ import { runRoundCase, schemaProbe } from './evidence-cases-round';
 import { spawn, spawnSync } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
-import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdtempSync,
@@ -40,6 +39,10 @@ import {
   recordCaseFailure,
   recordCommandShape,
 } from './evidence-failure-notes';
+import {
+  createNodeCodexExecutableProbes,
+  selectCodexExecutable,
+} from '../src/lib/select-codex-executable';
 export const TURN_CAP = 8;
 // decisions.md records 19 used of 35 approved, including the failed first 7a.
 const MAX_APPROVED_TURN_CAP = 16;
@@ -931,51 +934,79 @@ rl.on('line', line => {
 process.stdin.on('end', () => rl.close());
 `;
 
-const manifestSchema = z.object({
-  pinnedVersion: z.literal('0.165.0'),
-  binaryPath: z.string(),
-  binarySha256: z.string(),
-  schemaSha256: z.string(),
-  platform: z.string(),
-  arch: z.string(),
-  methods: z.object({
-    requests: z.array(z.string()),
-    serverRequests: z.array(z.string()),
-    clientNotifications: z.array(z.string()),
-    serverNotifications: z.array(z.string()),
-  }),
-});
+const manifestSchema = z
+  .object({
+    methods: z.object({
+      requests: z.array(z.string()),
+      serverRequests: z.array(z.string()),
+      clientNotifications: z.array(z.string()),
+      serverNotifications: z.array(z.string()),
+    }),
+  })
+  // Historical offline fixtures carry metadata that the method evidence ignores.
+  .catchall(z.unknown());
 
 export type Manifest = z.infer<typeof manifestSchema>;
 
-function digest(path: string): string {
-  return createHash('sha256').update(readFileSync(path)).digest('hex');
+function schemaMethods(
+  value: unknown,
+  definitions: JsonRecord,
+  seen = new Set<string>(),
+): string[] {
+  if (Array.isArray(value))
+    return value.flatMap((entry) => schemaMethods(entry, definitions, seen));
+  if (!value || typeof value !== 'object') return [];
+  const node = record(value);
+  const result: string[] = [];
+  const reference = node['$ref'];
+  if (typeof reference === 'string' && reference.startsWith('#/')) {
+    const name = reference.split('/').at(-1);
+    if (name && !seen.has(reference)) {
+      seen.add(reference);
+      result.push(...schemaMethods(definitions[name], definitions, seen));
+    }
+  }
+  for (const [key, entry] of Object.entries(node)) {
+    if (key === '$ref') continue;
+    if (key === 'method' && entry && typeof entry === 'object') {
+      const method = record(entry);
+      if (typeof method['const'] === 'string') result.push(method['const']);
+      if (Array.isArray(method['enum']))
+        result.push(
+          ...method['enum'].filter(
+            (item): item is string => typeof item === 'string',
+          ),
+        );
+    } else {
+      result.push(...schemaMethods(entry, definitions, seen));
+    }
+  }
+  return [...new Set(result)].sort();
 }
 
-function loadManifest(binary: string): {
+export function loadProtocolEvidence(): {
   manifest: Manifest;
   schemaText: string;
 } {
-  const directory = resolve(__dirname, '../src/lib/protocol');
-  const schemaPath = join(directory, 'codex-app-server-protocol.schema.json');
-  const manifest = manifestSchema.parse(
-    JSON.parse(
-      readFileSync(
-        join(directory, 'codex-app-server-protocol.manifest.json'),
-        'utf8',
-      ),
-    ),
+  const schemaPath = join(
+    resolve(__dirname, '../src/lib/protocol'),
+    'codex-app-server-protocol.schema.json',
   );
-  if (
-    manifest.platform !== process.platform ||
-    manifest.arch !== process.arch ||
-    realpathSync(manifest.binaryPath) !== binary ||
-    digest(binary) !== manifest.binarySha256 ||
-    digest(schemaPath) !== manifest.schemaSha256
-  ) {
-    throw new Error('Pinned binary/schema manifest mismatch');
-  }
-  return { manifest, schemaText: readFileSync(schemaPath, 'utf8') };
+  const schemaText = readFileSync(schemaPath, 'utf8');
+  const schema = record(JSON.parse(schemaText));
+  const definitions = record(schema['definitions'] ?? schema['$defs'] ?? {});
+  const methods = Object.fromEntries(
+    Object.entries({
+      requests: 'ClientRequest',
+      serverRequests: 'ServerRequest',
+      clientNotifications: 'ClientNotification',
+      serverNotifications: 'ServerNotification',
+    }).map(([group, name]) => [
+      group,
+      schemaMethods(definitions[name], definitions),
+    ]),
+  );
+  return { manifest: manifestSchema.parse({ methods }), schemaText };
 }
 
 function delay(ms: number): Promise<void> {
@@ -2299,10 +2330,23 @@ export async function runHarness(
       'Required: --run --binary <absolute native path> --auth-source <absolute auth.json> --model <id> --out <markdown path>',
     );
   }
-  const binary = realpathSync(binaryInput);
-  if (/\.(cmd|bat|js|mjs)$/i.test(binary))
-    throw new Error('Use a native executable');
-  const { manifest, schemaText } = loadManifest(binary);
+  const defaultProbes = createNodeCodexExecutableProbes(async () => undefined);
+  const { selected } = await selectCodexExecutable({
+    ...defaultProbes,
+    installedCandidates: async () => [binaryInput],
+    bundledCandidate: async () => undefined,
+  });
+  const binary = selected.path;
+  print(
+    JSON.stringify({
+      codexExecutable: {
+        source: selected.source,
+        version: selected.version,
+        reason: selected.reason,
+      },
+    }) + '\n',
+  );
+  const { manifest, schemaText } = loadProtocolEvidence();
   const output = resolve(out);
   if (basename(authSource).toLowerCase() !== 'auth.json')
     throw new Error('Auth source must be auth.json');
@@ -2440,8 +2484,9 @@ export async function runHarness(
       provenance: 'real run requested; individual observations only',
       model,
       binary,
-      binarySha256: manifest.binarySha256,
-      schemaSha256: manifest.schemaSha256,
+      binaryVersion: selected.version,
+      binarySource: selected.source,
+      binaryReason: selected.reason,
       platform: process.platform,
       arch: process.arch,
       cap,

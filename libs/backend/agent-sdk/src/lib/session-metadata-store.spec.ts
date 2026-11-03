@@ -711,6 +711,31 @@ describe('SessionMetadataStore', () => {
       expect(md?.cliSessions?.[0].status).toBe('completed');
     });
 
+    it('replaces abandoned CLI IDs in place and removes other abandoned entries', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.addCliSession('sess-1', cliRef({ cliSessionId: 'unrelated' }));
+      await store.addCliSession('sess-1', cliRef({ cliSessionId: 'old' }));
+      await store.addCliSession('sess-1', cliRef({ cliSessionId: 'other-old' }));
+      await store.addCliSession('sess-1', cliRef({
+        cliSessionId: 'new', replacesCliSessionIds: ['old', 'other-old'],
+      }));
+
+      const refs = (await store.get('sess-1'))?.cliSessions;
+      expect(refs?.map((ref) => ref.cliSessionId)).toEqual(['unrelated', 'new']);
+      expect(refs?.[1].replacesCliSessionIds).toEqual(['old', 'other-old']);
+    });
+
+    it('ignores a delayed abandoned-ID write after replacement', async () => {
+      await store.create('sess-1', WORKSPACE, 'parent');
+      await store.addCliSession('sess-1', cliRef({
+        cliSessionId: 'new', replacesCliSessionIds: ['old'],
+      }));
+      await store.addCliSession('sess-1', cliRef({ cliSessionId: 'old' }));
+
+      expect((await store.get('sess-1'))?.cliSessions?.map((ref) => ref.cliSessionId))
+        .toEqual(['new']);
+    });
+
     it('serializes concurrent calls so no reference is lost', async () => {
       await store.create('sess-1', WORKSPACE, 'parent');
       await Promise.all([

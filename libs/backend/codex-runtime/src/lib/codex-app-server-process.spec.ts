@@ -1,5 +1,8 @@
 import { CodexProtocolError } from './codex-protocol-validator';
 import { EventEmitter } from 'node:events';
+import { chmodSync, mkdtempSync, realpathSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import type {
@@ -7,11 +10,11 @@ import type {
   IProcessSpawner,
 } from './codex-runtime-ports';
 import type { CodexExecutionProfile } from './codex-runtime.types';
-import type { CodexBinaryIdentity } from './codex-protocol-manifest';
 import {
   CodexAppServerProcess,
   CodexHomeMismatchError,
   CodexProcessFailureError,
+  CodexUnsupportedMethodError,
 } from './codex-app-server-process';
 
 class FakeChild extends EventEmitter implements SpawnedProcessHandle {
@@ -44,22 +47,10 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
 }
 
 const executable: CodexExecutableSource = {
-  resolvedPath: '/bin/codex',
-  expectedManifestRow: {
-    platform: 'test',
-    arch: 'test',
-    pinnedVersion: '0.165.0',
-    version: 'codex-cli 0.165.0',
-    binarySha256: 'a'.repeat(64),
-    schemaSha256: 'b'.repeat(64),
-  },
-};
-const binary: CodexBinaryIdentity = {
-  executablePath: '/bin/codex',
-  platform: 'test',
-  arch: 'test',
-  versionOutput: 'codex-cli 0.165.0',
-  sha256: 'a'.repeat(64),
+  path: realpathSync(process.execPath),
+  source: 'installed',
+  version: '0.165.0',
+  reason: 'Using installed Codex 0.165.0.',
 };
 const profile: CodexExecutionProfile = {
   contextId: 'context',
@@ -122,8 +113,33 @@ describe('CodexAppServerProcess', () => {
   let runtime: CodexAppServerProcess;
   let onNotification: jest.Mock;
   let onRequest: jest.Mock<Promise<unknown>, [unknown, AbortSignal]>;
+  let windowsExecutableFixture: { dir: string; file: string } | undefined;
+
+  // The home check normalizes with the (mocked) win32 platform, which needs a drive-rooted home.
+  const windowsProfile: CodexExecutionProfile = {
+    ...profile,
+    normalizedHome: 'C:\\isolated\\home',
+  };
+  let activeProfile: CodexExecutionProfile = profile;
+
+  function useWindowsExecutableFixture(): void {
+    activeProfile = windowsProfile;
+    let path = executable.path;
+    if (process.platform !== 'win32') {
+      const dir = mkdtempSync(join(tmpdir(), 'codex-process-spec-'));
+      const file = join(dir, 'codex.exe');
+      writeFileSync(file, 'fixture');
+      chmodSync(file, 0o755);
+      windowsExecutableFixture = { dir, file };
+      path = realpathSync(file);
+    }
+    runtime = new CodexAppServerProcess(spawner, { ...executable, path }, windowsProfile,
+      { onNotification, onRequest }, logger);
+  }
 
   beforeEach(() => {
+    windowsExecutableFixture = undefined;
+    activeProfile = profile;
     jest.useFakeTimers();
     jest.clearAllMocks();
     child = new FakeChild();
@@ -135,7 +151,6 @@ describe('CodexAppServerProcess', () => {
     runtime = new CodexAppServerProcess(
       spawner,
       executable,
-      binary,
       profile,
       {
         onNotification,
@@ -151,12 +166,19 @@ describe('CodexAppServerProcess', () => {
     expect(jest.getTimerCount()).toBe(0);
     jest.useRealTimers();
     jest.restoreAllMocks();
+    if (windowsExecutableFixture) {
+      unlinkSync(windowsExecutableFixture.file);
+      rmdirSync(windowsExecutableFixture.dir);
+    }
     if (platformDescriptor)
       Object.defineProperty(process, 'platform', platformDescriptor);
   });
   async function start(): Promise<void> {
     const starting = runtime.start();
-    child.send({ id: 1, result: initializeResult });
+    child.send({
+      id: 1,
+      result: { ...initializeResult, codexHome: activeProfile.normalizedHome },
+    });
     await starting;
   }
   async function flush(): Promise<void> {
@@ -461,7 +483,7 @@ describe('CodexAppServerProcess', () => {
     expect(child.stderr.listenerCount('data')).toBe(0);
   });
 
-  it('pins before spawning and initializes once with isolated child env and granular capability', async () => {
+  it('checks the native executable and initializes once with isolated child env and granular capability', async () => {
     const home = process.env['CODEX_HOME'];
     const starting = runtime.start();
     expect(runtime.start()).toBe(starting);
@@ -469,15 +491,10 @@ describe('CodexAppServerProcess', () => {
     await starting;
     expect(spawner.spawnProcess).toHaveBeenCalledTimes(1);
     expect(spawner.spawnProcess).toHaveBeenCalledWith({
-      command: executable.resolvedPath,
+      command: executable.path,
       args: ['app-server'],
       cwd: '/work',
       env: expect.objectContaining({ CODEX_HOME: '/isolated/home' }),
-      launchGuard: {
-        fileContents: [
-          { path: executable.resolvedPath, sha256: binary.sha256 },
-        ],
-      },
     });
     expect(process.env['CODEX_HOME']).toBe(home);
     expect(child.frames).toEqual([
@@ -496,6 +513,7 @@ describe('CodexAppServerProcess', () => {
   it.each(['linux', 'win32'] as const)(
     'inherits only allowlisted host variables on %s',
     async (platform) => {
+      if (platform === 'win32') useWindowsExecutableFixture();
       Object.defineProperty(process, 'platform', { value: platform });
       const allowed = {
         PATH: '/bin',
@@ -531,7 +549,7 @@ describe('CodexAppServerProcess', () => {
       await start();
       expect(spawner.spawnProcess).toHaveBeenCalledWith(
         expect.objectContaining({
-          env: { ...allowed, CODEX_HOME: profile.normalizedHome },
+          env: { ...allowed, CODEX_HOME: activeProfile.normalizedHome },
         }),
       );
       expect(process.env).toBe(hostEnv);
@@ -540,6 +558,7 @@ describe('CodexAppServerProcess', () => {
   );
 
   it('normalizes Windows case variants and excludes mixed-case secrets and home overrides', async () => {
+    useWindowsExecutableFixture();
     Object.defineProperty(process, 'platform', { value: 'win32' });
     jest.replaceProperty(process, 'env', {
       Path: 'C:\\bin',
@@ -566,17 +585,16 @@ describe('CodexAppServerProcess', () => {
           COMSPEC: 'cmd.exe',
           TEMP: 'C:\\Temp',
           LC_ALL: 'C',
-          CODEX_HOME: profile.normalizedHome,
+          CODEX_HOME: activeProfile.normalizedHome,
         },
       }),
     );
   });
 
-  it('refuses mismatched identity without spawning or handshaking', async () => {
+  it('refuses a missing native executable without spawning or handshaking', async () => {
     runtime = new CodexAppServerProcess(
       spawner,
-      executable,
-      { ...binary, sha256: 'c'.repeat(64) },
+      { ...executable, path: '/missing/codex' },
       profile,
       { onNotification, onRequest },
     );
@@ -612,29 +630,6 @@ describe('CodexAppServerProcess', () => {
     await expect(runtime.start()).rejects.toThrow(
       'Codex home verification failed',
     );
-  });
-
-  it('compares Windows home echoes without case or separator differences', async () => {
-    runtime = new CodexAppServerProcess(
-      spawner,
-      {
-        ...executable,
-        expectedManifestRow: {
-          ...executable.expectedManifestRow,
-          platform: 'win32',
-        },
-      },
-      { ...binary, platform: 'win32' },
-      { ...profile, normalizedHome: 'C:\\Users\\Account\\.codex' },
-      { onNotification, onRequest },
-    );
-    const starting = runtime.start();
-    child.send({
-      id: 1,
-      result: { ...initializeResult, codexHome: 'c:/users/account/.codex/' },
-    });
-    await starting;
-    expect(runtime.verifiedCodexHome).toBe('C:\\Users\\Account\\.codex');
   });
 
   it('decodes UTF-8 split at every byte and multiple frames per chunk', async () => {
@@ -737,7 +732,7 @@ describe('CodexAppServerProcess', () => {
     expect(jest.getTimerCount()).toBe(timersBeforeRequests);
     const retry = runtime.request('model/list', {});
     child.send({ id: 4, result: { data: [], nextCursor: null } });
-    await expect(retry).resolves.toEqual({ data: [], nextCursor: null });
+    await expect(retry).resolves.toEqual({ data: [], nextCursor: null, skippedCount: 0 });
   });
 
   it('keeps concurrent and following requests alive after an invalid thread/list result', async () => {
@@ -782,7 +777,7 @@ describe('CodexAppServerProcess', () => {
 
   it('replies method-not-found and keeps the session alive', async () => {
     await start();
-    child.send({ id: 'unknown', method: 'future/request', params: {} });
+    child.send({ id: 'unknown', method: 'future/request', params: {}, futureField: true });
     expect(child.frames.at(-1)).toEqual({
       id: 'unknown',
       error: { code: -32601, message: 'Method not found' },
@@ -790,6 +785,15 @@ describe('CodexAppServerProcess', () => {
     const pending = runtime.request('turn/interrupt', ids);
     child.send({ id: 2, result: {} });
     await expect(pending).resolves.toEqual({});
+  });
+  it('classifies an outbound -32601 without treating it as retryable', async () => {
+    await start();
+    const pending = runtime.request('model/list', {});
+    child.send({ id: 2, error: { code: -32601, message: 'private server text' } });
+    await expect(pending).rejects.toMatchObject({
+      method: 'model/list', version: '0.165.0', source: 'installed',
+    });
+    await expect(pending).rejects.toBeInstanceOf(CodexUnsupportedMethodError);
   });
   it('classifies a stale turn without exposing server text', async () => {
     await start();
@@ -818,9 +822,8 @@ describe('CodexAppServerProcess', () => {
     await starting;
     expect(logger.info).toHaveBeenCalledTimes(1);
     expect(logger.info).toHaveBeenCalledWith('Codex process started', {
-      binaryPath: '/bin/codex',
-      pinnedVersion: '0.165.0',
-      pinStatus: 'ok',
+      source: 'installed',
+      version: '0.165.0',
       startupDurationMs: 15_000,
     });
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain(
@@ -1083,7 +1086,6 @@ describe('CodexAppServerProcess', () => {
     const other = new CodexAppServerProcess(
       spawner,
       executable,
-      binary,
       profile,
       { onNotification, onRequest },
     );

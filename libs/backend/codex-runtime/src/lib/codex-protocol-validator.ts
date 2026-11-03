@@ -16,10 +16,8 @@ export {
   codexServerRequestSchemas,
 } from './codex-protocol-methods';
 
-// The reasoning delta notifications are registered here, not in
-// codex-protocol-methods.ts (outside this batch's file set). Registering them
-// removes the two methods from the unmodeled surface; the pinned allowlist
-// below keeps the full manifest.
+// The reasoning delta notifications are registered here because their
+// translator support is separate from the primary method table.
 export const codexNotificationSchemas = {
   ...methodNotificationSchemas,
   'item/reasoning/summaryTextDelta': reasoningSummaryTextDelta,
@@ -75,6 +73,14 @@ function classifyDiagnosticPath(
   // A record's key is always redacted, even if another union arm names it.
   if (depth >= Math.min(path.length, MAX_DIAGNOSTIC_PATH_DEPTH)) return;
   if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable)
+    return classifyDiagnosticPath(
+      schema.unwrap(),
+      path,
+      schemaKeys,
+      recordKeys,
+      depth,
+    );
+  if (schema instanceof z.ZodCatch)
     return classifyDiagnosticPath(
       schema.unwrap(),
       path,
@@ -184,101 +190,6 @@ function isNotification(method: string): method is CodexNotificationMethod {
   return Object.hasOwn(codexNotificationSchemas, method);
 }
 
-// Pinned 0.165.0 ServerNotification methods; specs compare this surface with both artifacts.
-const pinnedServerNotifications = new Set<string>([
-  'account/gatewayOAuth/changed',
-  'account/login/completed',
-  'account/rateLimits/updated',
-  'account/updated',
-  'app/list/updated',
-  'autoApprovalReview/strictReviewRequired',
-  'command/exec/outputDelta',
-  'configWarning',
-  'deprecationNotice',
-  'error',
-  'externalAgentConfig/import/completed',
-  'externalAgentConfig/import/progress',
-  'fs/changed',
-  'fuzzyFileSearch/sessionCompleted',
-  'fuzzyFileSearch/sessionUpdated',
-  'guardianWarning',
-  'hook/completed',
-  'hook/started',
-  'item/agentMessage/delta',
-  'item/autoApprovalReview/completed',
-  'item/autoApprovalReview/started',
-  'item/commandExecution/outputDelta',
-  'item/commandExecution/terminalInteraction',
-  'item/completed',
-  'item/fileChange/outputDelta',
-  'item/fileChange/patchUpdated',
-  'item/mcpToolCall/progress',
-  'item/plan/delta',
-  'item/reasoning/summaryPartAdded',
-  'item/reasoning/summaryTextDelta',
-  'item/reasoning/textDelta',
-  'item/started',
-  'mcpServer/event/stream/notification',
-  'mcpServer/oauthLogin/completed',
-  'mcpServer/startupStatus/updated',
-  'model/rerouted',
-  'model/safetyBuffering/updated',
-  'model/verification',
-  'modelProvider/authRecoveryCompleted',
-  'modelProvider/authRecoveryStarted',
-  'process/exited',
-  'process/outputDelta',
-  'project/changed',
-  'remoteControl/status/changed',
-  'serverRequest/resolved',
-  'skills/changed',
-  'thread/archived',
-  'thread/attachment/updated',
-  'thread/closed',
-  'thread/compacted',
-  'thread/deleted',
-  'thread/environment/connected',
-  'thread/environment/disconnected',
-  'thread/goal/cleared',
-  'thread/goal/updated',
-  'thread/name/updated',
-  'thread/project/updated',
-  'thread/prediction/updated',
-  'thread/queue/changed',
-  'thread/readState/changed',
-  'thread/realtime/closed',
-  'thread/realtime/error',
-  'thread/realtime/item/completed',
-  'thread/realtime/item/started',
-  'thread/realtime/item/transcript/delta',
-  'thread/realtime/itemAdded',
-  'thread/realtime/outputAudio/delta',
-  'thread/realtime/sdp',
-  'thread/realtime/started',
-  'thread/realtime/transcript/delta',
-  'thread/realtime/transcript/done',
-  'thread/reverted',
-  'thread/settings/updated',
-  'thread/started',
-  'thread/status/changed',
-  'thread/tokenUsage/updated',
-  'thread/unarchived',
-  'turn/completed',
-  'turn/diff/updated',
-  'turn/moderationMetadata',
-  'turn/plan/updated',
-  'turn/started',
-  'warning',
-  'windows/worldWritableWarning',
-  'windowsSandbox/setupCompleted',
-]);
-const unmodeledParams = z.record(string, z.unknown());
-
-/** Only the pinned server-notification allowlist may bypass payload modeling. */
-export function isUnmodeledCodexNotification(method: string): boolean {
-  return pinnedServerNotifications.has(method) && !isNotification(method);
-}
-
 export function validateCodexParams<M extends CodexRequestMethod>(
   method: M,
   value: unknown,
@@ -298,8 +209,6 @@ export function validateCodexParams(method: string, value: unknown): unknown {
       'invalidParams',
       method,
     );
-  if (isUnmodeledCodexNotification(method))
-    return parse(unmodeledParams, value, 'invalidParams', method);
   throw new CodexProtocolError('unknownMethod', method);
 }
 export function validateCodexResult<M extends CodexRequestMethod>(
@@ -341,15 +250,7 @@ const envelope = z
       }),
     ]),
   );
-export type CodexProtocolFrame =
-  | (z.infer<typeof envelope> & { readonly modeled?: true })
-  | {
-      readonly method: string;
-      readonly params: Record<string, unknown>;
-      readonly modeled: false;
-      readonly jsonrpc?: '2.0';
-      readonly emittedAtMs?: number;
-    };
+export type CodexProtocolFrame = z.infer<typeof envelope>;
 
 /** Supply the pending method for responses, before settling correlation or dispatching. */
 export function validateCodexFrame(
@@ -358,20 +259,6 @@ export function validateCodexFrame(
 ): CodexProtocolFrame {
   const frame = parse(envelope, value, 'invalidEnvelope');
   if ('method' in frame) {
-    if (isUnmodeledCodexNotification(frame.method)) {
-      if ('id' in frame)
-        throw new CodexProtocolError('invalidEnvelope', frame.method);
-      return {
-        ...frame,
-        params: parse(
-          unmodeledParams,
-          frame.params,
-          'invalidParams',
-          frame.method,
-        ),
-        modeled: false,
-      };
-    }
     if (!isRequest(frame.method) && !isNotification(frame.method))
       throw new CodexProtocolError('unknownMethod', frame.method);
     if (isRequest(frame.method) !== 'id' in frame)

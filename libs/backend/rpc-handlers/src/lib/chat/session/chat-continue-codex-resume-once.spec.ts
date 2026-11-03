@@ -18,9 +18,7 @@ import { Logger } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import {
   CODEX_RUNTIME_TOKENS,
-  CodexParityGate,
   type CodexContext,
-  type CodexDevRouteOverride,
   type CodexExecutionProfile,
 } from '@ptah-extension/codex-runtime';
 import {
@@ -266,19 +264,12 @@ describe('chat:continue Codex resume delivers the follow-up once', () => {
       compact: jest.fn(async () => undefined),
       close: jest.fn(async () => undefined),
     };
-    scope.register(CODEX_RUNTIME_TOKENS.ParityGate, { useValue: new CodexParityGate() });
-    scope.register(CODEX_RUNTIME_TOKENS.DevRouteOverride, {
-      useFactory: (): CodexDevRouteOverride => ({
-        consumers: ['chat'], source: 'PTAH_CODEX_RUNTIME_DEV',
-      }),
-    });
     scope.register(CODEX_RUNTIME_TOKENS.Logger, { useValue: { warn: jest.fn() } });
     scope.register(CODEX_RUNTIME_TOKENS.Runtime, {
       useValue: { open: jest.fn(async () => context) },
     });
     const ports: CodexChatAdapterPorts = {
       logger: Object.assign(Object.create(Logger.prototype), createMockLogger()),
-      platform: { platform: 'win32', arch: 'x64' },
       info: {
         id: 'ptah-cli', name: 'Codex', vendor: 'OpenAI', version: '1',
         description: 'Native chat',

@@ -6,15 +6,15 @@
  * the thread config; report its startup status and whether new rollout files hold the secret.
  */
 import 'reflect-metadata';
-import { ChildProcess, spawn, execFile } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { ChildProcess, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { promisify } from 'node:util';
+import { isAbsolute, join, resolve } from 'node:path';
 import {
   buildCodexExecutionProfile, CodexRuntime, CodexProcessFailureError,
-  findCodexExecutablePin, type CodexContext, type CodexExecutionProfileInput,
+  CodexSelectionSnapshot, createNodeCodexExecutableProbes,
+  type CodexContext, type CodexExecutionProfileInput,
   type CodexRuntimeLogger, type CodexThreadIdentity, type CodexThreadIdentityStore,
   type IProcessSpawner,
 } from '@ptah-extension/codex-runtime';
@@ -80,30 +80,6 @@ function options() {
   if (result.codex && !isAbsolute(result.codex)) throw new Error('--codex must be absolute');
   return result;
 }
-
-function executable(override: string): string {
-  const detected = override || resolveCodexNativeBinaryPath();
-  if (!detected) throw new Error('Bundled Codex executable unavailable');
-  const path = realpathSync(detected);
-  if (override) return path;
-  let directory = resolve(__dirname, '..');
-  while (true) {
-    const candidate = join(directory, 'node_modules');
-    let exists = false;
-    try { exists = statSync(candidate).isDirectory(); } catch { /* Try ancestor. */ }
-    if (exists) {
-      const local = relative(realpathSync(candidate), path);
-      if (!local || isAbsolute(local) || local === '..' || local.startsWith(`..${sep}`))
-        throw new Error('Codex executable is outside the host bundle');
-      return path;
-    }
-    const parent = dirname(directory);
-    if (parent === directory) throw new Error('Bundled Codex package root unavailable');
-    directory = parent;
-  }
-}
-
-const digest = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
 function suppression(home: string): string[] {
   let config: string;
@@ -190,20 +166,6 @@ function rolloutScan(directory: string, since: number, needle: string): { files:
 
 function spawner(overrides: string[]): IProcessSpawner {
   return { spawnProcess(request) {
-    try {
-      if (request.launchGuard?.fileIdentities?.length)
-        throw new Error('Probe does not support file identity guards');
-      for (const file of request.launchGuard?.fileContents ?? []) {
-        if (digest(file.path) !== file.sha256.toLowerCase()) throw new Error('Digest changed');
-      }
-    } catch {
-      const refused = new ChildProcess();
-      queueMicrotask(() => {
-        refused.emit('error', Object.assign(new Error('Codex launch digest guard refused'), { code: 'ELAUNCHGUARD' }));
-        refused.emit('close', null, null);
-      });
-      return processHandle(refused, Promise.resolve(null));
-    }
     const child = spawn(request.command, [...request.args, ...overrides], {
       cwd: request.cwd, env: request.env, detached: request.detached,
       windowsHide: true, stdio: 'pipe', shell: false,
@@ -228,19 +190,11 @@ async function main(): Promise<void> {
   try {
     const args = await step('parse options', options);
     probeMcp = args.mcp;
-    const path = await step('resolve executable', () => executable(args.codex));
-    const { pin, binary } = await step('verify pin', async () => {
-      const pin = findCodexExecutablePin(process.platform, process.arch);
-      if (!pin) throw new Error('No reviewed Codex executable pin for this platform');
-      const sha256 = digest(path);
-      if (sha256 !== pin.binarySha256) throw new Error('Codex executable digest does not match the reviewed pin');
-      // Never surface execFile's error message: it may embed raw child stderr.
-      const version = await promisify(execFile)(path, ['--version'], {
-        encoding: 'utf8', timeout: 10000, windowsHide: true,
-      }).catch(() => { throw new Error('Codex --version failed'); });
-      const versionOutput = version.stdout.trim();
-      if (versionOutput !== `codex-cli ${pin.pinnedVersion}`) throw new Error('Codex version does not match the reviewed pin');
-      return { pin, binary: { executablePath: path, sha256, versionOutput, platform: process.platform, arch: process.arch } };
+    const defaultProbes = createNodeCodexExecutableProbes(async () =>
+      resolveCodexNativeBinaryPath());
+    const selectionSnapshot = new CodexSelectionSnapshot({
+      ...defaultProbes,
+      ...(args.codex ? { installedCandidates: async () => [args.codex] } : {}),
     });
     const profile = await step('build profile', () => {
       const cwd = resolve(args.cwd);
@@ -277,7 +231,7 @@ async function main(): Promise<void> {
       },
     };
     const openedRuntime = new CodexRuntime({
-      executable: { resolvedPath: path, expectedManifestRow: pin }, binary, spawner: spawner(overrides), store, logger,
+      selectionSnapshot, spawner: spawner(overrides), store, logger,
       sink: { async request() { print('FAIL unexpected approval request; denied'); process.exitCode = 1; return 'decline'; } },
       clock: { now: () => Date.now(), setTimeout(callback, delay) {
         const timer = setTimeout(callback, delay); return { dispose: () => clearTimeout(timer) };
@@ -286,6 +240,11 @@ async function main(): Promise<void> {
     runtime = openedRuntime;
     context = await step('open = initialize + thread/start', () =>
       openedRuntime.open(profile, undefined, new Map([['probe.header', secret]])));
+    const selected = selectionSnapshot.current();
+    if (!selected) throw new Error('Codex executable selection is missing after open');
+    print(JSON.stringify({ codexExecutable: {
+      source: selected.source, version: selected.version, reason: selected.reason,
+    } }));
     threadPrefix = context.identity.threadId.slice(0, 8);
     if (args.mcp) {
       const states = await probeStatus(15000);

@@ -147,6 +147,8 @@ export interface AgentProcessInfo {
   readonly pid?: number;
   /** CLI-native session ID from the init event. Enables session resume. */
   readonly cliSessionId?: string;
+  /** CLI session IDs abandoned earlier in this same agent run. */
+  readonly replacesCliSessionIds?: readonly string[];
   /** Parent Ptah Claude SDK session that spawned this CLI agent via ptah_agent_spawn.
    *  Mutable: initially set to tab ID, then resolved to real SDK UUID. */
   parentSessionId?: string;
@@ -418,6 +420,8 @@ export interface CliDetectionResult {
   readonly installed: boolean;
   readonly path?: string;
   readonly version?: string;
+  readonly codexSource?: 'installed' | 'bundled';
+  readonly codexReason?: string;
   /** Best messaging mechanism this CLI offers for a message sent to a live agent. */
   readonly messagingMode: AgentMessagingCapability;
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli') */
@@ -530,6 +534,8 @@ export interface CliSessionReference {
   readonly accountBindingId?: string;
   /** CLI-native session ID */
   readonly cliSessionId: string;
+  /** Earlier CLI session IDs abandoned by this same run; internal restore bookkeeping. */
+  readonly replacesCliSessionIds?: readonly string[];
   /** Which CLI produced this session */
   readonly cli: CliType;
   /** Ptah's branded AgentId that ran this session */

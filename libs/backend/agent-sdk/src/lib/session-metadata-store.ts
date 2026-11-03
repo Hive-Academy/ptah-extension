@@ -2016,7 +2016,7 @@ export class SessionMetadataStore {
 
   /**
    * Add a CLI session reference to a parent session's metadata.
-   * Called when a CLI agent exits with a captured cliSessionId.
+    * Called on CLI agent lifecycle updates with a captured cliSessionId.
    *
    * Serialized through writeQueue to prevent race conditions when
    * multiple CLI agents exit simultaneously and try to add their
@@ -2034,37 +2034,56 @@ export class SessionMetadataStore {
       }
 
       const existing = metadata.cliSessions ?? [];
-      const existingIndex = existing.findIndex(
+      // A spawn write can arrive after the fallback has already replaced its
+      // thread. The newer reference is authoritative for that abandoned ID.
+      if (existing.some((s) => s.replacesCliSessionIds?.includes(cliSession.cliSessionId))) {
+        return;
+      }
+      const replacedIds = new Set(cliSession.replacesCliSessionIds ?? []);
+      const exactIndex = existing.findIndex(
         (s) => s.cliSessionId === cliSession.cliSessionId,
       );
+      const existingIndex = exactIndex >= 0 ? exactIndex : existing.findIndex(
+        (s) => replacedIds.has(s.cliSessionId),
+      );
+      const prior = existingIndex >= 0 ? existing[existingIndex] : undefined;
+      const allReplacedIds = new Set([
+        ...replacedIds,
+        ...(prior?.replacesCliSessionIds ?? []),
+      ]);
+      allReplacedIds.delete(cliSession.cliSessionId);
+      const replacement: CliSessionReference = allReplacedIds.size > 0
+        ? { ...cliSession, replacesCliSessionIds: [...allReplacedIds] }
+        : cliSession;
 
       let updated: readonly CliSessionReference[];
-      // Re-association: the same `cliSessionId` resumed under a NEW agent. The
+      // Re-association: a session ID resumed under a new agent, or a new ID
+      // replacing an abandoned one. The
       // slot is the only route to `ptah.agentOutput:<agentId>`, so the
       // displaced agent's key becomes unreachable — a leak per resume, and
       // `_deleteInternal` can never collect it either (TASK_2026_324
       // finding 4). Collected here, deleted only once the replacement
       // reference is durable: see the note at the delete site below.
-      let displacedAgentId: string | undefined;
+      const displacedAgentIds: string[] = [];
       if (existingIndex >= 0) {
-        const previous = existing[existingIndex];
-        const mutable = [...existing];
-        mutable[existingIndex] = cliSession;
-        updated = mutable;
-        if (
-          blankToUndefined(previous.agentId) !== undefined &&
-          previous.agentId !== cliSession.agentId
-        ) {
-          displacedAgentId = previous.agentId;
-        }
+        updated = existing.flatMap((entry, index) =>
+          index === existingIndex ? [replacement] :
+            allReplacedIds.has(entry.cliSessionId) ? [] : [entry],
+        );
         this.logger.info(
           `[SessionMetadataStore] Updated CLI session ${cliSession.cliSessionId} (${cliSession.cli}) in session ${sessionId}`,
         );
       } else {
-        updated = [...existing, cliSession];
+        updated = [...existing.filter((entry) => !allReplacedIds.has(entry.cliSessionId)), replacement];
         this.logger.info(
           `[SessionMetadataStore] Linked CLI session ${cliSession.cliSessionId} (${cliSession.cli}) to session ${sessionId}`,
         );
+      }
+      for (const entry of existing) {
+        if (updated.includes(entry) || blankToUndefined(entry.agentId) === undefined ||
+          updated.some((retained) => retained.agentId === entry.agentId) ||
+          displacedAgentIds.includes(entry.agentId)) continue;
+        displacedAgentIds.push(entry.agentId);
       }
 
       await this._saveInternal({
@@ -2085,13 +2104,15 @@ export class SessionMetadataStore {
       // callback returns, which is after the delete. Coalescing is untouched
       // on every other path — a re-association under a new agent id happens
       // once per resume, not once per event.
-      if (displacedAgentId !== undefined) {
+      if (displacedAgentIds.length > 0) {
         await this.flush();
-        await this.deleteAgentOutput(displacedAgentId, sessionId);
-        this.logger.info(
-          `[SessionMetadataStore] Dropped orphaned output key for re-associated agent ${displacedAgentId}`,
-          { cliSessionId: cliSession.cliSessionId },
-        );
+        for (const displacedAgentId of displacedAgentIds) {
+          await this.deleteAgentOutput(displacedAgentId, sessionId);
+          this.logger.info(
+            `[SessionMetadataStore] Dropped orphaned output key for re-associated agent ${displacedAgentId}`,
+            { cliSessionId: cliSession.cliSessionId },
+          );
+        }
       }
       this.emitChange('updated', sessionId, metadata.workspaceId);
     });

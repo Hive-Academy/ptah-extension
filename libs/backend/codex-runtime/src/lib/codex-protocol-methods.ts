@@ -15,7 +15,7 @@ import {
   reviewer,
   sandbox,
   input,
-  commandAction,
+  commandActions,
   functionOutput,
   item,
   turnError,
@@ -33,9 +33,81 @@ import {
   usage,
   rateWindow,
   rateLimits,
+  activeFlags,
 } from './codex-protocol-schemas';
 
-/** Hand-written boundary schemas for the pinned runtime surface. */
+const inputModality = z.enum(['text', 'image', 'audio']);
+const modelListEntry = z.object({
+  id: string.min(1),
+  model: string.min(1),
+  displayName: string.optional(),
+  description: string.optional(),
+  hidden: z.boolean().optional(),
+  isDefault: z.boolean().optional(),
+  defaultReasoningEffort: string.min(1).optional(),
+  supportedReasoningEfforts: z
+    .array(
+      z.object({
+        reasoningEffort: string.min(1),
+        description: string.optional(),
+      }),
+    )
+    .optional(),
+  additionalSpeedTiers: z.array(string).optional(),
+  availabilityNux: z.object({ message: string }).nullish(),
+  defaultServiceTier: string.nullish(),
+  inputModalities: z
+    // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
+    .array(inputModality.optional().catch(undefined))
+    .transform((modalities) =>
+      modalities.filter(
+        (modality): modality is z.infer<typeof inputModality> =>
+          modality !== undefined,
+      ),
+    )
+    .optional(),
+  modelSpecialty: string.nullish(),
+  // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
+  multiAgentVersion: z
+    .enum(['disabled', 'v1', 'v2'])
+    .nullish()
+    .catch(undefined),
+  serviceTiers: z
+    .array(z.object({ id: string, name: string, description: string }))
+    .optional(),
+  supportsPersonality: z.boolean().optional(),
+  upgrade: string.nullish(),
+  upgradeInfo: z
+    .object({
+      model: string,
+      migrationMarkdown: string.nullish(),
+      modelLink: string.nullish(),
+      retirementAt: integer.nullish(),
+      upgradeCopy: string.nullish(),
+    })
+    .nullish(),
+});
+const modelListResult = z
+  .object({
+    data: z.array(z.unknown()),
+    nextCursor: string.nullish(),
+  })
+  .transform((result) => {
+    const models: z.infer<typeof modelListEntry>[] = [];
+    let skippedCount = 0;
+    for (const entry of result.data) {
+      const parsed = modelListEntry.safeParse(entry);
+      if (parsed.success) models.push(parsed.data);
+      else skippedCount++;
+    }
+    return { data: models, nextCursor: result.nextCursor, skippedCount };
+  })
+  .refine((result) => result.data.length > 0 || result.skippedCount === 0, {
+    message: 'Codex model catalog entries were all invalid',
+    path: ['data'],
+  });
+
+/** Hand-written boundary schemas for the supported runtime surface. */
 export const codexRequestSchemas = {
   initialize: {
     params: z.strictObject({
@@ -163,48 +235,7 @@ export const codexRequestSchemas = {
       includeHidden: z.boolean().nullish(),
       limit: integer.min(0).max(4_294_967_295).nullish(),
     }),
-    result: z.object({
-      data: z.array(
-        z.object({
-          id: string,
-          model: string,
-          displayName: string,
-          description: string,
-          hidden: z.boolean(),
-          isDefault: z.boolean(),
-          defaultReasoningEffort: string.min(1),
-          supportedReasoningEfforts: z.array(
-            z.object({
-              reasoningEffort: string.min(1),
-              description: string,
-            }),
-          ),
-          additionalSpeedTiers: z.array(string).optional(),
-          availabilityNux: z.object({ message: string }).nullish(),
-          defaultServiceTier: string.nullish(),
-          inputModalities: z
-            .array(z.enum(['text', 'image', 'audio']))
-            .optional(),
-          modelSpecialty: string.nullish(),
-          multiAgentVersion: z.enum(['disabled', 'v1', 'v2']).nullish(),
-          serviceTiers: z
-            .array(z.object({ id: string, name: string, description: string }))
-            .optional(),
-          supportsPersonality: z.boolean().optional(),
-          upgrade: string.nullish(),
-          upgradeInfo: z
-            .object({
-              model: string,
-              migrationMarkdown: string.nullish(),
-              modelLink: string.nullish(),
-              retirementAt: integer.nullish(),
-              upgradeCopy: string.nullish(),
-            })
-            .nullish(),
-        }),
-      ),
-      nextCursor: string.nullish(),
-    }),
+    result: modelListResult,
   },
   'account/rateLimits/read': {
     params: empty.nullish(),
@@ -225,10 +256,11 @@ export const codexServerRequestSchemas = {
       ...approvalIds,
       approvalId: string.nullish(),
       command: string.nullish(),
-      commandActions: z.array(commandAction).nullish(),
+      commandActions: commandActions.nullish(),
       cwd: string.nullish(),
       environmentId: string.nullish(),
-      kind: z.enum(['command', 'writeStdin']).optional(),
+      // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
+      kind: z.enum(['command', 'writeStdin']).optional().catch(undefined),
       reason: string.nullish(),
       proposedExecpolicyAmendment: z.array(string).nullish(),
       networkApprovalContext: z
@@ -297,19 +329,20 @@ export const codexServerRequestSchemas = {
   },
 } as const;
 
-// Server notifications strip extensions while retaining their pinned field constraints.
+// Server notifications strip extensions while retaining their required field constraints.
 const notificationStatus = z.discriminatedUnion('type', [
   z.object({ type: z.literal('notLoaded') }),
   z.object({ type: z.literal('idle') }),
   z.object({ type: z.literal('systemError') }),
   z.object({
     type: z.literal('active'),
-    activeFlags: z.array(z.enum(['waitingOnApproval', 'waitingOnUserInput'])),
+    activeFlags,
   }),
 ]);
 const notificationRateLimits = rateLimits.strip().extend({
   primary: rateWindow.strip().nullish(),
   secondary: rateWindow.strip().nullish(),
+  // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
   planType: z
     .enum([
       'free',
@@ -330,7 +363,9 @@ const notificationRateLimits = rateLimits.strip().extend({
       'edu_pro',
       'unknown',
     ])
-    .nullish(),
+    .nullish()
+    .catch(undefined),
+  // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
   rateLimitReachedType: z
     .enum([
       'rate_limit_reached',
@@ -339,7 +374,8 @@ const notificationRateLimits = rateLimits.strip().extend({
       'workspace_owner_usage_limit_reached',
       'workspace_member_usage_limit_reached',
     ])
-    .nullish(),
+    .nullish()
+    .catch(undefined),
   individualLimit: rateLimits.shape.individualLimit
     .unwrap()
     .unwrap()
@@ -357,7 +393,11 @@ export const codexNotificationSchemas = {
     name: string,
     status: z.enum(['starting', 'ready', 'failed', 'cancelled']),
     error: string.nullish(),
-    failureReason: z.literal('reauthenticationRequired').nullish(),
+    // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
+    failureReason: z
+      .literal('reauthenticationRequired')
+      .nullish()
+      .catch(undefined),
     threadId: string.nullish(),
   }),
   'remoteControl/status/changed': z.object({

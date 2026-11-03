@@ -37,11 +37,9 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   CODEX_RUNTIME_TOKENS,
-  CodexParityGate,
   type ApprovalSink,
   type CodexClock,
   type CodexContext,
-  type CodexDevRouteOverride,
   type CodexExecutionProfile,
   type CodexRuntimeEvent,
 } from '@ptah-extension/codex-runtime';
@@ -405,14 +403,6 @@ function codexHarness() {
   const scope = container.createChildContainer();
   // Every runtime open (fresh or resumed) is one App Server context.
   const open = jest.fn(async () => server.context());
-  scope.register(CODEX_RUNTIME_TOKENS.ParityGate, {
-    useValue: new CodexParityGate(),
-  });
-  scope.register(CODEX_RUNTIME_TOKENS.DevRouteOverride, {
-    useFactory: (): CodexDevRouteOverride => ({
-      consumers: ['chat', 'gateway'], source: 'PTAH_CODEX_RUNTIME_DEV',
-    }),
-  });
   scope.register(CODEX_RUNTIME_TOKENS.Logger, {
     useValue: { warn: jest.fn() },
   });
@@ -439,7 +429,6 @@ function codexHarness() {
     webviewManager: view.manager,
     hostAttention: { resolve: resolveAttention },
     logger,
-    platform: { platform: 'win32', arch: 'x64' },
     info,
     createScope: (value) => {
       sink = value;

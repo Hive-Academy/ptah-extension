@@ -324,8 +324,8 @@ describe('AgentSpawnEnvironment', () => {
     it('defaults an unset Codex model to the Ptah lane default', () => {
       const { environment } = makeEnvironment();
       expect(environment.resolveModel('codex', undefined)).toEqual({
-        model: 'gpt-6-sol',
-        source: 'ptah-default',
+        model: undefined,
+        source: 'cli-default',
       });
     });
 

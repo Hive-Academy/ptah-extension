@@ -1417,11 +1417,11 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     expect(detection?.getAdapter('codex')).toBeInstanceOf(CodexAppServerLaneAdapter);
   });
 
-  it('marks Codex unavailable when packaged on linux/x64', () => {
+  it('binds native Codex when packaged on linux/x64', () => {
     const { c, detection } = composePhase2(true, true, true);
-    expect(c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY)).toBe(false);
+    expect(c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CODEX_ADAPTER_FACTORY)).toBe(true);
     const codex = detection?.getAdapter('codex');
-    expect(codex).toMatchObject({ name: 'codex', supportsMcp: false });
+    expect(codex).toBeInstanceOf(CodexAppServerLaneAdapter);
   });
 
   it('binds native Codex through phase 2 when packaged on win32/x64', () => {

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
@@ -160,24 +161,12 @@ describe('CodexAccountUsageClient', () => {
         };
         return new CodexAppServerProcess(
           { spawnProcess: jest.fn(() => child) },
-          {
-            resolvedPath: '/codex',
-            expectedManifestRow: {
-              platform: process.platform,
-              arch: process.arch,
-              pinnedVersion: '0.165.0',
-              version: 'codex-cli 0.165.0',
-              binarySha256: 'a'.repeat(64),
-              schemaSha256: 'b'.repeat(64),
-            },
-          },
-          {
-            executablePath: '/codex',
-            platform: process.platform,
-            arch: process.arch,
-            versionOutput: 'codex-cli 0.165.0',
-            sha256: 'a'.repeat(64),
-          },
+          async () => ({
+            path: realpathSync(process.execPath),
+            version: '0.165.0',
+            source: 'bundled',
+            reason: 'Bundled Codex selected',
+          }),
           profile,
           handlers,
         );

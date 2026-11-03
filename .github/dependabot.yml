@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directories:
+      - "/"
+      - "/apps/ptah-electron"
+      - "/libs/backend/agent-sdk"
+      - "/libs/backend/auth-providers"
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-name: "@openai/codex"
+      - dependency-name: "@openai/codex-sdk"
+      - dependency-name: "@openai/codex-*"
+    groups:
+      codex:
+        patterns:
+          - "@openai/codex"
+          - "@openai/codex-sdk"
+          - "@openai/codex-*"
+    open-pull-requests-limit: 5

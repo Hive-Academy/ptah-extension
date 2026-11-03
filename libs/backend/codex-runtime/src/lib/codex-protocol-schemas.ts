@@ -69,7 +69,11 @@ export const serverSandbox = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('externalSandbox'),
-    networkAccess: z.enum(['enabled', 'restricted']).optional(),
+    // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
+    networkAccess: z
+      .enum(['enabled', 'restricted'])
+      .optional()
+      .catch(undefined),
   }),
   z.object({
     type: z.literal('workspaceWrite'),
@@ -117,29 +121,59 @@ const serverTextElement = z.object({
   }),
   placeholder: string.nullish(),
 });
-export const serverInput = z.array(
-  z.discriminatedUnion('type', [
-    z.object({
-      type: z.literal('text'),
-      text: string,
-      text_elements: z.array(serverTextElement).optional(),
-    }),
-    z.object({
-      type: z.literal('image'),
-      url: string,
-      detail: z.enum(['auto', 'low', 'high', 'original']).nullish(),
-    }),
-    z.object({
-      type: z.literal('localImage'),
-      path: string,
-      detail: z.enum(['auto', 'low', 'high', 'original']).nullish(),
-    }),
-    z.object({ type: z.literal('audio'), url: string }),
-    z.object({ type: z.literal('localAudio'), path: string }),
-    z.object({ type: z.literal('skill'), name: string, path: string }),
-    z.object({ type: z.literal('mention'), name: string, path: string }),
-  ]),
-);
+// degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
+const serverImageDetail = z
+  .enum(['auto', 'low', 'high', 'original'])
+  .nullish()
+  .catch(undefined);
+function tolerantServerVariants<T extends z.ZodType<{ type: string }>>(
+  variant: T,
+  knownTypes: readonly string[],
+) {
+  const known = new Set(knownTypes);
+  return z
+    .array(
+      z.union([
+        variant,
+        z
+          .object({ type: string })
+          .refine((entry) => !known.has(entry.type)),
+      ]),
+    )
+    .transform((entries) =>
+      entries.filter((entry): entry is z.output<T> => known.has(entry.type)),
+    );
+}
+const serverInputEntry = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('text'),
+    text: string,
+    text_elements: z.array(serverTextElement).optional(),
+  }),
+  z.object({
+    type: z.literal('image'),
+    url: string,
+    detail: serverImageDetail,
+  }),
+  z.object({
+    type: z.literal('localImage'),
+    path: string,
+    detail: serverImageDetail,
+  }),
+  z.object({ type: z.literal('audio'), url: string }),
+  z.object({ type: z.literal('localAudio'), path: string }),
+  z.object({ type: z.literal('skill'), name: string, path: string }),
+  z.object({ type: z.literal('mention'), name: string, path: string }),
+]);
+export const serverInput = tolerantServerVariants(serverInputEntry, [
+  'text',
+  'image',
+  'localImage',
+  'audio',
+  'localAudio',
+  'skill',
+  'mention',
+]);
 export const commandAction = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('read'),
@@ -159,6 +193,14 @@ export const commandAction = z.discriminatedUnion('type', [
     query: string.nullish(),
   }),
   z.object({ type: z.literal('unknown'), command: string }),
+]);
+// A future action does not invalidate its enclosing item or approval request.
+// Known variants still fail when one of their required fields is malformed.
+export const commandActions = tolerantServerVariants(commandAction, [
+  'read',
+  'listFiles',
+  'search',
+  'unknown',
 ]);
 const itemStatus = z.enum(['inProgress', 'completed', 'failed', 'declined']);
 export const functionOutput = z.union([
@@ -180,25 +222,70 @@ export const functionOutput = z.union([
   ),
 ]);
 // Server data strips extensions; the client variant above remains strict.
+const serverFunctionOutputEntry = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('input_text'), text: string }),
+  z.object({
+    type: z.literal('input_image'),
+    image_url: string,
+    detail: serverImageDetail,
+  }),
+  z.object({ type: z.literal('input_audio'), audio_url: string }),
+  z.object({
+    type: z.literal('encrypted_content'),
+    encrypted_content: string,
+  }),
+]);
 export const serverFunctionOutput = z.union([
   string,
-  z.array(
-    z.discriminatedUnion('type', [
-      z.object({ type: z.literal('input_text'), text: string }),
+  tolerantServerVariants(serverFunctionOutputEntry, [
+    'input_text',
+    'input_image',
+    'input_audio',
+    'encrypted_content',
+  ]),
+]);
+const dynamicToolContentItem = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('inputText'), text: string }),
+  z.object({ type: z.literal('inputImage'), imageUrl: string }),
+  z.object({ type: z.literal('inputAudio'), audioUrl: string }),
+]);
+const dynamicToolContentItems = tolerantServerVariants(
+  dynamicToolContentItem,
+  ['inputText', 'inputImage', 'inputAudio'],
+);
+const fileChangeKind = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('add') }),
+  z.object({ type: z.literal('delete') }),
+  z.object({
+    type: z.literal('update'),
+    move_path: string.nullish(),
+  }),
+]);
+const fileChangeEntry = z.object({
+  path: string,
+  diff: string,
+  kind: fileChangeKind,
+});
+const fileChangeKindTypes = new Set(['add', 'delete', 'update']);
+const fileChanges = z
+  .array(
+    z.union([
+      fileChangeEntry,
       z.object({
-        type: z.literal('input_image'),
-        image_url: string,
-        detail: z.enum(['auto', 'low', 'high', 'original']).nullish(),
-      }),
-      z.object({ type: z.literal('input_audio'), audio_url: string }),
-      z.object({
-        type: z.literal('encrypted_content'),
-        encrypted_content: string,
+        path: string,
+        diff: string,
+        kind: z
+          .object({ type: string })
+          .refine((kind) => !fileChangeKindTypes.has(kind.type)),
       }),
     ]),
-  ),
-]);
-export const item = z.discriminatedUnion('type', [
+  )
+  .transform((changes) =>
+    changes.filter((change): change is z.infer<typeof fileChangeEntry> =>
+      fileChangeKindTypes.has(change.kind.type),
+    ),
+  );
+export const knownItem = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('userMessage'),
     id: string,
@@ -209,8 +296,10 @@ export const item = z.discriminatedUnion('type', [
     type: z.literal('agentMessage'),
     id: string,
     text: string,
-    phase: z.enum(['commentary', 'final_answer']).nullish(),
-    delivery: z.literal('async').nullish(),
+    // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
+    phase: z.enum(['commentary', 'final_answer']).nullish().catch(undefined),
+    // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
+    delivery: z.literal('async').nullish().catch(undefined),
     memoryCitation: z
       .object({
         entries: z.array(
@@ -238,7 +327,7 @@ export const item = z.discriminatedUnion('type', [
     id: string,
     command: string,
     cwd: string,
-    commandActions: z.array(commandAction),
+    commandActions,
     status: itemStatus,
     aggregatedOutput: string.nullish(),
     durationMs: integer.nullish(),
@@ -246,6 +335,7 @@ export const item = z.discriminatedUnion('type', [
     processId: string.nullish(),
     pluginId: string.nullish(),
     scriptPath: string.nullish(),
+    // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
     source: z
       .enum([
         'agent',
@@ -253,26 +343,14 @@ export const item = z.discriminatedUnion('type', [
         'unifiedExecStartup',
         'unifiedExecInteraction',
       ])
-      .optional(),
+      .optional()
+      .catch(undefined),
   }),
   z.object({
     type: z.literal('fileChange'),
     id: string,
     status: itemStatus,
-    changes: z.array(
-      z.object({
-        path: string,
-        diff: string,
-        kind: z.discriminatedUnion('type', [
-          z.object({ type: z.literal('add') }),
-          z.object({ type: z.literal('delete') }),
-          z.object({
-            type: z.literal('update'),
-            move_path: string.nullish(),
-          }),
-        ]),
-      }),
-    ),
+    changes: fileChanges,
   }),
   z.object({
     type: z.literal('mcpToolCall'),
@@ -338,15 +416,7 @@ export const item = z.discriminatedUnion('type', [
     status: z.enum(['inProgress', 'completed', 'failed']),
     success: z.boolean().nullish(),
     durationMs: integer.nullish(),
-    contentItems: z
-      .array(
-        z.discriminatedUnion('type', [
-          z.object({ type: z.literal('inputText'), text: string }),
-          z.object({ type: z.literal('inputImage'), imageUrl: string }),
-          z.object({ type: z.literal('inputAudio'), audioUrl: string }),
-        ]),
-      )
-      .nullish(),
+    contentItems: dynamicToolContentItems.nullish(),
   }),
   z.object({
     type: z.literal('collabAgentToolCall'),
@@ -418,6 +488,35 @@ export const item = z.discriminatedUnion('type', [
     review: string,
   }),
 ]);
+const knownItemTypes = new Set([
+  'userMessage',
+  'agentMessage',
+  'plan',
+  'reasoning',
+  'commandExecution',
+  'fileChange',
+  'mcpToolCall',
+  'webSearch',
+  'imageView',
+  'sleep',
+  'contextCompaction',
+  'hookPrompt',
+  'functionCallOutput',
+  'dynamicToolCall',
+  'collabAgentToolCall',
+  'subAgentActivity',
+  'imageGeneration',
+  'enteredReviewMode',
+  'exitedReviewMode',
+]);
+// Unknown variants retain only routing evidence. A malformed known variant
+// cannot fall through to this arm and hide a missing required field.
+export const item = z.union([
+  knownItem,
+  z
+    .object({ id: string, type: string })
+    .refine((value) => !knownItemTypes.has(value.type)),
+]);
 // Reasoning deltas stream before the reasoning item completes; the completed
 // item still carries the authoritative final text (summary, else content).
 export const reasoningSummaryTextDelta = z.object({
@@ -436,6 +535,13 @@ export const turnError = z.object({
   codexErrorInfo: z.union([string, object]).nullish(),
   misalignment: object.nullish(),
 });
+const activeFlag = z.enum(['waitingOnApproval', 'waitingOnUserInput']);
+export const activeFlags = z
+  // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
+  .array(activeFlag.optional().catch(undefined))
+  .transform((flags) =>
+    flags.filter((flag): flag is z.infer<typeof activeFlag> => flag !== undefined),
+  );
 export const turn = z.object({
   id: string,
   items: z.array(item),
@@ -444,7 +550,11 @@ export const turn = z.object({
   startedAt: integer.nullish(),
   completedAt: integer.nullish(),
   durationMs: integer.nullish(),
-  itemsView: z.enum(['notLoaded', 'summary', 'full']).optional(),
+  // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
+  itemsView: z
+    .enum(['notLoaded', 'summary', 'full'])
+    .optional()
+    .catch(undefined),
 });
 export const thread = z.object({
   id: string,
@@ -470,7 +580,7 @@ export const thread = z.object({
     z.object({ type: z.literal('systemError') }),
     z.object({
       type: z.literal('active'),
-      activeFlags: z.array(z.enum(['waitingOnApproval', 'waitingOnUserInput'])),
+      activeFlags,
     }),
   ]),
   turns: z.array(turn),
@@ -485,7 +595,11 @@ export const thread = z.object({
   reasoningEffort: string.nullish(),
   recencyAt: integer.nullish(),
   sectionEnteredAt: integer.nullish(),
-  historyMode: z.enum(['legacy', 'paginated']).optional(),
+  // degradation-audit: optional-capability - a newer Codex may send a value this build does not know; drop it instead of rejecting the frame.
+  historyMode: z
+    .enum(['legacy', 'paginated'])
+    .optional()
+    .catch(undefined),
   gitInfo: object.nullish(),
   section: object.nullish(),
   threadSource: string.nullish(),

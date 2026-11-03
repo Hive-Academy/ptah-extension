@@ -4,11 +4,11 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import { container } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
-  CodexParityGate,
+  CodexUnsupportedMethodError,
+  CodexSelectionSnapshot,
   CodexEventTranslator,
   type ApprovalSink,
   type CodexContext,
-  type CodexDevRouteOverride,
   type CodexExecutionProfile,
   type CodexReportedUsage,
   type CodexRuntimeEvent,
@@ -64,7 +64,6 @@ function mockLogger(): Logger {
 }
 
 function setup(
-  override = true,
   consumer: 'chat' | 'gateway' = 'chat',
   billingMode: 'api-key' | 'subscription' | 'unknown' = 'unknown',
   model = 'gpt',
@@ -126,18 +125,23 @@ function setup(
   const lifecycle = { opened: jest.fn(), closed: jest.fn() };
   const scope = container.createChildContainer();
   const open = jest.fn(async () => context);
-  scope.register(CODEX_RUNTIME_TOKENS.ParityGate, {
-    useValue: new CodexParityGate(),
+  const bundledContext: jest.Mocked<CodexContext> = {
+    ...context,
+    startTurn: jest.fn<ReturnType<CodexContext['startTurn']>,
+      Parameters<CodexContext['startTurn']>>(async () => ({
+        threadId: id, turnId: 'turn', revision: 1,
+      })),
+    close: jest.fn(async () => undefined),
+  };
+  const retryFirstTurnOnBundle = jest.fn(async () => {
+    await context.close();
+    return bundledContext;
   });
-  scope.register(CODEX_RUNTIME_TOKENS.DevRouteOverride, {
-    useFactory: (): CodexDevRouteOverride | null => (
-      override ? { consumers: ['chat', 'gateway'], source: 'PTAH_CODEX_RUNTIME_DEV' } : null
-    ),
-  });
+  const markUnsupported = jest.fn((_context: CodexContext, _method: string) => false);
   scope.register(CODEX_RUNTIME_TOKENS.Logger, {
     useValue: { warn: jest.fn() },
   });
-  scope.register(CODEX_RUNTIME_TOKENS.Runtime, { useValue: { open } });
+  scope.register(CODEX_RUNTIME_TOKENS.Runtime, { useValue: { open, retryFirstTurnOnBundle, markUnsupported } });
   const dispose = jest.fn(async () => {
     await scope.dispose();
   });
@@ -150,7 +154,6 @@ function setup(
   const ports: CodexChatAdapterPorts = {
     checkOptions: jest.fn(),
     logger,
-    platform: { platform: 'win32', arch: 'x64' },
     info: {
       id: 'ptah-cli',
       name: 'Codex',
@@ -200,6 +203,9 @@ function setup(
     turnState,
     ports,
     context,
+    bundledContext,
+    retryFirstTurnOnBundle,
+    markUnsupported,
     open,
     dispose,
     callbacks,
@@ -246,7 +252,7 @@ describe('Codex chat turn lifecycle', () => {
     ];
     translator.setThreadModel(id, 'gpt-4o');
     translator.setTurnModel(id, 'turn', 'gpt-4o');
-    const first = setup(true, 'chat', 'api-key', 'gpt-4o');
+    const first = setup('chat', 'api-key', 'gpt-4o');
     first.context.events.mockImplementation(() => (async function* () {
       yield* nativeEvents('turn', 100, 20);
     })());
@@ -257,7 +263,7 @@ describe('Codex chat turn lifecycle', () => {
 
     translator.setThreadModel(id, 'gpt-4o-mini');
     translator.setTurnModel(id, 'turn-2', 'gpt-4o-mini');
-    const second = setup(true, 'chat', 'subscription', 'gpt-4o-mini', checkpoint);
+    const second = setup('chat', 'subscription', 'gpt-4o-mini', checkpoint);
     second.context.startTurn.mockResolvedValue({ threadId: id, turnId: 'turn-2', revision: 2 });
     const stats = jest.fn();
     second.adapter.setResultStatsCallback(stats);
@@ -286,7 +292,7 @@ describe('Codex chat turn lifecycle', () => {
 
   it.each(['in-turn', 'detached'] as const)(
     'records the %s terminal price once through the real stream', async (path) => {
-      const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+      const h = setup('chat', 'api-key', 'gpt-4o');
       const stats = jest.fn();
       h.adapter.setResultStatsCallback(stats);
       const recordPrice = jest.spyOn(CodexSessionUsageOwner.prototype, 'recordTurnPrice');
@@ -360,7 +366,7 @@ describe('Codex chat turn lifecycle', () => {
     ['api-key', 'estimated'],
     ['subscription', 'covered-by-subscription'],
   ] as const)('prices %s native usage as %s', async (mode, basis) => {
-    const h = setup(true, 'chat', mode, 'gpt-4o');
+    const h = setup('chat', mode, 'gpt-4o');
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.context.events.mockImplementation(() => (async function* () {
@@ -383,7 +389,7 @@ describe('Codex chat turn lifecycle', () => {
   });
 
   it('retains unknown prices and emits lifetime stats on a failed terminal', async () => {
-    const h = setup(true, 'chat', 'api-key', 'unpriced-native-model');
+    const h = setup('chat', 'api-key', 'unpriced-native-model');
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.context.events.mockImplementation(() => (async function* () {
@@ -404,8 +410,69 @@ describe('Codex chat turn lifecycle', () => {
     await h.adapter.dispose();
   });
 
+  it('keeps a missing rate generic when an earlier turn had no usage evidence', async () => {
+    const h = setup('chat', 'api-key', 'unpriced-native-model');
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.startTurn
+      .mockResolvedValueOnce({ threadId: id, turnId: 'turn', revision: 1 })
+      .mockResolvedValueOnce({ threadId: id, turnId: 'turn-2', revision: 2 });
+    h.context.events
+      .mockImplementationOnce(() => (async function* () {
+        yield terminal;
+      })())
+      .mockImplementationOnce(() => (async function* () {
+        yield {
+          ...terminal,
+          turnId: 'turn-2',
+          evidence: {
+            ...evidence,
+            turnId: 'turn-2',
+            modelId: 'unpriced-native-model',
+          },
+          usage: { inputTokens: 100, outputTokens: 20 },
+        };
+      })());
+
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(stats.mock.lastCall?.[0].sessionStats.coverage).toBe('partial');
+    await h.adapter.sendMessageToSession(id, 'follow-up');
+    expect(stats.mock.lastCall?.[0]).toMatchObject({
+      turnCost: null,
+      sessionStats: expect.objectContaining({
+        totalCost: null,
+        coverage: 'partial',
+        pricingCoverage: 'none',
+      }),
+    });
+    expect(stats.mock.lastCall?.[0].sessionStats)
+      .not.toHaveProperty('costUnavailableReason', 'rate-missing');
+    await h.adapter.dispose();
+  });
+
+  it('labels a missing rate when every turn has usage evidence', async () => {
+    const h = setup('chat', 'api-key', 'unpriced-native-model');
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield {
+        ...terminal,
+        evidence: { ...evidence, modelId: 'unpriced-native-model' },
+        usage: { inputTokens: 100, outputTokens: 20 },
+      };
+    })());
+
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(stats.mock.lastCall?.[0].sessionStats).toMatchObject({
+      coverage: 'complete',
+      totalCost: null,
+      costUnavailableReason: 'rate-missing',
+    });
+    await h.adapter.dispose();
+  });
+
   it('keeps a known rate unavailable when auth mode is unknown', async () => {
-    const h = setup(true, 'chat', 'unknown', 'gpt-4o');
+    const h = setup('chat', 'unknown', 'gpt-4o');
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.context.events.mockImplementation(() => (async function* () {
@@ -424,7 +491,7 @@ describe('Codex chat turn lifecycle', () => {
     owner.accept({ ...evidence, turnId: 'prior', total: {
       ...counters, uncachedInputTokens: 50, totalTokens: 70,
     } });
-    const h = setup(true, 'chat', 'api-key', 'gpt-4o', owner.serialize());
+    const h = setup('chat', 'api-key', 'gpt-4o', owner.serialize());
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.context.events.mockImplementation(() => (async function* () {
@@ -450,7 +517,7 @@ describe('Codex chat turn lifecycle', () => {
     }, { billingMode: 'api-key', usageObserved: true });
     if (priorPrice.totalCost === null) throw new Error('Expected a catalog rate');
     owner.recordTurnPrice(priorPrice);
-    const h = setup(true, 'chat', 'api-key', 'gpt-4o', owner.serialize());
+    const h = setup('chat', 'api-key', 'gpt-4o', owner.serialize());
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.context.events.mockImplementation(() => (async function* () {
@@ -472,7 +539,7 @@ describe('Codex chat turn lifecycle', () => {
   });
 
   it('does not price usage from a configured alias when evidence omits the model', async () => {
-    const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+    const h = setup('chat', 'api-key', 'gpt-4o');
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.context.events.mockImplementation(() => (async function* () {
@@ -487,7 +554,7 @@ describe('Codex chat turn lifecycle', () => {
   });
 
   it('reports a checkpoint read failure and continues with partial coverage', async () => {
-    const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+    const h = setup('chat', 'api-key', 'gpt-4o');
     h.ports.metadata.readUsage = jest.fn().mockRejectedValue(new Error('disk read failed'));
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
@@ -508,7 +575,7 @@ describe('Codex chat turn lifecycle', () => {
   });
 
   it('logs a checkpoint write failure without losing the terminal result', async () => {
-    const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+    const h = setup('chat', 'api-key', 'gpt-4o');
     const stats = jest.fn();
     h.adapter.setResultStatsCallback(stats);
     h.persistUsage.mockRejectedValueOnce(new Error('storage unavailable'));
@@ -525,7 +592,7 @@ describe('Codex chat turn lifecycle', () => {
   });
 
   it('reports an unavailable host usage store on the terminal path', async () => {
-    const h = setup(true, 'chat', 'api-key', 'gpt-4o');
+    const h = setup('chat', 'api-key', 'gpt-4o');
     h.ports.metadata.persistUsage = undefined;
     h.context.events.mockImplementation(() => (async function* () {
       yield { ...terminal, evidence };
@@ -981,6 +1048,68 @@ describe('Codex chat turn lifecycle', () => {
     },
   );
 
+  it('reports an installed first-turn unsupported method without changing the bound chat session id', async () => {
+    const h = setup();
+    const snapshot = new CodexSelectionSnapshot({
+      installedCandidates: async () => ['/installed/codex'],
+      bundledCandidate: async () => '/bundle/codex',
+      canonicalNativePath: async (path) => path,
+      readVersion: async (path) => path === '/installed/codex'
+        ? 'codex-cli 0.166.0' : 'codex-cli 0.165.0',
+    });
+    const first = await snapshot.selectForOpen();
+    h.markUnsupported.mockImplementation((_context, method) => {
+      snapshot.markUnsupported(first.selected, method);
+      return true;
+    });
+    h.context.startTurn.mockRejectedValueOnce(
+      new CodexUnsupportedMethodError('turn/start', '0.166.0', 'installed'),
+    );
+    const output: FlatStreamEventUnion[] = [];
+    await expect((async () => {
+      for await (const event of await h.adapter.startChatSession({ tabId })) output.push(event);
+    })()).rejects.toMatchObject({ code: 'runtime-failed' });
+    expect(h.retryFirstTurnOnBundle).not.toHaveBeenCalled();
+    expect(h.markUnsupported).toHaveBeenCalledWith(h.context, 'turn/start');
+    expect(h.context.close).toHaveBeenCalledTimes(1);
+    expect(h.context.startTurn).toHaveBeenCalledTimes(1);
+    expect(h.bundledContext.startTurn).not.toHaveBeenCalled();
+    expect(output.find((event) => event.eventType === 'text_delta' && event.source === 'complete'))
+      .toMatchObject({ delta: 'Codex 0.166.0 does not support required method turn/start. Update Codex or Ptah. The next session will use bundled Codex.' });
+    expect(h.adapter.isSessionActive(id)).toBe(false);
+    expect((await snapshot.selectForOpen()).selected).toMatchObject({ source: 'bundled' });
+    await h.adapter.dispose();
+  });
+
+  it('reports a safe terminal error when bundled turn/start is also unsupported', async () => {
+    const h = setup();
+    h.context.startTurn.mockRejectedValueOnce(
+      new CodexUnsupportedMethodError('turn/start', '0.165.0', 'bundled'),
+    );
+    const output: FlatStreamEventUnion[] = [];
+    await expect((async () => {
+      for await (const event of await h.adapter.startChatSession({ tabId })) output.push(event);
+    })()).rejects.toMatchObject({ code: 'runtime-failed' });
+    expect(h.retryFirstTurnOnBundle).not.toHaveBeenCalled();
+    expect(h.bundledContext.startTurn).not.toHaveBeenCalled();
+    expect(output.find((event) => event.eventType === 'text_delta' && event.source === 'complete'))
+      .toMatchObject({ delta: 'Codex 0.165.0 does not support required method turn/start. Update Codex or Ptah.' });
+    await h.adapter.dispose();
+  });
+
+  it('does not replay turn/start after a receipt', async () => {
+    const h = setup();
+    const unsupported = new CodexUnsupportedMethodError('turn/start', '0.166.0', 'installed');
+    h.context.events.mockImplementation(() => ({
+      [Symbol.asyncIterator]: () => ({ next: async () => { throw unsupported; } }),
+    }));
+    await expect(collect(await h.adapter.startChatSession({ tabId })))
+      .rejects.toMatchObject({ code: 'runtime-failed' });
+    expect(h.retryFirstTurnOnBundle).not.toHaveBeenCalled();
+    expect(h.context.startTurn).toHaveBeenCalledTimes(1);
+    await h.adapter.dispose();
+  });
+
   it.each(['before receipt', 'after receipt'] as const)(
     'retires a failed turn %s when error publication never settles',
     async (point) => {
@@ -1008,7 +1137,7 @@ describe('Codex chat turn lifecycle', () => {
   );
 
   it('keeps the gateway failure notice out of reply text', async () => {
-    const h = setup(true, 'gateway');
+    const h = setup('gateway');
     h.context.events.mockImplementation(() => (async function* () {
       yield { ...terminal, status: 'failed' as const };
     })());
@@ -1072,6 +1201,73 @@ describe('Codex chat turn lifecycle', () => {
       await h.adapter.dispose();
     },
   );
+
+  it('closes a detached session when interrupt is refused without a terminal', async () => {
+    const h = setup();
+    let finish: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    h.context.interrupt.mockResolvedValue(false);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield delta;
+      await gate;
+    })());
+    h.context.close.mockImplementation(async () => { finish?.(); });
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick', 'queueMicrotask'] });
+
+    try {
+      const stream = await h.adapter.startChatSession({ tabId });
+      const iterator = stream[Symbol.asyncIterator]();
+      await iterator.next();
+      await iterator.return?.();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      // No terminal is queued: the bounded drain wait expires, then the session closes.
+      expect(h.context.close).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(5_000);
+
+      expect(h.context.interrupt).toHaveBeenCalledWith('turn');
+      expect(h.context.close).toHaveBeenCalledTimes(1);
+      expect(h.lifecycle.closed).toHaveBeenCalledTimes(1);
+      expect(h.adapter.owns(id)).toBe(false);
+      expect(h.turnState.get(id)).toMatchObject({
+        phase: 'idle', terminalReason: 'aborted_streaming',
+      });
+      expect(stats).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+      finish?.();
+      await h.adapter.dispose();
+    }
+  });
+
+  it('drains a queued completed terminal when interrupt reports the turn already finished', async () => {
+    const h = setup('chat', 'api-key', 'gpt-4o');
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    h.context.interrupt.mockResolvedValue(false);
+    h.context.events.mockImplementation(() => (async function* () {
+      yield delta;
+      yield { ...terminal, evidence, usage: { inputTokens: 100, outputTokens: 20 } };
+    })());
+
+    const stream = await h.adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    await iterator.return?.();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(h.context.interrupt).toHaveBeenCalledWith('turn');
+    expect(h.context.close).not.toHaveBeenCalled();
+    expect(h.adapter.owns(id)).toBe(true);
+    expect(h.turnState.get(id)).toMatchObject({
+      phase: 'idle', terminalReason: 'completed',
+    });
+    expect(stats).toHaveBeenCalledWith(expect.objectContaining({
+      turnCost: expect.any(Number),
+    }));
+    await h.adapter.dispose();
+  });
 
   it.each(['completed', 'interrupted', 'failed'] as const)(
     'ends pending approvals on a %s terminal',

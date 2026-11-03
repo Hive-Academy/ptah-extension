@@ -6,6 +6,7 @@ import {
   CodexHomeMismatchError,
   CodexProcessFailureError,
   CodexRequestRejectedError,
+  CodexUnsupportedMethodError,
 } from './codex-app-server-process';
 import { buildCodexThreadConfig } from './codex-mcp-config';
 import { CodexResumeProfileChangedError } from './codex-resume-profile-error';
@@ -13,6 +14,7 @@ import { CodexSessionHistoryError, readCodexSessionHistory } from './codex-sessi
 import { CodexPermissionRuleStore } from './codex-permission-rule-store';
 import { CodexProtocolError, codexNotificationSchemas } from './codex-protocol-validator';
 import { RuntimeContext, type CodexRuntimeOptions } from './codex-context';
+import type { CodexExecutableSelection, CodexSelection } from './select-codex-executable';
 import type { IProcessSpawner } from './codex-runtime-ports';
 import type {
   CodexContext,
@@ -172,6 +174,7 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
   private readonly generations = new Map<string, number>();
   private readonly rules = new CodexPermissionRuleStore();
   private readonly historyReads = new Map<AbortController, Promise<void>>();
+  private readonly contextSelections = new WeakMap<CodexContext, CodexSelection>();
   private closed = false;
 
   constructor(private readonly options: RuntimeOptions) {}
@@ -204,10 +207,10 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
   ): Promise<CodexSessionHistory> {
     if (profile.normalizedHome !== resume.normalizedHome)
       throw new CodexSessionHistoryError('homeMismatch');
+    const executable = (await this.options.selectionSnapshot.selectForOpen()).selected;
     const process = new CodexAppServerProcess(
       this.options.spawner,
-      this.options.executable,
-      this.options.binary,
+      executable,
       profile,
       {
         onNotification: () => undefined,
@@ -236,6 +239,7 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
     profile: CodexExecutionProfile,
     resume?: CodexThreadIdentity,
     secrets?: CodexMcpSecrets,
+    selection?: CodexSelection,
   ): Promise<CodexContext> {
     if (this.closed) throw new Error('Codex runtime is closed');
     if (this.contexts.has(profile.contextId))
@@ -270,6 +274,9 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
       );
     // Built before any spawn; an unresolved secret reference refuses the open.
     const mcpConfig = buildCodexThreadConfig(profile, secrets);
+    const openedSelection = selection ?? await this.options.selectionSnapshot.selectForOpen();
+    let executable: CodexExecutableSelection = openedSelection.selected;
+    for (let attempt = 0; attempt < 2; attempt++) {
     const generation =
       Math.max(
         this.generations.get(profile.contextId) ?? 0,
@@ -280,7 +287,8 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
       ? new RateLimitsObserver(this.options, profile)
       : undefined;
     const context = new RuntimeContext(
-      observer ? { ...this.options, spawner: observer.spawner } : this.options,
+      { ...this.options, executable,
+        ...(observer ? { spawner: observer.spawner } : {}) },
       this.rules,
       profile,
       generation,
@@ -296,16 +304,36 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
     if (observer) this.observers.set(profile.contextId, observer);
     try {
       await context.open(resume);
+      try {
+        await context.listModels();
+      } catch (error: unknown) {
+        if (error instanceof CodexUnsupportedMethodError) throw error;
+        this.options.logger.warn('Codex model catalog is unavailable', {
+          errorClass: error instanceof Error ? error.constructor.name : typeof error,
+        });
+      }
       this.options.usage?.onContextOpened?.(profile.contextId);
       observer?.activate();
+      this.contextSelections.set(context, executable === openedSelection.selected
+        ? openedSelection : { selected: executable });
       return context;
     } catch (error) {
       await context.close();
       observer?.dispose();
       this.observers.delete(profile.contextId);
+      if (error instanceof CodexUnsupportedMethodError &&
+          executable.source === 'installed' && attempt === 0 &&
+          ['initialize', 'model/list', 'thread/start', 'thread/resume'].includes(error.method)) {
+        executable = await this.options.selectionSnapshot.activateFallback(executable, error.method);
+        this.options.logger.info('Codex switched to bundled executable', {
+          method: error.method, version: executable.version,
+        });
+        continue;
+      }
       const method =
         error instanceof CodexProcessFailureError ||
         error instanceof CodexRequestRejectedError ||
+        error instanceof CodexUnsupportedMethodError ||
         error instanceof CodexProtocolError
           ? error.method
           : undefined;
@@ -337,6 +365,7 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
         stderrTail: context.stderrTail(2048),
       });
       if (error instanceof CodexHomeMismatchError) throw error;
+      if (error instanceof CodexUnsupportedMethodError) throw error;
       if (
         profile.consumer === 'lane' &&
         (error instanceof CodexRequestRejectedError ||
@@ -350,6 +379,33 @@ export class CodexRuntime implements RuntimePort, CodexHistoryReader {
       }
       throw new Error('Codex context could not be opened', { cause: error });
     }
+    }
+    throw new Error('Codex context could not be opened');
+  }
+
+  /** Remember an unsupported installed executable for later opens in this host scope. */
+  markUnsupported(context: CodexContext, method: string): boolean {
+    const selection = this.contextSelections.get(context);
+    if (!selection || selection.selected.source !== 'installed') return false;
+    this.options.selectionSnapshot.markUnsupported(selection.selected, method);
+    return Boolean(selection.bundledFallback);
+  }
+
+  /** Retry only a rejected first turn, before the caller receives a turn receipt. */
+  async retryFirstTurnOnBundle(
+    context: CodexContext,
+    profile: CodexExecutionProfile,
+    secrets: CodexMcpSecrets | undefined,
+    method: string,
+  ): Promise<CodexContext> {
+    const selection = this.contextSelections.get(context);
+    if (!selection || selection.selected.source !== 'installed' || method !== 'turn/start')
+      throw new Error('Codex bundled retry is unavailable');
+    const resume = context instanceof RuntimeContext && context.hasTurnHistory
+      ? context.identity : undefined;
+    await context.close();
+    const fallback = await this.options.selectionSnapshot.activateFallback(selection.selected, method);
+    return this.open(profile, resume, secrets, { selected: fallback });
   }
 
   async close(): Promise<void> {

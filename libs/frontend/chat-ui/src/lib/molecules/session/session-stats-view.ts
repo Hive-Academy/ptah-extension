@@ -33,6 +33,21 @@ export const AGENTS_DETAILS =
 
 export const STATS_EMPTY = { value: '—', context: 'Context unavailable', tokens: 'Tokens unavailable', cost: 'Cost unavailable' } as const;
 
+/**
+ * Label for a null cost whose narrow cause is a missing published rate. Every
+ * other null-cost cause keeps {@link STATS_EMPTY.cost}, so "Not priced" never
+ * mislabels an unknown billing mode or unusable usage.
+ */
+export const NOT_PRICED = 'Not priced';
+
+/** Accessible label for a null session cost, by its backend-named cause. */
+export function nullCostLabel(s: SessionStatsEntry | null): string {
+  return s !== null && s.totalCost === null &&
+      s.costUnavailableReason === 'rate-missing'
+    ? NOT_PRICED
+    : STATS_EMPTY.cost;
+}
+
 const ESTIMATE_LINE =
   'Live estimate while the turn runs; final figures replace it when it ends.';
 
@@ -103,7 +118,7 @@ export function costDetailsText(s: SessionStatsEntry | null, b: SessionBudgetSta
     totalCost: s?.totalCost ?? null,
   });
   const parts = [
-    s?.totalCost == null ? STATS_EMPTY.cost : basisDetails,
+    s?.totalCost == null ? nullCostLabel(s) : basisDetails,
     costTooltip(b, budgetLine),
     knownSubtotalOf(s) ? KNOWN_SUBTOTAL_DETAILS : null,
   ]
@@ -170,7 +185,7 @@ export function compactSessionMetrics(stats: SessionStatsInputs): readonly Compa
         ? STATS_EMPTY.value
         : `${estimate}${subtotal ? '≥' : ''}${formatCost(cost)}${basis ? ` ${basis}` : ''}`,
       ariaLabel: cost === null
-        ? STATS_EMPTY.cost
+        ? nullCostLabel(snapshot)
         : `Cost ${basis === 'estimated' ? '' : estimatedLabel}${subtotal ? 'known subtotal ' : ''}${formatCost(cost).slice(1)} US dollars${basis ? `, ${basis}` : ''}`,
       unavailable: cost === null,
     },

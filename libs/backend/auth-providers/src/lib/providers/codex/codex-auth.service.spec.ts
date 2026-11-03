@@ -216,10 +216,10 @@ describe('CodexAuthService', () => {
       }
     });
     it.each([
-      ['no local catalog', null, '0.162.0'],
-      ['an older local catalog', '0.157.0', '0.162.0'],
+      ['no local catalog', null, '0.165.0'],
+      ['an older local catalog', '0.157.0', '0.165.0'],
       ['a newer local catalog', '0.170.2', '0.170.2'],
-      ['a malformed version', 'latest', '0.162.0'],
+      ['a malformed version', 'latest', '0.165.0'],
     ])(
       'asks /models with a client_version that unlocks current models (%s)',
       async (_case, cachedVersion, expected) => {

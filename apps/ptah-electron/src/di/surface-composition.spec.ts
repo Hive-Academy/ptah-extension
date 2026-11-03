@@ -416,11 +416,12 @@ describe('Electron Codex bootstrap composition', () => {
           String.raw`container\.register(?:<[\w.]+>)?\(\s*SDK_TOKENS\.${name},\s*\{\s*useValue:`,
         ),
       );
-    expect(ELECTRON_CODEX_BOUND_TOKENS).toHaveLength(7);
+    expect(ELECTRON_CODEX_BOUND_TOKENS).toHaveLength(8);
     const bootstrap = readFileSync(
       join(__dirname, '../activation/bootstrap.ts'),
       'utf8',
     );
+    expect(bootstrap).toContain('container.register(CODEX_RUNTIME_TOKENS.SelectionSnapshot,');
     const bound = bootstrap.indexOf('await bindElectronCodexChat(container,');
     expect(bound).toBeGreaterThan(
       bootstrap.indexOf('await workspaceStateStorage.whenReady()'),

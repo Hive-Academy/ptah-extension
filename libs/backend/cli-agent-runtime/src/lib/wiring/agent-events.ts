@@ -453,6 +453,9 @@ export function persistCliSessionReference(
     const ref: CliSessionReference = {
       ...snapshotLaneAccountReference(laneAccountFields(info)),
       cliSessionId: effectiveCliSessionId,
+      ...(info.replacesCliSessionIds?.length
+        ? { replacesCliSessionIds: info.replacesCliSessionIds }
+        : {}),
       cli: info.cli,
       agentId: info.agentId,
       task: info.task,

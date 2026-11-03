@@ -1,5 +1,4 @@
 import {
-  CODEX_LANE_DEFAULT_MODEL,
   findBlockedLaneModel,
   isReviewerOrTester,
   resolveLaneEffort,
@@ -49,11 +48,25 @@ describe('lane spawn policy (TASK_2026_597, D4)', () => {
       });
     });
 
-    it("falls back to Ptah's default for Codex only", () => {
-      expect(CODEX_LANE_DEFAULT_MODEL).toBe('gpt-6-sol');
+    it('passes no model when the request and setting name none, so the CLI picks its own default', () => {
       expect(resolveLaneModel('codex', undefined, '')).toEqual({
-        model: 'gpt-6-sol',
-        source: 'ptah-default',
+        model: undefined,
+        source: 'cli-default',
+      });
+      expect(resolveLaneModel('codex', undefined, undefined)).toEqual({
+        model: undefined,
+        source: 'cli-default',
+      });
+    });
+
+    it('passes a future model id through unchanged', () => {
+      expect(resolveLaneModel('codex', 'gpt-7-future', undefined)).toEqual({
+        model: 'gpt-7-future',
+        source: 'request',
+      });
+      expect(resolveLaneModel('codex', undefined, 'gpt-7-future')).toEqual({
+        model: 'gpt-7-future',
+        source: 'setting',
       });
     });
 

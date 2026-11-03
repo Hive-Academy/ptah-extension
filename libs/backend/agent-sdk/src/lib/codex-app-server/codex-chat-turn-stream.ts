@@ -1,10 +1,13 @@
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   CodexContext,
+  CodexExecutionProfile,
   CodexReportedUsage,
   CodexRuntimeEvent,
   CodexTurnInput,
+  CodexTurnReceipt,
 } from '@ptah-extension/codex-runtime';
+import { CodexUnsupportedMethodError } from '@ptah-extension/codex-runtime';
 import type {
   FlatStreamEventUnion,
   IAgentAdapter,
@@ -37,7 +40,8 @@ export interface CodexChatSession {
   readonly id: SessionId;
   readonly token: string;
   readonly consumer?: 'chat' | 'gateway';
-  readonly context: CodexContext;
+  context: CodexContext;
+  readonly profile: CodexExecutionProfile;
   readonly usageOwner: CodexSessionUsageOwner;
   readonly billingMode: 'subscription' | 'api-key' | 'unknown';
   messageCount: number;
@@ -63,6 +67,7 @@ export interface CodexChatSession {
 function failureNotice(
   session: CodexChatSession,
   turnId: string | undefined,
+  notice = CODEX_FAILURE_NOTICE,
 ): FlatStreamEventUnion[] {
   if (session.consumer === 'gateway') return [];
   const messageId = `codex-error:${session.id}:${turnId ?? 'start'}`;
@@ -83,7 +88,7 @@ function failureNotice(
       ...base,
       id: `${messageId}:text`,
       eventType: 'text_delta',
-      delta: CODEX_FAILURE_NOTICE,
+      delta: notice,
       blockIndex: 0,
     },
   ];
@@ -95,6 +100,7 @@ interface CodexChatTurnDependencies {
     'markGenerating' | 'settleTurn' | 'recordFailure' | 'forceIdle'
   >;
   readonly logger: Logger;
+  markUnsupported(context: CodexContext, method: string): boolean;
   completedTurn(id: SessionId): Promise<void>;
   callbacks: CodexChatAdapterPorts['callbacks'];
   stats: Parameters<IAgentAdapter['setResultStatsCallback']>[0];
@@ -133,7 +139,7 @@ export async function* streamCodexChatTurn(
   if (session.busy) throw deps.error('busy', 'turn');
   if (session.blocked || session.closing) throw deps.error('unavailable', 'turn');
   session.busy = true;
-  const subscription = new AbortController();
+  let subscription = new AbortController();
   const abort = () => subscription.abort();
   session.abort.signal.addEventListener('abort', abort, { once: true });
   let terminal = false;
@@ -177,9 +183,8 @@ export async function* streamCodexChatTurn(
     if (session.abort.signal.aborted) throw deps.error('cancelled', 'turn');
     const eventStream = session.context.events(subscription.signal);
     events = eventStream[Symbol.asyncIterator]();
-    const receipt = await session.context.startTurn({
-      ...input,
-      signal: subscription.signal,
+    const receipt: CodexTurnReceipt = await session.context.startTurn({
+      ...input, signal: subscription.signal,
     });
     session.turnId = receipt.turnId;
     admitted = true;
@@ -265,6 +270,18 @@ export async function* streamCodexChatTurn(
           pricingCoverage: lifetimePrice.pricingCoverage,
           ...(lifetimePrice.priceProvenance
             ? { priceProvenance: lifetimePrice.priceProvenance } : {}),
+          // The session reason is published only when nothing in the session
+          // was priced AND this turn's own unpriced cause is a missing rate,
+          // so "not priced" never mislabels an unknown billing mode or
+          // unusable usage. Lifetime usage coverage must also be complete: an
+          // earlier turn without usage evidence keeps "cost unavailable". Any
+          // other null-cost cause omits the field and the UI keeps that label.
+          ...(lifetimePrice.totalCost === null &&
+              lifetimePrice.pricingCoverage === 'none' &&
+              lifetime.coverage === 'complete' &&
+              turnPrice.totalCost === null &&
+              turnPrice.costUnavailableReason === 'rate-missing'
+            ? { costUnavailableReason: 'rate-missing' as const } : {}),
         },
         tokens,
         duration: Date.now() - started,
@@ -493,12 +510,19 @@ export async function* streamCodexChatTurn(
     }
     throw deps.error('runtime-failed', 'stream');
   } catch (error) {
+    const bundledNextSession = !admitted && error instanceof CodexUnsupportedMethodError &&
+      error.method === 'turn/start' && error.source === 'installed'
+      ? deps.markUnsupported(session.context, error.method) : false;
+    const notice = error instanceof CodexUnsupportedMethodError &&
+      error.method === 'turn/start'
+      ? `${error.message}${bundledNextSession ? ' The next session will use bundled Codex.' : ''}`
+      : CODEX_FAILURE_NOTICE;
     const interrupted = session.abort.signal.aborted || session.stopRequested ||
       (isCodexChatAdapterError(error) && error.code === 'cancelled');
     const failure = interrupted ? deps.error('cancelled', 'turn') : deps.failure(error, 'turn');
     if (!interrupted && !failureNoticeEmitted) {
       failureNoticeEmitted = true;
-      yield* failureNotice(session, session.turnId);
+      yield* failureNotice(session, session.turnId, notice);
     }
     if (!terminalStateEmitted) {
       terminalStatus = interrupted ? 'interrupted' : 'failed';
@@ -512,7 +536,7 @@ export async function* streamCodexChatTurn(
       if (!errorPresented) {
         void Promise.resolve()
           .then(() => deps.callbacks(session.id, undefined).error(
-            CODEX_FAILURE_NOTICE, session.context.identity.workspaceId,
+            notice, session.context.identity.workspaceId,
           ))
           .catch((publicationError: unknown) => {
             deps.logger.error(
@@ -587,6 +611,27 @@ export async function* streamCodexChatTurn(
     }
   }
 }
+const REFUSED_INTERRUPT_DRAIN_MS = 5_000;
+
+/** The next event, or undefined when none arrives within `ms` (or `ms` <= 0). */
+async function nextWithin(
+  events: AsyncIterator<CodexRuntimeEvent>,
+  ms: number,
+): Promise<IteratorResult<CodexRuntimeEvent> | undefined> {
+  if (ms <= 0) return undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      events.next(),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function drainInterruptedTurn(
   session: CodexChatSession,
   events: AsyncIterator<CodexRuntimeEvent>,
@@ -598,9 +643,19 @@ async function drainInterruptedTurn(
 ): Promise<void> {
   let terminal = false;
   try {
-    if (!session.stopRequested) await deps.interrupt(session.id);
+    // interrupt() returns false both when the turn already ended (its terminal
+    // is queued) and when the interrupt was refused or is unsupported (no
+    // watchdog is armed). Keep draining, but under one overall deadline so a
+    // missing terminal (or a stream that never ends) cannot keep the session
+    // busy forever.
+    const unguarded =
+      !session.stopRequested && !(await deps.interrupt(session.id));
+    const deadline = Date.now() + REFUSED_INTERRUPT_DRAIN_MS;
     while (!session.abort.signal.aborted) {
-      const next = await events.next();
+      const next = unguarded
+        ? await nextWithin(events, deadline - Date.now())
+        : await events.next();
+      if (next === undefined) break;
       if (next.done) break;
       observeUsage(next.value);
       if (session.stopRequested) {

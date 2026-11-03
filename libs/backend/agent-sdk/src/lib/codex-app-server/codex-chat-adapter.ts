@@ -8,14 +8,13 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { randomUUID } from 'node:crypto';
 import type { DependencyContainer } from 'tsyringe';
 import {
-  resolveGatedCodexRuntime,
+  CODEX_RUNTIME_TOKENS,
   isCodexResumeProfileChangedError,
   type ApprovalSink,
   type CodexContext,
   type CodexExecutionProfile,
   type CodexModelInfo,
   type CodexMcpSecrets,
-  type CodexParityPlatform,
   type CodexRuntime,
   type CodexThreadIdentity,
   type CodexTurnInput,
@@ -80,7 +79,6 @@ export interface CodexChatScope {
 
 export interface CodexChatAdapterPorts {
   readonly logger: Logger;
-  readonly platform: CodexParityPlatform;
   /** Injectable filesystem lookup for approval containment. Defaults to node realpath. */
   readonly resolveApprovalPath?: (value: string) => Promise<string>;
   readonly info: ProviderInfo;
@@ -100,7 +98,7 @@ export interface CodexChatAdapterPorts {
     readonly secrets?: CodexMcpSecrets;
   }>;
   createScope(sink: ApprovalSink): CodexChatScope;
-  /** Host-owned resolution for a session scope; absent hosts keep shared gate policy. */
+  /** Host-owned resolution for a session scope; absent hosts resolve the runtime token. */
   readonly resolveRuntime?: (
     scope: DependencyContainer,
     consumer: 'chat' | 'gateway',
@@ -399,10 +397,14 @@ export class CodexChatAdapter implements NativeChatAdapter {
     prepared: Awaited<ReturnType<CodexChatAdapterPorts['profile']>>,
     consumer: 'chat' | 'gateway',
   ): Promise<CodexContext> {
-    const runtime = this.ports.resolveRuntime
-      ? this.ports.resolveRuntime(scope.container, consumer)
-      : resolveGatedCodexRuntime(scope.container, consumer, this.ports.platform);
+    const runtime = this.runtimeForScope(scope, consumer);
     return runtime.open(prepared.profile, prepared.resume, prepared.secrets);
+  }
+
+  private runtimeForScope(scope: CodexChatScope, consumer: 'chat' | 'gateway'): CodexRuntime {
+    return this.ports.resolveRuntime
+      ? this.ports.resolveRuntime(scope.container, consumer)
+      : scope.container.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
   }
 
   private persistMetadata(
@@ -442,6 +444,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       token: randomUUID(),
       consumer: profile.consumer === 'gateway' ? 'gateway' : 'chat',
       context,
+        profile,
       usageOwner,
       billingMode,
       messageCount,
@@ -527,8 +530,8 @@ export class CodexChatAdapter implements NativeChatAdapter {
         },
       },
       this.ports.logger,
-      () => context.turnPermissionLevel,
-      this.ports.platform.platform,
+      () => getSession()?.context.turnPermissionLevel ?? context.turnPermissionLevel,
+      process.platform,
       threadCwd,
       this.ports.resolveApprovalPath,
       { autoAcceptReadOnly: consumer === 'chat' },
@@ -595,6 +598,9 @@ export class CodexChatAdapter implements NativeChatAdapter {
     return streamCodexChatTurn(session, input, {
       turnState: this.turnState,
       logger: this.ports.logger,
+      markUnsupported: (context, method) => this.runtimeForScope(
+        session.scope, session.consumer === 'gateway' ? 'gateway' : 'chat',
+      ).markUnsupported(context, method),
       completedTurn: (id) => this.ports.metadata.completedTurn?.(id) ?? Promise.resolve(),
       callbacks: (id, turn) => this.ports.callbacks(id, turn),
       stats: (result) => this.stats?.(result),

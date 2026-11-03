@@ -5,12 +5,8 @@ import {
   createElectronCodexShutdownStore,
   createElectronCodexBindingHandle,
 } from './codex-session-binding';
-import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream, realpathSync, statSync } from 'node:fs';
-import { stat } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
-import { pipeline } from 'node:stream/promises';
-import { promisify } from 'node:util';
+import { randomUUID } from 'node:crypto';
+import { realpathSync, statSync } from 'node:fs';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
@@ -52,18 +48,14 @@ import {
   buildCodexExecutionProfile,
   normalizeCodexHomeKey,
   normalizeCodexWorkspaceKey,
-  findCodexExecutablePin,
   CODEX_RUNTIME_TOKENS,
   CodexAccountUsageClient,
-  CodexParityGate,
   CodexSessionHistoryError,
-  resolveGatedCodexRuntime,
-  codexDevRouteCovers,
-  readCodexDevRouteOverride,
   registerCodexRuntime,
+  CodexSelectionSnapshot,
+  createNodeCodexExecutableProbes,
   type ApprovalSink,
-  type CodexExecutableManifestRow,
-  type CodexParityPlatform,
+  type CodexSelectionSnapshotPort,
   type CodexRuntime,
   type CodexHistoryReader,
   type CodexSessionHistory,
@@ -82,21 +74,14 @@ import type {
   ElectronCodexSettingsRecord,
   ElectronCodexShutdownStore,
 } from './codex-binding.types';
-import { isElectronCodexConsumerAdmitted } from './codex-electron-admission';
 
-/** Electron routing hint; the scoped resolver enforces chat admission on open. */
-export function createElectronCodexRouting(input: ElectronCodexRoutingInput): ElectronCodexRouting {
-  const devRoute = readCodexDevRouteOverride({
-    isPackaged: input.isPackaged,
-    env: input.env,
-  });
+/** Native Codex is available to every Electron platform. */
+export function createElectronCodexRouting(_input: ElectronCodexRoutingInput): ElectronCodexRouting {
   const capabilities = Object.freeze({
-    nativeCodex: isElectronCodexConsumerAdmitted(input, 'chat', devRoute),
-    nativeCodexGateway:
-      new CodexParityGate().isEnabled('gateway', input.platform) ||
-      codexDevRouteCovers(devRoute, 'gateway'),
+    nativeCodex: true,
+    nativeCodexGateway: true,
   });
-  return Object.freeze({ devRoute, capabilities });
+  return Object.freeze({ capabilities });
 }
 
 export interface ElectronCodexBundledRootInput {
@@ -125,22 +110,26 @@ export function resolveElectronCodexBundledRoot(
     if (isDirectory(candidate)) return candidate;
     const parent = dirname(directory);
     if (parent === directory)
-      throw new Error('Bundled Codex package root unavailable');
+      return join(resolve(input.appPath), 'node_modules');
     directory = parent;
   }
 }
 
-/** No detected CLI fallback: Electron must spawn the bundled native executable. */
-export function createElectronCodexExecutable(
-  expectedManifestRow: CodexExecutableManifestRow,
-  bundledRoot: string,
-) {
+/** Resolve the host bundle only; installed candidates come from the shared probes. */
+export function createElectronCodexBundledCandidate(bundledRoot: string): string | undefined {
   const detectedPath = resolveCodexNativeBinaryPath();
-  if (!detectedPath) throw new Error('Bundled Codex executable unavailable');
+  if (!detectedPath) return undefined;
   if (!isAbsolute(bundledRoot))
     throw new Error('Codex executable is outside the host bundle');
-  const resolvedPath = realpathSync(detectedPath);
-  const local = relative(realpathSync(bundledRoot), resolvedPath);
+  let resolvedPath: string;
+  let local: string;
+  try {
+    resolvedPath = realpathSync(detectedPath);
+    local = relative(realpathSync(bundledRoot), resolvedPath);
+  } catch {
+    // degradation-audit: reported - selector can use an installed candidate when the bundle is absent.
+    return undefined;
+  }
   // The shared resolver also probes global installations. They must not become
   // an Electron runtime fallback if the host's bundled package is absent.
   if (
@@ -149,71 +138,40 @@ export function createElectronCodexExecutable(
     local === '..' ||
     local.startsWith(`..${sep}`)
   ) {
-    throw new Error('Codex executable is outside the host bundle');
+    return undefined;
   }
-  return Object.freeze({ resolvedPath, expectedManifestRow });
+  return resolvedPath;
 }
 
-const executeFile = promisify(execFile);
-type VerifiedCodexBinary = Pick<
-  CodexRuntimeRegistrationPorts['binary'],
-  'executablePath' | 'sha256' | 'versionOutput'
->;
-const binaryInspections = new Map<string, Promise<VerifiedCodexBinary>>();
-
-/** Share in-flight opens and cache successes; failed inspections can retry. */
-export async function inspectElectronCodexBinary(
-  executablePath: string,
-  readVersion: (path: string) => Promise<string> = readCodexVersion,
-  platform: CodexParityPlatform = process,
-): Promise<VerifiedCodexBinary> {
-  const pin = findCodexExecutablePin(platform.platform, platform.arch);
-  if (!pin) throw Object.assign(new Error('No reviewed Codex executable pin for this platform'), {
-    code: 'codex-pin-unavailable',
-  });
-  const { size, mtimeMs } = await stat(executablePath);
-  const key = JSON.stringify([executablePath, size, mtimeMs]);
-  let pending = binaryInspections.get(key);
-  if (!pending) {
-    pending = (async () => {
-      const hash = createHash('sha256');
-      hash.setEncoding('hex');
-      let sha256 = '';
-      await pipeline(createReadStream(executablePath), hash, async (chunks) => {
-        for await (const chunk of chunks) {
-          const value: unknown = chunk;
-          if (typeof value !== 'string')
-            throw new Error('Codex executable digest unavailable');
-          sha256 += value;
-        }
-      });
-      if (sha256 !== pin.binarySha256)
-        throw Object.assign(new Error('Codex executable digest does not match the reviewed pin'), {
-          code: 'codex-digest-mismatch',
-        });
-      const versionOutput = await readVersion(executablePath);
-      return { executablePath, sha256, versionOutput };
-    })().catch((error: unknown) => {
-      binaryInspections.delete(key);
-      throw error;
+export function createElectronCodexSelectionSnapshot(
+  bundledRoot: string, logger: Logger,
+): CodexSelectionSnapshotPort {
+  const snapshot = new CodexSelectionSnapshot(createNodeCodexExecutableProbes(
+    async () => createElectronCodexBundledCandidate(bundledRoot),
+  ));
+  let lastLoggedSelection: string | undefined;
+  const logSelection = (selected: NonNullable<ReturnType<CodexSelectionSnapshotPort['current']>>) => {
+    const key = JSON.stringify([selected.source, selected.version, selected.path]);
+    const log = key === lastLoggedSelection ? logger.debug.bind(logger) : logger.info.bind(logger);
+    lastLoggedSelection = key;
+    log('Codex executable selected', {
+      source: selected.source, version: selected.version, path: selected.path, reason: selected.reason,
     });
-    binaryInspections.set(key, pending);
-  }
-  const inspected = await pending;
-  if (inspected.sha256 !== pin.binarySha256)
-    throw Object.assign(new Error('Codex executable digest does not match the reviewed pin'), {
-      code: 'codex-digest-mismatch',
-    });
-  return inspected;
-}
-
-async function readCodexVersion(executablePath: string): Promise<string> {
-  const { stdout } = await executeFile(executablePath, ['--version'], {
-    encoding: 'utf8',
-    timeout: 10000,
-    windowsHide: true,
-  });
-  return stdout.trim();
+  };
+  return {
+    selectForOpen: async () => {
+      const selection = await snapshot.selectForOpen();
+      logSelection(selection.selected);
+      return selection;
+    },
+    current: () => snapshot.current(),
+    markUnsupported: (failed, method) => snapshot.markUnsupported(failed, method),
+    activateFallback: async (failed, method) => {
+      const selected = await snapshot.activateFallback(failed, method);
+      logSelection(selected);
+      return selected;
+    },
+  };
 }
 
 type CodexRateLimitsUpdate = Parameters<
@@ -224,11 +182,8 @@ export interface ElectronCodexScopeInput extends ElectronCodexRoutingInput {
   readonly parent: DependencyContainer;
   readonly ports: Omit<
     CodexRuntimeRegistrationPorts,
-    'sink' | 'executable' | 'devRoute'
+    'sink'
   >;
-  readonly expectedManifestRow: CodexExecutableManifestRow;
-  /** Absolute host-owned node_modules root (app.asar.unpacked when packaged). */
-  readonly bundledRoot: string;
   readonly sharedUsage?: { client: CodexAccountUsageClient | null };
   readonly usageNotifications?: {
     readonly onRateLimitsUpdated: (
@@ -246,24 +201,9 @@ export interface ElectronCodexScopeInput extends ElectronCodexRoutingInput {
  */
 export function createElectronCodexScopeFactory(
   input: ElectronCodexScopeInput,
-  consumer: 'chat' | 'lane' = 'chat',
+  _consumer: 'chat' | 'lane' = 'chat',
 ) {
-  const routing = createElectronCodexRouting(input);
   return (sink: ApprovalSink): CodexChatScope => {
-    if (consumer === 'chat' && !routing.capabilities.nativeCodex) {
-      throw new Error('Native Codex chat is disabled');
-    }
-    // Resolve only on native open: an absent bundle must not fail host startup.
-    // The adapter converts open failures into its coded runtime-failed error.
-    const executable = createElectronCodexExecutable(
-      input.expectedManifestRow,
-      input.bundledRoot,
-    );
-    if (input.ports.binary.executablePath !== executable.resolvedPath) {
-      throw new Error(
-        'Codex binary identity does not describe bundled executable',
-      );
-    }
     // Reject before allocating a child: registration disallows inherited runtimes.
     if (input.parent.isRegistered(CODEX_RUNTIME_TOKENS.Runtime, true)) {
       throw new Error('Codex runtime must be owned by a session scope');
@@ -275,9 +215,7 @@ export function createElectronCodexScopeFactory(
         usage: input.ports.usage
           ? { ...input.ports.usage, ...input.usageNotifications }
           : null,
-        executable,
         sink,
-        devRoute: routing.devRoute,
       });
       // Lifecycle ownership is the only allowed use of the raw token. Resolving
       // here starts no process and ensures failed opens retain a closeable owner.
@@ -351,10 +289,6 @@ function createElectronCodexBindingContext(
   record: ElectronCodexSettingsRecord,
 ): BindingContext {
   const routing = createElectronCodexRouting(input);
-  if (input.isPackaged && routing.capabilities.nativeCodex &&
-      !new CodexParityGate().isEnabled('chat', input.platform)) {
-    logger.info('Codex chat admitted for packaged Electron win32/x64 by signed proof (D29/D30)');
-  }
   return {
     container,
     input,
@@ -411,7 +345,7 @@ function createElectronCodexHostDependencies(context: BindingContext): HostDepen
 }
 
 function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
-  const { container, input, logger, routing, store, scopes } = context;
+  const { container, input, logger, store, scopes } = context;
   const { profiles } = context.state;
   const sharedUsage: { client: CodexAccountUsageClient | null } = {
     client: null,
@@ -420,24 +354,11 @@ function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
     container.resolve<CodexAccountUsageService>(
       AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE,
     );
-  let verified: {
-    pin: CodexExecutableManifestRow;
-    binary: CodexRuntimeRegistrationPorts['binary'];
-  } | undefined;
   const verifyBinary = async () => {
     try {
-      const pin = findCodexExecutablePin(
-        input.platform.platform,
-        input.platform.arch,
-      );
-      if (!pin)
-        throw new Error('No reviewed Codex executable pin for this platform');
-      const executable = createElectronCodexExecutable(pin, input.bundledRoot);
-      const inspected = await inspectElectronCodexBinary(executable.resolvedPath, readCodexVersion, input.platform);
+      await input.selectionSnapshot.selectForOpen();
       if (context.disposed) throw new Error('Native Codex chat is disabled');
-      verified = { pin, binary: { ...input.platform, ...inspected } };
     } catch (error) {
-      verified = undefined;
       logger.error(
         'Codex executable verification failed',
         error instanceof Error ? error : new Error('Codex verification failed'),
@@ -446,14 +367,11 @@ function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
     }
   };
   const createScope = (sink: ApprovalSink): CodexChatScope => {
-    if (context.disposed || !routing.capabilities.nativeCodex)
+    if (context.disposed)
       throw new Error('Native Codex chat is disabled');
-    if (!verified) throw new Error('Codex executable verification unavailable');
-    const { pin, binary } = verified;
     const scope = createElectronCodexScopeFactory({
       ...input,
       parent: container,
-      expectedManifestRow: pin,
       sharedUsage,
       usageNotifications: {
         onRateLimitsUpdated: async (update) => {
@@ -473,7 +391,7 @@ function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
         },
       },
       ports: {
-        binary,
+        selectionSnapshot: input.selectionSnapshot,
         store,
         requestUserInput: createCodexChatUserQuestions({
           permissionHandler: container.resolve<SdkPermissionHandler>(
@@ -758,7 +676,6 @@ function createElectronCodexAdapterPorts(
         () => { throw new CodexSessionSettingsError('invalid-settings'); },
       ),
     logger,
-    platform: input.platform,
     createScope,
     broadcaster,
     tabId,
@@ -830,21 +747,13 @@ function createElectronCodexAdapterPorts(
   });
   return {
     ...ports,
-    resolveRuntime: (scope, consumer) => {
-      if (consumer === 'chat' && input.isPackaged &&
-          !new CodexParityGate().isEnabled('chat', input.platform)) {
-        if (!isElectronCodexConsumerAdmitted(input, 'chat')) {
-          throw new Error('Codex chat production routing disabled by parity gate');
-        }
-        return scope.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
-      }
-      return resolveGatedCodexRuntime(scope, consumer, input.platform);
+    resolveRuntime: (scope, _consumer) => {
+      return scope.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
     },
     profile: async (
       ...args: Parameters<CodexChatAdapterPorts['profile']>
     ) => {
       const prepared = await ports.profile(...args);
-      await verifyBinary();
       const tab = args[0].tabId;
       if (tab) preparedTabs.set(prepared, tab);
       return prepared;

@@ -4,7 +4,11 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { formatUsdCost, type SessionCostBasis } from '@ptah-extension/shared';
+import {
+  formatUsdCost,
+  type SessionCostBasis,
+  type SessionCostUnavailableReason,
+} from '@ptah-extension/shared';
 
 /** Final price meaning shared by cost badges and session stats views. */
 export function costBasisLabel(
@@ -55,13 +59,23 @@ export function costBasisLabel(
         }
       </span>
     } @else {
-      <span
-        class="badge badge-sm badge-ghost opacity-70"
-        title="No per-token pricing is known for this provider or model, so cost cannot be calculated."
-        data-testid="cost-unavailable"
-      >
-        cost unavailable
-      </span>
+      @if (notPriced()) {
+        <span
+          class="badge badge-sm badge-ghost opacity-70"
+          title="Ptah does not have the rate needed to calculate this cost."
+          data-testid="cost-not-priced"
+        >
+          not priced
+        </span>
+      } @else {
+        <span
+          class="badge badge-sm badge-ghost opacity-70"
+          title="No per-token pricing is known for this provider or model, so cost cannot be calculated."
+          data-testid="cost-unavailable"
+        >
+          cost unavailable
+        </span>
+      }
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -79,8 +93,25 @@ export class CostBadgeComponent {
   /** Optional final price meaning; absent snapshots keep the legacy badge. */
   readonly costBasis = input<SessionCostBasis>();
 
+  /**
+   * Backend's narrow cause of a null cost. Only `rate-missing` changes the
+   * label: Ptah lacks a rate needed for the model, while
+   * every other null-cost reason (unknown billing, unusable usage) keeps
+   * "cost unavailable" so the badge never claims more than it knows.
+   */
+  readonly costUnavailableReason = input<SessionCostUnavailableReason>();
+
   protected readonly basisLabel = computed(() =>
     costBasisLabel(this.cost(), this.costBasis()),
+  );
+
+  /**
+   * Whether the null cost is a model without a rate available to Ptah, from the same
+   * known-cost gate the template's `@if` uses, so a genuine `0` stays priced.
+   */
+  protected readonly notPriced = computed(() =>
+    this.knownCost() === null &&
+    this.costUnavailableReason() === 'rate-missing',
   );
 
   /**

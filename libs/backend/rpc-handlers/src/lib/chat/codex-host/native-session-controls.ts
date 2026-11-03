@@ -24,7 +24,7 @@ export interface SessionControlSettings {
   readonly workspacePath: string;
   /** Provider settings namespace from the session's bound provider, not focused UI. */
   readonly authKey: string;
-  readonly model: string;
+  readonly model?: string;
   readonly effort?: EffortLevel;
   readonly permissionLevel: PermissionLevel;
 }
@@ -165,7 +165,7 @@ export function createNativeSessionControls(
   const change = <T>(
     id: SessionId,
     value: T,
-    previous: (settings: SessionControlSettings) => T,
+    previous: (settings: SessionControlSettings) => T | undefined,
     update: (
       settings: SessionControlSettings,
       value: T,
@@ -207,6 +207,8 @@ export function createNativeSessionControls(
             throw new Error('Session changed during settings save', {
               cause: saveError,
             });
+          if (old === undefined)
+            throw new Error('Previous Codex setting is unavailable for rollback');
           await apply(old);
         } catch (rollbackError) {
           throw new AggregateError(

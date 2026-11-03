@@ -1,5 +1,4 @@
-// CodexRuntimeLogger is a narrow private port to keep logging sanitized without a host logger dependency.
-// Public contracts and composition. Exporting these does not enable production routing.
+// Public contracts and composition.
 export type {
   CodexJsonValue,
   CodexPermissionLevel,
@@ -41,7 +40,6 @@ export type {
   CodexAccountUsageResult,
 } from './lib/codex-account-usage.types';
 export type {
-  CodexExecutableManifestRow,
   CodexExecutableSource,
   ApprovalSink,
   CodexThreadIdentityStore,
@@ -54,11 +52,6 @@ export type {
   CodexHomeAuthReader,
 } from './lib/codex-home-auth-reader';
 export { CODEX_RUNTIME_TOKENS } from './lib/di/tokens';
-export {
-  codexDevRouteCovers,
-  readCodexDevRouteOverride,
-  type CodexDevRouteOverride,
-} from './lib/codex-dev-route';
 export { CodexRuntime } from './lib/codex-runtime';
 export { CodexContextStateError } from './lib/codex-context-state-error';
 export type { CodexRuntimeOptions } from './lib/codex-context';
@@ -70,16 +63,7 @@ export {
 } from './lib/codex-resume-profile-error';
 export { CodexAccountUsageClient } from './lib/codex-account-usage-client';
 export {
-  CodexParityGate,
-  CODEX_PARITY_EVIDENCE,
-  type CodexParityConsumer,
-  type CodexParityPlatform,
-  type CodexParityObservation,
-  type CodexParityDecision,
-} from './lib/codex-parity-gate';
-export {
   registerCodexRuntime,
-  resolveGatedCodexRuntime,
   type CodexRuntimeRegistrationPorts,
 } from './lib/di/registration';
 export {
@@ -101,11 +85,20 @@ export {
   CODEX_PTAH_TOOL_TIMEOUT_SEC,
   ptahMcpSessionUrl,
 } from './lib/codex-ptah-mcp';
-// CodexExecutableManifestRow (ports above) is the canonical public pin; the
-// process and validator remain implementation details.
-export type { CodexBinaryIdentity } from './lib/codex-protocol-manifest';
-export { findCodexExecutablePin } from './lib/codex-executable-pin';
-export * from './lib/codex-executable-inspection';
+export {
+  CODEX_MIN_SUPPORTED_VERSION,
+  CodexExecutableUnavailableError,
+  CodexSelectionSnapshot,
+  createNodeCodexExecutableProbes,
+  parseCodexVersion,
+  isCodexVersionSupported,
+  selectCodexExecutable,
+  type CodexExecutableOrigin,
+  type CodexExecutableSelection,
+  type CodexExecutableProbes,
+  type CodexSelection,
+  type CodexSelectionSnapshotPort,
+} from './lib/select-codex-executable';
 export {
   normalizeCodexHomeKey,
   normalizeCodexWorkspaceKey,
@@ -113,6 +106,7 @@ export {
 
 export {
   CodexProcessFailureError,
+  CodexUnsupportedMethodError,
   CODEX_INITIALIZE_TIMEOUT_MS,
 } from './lib/codex-app-server-process';
 export { CodexPreTurnConfigRejectedError } from './lib/codex-runtime';

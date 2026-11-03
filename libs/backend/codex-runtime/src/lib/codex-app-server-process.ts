@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { accessSync, constants, realpathSync, statSync } from 'node:fs';
 import { CodexStderrTail, redactCodexDiagnostics } from './codex-stderr-tail';
 import { normalizeCodexHomeKey } from './codex-home-path';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
@@ -8,10 +9,6 @@ import type {
   IProcessSpawner,
 } from './codex-runtime-ports';
 import type { CodexExecutionProfile } from './codex-runtime.types';
-import {
-  verifyCodexBinary,
-  type CodexBinaryIdentity,
-} from './codex-protocol-manifest';
 import {
   CodexProtocolError,
   codexRequestSchemas,
@@ -87,6 +84,19 @@ export class CodexRequestRejectedError extends Error {
   }
 }
 
+export class CodexUnsupportedMethodError extends Error {
+  readonly code = 'codexUnsupportedMethod';
+  constructor(
+    readonly method: string,
+    readonly version: string,
+    readonly source: 'installed' | 'bundled',
+  ) {
+    const required = ['initialize', 'model/list', 'thread/start', 'thread/resume', 'turn/start'].includes(method);
+    super(`Codex ${version} does not support ${required ? 'required ' : ''}method ${method}. Update Codex or Ptah.`);
+    this.name = 'CodexUnsupportedMethodError';
+  }
+}
+
 export class CodexHomeMismatchError extends Error {
   readonly code = 'codexHomeMismatch';
 
@@ -114,6 +124,11 @@ class CodexInboundFrameLimitError extends Error {
 }
 
 export class CodexAppServerProcess {
+  private executable?: CodexExecutableSource;
+  private get selectedExecutable(): CodexExecutableSource {
+    if (!this.executable) throw new Error('Codex executable is not selected');
+    return this.executable;
+  }
   private verifiedHome?: string;
   private readonly stderr = new CodexStderrTail();
 
@@ -147,9 +162,7 @@ export class CodexAppServerProcess {
 
   constructor(
     private readonly spawner: IProcessSpawner,
-    private readonly executable: CodexExecutableSource,
-    /** Identity measured by composition; the launch guard rechecks the digest at spawn. */
-    private readonly binary: CodexBinaryIdentity,
+    private readonly executableSource: CodexExecutableSource | (() => Promise<CodexExecutableSource>),
     private readonly profile: CodexExecutionProfile,
     private readonly handlers: CodexAppServerHandlers,
     private readonly logger?: CodexRuntimeLogger,
@@ -164,19 +177,18 @@ export class CodexAppServerProcess {
     try {
       this.assertOpen();
       if (signal?.aborted) throw new Error('Codex process aborted');
-      const pinVerification = verifyCodexBinary(
-        this.binary,
-        this.executable.expectedManifestRow,
-      );
-      if (
-        this.binary.executablePath !== this.executable.resolvedPath ||
-        pinVerification.status !== 'ok'
-      )
-        throw new Error('Codex executable pin mismatch');
+      this.executable = typeof this.executableSource === 'function'
+        ? await this.executableSource() : this.executableSource;
+      const canonical = realpathSync(this.executable.path);
+      const file = statSync(canonical);
+      if (canonical !== this.executable.path || !file.isFile() ||
+          (process.platform === 'win32' && !canonical.toLowerCase().endsWith('.exe')))
+        throw new Error('Codex executable is not a canonical native file');
+      accessSync(canonical, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
       const spawnStartedAt = Date.now();
       this.spawnStartedAt = spawnStartedAt;
       this.child = this.spawner.spawnProcess({
-        command: this.executable.resolvedPath,
+        command: this.executable.path,
         args: ['app-server'],
         cwd: this.profile.cwd,
         env: {
@@ -198,14 +210,6 @@ export class CodexAppServerProcess {
               ),
           ),
           CODEX_HOME: this.profile.normalizedHome,
-        },
-        launchGuard: {
-          fileContents: [
-            {
-              path: this.executable.resolvedPath,
-              sha256: this.executable.expectedManifestRow.binarySha256,
-            },
-          ],
         },
       });
       this.child.on('close', this.onClose);
@@ -230,7 +234,7 @@ export class CodexAppServerProcess {
           'initialize',
           {
             clientInfo: { name: 'ptah', version: '1' },
-            // The pinned schema requires true, including for granular approval policy.
+            // Required for granular approval policy.
             capabilities: { experimentalApi: true },
           },
           CODEX_INITIALIZE_TIMEOUT_MS,
@@ -239,10 +243,10 @@ export class CodexAppServerProcess {
       const startupDurationMs = Date.now() - spawnStartedAt;
       try {
         if (
-          normalizeCodexHomeKey(initialized.codexHome, this.binary.platform) !==
+          normalizeCodexHomeKey(initialized.codexHome, process.platform) !==
           normalizeCodexHomeKey(
             this.profile.normalizedHome,
-            this.binary.platform,
+            process.platform,
           )
         )
           throw new CodexHomeMismatchError();
@@ -264,9 +268,8 @@ export class CodexAppServerProcess {
       }
       this.bufferedNotifications.length = 0;
       this.logger?.info('Codex process started', {
-        binaryPath: this.executable.resolvedPath,
-        pinnedVersion: this.executable.expectedManifestRow.pinnedVersion,
-        pinStatus: pinVerification.status,
+        source: this.executable.source,
+        version: this.executable.version,
         startupDurationMs,
       });
     } catch (error) {
@@ -283,6 +286,16 @@ export class CodexAppServerProcess {
     if (!this.ready) throw new Error('Codex process not initialized');
     const result = await this.sendRequest(method, params, REQUEST_TIMEOUT_MS);
     try {
+      if (method === 'model/list') {
+        const raw = z.object({ data: z.array(z.unknown()) }).safeParse(result);
+        const parsed = codexRequestSchemas['model/list'].result.safeParse(result);
+        if (raw.success && parsed.success) {
+          const skipped = raw.data.data.length - parsed.data.data.length;
+          if (skipped > 0) this.logger?.debug('Codex model entries skipped', {
+            count: Math.min(skipped, 100), reason: 'invalidModelEntry',
+          });
+        }
+      }
       return validateCodexResult(method, result);
     } catch (error) {
       // receive() normally validates first; keep the same safe diagnostic if
@@ -377,7 +390,7 @@ export class CodexAppServerProcess {
     const pending = typeof id === 'number' ? this.pending.get(id) : undefined;
     // Validate the envelope before replying to an unsupported server request.
     const unsupported = z
-      .strictObject({
+      .object({
         jsonrpc: z.literal('2.0').optional(),
         emittedAtMs: z.number().int().nonnegative().optional(),
         id: z.union([z.string(), z.number().int()]),
@@ -485,8 +498,9 @@ export class CodexAppServerProcess {
         /expected.?turn.?id|no active turn|turn.*(?:not active|not found|mismatch|completed)/i.test(
           frame.error.message,
         );
-      pending.reject(
-        new CodexRequestRejectedError(
+      pending.reject(frame.error.code === -32601
+        ? new CodexUnsupportedMethodError(pending.method, this.selectedExecutable.version, this.selectedExecutable.source)
+        : new CodexRequestRejectedError(
           pending.method,
           frame.error.code,
           race ? 'codexTurnNoLongerActive' : 'codexRequestRejected',
@@ -579,7 +593,7 @@ export class CodexAppServerProcess {
         ? this.pending.values().next().value?.method
         : undefined);
     this.failure ??=
-      cause instanceof CodexHomeMismatchError
+      cause instanceof CodexHomeMismatchError || cause instanceof CodexUnsupportedMethodError
         ? cause
         : new CodexProcessFailureError(message, failedMethod, { cause });
     if (first) {

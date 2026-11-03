@@ -189,6 +189,22 @@ describe('persistCliSessionReference — completion time', () => {
     );
   }
 
+  it('persists abandoned CLI IDs with the current thread reference', () => {
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    persist(buildInfo({
+      parentSessionId: PARENT_SESSION,
+      cliSessionId: 'bundled-thread',
+      replacesCliSessionIds: ['installed-thread'],
+      status: 'completed',
+    }), addCliSession);
+
+    expect(addCliSession).toHaveBeenCalledWith(PARENT_SESSION,
+      expect.objectContaining({
+        cliSessionId: 'bundled-thread',
+        replacesCliSessionIds: ['installed-thread'],
+      }));
+  });
+
   it('writes the exit completion time on the reference', () => {
     const addCliSession = jest.fn().mockResolvedValue(undefined);
     const info = buildInfo({

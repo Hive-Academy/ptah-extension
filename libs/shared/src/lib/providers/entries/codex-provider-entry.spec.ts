@@ -1,18 +1,3 @@
-/**
- * Codex Provider Entry Specs
- *
- * The Codex static list is IDs-only fallback metadata. Pins:
- * 1. `gpt-5.4` stays first (`staticModels[0]` is the default-model fallback).
- * 2. `gpt-6-astra` and `gpt-5.6-sol` are appended after the original six.
- * 3. Every `contextLength` is 0 (unknown); windows come only from the live catalog.
- * 4. `CODEX_DEFAULT_TIERS` names current, listed IDs.
- * 5. `seedStaticModelPricing('openai-codex')` writes nothing, so no
- *    `maxTokens: 0` entry is ever published for a Codex ID; exact published
- *    rates come from the bundled rate card (`utils/codex-rate-card.ts`).
- *
- * @see TASK_2026_408
- */
-
 import {
   CODEX_DEFAULT_TIERS,
   CODEX_PROVIDER_ENTRY,
@@ -24,87 +9,33 @@ import {
 } from '../provider-registry';
 import { getPricingMap } from '../../utils/pricing.utils';
 
-const STATIC_MODELS = CODEX_PROVIDER_ENTRY.staticModels ?? [];
-const STATIC_IDS = STATIC_MODELS.map((m) => m.id);
-
-describe('CODEX_PROVIDER_ENTRY static models', () => {
-  it('matches the listed live catalog in menu order, first model as the default fallback', () => {
-    // `codex debug models`, visibility "list", 2026-10-07. The gpt-5.x-codex IDs
-    // it replaced are rejected for ChatGPT accounts.
-    expect(STATIC_IDS).toEqual([
-      'gpt-6.1-sol',
-      'gpt-6-astra',
-      'gpt-6-sol',
-      'gpt-6-luna',
-      'gpt-5.6-sol',
-      'gpt-5.6-terra',
-      'gpt-5.6-luna',
-    ]);
+describe('CODEX_PROVIDER_ENTRY', () => {
+  it('uses dynamic model discovery without a static model list', () => {
+    expect(CODEX_PROVIDER_ENTRY.staticModels).toBeUndefined();
+    expect(getAnthropicProvider('openai-codex')?.staticModels).toBeUndefined();
   });
 
-  it('has no duplicate IDs', () => {
-    expect(new Set(STATIC_IDS).size).toBe(STATIC_IDS.length);
-  });
-
-  it('declares every context window as 0 (unknown; catalog-only)', () => {
-    expect(STATIC_MODELS.length).toBeGreaterThan(0);
-    for (const model of STATIC_MODELS) {
-      expect(model.contextLength).toBe(0);
-    }
-  });
-
-  it('marks every model as tool-capable', () => {
-    for (const model of STATIC_MODELS) {
-      expect(model.supportsToolUse).toBe(true);
-    }
-  });
-
-  it('is the list the registry resolves for openai-codex', () => {
-    expect(getAnthropicProvider('openai-codex')?.staticModels).toBe(
-      CODEX_PROVIDER_ENTRY.staticModels,
-    );
-  });
-});
-
-describe('CODEX_DEFAULT_TIERS', () => {
-  it('maps each tier to a current model', () => {
-    expect(CODEX_DEFAULT_TIERS).toEqual({
-      sonnet: 'gpt-6-sol',
-      opus: 'gpt-6.1-sol',
-      haiku: 'gpt-6-luna',
-    });
+  it('shares its default tier mappings with the provider registry', () => {
     expect(CODEX_PROVIDER_ENTRY.defaultTiers).toBe(CODEX_DEFAULT_TIERS);
+    expect(Object.keys(CODEX_DEFAULT_TIERS).sort()).toEqual([
+      'haiku',
+      'opus',
+      'sonnet',
+    ]);
+    const models = Object.values(CODEX_DEFAULT_TIERS);
+    expect(models.every((model) => model.trim().length > 0)).toBe(true);
+    expect(new Set(models).size).toBe(models.length);
   });
 
-  it('names only IDs present in the static list', () => {
-    for (const modelId of Object.values(CODEX_DEFAULT_TIERS)) {
-      expect(STATIC_IDS).toContain(modelId);
-    }
-  });
-});
-
-describe('Codex pricing seed', () => {
   it('is subscription-covered', () => {
     expect(isSubscriptionCoveredProvider('openai-codex')).toBe(true);
   });
 
-  it('seeds nothing; the bundled rate card supplies exact rates instead', () => {
+  it('seeds no static pricing', () => {
     const before = getPricingMap();
 
     seedStaticModelPricing('openai-codex');
 
-    const afterMap = getPricingMap();
-    // Seeding a subscription provider writes nothing at all.
-    expect(afterMap).toEqual(before);
-    for (const id of STATIC_IDS) {
-      const entry = afterMap[id];
-      if (!entry) continue;
-      // The bundled exact-rate card (`utils/codex-rate-card.ts`) may publish
-      // these IDs with exact published rates and provenance — never the $0
-      // static placeholder, and never a maxTokens window.
-      expect(entry.inputCostPerToken).toBeGreaterThan(0);
-      expect(entry.outputCostPerToken).toBeGreaterThan(0);
-      expect(entry.maxTokens).toBeUndefined();
-    }
+    expect(getPricingMap()).toEqual(before);
   });
 });

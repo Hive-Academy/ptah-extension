@@ -1,9 +1,6 @@
 import { z } from 'zod';
-import {
-  codexNotificationSchemas,
-  isUnmodeledCodexNotification,
-} from './codex-protocol-validator';
-import { tokenUsageNotification } from './codex-protocol-schemas';
+import { codexNotificationSchemas } from './codex-protocol-validator';
+import { knownItem, tokenUsageNotification } from './codex-protocol-schemas';
 import type {
   CodexJsonValue,
   CodexRuntimeEvent,
@@ -14,7 +11,7 @@ import type {
   CodexUsageDiagnostic,
 } from './codex-runtime.types';
 
-type Item = z.infer<(typeof codexNotificationSchemas)['item/started']>['item'];
+type Item = z.infer<typeof knownItem>;
 type Payload = CodexRuntimeEvent extends infer E
   ? E extends CodexRuntimeEvent
     ? Omit<
@@ -307,21 +304,25 @@ export class CodexEventTranslator {
               ])
             : this.invalid(params);
         }
-        if (parsed.data.item.type === 'agentMessage') {
-          const itemKey = this.key(parsed.data) + ':' + parsed.data.item.id;
-          if (method === 'item/started' && parsed.data.item.delivery === 'async')
+        const known = knownItem.safeParse(parsed.data.item);
+        // Future item types are opaque protocol evidence, not runtime failures.
+        if (!known.success) return [];
+        const item = known.data;
+        if (item.type === 'agentMessage') {
+          const itemKey = this.key(parsed.data) + ':' + item.id;
+          if (method === 'item/started' && item.delivery === 'async')
             this.asyncMessageItems.add(itemKey);
           if (method === 'item/completed') this.asyncMessageItems.delete(itemKey);
           const streamed = this.streamedMessageItems.has(itemKey);
           if (method === 'item/completed') this.streamedMessageItems.delete(itemKey);
           return this.emit(
             parsed.data,
-            this.item(parsed.data.item, method === 'item/completed', streamed),
+            this.item(item, method === 'item/completed', streamed),
           );
         }
         return this.emit(
           parsed.data,
-          this.item(parsed.data.item, method === 'item/completed'),
+          this.item(item, method === 'item/completed'),
         );
       }
       case 'thread/tokenUsage/updated': {
@@ -346,7 +347,7 @@ export class CodexEventTranslator {
           (value) => value.cachedInputTokens + (value.cacheWriteInputTokens ?? 0) > value.inputTokens ||
             value.reasoningOutputTokens > value.outputTokens,
         );
-        // Native cache-write inclusion is not established by the pinned schema.
+        // Native cache-write inclusion is not established by the frozen schema.
         const cacheSemanticsAmbiguous = classesInconsistent ||
           (data.tokenUsage.total.cacheWriteInputTokens ?? 0) > 0 ||
           (data.tokenUsage.last.cacheWriteInputTokens ?? 0) > 0;
@@ -474,8 +475,8 @@ export class CodexEventTranslator {
         return events;
       }
       default:
-        if (isUnmodeledCodexNotification(method)) return [];
-        return this.invalid(params);
+        // The process boundary logs unknown methods before this translator runs.
+        return [];
     }
   }
 

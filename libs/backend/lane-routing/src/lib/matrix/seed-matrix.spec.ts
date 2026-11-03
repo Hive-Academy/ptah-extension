@@ -221,7 +221,7 @@ describe('matrix schema', () => {
   it('rejects a duplicate profile key and names the entry', () => {
     const profile = {
       family: 'codex',
-      model: 'gpt-6-sol',
+      model: 'future-codex-model',
       cells: unknownCells,
     };
     const result = CapabilityMatrixSchema.safeParse(

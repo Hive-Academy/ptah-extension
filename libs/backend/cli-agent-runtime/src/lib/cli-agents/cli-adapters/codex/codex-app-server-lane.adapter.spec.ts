@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import {
   buildCodexExecutionProfile,
   CodexPreTurnConfigRejectedError,
+  CodexUnsupportedMethodError,
   type ApprovalSink,
   type CodexContext,
   type CodexExecutionProfile,
@@ -14,7 +15,7 @@ import {
 } from '@ptah-extension/codex-runtime';
 import type { CliOutputSegment, ProviderAccountBinding } from '@ptah-extension/shared';
 import { Logger } from '@ptah-extension/vscode-core';
-import type { CliCommandOptions, CliModelInfo } from '../cli-adapter.interface';
+import type { CliCommandOptions } from '../cli-adapter.interface';
 import {
   CodexAppServerLaneAdapter,
   CodexLaneResumeIdentityError,
@@ -160,6 +161,7 @@ function harness(configure?: (context: FakeContext, attempt: number) => void, ho
   const binary: CodexLaneBinaryProbe = {
     resolve: jest.fn(async (explicitPath?: string) => ({
       path: explicitPath ?? '/bin/codex', version: '0.165.0',
+      source: 'installed' as const, reason: 'Using installed Codex 0.165.0',
     })),
   };
   const credentials: CodexLaneCredentialProbe = {
@@ -208,7 +210,7 @@ describe('CodexAppServerLaneAdapter', () => {
     await handle.done;
     handle.abort.abort();
     await h.adapter.listModels();
-    expect(h.runtime.openCatalog).toHaveBeenCalledWith('/bin/codex', '/home');
+    expect(h.runtime.openCatalog).toHaveBeenCalledWith('/bin/codex', '/home', undefined);
   });
   it('opens one lane context with exact settings, projects text, tool and usage once, and reports Ptah MCP URL', async () => {
     const h = harness();
@@ -797,7 +799,6 @@ describe('CodexAppServerLaneAdapter', () => {
   });
 
   it.each([
-    ['ptah-default', "Ptah's lane default"],
     ['setting', 'set in `agentOrchestration.codexModel`'],
     ['request', 'named by the spawn request'],
   ] as const)('gives source-aware model rejection advice for %s', async (source, expected) => {
@@ -854,9 +855,9 @@ describe('CodexAppServerLaneAdapter', () => {
     expect(h.credentials.check).not.toHaveBeenCalled();
   });
 
-  it('reports a pin mismatch as not installed and warns without opening a process', async () => {
+  it('reports a selection error as unavailable and warns without opening a process', async () => {
     const h = harness();
-    jest.mocked(h.binary.resolve).mockRejectedValue(new Error('Codex executable pin mismatch'));
+    jest.mocked(h.binary.resolve).mockRejectedValue(new Error('Codex selection failed'));
     await expect(h.adapter.detect()).resolves.toMatchObject({ installed: false });
     expect(h.logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('detection failed'), { errorClass: 'Error' },
@@ -867,7 +868,9 @@ describe('CodexAppServerLaneAdapter', () => {
   it('reports the binary actually selected and checks credentials read only', async () => {
     const h = harness();
     await expect(h.adapter.detect()).resolves.toMatchObject({
-      installed: true, path: '/bin/codex', version: '0.165.0', messagingMode: 'queue',
+      installed: true, path: '/bin/codex', version: '0.165.0',
+      codexSource: 'installed', codexReason: 'Using installed Codex 0.165.0',
+      messagingMode: 'queue',
     });
     expect(h.credentials.check).toHaveBeenCalledTimes(1);
     jest.mocked(h.credentials.check).mockResolvedValue('stale');
@@ -878,22 +881,97 @@ describe('CodexAppServerLaneAdapter', () => {
     expect(h.logger.warn).toHaveBeenCalledWith(expect.any(String), { status: 'unreadable' });
   });
 
-  it('rejects a binary pin mismatch before opening and forwards an accepted explicit path', async () => {
+  it('starts a new bundled thread and moves its writer when a fresh first turn lacks a method', async () => {
+    const h = harness((context, attempt) => {
+      if (attempt === 1) jest.spyOn(context, 'startTurn').mockRejectedValueOnce(
+        new CodexUnsupportedMethodError('turn/start', '0.170.0', 'installed'),
+      );
+    });
+    let bundled: FakeContext | undefined;
+    h.runtime.openFallback = jest.fn(async (profile) => {
+      bundled = new FakeContext(profile, {
+        ...h.context.identity, threadId: 'thread-2',
+      });
+      return bundled;
+    });
+    const handle = await h.adapter.runSdk(options({ model: 'future-codex-model' }));
+    const resolvedIds: string[] = [];
+    handle.onSessionResolved?.((id) => resolvedIds.push(id));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(h.runtime.openFallback).toHaveBeenCalledWith(
+        h.profile, undefined, expect.any(Object), '/bin/codex', 'turn/start', undefined,
+    );
+    expect(h.context.close).toHaveBeenCalledTimes(1);
+    expect(handle.getSessionId?.()).toBe('thread-2');
+    expect(resolvedIds).toEqual(['thread-1', 'thread-2']);
+    expect(h.writers.has('thread-1')).toBe(false);
+    expect(h.writers.has('thread-2')).toBe(true);
+    expect(bundled).toBeDefined();
+    if (!bundled) throw new Error('Bundled context was not opened');
+    await terminal(bundled);
+    expect(await handle.done).toBe(0);
+    expect(h.runtime.openFallback).toHaveBeenCalledTimes(1);
+  });
+
+  it('resumes the same bundled thread when an existing lane has history', async () => {
+    const h = harness((context, attempt) => {
+      if (attempt === 2) jest.spyOn(context, 'startTurn').mockRejectedValueOnce(
+        new CodexUnsupportedMethodError('turn/start', '0.170.0', 'installed'),
+      );
+    });
+    const first = await h.adapter.runSdk(options());
+    await terminal(h.context);
+    expect(await first.done).toBe(0);
+    let bundled: FakeContext | undefined;
+    h.runtime.openFallback = jest.fn(async (profile, identity) => {
+      bundled = new FakeContext(profile, identity);
+      return bundled;
+    });
+    const resumed = await h.createAdapter().runSdk(options({ resumeSessionId: 'thread-1' }));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(h.runtime.openFallback).toHaveBeenCalledWith(
+      h.profile, expect.objectContaining({ threadId: 'thread-1' }),
+      expect.any(Object), '/bin/codex', 'turn/start', undefined,
+    );
+    expect(h.writers.has('thread-1')).toBe(true);
+    if (!bundled) throw new Error('Bundled context was not opened');
+    await terminal(bundled);
+    expect(await resumed.done).toBe(0);
+  });
+
+  it('reports bundled turn/start failure after runtime model/list fallback without another retry', async () => {
+    const h = harness((context, attempt) => {
+      if (attempt === 1) jest.spyOn(context, 'startTurn').mockRejectedValueOnce(
+        new CodexUnsupportedMethodError('turn/start', '0.165.0', 'bundled'),
+      );
+    });
+    h.runtime.openFallback = jest.fn(async () => {
+      throw new Error('A second fallback must not run');
+    });
+    const handle = await h.adapter.runSdk(options());
+    await expect(handle.done).rejects.toThrow(
+      'Codex 0.165.0 does not support required method turn/start. Update Codex or Ptah.',
+    );
+    expect(h.runtime.openFallback).not.toHaveBeenCalled();
+    expect(h.context.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an unavailable binary before opening and forwards an accepted explicit path', async () => {
     const h = harness();
-    jest.mocked(h.binary.resolve).mockRejectedValueOnce(new Error('Codex executable pin mismatch'));
+    jest.mocked(h.binary.resolve).mockRejectedValueOnce(new Error('Codex executable is unavailable'));
     await expect(h.adapter.runSdk(options({ binaryPath: '/custom/codex' })))
-      .rejects.toThrow('Codex executable pin mismatch');
+      .rejects.toThrow('Codex executable is unavailable');
     expect(h.runtime.open).not.toHaveBeenCalled();
     const handle = await h.adapter.runSdk(options({ binaryPath: '/custom/codex' }));
     expect(h.binary.resolve).toHaveBeenLastCalledWith('/custom/codex');
     expect(h.runtime.open).toHaveBeenCalledWith(
-      expect.any(Object), undefined, expect.any(Object), '/custom/codex',
+        expect.any(Object), undefined, expect.any(Object), '/custom/codex', undefined,
     );
     await terminal(h.context);
     await handle.done;
   });
 
-  it('keeps the requested and Ptah default models in the thread and turn profile', async () => {
+  it('keeps explicit requested and saved models in the thread and turn profile', async () => {
     const requested = harness();
     const chosen = await requested.adapter.runSdk(options({ model: 'gpt-6-astra', modelSource: 'request' }));
     expect(requested.profile.model).toBe('gpt-6-astra');
@@ -903,55 +981,31 @@ describe('CodexAppServerLaneAdapter', () => {
     const defaulted = harness();
     jest.mocked(defaulted.profiles.resolve).mockImplementation(async () => {
       const source = lane();
-      return { lane: { ...source, identity: { ...source.identity, model: 'gpt-6-sol' } }, paths };
+      return { lane: { ...source, identity: { ...source.identity, model: 'future-codex-model' } }, paths };
     });
     const standard = await defaulted.adapter.runSdk(options());
-    expect(defaulted.profile.model).toBe('gpt-6-sol');
+    expect(defaulted.profile.model).toBe('future-codex-model');
     await terminal(defaulted.context);
     await standard.done;
   });
 
-  it('uses the lane default for an empty requested model', async () => {
-    const h = harness();
-    jest.mocked(h.profiles.resolve).mockImplementation(async () => {
-      const source = lane();
-      return { lane: { ...source, identity: { ...source.identity, model: '' } }, paths };
-    });
-    const handle = await h.adapter.runSdk(options({ model: '' }));
-    expect(h.profile.model).toBe('gpt-6-sol');
-    expect(h.context.inputs[0].text).toContain('write report');
-    await terminal(h.context);
-    await handle.done;
-    handle.abort.abort();
-  });
-
-  it('labels only an applied default as Ptah default in model advice', async () => {
+  it('labels an explicit model as selected by settings or the spawn request', async () => {
     const explicit = harness();
-    const explicitHandle = await explicit.adapter.runSdk(options({ model: 'gpt-6-sol' }));
+    const explicitHandle = await explicit.adapter.runSdk(options({ model: 'future-codex-model' }));
     explicit.context.event('turn-1', 1, { type: 'terminal', status: 'failed', error: {
       code: 'model_not_found', message: 'The model does not exist', retryable: false,
     } });
     await expect(explicitHandle.done).rejects.toThrow('setting or the spawn request');
 
-    const defaulted = harness();
-    jest.mocked(defaulted.profiles.resolve).mockImplementation(async () => {
-      const source = lane();
-      return { lane: { ...source, identity: { ...source.identity, model: '' } }, paths };
-    });
-    const defaultHandle = await defaulted.adapter.runSdk(options());
-    defaulted.context.event('turn-1', 1, { type: 'terminal', status: 'failed', error: {
-      code: 'model_not_found', message: 'The model does not exist', retryable: false,
-    } });
-    await expect(defaultHandle.done).rejects.toThrow("Ptah's lane default");
   });
 
-  it('falls back visibly when binary verification fails during listing', async () => {
+  it('returns an empty catalog when binary selection fails during listing', async () => {
     const h = harness();
-    jest.mocked(h.binary.resolve).mockRejectedValue(new Error('Codex executable pin mismatch'));
+    jest.mocked(h.binary.resolve).mockRejectedValue(new Error('Codex executable is unavailable'));
     const models = await h.adapter.listModels();
-    expect(models.some((model) => model.id === 'gpt-6-sol')).toBe(true);
+    expect(models).toEqual([]);
     expect(h.logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('curated fallback'), { errorClass: 'Error' },
+      expect.stringContaining('catalog failed'), { errorClass: 'Error' },
     );
     expect(h.runtime.openCatalog).not.toHaveBeenCalled();
   });
@@ -971,11 +1025,9 @@ describe('CodexAppServerLaneAdapter', () => {
       await Promise.resolve();
       await Promise.resolve();
       await jest.advanceTimersByTimeAsync(8_000);
-      await expect(listing).resolves.toEqual(expect.arrayContaining([
-        { id: 'gpt-6-sol', name: 'GPT-6-Sol (Ptah lane default)' },
-      ]));
+      await expect(listing).resolves.toEqual([]);
       expect(h.logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('curated fallback'), { errorClass: 'Error' },
+        expect.stringContaining('catalog failed'), { errorClass: 'Error' },
       );
       const late = new FakeContext(h.profile);
       resolveLate(late);
@@ -1005,9 +1057,7 @@ describe('CodexAppServerLaneAdapter', () => {
       await Promise.resolve();
       await Promise.resolve();
       await jest.advanceTimersByTimeAsync(8_000);
-      await expect(listing).resolves.toEqual(expect.arrayContaining([
-        { id: 'gpt-6-sol', name: 'GPT-6-Sol (Ptah lane default)' },
-      ]));
+      await expect(listing).resolves.toEqual([]);
       expect(catalog.close).toHaveBeenCalledTimes(1);
       expect(jest.getTimerCount()).toBe(0);
     } finally {
@@ -1015,7 +1065,7 @@ describe('CodexAppServerLaneAdapter', () => {
     }
   });
 
-  it('lists the runtime catalog, caches for 30 seconds, and warns on fallback', async () => {
+  it('lists the selected runtime catalog afresh and returns no static models on failure', async () => {
     const h = harness((context, attempt) => {
       if (attempt === 0) context.models = [
         { id: 'catalog-1', model: 'gpt-6-sol', displayName: 'GPT-6-Sol', isDefault: false },
@@ -1027,29 +1077,13 @@ describe('CodexAppServerLaneAdapter', () => {
     await handle.done;
     const first = await h.adapter.listModels();
     expect(first).toEqual([
-      { id: 'gpt-6-sol', name: 'GPT-6-Sol (Ptah lane default)' },
-      { id: 'gpt-6-astra', name: 'GPT-6-Astra' },
+      { id: 'gpt-6-sol', name: 'GPT-6-Sol' },
+      { id: 'gpt-6-astra', name: 'GPT-6-Astra (Codex default)' },
     ]);
     await h.adapter.listModels();
-    expect(h.runtime.openCatalog).toHaveBeenCalledTimes(1);
-    const later = Date.now() + 30_001;
-    const clock = jest.spyOn(Date, 'now').mockReturnValue(later);
-    try {
-      await h.adapter.listModels();
-    } finally {
-      clock.mockRestore();
-    }
     expect(h.runtime.openCatalog).toHaveBeenCalledTimes(2);
     jest.mocked(h.runtime.openCatalog).mockRejectedValueOnce(new Error('catalog failed'));
-    const secondClock = jest.spyOn(Date, 'now').mockReturnValue(later + 30_001);
-    let fallback: CliModelInfo[];
-    try {
-      fallback = await h.adapter.listModels();
-    } finally {
-      secondClock.mockRestore();
-    }
-    expect(fallback.find((model) => model.id === 'gpt-6-sol')?.name)
-      .toBe('GPT-6-Sol (Ptah lane default)');
+    expect(await h.adapter.listModels()).toEqual([]);
     expect(h.logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('catalog failed'), expect.any(Object),
     );

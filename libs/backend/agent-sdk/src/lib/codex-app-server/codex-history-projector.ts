@@ -71,7 +71,7 @@ export function projectCodexHistory(
   for (const thread of snapshot.threads) {
     for (const turn of thread.turns) {
       for (const item of turn.items) {
-        if (item.type === 'collabAgentToolCall') {
+        if (item.type === 'collabAgentToolCall' && 'receiverThreadIds' in item) {
           if (item.tool === 'spawnAgent') spawnReceivers.set(item.id, item.receiverThreadIds);
           for (const childId of item.receiverThreadIds) {
             const child = threadsById.get(childId);
@@ -116,7 +116,7 @@ export function projectCodexHistory(
     const answers = receivers.flatMap((id) => {
       const child = threadsById.get(id);
       const messages = child?.turns.flatMap((turn) => turn.items
-        .filter((item) => item.type === 'agentMessage')
+        .filter((item) => item.type === 'agentMessage' && 'text' in item)
         .map((item) => item.text)) ?? [];
       const last = messages[messages.length - 1];
       return last ? [last] : [];
@@ -192,7 +192,7 @@ function projectTurn(
       params: {
         threadId: thread.id,
         turnId: turn.id,
-        item: item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent'
+        item: item.type === 'collabAgentToolCall' && 'receiverThreadIds' in item && item.tool === 'spawnAgent'
           ? { ...item, receiverThreadIds: item.receiverThreadIds.filter(
             (id) => parentTool.get(id) === item.id,
           ) }
@@ -202,6 +202,8 @@ function projectTurn(
           : { completedAtMs: timestamp }),
       },
     });
+    if (method === 'item/completed' && translated.length === 0 && item.type !== 'sleep')
+      skip(item.id, 'unsupportedItem');
     for (const event of translated) {
       if (event.type === 'error') {
         skip(item.id, event.error.code);
@@ -233,7 +235,7 @@ function projectTurn(
   };
   turn.items.forEach((item, index) => {
     timestamp = itemTime(turn, index, timestamp);
-    if (item.type === 'userMessage') {
+    if (item.type === 'userMessage' && 'content' in item) {
       // Older-page cursors accept only URL-safe message ids; keep this stable
       // across full thread reads without changing assistant live-stream ids.
       const userId = createHash('sha256')

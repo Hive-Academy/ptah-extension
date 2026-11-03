@@ -231,6 +231,28 @@ describe('CliDetectionService role stamp', () => {
     }
   });
 
+  it('starts peer detection while the Codex binary probe is still pending', async () => {
+    let releaseCodex: ((result: CliDetectionResult) => void) | undefined;
+    mockAdapterFor('codex').detect.mockImplementation(
+      () => new Promise((resolve) => {
+        releaseCodex = resolve;
+      }),
+    );
+    const { service } = createService();
+
+    const pending = service.detectAll();
+    for (const [name] of CHANNELS) {
+      expect(mockAdapterFor(name).detect).toHaveBeenCalledTimes(1);
+    }
+    if (!releaseCodex) throw new Error('Codex detection did not start');
+    releaseCodex({
+      cli: 'codex', installed: true, path: '/bin/codex',
+      version: '0.165.0', messagingMode: 'queue',
+    });
+
+    expect((await pending).map((row) => row.cli)).toEqual(CHANNELS.map(([name]) => name));
+  });
+
   it('stamps the error-branch row when an adapter detect() throws', async () => {
     mockAdapterFor('codex').detect.mockRejectedValue(new Error('boom'));
     const { service, sentry } = createService();

@@ -45,7 +45,6 @@ describe('Codex runtime composition', () => {
     };
     const ports: CodexChatAdapterPorts = {
       logger: mockLogger(),
-      platform: { platform: 'win32', arch: 'x64' },
       info: {
         id: 'ptah-cli',
         name: 'Codex',

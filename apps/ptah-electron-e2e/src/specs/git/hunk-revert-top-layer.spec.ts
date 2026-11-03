@@ -189,6 +189,11 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
 
     const { dialog, cancel, confirm } = await openRevertDialog(ui, electronApp);
 
+    // Startup auth can finish while the Git dialog opens and route an
+    // unconfigured CI home to Settings. Restore the canvas underneath the
+    // already-open native dialog before checking the actual overlap.
+    await ui.pushEvent({ type: 'switchView', payload: { view: 'chat' } });
+
     // The condition the bug needed: the canvas really is behind this dialog.
     // Without this the spec could pass in a layout where nothing overlaps and
     // would stop guarding anything. The Rail empty-board hero fills the
@@ -208,17 +213,28 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
 
     // The assertion proper. Before the fix these came back as the canvas
     // empty-state text; the failure message prints whatever actually won.
-    const overCancel = await topmostAt(page, cancel);
-    expect(
-      overCancel.testid,
-      `something else is on top of Cancel: <${overCancel.tag}> "${overCancel.text}"`,
-    ).toBe('git-confirm-cancel');
+    // Poll: the view switch above can still be laying out for a frame or two.
+    let overCancel = await topmostAt(page, cancel);
+    await expect
+      .poll(
+        async () => (overCancel = await topmostAt(page, cancel)).testid,
+        {
+          message: `something else is on top of Cancel: <${overCancel.tag}> "${overCancel.text}"`,
+          timeout: 10_000,
+        },
+      )
+      .toBe('git-confirm-cancel');
 
-    const overConfirm = await topmostAt(page, confirm);
-    expect(
-      overConfirm.testid,
-      `something else is on top of Discard: <${overConfirm.tag}> "${overConfirm.text}"`,
-    ).toBe('git-confirm-confirm');
+    let overConfirm = await topmostAt(page, confirm);
+    await expect
+      .poll(
+        async () => (overConfirm = await topmostAt(page, confirm)).testid,
+        {
+          message: `something else is on top of Discard: <${overConfirm.tag}> "${overConfirm.text}"`,
+          timeout: 10_000,
+        },
+      )
+      .toBe('git-confirm-confirm');
 
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     const shot = await page.screenshot({ scale: 'css' });
