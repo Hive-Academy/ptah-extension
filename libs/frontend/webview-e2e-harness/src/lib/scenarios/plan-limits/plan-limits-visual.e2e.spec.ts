@@ -189,7 +189,7 @@ test.describe('plan limits > session inspector', () => {
 
         // (d) A failed pull while the pushed snapshot is held. A run on a new
         // owner widens this surface's scope, so the store pulls once more.
-        const refreshNotice = limits.locator('[role="status"]');
+        const refreshNotice = limits.locator('[data-testid="limits-refresh-failed"]');
         await expect(refreshNotice).toHaveCount(0);
         rpc.failPulls = true;
         await bridge.inject(PULL_TRIGGER_MESSAGE);

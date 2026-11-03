@@ -19,7 +19,7 @@ let nextSectionId = 0;
       <section class="p-4 border-t border-surface-border" [attr.aria-labelledby]="planHeadingId">
         <h3 [id]="planHeadingId" tabindex="-1" class="sec-label text-[10.5px] font-semibold uppercase">PLAN LIMITS</h3>
         @if (vm.refreshNotice) {
-          <p role="status" class="border-l-2 border-info pl-2 text-[11px] text-base-content-muted">{{ vm.refreshNotice }}</p>
+          <p role="status" data-testid="limits-refresh-failed" class="border-l-2 border-info pl-2 text-[11px] text-base-content-muted">{{ vm.refreshNotice }}</p>
         }
         @let provenance = planProvenance();
         @if (provenance.caption?.caption || provenance.sourceChips.length) {

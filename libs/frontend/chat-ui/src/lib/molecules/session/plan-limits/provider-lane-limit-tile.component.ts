@@ -17,7 +17,7 @@ import type { ProviderLaneLimitModel } from './stats-limit-view-model.types';
         }
       </div>
       @if (provider().message) {
-        <p class="text-xs text-base-content-muted" role="status">{{ provider().message }}</p>
+        <p class="text-xs text-base-content-muted" data-testid="provider-limit-message">{{ provider().message }}</p>
       }
       @if (selected(); as tile) {
         <ptah-plan-limit-tile [tile]="tile" variant="inspector" [open]="tileOpen()"
