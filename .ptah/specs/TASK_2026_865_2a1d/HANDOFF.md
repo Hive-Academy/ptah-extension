@@ -10,10 +10,41 @@ Branch: `feat/provider-switch-carryover`. Last commit: `3f6b09096` (task specs a
 | Gate 0.1 | Done. Lanes enabled, approval mode lane-review, codex lane is the cross-side reviewer (context.md). |
 | Gate 1 (task-description.md) | Passed. Codex rounds 1-2; cap decision row 12; user confirmed rows 10 and 12 (rows 14-15). |
 | Gate 2 (implementation-plan.md, Revision 1) | BLOCKED at the revise cap. Codex round 2: F2, F4-F8 fixed; F1 and F3 still Serious. |
-| Scope item K2 | BLOCKED: waiting for the user. |
+| Scope item K2 | ANSWERED: K2 rejected, support both directions, `/compact` as a second trigger if small (decisions.md rows 20-23). |
+| Plan Revision 2 | STARTED in the old session (software-architect subagent) at handoff time. It may be finished, partial, or not started. See "Update after the K2 answer" below. |
 | Team-leader / implementation / QA / commit / PR | Not started. |
 
-## The two open user questions
+## Update after the K2 answer (supersedes Q2 below)
+
+User's words (via parent, 2026-11-03): "basically, whether i'm on claude or codex, if i switched
+then ran compact command i will be able to continue easily and i do these already".
+
+- K2 rejected: support Claude -> Codex AND Codex -> Claude (row 20). Today a native Codex session
+  after a switch to Claude is silently resumed on Codex (`workspace-provider-profile-resolver.ts:190-266`);
+  the carry-over must make the switch real there too (row 21). A change to native-resume behaviour
+  beyond the carry-over trigger is a user-reserved item.
+- `/compact` on the old conversation after a switch becomes a second trigger of the same carry-over,
+  if small (row 22). The banner button stays. If it adds more than about 4 production files or
+  touches the refusal contract, send its size and options to the user before building.
+- Plan Revision 2 folds in rows 20-22 and the reviewer's exact F1/F3 fixes (row 23). This does NOT
+  pass Gate 2: Q1 (row 19) stays with the user.
+
+How to resume Revision 2:
+
+1. Check `implementation-plan.md` for a `## Revision 2` section and a `## /compact trigger size`
+   section, and `git status` for an uncommitted plan edit.
+2. If both sections are complete: read them. Send any "needs user decision" or
+   `## User-reserved items` entry to the user. Then run the Gate 2 codex review of Revision 2
+   (fresh codex lane, self-contained brief; append `## Round 3` to implementation-plan-review.md).
+3. If missing or partial: start a fresh software-architect with the Revision 2 brief: rows 16-23 of
+   decisions.md, the three changes (both directions with bounded native Codex read; `/compact`
+   second trigger with a size section; F1/F3 fixes as stated in implementation-plan-review.md
+   Round 2), `## Proposed requirement changes` for any AC wording change (do not edit
+   task-description.md), and a `## Revision 2` section mapping each change.
+4. After the codex review: Gate 2 is past the cap, so its result goes to the user (Q1), with the
+   recommendation to pass it if the review is APPROVED.
+
+## The two open user questions (Q2 answered above; Q1 still open)
 
 ### Q1 - Gate 2 at the revise cap (decisions.md row 19)
 
@@ -50,10 +81,8 @@ Options:
 
 ## Next steps after the answers
 
-1. Record both answers in `decisions.md` (next row is 20).
-2. Q1=A: fresh software-architect fixes F1/F3 in implementation-plan.md (Revision 2); codex lane
-   re-checks F1/F3 only (append `## Round 3` to implementation-plan-review.md). Apply the Q2 answer
-   to K2 in the same revision.
+1. Record the Q1 answer in `decisions.md` (next row is 24).
+2. Finish plan Revision 2 and its codex review as described in "How to resume Revision 2".
 3. Team-leader Mode 1 -> batches.md (backend and frontend batches, file-disjoint).
 4. Before batch 1: visual-reviewer takes Electron "before" screenshots of the re-auth banner (dark + light).
 5. Implement batches; scoped `npm run verify -- -p <changed projects>` per batch; final verify adds
@@ -72,5 +101,5 @@ Options:
 
 ## Key files (task folder)
 
-`context.md`, `decisions.md` (rows 1-19), `task-description.md` (+ `-review.md`),
+`context.md`, `decisions.md` (rows 1-23), `task-description.md` (+ `-review.md`),
 `implementation-plan.md` Revision 1 (+ `-review.md`, rounds 1-2).
