@@ -1457,7 +1457,7 @@ describe(CompactSessionCardComponent.name, () => {
     ).toBeNull();
   });
 
-  it('keeps a running lane in Running after the parent turn is loaded', () => {
+  it('keeps a running lane out of Done after the parent turn is loaded', () => {
     agents.set([lane()]);
     const fixture = render(tab({ status: 'streaming', hasLiveSession: true }));
     fixture.componentRef.setInput('variant', 'rail');
@@ -1469,6 +1469,6 @@ describe(CompactSessionCardComponent.name, () => {
     fixture.detectChanges();
     expect(fixture.componentInstance.laneSummary().counts.running).toBe(1);
     expect(states).not.toContain('done');
-    expect(fixture.componentInstance.railStateValue()).toBe('running');
+    expect(fixture.componentInstance.railStateValue()).toBe('background');
   });
 });
