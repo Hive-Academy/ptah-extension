@@ -343,7 +343,6 @@ export class TaskIndexService implements ITaskIndexNotifier {
     folderName: string,
   ): Promise<TaskSpecDetail | null> {
     const root = normalizeWorkspaceRoot(workspaceRoot);
-    const folderDir = path.join(root, '.ptah', 'specs', folderName);
     const carrier = await this.readFolderMarkdown(root, folderName, CARRIER_FILE);
     if (carrier.state === 'missing') return null;
     if (carrier.state !== 'ready' || carrier.content === null) {
@@ -354,7 +353,12 @@ export class TaskIndexService implements ITaskIndexNotifier {
       const raw = carrier.content;
       const parsed = parseTaskFile(folderName, raw);
       if (parsed.kind !== 'task') return null;
-      const entries = await this.listEntries(folderDir);
+      const listing = await this.listFolderEntries(root, folderName, '');
+      if (listing.state !== 'ready') {
+        this.logger.warn('[task-specs] getDetail listing failed', { folderName, state: listing.state });
+        throw new Error(`Task folder listing failed: ${listing.state}`);
+      }
+      const entries = listing.entries.slice().sort((a, b) => a.name.localeCompare(b.name));
       const artifacts = entries.map((entry) => entry.name);
       return { ...parsed.task, body: parsed.body, artifacts, entries };
     } catch (error: unknown) {
@@ -421,8 +425,23 @@ export class TaskIndexService implements ITaskIndexNotifier {
       if (stat.type === FileType.Directory) return result('directory');
       if (stat.type !== FileType.File) return result('rejected');
       if (stat.size > 1048576) return result('too_large');
-      if (!this.inside(folder, await this.fs.realpath(target))) return result('rejected');
+      const canonicalTarget = await this.fs.realpath(target);
+      if (!this.inside(folder, canonicalTarget)) return result('rejected');
       const read = await this.fs.readFileBoundedNoFollow(target, 1048576);
+      // The path-based open cannot bind to the validated parent directory.
+      // Discard bytes if either path changed while the read was in flight.
+      try {
+        const folderAfter = await this.fs.realpath(folder);
+        const targetAfter = await this.fs.realpath(target);
+        if (folderAfter !== folder || targetAfter !== canonicalTarget ||
+            !this.inside(folder, targetAfter) ||
+            (await this.fs.lstat(folder)).type !== FileType.Directory) return result('rejected');
+      } catch (error: unknown) {
+        this.logger.warn('[task-specs] document post-read check failed', {
+          taskId, file, error: error instanceof Error ? error.message : String(error),
+        });
+        return result('rejected');
+      }
       if (read.truncated) return result('too_large');
       if (read.bytes.includes(0)) return result('binary');
       try { return result('ready', new TextDecoder('utf-8', { fatal: true }).decode(read.bytes)); }
@@ -430,6 +449,9 @@ export class TaskIndexService implements ITaskIndexNotifier {
     } catch (error: unknown) {
       const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
       const message = error instanceof Error ? error.message : '';
+      if (code !== 'ENOENT' && message !== 'Invalid task folder' && message !== 'Outside workspace') {
+        this.logger.error('[task-specs] document read failed', error instanceof Error ? error : new Error(String(error)));
+      }
       return result(message === 'Invalid task folder' || message === 'Outside workspace' ? 'rejected' : code === 'ENOENT' ? 'missing' : 'unreadable');
     }
   }
@@ -451,16 +473,18 @@ export class TaskIndexService implements ITaskIndexNotifier {
       const canonicalBefore = await this.fs.realpath(current);
       if (before.type !== FileType.Directory || !this.inside(folder, canonicalBefore)) return result('rejected');
       const entries = await this.fs.readDirectory(current);
-      if (entries.length > 200) return result('too_many');
       const after = await this.fs.lstat(current);
       const canonicalAfter = await this.fs.realpath(current);
       if (after.type !== FileType.Directory || canonicalAfter !== canonicalBefore ||
-          before.ctime !== after.ctime || before.mtime !== after.mtime ||
           !this.inside(folder, canonicalAfter)) return result('rejected');
+      if (entries.length > 200) return result('too_many');
       return result('ready', entries.map(({ name, type }) => ({ name, kind: type === FileType.File ? 'file' : type === FileType.Directory ? 'directory' : type === FileType.SymbolicLink ? 'symlink' : 'other' })));
     } catch (error: unknown) {
       const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
       const message = error instanceof Error ? error.message : '';
+      if (code !== 'ENOENT' && message !== 'Invalid task folder' && message !== 'Outside workspace') {
+        this.logger.error('[task-specs] folder listing failed', error instanceof Error ? error : new Error(String(error)));
+      }
       return result(message === 'Invalid task folder' || message === 'Outside workspace' ? 'rejected' : code === 'ENOENT' ? 'missing' : 'unreadable');
     }
   }
@@ -655,15 +679,6 @@ export class TaskIndexService implements ITaskIndexNotifier {
         error: error instanceof Error ? error.message : String(error),
       });
       return null;
-    }
-  }
-
-  private async listEntries(folderDir: string): Promise<NonNullable<TaskSpecDetail['entries']>> {
-    try {
-      const entries = await this.fs.readDirectory(folderDir);
-      return entries.map(({ name, type }) => ({ name, kind: type === FileType.File ? 'file' as const : type === FileType.Directory ? 'directory' as const : type === FileType.SymbolicLink ? 'symlink' as const : 'other' as const })).sort((a, b) => a.name.localeCompare(b.name));
-    } catch {
-      return [];
     }
   }
 

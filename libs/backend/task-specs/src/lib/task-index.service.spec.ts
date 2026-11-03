@@ -782,6 +782,94 @@ describe('task folder read and listing', () => {
     service.dispose();
   });
 
+  it('accepts a child write during listing even when directory timestamps change', async () => {
+    const fs = new FakeFs();
+    fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
+    const directory = norm(path.join(specsDir(), 'TASK_2026_001'));
+    const originalStat = fs.lstat.bind(fs);
+    const originalRead = fs.readDirectory.bind(fs);
+    let wrote = false;
+    fs.readDirectory = jest.fn(async (p) => {
+      const entries = await originalRead(p);
+      wrote = true;
+      return entries;
+    });
+    fs.lstat = jest.fn(async (p) => {
+      const stat = await originalStat(p);
+      return norm(p) === directory && wrote ? { ...stat, mtime: 10, ctime: 10 } : stat;
+    });
+    const service = buildService(fs);
+    expect((await service.listFolderEntries(ROOT, 'TASK_2026_001', '')).state).toBe('ready');
+    service.dispose();
+  });
+
+  it('rejects a swapped directory before classifying more than 200 names', async () => {
+    const fs = new FakeFs();
+    fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
+    const directory = norm(path.join(specsDir(), 'TASK_2026_001'));
+    const originalRealpath = fs.realpath.bind(fs);
+    let swapped = false;
+    fs.readDirectory = jest.fn(async () => {
+      swapped = true;
+      return Array.from({ length: 201 }, (_, i) => ({ name: `item-${i}`, type: FileType.File }));
+    });
+    fs.realpath = jest.fn(async (p) => {
+      if (swapped && norm(p) === directory) return '/outside';
+      return originalRealpath(p);
+    });
+    const service = buildService(fs);
+    expect((await service.listFolderEntries(ROOT, 'TASK_2026_001', '')).state).toBe('rejected');
+    service.dispose();
+  });
+
+  it('fails detail when folder enumeration exceeds the 200-name cap', async () => {
+    const fs = new FakeFs();
+    fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
+    fs.readDirectory = jest.fn(async () => Array.from({ length: 201 }, (_, i) => ({ name: `item-${i}`, type: FileType.File })));
+    const service = buildService(fs);
+    expect((await service.listFolderEntries(ROOT, 'TASK_2026_001', '')).state).toBe('too_many');
+    await expect(service.getDetail(ROOT, 'TASK_2026_001')).rejects.toThrow('too_many');
+    service.dispose();
+  });
+
+  it('fails detail if folder enumeration fails or the folder changes', async () => {
+    const fs = new FakeFs();
+    fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
+    const service = buildService(fs);
+    fs.readDirectory = jest.fn(async () => { throw new Error('access denied'); });
+    await expect(service.getDetail(ROOT, 'TASK_2026_001')).rejects.toThrow('unreadable');
+    const directory = norm(path.join(specsDir(), 'TASK_2026_001'));
+    const originalRealpath = fs.realpath.bind(fs);
+    let swapped = false;
+    fs.readDirectory = jest.fn(async () => { swapped = true; return [{ name: 'foreign.md', type: FileType.File }]; });
+    fs.realpath = jest.fn(async (p) => swapped && norm(p) === directory ? '/outside' : originalRealpath(p));
+    await expect(service.getDetail(ROOT, 'TASK_2026_001')).rejects.toThrow('rejected');
+    service.dispose();
+  });
+
+  it('discards document bytes if the parent or file canonical path changes during read', async () => {
+    for (const changed of ['parent', 'file'] as const) {
+      const fs = new FakeFs();
+      const document = path.join(specsDir(), 'TASK_2026_001', 'context.md');
+      const directory = norm(path.dirname(document));
+      fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
+      fs.setFile(document, 'safe');
+      const originalRead = fs.readFileBoundedNoFollow.bind(fs);
+      const originalRealpath = fs.realpath.bind(fs);
+      let swapped = false;
+      fs.readFileBoundedNoFollow = jest.fn(async (p, max) => {
+        const result = await originalRead(p, max);
+        swapped = true;
+        return result;
+      });
+      fs.realpath = jest.fn(async (p) => swapped && norm(p) === (changed === 'parent' ? directory : norm(document))
+        ? '/outside' : originalRealpath(p));
+      const service = buildService(fs);
+      expect((await service.readFolderMarkdown(ROOT, 'TASK_2026_001', 'context.md')).state).toBe('rejected');
+      service.dispose();
+    }
+  });
+
   it('reads a direct markdown child and rejects traversal as a result', async () => {
     const fs = new FakeFs();
     fs.setFile(carrier('TASK_2026_001'), validTask('TASK_2026_001'));
