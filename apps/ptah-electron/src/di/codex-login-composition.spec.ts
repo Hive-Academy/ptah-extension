@@ -63,10 +63,17 @@ describe('Electron Codex sign-in composition', () => {
     const firstHandle = first.resolve<CodexSignInQuitHandle>(CODEX_SIGN_IN_QUIT_HANDLE);
     const secondHandle = second.resolve<CodexSignInQuitHandle>(CODEX_SIGN_IN_QUIT_HANDLE);
     const login = first.resolve<ICodexLoginService>(AUTH_PROVIDERS_TOKENS.SDK_CODEX_LOGIN);
+    let resolveSelection!: (selection: CodexSelection) => void;
+    first.register(CODEX_RUNTIME_TOKENS.SelectionSnapshot, {
+      useValue: {
+        selectForOpen: () => new Promise<CodexSelection>(resolve => { resolveSelection = resolve; }),
+      } as unknown as CodexSelectionSnapshotPort,
+    });
     const pending = login.start({}, jest.fn());
     expect(firstHandle.isActive()).toBe(true);
     expect(secondHandle.isActive()).toBe(false);
     await firstHandle.stop();
+    resolveSelection({ selected: { path: '/synthetic/codex', version: '0.165.0', source: 'installed', reason: 'test' } });
     await pending;
     expect(secondHandle.isActive()).toBe(false);
   });

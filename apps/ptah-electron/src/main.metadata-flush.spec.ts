@@ -72,6 +72,7 @@ function drive(order: string[], flush: () => Promise<void>): Recorded {
   const refs = makeRefs(order);
   handleWillQuit({
     refs,
+    codexSignIn: { isActive: () => false, stop: async () => undefined },
     abortBoot: () => order.push('abortBoot'),
     isBootRunning: () => false,
     awaitBootCompletion: async () => undefined,
@@ -142,6 +143,7 @@ describe('will-quit session metadata flush', () => {
 
     handleWillQuit({
       refs,
+      codexSignIn: { isActive: () => false, stop: async () => undefined },
       abortBoot: () => order.push('abortBoot'),
       isBootRunning: () => true,
       awaitBootCompletion: () =>
@@ -218,6 +220,7 @@ describe('will-quit reaps the agents before it flushes', () => {
     const refs = makeRefsWithAgent(order);
     const deferred = !handleWillQuit({
       refs,
+      codexSignIn: { isActive: () => false, stop: async () => undefined },
       abortBoot: () => order.push('abortBoot'),
       isBootRunning: () => false,
       awaitBootCompletion: async () => undefined,
@@ -295,6 +298,7 @@ describe('will-quit reaps the agents before it flushes', () => {
 
     handleWillQuit({
       refs,
+      codexSignIn: { isActive: () => false, stop: async () => undefined },
       abortBoot: () => order.push('abortBoot'),
       isBootRunning: () => false,
       awaitBootCompletion: async () => undefined,
@@ -323,6 +327,7 @@ describe('will-quit reaps the agents before it flushes', () => {
 
     handleWillQuit({
       refs,
+      codexSignIn: { isActive: () => false, stop: async () => undefined },
       abortBoot: () => order.push('abortBoot'),
       isBootRunning: () => false,
       awaitBootCompletion: async () => undefined,

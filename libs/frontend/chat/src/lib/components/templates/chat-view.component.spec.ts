@@ -531,7 +531,10 @@ function makeHarness(
   const codexStateSig = signal<{ attemptId: string; mode: 'browser'; status: 'starting' | 'running' | 'awaiting-user' | 'succeeded' } | null>(null);
   const codexConfirmationSig = signal<'idle' | 'checking' | 'confirmed' | 'failed'>('idle');
   const codexRefreshFailedSig = signal(false);
+  const codexNothingSeenSig = signal(false);
+  const codexRefreshingSig = signal(false);
   const codexStartMock = jest.fn<Promise<void>, []>(async () => undefined);
+  const codexRestartMock = jest.fn<Promise<void>, []>(async () => undefined);
   const codexCancelMock = jest.fn<Promise<void>, []>(async () => undefined);
   const refreshAuthStatusMock = jest.fn<Promise<boolean>, []>(async () => true);
   const codexCheckAuthStatusMock = jest.fn<Promise<void>, []>(async () => {
@@ -554,8 +557,11 @@ function makeHarness(
     state: codexStateSig.asReadonly(),
     confirmation: codexConfirmationSig.asReadonly(),
     refreshFailed: codexRefreshFailedSig.asReadonly(),
+    nothingSeen: codexNothingSeenSig.asReadonly(),
+    refreshing: codexRefreshingSig.asReadonly(),
     checkAuthStatus: codexCheckAuthStatusMock,
     start: codexStartMock,
+    restart: codexRestartMock,
     cancel: codexCancelMock,
   } as unknown as CodexSignInService;
 

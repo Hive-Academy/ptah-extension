@@ -1142,10 +1142,8 @@ describe('ProvidersSettingsStateService', () => {
     await service.performExternalAuth('openai-codex', 'sign-in');
     expect(codexStart).toHaveBeenCalledTimes(1);
     expect(call.mock.calls.some(([method]) => method === 'auth:codexLogin')).toBe(false);
-    expect(service.externalAuth().data?.signInState).toBe('idle');
-    expect(service.externalAuth().data?.message).toContain(
-      'not been confirmed',
-    );
+    expect(service.externalAuth().data?.signInState).toBe('in-flight');
+    expect(service.externalAuth().data?.message).toBeNull();
   });
 
   it('does not fabricate external cancellation or guess the wizard provider', async () => {
