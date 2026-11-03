@@ -329,6 +329,8 @@ export const MESSAGE_TYPES = {
    * never produces these.
    */
   AUTH_LOGIN_OUTPUT: 'auth:loginOutput',
+  /** Backend → Frontend: current in-app Codex sign-in snapshot. */
+  AUTH_CODEX_LOGIN_STATUS: 'auth:codexLoginStatus',
   /**
    * Backend → Frontend: the in-app Kimi Code sign-in (`kimi login` run by the
    * host, started with `auth:kimiCodeLogin`) changed phase. Payload is a
