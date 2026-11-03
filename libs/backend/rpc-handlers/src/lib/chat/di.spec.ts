@@ -30,8 +30,11 @@ jest.mock('@ptah-extension/agent-generation', () => ({
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 
 import { registerChatServices, CHAT_TOKENS } from './di';
+import { ChatCarryOverService } from './session/chat-carry-over.service';
 import { ChildChatSessionHostAdapter } from './session/child-chat-session-host.adapter';
 import { SessionMcpStatusRegistry } from './session/session-mcp-status.registry';
 import { SurfaceSubmitTurnService } from './session/surface-submit-turn.service';
@@ -58,6 +61,7 @@ describe('registerChatServices — output-style precondition', () => {
     expect(() => registerChatServices(c)).not.toThrow();
     expect(c.isRegistered(CHAT_TOKENS.SESSION)).toBe(true);
     expect(c.isRegistered(CHAT_TOKENS.HISTORY_READ)).toBe(true);
+    expect(c.isRegistered(CHAT_TOKENS.CARRY_OVER)).toBe(true);
   });
 
   it('accepts a registration inherited from a parent container', () => {
@@ -257,5 +261,39 @@ describe('registerChatServices — ChildChatSessionHostAdapter', () => {
     expect(c.resolve(CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST)).toBe(
       first,
     );
+  });
+});
+
+/**
+ * TASK_2026_865 Task 5.1 — the carry-over service is bound under its own
+ * token, as a singleton, so `chat:carry-over` shares one in-flight guard.
+ */
+describe('registerChatServices — ChatCarryOverService', () => {
+  it('resolves CARRY_OVER to one shared ChatCarryOverService', () => {
+    const c = rootContainer.createChildContainer();
+    c.register(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION, { useValue: {} });
+    registerChatServices(c);
+    // Stand-ins for the collaborators, bound AFTER registration so the chat
+    // stand-ins replace the real class bindings. The active-provider and
+    // Codex-auth tokens stay unbound: both are optional injections.
+    c.register(TOKENS.LOGGER, {
+      useValue: { debug: jest.fn(), info: jest.fn(), warn: jest.fn() },
+    });
+    c.register(CHAT_TOKENS.SESSION, { useValue: {} });
+    c.register(CHAT_TOKENS.HISTORY_READ, { useValue: {} });
+    c.register(CHAT_TOKENS.RUNTIME_PROFILE, { useValue: {} });
+    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { useValue: {} });
+    c.register(SDK_TOKENS.SESSION_HISTORY_ROUTER, { useValue: {} });
+    c.register(
+      AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER,
+      { useValue: {} },
+    );
+    c.register(SETTINGS_TOKENS.MODEL_SETTINGS, { useValue: {} });
+
+    expect(c.isRegistered(CHAT_TOKENS.CARRY_OVER)).toBe(true);
+    const first = c.resolve(CHAT_TOKENS.CARRY_OVER);
+
+    expect(first).toBeInstanceOf(ChatCarryOverService);
+    expect(c.resolve(CHAT_TOKENS.CARRY_OVER)).toBe(first);
   });
 });

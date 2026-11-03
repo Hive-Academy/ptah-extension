@@ -266,6 +266,7 @@ describe('chat:history-page boundary', () => {
       { readPage } as never,
       attachmentGuard as never,
       { listPendingQuestions: jest.fn().mockReturnValue([]) } as never,
+      {} as never,
     );
     handlers.register();
     const pageHandler = (rpc.registerMethod as jest.Mock).mock.calls.find(

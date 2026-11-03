@@ -156,6 +156,36 @@ export const ChatHistoryPageParamsSchema = z
   })
   .strict();
 
+/** Longest workspace path accepted by the carry-over methods. */
+const CARRY_OVER_WORKSPACE_PATH_MAX_LENGTH = 4096;
+/** Longest tab name accepted by `chat:carry-over`. */
+const CARRY_OVER_NAME_MAX_LENGTH = 200;
+
+/**
+ * `chat:carry-over-check` params. Read-only eligibility probe for the banner
+ * button. Unknown fields are rejected at this boundary.
+ */
+export const ChatCarryOverCheckParamsSchema = z
+  .object({
+    sessionId: uuidString('sessionId'),
+    workspacePath: z.string().min(1).max(CARRY_OVER_WORKSPACE_PATH_MAX_LENGTH),
+  })
+  .strict();
+
+/**
+ * `chat:carry-over` params. Starts a new session for `tabId` on the active
+ * provider from the refused session's history. Unknown fields are rejected.
+ */
+export const ChatCarryOverParamsSchema = z
+  .object({
+    sessionId: uuidString('sessionId'),
+    tabId: uuidString('tabId'),
+    workspacePath: z.string().min(1).max(CARRY_OVER_WORKSPACE_PATH_MAX_LENGTH),
+    name: z.string().max(CARRY_OVER_NAME_MAX_LENGTH).optional(),
+    ptahUiFence: z.boolean().optional(),
+  })
+  .strict();
+
 /**
  * `chat:abort` params — `sessionId` is required. The current
  * `ChatAbortParams` shape only carries `sessionId`; we still validate it

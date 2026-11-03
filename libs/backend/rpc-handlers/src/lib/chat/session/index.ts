@@ -5,7 +5,13 @@
  * method bodies plus SDK-config helpers.
  */
 export { ChatSdkContextService } from './chat-sdk-context.service';
-export { ChatSessionService } from './chat-session.service';
+export {
+  ChatSessionService,
+  CARRY_OVER_PROVIDER_CHANGED,
+  CARRY_OVER_START_FAILED,
+  type CarryOverLaunch,
+} from './chat-session.service';
+export { ChatCarryOverService } from './chat-carry-over.service';
 export { ChatHistoryReadService } from './chat-history-read.service';
 export { ChatSubagentContextInjectorService } from './chat-subagent-context-injector.service';
 export { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
