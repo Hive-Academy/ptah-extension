@@ -159,6 +159,17 @@ describe('CodexAppServerProcess', () => {
       logger,
     );
   });
+  it('passes the original request through an optional spawn wrapper', async () => {
+    const wrapper = jest.fn(request => ({ ...request, detached: true }));
+    runtime = new CodexAppServerProcess(spawner, executable, profile,
+      { onNotification, onRequest }, logger, wrapper);
+    const started = runtime.start();
+    child.send({ id: 1, result: initializeResult });
+    await started;
+    expect(wrapper).toHaveBeenCalledTimes(1);
+    expect(wrapper.mock.calls[0][0]).toMatchObject({ command: executable.path, args: ['app-server'] });
+    expect(spawner.spawnProcess).toHaveBeenCalledWith(expect.objectContaining({ detached: true }));
+  });
   afterEach(async () => {
     const closing = runtime.close();
     child.finish();
