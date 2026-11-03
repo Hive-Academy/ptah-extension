@@ -136,7 +136,7 @@
       "executor": "@nx/web:file-server",
       "options": {
         "buildTarget": "ptah-extension-webview:build",
-        "staticFilePath": "dist/apps/ptah-extension-vscode/webview/browser",
+        "staticFilePath": "dist/apps/ptah-extension-webview/browser",
         "spa": true
       },
       "readyWhen": {

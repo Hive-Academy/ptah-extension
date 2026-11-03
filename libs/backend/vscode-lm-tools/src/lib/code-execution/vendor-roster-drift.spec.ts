@@ -192,7 +192,7 @@ const REPO_ROOT = findRepoRoot();
 
 const ASSET_ROOTS = [
   'libs/backend/agent-generation/templates/agents',
-  'apps/ptah-extension-vscode/assets/plugins',
+  'plugins',
 ] as const;
 
 function walkMarkdown(dir: string): string[] {

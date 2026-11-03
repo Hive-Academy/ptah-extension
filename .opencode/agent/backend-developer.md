@@ -139,9 +139,9 @@ Working sequence:
 
 - Host-side backend code uses tsyringe. Declare a class with `@injectable()` and give every constructor parameter an explicit `@inject(TOKEN)`, as in `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts`. `tools/di-lint/check-injects.ts` flags missing injects, and the pre-push hook runs it.
 - DI tokens are `Symbol.for(...)` constants grouped in token objects. Platform ports get their tokens from `libs/backend/platform-core/src/di/tokens.ts` (`PLATFORM_TOKENS`). Never inject by class name or a string literal.
-- Register bindings only in registration files: `libs/backend/platform-vscode/src/registration.ts`, `libs/backend/platform-electron/src/registration.ts`, `libs/backend/platform-cli/src/registration.ts`, or the phased VS Code root under `apps/ptah-extension-vscode/src/di/` (`phase-0-platform.ts` through `phase-4-app.ts`). When you add a resolvable service, update `apps/ptah-extension-vscode/src/di/expected-resolvable.ts` so `container.smoke.spec.ts` keeps passing.
+- Register bindings only in registration files: `libs/backend/platform-electron/src/registration.ts`, `libs/backend/platform-cli/src/registration.ts`, or the phased Electron root under `apps/ptah-electron/src/di/` (`phase-0-platform.ts` through `phase-4-app.ts`). When you add a resolvable service, update `apps/ptah-electron/src/di/expected-resolvable.ts` so `container.smoke.spec.ts` keeps passing.
 
-- Add new RPC contract types to `libs/shared` (`rpc.types.ts`). After adding them, check that `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts` still matches.
+- Add new RPC contract types to `libs/shared` (`rpc.types.ts`). After adding them, check that `apps/ptah-electron/src/di/rpc-surface.spec.ts` still matches.
 - Log through the injected `Logger` from `libs/backend/vscode-core/src/logging/logger.ts`, never `console`. Pass real `Error` objects to `logger.error`; never add more `as unknown as Error` casts.
 - Swallowing an error requires a justification. `tools/degradation-audit/check-degradation.ts` ratchets silent degradation, so don't add any new unjustified catch.
 - The license server and its NestJS libraries now live in the separate Builders repository. Keep backend work here within the desktop, extension, CLI, and shared runtime projects.
@@ -151,8 +151,8 @@ Working sequence:
 - Module boundaries are enforced by `@nx/enforce-module-boundaries` in `eslint.config.mjs`. Every new lib needs both a `scope:*` and a `type:*` tag; choose the narrowest scope. Never disable the rule in production code.
 
 - Runtime-agnostic libs may depend on `libs/backend/platform-core`, never on an adapter.
-- A new port must be implemented in every adapter: `libs/backend/platform-vscode/src/registration.ts`, `libs/backend/platform-electron/src/registration.ts` and `libs/backend/platform-cli/src/registration.ts`. It must also run the shared contract suite exported from `libs/backend/platform-core/src/testing/contracts/index.ts`.
-- Only composition roots wire adapters: `apps/ptah-extension-vscode/src/di/container.ts` for VS Code and `libs/backend/cli-engine/src/lib/container.ts` for the CLI. A lib never imports an app.
+- A new port must be implemented in every adapter: `libs/backend/platform-electron/src/registration.ts` and `libs/backend/platform-cli/src/registration.ts`. It must also run the shared contract suite exported from `libs/backend/platform-core/src/testing/contracts/index.ts`.
+- Only composition roots wire adapters: `apps/ptah-electron/src/di/container.ts` for Electron and `libs/backend/cli-engine/src/lib/container.ts` for the CLI. A lib never imports an app.
 - `libs/backend/vscode-core` is VS Code-bound even though it hosts `Logger` and `TOKENS`. Don't add new `vscode-core` imports to host-neutral libs; prefer `platform-core` ports. Don't register substitutes with `as unknown as Logger`, as `libs/backend/cli-engine/src/lib/container.ts` currently does.
 
 - One handler class per RPC sub-domain under `libs/backend/rpc-handlers/src/lib/handlers/`. Split rather than grow `skills-synthesis-rpc.handlers.ts`.

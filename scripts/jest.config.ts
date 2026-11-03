@@ -16,8 +16,6 @@
  * backup of it and holds a second connection on `BEGIN IMMEDIATE` to prove the
  * write-lock probe. Parallel workers would multiply those file handles and the
  * backup I/O for no gain — the suite is I/O bound, not CPU bound — and matches
- * the `maxWorkers: 1` the two `apps/ptah-cli` harness configs already pin for
- * the same class of reason.
  */
 
 import type { Config } from 'jest';

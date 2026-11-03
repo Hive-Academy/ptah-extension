@@ -53,10 +53,10 @@ const REPOSITORY_FILES = [
   'libs/backend/workspace-intelligence/src/di/register.ts',
   'libs/backend/platform-core/src/interfaces/file-system-provider.interface.ts',
   'libs/backend/platform-core/src/interfaces/process-spawner.interface.ts',
-  'apps/ptah-extension-vscode/src/di/phase-4-app.ts',
-  'apps/ptah-cli/src/di/expected-resolvable.ts',
+  'apps/ptah-electron/src/di/phase-4-handlers.ts',
+  'apps/ptah-electron/src/di/expected-resolvable.ts',
   'libs/backend/cli-engine/src/lib/rpc/expected-absent.ts',
-  'apps/ptah-cli/src/di/container.smoke.spec.ts',
+  'apps/ptah-electron/src/di/container.smoke.spec.ts',
   'libs/backend/rpc-handlers/src/lib/handlers/chat-rpc.handlers.ts',
   'libs/backend/vscode-core/src/messaging/rpc-handler.ts',
   'libs/backend/persistence-sqlite/src/lib/sqlite-connection.service.ts',
@@ -64,7 +64,6 @@ const REPOSITORY_FILES = [
   'libs/frontend/core/src/lib/tokens/file-link-opener.token.ts',
   'libs/frontend/chat-state/src/lib/conversation-registry.service.ts',
   '.github/workflows/publish-electron.yml',
-  '.github/workflows/publish-cli.yml',
   '.github/workflows/deploy-server.yml',
   '.github/workflows/deploy-landing.yml',
   '.github/workflows/deploy-docs.yml',
@@ -513,15 +512,15 @@ describe('GeneratedSectionValidator', () => {
       });
     }
     it('accepts software-architect / EXISTING_PATTERNS', async () => {
-      // output-channel.interface.ts, apps/ptah-extension-vscode/src/di/phase-*.ts, apps/ptah-electron/src/di/phase-*.ts, expected-absent.ts
+      // output-channel.interface.ts, apps/ptah-electron/src/di/phase-*.ts, expected-absent.ts
       await accepts(
-        'output-channel.interface.ts, apps/ptah-extension-vscode/src/di/phase-*.ts, apps/ptah-electron/src/di/phase-*.ts, expected-absent.ts',
+        'output-channel.interface.ts, apps/ptah-electron/src/di/phase-*.ts, expected-absent.ts',
       );
     });
     it('accepts backend-developer / FRAMEWORK_CONVENTIONS', async () => {
-      // tokens.ts, register.ts, file-system-provider.interface.ts, process-spawner.interface.ts, phase-4-app.ts, expected-resolvable.ts, expected-absent.ts, container.smoke.spec.ts, chat-rpc.handlers.ts, rpc-handler.ts, process.env, e.g
+      // tokens.ts, register.ts, file-system-provider.interface.ts, process-spawner.interface.ts, phase-4-handlers.ts, expected-resolvable.ts, expected-absent.ts, container.smoke.spec.ts, chat-rpc.handlers.ts, rpc-handler.ts, process.env, e.g
       await accepts(
-        'tokens.ts, register.ts, file-system-provider.interface.ts, process-spawner.interface.ts, phase-4-app.ts, expected-resolvable.ts, expected-absent.ts, container.smoke.spec.ts, chat-rpc.handlers.ts, rpc-handler.ts, process.env, e.g',
+        'tokens.ts, register.ts, file-system-provider.interface.ts, process-spawner.interface.ts, phase-4-handlers.ts, expected-resolvable.ts, expected-absent.ts, container.smoke.spec.ts, chat-rpc.handlers.ts, rpc-handler.ts, process.env, e.g',
       );
     });
     it('accepts backend-developer / ARCHITECTURE_PATTERNS', async () => {
@@ -543,16 +542,16 @@ describe('GeneratedSectionValidator', () => {
       );
     });
     it('accepts devops-engineer / BUILD_AND_DEPLOY_SURFACE', async () => {
-      // release/*, publish-electron.yml, publish-cli.yml, deploy-server.yml, deploy-landing.yml, deploy-docs.yml
+      // release/*, publish-electron.yml, deploy-server.yml, deploy-landing.yml, deploy-docs.yml
       await accepts(
-        'release/*, publish-electron.yml, publish-cli.yml, deploy-server.yml, deploy-landing.yml, deploy-docs.yml',
+        'release/*, publish-electron.yml, deploy-server.yml, deploy-landing.yml, deploy-docs.yml',
         ['release/*'],
       );
     });
     it('rejects devops-engineer / BUILD_AND_DEPLOY_SURFACE without release index evidence', async () => {
       expect(
         await logVerdict(
-          'release/*, publish-electron.yml, publish-cli.yml, deploy-server.yml, deploy-landing.yml, deploy-docs.yml',
+          'release/*, publish-electron.yml, deploy-server.yml, deploy-landing.yml, deploy-docs.yml',
         ),
       ).toEqual({
         accepted: false,
@@ -600,8 +599,8 @@ describe('GeneratedSectionValidator', () => {
 
   describe('citation resolution safeguards', () => {
     it.each([
-      ['apps/ptah-extension-vscode/src/di/nonexistent-*.ts', false],
-      ['apps/ptah-extension-vscode/src/di/phase-*.ts', true],
+      ['apps/ptah-electron/src/di/nonexistent-*.ts', false],
+      ['apps/ptah-electron/src/di/phase-*.ts', true],
       ['libs/backend/platform-core/*.fake', false],
       ['*.py', false],
       ['*.spec.ts', true],

@@ -1,17 +1,4 @@
 {
   "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Run Extension",
-      "type": "extensionHost",
-      "request": "launch",
-      "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}/dist/apps/ptah-extension-vscode"
-      ],
-      "outFiles": [
-        "${workspaceFolder}/dist/apps/ptah-extension-vscode/**/*.js"
-      ],
-      "preLaunchTask": "npm: build"
-    }
-  ]
+  "configurations": []
 }

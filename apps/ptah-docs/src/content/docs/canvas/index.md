@@ -96,12 +96,6 @@ and you can bring it back onto the canvas later.
 Canvas layouts are scoped to the workspace. Switching workspaces gives you that
 workspace's own arrangement of tiles, not a shared one.
 
-## Opening it in VS Code
-
-The canvas is not Electron-only. In the VS Code extension, run **Ptah: Open
-Orchestra Canvas** from the Command Palette. See the
-[VS Code extension](/vscode-extension/) page.
-
 ## Next steps
 
 - [Send your first message](/chat/sending-messages/) in a tile

@@ -5,7 +5,7 @@ export const meta = {
 };
 
 /*
- * Fleet policy: apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/orchestration/references/fleet.md.
+ * Fleet policy: plugins/ptah-core/skills/orchestration/references/fleet.md.
  * The caller is the orchestrator: it verifies returned artifacts and alone updates task.md status.
  * Agents never commit; commits happen outside while no implementer is editing.
  * Resume by re-invoking with freshly computed args; never rely on resumeFromRunId

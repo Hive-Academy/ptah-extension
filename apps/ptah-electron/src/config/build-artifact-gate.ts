@@ -9,9 +9,6 @@
  * a build). Without it, a missing artifact FAILS the suite with a message
  * naming the exact build command.
  *
- * `apps/ptah-cli/src/test-utils/build-artifact-gate.ts` is a near-duplicate
- * of this file. Two apps do not justify extracting a shared lib for one
- * ~20-line gate (`batches.md` Batch 4).
  */
 import { existsSync } from 'fs';
 
