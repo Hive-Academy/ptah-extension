@@ -51,6 +51,7 @@ const liveContributionSchema: z.ZodType<LiveUsageContribution> = z
 /** Serializes accepted contributions and reports every failed write to its caller. */
 export class SqliteSessionUsageSink implements SessionUsageSink {
   private static readonly MAX_PENDING_WRITES = 256;
+  private static readonly MAX_STARTUP_PAGES = 128;
   private tail: Promise<void> = Promise.resolve();
   private failedWrites = 0;
   private pendingWrites = 0;
@@ -141,9 +142,27 @@ export class SqliteSessionUsageSink implements SessionUsageSink {
       await this.tail;
       const provider = this.liveSessionIdsProvider;
       const startup = this.startupScanPending && provider !== null;
-      await this.repository.reconcileFinalizations(Date.now(), 30 * 60_000,
-        startup, provider?.() ?? []);
-      if (startup) this.startupScanPending = false;
+      if (startup && provider !== null) {
+        let cursor: { updatedAtMs: number; sessionId: string } | null = null;
+        for (let page = 0; page < SqliteSessionUsageSink.MAX_STARTUP_PAGES; page++) {
+          const result = await this.repository.reconcileStartupPage(cursor, provider());
+          if (!result.full || result.nextCursor === null) {
+            this.startupScanPending = false;
+            break;
+          }
+          cursor = result.nextCursor;
+          if (page === SqliteSessionUsageSink.MAX_STARTUP_PAGES - 1) {
+            this.logger.error('[persistence-sqlite] startup idle scan page limit reached',
+              new Error('Startup idle scan stopped after 128 pages'));
+            this.startupScanPending = false;
+            break;
+          }
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+      } else {
+        await this.repository.reconcileFinalizations(Date.now(), 30 * 60_000,
+          false, provider?.() ?? []);
+      }
     })().catch((error: unknown) => {
       this.logger.error('[persistence-sqlite] session finalization pass failed',
         error instanceof Error ? error : new Error(String(error)));

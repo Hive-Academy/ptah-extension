@@ -258,17 +258,35 @@ export class SessionStatsRepository {
   /** A fixed pending batch. An idle scan is allowed only on the startup pass. */
   async reconcileFinalizations(nowMs = Date.now(), idleMs = 30 * 60_000,
     startup = false, liveSessionIds: readonly string[] = []): Promise<number> {
+    return (await this.reconcilePage(nowMs, idleMs, startup, liveSessionIds, null)).changed;
+  }
+
+  async reconcileStartupPage(cursor: { updatedAtMs: number; sessionId: string } | null,
+    liveSessionIds: readonly string[]): Promise<{
+      changed: number;
+      nextCursor: { updatedAtMs: number; sessionId: string } | null;
+      full: boolean;
+    }> {
+    return this.reconcilePage(Date.now(), 30 * 60_000, true, liveSessionIds, cursor);
+  }
+
+  private async reconcilePage(nowMs: number, idleMs: number, startup: boolean,
+    liveSessionIds: readonly string[], cursor: { updatedAtMs: number; sessionId: string } | null) {
     const now = safeInteger.parse(nowMs);
     const idleBefore = safeInteger.parse(Math.max(0, now - idleMs));
     const db = await this.store.ready();
     const candidates = z.array(z.object({ session_id: text, revision: safeInteger,
-      status: z.string(), finalize_attempts: safeInteger })).parse(
-      db.prepare(`SELECT session_id, revision, status, finalize_attempts
+      status: z.string(), finalize_attempts: safeInteger, updated_at_ms: safeInteger })).parse(
+      db.prepare(`SELECT session_id, revision, status, finalize_attempts, updated_at_ms
         FROM session_stats WHERE
-        (status = 'finalize_pending' AND finalize_retry_at_ms <= ?)
+        ((status = 'finalize_pending' AND finalize_retry_at_ms <= ?)
         OR (? = 1 AND status = 'active' AND last_usage_at_ms <= ?
-          AND updated_at_ms <= ?)
-        ORDER BY updated_at_ms, session_id LIMIT 32`).all(now, startup ? 1 : 0, idleBefore, idleBefore));
+          AND updated_at_ms <= ?))
+        AND (? = 0 OR updated_at_ms > ? OR
+          (updated_at_ms = ? AND session_id > ?))
+        ORDER BY updated_at_ms, session_id LIMIT 32`).all(now, startup ? 1 : 0,
+        idleBefore, idleBefore, cursor === null ? 0 : 1,
+        cursor?.updatedAtMs ?? 0, cursor?.updatedAtMs ?? 0, cursor?.sessionId ?? ''));
     let changed = 0;
     for (const row of candidates) {
       if (liveSessionIds.includes(row.session_id)) continue;
@@ -300,7 +318,9 @@ export class SessionStatsRepository {
         // A single failed row must not starve the rest of this bounded batch.
       }
     }
-    return changed;
+    const last = candidates.at(-1);
+    return { changed, full: candidates.length === 32,
+      nextCursor: last ? { updatedAtMs: last.updated_at_ms, sessionId: last.session_id } : null };
   }
 
   async getSessionStats(sessionId: string, workspaceKey: string): Promise<SessionStatsRow | null> {

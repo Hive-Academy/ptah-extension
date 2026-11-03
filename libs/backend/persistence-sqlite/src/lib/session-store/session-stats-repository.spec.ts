@@ -66,6 +66,30 @@ const contribution: SessionUsageContribution = {
 };
 
 describe('SessionStatsRepository', () => {
+  it('pages through more than 32 idle startup rows while preserving a live id', async () => {
+    const store = openTestStore();
+    try {
+      const repository = new SessionStatsRepository(store);
+      const ids = Array.from({ length: 70 }, (_, index) => `idle-${index}`);
+      for (const sessionId of [...ids, 'live']) {
+        await repository.recordUsage({ ...contribution, sessionId, workspaceKey: '/work/a' });
+      }
+      (await store.ready()).prepare('UPDATE session_stats SET updated_at_ms = ?')
+        .run(86_400_000);
+      const sink = new SqliteSessionUsageSink(repository, { error: jest.fn() });
+      sink.setLiveSessionIdsProvider(() => ['live']);
+      sink.startFinalizer();
+      await sink.flush();
+      for (const sessionId of ids) {
+        expect((await repository.getSessionStats(sessionId, '/work/a'))?.status)
+          .toBe('finalized');
+      }
+      expect((await repository.getSessionStats('live', '/work/a'))?.status).toBe('active');
+    } finally {
+      store.close();
+    }
+  });
+
   it.each(['provider-first', 'timer-first'])('runs one guarded startup scan: %s', async (order) => {
     jest.useFakeTimers();
     const store = openTestStore();
