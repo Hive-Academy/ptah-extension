@@ -4,8 +4,8 @@ import type { UiDriver } from '../../support/ui-driver';
 /**
  * R4 gate (TASK_2026_187 Batch 4) — sibling to
  * `specs/thoth/message-handlers-eager.spec.ts` (Batch 3), same pattern,
- * for the two Batch 4 `MESSAGE_HANDLERS` services: `TasksStore`
- * (`@ptah-extension/tasks-ui/services`) and `HarnessWorkflowMessageHandler`
+ * for the two Batch 4 `MESSAGE_HANDLERS` paths: `TasksStore` (reached
+ * through the eager `TasksChangedFeed` since TASK_2026_871) and `HarnessWorkflowMessageHandler`
  * (`@ptah-extension/harness-builder/services`). Both must stay constructed
  * and receiving at bootstrap now that `TasksViewComponent` /
  * `HarnessBuilderViewComponent` / `SetupHubComponent` are behind lazy
@@ -36,10 +36,13 @@ import type { UiDriver } from '../../support/ui-driver';
  * The registration half survives the board being open, because opening the
  * board cannot supply the registration. `MESSAGE_HANDLERS` is a root
  * multi-provider read once by `MessageRouterService`'s constructor at
- * bootstrap; `TasksViewComponent` registers no handler of its own and the
- * lazy chunk cannot add one to an injector that is already built. If the
- * narrow-barrel swap had dropped `TasksStore` from `app.config.ts`, no
- * amount of opening the board would route a `tasks:changed` push to it.
+ * bootstrap, and the lazy chunk cannot add one to an injector that is already
+ * built. Since TASK_2026_871 the registered handler is the eager
+ * `TasksChangedFeed` (`@ptah-extension/tasks-ui/presentation`), not
+ * `TasksStore`: the store lives in the lazy board chunk and subscribes to the
+ * feed's raw relay when it is constructed, which keeps it out of the initial
+ * bundle. If `app.config.ts` dropped the feed, no amount of opening the board
+ * would route a `tasks:changed` push to the store.
  */
 
 /** How many `tasks:board` round trips the renderer has made so far. */

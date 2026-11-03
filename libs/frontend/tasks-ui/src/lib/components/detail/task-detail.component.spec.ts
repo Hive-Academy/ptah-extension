@@ -330,7 +330,8 @@ describe('TaskDetailComponent', () => {
       const fixture = render(planned());
       const ref = fixture.componentRef;
       expect(() => {
-        ref.setInput('wide', true);
+        ref.setInput('folderHint', 'TASK_2026_200');
+        ref.setInput('starting', false);
         ref.setInput('knownLabels', []);
         ref.setInput('knownTaskIds', []);
         ref.setInput('busy', false);
@@ -342,6 +343,8 @@ describe('TaskDetailComponent', () => {
       const instance = fixture.componentInstance;
       for (const emitter of [
         instance.closed,
+        instance.startTask,
+        instance.statusChange,
         instance.readDocument,
         instance.openArtifact,
         instance.openTask,
@@ -350,6 +353,37 @@ describe('TaskDetailComponent', () => {
         expect(typeof emitter.subscribe).toBe('function');
       }
     });
+  });
+
+  it('is a full page whose header Back, Start and Change status reach the host', () => {
+    const fixture = render(makeDetail({ status: 'backlog' }));
+    const host = fixture.nativeElement as HTMLElement;
+    const instance = fixture.componentInstance;
+    const events: unknown[] = [];
+    instance.closed.subscribe(() => events.push('closed'));
+    instance.startTask.subscribe((request) => events.push(request));
+    instance.statusChange.subscribe((change) => events.push(change));
+
+    expect(
+      host.querySelector('[data-testid="task-detail-page"]'),
+    ).not.toBeNull();
+    expect(host.querySelector('aside')).toBeNull();
+    expect(byId(host, 'task-detail-path')?.textContent).toContain(
+      '.ptah/specs/TASK_2026_200/',
+    );
+    byId(host, 'task-detail-back')?.click();
+    byId(host, 'task-detail-start')?.click();
+    (
+      host.querySelector(
+        '[data-testid="task-detail-status-menu"] [data-status="done"]',
+      ) as HTMLElement
+    ).click();
+
+    expect(events).toEqual([
+      'closed',
+      { taskId: 'TASK_2026_200', isolate: false },
+      { taskId: 'TASK_2026_200', status: 'done' },
+    ]);
   });
 
   it('renders frontmatter facts and depends_on', () => {

@@ -340,11 +340,15 @@ const HTTP_URL = /^https?:\/\//i;
         }
 
         <!-- Title: the card's keyboard open target (Enter opens, Space
-             toggles selection) and its roving focus root. -->
+             toggles selection) and its roving focus root. The clamp lives on
+             an inner span: line-clamp sets overflow:hidden, and on the button
+             itself it clipped the text to the button's corner radius — a pill
+             (--rounded-btn: 2rem) in the light themes, which cut the first
+             glyph of each line. -->
         <div class="flex min-w-0 flex-col gap-1">
           <button
             type="button"
-            class="!static line-clamp-2 rounded-btn text-left text-sm font-semibold leading-snug text-base-content after:absolute after:inset-0 after:rounded-box focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+            class="!static rounded-sm text-left text-sm font-semibold leading-snug text-base-content after:absolute after:inset-0 after:rounded-box focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
             [attr.tabindex]="rovingTabIndex()"
             [attr.data-task-id]="task().id"
             [attr.aria-label]="'Open task ' + task().id + ': ' + task().title"
@@ -353,7 +357,9 @@ const HTTP_URL = /^https?:\/\//i;
             (keydown.enter)="onCardEnter($event)"
             (keydown.space)="onCardSpace($event)"
           >
-            {{ task().title }}
+            <span class="line-clamp-2" data-testid="task-card-title">{{
+              task().title
+            }}</span>
           </button>
           <span
             class="truncate font-mono text-[11px] text-base-content-muted"

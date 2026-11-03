@@ -6,7 +6,6 @@ import {
   input,
   output,
 } from '@angular/core';
-import { LucideAngularModule, X } from 'lucide-angular';
 import { AppStateManager } from '@ptah-extension/core';
 import {
   CARRIER_FILE,
@@ -21,8 +20,11 @@ import {
   TASK_STATUS_LABELS,
   labelChipClass,
 } from '../../task-presentation';
-import { TASK_STATUS_INK, deriveTaskStage } from '../../task-stage';
+import { deriveTaskStage } from '../../task-stage';
+import type { TaskStartRequest } from '../../types/task-agent.types';
+import type { TaskStatusChange } from '../board/task-card.component';
 import { TaskActivityComponent } from './task-activity.component';
+import { TaskDetailHeaderComponent } from './task-detail-header.component';
 import {
   TaskDocumentReaderComponent,
   type TaskOpenDocumentState,
@@ -39,10 +41,12 @@ import { TaskRunPlaceholderComponent } from './task-run-placeholder.component';
  * carrier overview, or the open document), and a rail with the carrier
  * metadata, relations, activity and the inactive Phase 2 run panel.
  *
- * Wide (container ≥ 980px): 248px files, flexible reader, 268px rail, 16px
- * gutters. Narrower: everything stacks, and the file list scrolls inside a
- * 290px box so the reader starts near the fold. The breakpoint is a container
- * query, so the layout follows the panel's own width whichever host places it.
+ * A full page inside the Tasks surface (the host hides the board): a header
+ * with Back, the breadcrumb, title and badges and the task actions, then the
+ * body. Wide (container ≥ 980px): 248px files, flexible reader, 268px rail,
+ * 16px gutters. Narrower: everything stacks, and the file list scrolls inside
+ * a 290px box so the reader starts near the fold. The breakpoint is a
+ * container query, so the layout follows the page's own width.
  *
  * Folder browsing and the reader's typed state come from {@link TasksStore}'s
  * public facade. `openDocument`, `documentContent`, `documentLoading` and
@@ -57,8 +61,8 @@ import { TaskRunPlaceholderComponent } from './task-run-placeholder.component';
   selector: 'ptah-task-detail',
   standalone: true,
   imports: [
-    LucideAngularModule,
     TaskActivityComponent,
+    TaskDetailHeaderComponent,
     TaskDocumentReaderComponent,
     TaskFolderFilesComponent,
     TaskFolderOverviewComponent,
@@ -75,7 +79,7 @@ import { TaskRunPlaceholderComponent } from './task-run-placeholder.component';
       display: grid;
       grid-template-columns: minmax(0, 1fr);
       gap: 16px;
-      padding: 16px;
+      padding: 20px;
       align-items: start;
     }
     .task-detail-files {
@@ -105,6 +109,32 @@ import { TaskRunPlaceholderComponent } from './task-run-placeholder.component';
       background: var(--surface-3);
       border-radius: 0.25rem;
       padding: 0 0.25rem;
+      color: var(--fallback-bc, oklch(var(--bc)));
+      /* The shared prose breaks code anywhere (word-break: break-all), which
+         splits "New Task" into "Ne|w Task". Wrap at spaces, and break inside
+         a token only when that token alone is wider than the line. */
+      word-break: normal;
+      overflow-wrap: anywhere;
+      -webkit-box-decoration-break: clone;
+      box-decoration-break: clone;
+    }
+    /* Plain headings like the prototype: the chat prose paints h1 gold with
+       a rule and prefixes h1/h2 with a dot. Reader-scoped, so chat keeps its
+       look. */
+    :host ::ng-deep .task-reader-body .prose h1,
+    :host ::ng-deep .task-reader-body .prose h2 {
+      color: var(--fallback-bc, oklch(var(--bc)));
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+    :host ::ng-deep .task-reader-body .prose h1 {
+      font-size: 1.45em;
+    }
+    :host ::ng-deep .task-reader-body .prose .prose-heading-accented {
+      display: block;
+    }
+    :host ::ng-deep .task-reader-body .prose .prose-heading-dot {
+      display: none;
     }
     :host ::ng-deep .task-reader-body .prose pre {
       background: var(--surface-3);
@@ -122,63 +152,22 @@ import { TaskRunPlaceholderComponent } from './task-run-placeholder.component';
     }
   `,
   template: `
-    <!-- Two widths, one panel. Beside the Kanban this is a fixed 384px column
-         so the board keeps the space; in list mode it takes the remainder,
-         because there the panel IS the reading surface. -->
-    <aside
-      class="bg-surface-1 text-base-content flex flex-col h-full min-h-0 border-l border-surface-border"
-      [class.w-96]="!wide()"
-      [class.flex-shrink-0]="!wide()"
-      [class.flex-1]="wide()"
-      [class.min-w-0]="wide()"
+    <!-- Full page inside the Tasks surface: the host hides the board while
+         this is open, and Back closes the task (design-spec "Task detail"). -->
+    <section
+      class="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col bg-base-100 text-base-content"
       aria-label="Task detail"
+      data-testid="task-detail-page"
     >
-      <header
-        class="bg-surface-1 border-b border-surface-border p-4 flex flex-col gap-2"
-      >
-        <div class="flex items-center gap-2">
-          <nav
-            class="min-w-0 flex-1 truncate font-mono text-xs text-base-content-muted"
-            aria-label="Task folder location"
-            data-testid="task-detail-breadcrumb"
-          >
-            .ptah / specs / {{ detail()?.folderName ?? '' }}
-          </nav>
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm btn-square focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-            aria-label="Close detail"
-            (click)="closed.emit()"
-          >
-            <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
-          </button>
-        </div>
-        @if (!loading() && detail(); as task) {
-          <div class="flex flex-wrap items-center gap-2">
-            <h2 class="text-xl font-semibold leading-snug text-base-content">
-              {{ task.title }}
-            </h2>
-            <span
-              class="badge badge-ghost badge-sm"
-              [class]="statusInk()"
-              data-testid="task-detail-status"
-              >{{ statusLabel() }}</span
-            >
-            @if (task.type) {
-              <span class="badge badge-ghost badge-sm text-base-content">{{
-                task.type
-              }}</span>
-            }
-            @if (stage(); as stage) {
-              <span
-                class="badge badge-ghost badge-sm text-base-content"
-                data-testid="task-detail-stage"
-                >{{ stage }}</span
-              >
-            }
-          </div>
-        }
-      </header>
+      <ptah-task-detail-header
+        [detail]="loading() ? null : detail()"
+        [folderHint]="folderHint()"
+        [busy]="busy()"
+        [starting]="starting()"
+        (back)="closed.emit()"
+        (startTask)="startTask.emit($event)"
+        (statusChange)="statusChange.emit($event)"
+      />
 
       @if (loading()) {
         <div
@@ -337,17 +326,16 @@ import { TaskRunPlaceholderComponent } from './task-run-placeholder.component';
           Task not found
         </div>
       }
-    </aside>
+    </section>
   `,
 })
 export class TaskDetailComponent {
   public readonly detail = input.required<TaskSpecDetail | null>();
   public readonly loading = input(false);
-  /**
-   * Take the remaining width instead of a fixed 384px column. Set by the host
-   * in list mode, where this panel becomes the reading surface.
-   */
-  public readonly wide = input(false);
+  /** The open task's id, for the breadcrumb while its detail loads. */
+  public readonly folderHint = input('');
+  /** This task is launching from the header's Start in chat. */
+  public readonly starting = input(false);
   /**
    * The derived board graph, for the inverse relations no single-task fetch can
    * see: Blocks, Duplicated by, and the derived half of Related.
@@ -370,7 +358,12 @@ export class TaskDetailComponent {
   /** Host contract kept for `tasks-view`; see {@link openDocument}. */
   public readonly documentLoading = input(false);
 
+  /** Back: the host closes the task and shows the board again. */
   public readonly closed = output<void>();
+  /** Start in chat, with the card's payload (no isolation, default agent). */
+  public readonly startTask = output<TaskStartRequest>();
+  /** Change status, with the card's payload. */
+  public readonly statusChange = output<TaskStatusChange>();
   /** Emits a direct-child filename the host should open in the editor. */
   public readonly openArtifact = output<string>();
   /**
@@ -392,10 +385,6 @@ export class TaskDetailComponent {
   protected readonly statusLabel = computed(() => {
     const task = this.detail();
     return task ? TASK_STATUS_LABELS[task.status] : '';
-  });
-  protected readonly statusInk = computed(() => {
-    const task = this.detail();
-    return task ? TASK_STATUS_INK[task.status] : '';
   });
   protected readonly estimateLabel = computed(() => {
     const estimate = this.detail()?.estimate;
@@ -445,6 +434,4 @@ export class TaskDetailComponent {
   protected chipClass(label: string): string {
     return labelChipClass(label);
   }
-
-  protected readonly XIcon = X;
 }

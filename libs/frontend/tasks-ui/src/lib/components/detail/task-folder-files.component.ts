@@ -8,9 +8,7 @@ import {
 import {
   ChevronRight,
   Circle,
-  ExternalLink,
   FileText,
-  Folder,
   Link2,
   LucideAngularModule,
 } from 'lucide-angular';
@@ -140,7 +138,7 @@ function typeLabel(entry: TaskFolderEntry): string {
               } @else {
                 <button
                   type="button"
-                  class="min-h-8 truncate rounded-btn px-1 text-[color:var(--ptah-link)] underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                  class="min-h-8 truncate rounded-sm px-1 text-[color:var(--ptah-link)] underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
                   [attr.aria-label]="'Back to ' + crumb.label"
                   data-testid="task-folder-crumb"
                   [attr.data-path]="crumb.path"
@@ -397,7 +395,7 @@ export class TaskFolderFilesComponent {
         stateLabel: 'Folder',
         actionLabel: `Open folder ${entry.name}`,
         current: false,
-        icon: Folder,
+        icon: ChevronRight,
       };
     }
     if (entry.readable) {
@@ -417,10 +415,12 @@ export class TaskFolderFilesComponent {
       return {
         ...base,
         action: 'editor',
-        stateLabel: type,
-        actionLabel: `Open ${entry.name} in the editor`,
+        // "Markdown" beside "Present" read as a second state; say what the
+        // row does instead. Same document glyph as every other file row.
+        stateLabel: 'Opens in editor',
+        actionLabel: `Open ${entry.name} (${type}) in the editor`,
         current: false,
-        icon: ExternalLink,
+        icon: FileText,
       };
     }
     return {

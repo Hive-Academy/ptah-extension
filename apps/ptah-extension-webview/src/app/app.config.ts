@@ -135,12 +135,11 @@ import {
   HarnessHealthStore,
   LibraryChangeFeed,
 } from '@ptah-extension/marketplace/services';
-import {
-  TaskSessionLinksService,
-  TasksStore,
-} from '@ptah-extension/tasks-ui/services';
-// Board-free entry: the session inspector's TASK section listens to
-// `tasks:changed` through this feed even while the Tasks board is closed.
+import { TaskSessionLinksService } from '@ptah-extension/tasks-ui/services';
+// Board-free entry and the ONLY `tasks:changed` registration: the session
+// inspector's TASK section reads this feed, and the lazily loaded `TasksStore`
+// subscribes to it once the board opens (TASK_2026_871 — registering the store
+// here put it and its folder state in the initial bundle).
 import { TasksChangedFeed } from '@ptah-extension/tasks-ui/presentation';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui/services';
 import {
@@ -352,7 +351,6 @@ export const appConfig: ApplicationConfig = {
     // survives navigation. No `RouteReuseStrategy` exists; routed surfaces are
     // not retained.
     { provide: ORCHESTRA_CANVAS_COMPONENT, useValue: OrchestraCanvasComponent },
-    { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
     {
       provide: MESSAGE_HANDLERS,
       useExisting: TaskSessionLinksService,

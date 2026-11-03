@@ -18,6 +18,9 @@ import {
 import { TasksStore } from '../services/tasks-store.service';
 import { TaskViewsService } from '../services/task-views.service';
 import { TasksViewComponent } from './tasks-view.component';
+import { TaskStartService } from '../services/task-start.service';
+import { TaskViewModeService } from '../services/task-view-mode.service';
+import { TaskDetailComponent } from './detail/task-detail.component';
 import type { TaskPaletteAction } from './palette/palette-entries';
 import { TaskBulkBarComponent } from './bulk/task-bulk-bar.component';
 import { TaskBulkSummaryComponent } from './bulk/task-bulk-summary.component';
@@ -1516,6 +1519,115 @@ describe('TasksViewComponent', () => {
       key(fixture, card(fixture, 'TASK_2026_200'), 'Escape');
       await fixture.whenStable();
       expect(store.selectedTaskId()).toBeNull();
+    });
+
+    // -----------------------------------------------------------------------
+    // Full-page detail (visual fix round 1): an open task replaces the view
+    // bar, status rail and board; the board stays mounted underneath.
+    // -----------------------------------------------------------------------
+    async function openDetail() {
+      const fixture = await render(populated);
+      const store = TestBed.inject(TasksStore);
+      key(fixture, card(fixture, 'TASK_2026_200'), 'Enter');
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return { fixture, store, host: fixture.nativeElement as HTMLElement };
+    }
+
+    const boardRegion = (host: HTMLElement) =>
+      host.querySelector('ptah-task-board')?.parentElement?.parentElement;
+
+    it('swaps the board for the full-page detail, keeping the board mounted', async () => {
+      const { host } = await openDetail();
+
+      expect(host.querySelector('ptah-task-detail')).not.toBeNull();
+      expect(
+        host.querySelector('[data-testid="task-detail-back"]'),
+      ).not.toBeNull();
+      expect(host.querySelector('ptah-task-board')).not.toBeNull();
+      expect(boardRegion(host)?.classList.contains('hidden')).toBe(true);
+      expect(
+        host
+          .querySelector('[data-testid="task-view-bar"]')
+          ?.classList.contains('hidden'),
+      ).toBe(true);
+      expect(
+        host.querySelector('[data-testid="tasks-status-rail"]'),
+      ).toBeNull();
+    });
+
+    it('Back closes the task and shows the same board again', async () => {
+      const { fixture, store, host } = await openDetail();
+
+      (
+        host.querySelector('[data-testid="task-detail-back"]') as HTMLElement
+      ).click();
+      fixture.detectChanges();
+
+      expect(store.selectedTaskId()).toBeNull();
+      expect(host.querySelector('ptah-task-detail')).toBeNull();
+      expect(boardRegion(host)?.classList.contains('hidden')).toBe(false);
+      expect(
+        host
+          .querySelector('[data-testid="task-view-bar"]')
+          ?.classList.contains('hidden'),
+      ).toBe(false);
+    });
+
+    it('Escape on the detail page goes back, but not from a text field', async () => {
+      const { fixture, store, host } = await openDetail();
+      const page = host.querySelector(
+        '[data-testid="task-detail-page"]',
+      ) as HTMLElement;
+
+      const field = document.createElement('input');
+      page.appendChild(field);
+      key(fixture, field, 'Escape');
+      expect(store.selectedTaskId()).toBe('TASK_2026_200');
+
+      key(fixture, page, 'Escape');
+      expect(store.selectedTaskId()).toBeNull();
+    });
+
+    it('routes the detail Start in chat and Change status to the board actions', async () => {
+      const { fixture } = await openDetail();
+      const start = jest
+        .spyOn(TestBed.inject(TaskStartService), 'start')
+        .mockResolvedValue(undefined);
+      const updateStatus = jest
+        .spyOn(TestBed.inject(TasksStore), 'updateStatus')
+        .mockResolvedValue(undefined);
+      const detail = fixture.debugElement.query(
+        By.directive(TaskDetailComponent),
+      ).componentInstance as TaskDetailComponent;
+
+      detail.startTask.emit({ taskId: 'TASK_2026_200', isolate: false });
+      detail.statusChange.emit({ taskId: 'TASK_2026_200', status: 'done' });
+
+      expect(start).toHaveBeenCalledWith('TASK_2026_200', false, undefined);
+      expect(updateStatus).toHaveBeenCalledWith('TASK_2026_200', 'done');
+    });
+
+    it('opens the full-page detail from list mode too', async () => {
+      const fixture = await render(populated);
+      (
+        (fixture.nativeElement as HTMLElement).querySelector(
+          '[data-testid="tasks-view-mode-list"]',
+        ) as HTMLElement
+      ).click();
+      fixture.detectChanges();
+      await TestBed.inject(TasksStore).openTask('TASK_2026_200');
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+
+      expect(host.querySelector('ptah-task-detail')).not.toBeNull();
+      expect(
+        host
+          .querySelector('ptah-task-list')
+          ?.parentElement?.parentElement?.classList.contains('hidden'),
+      ).toBe(true);
+      // The mode is persisted per machine; leave Kanban for the next test.
+      TestBed.inject(TaskViewModeService).setMode('kanban');
     });
   });
 

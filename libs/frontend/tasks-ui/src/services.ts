@@ -1,16 +1,17 @@
 /**
  * Tasks UI Library - Services-only entry point
  *
- * Lightweight barrel that exports only services — no components. Use this
- * import path from eager code (e.g. the webview's `app.config.ts`, which
- * registers `TasksStore` in `MESSAGE_HANDLERS`) so that registering the
- * message handler does not drag the 14-component board into the initial
- * bundle:
+ * Lightweight barrel for EAGER code (the webview's `app.config.ts`, which
+ * registers push handlers in `MESSAGE_HANDLERS`). It exports no component and,
+ * deliberately, not `TasksStore`: the store and its folder/document state live
+ * in the lazily loaded board chunk and hear `tasks:changed` through the eager
+ * `TasksChangedFeed` (`@ptah-extension/tasks-ui/presentation`). Exporting the
+ * store here would put it back in the initial bundle (TASK_2026_871).
  *
- *   import { TasksStore } from '@ptah-extension/tasks-ui/services';
+ *   import { TaskSessionLinksService } from '@ptah-extension/tasks-ui/services';
  *
- * For components, use the main entry point — which should only ever be reached
- * through a dynamic `import()`:
+ * For components and the store, use the main entry point — which should only
+ * ever be reached through a dynamic `import()`:
  *
  *   import('@ptah-extension/tasks-ui').then((m) => m.TasksViewComponent);
  *
@@ -18,21 +19,6 @@
  */
 
 export {
-  BULK_CONFIRM_THRESHOLD,
-  TasksStore,
-  TASKS_CHANGED_MESSAGE_TYPE,
-} from './lib/services/tasks-store.service';
-export {
   TaskSessionLinksService,
   type TaskSessionLinkMap,
 } from './lib/services/task-session-links.service';
-export type {
-  ApplyMetadataOptions,
-  BulkFailure,
-  BulkProgress,
-  BulkSummary,
-  BulkUntouched,
-  TaskBoardColumn,
-  TaskBulkOutcome,
-  TaskEstimateBuckets,
-} from './lib/services/tasks-store.service';

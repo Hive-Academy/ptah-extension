@@ -12,7 +12,6 @@ import {
   AppStateManager,
   ClaudeRpcService,
   FILE_LINK_OPENER,
-  type MessageHandler,
 } from '@ptah-extension/core';
 import {
   BULK_CHUNK_SIZE,
@@ -57,6 +56,7 @@ import {
   type TaskFolderEntry,
 } from './task-folder-entries';
 import { TASKS_CHANGED_MESSAGE_TYPE } from '../tasks-changed';
+import { TasksChangedFeed } from './tasks-changed-feed.service';
 
 /**
  * Re-exported under its original name so `services.ts` and every existing
@@ -421,8 +421,9 @@ export function normalizeRootKey(root: string): string {
  * Root-provided signal store for the standalone Tasks board. All data flows
  * through {@link ClaudeRpcService} (`tasks:*`); there is NO optimistic local
  * mutation (R5.7) — status changes and creates re-fetch the authoritative board
- * from the backend, and the `tasks:changed` push (handled here as a
- * {@link MessageHandler}) refreshes the board whenever the file index moves.
+ * from the backend, and the `tasks:changed` push (relayed by the eager
+ * {@link TasksChangedFeed}, see {@link handleMessage}) refreshes the board
+ * whenever the file index moves.
  *
  * Workspace-aware (TASK follow-up): the Electron shell keeps this page mounted
  * across workspace switches. Every `tasks:*` call carries the active workspace
@@ -433,16 +434,14 @@ export function normalizeRootKey(root: string): string {
  * since switched away from.
  */
 @Injectable({ providedIn: 'root' })
-export class TasksStore implements MessageHandler {
+export class TasksStore {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly fileLinkOpener = inject(FILE_LINK_OPENER);
   private readonly appState = inject(AppStateManager);
   /** Document and folder-browser state, exposed only through this facade. */
   private readonly folder = inject(TaskFolderStore);
   private readonly destroyRef = inject(DestroyRef);
-
-  /** Consumed by `MessageRouterService` — refresh on backend index changes. */
-  public readonly handledMessageTypes = [TASKS_CHANGED_MESSAGE_TYPE] as const;
+  private readonly changedFeed = inject(TasksChangedFeed);
 
   private readonly _columns =
     signal<Record<TaskStatus, TaskSpecSummary[]>>(emptyColumns());
@@ -642,10 +641,9 @@ export class TasksStore implements MessageHandler {
   /**
    * How many {@link TasksViewComponent} instances are currently mounted.
    *
-   * This store is root-provided AND eagerly constructed — it joins
-   * `MESSAGE_HANDLERS`, which the message router resolves at webview bootstrap
-   * — so it is alive for the whole session whether or not the Tasks surface has
-   * ever been on screen. Without this counter, every `tasks:changed` push and
+   * This store is root-provided, so once the Tasks surface has been opened it
+   * stays alive (and subscribed to {@link TasksChangedFeed}) for the rest of
+   * the session, whether or not the surface is still on screen. Without this counter, every `tasks:changed` push and
    * every window `focus` bought a full board scan to repaint a board nobody was
    * looking at, for the rest of the session.
    *
@@ -1098,6 +1096,14 @@ export class TasksStore implements MessageHandler {
   public constructor() {
     this.setupVisibilityReconcile();
     this.setupWorkspaceSwitch();
+    // Not a `MESSAGE_HANDLERS` entry: that would make this store (and the
+    // folder store behind it) eager and part of the initial bundle. The feed
+    // IS eager, and the store only acts on a push while a surface is mounted
+    // or a bulk run is in flight — both of which construct the store first.
+    const stopListening = this.changedFeed.listenRaw((payload) =>
+      this.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE, payload }),
+    );
+    this.destroyRef.onDestroy(stopListening);
   }
 
   /**
@@ -1253,9 +1259,10 @@ export class TasksStore implements MessageHandler {
       // A transport failure is an outcome like any other: surface it on the
       // store-level error instead of rejecting into a template handler. A
       // request superseded by a newer open (or a close) stays silent.
-      if (seq !== this.detailReqSeq) return;
-      const detail = error instanceof Error ? error.message : String(error);
-      this.setDetailError(`Failed to load task detail (${detail})`);
+      if (seq === this.detailReqSeq) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.setDetailError(`Failed to load task detail (${detail})`);
+      }
     }
   }
 
@@ -1519,10 +1526,11 @@ export class TasksStore implements MessageHandler {
    *
    * ## Why the schema is imported dynamically
    *
-   * `TasksStore` is registered in `MESSAGE_HANDLERS` at webview bootstrap, so
-   * it is eager. A static import of the schema would therefore pull the whole
-   * Zod runtime (304 kB) into the initial bundle for a check that only ever
-   * runs when a user edits task metadata on the (lazily loaded) board.
+   * `TasksStore` used to be an eager `MESSAGE_HANDLERS` entry, where a static
+   * import of the schema pulled the whole Zod runtime (304 kB) into the
+   * initial bundle for a check that only ever runs when a user edits task
+   * metadata on the (lazily loaded) board. The store is lazy now, and the
+   * deferral still keeps Zod out of any graph that reaches the store.
    * Deferring the import moves those bytes into the board's own chunk
    * (TASK_2026_187 Unit 10). The deferral goes through the local
    * `./metadata-patch-schema.lazy` module — see that file for why it is not a
@@ -2173,12 +2181,15 @@ export class TasksStore implements MessageHandler {
     const missed = this.missedPush;
     this.missedPush = false;
 
+    let boardRefreshed = true;
     try {
       await this.loadBoard();
     } catch (error: unknown) {
+      // Reported, not swallowed: the visible error says the refresh failed.
       this._error.set(TasksStore.refreshFailedMessage(error));
-      return;
+      boardRefreshed = false;
     }
+    if (!boardRefreshed) return;
 
     const selected = this._selectedTaskId();
     if (selected === null) return;
@@ -2189,8 +2200,9 @@ export class TasksStore implements MessageHandler {
     } catch (error: unknown) {
       // Superseded by a newer open (or a close): the user is looking at
       // another task, so this refresh's failure is not theirs to see.
-      if (seq !== this.detailReqSeq) return;
-      this.setDetailError(TasksStore.refreshFailedMessage(error));
+      if (seq === this.detailReqSeq) {
+        this.setDetailError(TasksStore.refreshFailedMessage(error));
+      }
     }
   }
 
@@ -2540,8 +2552,7 @@ export class TasksStore implements MessageHandler {
       if (document.visibilityState === 'hidden') return;
       if (!this._loaded() || this._loading()) return;
       // Nothing is rendering the board, so there is nothing to reconcile. This
-      // store outlives the surface (it is eagerly constructed for
-      // `MESSAGE_HANDLERS`), and `_loaded` latches true for the rest of the
+      // store outlives the surface (it is root-provided), and `_loaded` latches true for the rest of the
       // session after the first visit — so without this guard, every window
       // focus for the rest of the session paid for a board scan whose only
       // consumer had been destroyed views ago. The surface fetches on mount.

@@ -10,18 +10,21 @@ export interface TasksChangedEvent {
   readonly change: TasksChangedNotification;
 }
 
-const CHANGE_REASONS: ReadonlySet<TasksChangedNotification['reason']> =
-  new Set(['watcher', 'write', 'reindex']);
+const CHANGE_REASONS: ReadonlySet<TasksChangedNotification['reason']> = new Set(
+  ['watcher', 'write', 'reindex'],
+);
 
 /**
  * Board-free view of the backend `tasks:changed` push.
  *
- * `TasksStore` also handles this message, but it only refreshes while the
- * board surface is open and it pulls the whole board into the importing graph.
+ * This is the ONLY `tasks:changed` registration in `MESSAGE_HANDLERS`.
  * Consumers outside the board (the chat inspector's TASK section) watch
- * {@link changes} instead and decide for themselves whether a push concerns
- * them. This service fetches nothing and owns no timer; it only validates and
- * republishes.
+ * {@link changes} and decide for themselves whether a push concerns them.
+ * `TasksStore` lives in the lazily loaded board chunk, so it cannot be a
+ * bootstrap handler without dragging the whole store into the initial bundle;
+ * it subscribes through {@link listenRaw} when it is first constructed. This
+ * service fetches nothing and owns no timer; it only validates, republishes
+ * and relays.
  *
  * Register it in `MESSAGE_HANDLERS` with `useExisting` so the router and the
  * consumers share the root instance.
@@ -31,14 +34,30 @@ export class TasksChangedFeed implements MessageHandler {
   public readonly handledMessageTypes = [TASKS_CHANGED_MESSAGE_TYPE] as const;
 
   private readonly _changes = signal<TasksChangedEvent | null>(null);
+  private readonly rawListeners = new Set<(payload: unknown) => void>();
   private seq = 0;
 
   /** The latest accepted push, or `null` before the first one. */
   public readonly changes: Signal<TasksChangedEvent | null> =
     this._changes.asReadonly();
 
+  /**
+   * Receive every `tasks:changed` payload as it arrived, BEFORE validation, in
+   * delivery order. For `TasksStore`, which applies its own payload rules (a
+   * push without a root refreshes the active board) and must not lose a push
+   * that two signal writes in one tick would coalesce. Returns the
+   * unsubscribe.
+   */
+  public listenRaw(listener: (payload: unknown) => void): () => void {
+    this.rawListeners.add(listener);
+    return () => {
+      this.rawListeners.delete(listener);
+    };
+  }
+
   public handleMessage(message: { type: string; payload?: unknown }): void {
     if (message.type !== TASKS_CHANGED_MESSAGE_TYPE) return;
+    for (const listener of [...this.rawListeners]) listener(message.payload);
     const change = parseTasksChanged(message.payload);
     // A malformed push is dropped: consumers filter on `workspaceRoot`, and a
     // guessed root could refresh the wrong workspace.

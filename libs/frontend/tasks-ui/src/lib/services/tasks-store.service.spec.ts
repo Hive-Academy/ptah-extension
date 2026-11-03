@@ -29,6 +29,7 @@ import {
   TASKS_CHANGED_MESSAGE_TYPE,
   normalizeRootKey,
 } from './tasks-store.service';
+import { TasksChangedFeed } from './tasks-changed-feed.service';
 
 /**
  * `TasksStore` opens artifacts through the `FILE_LINK_OPENER` port. It is a
@@ -213,7 +214,11 @@ describe('TasksStore', () => {
 
     rpcCall.mockResolvedValueOnce(
       ok({
-        task: { ...makeTask('TASK_2026_201', 'backlog'), body: '', artifacts: [] },
+        task: {
+          ...makeTask('TASK_2026_201', 'backlog'),
+          body: '',
+          artifacts: [],
+        },
       }),
     );
     await store.openTask('TASK_2026_201');
@@ -229,7 +234,11 @@ describe('TasksStore', () => {
 
     rpcCall.mockResolvedValueOnce(
       ok({
-        task: { ...makeTask('TASK_2026_201', 'backlog'), body: '', artifacts: [] },
+        task: {
+          ...makeTask('TASK_2026_201', 'backlog'),
+          body: '',
+          artifacts: [],
+        },
       }),
     );
     await store.openTask('TASK_2026_201');
@@ -250,6 +259,23 @@ describe('TasksStore', () => {
   it('handleMessage ignores unrelated message types', () => {
     store.handleMessage({ type: 'something:else' });
     expect(rpcCall).not.toHaveBeenCalled();
+  });
+
+  // The store is lazy (board chunk) and NOT a `MESSAGE_HANDLERS` entry; the
+  // eager `TasksChangedFeed` relays every raw push to it instead.
+  it('refreshes on a push relayed by the eager TasksChangedFeed, root or not', async () => {
+    rpcCall.mockResolvedValue(ok(makeBoard({})));
+    const feed = TestBed.inject(TasksChangedFeed);
+
+    feed.handleMessage({ type: TASKS_CHANGED_MESSAGE_TYPE, payload: {} });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(rpcCall).toHaveBeenCalledWith('tasks:board', {});
+  });
+
+  it('is not itself a message handler', () => {
+    expect('handledMessageTypes' in store).toBe(false);
   });
 
   // `updateStatus` is a call onto `applyMetadata` — one client mutation funnel,
@@ -1897,17 +1923,21 @@ describe('TasksStore — workspace awareness', () => {
   // rendered under B's selection.
   it('clears the previous detail and shows an error when the next open rejects', async () => {
     configure();
-    rpcCall.mockImplementation((method: string, params: { taskId?: string }) => {
-      if (method === 'tasks:get' && params.taskId === 'A') {
-        return Promise.resolve(
-          ok({ task: { ...makeTask('A', 'backlog'), body: 'BA', artifacts: [] } }),
-        );
-      }
-      if (method === 'tasks:get' && params.taskId === 'B') {
-        return Promise.reject(new Error('transport down'));
-      }
-      return Promise.resolve(ok(makeBoard({})));
-    });
+    rpcCall.mockImplementation(
+      (method: string, params: { taskId?: string }) => {
+        if (method === 'tasks:get' && params.taskId === 'A') {
+          return Promise.resolve(
+            ok({
+              task: { ...makeTask('A', 'backlog'), body: 'BA', artifacts: [] },
+            }),
+          );
+        }
+        if (method === 'tasks:get' && params.taskId === 'B') {
+          return Promise.reject(new Error('transport down'));
+        }
+        return Promise.resolve(ok(makeBoard({})));
+      },
+    );
 
     await store.openTask('A');
     expect(store.taskDetail()?.body).toBe('BA');
@@ -1922,17 +1952,19 @@ describe('TasksStore — workspace awareness', () => {
   it('ignores a late A response after B was selected and B rejected', async () => {
     configure();
     let resolveA: (v: unknown) => void = () => undefined;
-    rpcCall.mockImplementation((method: string, params: { taskId?: string }) => {
-      if (method === 'tasks:get' && params.taskId === 'A') {
-        return new Promise((r) => {
-          resolveA = r;
-        });
-      }
-      if (method === 'tasks:get' && params.taskId === 'B') {
-        return Promise.reject(new Error('transport down'));
-      }
-      return Promise.resolve(ok(makeBoard({})));
-    });
+    rpcCall.mockImplementation(
+      (method: string, params: { taskId?: string }) => {
+        if (method === 'tasks:get' && params.taskId === 'A') {
+          return new Promise((r) => {
+            resolveA = r;
+          });
+        }
+        if (method === 'tasks:get' && params.taskId === 'B') {
+          return Promise.reject(new Error('transport down'));
+        }
+        return Promise.resolve(ok(makeBoard({})));
+      },
+    );
 
     const pA = store.openTask('A');
     await store.openTask('B');
@@ -3541,7 +3573,12 @@ describe('TasksStore — folder reader facade', () => {
 
   it('reads extra markdown and reports a rejected state without throwing', async () => {
     rpcCall.mockImplementationOnce(async () =>
-      ok({ taskId: TASK, file: 'decisions.md', state: 'rejected', content: null }),
+      ok({
+        taskId: TASK,
+        file: 'decisions.md',
+        state: 'rejected',
+        content: null,
+      }),
     );
 
     await expect(store.readFolderFile('decisions.md')).resolves.toBeUndefined();

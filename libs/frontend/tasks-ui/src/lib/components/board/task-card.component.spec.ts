@@ -68,6 +68,18 @@ describe('TaskCardComponent', () => {
     expect(text).toContain('FEATURE');
   });
 
+  // Light themes set --rounded-btn to a 2rem pill; an overflow-clipping clamp
+  // on the rounded button cut the first glyph of each title line.
+  it('clamps the title on an inner span, never on the rounded button', () => {
+    const host = render(makeTask()).nativeElement as HTMLElement;
+    const button = host.querySelector('[data-testid="task-card-open"]');
+    const title = host.querySelector('[data-testid="task-card-title"]');
+    expect(button?.classList.contains('line-clamp-2')).toBe(false);
+    expect(button?.classList.contains('rounded-btn')).toBe(false);
+    expect(title?.classList.contains('line-clamp-2')).toBe(true);
+    expect(title?.textContent?.trim()).toBe('Implement the board');
+  });
+
   it('shows a validation-warning affordance when frontmatter is invalid', () => {
     const fixture = render(
       makeTask({

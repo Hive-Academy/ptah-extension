@@ -162,7 +162,13 @@ describe('TaskFolderFilesComponent', () => {
     fixture.componentInstance.openInEditor.subscribe((file) =>
       opened.push(file),
     );
-    (row('notes.txt') as HTMLButtonElement).click();
+    const editorRow = row('notes.txt') as HTMLButtonElement;
+    // Says what the row does, not a type beside a "Present" state.
+    expect(editorRow.textContent).toContain('Opens in editor');
+    expect(editorRow.getAttribute('aria-label')).toBe(
+      'Open notes.txt (File) in the editor',
+    );
+    editorRow.click();
     expect(opened).toEqual(['notes.txt']);
 
     const link = row('escape');

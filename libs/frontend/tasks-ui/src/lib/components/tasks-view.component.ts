@@ -168,8 +168,11 @@ import { TaskMaintenanceDialogComponent } from './task-maintenance-dialog.compon
            hiding it once a filter empties the board would remove the only
            control that can undo that (FR-C1.3). -->
       @if (store.totalIndexed() > 0) {
+        <!-- Hidden (not destroyed) under an open task, so its drafts and open
+             menus survive Back. -->
         <div
           class="flex flex-shrink-0 flex-wrap items-start gap-2 border-b border-surface-border bg-surface-1 p-3 text-base-content"
+          [class.hidden]="detailOpen()"
           data-testid="task-view-bar"
         >
           <ptah-task-view-menu
@@ -208,7 +211,7 @@ import { TaskMaintenanceDialogComponent } from './task-maintenance-dialog.compon
         </div>
       }
 
-      @if (store.loaded() && !store.noWorkspace()) {
+      @if (store.loaded() && !store.noWorkspace() && !detailOpen()) {
         <div
           class="flex flex-shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-surface-border px-4 py-2 text-xs text-base-content-muted"
           data-testid="tasks-status-rail"
@@ -249,7 +252,10 @@ import { TaskMaintenanceDialogComponent } from './task-maintenance-dialog.compon
         />
       }
 
-      <div class="flex min-h-0 flex-1">
+      <!-- An open task is a full page (design-spec "Task detail"). The board
+           or list stays MOUNTED but hidden underneath, so Back returns to the
+           same lanes, scroll, selection and card state. -->
+      <div class="flex min-h-0 flex-1" [class.hidden]="detailOpen()">
         @if (boardState(); as state) {
           <ptah-task-board-states
             [kind]="state"
@@ -261,21 +267,11 @@ import { TaskMaintenanceDialogComponent } from './task-maintenance-dialog.compon
             (clearFilter)="store.clearFilter()"
           />
         } @else {
-          <!-- List mode with a task open: the list becomes a fixed-width rail
-               and the detail panel takes the rest. The Kanban keeps the
-               opposite split, because six lanes narrowed to a rail are not a
-               board. -->
-          <div
-            class="min-w-0"
-            [class.flex-1]="!detailRail()"
-            [class.w-96]="detailRail()"
-            [class.flex-none]="detailRail()"
-          >
+          <div class="min-w-0 flex-1">
             @if (viewMode.mode() === 'list') {
               <ptah-task-list
                 [columns]="store.board()"
                 [graph]="store.graph()"
-                [compact]="detailRail()"
                 [selectedTaskId]="store.selectedTaskId()"
                 [selection]="store.selection()"
                 [pending]="store.pending()"
@@ -310,15 +306,18 @@ import { TaskMaintenanceDialogComponent } from './task-maintenance-dialog.compon
             }
           </div>
         }
+      </div>
 
-        @if (store.selectedTaskId() && detailAllowed()) {
+      @if (detailOpen()) {
+        <div class="flex min-h-0 flex-1">
           <ptah-task-detail
-            [wide]="detailRail()"
             [detail]="store.taskDetail()"
+            [folderHint]="store.selectedTaskId() ?? ''"
             [graph]="store.graph()"
             [knownLabels]="store.knownLabels()"
             [knownTaskIds]="knownTaskIds()"
             [busy]="writing()"
+            [starting]="detailStarting()"
             [loading]="store.detailLoading()"
             [openDocument]="store.openDocument()"
             [documentContent]="store.documentContent()"
@@ -328,9 +327,11 @@ import { TaskMaintenanceDialogComponent } from './task-maintenance-dialog.compon
             (openArtifact)="store.openArtifact($event)"
             (openTask)="store.openTask($event)"
             (applyMetadata)="onApplyMetadata($event)"
+            (startTask)="onStartTask($event)"
+            (statusChange)="onStatusChange($event)"
           />
-        }
-      </div>
+        </div>
+      }
 
       <!-- The bulk region docks at the content bottom only while there is
            something to act on: a selection, a pending confirmation, or a run
@@ -402,16 +403,6 @@ export class TasksViewComponent {
   protected readonly sweepDays = 7;
   protected readonly XIcon = X;
 
-  /**
-   * The list is a navigation rail beside an open task (list mode only).
-   * Drives the list's compact columns, its fixed width and the detail panel's
-   * share together, so they cannot disagree.
-   */
-  protected readonly detailRail = computed(
-    () =>
-      this.viewMode.mode() === 'list' && this.store.selectedTaskId() !== null,
-  );
-
   /** Which whole-board panel replaces the lanes, or `null` for the lanes. */
   protected readonly boardState = computed<TaskBoardStateKind | null>(() => {
     if (this.store.loading() && !this.store.loaded()) return 'loading';
@@ -421,10 +412,24 @@ export class TasksViewComponent {
     return null;
   });
 
-  /** The detail panel sits beside the lanes, or beside a filtered-empty board. */
+  /** A task can open over the lanes, or over a filtered-empty board. */
   protected readonly detailAllowed = computed(() => {
     const state = this.boardState();
     return state === null || state === 'filtered-empty';
+  });
+
+  /**
+   * An open task replaces the view bar, status rail and board with the
+   * full-page detail, in Kanban and list mode alike.
+   */
+  protected readonly detailOpen = computed(
+    () => this.store.selectedTaskId() !== null && this.detailAllowed(),
+  );
+
+  /** The open task is launching from the detail header's Start in chat. */
+  protected readonly detailStarting = computed(() => {
+    const id = this.store.selectedTaskId();
+    return id !== null && this.taskStart.busyTaskId() === id;
   });
 
   /** `null` while closed; otherwise the status the New Task dialog opens in. */
@@ -560,6 +565,10 @@ export class TasksViewComponent {
    */
   protected onKeyDown(event: KeyboardEvent): void {
     if (isTextEntryTarget(event.target)) return;
+    if (event.key === 'Escape') {
+      this.onDetailEscape(event);
+      return;
+    }
     if (event.altKey) return;
     if (!event.ctrlKey && !event.metaKey) return;
     if (event.key.toLowerCase() !== 'k') return;
@@ -633,6 +642,21 @@ export class TasksViewComponent {
       return;
     }
     if (this.store.selectedTaskId() !== null) this.store.closeTask();
+  }
+
+  /**
+   * Escape on the detail page goes back, as it closed the old side panel —
+   * unless something inside the page already handled it. The hidden board's
+   * own Escape path cannot fire then, so this is the only one.
+   */
+  private onDetailEscape(event: KeyboardEvent): void {
+    if (!this.detailOpen() || event.defaultPrevented) return;
+    // A dialog or the palette above the page owns its own Escape.
+    const target = event.target;
+    if (target instanceof Element && target.closest('dialog, [role="dialog"]'))
+      return;
+    event.preventDefault();
+    this.onBoardEscape();
   }
 
   protected async onViewCreated(name: string): Promise<void> {
