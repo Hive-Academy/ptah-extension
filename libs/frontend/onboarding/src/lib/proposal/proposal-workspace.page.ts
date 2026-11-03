@@ -127,6 +127,9 @@ import { RevisionHistoryComponent } from './revision-history.component';
         }
       </ptah-live-run-layout>
       @if (composerShown()) { <ptah-answer-dock #answerDock [background]="backgroundElements()" /> }
+      @if (store.session.record()) {
+        <span class="sr-only" role="status" aria-live="polite">{{ replyDraft.announcement() }}</span>
+      }
       @if (leaveOpen()) {
         <ptah-harness-builder-leave-dialog [mode]="store.mode"
           [agentRunning]="store.session.phase() === 'busy' || store.session.phase() === 'sending'"
@@ -151,7 +154,7 @@ export class ProposalWorkspacePage implements OnInit {
   private readonly layout = viewChild<ElementRef<HTMLElement>>('layout');
   private readonly sessionLog = viewChild<DetailsLogComponent>('sessionLog');
   private readonly replyComposer = viewChild<ReplyComposerComponent>('replyComposer');
-  private readonly replyDraft = inject(ReplyDraftStore);
+  protected readonly replyDraft = inject(ReplyDraftStore);
   private readonly pageHeader =
     viewChild<ElementRef<HTMLElement>>('pageHeader');
   private readonly stepperRegion =
@@ -172,7 +175,7 @@ export class ProposalWorkspacePage implements OnInit {
   readonly leaveFailed = signal(false);
   readonly stopUncertain = signal(false);
   readonly composerShown = computed(() => !!this.store.session.record() &&
-    (this.store.sessionStatus() === 'ready' || this.store.restoreState() === 'proposal-unavailable'));
+    (this.store.restoreState() === 'ready' || this.store.restoreState() === 'proposal-unavailable'));
   readonly hasLog = computed(() => this.store.restoreState() === 'loading' ||
     this.store.restoreState() === 'ready' || this.composerShown());
   readonly logState = computed<'live' | 'idle' | 'stopped' | 'loading' | 'unavailable'>(() => {
@@ -255,9 +258,6 @@ export class ProposalWorkspacePage implements OnInit {
       : this.store.restoreState() === 'proposal-unavailable'
         ? 'The session is available, but its proposal could not be loaded.'
         : 'This session could not be restored.';
-  openDetails(): void {
-    this.sessionLog()?.focus();
-  }
   openPresets(): void {
     const details = this.presetsDetails()?.nativeElement;
     if (!details) return;
@@ -286,7 +286,7 @@ export class ProposalWorkspacePage implements OnInit {
   }
   proposeAgain(): void {
     this.replyDraft.setReply('Please propose the configuration again for my brief.');
-    if (typeof window !== 'undefined' && window.innerWidth <= 720) this.answerDock()?.openSheet();
+    if (typeof window !== 'undefined' && window.matchMedia('(min-width: 721px)').matches === false) this.answerDock()?.openSheet();
     else this.replyComposer()?.focus();
   }
   private startPath(): string {

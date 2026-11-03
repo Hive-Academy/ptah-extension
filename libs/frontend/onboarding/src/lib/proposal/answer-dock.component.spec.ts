@@ -52,22 +52,21 @@ describe('AnswerDockComponent', () => {
   });
 
 
-  it('announces send failure once outside the narrow-only bar and sheet', async () => {
-    send.mockResolvedValueOnce(false);
+  it('keeps leave-dialog inert background when the dock unmounts', () => {
+    const background = document.createElement('div');
+    background.inert = true;
+    const leaveDialog = document.createElement('div');
+    leaveDialog.setAttribute('role', 'dialog');
+    leaveDialog.setAttribute('aria-label', 'Leave proposal');
+    document.body.append(background, leaveDialog);
     const fixture = TestBed.createComponent(AnswerDockComponent);
-    fixture.detectChanges();
-    const draft = TestBed.inject(ReplyDraftStore);
-    draft.setReply('Please revise');
-    await fixture.componentInstance.send(); fixture.detectChanges();
-    const root = fixture.nativeElement as HTMLElement;
-    const live = root.querySelector<HTMLElement>('[role="status"][aria-live="polite"]');
-    expect(live?.textContent).toBe('Reply could not be sent. Try again.');
-    expect(root.querySelectorAll('[role="status"]')).toHaveLength(1);
-    expect(live?.closest('#answer-dock-sheet')).toBeNull();
-    expect(live?.closest('button[aria-controls="answer-dock-sheet"]')).toBeNull();
-    expect(root.querySelector('#answer-dock-sheet')).toBeNull();
+    fixture.componentRef.setInput('background', [background]); fixture.detectChanges();
     fixture.destroy();
+    expect(background.inert).toBe(true);
+    expect(document.querySelector('[role="dialog"][aria-label="Leave proposal"]')).toBe(leaveDialog);
+    background.remove(); leaveDialog.remove();
   });
+
   it('uses one draft and one polite result announcement for a sent reply', async () => {
     const fixture = TestBed.createComponent(AnswerDockComponent);
     fixture.detectChanges();
@@ -79,8 +78,8 @@ describe('AnswerDockComponent', () => {
     await fixture.componentInstance.send(); fixture.detectChanges();
     expect(send).toHaveBeenCalledWith('Use a smaller team', { files: undefined, images: undefined });
     expect(draft.reply()).toBe('');
-    expect((fixture.nativeElement as HTMLElement).querySelector('[role="status"]')?.textContent).toBe('Reply sent');
-    expect((fixture.nativeElement as HTMLElement).querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(draft.announcement()).toBe('Reply sent');
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="status"]')).toBeNull();
     expect(fixture.componentInstance.open()).toBe(false);
     fixture.destroy();
   });

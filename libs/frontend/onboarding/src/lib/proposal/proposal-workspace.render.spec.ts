@@ -7,10 +7,11 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 import { BehaviorSubject } from 'rxjs';
 import { LiveRunLayoutComponent } from '../shared/live-run-layout.component';
 import { ProposalFlowStore } from './proposal-flow.store';
+import { AnswerDockComponent } from './answer-dock.component';
 import { ProposalWorkspacePage } from './proposal-workspace.page';
 import { ReplyDraftStore } from './reply-draft.store';
 
-@Component({ selector: 'ptah-details-log', standalone: true, template: '<div #region role="log" tabindex="0">Session log</div><ng-content />' })
+@Component({ selector: 'ptah-details-log', standalone: true, template: '<div #region role="log" tabindex="0">Session log</div><ng-content /><p>{{ footerNote() }}</p>' })
 class LogStub {
   readonly variant = input('pane');
   readonly mode = input('tab');
@@ -44,14 +45,6 @@ class StatusStub {
   readonly saveAsPreset = output<void>();
   readonly retryBrief = output<void>();
 }
-@Component({ selector: 'ptah-answer-dock', standalone: true, template: '<button aria-controls="answer-dock-sheet" (click)="openSheet()">Reply</button>@if(open()){<section id="answer-dock-sheet" role="dialog" aria-label="Reply to the agent"><textarea aria-label="Sheet reply" [value]="draft.reply()" (input)="onInput($event)"></textarea></section>}' })
-class DockStub {
-  readonly draft = inject(ReplyDraftStore);
-  readonly background = input<readonly HTMLElement[]>([]);
-  readonly open = signal(false);
-  openSheet(): void { this.open.set(true); }
-  onInput(event: Event): void { if (event.target instanceof HTMLTextAreaElement) this.draft.setReply(event.target.value); }
-}
 
 describe('ProposalWorkspacePage rendered parity', () => {
   const restoreState = signal<'loading' | 'ready' | 'proposal-unavailable' | 'missing'>('loading');
@@ -65,6 +58,7 @@ describe('ProposalWorkspacePage rendered parity', () => {
   const findTab = jest.fn();
   const params = new BehaviorSubject(convertToParamMap({ tab: 'tab' }));
   const send = jest.fn<Promise<boolean>, [string, unknown]>().mockResolvedValue(true);
+  let wide = false;
   const flow = {
     mode: 'team-builder', restoreState, actionError, sessionStatus, reviewEligible,
     session: { record, phase, error: signal<string | null>(null), send, attachView: jest.fn(() => jest.fn()) },
@@ -76,7 +70,8 @@ describe('ProposalWorkspacePage rendered parity', () => {
   beforeEach(() => {
     restoreState.set('loading'); record.set(null); phase.set('idle'); actionError.set(null);
     sessionStatus.set('loading'); reviewEligible.set(false); current.set(null); revision.set(0);
-    findTab.mockReset(); send.mockClear();
+    findTab.mockReset(); send.mockClear(); wide = false;
+    Object.defineProperty(window, 'matchMedia', { configurable: true, value: jest.fn(() => ({ matches: wide, media: '(min-width: 721px)', addEventListener: jest.fn(), removeEventListener: jest.fn() } as unknown as MediaQueryList)) });
     TestBed.configureTestingModule({ providers: [
       { provide: ProposalFlowStore, useValue: flow },
       { provide: ActivatedRoute, useValue: { queryParamMap: params.asObservable() } },
@@ -86,7 +81,7 @@ describe('ProposalWorkspacePage rendered parity', () => {
       { provide: FilePickerService, useValue: { isFileSupported: () => true } },
     ] });
     TestBed.overrideComponent(ProposalWorkspacePage, { set: {
-      imports: [LiveRunLayoutComponent, LogStub, ComposerStub, DockStub, StatusStub], schemas: [NO_ERRORS_SCHEMA],
+      imports: [LiveRunLayoutComponent, LogStub, ComposerStub, AnswerDockComponent, StatusStub], schemas: [NO_ERRORS_SCHEMA],
     } });
   });
   afterEach(() => TestBed.resetTestingModule());
@@ -114,7 +109,7 @@ describe('ProposalWorkspacePage rendered parity', () => {
     const { root } = render(); expect(root.querySelector('ptah-proposal-status-card')?.textContent).toContain('loading');
   });
   it('case 4a: bound unavailable state keeps log and composer for Propose again', () => {
-    bind(); restoreState.set('proposal-unavailable'); sessionStatus.set('failed'); const { fixture, root } = render();
+    bind(); restoreState.set('proposal-unavailable'); sessionStatus.set('failed'); wide = true; const { fixture, root } = render();
     [...root.querySelectorAll('button')].find((button) => button.textContent?.includes('Propose again'))?.click();
     fixture.detectChanges();
     expect(root.querySelector('[role="log"]')).not.toBeNull();
@@ -176,20 +171,49 @@ describe('ProposalWorkspacePage rendered parity', () => {
     expect(root.querySelector('ptah-reply-composer')).not.toBeNull();
     expect(root.querySelector('ptah-answer-dock')).not.toBeNull();
   });
-  it.each(['failed', 'stopping', 'working', 'loading', 'not-connected', 'waiting'] as const)(
-    'hides composer and dock for a bound %s session', (state) => {
+  it.each(['ready', 'waiting', 'working', 'loading', 'failed', 'stopping', 'not-connected'] as const)(
+    'keeps composer and dock for a bound %s session', (state) => {
       bind(); restoreState.set('ready'); sessionStatus.set(state);
       const { root } = render();
-      expect(root.querySelector('ptah-reply-composer')).toBeNull();
-      expect(root.querySelector('ptah-answer-dock')).toBeNull();
-      expect(root.querySelector('[role="log"]')).not.toBeNull();
+      expect(root.querySelector('ptah-reply-composer')).not.toBeNull();
+      expect(root.querySelector('ptah-answer-dock')).not.toBeNull();
     },
   );
+  it.each(['loading', 'missing', 'ready'] as const)('shows read-only footer without a record in %s', (state) => {
+    restoreState.set(state);
+    const { root } = render();
+    expect(root.querySelector('ptah-reply-composer')).toBeNull();
+    expect(root.querySelector('ptah-answer-dock')).toBeNull();
+    expect(root.querySelector('ptah-details-log')?.textContent).toContain(state === 'loading' ? 'Restoring session' : 'No live session is bound');
+  });
+  it('keeps one announcement mounted as a send changes status to working', async () => {
+    bind(); restoreState.set('ready');
+    send.mockImplementationOnce(async () => { sessionStatus.set('working'); return true; });
+    const { fixture, root } = render();
+    const region = root.querySelector<HTMLElement>('[role="status"][aria-live="polite"]');
+    const draft = fixture.debugElement.injector.get(ReplyDraftStore);
+    draft.setReply('Please revise');
+    await draft.send(); fixture.detectChanges();
+    expect(root.querySelector('[role="status"][aria-live="polite"]')).toBe(region);
+    expect(region?.textContent).toBe('Reply sent');
+    expect(root.querySelectorAll('[role="status"][aria-live="polite"]')).toHaveLength(1);
+  });
+  it('keeps failure announcement and draft available after status fails', async () => {
+    bind(); restoreState.set('ready');
+    send.mockImplementationOnce(async () => { sessionStatus.set('failed'); return false; });
+    const { fixture, root } = render();
+    const draft = fixture.debugElement.injector.get(ReplyDraftStore);
+    draft.setReply('Please revise');
+    await draft.send(); fixture.detectChanges();
+    expect(root.querySelector('[role="status"][aria-live="polite"]')?.textContent).toBe('Reply could not be sent. Try again.');
+    expect(root.querySelector('ptah-reply-composer')).not.toBeNull();
+    expect(draft.reply()).toBe('Please revise');
+  });
   it('case 14: composer and sheet share the one page draft', () => {
     bind(); restoreState.set('ready'); const { fixture, root } = render();
     const composer = root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Desktop reply"]')!;
     composer.value = 'Shared'; composer.dispatchEvent(new Event('input', { bubbles: true })); fixture.detectChanges();
     root.querySelector<HTMLButtonElement>('button[aria-controls="answer-dock-sheet"]')!.click(); fixture.detectChanges();
-    expect(root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Sheet reply"]')?.value).toBe('Shared');
+    expect(root.querySelector<HTMLTextAreaElement>('#dock-sheet-reply')?.value).toBe('Shared');
   });
 });

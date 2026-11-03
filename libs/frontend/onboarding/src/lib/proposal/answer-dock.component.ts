@@ -43,7 +43,6 @@ import { ReplyDraftStore } from './reply-draft.store';
         </section>
       </div>
     }
-    <span class="sr-only" role="status" aria-live="polite">{{ draft.announcement() }}</span>
   `,
 })
 export class AnswerDockComponent {
@@ -56,10 +55,28 @@ export class AnswerDockComponent {
   private readonly bar = viewChild<ElementRef<HTMLButtonElement>>('bar');
   private readonly sheetReply = viewChild<ElementRef<HTMLTextAreaElement>>('sheetReply');
   readonly status = () => PROPOSAL_SESSION_PRESENTATION[this.store.sessionStatus()].title;
+  private readonly inerted = new Set<HTMLElement>();
+
+  private releaseInert(): void {
+    for (const element of this.inerted) element.inert = false;
+    this.inerted.clear();
+  }
 
   constructor() {
     effect(() => {
-      for (const element of this.background()) element.inert = this.open();
+      const background = this.background();
+      for (const element of this.inerted) {
+        if (!this.open() || !background.includes(element)) {
+          element.inert = false;
+          this.inerted.delete(element);
+        }
+      }
+      if (this.open()) for (const element of background) {
+        if (!element.inert) {
+          element.inert = true;
+          this.inerted.add(element);
+        }
+      }
     });
     if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
       const wide = window.matchMedia('(min-width: 721px)');
@@ -67,9 +84,7 @@ export class AnswerDockComponent {
       wide.addEventListener('change', onWidthChange);
       this.destroyRef.onDestroy(() => wide.removeEventListener('change', onWidthChange));
     }
-    this.destroyRef.onDestroy(() => {
-      for (const element of this.background()) element.inert = false;
-    });
+    this.destroyRef.onDestroy(() => this.releaseInert());
   }
   onReply(event: Event): void {
     const target = event.target;
@@ -87,6 +102,6 @@ export class AnswerDockComponent {
     if (event.target === event.currentTarget) this.closeSheet();
   }
   async send(): Promise<void> {
-    if (await this.draft.send() && this.open()) this.closeSheet();
+    if (await this.draft.send() && !this.destroyRef.destroyed && this.open()) this.closeSheet();
   }
 }
