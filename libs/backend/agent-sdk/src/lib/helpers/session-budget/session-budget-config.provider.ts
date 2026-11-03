@@ -34,6 +34,7 @@ const STORE_WARN_KEY = 'sessionBudget.*';
 export const SESSION_BUDGET_DEFAULT_CONFIG: SessionBudgetConfig = {
   enabled: SESSION_BUDGET_SETTINGS.enabled.default,
   autoHandoffAtLimit: SESSION_BUDGET_SETTINGS.autoHandoffAtLimit.default,
+  closeSourceAfterAutoHandoff: SESSION_BUDGET_SETTINGS.closeSourceAfterAutoHandoff.default,
   unit: SESSION_BUDGET_SETTINGS.unit.default,
   tokens: SESSION_BUDGET_SETTINGS.tokens.default,
   usd: SESSION_BUDGET_SETTINGS.usd.default,
@@ -82,6 +83,7 @@ export class SessionBudgetConfigProvider {
   constructor(
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    private readonly devBudgetTokens?: number,
   ) {}
 
   /** The validated settings, read now. An unreadable store gives all defaults. */
@@ -95,7 +97,10 @@ export class SessionBudgetConfigProvider {
         '[SessionBudgetConfigProvider] Settings store unreadable; using the default session budget',
         { error: error instanceof Error ? error.message : String(error) },
       );
-      return SESSION_BUDGET_DEFAULT_CONFIG;
+      return {
+        ...SESSION_BUDGET_DEFAULT_CONFIG,
+        tokens: this.devBudgetTokens ?? SESSION_BUDGET_DEFAULT_CONFIG.tokens,
+      };
     }
   }
 
@@ -125,8 +130,12 @@ export class SessionBudgetConfigProvider {
         read,
         SESSION_BUDGET_SETTINGS.autoHandoffAtLimit,
       ),
+      closeSourceAfterAutoHandoff: this.readBoolean(
+        read,
+        SESSION_BUDGET_SETTINGS.closeSourceAfterAutoHandoff,
+      ),
       unit: this.readEnum(read, SESSION_BUDGET_SETTINGS.unit),
-      tokens: this.readNumber(read, SESSION_BUDGET_SETTINGS.tokens),
+      tokens: this.devBudgetTokens ?? this.readNumber(read, SESSION_BUDGET_SETTINGS.tokens),
       usd: this.readNumber(read, SESSION_BUDGET_SETTINGS.usd),
       fallbackWeightedTokens: this.readNumber(
         read,

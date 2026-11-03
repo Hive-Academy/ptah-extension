@@ -57,6 +57,7 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       setBackendEncodedPath: jest.fn(),
       updateBackgroundTab: jest.fn(),
       addTabToWorkspace: jest.fn(),
+      removeBackgroundTab: jest.fn().mockReturnValue(null),
     };
 
     modelRefreshMock = {
@@ -350,6 +351,99 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
     expect(service.abortStreamingForTab(tabId)).toBe(false);
     expect(onAbort).not.toHaveBeenCalled();
     expect(service.getAbortSignal(tabId)).toBeUndefined();
+  });
+
+  // ---------------------------------------------------------------------
+  // closeTabAcrossWorkspaces (TASK_2026_863)
+  // The auto-hand-off source closer closes the tab that handed off, wherever
+  // it is mounted: the active tab set through `closeTab`, a background
+  // workspace partition through the partition service, and only when the tab
+  // still holds the session the close was armed for.
+  // ---------------------------------------------------------------------
+  describe('closeTabAcrossWorkspaces (TASK_2026_863)', () => {
+    it('refuses an unknown tab and a tab rebound to another session', () => {
+      expect(
+        service.closeTabAcrossWorkspaces(
+          'nope',
+          '11111111-1111-4111-8111-111111111111',
+        ),
+      ).toBe(false);
+
+      const tabId = service.createTab('Source');
+      service.attachSession(tabId, '11111111-1111-4111-8111-111111111111');
+      expect(
+        service.closeTabAcrossWorkspaces(
+          tabId,
+          '22222222-2222-4222-8222-222222222222',
+        ),
+      ).toBe(false);
+      expect(service.tabs().some((t) => t.id === tabId)).toBe(true);
+    });
+
+    it('closes a tab of the active workspace through closeTab', () => {
+      Object.assign(partitionMock, { activeWorkspacePath: '/ws' });
+      const source = service.createTab('Source');
+      service.attachSession(source, '11111111-1111-4111-8111-111111111111');
+      service.createTab('Keeper');
+
+      expect(
+        service.closeTabAcrossWorkspaces(
+          source,
+          '11111111-1111-4111-8111-111111111111',
+        ),
+      ).toBe(true);
+      expect(service.tabs().some((t) => t.id === source)).toBe(false);
+      expect(partitionMock.removeBackgroundTab).not.toHaveBeenCalled();
+    });
+
+    it('removes a tab parked in a background workspace and emits its close', () => {
+      Object.assign(partitionMock, { activeWorkspacePath: '/ws' });
+      const background = {
+        id: 'bg-1',
+        claudeSessionId: 'sess-bg',
+        status: 'loaded',
+        isDirty: false,
+      } as unknown as TabState;
+      partitionMock.findTabByIdAcrossWorkspaces = jest
+        .fn()
+        .mockReturnValue({ tab: background, workspacePath: '/other' });
+      partitionMock.removeBackgroundTab = jest.fn().mockReturnValue(background);
+      const events: unknown[] = [];
+      service.onTabClosed((event) => events.push(event));
+
+      expect(service.closeTabAcrossWorkspaces('bg-1', 'sess-bg')).toBe(true);
+      expect(partitionMock.removeBackgroundTab).toHaveBeenCalledWith(
+        'bg-1',
+        '/other',
+      );
+      expect(events).toEqual([
+        {
+          tabId: 'bg-1',
+          sessionId: 'sess-bg',
+          kind: 'close',
+          streamAbortDispatched: false,
+        },
+      ]);
+    });
+
+    it('reports a refused background removal as not closed', () => {
+      Object.assign(partitionMock, { activeWorkspacePath: '/ws' });
+      const background = {
+        id: 'bg-1',
+        claudeSessionId: 'sess-bg',
+        status: 'loaded',
+        isDirty: false,
+      } as unknown as TabState;
+      partitionMock.findTabByIdAcrossWorkspaces = jest
+        .fn()
+        .mockReturnValue({ tab: background, workspacePath: '/other' });
+      partitionMock.removeBackgroundTab = jest.fn().mockReturnValue(null);
+      const events: unknown[] = [];
+      service.onTabClosed((event) => events.push(event));
+
+      expect(service.closeTabAcrossWorkspaces('bg-1', 'sess-bg')).toBe(false);
+      expect(events).toEqual([]);
+    });
   });
 
   // ---------------------------------------------------------------------
@@ -891,6 +985,7 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
         revision: 3,
         compactions: 0,
         autoHandoff: false,
+        closeSourceAfterAutoHandoff: false,
       };
       service.installSessionStats(tabId, snapshot(3), budget);
 
@@ -1186,7 +1281,9 @@ describe('TabManagerService background tab lookup reactivity', () => {
     expect(trackedTab()?.tab.status).toBe('fresh');
     expect(evaluations).toBe(1);
 
-    expect(service.updateBackgroundTab(tabId, { status: 'streaming' })).toBe(true);
+    expect(service.updateBackgroundTab(tabId, { status: 'streaming' })).toBe(
+      true,
+    );
     expect(trackedTab()?.tab.status).toBe('streaming');
     expect(evaluations).toBe(2);
 

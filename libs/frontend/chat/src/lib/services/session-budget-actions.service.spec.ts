@@ -5,13 +5,13 @@ import type { SessionBudgetState } from '@ptah-extension/shared';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { ActionBannerService } from './action-banner.service';
 import { ChatStore } from './chat.store';
+import { SessionBudgetActionsService } from './session-budget-actions.service';
 import {
   SESSION_HANDOFF_COMMAND,
   SESSION_WRAP_UP_PROMPT,
-  SessionBudgetActionsService,
   buildHandoffCommand,
   buildWrapUpPrompt,
-} from './session-budget-actions.service';
+} from './session-handoff-prompts';
 
 /** `autocomplete:commands` result listing the given command names. */
 function commandsResult(...names: string[]) {
@@ -40,6 +40,7 @@ const BUDGET: SessionBudgetState = {
   revision: 9,
   compactions: 0,
   autoHandoff: false,
+  closeSourceAfterAutoHandoff: false,
 };
 
 describe('SessionBudgetActionsService', () => {

@@ -21,6 +21,7 @@ import {
   parseAgentSessionOpenedPayload,
   parseSessionHandoffOpenedPayload,
 } from './agent-session-adoption.service';
+import { AutoHandoffSourceCloserService } from './auto-handoff-source-closer.service';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 
 function descriptor(
@@ -58,6 +59,7 @@ describe('AgentSessionAdoptionService', () => {
     adoptHandoffTab: jest.Mock;
     activeTabId: WritableSignal<string | null>;
   };
+  let sourceCloser: { onHandoffAdopted: jest.Mock };
   let warn: jest.SpyInstance;
   let error: jest.SpyInstance;
 
@@ -87,12 +89,16 @@ describe('AgentSessionAdoptionService', () => {
     appState = {
       requestCanvasTab: jest.fn(),
     };
+    // The service arms the auto-hand-off source close (TASK_2026_863); the
+    // real closer has its own spec.
+    sourceCloser = { onHandoffAdopted: jest.fn() };
     TestBed.configureTestingModule({
       providers: [
         AgentSessionAdoptionService,
         { provide: ClaudeRpcService, useValue: rpc },
         { provide: AppStateManager, useValue: appState },
         { provide: TabManagerService, useValue: tabManager },
+        { provide: AutoHandoffSourceCloserService, useValue: sourceCloser },
         {
           provide: SessionLoaderService,
           useValue: { switchSession: jest.fn() },
@@ -403,7 +409,26 @@ describe('AgentSessionAdoptionService', () => {
       expect(() => service.adoptHandoff(handoff('h1'))).not.toThrow();
       expect(error).toHaveBeenCalled();
       expect(appState.requestCanvasTab).not.toHaveBeenCalled();
+      expect(sourceCloser.onHandoffAdopted).not.toHaveBeenCalled();
     });
+
+    it('arms the auto-hand-off source close for the adopted descriptor', () => {
+      service.adoptHandoff(handoff('h1'));
+
+      expect(sourceCloser.onHandoffAdopted).toHaveBeenCalledTimes(1);
+      expect(sourceCloser.onHandoffAdopted).toHaveBeenCalledWith(handoff('h1'));
+    });
+
+    it.each(['exists', 'source-absent', 'invalid'])(
+      'arms no source close when the outcome is %s',
+      (outcome) => {
+        tabManager.adoptHandoffTab.mockReturnValue(outcome);
+
+        service.adoptHandoff(handoff('h1'));
+
+        expect(sourceCloser.onHandoffAdopted).not.toHaveBeenCalled();
+      },
+    );
 
     it('makes no RPC: the autopilot level is never written or reset', () => {
       service.adoptHandoff(handoff('h1'));
@@ -496,6 +521,7 @@ describe('AgentSessionAdoptionService — history load on first activation', () 
     TestBed.configureTestingModule({
       providers: [
         AgentSessionAdoptionService,
+        { provide: AutoHandoffSourceCloserService, useValue: { onHandoffAdopted: jest.fn() } },
         {
           provide: ClaudeRpcService,
           useValue: {
