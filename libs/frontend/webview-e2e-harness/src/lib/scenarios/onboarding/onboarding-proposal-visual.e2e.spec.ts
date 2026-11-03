@@ -174,8 +174,10 @@ for (const theme of ONBOARDING_CAPTURE_THEMES) {
         ).toBeVisible();
         await expect(page.getByText('New', { exact: true })).toBeVisible();
         await expect(page.getByText('Changed', { exact: true })).toBeVisible();
-        await page.getByText('Revision history · 2').click();
-        await expect(page.getByText('Revision 1 · In progress')).toBeVisible();
+        await page.getByText('Revision history', { exact: true }).click();
+        await expect(
+          page.locator('ptah-revision-history li').filter({ hasText: 'Rev 1' }),
+        ).toContainText('Config incomplete');
         await shoot(page, {
           view: `${size.prefix}workspace-second-revision`,
           theme,

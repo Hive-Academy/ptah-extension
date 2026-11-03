@@ -27,7 +27,6 @@ test('a workflow question opens in the proposal Details log and can be answered'
   const tabId = (call.params as { tabId?: string }).tabId;
   if (!tabId) throw new Error('New project did not start a chat tab');
 
-  await ui.page.getByTestId('details-log-summary').click();
   await ui.pushEvent({
     type: 'ask-user-question:request',
     payload: {
