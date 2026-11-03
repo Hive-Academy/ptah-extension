@@ -1,7 +1,7 @@
 Author: Claude software-architect subagent
 Reviewer: codex lane
 Artifact revision: 0
-Round: 2
+Round: 3
 Verdict: REVISE
 
 ## Findings
@@ -38,3 +38,20 @@ Verdict: REVISE
 8. **F8 — Fixed.** Revision 1 `implementation-plan.md:797-819` requires matching, nonmatching and stale-generation chat-view cases plus Electron dark/light screenshots.
 
 K2 remains pending user decision (decisions.md row 17); this review makes no ruling on it. No builds, tests or git history commands were run.
+
+## Round 3 (scoped to Revision 2 new parts)
+
+Artifact revision: 2
+Verdict: REVISE
+
+1. **Serious — Component 11 / proposed AC 3.4 and 3.10:** `implementation-plan.md:855-857`; `codex-session-history.ts:100-102,113-122`; `codex-app-server-process.ts:24,348-362`. The legacy branch requests `thread/read { includeTurns: true }` for the complete thread and only then keeps 200 turns. The 16 MiB frame guard limits a single reply's size; it does not make this a tail read. A sufficiently large stored thread fails on frame size alone, while a smaller one still loads and parses its whole history before trimming. Replace this branch with a source-side bounded tail mechanism, or explicitly specify and test a bounded legacy source API. The ten-times-bound fixture must prove it reads at most the specified source bound, returns the newest turns and omission line, and succeeds for size alone. Do not treat the frame limit as the AC 3.4 read bound.
+2. **Serious — Component 12 / AC 3.5:** `implementation-plan.md:929-934`; `codex-protocol-schemas.ts:403-419`. The native projector lists command, file, MCP, web, collaboration and image items, then drops unknown items. The current Codex protocol also has `functionCallOutput` (a named tool result) and `dynamicToolCall` (a named tool call). Dropping both loses required tool placeholders and makes the native transcript shape differ from the Claude projection. Map each to one content-free `[tool: <name>]` line, never copy output, arguments or `contentItems`, and add fixtures for both including secret sentinels in their payloads.
+3. **Moderate — Component 11 / AC 3.1, 3.2:** `implementation-plan.md:850-854`; `codex-session-history.ts:116-151`. The item-page cap says to drop remaining *older* turns, but does not say what to do when the budget ends inside the current turn. Returning a partly hydrated current turn would silently omit its remaining tool or text items while still labelling the turn complete. Specify that the incomplete turn is dropped as well, set `coversWholeHistory = false`, and test a newest turn whose items alone exceed the 16-page budget. If dropping that turn leaves no usable transcript, return the fixed unreadable-history result rather than a misleading partial prompt.
+4. **Minor — Component 13 / cited anchors:** `implementation-plan.md:994-995`; `message-sender.service.ts:691-902`. The cited method span `:690-880` omits the method's last 22 lines. Update the span to `:691-902`; the `chat:continue` anchor `:806-829` is accurate. Other checked anchors are accurate: `codex-session-history.ts:100-102`, `codex-runtime.ts:182-235`, `session-history-router.ts:9-12,98-110`, `register.ts:311-322`, `codex-runtime-composition.ts:485,527-652`, and `codex-app-server-process.ts:23-24`.
+
+### Decisions
+
+- **Scope and verdict:** Reviewed only Revision 2 additions for the native Codex read/projection and `/compact` trigger, including their supporting edits and proposed ACs. Findings 1 and 2 are Serious, so the scoped verdict is REVISE. F1/F3 and U1/U2 are outside this verdict.
+- **`/compact` path:** The specified eligible branch bypasses `chat:continue` and native Codex compaction; failed, timed-out and ineligible checks retain today's parameters and refusal shape. The shared `pending`/`isBusy` gate serializes the compact trigger with the banner button. `message-sender.service.ts:767-828`, `implementation-plan.md:613-646,967-1017` support this decision. The new Requirement 9 cases are observable through RPC calls, send outcomes, bubbles and binding; no further finding on this path.
+- **Module boundaries:** The planned agent-sdk → codex-runtime import uses existing `scope:extension,type:feature` peers; the Electron port consumes both from `scope:electron,type:app`; the renderer uses its own chat service. These edges satisfy `eslint.config.mjs:276-394` and the checked `project.json` tags. No new forbidden edge found.
+- **Verification limits:** This was a document and source review. No builds, tests or git history commands were run. Scoped `ptah_get_diagnostics` was requested for the relevant Codex, agent-sdk and chat files; it returned unavailable after its 45-second TypeScript timeout, so it provides no pass evidence. All proposed new ACs have observable outcomes, but proposed AC 3.10 cannot pass as written for a legacy native thread until Finding 1 is resolved. Decisions on the two Serious corrections are reversible design choices supported by the cited protocol and acceptance criteria.

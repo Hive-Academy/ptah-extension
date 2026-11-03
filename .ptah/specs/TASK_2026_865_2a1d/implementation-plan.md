@@ -3,8 +3,10 @@
 "Continue with <provider>" carry-over after a provider switch (Electron first), in both
 directions, from the re-auth banner button and from `/compact`.
 
-Revision 2 (user answer on K2, decisions.md rows 20-23; Gate 2 round 2 findings F1 and F3).
-The change-to-section map is in `## Revision 2`. The Revision 1 map is kept in `## Revision 1`.
+Revision 3 (scoped: round 3 findings F1-F4 on Components 11-13; user answers in decisions.md
+rows 30-32). Its map is in `## Revision 3`. Revision 2 (user answer on K2, decisions.md rows
+20-23; Gate 2 round 2 findings F1 and F3) is mapped in `## Revision 2`, and Revision 1 in
+`## Revision 1`.
 
 Paths below are relative to the worktree root
 `/home/amun/ptah-extension/.claude-worktrees/feat-provider-switch-carryover-9f3f79992765`
@@ -26,10 +28,8 @@ code under `libs/` or `apps/` changed between `ff97e436a` and `34b2eaed8` (spec-
   refusal), row 22 (`/compact` is a second trigger of the same carry-over), row 23 (Gate 2
   round 2 F1 and F3 folded in exactly as stated).
 - Design handoff used: none. No designer: one button on an existing banner (decisions.md row 2).
-- Missing decision-critical input: none blocks this plan. Two items need the user and are in
-  `## User-reserved items`: U1 (whether a native Codex resume after a switch changes),
-  U2 (the transfer disclosure when `/compact` is the trigger). Neither blocks any batch: the
-  plan is built on the recommended option of each, and the other option is a bounded change.
+- Missing decision-critical input: none. (Rev 3) The user answered K2 build, U1 and U2
+  (decisions.md rows 30-32, all option (A)); see `## User-reserved items`.
   Requirement wording that no longer fits is listed in `## Proposed requirement changes`;
   `task-description.md` is not edited.
 - Parallel task TASK_2026_864_1376: its planned spec `chat-session.connection-switch.spec.ts`
@@ -80,7 +80,7 @@ code under `libs/` or `apps/` changed between `ff97e436a` and `34b2eaed8` (spec-
 | E36 | (Rev 2) The native history route: `SessionHistoryRouter.nativeSession` selects a session whose `metadata.codexExecution.runtime === 'codex-app-server'`, validates its ids, and `nativeHistory` calls `NativeSessionHistoryPort.readHistory(session)`, which returns the complete snapshot; errors collapse to `SessionHistoryRouteError` with fixed text. The router is a `SDK_TOKENS.SESSION_HISTORY_ROUTER` singleton built with getter thunks. `ChatHistoryReadService` already injects it. | `libs/backend/agent-sdk/src/lib/codex-app-server/session-history-router.ts:9-12`, `:24-36`, `:38-120`; `libs/backend/agent-sdk/src/lib/di/register.ts:311-322`; `libs/backend/agent-sdk/src/lib/di/tokens.ts:61-64`; `chat-history-read.service.ts:72-73` | The carry-over read routes through this router (one routing rule for both session kinds). The port gains an optional bounded method; the router collapses its errors the same way. |
 | E37 | (Rev 2) `readCodexSessionHistory` reads the root thread with `thread/read`; a `paginated` thread lists turns with `thread/turns/list` (`sortDirection 'asc'`, page 25, up to 400 pages) and per-turn items with `thread/items/list`; a legacy thread is read in one `thread/read { includeTurns: true }`. It then lists descendant threads with `thread/list` and hydrates them. | `libs/backend/codex-runtime/src/lib/codex-session-history.ts:55-60`, `:64-153`, `:186-257` | The full read is unbounded in turns (up to 10,000 rows) and reads subagent threads. A sibling tail reader reads the root only, newest first, with a page cap. |
 | E38 | (Rev 2) The protocol allows `sortDirection: 'asc' \| 'desc'`, `limit` and `cursor` on `thread/turns/list` and `thread/items/list`, and `itemsView: 'full'` on turns. | `libs/backend/codex-runtime/src/lib/codex-protocol-methods.ts:148-171`; `codex-protocol-schemas.ts:611-612` | A newest-first bounded listing is expressible without a protocol change. |
-| E39 | (Rev 2) `CodexRuntime.readHistory(profile, resume, signal)` spawns a read-only app-server process (requests from the server are rejected), verifies the Codex home and closes the process in `finally`. Inbound frames are capped at 16 MiB. `CodexHistoryReader` is the interface; `CodexSessionHistory`/`CodexHistoryTurn` are exported types. | `libs/backend/codex-runtime/src/lib/codex-runtime.ts:171`, `:182-235`; `codex-app-server-process.ts:23-24`; `codex-runtime.types.ts:346-363`; `libs/backend/codex-runtime/src/index.ts:25-34` | The tail read reuses the same process lifecycle; the legacy one-frame read is bounded by the existing 16 MiB inbound cap. |
+| E39 | (Rev 2) `CodexRuntime.readHistory(profile, resume, signal)` spawns a read-only app-server process (requests from the server are rejected), verifies the Codex home and closes the process in `finally`. Inbound frames are capped at 16 MiB. `CodexHistoryReader` is the interface; `CodexSessionHistory`/`CodexHistoryTurn` are exported types. | `libs/backend/codex-runtime/src/lib/codex-runtime.ts:171`, `:182-235`; `codex-app-server-process.ts:23-24`; `codex-runtime.types.ts:346-363`; `libs/backend/codex-runtime/src/index.ts:25-34` | The tail read reuses the same process lifecycle. (Rev 3) The 16 MiB inbound cap limits one response only; the tail read's bound is set in Component 11 and never uses `includeTurns`. |
 | E40 | (Rev 2) The Electron port `createElectronCodexHistoryPort` validates the native identity (`providerId === 'openai-codex'`, saved home equals current home, workspace key), builds a read-only profile, verifies the binary, races the read against a timeout (default 30 s) and an `AbortSignal`, allows two concurrent reads, and maps errors to `ElectronCodexHistoryError` codes. It is bound to `SDK_TOKENS.NATIVE_SESSION_HISTORY_PORT`. | `apps/ptah-electron/src/di/codex-runtime-composition.ts:485`, `:505-524`, `:527-652`, `:792`, `:840` | The bounded method shares this validation, profile, timeout and scope; only the runtime call differs. No platform-cli/cli-engine binding exists for this port, so those hosts keep returning `nativePortUnavailable`. |
 | E41 | (Rev 2) Codex thread items: `userMessage` (`content` with `text`, `image`, `localImage`, `audio`, `localAudio`, `skill`, `mention`), `agentMessage` (`text`, `phase`), `reasoning`, `commandExecution`, `fileChange`, `mcpToolCall` (`server`, `tool`), `webSearch`, `imageView`, `contextCompaction` (id only, no summary text), `collabAgentToolCall`, `hookPrompt`. | `libs/backend/codex-runtime/src/lib/codex-protocol-schemas.ts:96-113`, `:288-300`, `:320-399`, `:422`, `:490-506` | The native projection maps these to the same turn shape as the Claude projection. A native thread never has an in-window summary text (AC 3.8: the rendering never starts at a summary). |
 | E42 | (Rev 2) Native `/compact` today: the slash router runs `requestManualCompact` (`:274-300`), resolves the stored identity, calls `prepare` with it (`:333-334`, native route because E3), and on `codex-app-server` with `commandName === 'compact'` resumes the thread if inactive and calls `runtimeControls.compact(sessionId)` (`:369-385`). | `libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-router.service.ts` | `/compact` after a Claude switch still runs on Codex today. The redirect happens before `chat:continue` is sent, so this code stays unchanged (Component 13). |
@@ -835,29 +835,106 @@ code under `libs/` or `apps/` changed between `ff97e436a` and `34b2eaed8` (spec-
   - MODIFY `<wt>/libs/backend/rpc-handlers/src/lib/chat/session/chat-session.native.spec.ts`
   - MODIFY `<wt>/libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-router.native.spec.ts`
 
-### 11. Bounded native Codex tail read (codex-runtime and Electron port) (Rev 2, new)
+### 11. Bounded native Codex tail read (codex-runtime and Electron port) (Rev 2, new; Rev 3: F1, F3)
 
-- Purpose: read the newest turns of a native Codex thread with a hard cap on requests and turns,
-  without subagent threads, through the same read-only process and port the history view uses.
+- Purpose: read the newest turns of a native Codex thread, `legacy` or `paginated`, with a hard
+  cap on turns, requests and bytes taken from the source, without subagent threads, through the
+  same read-only process and port the history view uses.
+- Source mechanism (Rev 3, F1). Verified facts:
+  - `thread/turns/list { threadId, cursor?, itemsView?, limit?, sortDirection? }` is a paged
+    turn list whose default direction is descending, so the first page holds the newest turns.
+    Its pinned schema has no history-mode restriction (`protocol/codex-app-server-protocol.schema.json:25644-25692`;
+    Zod `codex-protocol-methods.ts:152-161`).
+  - `thread/items/list { threadId, turnId, cursor?, limit?, sortDirection? }` pages one turn's
+    items in either direction (`schema.json:23277-23325`; `codex-protocol-methods.ts:162-171`).
+  - `thread/read { includeTurns: true }` is full hydration "from rollout history" with no cursor
+    (`schema.json:23754-23768`; `codex-protocol-methods.ts:148-151`). Its size is the size of the
+    stored thread, so it is not a tail read.
+  - `Thread.historyMode` defaults to `legacy` when absent (`schema.json:21263-21271`); this
+    build keeps an unknown value as `undefined` (`codex-protocol-schemas.ts:599-602`).
+  - The 16 MiB inbound frame limit (`codex-app-server-process.ts:24`, enforced `:348-350`)
+    limits one response. It is not the read bound anywhere in this component.
+  - Options considered for a `legacy` thread:
+    - (c) CHOSEN: page `legacy` threads with the same newest-first `thread/turns/list` /
+      `thread/items/list` calls as `paginated` threads. Fail closed when the server refuses.
+      No branch on `historyMode` is needed, and `includeTurns` is never sent.
+    - (a) Fail-closed fallback inside (c): if the server rejects `thread/turns/list` or
+      `thread/items/list` for a thread, the read throws `requestRejected` (the existing mapping
+      at `codex-session-history.ts:42-47`). The Electron port maps it to
+      `ElectronCodexHistoryError('runtimeFailed')` (`codex-runtime-composition.ts:640-651`), the
+      router passes that through (`session-history-router.ts:98-107`), and Component 4 step 3
+      turns any throw into the fixed `HISTORY_UNREADABLE` result. A `/compact` on that thread then reports "Couldn't read this
+      conversation to continue it." as the send failure (Component 7 compact mapping) instead of
+      compacting natively. The user's chat keeps running on Codex (U1 = A). This cost applies
+      only to a thread the server refuses to page.
+    - Rejected: (a) alone, which refuses every `legacy` thread up front. That also refuses
+      threads the server can page, which loses the Codex -> Claude direction for older chats
+      with no evidence that it must.
+    - Rejected: (b), a tail read of the rollout file on disk through `Thread.path`
+      (`codex-protocol-schemas.ts:592`). The rollout line format is Codex-internal and outside
+      the pinned protocol. Reading the file directly bypasses the read-only process and the
+      Codex-home verification (E39, E40). The read also needs a new parser module (+1-2
+      production files). Raw tool output stored in the rollout would pass through Ptah's own
+      parser instead of the validated item schema.
+  - Assumption A10 (Rev 3): the pinned app-server serves `thread/turns/list` for a `legacy`
+    thread. Check: one Electron manual read of a `legacy` thread, done with the A8 check (log
+    only the request count, the turn count and `historyMode`). If the server rejects it, (a)
+    already covers that case, so no code change is needed. Record the result in the PR.
+- Bound (Rev 3). Every native thread gets the same bound:
+  - Turns: at most `bound.maxTurns` (200) complete turns are returned.
+  - Requests: at most `1 + bound.maxTurnPages + bound.maxItemPages` (1 + 8 + 16 = 25). The one
+    extra request is the metadata-only root `thread/read`.
+  - Bytes: a new module constant `TAIL_READ_MAX_BYTES = 8 * 1024 * 1024` in
+    `codex-session-history.ts`. After each `thread/turns/list` or `thread/items/list` response,
+    add `Buffer.byteLength(JSON.stringify(result.data), 'utf8')` to a running total. No further
+    page is requested once the total reaches the constant. Bytes received from the source are
+    therefore at most `TAIL_READ_MAX_BYTES` plus one response, plus the small root metadata
+    read. The frame limit only caps that last response; the bound is the constant.
+  - The byte constant is internal to Component 11. Components 3 and 4 still pass
+    `{ maxTurns, maxTurnPages, maxItemPages }` unchanged. Reversible: the constant can be
+    promoted into `bound` later.
 - Responsibilities:
   - `codex-session-history.ts`: new exported `readCodexSessionTail(rootThreadId, request,
     assertOpen, bound: { maxTurns: number; maxTurnPages: number; maxItemPages: number })`
     returning `{ thread: CodexHistoryThread; coversWholeHistory: boolean }`:
-    1. `thread/read { threadId }` for the root (the same id check as `:101-102`).
-    2. `historyMode === 'paginated'`: `thread/turns/list { threadId, sortDirection: 'desc',
-       itemsView: 'full', limit: 25 }` page by page, collecting until `maxTurns` turns or
-       `maxTurnPages` pages; the same malformed/stalled-cursor checks as `pages()` (`:83-98`).
-       `coversWholeHistory = true` only when the last page had no `nextCursor` before a cap was
-       reached. A turn without full items gets `thread/items/list { turnId, sortDirection:
-       'desc', limit: 25 }` pages, counted against one shared `maxItemPages` budget; when the
-       budget runs out the remaining (older) turns are dropped and `coversWholeHistory = false`.
-       Turns and items are reversed to ascending before return.
-    3. Legacy threads: one `thread/read { threadId, includeTurns: true }`, bounded by the existing
-       16 MiB inbound frame cap (E39); keep the newest `maxTurns` turns;
-       `coversWholeHistory = turns.length <= maxTurns`.
-    4. Never calls `thread/list` (no descendants: AC 3.9) and never a non-read method.
+    1. Read the root with metadata only: `thread/read { threadId }` (never `includeTurns`). Apply
+       the same id check as `:100-102`.
+    2. For every `historyMode` (`'paginated'`, `'legacy'`, absent), request `thread/turns/list
+       { threadId, sortDirection: 'desc', itemsView: 'full', limit: 25, cursor? }` one page at a
+       time. Walk each page's turns newest first:
+       - A repeated turn id throws `malformedPage`.
+       - A turn is complete when `itemsView === 'full'`, or when `itemsView` is undefined and
+         its items are non-empty (the rule at `:128`). Accept a complete turn.
+       - Any other turn is hydrated through `thread/items/list { threadId, turnId,
+         sortDirection: 'desc', limit: 25, cursor? }` pages. Each page counts against the one
+         shared `maxItemPages` budget and the byte total. Run the same `turnId`, duplicate-id and
+         embedded-item checks as `:136-150`. The turn is complete when an item page returns no
+         `nextCursor`; its items are then reversed to ascending.
+       - (F3) If the item-page budget or the byte total runs out while the current turn's items
+         still have a `nextCursor`, that turn is incomplete. Drop it, request nothing more, and
+         set `coversWholeHistory = false`. Never return a partly hydrated turn. Older turns are
+         never read past a dropped turn, so the result is always a contiguous newest tail.
+       - When `maxTurns` turns are accepted, stop. `coversWholeHistory = false` when the page
+         still holds unread turns or has a `nextCursor`.
+       - After each turn page, apply the malformed, blank and stalled-cursor checks of `pages()`
+         (`:81-98`). No `nextCursor` with no cap reached means `coversWholeHistory = true`.
+         Reaching `maxTurnPages` or the byte constant with a `nextCursor` means
+         `coversWholeHistory = false`. A page whose response crosses the byte constant is still
+         used; it is the "plus one response" in the bound.
+    3. (F3) If zero turns were accepted and `coversWholeHistory === false`, throw
+       `CodexSessionHistoryError('pageLimitExceeded')`, an existing code (`:16-23`). The newest
+       turn alone did not fit, so no usable transcript remains. The port maps this to
+       `runtimeFailed` (as for (a) above), and Component 4 gives the fixed `HISTORY_UNREADABLE`
+       result, never a partial prompt. An empty thread (zero turns, `coversWholeHistory === true`) is returned
+       as empty. Component 4 step 4 then gives `HISTORY_UNREADABLE` through the renderer's
+       `null`.
+    4. Reverse the accepted turns to ascending order. Return `{ thread: { ...root, turns },
+       coversWholeHistory }`.
+    5. Never call `thread/list` (no descendants, AC 3.9), never send `includeTurns`, and never
+       call a non-read method. A rejected page request for any `historyMode` is not retried
+       with another method (F1 fallback (a)).
   - `codex-runtime.types.ts`: `CodexHistoryReader` gains `readHistoryTail(profile, resume, bound,
-    signal?)` with the same result type as step 1-3 (declared as `CodexHistoryTail` beside
+    signal?)` with the same result type as steps 1-4 (declared as `CodexHistoryTail` beside
     `CodexSessionHistory`).
   - `codex-runtime.ts`: `CodexRuntime.readHistoryTail` reuses `readHistory`'s abort wiring and
     `historyReads` tracking (`:182-201`) and the process lifecycle of `readHistoryProcess`
@@ -868,8 +945,10 @@ code under `libs/` or `apps/` changed between `ff97e436a` and `34b2eaed8` (spec-
     error mapping of `readHistory` (`:532-652`) move into one private helper that takes the
     runtime call; `readHistory` and `readHistoryTail` both call it. The concurrency cap (two
     reads) is shared. A runtime without `readHistoryTail` maps to `runtimeFailed`.
-- Verified contracts and entry points: E37-E41; `CodexSessionHistoryError` codes
-  `codex-session-history.ts:15-23`; `ElectronCodexHistoryError` `codex-runtime-composition.ts:485`.
+- Verified contracts and entry points: E37-E41; `CodexSessionHistoryError` codes and mapping
+  `codex-session-history.ts:16-23`, `:32-50`; history methods `codex-protocol-methods.ts:148-171`;
+  pinned schema anchors above; frame limit `codex-app-server-process.ts:24`, `:348-350`;
+  `ElectronCodexHistoryError` `codex-runtime-composition.ts:485`.
 - Dependencies: no new import edges (E29). `codex-runtime` exports `CodexHistoryTail` through the
   existing type export list in `index.ts` only if the Electron port names it; otherwise the port
   types it as `Awaited<ReturnType<CodexHistoryReader['readHistoryTail']>>` and `index.ts` is not
@@ -878,24 +957,53 @@ code under `libs/` or `apps/` changed between `ff97e436a` and `34b2eaed8` (spec-
   `NativeSessionHistoryPort.readHistoryTail`.
 - Failure behaviour: the same fixed error codes as the full read (`CodexSessionHistoryError`,
   `ElectronCodexHistoryError`); no protocol payload, path or stderr in any error; the process is
-  always closed; an abort or the port timeout cancels the read.
-- Quality requirements: at most `1 + maxTurnPages + maxItemPages` requests (25 with the Rev 2
-  constants) for a paginated thread, 1 for a legacy thread; no descendant reads; read-only process
-  (server requests rejected, E39). No change to `readHistory` or `readCodexSessionHistory`
-  behaviour.
+  always closed; an abort or the port timeout cancels the read. A turn that cannot be completed
+  inside the bound is dropped, never shortened (F3). When nothing usable remains, the read
+  throws `pageLimitExceeded`. A server refusal to page throws `requestRejected` (F1 (a)).
+- Quality requirements: the bound above for every thread (25 requests, 200 turns,
+  `TAIL_READ_MAX_BYTES` plus one response); no descendant reads; no `includeTurns`; read-only
+  process (server requests rejected, E39). No change to `readHistory` or
+  `readCodexSessionHistory` behaviour.
 - Verification seam:
-  - `codex-session-history.spec.ts` (existing fake request harness, `:95-127`): a paginated thread
-    with 10x `maxTurns` turns gives at most `maxTurnPages` `thread/turns/list` calls, all with
-    `sortDirection: 'desc'` and `limit: 25`, `coversWholeHistory === false`, the newest turns in
-    ascending order, zero `thread/list` calls (AC 3.10, Codex half); a short thread gives
-    `coversWholeHistory === true`; the item budget stops older turns; a legacy thread makes one
-    `includeTurns` read and keeps the newest `maxTurns`; a repeated cursor throws `stalledCursor`;
-    only read methods are requested (A7).
-  - `codex-runtime.spec.ts`: `readHistoryTail` closes the process on success, on error and on
-    abort (the existing `readHistory` cases' shape).
+  - `codex-session-history.spec.ts` (existing fake request harness, `:95-127`; the fake
+    records every method, its params and the serialized byte size of each page it returns):
+    - (AC 3.10, Codex half, count bound) A `paginated` thread with 2,000 turns (10x
+      `maxTurns`): exactly 8 `thread/turns/list` calls, all with `sortDirection: 'desc'`,
+      `itemsView: 'full'` and `limit: 25`; at most 25 requests in total; zero `includeTurns`;
+      zero `thread/list`. The result holds the newest 200 turns in ascending order (the last
+      fixture turn is last) with `coversWholeHistory === false`, and the read does not throw.
+    - (F1, legacy) The same 2,000-turn fixture with `historyMode: 'legacy'`, and again with
+      `historyMode` absent, gives the same assertions. It also proves zero `thread/read` calls
+      with `includeTurns`.
+    - (F1, byte bound) A thread of 60 turns whose `full` turn pages carry about 1 MiB each, so
+      the stored history is more than 10x `TAIL_READ_MAX_BYTES` in total: the sum of the
+      recorded page bytes is at most `TAIL_READ_MAX_BYTES` plus the largest single page.
+      Requests stop after the page that crosses the constant. The result holds the newest
+      turns ascending with `coversWholeHistory === false` and does not throw ("succeeds for size
+      alone").
+    - (F1 (a)) A `legacy` thread whose fake rejects `thread/turns/list` throws `requestRejected`,
+      with zero `includeTurns` calls and no other read method attempted.
+    - (F3) The newest turn has `itemsView: 'summary'` and needs 17 item pages. Exactly 16
+      `thread/items/list` calls, all `desc`/`limit: 25`, then the read throws
+      `pageLimitExceeded`; no partial turn is returned.
+    - (F3) The second-newest turn needs more item pages than remain. The result holds only the
+      newest turn, complete, with `coversWholeHistory === false`. None of the dropped turn's
+      items appear, and no turn older than it is requested.
+    - (F3, byte variant) The byte constant is reached inside a turn's item pages: that turn is
+      dropped as above.
+    - A short thread with no `nextCursor` gives `coversWholeHistory === true`.
+    - A repeated or blank cursor throws `stalledCursor`. A repeated turn or item id throws
+      `malformedPage`. Only read methods are requested (A7).
+  - `codex-runtime.spec.ts`: `readHistoryTail` closes the process on success, on error
+    (including `requestRejected` and `pageLimitExceeded`) and on abort (the existing
+    `readHistory` cases' shape).
   - New Electron port spec: identity validation failures, `busy` at the third concurrent read,
     the timeout path, and that `readHistoryTail` passes the bound unchanged to the runtime.
-- Files:
+  - The omission line for a native window that does not cover the whole history is proven at
+    the renderer seam (Component 3, native-shaped transcript case), and the flag is carried
+    through by the Component 12 projector spec. Together with the cases above, this covers AC
+    3.10's "newest turns and the omission line" for the Codex half.
+- Files (Rev 3: unchanged list; F1 and F3 change only the contents of these files):
   - MODIFY `<wt>/libs/backend/codex-runtime/src/lib/codex-session-history.ts`
   - MODIFY `<wt>/libs/backend/codex-runtime/src/lib/codex-session-history.spec.ts`
   - MODIFY `<wt>/libs/backend/codex-runtime/src/lib/codex-runtime.ts`
@@ -903,8 +1011,9 @@ code under `libs/` or `apps/` changed between `ff97e436a` and `34b2eaed8` (spec-
   - MODIFY `<wt>/libs/backend/codex-runtime/src/lib/codex-runtime.types.ts`
   - MODIFY `<wt>/apps/ptah-electron/src/di/codex-runtime-composition.ts`
   - CREATE `<wt>/apps/ptah-electron/src/di/codex-history-port.spec.ts`
+  - Conditional MODIFY `<wt>/libs/backend/codex-runtime/src/index.ts` (see Dependencies)
 
-### 12. Carry-over history route and native projection (agent-sdk) (Rev 2, new)
+### 12. Carry-over history route and native projection (agent-sdk) (Rev 2, new; Rev 3: F2)
 
 - Purpose: one routed, bounded carry-over read for both session kinds, returning the same
   `CarryOverTranscript`.
@@ -931,6 +1040,18 @@ code under `libs/` or `apps/` changed between `ff97e436a` and `34b2eaed8` (spec-
       `collabAgentToolCall` gives `[tool: <tool or 'agent'>]`; `imageView` gives
       `[image omitted]`. Inputs, outputs, commands, diffs and arguments are never read (AC 3.5,
       3.7, 3.9);
+    - (Rev 3, F2) `functionCallOutput` (`codex-protocol-schemas.ts:403-409`, a named tool
+      result) gives exactly one line, `[tool: <name>]`. `dynamicToolCall` (`:410-420`, a named
+      tool call) gives exactly one line, `[tool: <tool>]`. The projector reads only `type` and
+      `name` / `tool`. It never reads or copies `output` (either `serverFunctionOutput` variant,
+      `:238-246`), `arguments`, `contentItems` (`:247-255`), `namespace`, `status`, `success`
+      or `durationMs`. The Claude projection emits the same `[tool: <name>]` line shape
+      (Component 2);
+    - (Rev 3) Every name placed in a `[tool: …]` line (`mcpToolCall`, `collabAgentToolCall`,
+      `functionCallOutput`, `dynamicToolCall`) is first made one line: whitespace runs become one
+      space, `[` and `]` are removed, the result is trimmed and cut to 64 characters, and a blank
+      result becomes `tool`. A protocol-supplied name therefore cannot break the line format or
+      carry a multi-line payload;
     - `reasoning`, `contextCompaction`, `hookPrompt` and unknown items give nothing (AC 3.6);
     - consecutive same-role output is merged, empty turns dropped;
     - `windowCoversWholeHistory = coversWholeHistory`; `startsAtCompactionSummary = false`
@@ -953,6 +1074,21 @@ code under `libs/` or `apps/` changed between `ff97e436a` and `34b2eaed8` (spec-
   `codex-carry-over-projector.spec.ts`: each item kind's mapping; a sentinel in command output,
   file diff, MCP arguments and reasoning is absent; image and mention placeholders;
   `startsAtCompactionSummary === false` with a `contextCompaction` item in the window.
+  (Rev 3, F2) The spec adds these fixtures:
+  - a `functionCallOutput` named `read_file` whose `output` is a string holding a secret
+    sentinel gives exactly `[tool: read_file]`;
+  - the same item with `output` as the content-item array variant, a sentinel in an
+    `input_text` entry, gives the same single line;
+  - a `dynamicToolCall` with tool `lookup`, a sentinel in `arguments` and a sentinel in an
+    `inputText` entry of `contentItems` gives exactly `[tool: lookup]`, for `status`
+    `completed` and `failed` alike.
+  Every sentinel is absent from the whole projected transcript, and each item adds one line.
+  A name holding a newline and `]` is single-lined by the name rule. (Rev 3, F1/F3)
+  `windowCoversWholeHistory === false` passes through unchanged from a tail whose
+  `coversWholeHistory` is false, which feeds the Component 3 no-count omission case.
+  A router case shows that a port `ElectronCodexHistoryError('runtimeFailed')` (the port's
+  mapping of `pageLimitExceeded` and `requestRejected`) passes through unchanged, and that a
+  bare `CodexSessionHistoryError('pageLimitExceeded')` becomes `nativeReadFailed`.
 - Files:
   - MODIFY `<wt>/libs/backend/agent-sdk/src/lib/codex-app-server/session-history-router.ts`
   - MODIFY `<wt>/libs/backend/agent-sdk/src/lib/codex-app-server/session-history-router.spec.ts`
@@ -992,7 +1128,9 @@ code under `libs/` or `apps/` changed between `ff97e436a` and `34b2eaed8` (spec-
     `runContinueConversation` (E22), a queued `/compact` takes the same branch; a success outcome
     means the dispatcher does not requeue it (E44).
 - Verified contracts and entry points: E22, E42-E44; `runContinueConversation`
-  `message-sender.service.ts:690-880`; the `chat:continue` call `:806-829`; `SendOutcome` `:67-74`.
+  `message-sender.service.ts:692-903` (Rev 3, F4: the review gave `:691-902`; on `ff97e436a`
+  and `5336ba7e1` the signature is at `:692` and the closing brace at `:903`); the
+  `chat:continue` call `:806-829`; `SendOutcome` `:67-74`.
 - Dependencies: `ProviderCarryOverService` (same lib); no host change.
 - Integration points: Components 7 (launch, pending, binding), 8 (relink), 4 (host).
 - Failure behaviour: every check failure falls back to today's `/compact` behaviour; a
@@ -1048,48 +1186,17 @@ code under `libs/` or `apps/` changed between `ff97e436a` and `34b2eaed8` (spec-
 
 ## User-reserved items
 
-These go to the parent per decisions.md row 16. The plan is built on the recommended option of
-each; the other option is described with its cost so it can be applied without a redesign.
+All answered by the user through the parent (decisions.md rows 30-32, 2026-11-03). Nothing here
+is open. The plan already uses each answered option, so no component changes for these answers.
 
-### U1. Plain resume of a native Codex session after a switch to another provider
+| Item | Answer | Source | Effect on the plan |
+| ---- | ------ | ------ | ------------------ |
+| K2 build (row 27 item 1) | (A) Build K2 now: Codex -> Claude with the bounded native Codex history read. It runs in its own batch after the core batches. That batch waits only for this revision to pass the scoped review. | decisions.md row 30 | Components 11-12 stay in scope (Rev 3 fixes F1-F3). The K2 production footprint stays inside the user-approved 6 + 1 conditional (see `## Revision 3`). |
+| U1. Plain resume of a native Codex session after a switch | (A) No change. A plain resume keeps running on Codex; Codex -> Claude goes through `/compact` only. | decisions.md row 31 | No resolver edit. The banner button exists only for Claude-session refusals. Options (B) refuse and (C) proactive offer are not built. |
+| U2. Transfer disclosure when `/compact` is the trigger | (A) Accept. The disclosure shows in the notice after the new chat is bound. | decisions.md row 32 | AC 8.4 wording change (A) in `## Proposed requirement changes` item 8. Option (B) (offer before send) is not built. |
 
-- Today: a native Codex session resumes on Codex after the workspace's active provider changed
-  (E3); there is no refusal and no banner. Row 21 asks that the switch become real for this
-  direction; this plan makes it real through `/compact` (Component 13), which is the user's own
-  gesture (row 20). The plain resume is not changed.
-- Options:
-  - (A) RECOMMENDED: leave native resume unchanged. Codex -> Claude runs through `/compact`;
-    the banner button exists only for Claude-session refusals. Cost: 0 extra files. Users who
-    keep a Codex chat open while another provider is active keep working as today.
-  - (B) Refuse a native Codex resume when the active provider is not Codex, with the same
-    stored-provider mismatch refusal the Claude route throws (`rejectStoredProviderMismatch`).
-    The existing banner and button then appear for Codex -> Claude with no renderer change
-    (the host check already accepts native sources). Cost: a resolver edit
-    (`workspace-provider-profile-resolver.ts:190-266`), its specs, and coordination with
-    TASK_2026_864_1376, whose tests run through that resolver; it removes the ability to continue
-    a Codex chat while another provider is active (a capability removal, row 16).
-  - (C) Keep the resume and add a proactive, non-blocking "Continue with <provider>" offer on a
-    tab whose native session's provider is no longer active. Cost: a new offer surface (the auth
-    banner would be wrong for a non-auth state; needs a designer per decisions.md row 2) and a
-    check RPC on tab open or provider change.
-- Recommendation: (A). It matches the user's described workflow, changes no resume behaviour,
-  and keeps the parallel task's resolver contract intact.
-
-### U2. Transfer disclosure when `/compact` is the trigger
-
-- Decisions.md row 14 (user): disclosure "on the button and the notice". A `/compact` carry-over
-  has no button, so before the text is sent the user sees no disclosure; the notice after binding
-  states it (AC 8.4 text).
-- Options:
-  - (A) RECOMMENDED: `/compact` after a switch is itself the user's request to summarize with the
-    new provider (row 10: "sending the old conversation's text to the active provider IS the
-    user's request"); disclose in the notice only for this trigger. Cost: 0 files.
-  - (B) `/compact` only opens the offer and the user then clicks the button (disclosure before
-    send). For Claude sessions this reuses the banner; for native Codex sessions there is no
-    refusal, so the banner needs a non-auth offer state (a new banner mode, designer item) and
-    one more click on the user's gesture.
-- Recommendation: (A); record the user's answer as an AC 8.4 wording change (see
-  `## Proposed requirement changes`).
+The option descriptions and costs that the user decided on are in the Revision 2 text of this
+file in git history (`5336ba7e1`).
 
 Settled, listed for audit only (not open): the native `/compact` redirect (an eligible `/compact`
 on a native Codex session starts the carry-over instead of native Codex compaction) follows the
@@ -1118,22 +1225,35 @@ The plan needs these wording changes in `task-description.md` (not edited here):
    - 9.6 A queued `/compact` delivered by the queue flush shall be handled the same way.
 2. Scope "Both directions of mismatch" and D9: add "Codex -> Claude is reached through `/compact`
    (Requirement 9); the banner button appears only where a refusal exists (Claude SDK
-   sessions), unless the user chooses U1 option B."
+   sessions). A plain resume of a native Codex session after a switch keeps running on Codex."
+   (Rev 3: U1 answered (A), decisions.md row 31.)
 3. AC 1.1: append "The `/compact` trigger of Requirement 9 starts the carry-over without the
    button."
 4. AC 2.3: append "Reading a native Codex session's stored thread through the read-only Codex
    history process (thread read methods only, as the history view does) is a local read, not a
    call to the old provider; no turn, resume or compaction request is made."
-5. AC 3.4 and AC 3.10, native half: "For a native Codex session the read is bounded by turn
-   count and request count (newest 200 turns, at most 8 turn pages and 16 item pages; a legacy
-   thread is one read capped by the existing 16 MiB inbound frame limit), and the spec asserts
-   the request parameters and counts passed to the source."
+5. (Rev 3, F1 and F3) AC 3.4 and AC 3.10, native half: "For a native Codex session, `legacy`
+   or `paginated`, the read takes the newest turns from the source in newest-first pages.
+   It is bounded in turns (at most 200 complete turns), requests (at most 25: one
+   metadata read, 8 turn pages of 25 and 16 item pages of 25) and bytes (at most
+   `TAIL_READ_MAX_BYTES`, 8 MiB, of page data plus one page). Full-thread hydration
+   (`thread/read` with `includeTurns`) is never used. A turn that cannot be read completely
+   inside the bound is dropped, never shortened, and the window is then marked as not covering
+   the whole history. When no complete turn remains, or the source refuses to page the
+   thread, the carry-over fails with the unreadable-history result of AC 5.1. The spec asserts
+   the request methods, parameters, counts and page bytes passed from the source on a fixture
+   at least ten times the turn bound and at least ten times the byte bound." The inbound frame
+   limit is not part of the bound.
 6. AC 3.8: append "A native Codex session keeps no compaction summary text, so its rendering
    never starts at a summary."
 7. AC 5.1: append "For a `/compact`-triggered carry-over with no banner for that tab, the
    message appears as the tab's send failure instead of on the banner."
-8. AC 8.4: per U2, either (A) "For the `/compact` trigger, the notice carries the disclosure",
-   or (B) keep as is and make `/compact` open the offer.
+8. AC 8.4: append "For the `/compact` trigger, the disclosure is carried by the notice shown
+   after the new chat is bound; there is no pre-send disclosure for this trigger." (Rev 3: U2
+   answered (A), decisions.md row 32.)
+9. (Rev 3, F2) AC 3.5: append "For a native Codex session, every tool call or tool result item,
+   including a named function-call output and a dynamic tool call, gives exactly one
+   `[tool: <name>]` line. Its output, arguments and content items are never copied."
 
 ## Integration architecture
 
@@ -1280,8 +1400,22 @@ The plan needs these wording changes in `task-description.md` (not edited here):
   and 1 new), the now-required claimed-surface edit (+1 modified), and 0 files for the `/compact`
   trigger. Seven modified files are one-to-ten-line registration or type edits (types x3, tokens,
   di, schema, html).
+
+  K2 file list and footprint (Rev 3). Components 11-12 have 6 production files plus 1
+  conditional, the same as the user-approved 6 + 1 conditional (decisions.md rows 27, 30, 33).
+  The 6 are `codex-session-history.ts`, `codex-runtime.ts`, `codex-runtime.types.ts`,
+  `codex-runtime-composition.ts`, `session-history-router.ts` and the new
+  `codex-carry-over-projector.ts`; the conditional file is `codex-runtime/src/index.ts`.
+  Their specs are `codex-session-history.spec.ts`, `codex-runtime.spec.ts`,
+  `codex-history-port.spec.ts` (new), `session-history-router.spec.ts` and
+  `codex-carry-over-projector.spec.ts` (new). F1-F3 add 0 files. They add content to
+  `codex-session-history.ts` (the paged legacy path, the byte constant, the incomplete-turn
+  drop) and to `codex-carry-over-projector.ts` (two item mappings and the name rule), plus
+  cases in the listed specs. The overall production count is unchanged: 4 new, 22 modified,
+  +1 conditional.
 - Verification points (CLAUDE.md § Verification; decisions.md row 18):
-  - Confirm A1-A5 and A7-A9 with the checks above before closing their components.
+  - Confirm A1-A5 and A7-A10 (A10, Rev 3: Component 11) with the checks above before closing
+    their components.
   - Per batch: `npm run verify -- -p <only the projects that batch changed>`, for example
     `npm run verify -- -p @ptah-extension/codex-runtime` for the codex-runtime part of
     Component 11, `npm run verify -- -p ptah-electron` for its Electron part, and
@@ -1321,7 +1455,7 @@ The plan needs these wording changes in `task-description.md` (not edited here):
 | The notice is replaced by a later action banner. | Medium | Low | 15 s duration; the tab state is the durable truth. |
 | A transport timeout with no later resolution or chat error leaves the tab's sends refused. | Low | Medium | Released by a chat error, a resolution or the tab's removal. |
 | A provider error after the stream starts is logged by the existing stream path. | Low | Medium | Normal turn-error path (AC 5.3). |
-| (Rev 2) The Codex app-server rejects `sortDirection: 'desc'` (A8) or a legacy thread exceeds the 16 MiB frame. | Low | Medium | A8 fallback (bounded `asc`, no count); a legacy oversize read fails as `HISTORY_UNREADABLE` with today's fixed text, like the history view would. |
+| (Rev 2) The Codex app-server rejects `sortDirection: 'desc'` (A8). (Rev 3) It refuses to page a `legacy` thread (A10), or one 25-turn page exceeds the 16 MiB frame. | Low | Medium | A8 fallback (bounded `asc`, no count). (Rev 3) A refused or oversize page fails closed as `HISTORY_UNREADABLE` with today's fixed text; `includeTurns` is never tried (Component 11, F1 option (a)). |
 | (Rev 2) The Codex binary is missing after the user switched away from Codex. | Medium | Low | `binaryUnavailable` maps to `HISTORY_UNREADABLE`; the old session stays intact. |
 | (Rev 2) The extra check before every `/compact` slows `/compact` noticeably. | Low | Low | No probe on same-provider sessions (K22); 5 s cap and fallback. |
 | (Rev 2) A user expects `/compact` on a Codex chat to compact on Codex while Claude is active. | Low | Medium | It is the user's requested behaviour (row 20); switching back to Codex restores native compaction; the notice says what happened. |
@@ -1345,7 +1479,7 @@ The plan needs these wording changes in `task-description.md` (not edited here):
 | K13 | (Rev 1 F1, completed Rev 2) The provider is pinned to the click-time active id: re-checked after the read, and after `prepare` on every runtime branch by re-reading `resolveActiveAuthForPath(workspaceId).providerId` and comparing the served provider, before lineage and adapter calls. | Pin in the resolver; check only before `startSession`; re-read only on the `undefined`-profile branch (the round-2 defect). | E4, E30; review Round 2 F1. | Yes |
 | K14 | (Rev 1 F3) Launches on a tab with a pending carry-over are serialized; the pending entry is the busy state until bind or definitive failure; a resolution carrying the old id is not claimed. | Launch nonce; accept any resolution. | E33, E34. | Yes |
 | K15 | (Rev 1 F7, row 18) Verification on `npm run verify -- -p`; per batch the changed projects; final the changed projects plus `ptah-extension-webview`. | Raw `nx … --parallel=1`. | CLAUDE.md. | Yes |
-| K16 | (Rev 2) The native tail read is a sibling of the full read at each layer (`readCodexSessionTail`, `CodexRuntime.readHistoryTail`, `ElectronCodexHistoryPort.readHistoryTail`, optional on `NativeSessionHistoryPort`), root thread only, newest-first, capped at 200 turns / 8 turn pages / 16 item pages; legacy threads are one frame-capped read. | Full snapshot then trim (unbounded, E37); parse rollout files; a mode flag on the full read. | E36-E40; AC 3.4, 3.9, 3.10. | Yes (constants and method) |
+| K16 | (Rev 2) The native tail read is a sibling of the full read at each layer (`readCodexSessionTail`, `CodexRuntime.readHistoryTail`, `ElectronCodexHistoryPort.readHistoryTail`, optional on `NativeSessionHistoryPort`), root thread only, newest-first, capped at 200 turns / 8 turn pages / 16 item pages. (Rev 3) `legacy` threads use the same paged calls with a `TAIL_READ_MAX_BYTES` byte cap; no `includeTurns`; incomplete turns are dropped. | Full snapshot then trim (unbounded, E37); parse rollout files; a mode flag on the full read. | E36-E40; AC 3.4, 3.9, 3.10. | Yes (constants and method) |
 | K17 | (Rev 2) The carry-over reads through `SessionHistoryRouter.readCarryOverTranscript`, which routes by stored metadata exactly as the existing history read does; both kinds return one `CarryOverTranscript` type. | The service picks the reader itself; separate result types. | E36; `chat-history-read.service.ts:72-73`. | Yes |
 | K18 | (Rev 2) Codex -> Claude is detected at `/compact`: the renderer asks the host check before sending `/compact`, and an eligible native session is carried over to the active provider. Native plain resume is unchanged (U1 option A). | Refuse native resume (U1-B); proactive offer surface (U1-C). | Rows 20-22; E3, E42. | Yes |
 | K19 | (Rev 2) `/compact` is redirected in the renderer before `chat:continue`; the refusal is never produced for an eligible `/compact` and stays byte-identical otherwise. | Host-side redirect in the slash router; show the refusal and then auto-start (no trigger for native sessions, which are never refused). | E22, E42, E44; row 22. | Yes |
@@ -1353,6 +1487,23 @@ The plan needs these wording changes in `task-description.md` (not edited here):
 | K21 | (Rev 2) `/compact` arguments are not forwarded into the carry-over prompt; the instruction is fixed. | Append the arguments as user guidance (more user text to redact and bound). | AC 8.1 (only conversation text and the instruction). | Yes |
 | K22 | (Rev 2) `evaluate` compares the stored and active provider ids before the readiness probe, so a same-provider session (the common `/compact` case) never runs `prepare`. | Probe first (Rev 1 order). | A3; E4. | Yes |
 | K23 | (Rev 2) The `/compact` eligibility check has its own 5 s RPC timeout and fails open to today's `/compact`. | The 30 s default; the admission timeout. | E27; Requirement 9.3 (proposed). | Yes |
+
+## Revision 3
+
+Scope: `implementation-plan-review.md` `## Round 3 (scoped to Revision 2 new parts)` findings
+F1-F4, and the user answers in decisions.md rows 30-32 (build K2 now, U1 = A, U2 = A). Only
+Components 11, 12 and the Component 13 anchor were changed, plus the requirement changes, the
+user-reserved items and the cross-references that would otherwise contradict them. No code was
+edited. The line numbers below refer to this file after the revision.
+
+| Finding / input | Resolution | Changed lines |
+| --------------- | ---------- | ------------- |
+| F1 (Serious): the `legacy` branch read the whole thread with `includeTurns: true`; the frame limit is not a bound | Source-side bounded mechanism: every thread, whatever its `historyMode`, is read with newest-first `thread/turns/list` / `thread/items/list` pages. The pinned schema puts no history-mode restriction on these calls (`schema.json:25644-25692`, `:23277-23325`). `includeTurns` is never sent. Bound: 200 turns, 25 requests, `TAIL_READ_MAX_BYTES` (8 MiB) of page data plus one page. The frame limit only caps a single response. If the server refuses to page, the read fails closed to `HISTORY_UNREADABLE` (option (a) as fallback). Rollout-file tail (b) and refuse-all-legacy (a) alone are rejected, with reasons. Assumption A10 is added. The ten-times fixtures cover the turn bound (`paginated`, `legacy`, absent mode), the byte bound, and refusal. | Component 11: 838-842 (heading, purpose), 843-882 (source mechanism, options, A10), 883-895 (bound), 897-935 (steps 1-5), 948-966 (contracts, failure, quality), 967-1004 (specs), 1006-1014 (files); requirement change 5: 1235-1246; E39 implication: 83; Risks: 1458; K16: 1482; verification point A10: 1417-1418 |
+| F2 (Serious): `functionCallOutput` and `dynamicToolCall` were dropped | Each item gives one content-free `[tool: <name>]` line. `output`, `arguments`, `contentItems` and `namespace` are never read. One single-line name rule covers every name placeholder. The fixtures put secret sentinels in both `output` variants, in `arguments` and in `contentItems`. | Component 12: 1016 (heading), 1043-1054 (mappings, name rule), 1077-1091 (specs, router pass-through case); requirement change 9: 1254-1256 |
+| F3 (Moderate): incomplete current turn at the item-page cap | When the item-page budget or the byte budget runs out inside a turn, that turn is dropped, the read stops (the tail stays contiguous), and `coversWholeHistory = false`. If no complete turn remains, the read throws `pageLimitExceeded`, which Component 4 turns into the fixed `HISTORY_UNREADABLE` result. Specs cover: a newest turn needing 17 item pages, a second-newest turn over budget, and the byte variant. | Component 11: 913-916, 924-931, 986-993; requirement change 5: 1235-1246 |
+| F4 (Minor): Component 13 message-sender span | The span is set to `:692-903`. The review gave `:691-902`, but the source has the signature at `:692` and the closing brace at `:903` (`message-sender.service.ts`, same on `ff97e436a` and `5336ba7e1`). The difference is recorded in place rather than copying an off-by-one anchor. `:806-829` is unchanged. | Component 13: 1131-1133 |
+| User answers, rows 30-32 | K2 is built now in its own batch. U1 = (A): native plain resume is unchanged. U2 = (A): the disclosure for `/compact` is in the notice. The section is now a table of answered items; requirement changes 2 and 8 are settled; the Inputs line no longer lists open items. | Header: 6-9; Inputs: 31-32; `## User-reserved items`: 1187-1203; requirement changes 2 and 8: 1226-1228, 1251-1253 |
+| K2 file list and footprint (row 33 size check) | 6 production files + 1 conditional, equal to the user-approved 6 + 1. F1-F3 add 0 files; no report to the parent is needed. The overall production count stays 4 new / 22 modified (+1 conditional). | Team-leader handoff: 1404-1415 |
 
 ## Revision 2
 
