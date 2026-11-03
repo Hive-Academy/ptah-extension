@@ -38,6 +38,7 @@ export class ReplyDraftStore implements OnDestroy {
       this.announcement.set('Reply could not be sent. Try again.');
       return false;
     } catch {
+      // degradation-audit: reported - send failure is announced to the user
       if (!this.destroyed) this.announcement.set('Reply could not be sent. Try again.');
       return false;
     } finally {
