@@ -15,6 +15,8 @@ import { TriageStageRunner } from '../lib/stages/triage-stage.runner';
 import { LensStageRunner } from '../lib/stages/lens-stage.runner';
 import { VerificationStageRunner } from '../lib/stages/verification-stage.runner';
 import { ReviewOrchestratorService } from '../lib/review-orchestrator.service';
+import { PublicationStageRunner } from '../lib/stages/publication-stage.runner';
+import { ReviewArtifactWriter, type ReviewArtifactFileSystem } from '../lib/lanes/review-artifact.writer';
 
 /**
  * The host registers REVIEW_LANE_TOKENS.GATEWAY, REVIEW_LANE_TOKENS.FILES,
@@ -49,6 +51,9 @@ export function registerReviewCore(container: DependencyContainer): void {
   container.registerSingleton(TriageStageRunner);
   container.registerSingleton(LensStageRunner);
   container.registerSingleton(VerificationStageRunner);
+  container.register(REVIEW_CORE_TOKENS.ARTIFACT_WRITER, { useFactory: (provider) =>
+    new ReviewArtifactWriter(provider.resolve<ReviewArtifactFileSystem>(REVIEW_CORE_TOKENS.ARTIFACT_FILES)) });
+  container.registerSingleton(PublicationStageRunner);
   container.registerSingleton(ReviewOrchestratorService);
   container.register(REVIEW_CORE_TOKENS.ORCHESTRATOR, { useToken: ReviewOrchestratorService });
 }

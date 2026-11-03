@@ -1,5 +1,5 @@
 import { inject, injectable } from 'tsyringe';
-import type { IGitHubReviewPort } from '@ptah-extension/review-contracts';
+import { CandidateFindingSchema, VerifierVerdictSchema, type IGitHubReviewPort } from '@ptah-extension/review-contracts';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { z } from 'zod';
 import { REVIEW_CORE_TOKENS } from '../di/tokens';
@@ -11,11 +11,17 @@ import { ContextStageRunner, type ContextStageResult, type ReviewStageEnvironmen
 import { TriageStageRunner } from './stages/triage-stage.runner';
 import { LensStageRunner } from './stages/lens-stage.runner';
 import { VerificationStageRunner } from './stages/verification-stage.runner';
+import { PublicationStageRunner } from './stages/publication-stage.runner';
 
 const ContextSchema = z.object({ attemptRoot: z.string().min(1), coverage: z.array(z.string()), promptInput: z.object({
   headSha: z.string(), title: z.string(), body: z.string(), diff: z.string(), comments: z.string(), fileContent: z.string(),
   deterministicEvidence: z.string(), repositoryRules: z.string(),
 }) }).strict();
+const VerificationSchema = z.array(z.object({ lens: z.string(), finding: CandidateFindingSchema,
+  verification: z.enum(['cross-family', 'same-family-weaker', 'unavailable']),
+  result: z.discriminatedUnion('status', [z.object({ status: z.literal('partial'), reason: z.string() }),
+    z.object({ status: z.literal('completed'), family: z.string(), evidenceStrength: z.enum(['strong', 'weaker']).optional(), output: VerifierVerdictSchema })]),
+}));
 
 @injectable()
 export class ReviewOrchestratorService {
@@ -26,6 +32,7 @@ export class ReviewOrchestratorService {
     private readonly triage: TriageStageRunner,
     private readonly lenses: LensStageRunner,
     private readonly verification: VerificationStageRunner,
+    private readonly publication: PublicationStageRunner,
     private readonly queue: ReviewQueueService,
     private readonly policy: ReviewPolicyService,
     @inject(REVIEW_CORE_TOKENS.REVIEW_REPOSITORY) private readonly repository: IReviewRepository,
@@ -77,8 +84,13 @@ export class ReviewOrchestratorService {
       const lensResults = await this.lenses.run(claim, context, deadline);
       if (lensResults.some((entry) => entry.result.status === 'partial')) status = 'partial';
       if (!await this.guard(claim)) { status = 'superseded'; return; }
-      const verdicts = await this.stage(claim, 'verification', 3, z.unknown(), () => this.verification.run(claim, context, lensResults, deadline));
-      if (!Array.isArray(verdicts) || verdicts.some((entry) => entry.verification === 'unavailable')) status = 'partial';
+      const verdicts = await this.stage(claim, 'verification', 3, VerificationSchema, () => this.verification.run(claim, context, lensResults, deadline));
+      if (!verdicts) { status = 'partial'; return; }
+      if (verdicts.some((entry) => entry.verification === 'unavailable')) status = 'partial';
+      if (!await this.guard(claim)) { status = 'superseded'; return; }
+      const publication = await this.stage(claim, 'publication', 4, z.object({ artifactPath: z.string(), exportPath: z.string(),
+        acceptedCount: z.number(), suppressedCount: z.number() }), () => this.publication.run(claim, context, lensResults, verdicts));
+      if (!publication) status = 'partial';
     } catch (error: unknown) {
       status = 'failed';
       this.logger.error('Review attempt failed', error instanceof Error ? error : new Error(String(error)));
@@ -108,7 +120,9 @@ export class ReviewOrchestratorService {
     try {
       const value = await run();
       await this.repository.saveCheckpoint(claim.attemptId, name, ordinal, value);
-      await this.repository.saveStage({ ...row, state: 'completed', endedAt: new Date().toISOString(), outcome: 'completed' });
+      const artifactPath = typeof value === 'object' && value !== null && 'artifactPath' in value && typeof value.artifactPath === 'string'
+        ? value.artifactPath : null;
+      await this.repository.saveStage({ ...row, state: 'completed', endedAt: new Date().toISOString(), outcome: 'completed', artifactPath });
       return value;
     } catch (error: unknown) {
       await this.repository.saveStage({ ...row, state: 'failed', endedAt: new Date().toISOString(), errorSummary: error instanceof Error ? error.message : 'Unknown stage error' });

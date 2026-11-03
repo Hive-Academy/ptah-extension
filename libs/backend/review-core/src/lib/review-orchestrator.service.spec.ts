@@ -9,6 +9,7 @@ import { ContextStageRunner, type ContextStageResult } from './stages/context-st
 import { TriageStageRunner } from './stages/triage-stage.runner';
 import { LensStageRunner } from './stages/lens-stage.runner';
 import { VerificationStageRunner } from './stages/verification-stage.runner';
+import { PublicationStageRunner } from './stages/publication-stage.runner';
 
 const sha = 'a'.repeat(40);
 const claim: ReviewQueueClaim = { repo: { owner: 'Hive-Academy', name: 'PtahCode' }, prNumber: 1,
@@ -47,13 +48,16 @@ function fixture() {
   const lensRun = jest.spyOn(lenses, 'run').mockResolvedValue([]);
   const verification = Object.create(VerificationStageRunner.prototype) as VerificationStageRunner;
   const verificationRun = jest.spyOn(verification, 'run').mockResolvedValue([]);
+  const publication = Object.create(PublicationStageRunner.prototype) as PublicationStageRunner;
+  jest.spyOn(publication, 'run').mockResolvedValue({ artifactPath: '/attempt/out/review-preview.md',
+    exportPath: '/attempt/out/review-export.json', acceptedCount: 0, suppressedCount: 0 });
   const github: IGitHubReviewPort = { getPull: jest.fn().mockResolvedValue({ number: 1, headSha: sha,
     baseSha: 'b'.repeat(40), state: 'open', draft: false, authorLogin: 'maintainer', headRepoId: 1, baseRepoId: 1, headIsFork: false }),
     getDiff: jest.fn(), listOpenPulls: jest.fn(), listOwnIssueComments: jest.fn(), listOwnReviewsAndThreads: jest.fn(),
     upsertWalkthrough: jest.fn(), createCommentReview: jest.fn(), replyToFinding: jest.fn() };
   const logger = Object.create(Logger.prototype) as Logger;
   jest.spyOn(logger, 'error').mockImplementation(() => undefined);
-  const coordinator = new ReviewOrchestratorService(discovery, context, triage, lenses, verification, queue,
+  const coordinator = new ReviewOrchestratorService(discovery, context, triage, lenses, verification, publication, queue,
     new ReviewPolicyService(), repository, github,
     { repoRoot: '/repo', attemptsRoot: '/attempts', settings: async () => settings, baseConfig: async () => null }, logger);
   return { coordinator, stages, checkpoints, repository, claimMock, release, discover, contextRun, triageRun, lensRun,

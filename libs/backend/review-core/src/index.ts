@@ -31,3 +31,5 @@ export type { ReviewStageEnvironment, ContextStageResult } from './lib/stages/co
 export { TriageStageRunner } from './lib/stages/triage-stage.runner';
 export { LensStageRunner } from './lib/stages/lens-stage.runner';
 export { VerificationStageRunner } from './lib/stages/verification-stage.runner';
+export { PublicationStageRunner } from './lib/stages/publication-stage.runner';
+export type { PublicationResult } from './lib/stages/publication-stage.runner';

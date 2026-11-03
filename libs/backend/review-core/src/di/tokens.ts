@@ -7,4 +7,6 @@ export const REVIEW_CORE_TOKENS = {
   GITHUB: Symbol.for('ReviewGithubPort'),
   ENVIRONMENT: Symbol.for('ReviewStageEnvironment'),
   ORCHESTRATOR: Symbol.for('ReviewOrchestratorService'),
+  ARTIFACT_FILES: Symbol.for('ReviewArtifactFileSystem'),
+  ARTIFACT_WRITER: Symbol.for('ReviewArtifactWriter'),
 } as const;
