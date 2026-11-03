@@ -1,5 +1,60 @@
 # HANDOFF — Microsoft Store (MSIX) channel for Ptah Electron v2.0.0
 
+## >>> CURRENT STATE (2026-11-03) — READ FIRST <<<
+
+PR #778 is MERGED into main (merge commit `7e79d2dec`). The worktree `.claude-worktrees/microsoft-store`
+is removed. The repository is now `Hive-Academy/PtahCode`. Nothing is published yet: no v2.0.0 tag,
+no GitHub Release, no Store submission. The sections below this one describe the work before the
+merge and are history.
+
+What main now does on the next `publish-electron.yml` run:
+
+- Windows gets only the MSIX artifact `ptah-msstore-<version>`. There is no NSIS `.exe`.
+- The version guard needs `X.Y.Z` with major >= 1, above the last tag. `apps/ptah-electron/package.json`
+  is `2.0.0`, so a 0.1.x release from main is no longer possible.
+- The release notes and the landing download page send Windows users to the Store
+  (`https://apps.microsoft.com/detail/9N80K3HFX0JT`). That link works only after the listing is live.
+
+### Owner go-live steps (in order, after local testing)
+
+1. Test locally first (do not dispatch a release before this):
+   1. Make a dry-run build (publishes nothing):
+      `gh workflow run publish-electron.yml --ref main -f bump=none -f dry-run=true`
+   2. Download the artifact:
+      `gh run download <run-id> -n ptah-msstore-2.0.0 -D $env:TEMP\ptah-msstore`
+   3. Do the "Local verification recipe" in `implementation-plan.md`, steps 3-7 (test certificate,
+      sign a COPY, uninstall the old NSIS Ptah, `Add-AppxPackage`, WACK). Use the `.appx` from
+      `$env:TEMP\ptah-msstore` in place of `dist\release\Ptah-2.0.0-store.appx`.
+   4. Do the smoke checklist S1-S11 in the same section. S10 expects a mail draft to
+      help@ptah.live with "Response time" in the body.
+   5. Remove the test package: `Get-AppxPackage PtahOrchestra.Ptah | Remove-AppxPackage`.
+2. Decide that v2 is ready.
+3. Do not push or sync `release/electron` before step 4. A push to that branch starts a real
+   publish run with the default inputs, and the default `store-submission` is `no-commit`
+   (uploads a Store draft). The secret `MSSTORE_CLIENT_SECRET` and the four `MSSTORE_*`
+   variables are already set (2026-10-19), so only `store-submission=skip` stops the Store job.
+4. Release v2.0.0 on GitHub:
+   `gh workflow run publish-electron.yml --ref main -f bump=none -f store-submission=skip`
+   Result: tag v2.0.0, GitHub Release (macOS + Linux files, Store notice in the body) and the
+   artifact `ptah-msstore-2.0.0`.
+5. First Store submission, by hand in Partner Center (product "Ptah", Store ID `9N80K3HFX0JT`):
+   1. Pricing (free), properties and category, age rating (answer all questions).
+   2. Upload `Ptah-2.0.0-store.appx` from the artifact of step 4 (the unsigned original, never the
+      test-signed copy).
+   3. Listing: description with the disclosures in `implementation-plan.md` "Store compliance",
+      screenshots, privacy policy URL https://ptah.live/privacy, AI disclosure.
+   4. Submission options: the `runFullTrust` justification and certification notes (drafted in
+      "Store compliance").
+   5. Submit and wait until the listing is live.
+6. After the listing is live:
+   1. Open `https://apps.microsoft.com/detail/9N80K3HFX0JT` and install from the Store once.
+   2. Later releases upload to the Store from CI: `store-submission: no-commit` = draft for review
+      in Partner Center (default), `commit` = submit for certification.
+   3. Sync `release/landing` so that the landing download page shows the Store link.
+7. Later (noted, not blocking): update the docs site download links, email old users (they must
+   uninstall the 0.1.x NSIS app; both installs share `~/.ptah`), rotate `MSSTORE_CLIENT_SECRET`
+   before ~2027-04-17, macOS Developer ID signing and notarization.
+
 Updated 2026-10-20 (second session). Read this first, then `implementation-plan.md` (section
 "User answers" overrides earlier plan text). `research-report.md` and `context.md` are background.
 
