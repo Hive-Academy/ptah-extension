@@ -1,0 +1,31 @@
+# Decisions - TASK_2026_873_f748
+
+| # | Decision | Options | Evidence | Source | Reversible |
+|---|---|---|---|---|---|
+| D1 | Type FEATURE, depth Full | FEATURE/DEVOPS; Full/Partial | New lib + migration + GitHub adapter + lanes + UI; >5 files, scope needs a spec | orchestrator (pre-flight rules) | yes |
+| D2 | Gate 0.1: lanes `enabled`, approval `lane-review`, codex first | enabled/auto/disabled | memory `orchestration-executor-preference`, `lane-review-approval-mode` | memory | yes |
+| D3 | Host: pipeline in host-neutral libs; Electron on a dedicated Ubuntu machine first, headless CLI daemon for VPS later | Electron-only / GH Action / both | User answer; cron already boots from CLI (`libs/backend/cli-engine/src/lib/bootstrap/thoth-runtime.ts`) | user + evidence | partly |
+| D4 | Publish mode: auto-post to GitHub | draft-approve / auto-post / Ptah-only | User answer | user | yes (config) |
+| D5 | Trigger: cron `handler:` job polls PR heads; no webhook in v1 | poll / Action / webhook | `job-runner.ts:61` handler prefix; webhook needs a public endpoint (inventory Option C, effort L) | evidence | yes |
+| D6 | Unattended lanes via `AgentProcessManager`, not `ptah_session_start` | AgentProcessManager / child sessions | inventory Decisions 1–2 (`agent-process-manager.service.ts:409-520`, `session-spawner.service.ts:239-317`) | evidence | yes |
+| D7 | Skip kimi code for this run | — | AT LIMIT, reset unknown (agent-lanes §5) | rule | re-check at next Gate 0.1 |
+| D8 | Gate 1 APPROVED (lane-review, round 2) | — | task-description-review.md | cross-side review | yes |
+| D9 | codex lanes always get the task worktree as workingDirectory | main checkout / worktree | PM lane wrote normally in worktree; research lane denied in main checkout | evidence | yes |
+| D10 | GitHub identity: dedicated bot account with fine-grained token (PtahCode only; PR read, PR/issue comment write), stored via platform secret-storage port | bot token / GitHub App / user token | User answer 2026-11-03 | user | yes |
+| D11 | Trust allowlist: Hive-Academy/PtahCode only; PR authors from an explicit maintainer list editable in settings; forks never executed | named maintainers / org members / any non-fork | User answer | user | yes |
+| D12 | Budget: per-PR lane cap (default 6: triage, 4 lenses, verifier) + provider limit state; no daily quota; nothing with room → coverage-limited run, no waiting | per-PR cap / + daily quota / plan only | User answer | user | yes |
+| D13 | CodeRabbit stays on long term; ptah-review is an additional reviewer. FR-17 benchmark is kept as a quality report, not a switch-off gate | 75/85/70 gate / stricter / keep CodeRabbit | User answer | user | yes |
+| D14 | Review tone: comment-only reviews (no request-changes/approve), per requirements default | comment / request changes | task-description Decisions + no objection | requirements default | yes |
+| D15 | Gate 1.7 APPROVED (lane-review, round 2) with binding notes N1–N3 | — | design-spec-review.md | cross-side review | yes |
+| D16 | Default minimum severity Minor; FR-6 lens set is canonical over prototype labels | Minor / Major | CodeRabbit sample 77/108 Minor; FR-6 | evidence | yes |
+| D17 | Gate 2 APPROVED (lane-review, round 2) | — | implementation-plan-review.md | cross-side review | yes |
+| D18 | PR #910 merged: this task applies the new rule 4 (fix local Minors) and rule 5 (final whole-PR review before first push) | — | user merged #910 | user | yes |
+| D19 | Integration batches P1-16 / P2-06 exceed the 2-project / 6-file cap as the single owner of shared composition files | split / one owner | batches.md Plan issue 1; orchestration rule: one integration owner for shared files | orchestrator | yes |
+| D20 | `tools/review-eval` becomes an Nx project (`project.json`, tags `type:tool`, `test` + `lint` targets) like `tools/degradation-audit`, so `npm run verify -- -p review-eval` covers it; added to P1-11 | Nx project / ad-hoc command | `tools/degradation-audit/project.json` (type:tool, lint/self-test) | evidence | yes |
+| D21 | Replay batches P1-11..13 ship code + unit tests on Windows; the live 15-PR replay report is an operational step on the Ubuntu machine after merge, not a P1 merge gate | block P1 / post-merge op | plan lines 223-230 (Ubuntu + bwrap required) | orchestrator | yes |
+| D22 | Electron screenshots for P1-14/15 need a running Electron app; ask the user before any serve/dev run (CLAUDE.md) | ask / skip | CLAUDE.md verification rules; agent-lanes §6 UI evidence | rule | — |
+| D23 | Secret-storage persistence test is located and added in P2-06 | P2-06 / P1 | batches.md Plan issue 5 | orchestrator | yes |
+| D24 | review-contracts lives at `libs/backend/review-contracts` (tags unchanged `scope:shared,type:util`), not nested inside the `libs/shared` project | libs/shared/review-contracts / libs/backend/review-contracts | `libs/shared/project.json` is itself a project (nesting overlaps its lint/test roots); peer `scope:shared` lib `platform-core` lives in libs/backend | evidence | yes (nx move) |
+| D25 | Every new lib mirrors `libs/backend/platform-core` (or `libs/frontend/cron-scheduler-ui` for UI): `package.json`, `jest.config.ts` ESM, explicit `typecheck`/`lint`/`test` targets, module settings, no local eslint config; and is added to the `@nx/jest/plugin` and `@nx/eslint/plugin` (`lint`) include lists in `nx.json` — never revert those nx.json lines | generator defaults / mirror peers | P1-01: generator defaults gave TS5110 and no test target; nx.json plugin includes are explicit | evidence | yes |
+| D26 | Codex lanes cannot spawn Nx (EPERM in sandbox): lanes write code + specs; the orchestrator runs `npm run verify` per batch and relays failures | lane verifies / orchestrator verifies | P1-02 lane report; P1-01 verify printed no task summary | evidence | yes |
+| D27 | Pre-existing lint errors in persistence-sqlite 0057/0058 are out of scope (unchanged files, recorded in 0064 commit message) | fix / leave | 0064 commit body; files unchanged by this task | evidence | yes |
