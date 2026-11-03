@@ -1788,6 +1788,9 @@ describe('MessageSenderService', () => {
           tabId: 'tab-1',
           workspacePath: 'D:/repo',
           name: 'Old chat',
+          requestId: expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+          ),
         });
         expect(callsOf('chat:continue')).toHaveLength(0);
         expect(tabsSignal()[0].messages).toEqual([]);

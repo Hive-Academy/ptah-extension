@@ -201,7 +201,7 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
     undefined,
     undefined,
     undefined,
-    opts.activeProvider,
+    opts.activeProvider as never,
     undefined,
     undefined,
     hostRouting,
