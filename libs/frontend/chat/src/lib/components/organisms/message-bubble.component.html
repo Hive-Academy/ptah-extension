@@ -133,13 +133,6 @@
       </div>
     }
 
-    @if (showChips()) {
-      <ptah-turn-agent-chips
-        [agents]="agents()"
-        (laneRequested)="laneRequested.emit($event)"
-      />
-    }
-
     @if (showActions()) {
       <div class="mt-2 -ml-1.5 flex gap-0.5" data-testid="turn-action-row">
         <ptah-copy-button [message]="message()" [turnActionSize]="true" />

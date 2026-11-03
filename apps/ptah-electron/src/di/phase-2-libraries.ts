@@ -220,7 +220,10 @@ export function registerPhase2Libraries(
     useFactory: (c) =>
       new TreeSitterCodeOutliner(c.resolve(TOKENS.TREE_SITTER_PARSER_SERVICE)),
   });
-  registerSdkServices(container, logger);
+  registerSdkServices(container, logger, {
+    // Unpackaged builds only (`npm run dev`); packaged apps ignore PTAH_DEV_* overrides.
+    devHost: !app.isPackaged,
+  });
   registerElectronCodexReadinessAndLogin(container, logger);
   container.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
     useValue: new ElectronEditorLauncher(

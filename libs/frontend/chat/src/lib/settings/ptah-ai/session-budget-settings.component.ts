@@ -27,7 +27,10 @@ type NumberKey =
   | 'handoffPercent'
   | 'handoffAfterCompactions'
   | 'tightenWindowTokens';
-type BooleanKey = 'enabled' | 'autoHandoffAtLimit';
+type BooleanKey =
+  | 'enabled'
+  | 'autoHandoffAtLimit'
+  | 'closeSourceAfterAutoHandoff';
 
 type Parsed =
   | { readonly ok: true; readonly value: number | null }
@@ -108,12 +111,15 @@ const NUMBER_FIELDS: readonly NumberField[] = [
 const BOOLEAN_LABELS: Readonly<Record<BooleanKey, string>> = {
   enabled: 'Track a budget for each chat session',
   autoHandoffAtLimit: 'Hand off automatically at 100%',
+  closeSourceAfterAutoHandoff: 'Close the source chat after the hand-off',
 };
 
 const BOOLEAN_HELP: Readonly<Record<BooleanKey, string>> = {
   enabled: 'Enable this limit for the current chat.',
   autoHandoffAtLimit:
     'Queues /session-handoff after the current turn, once per session; cancel it from the banner.',
+  closeSourceAfterAutoHandoff:
+    'Closes the old chat tab once the new session has taken over; never for a hand-off you start yourself.',
 };
 
 const LABELS: Readonly<Record<BudgetKey, string>> = {
@@ -233,6 +239,7 @@ function storedNumberIsValid(
                     [class]="'toggle toggle-sm toggle-primary ' + focusRing"
                     [checked]="booleanValue(key)"
                     [ptahBusyDisabled]="busy()"
+                    [disabled]="booleanDisabled(key)"
                     (change)="toggle(key, $event)"
                     [attr.aria-label]="labels[key]"
                     [attr.aria-describedby]="'session-budget-' + key + '-help'"
@@ -389,6 +396,7 @@ export class SessionBudgetSettingsComponent implements OnInit {
   protected readonly booleanKeys: readonly BooleanKey[] = [
     'enabled',
     'autoHandoffAtLimit',
+    'closeSourceAfterAutoHandoff',
   ];
   protected readonly booleanHelp = BOOLEAN_HELP;
   protected readonly units = SESSION_BUDGET_SETTINGS.unit.values;
@@ -454,6 +462,19 @@ export class SessionBudgetSettingsComponent implements OnInit {
   protected booleanValue(key: BooleanKey): boolean {
     const value = this.saved()[key];
     return typeof value === 'boolean' ? value : this.settings[key].default;
+  }
+
+  /**
+   * The close-source toggle needs the automatic hand-off on, which is a
+   * lasting reason: a native disabled, not the busy directive (see the
+   * directive's doc). When the hand-off is turned off while this is on, the
+   * read-back makes this toggle inert but keeps its saved value.
+   */
+  protected booleanDisabled(key: BooleanKey): boolean {
+    return (
+      key === 'closeSourceAfterAutoHandoff' &&
+      !this.booleanValue('autoHandoffAtLimit')
+    );
   }
 
   protected numberText(key: NumberKey): string {

@@ -11,6 +11,13 @@ const FOLLOW_WORKTREE: GitDockScope = {
   unresolved: false,
 };
 
+const FOLLOW_TITLE = 'Following the active session · /repo/.worktrees/feature-x';
+const PINNED_TITLE = 'Pinned to Fix login · /repo/.worktrees/feature-x';
+const PIN_TOOLTIP =
+  "Pin scope — keep the Git panel on this session's folder when you switch chat tabs. By default the panel follows the active session.";
+const UNPIN_TOOLTIP =
+  'Follow active session — the Git panel is pinned to Fix login. Click to follow the active chat tab again.';
+
 describe('GitDockScopeHeaderComponent', () => {
   let fixture: ComponentFixture<GitDockScopeHeaderComponent>;
   let toggles: boolean[];
@@ -61,7 +68,7 @@ describe('GitDockScopeHeaderComponent', () => {
     );
     const label = byTestId(host, 'git-dock-scope-label');
     expect(label?.getAttribute('role')).toBe('status');
-    expect(label?.getAttribute('title')).toBe('/repo/.worktrees/feature-x');
+    expect(label?.getAttribute('title')).toBe(FOLLOW_TITLE);
   });
 
   it('flags an unresolved session scope as read-only instead of naming a folder', () => {
@@ -101,6 +108,9 @@ describe('GitDockScopeHeaderComponent', () => {
     expect(byTestId(host, 'git-dock-scope-hint')?.textContent).toContain(
       'workspace',
     );
+    expect(
+      byTestId(host, 'git-dock-scope-label')?.getAttribute('title'),
+    ).toBe('Following the active session · /repo');
 
     host = render({ ...FOLLOW_WORKTREE, source: 'agent-origin-worktree' });
     expect(byTestId(host, 'git-dock-scope-hint')?.textContent).toContain(
@@ -130,19 +140,26 @@ describe('GitDockScopeHeaderComponent', () => {
     expect(byTestId(host, 'git-dock-scope-name')?.textContent).toContain(
       'Fix login (closed)',
     );
+    expect(
+      byTestId(host, 'git-dock-scope-label')?.getAttribute('title'),
+    ).toBe(PINNED_TITLE);
   });
 
   it('emits pin from follow mode and unpin from pinned mode, with aria-pressed', () => {
     let host = render(FOLLOW_WORKTREE);
     let toggle = byTestId(host, 'git-dock-scope-pin') as HTMLButtonElement;
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
-    expect(toggle.getAttribute('aria-label')).toBe('Pin scope');
+    expect(toggle.getAttribute('aria-label')).toBe(PIN_TOOLTIP);
+    expect(toggle.getAttribute('title')).toBe(PIN_TOOLTIP);
+    expect(toggle.textContent).toContain('Pin scope');
     toggle.click();
 
     host = render({ ...FOLLOW_WORKTREE, mode: 'pinned' });
     toggle = byTestId(host, 'git-dock-scope-pin') as HTMLButtonElement;
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
-    expect(toggle.getAttribute('aria-label')).toBe('Follow active session');
+    expect(toggle.getAttribute('aria-label')).toBe(UNPIN_TOOLTIP);
+    expect(toggle.getAttribute('title')).toBe(UNPIN_TOOLTIP);
+    expect(toggle.textContent).toContain('Follow active session');
     toggle.click();
 
     expect(toggles).toEqual([true, false]);
@@ -168,7 +185,7 @@ describe('GitDockScopeHeaderComponent', () => {
     const toggle = byTestId(host, 'git-dock-scope-pin') as HTMLButtonElement;
 
     expect(toggle.textContent?.trim()).toBe('');
-    expect(toggle.getAttribute('aria-label')).toBe('Pin scope');
+    expect(toggle.getAttribute('aria-label')).toBe(PIN_TOOLTIP);
     expect(byTestId(host, 'git-dock-scope-hint')).toBeNull();
   });
 });

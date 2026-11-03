@@ -22,6 +22,7 @@ import type {
   CompactRailState,
 } from '@ptah-extension/chat-ui';
 import type { CanvasTile } from '../canvas.store';
+import type { CanvasRailSort } from '../canvas-board-mode';
 import { MAX_CANVAS_TILES } from '../canvas-layout-intent';
 import {
   MAX_RUNNING_SESSIONS,
@@ -32,7 +33,12 @@ import {
   SPLIT_ALREADY_FOCUSED_REASON,
 } from './canvas-rail-card.component';
 import { focusRailSelectButton, handleCanvasRailKeydown } from './canvas-rail-keyboard';
-import { groupRailTiles, neighbouringVisibleId } from './canvas-rail-grouping.util';
+import {
+  groupRailTiles,
+  neighbouringVisibleId,
+  sameTileOrder,
+  sortRailTiles,
+} from './canvas-rail-grouping.util';
 
 const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close one to add another.`;
 const AUTO_COLLAPSE_REASON = 'Widen the canvas to expand the Rail';
@@ -40,6 +46,7 @@ const CHIP_STATES = [
   { state: 'needs', label: 'Needs input' },
   { state: 'error', label: 'Error' },
   { state: 'running', label: 'Running' },
+  { state: 'background', label: 'Background' },
   { state: 'done', label: 'Done' },
   { state: 'idle', label: 'Idle' },
 ] as const;
@@ -67,6 +74,13 @@ const CHIP_STATES = [
       }
       .state-running {
         color: var(--state-ink-run, oklch(var(--in)));
+      }
+      .state-background {
+        color: color-mix(
+          in oklch,
+          var(--state-ink-run, oklch(var(--in))) 55%,
+          var(--state-ink-done, oklch(var(--su)))
+        );
       }
       .state-done {
         color: var(--state-ink-done, oklch(var(--su)));
@@ -103,6 +117,24 @@ const CHIP_STATES = [
             <span class="text-xs text-base-content-muted"
               >{{ runningCount() }} / {{ maxRunning }} running</span
             >
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              data-testid="rail-sort-toggle"
+              [attr.aria-label]="
+                sort() === 'recent'
+                  ? 'Sort: recent activity first. Switch to manual order'
+                  : 'Sort: manual order. Switch to recent activity first'
+              "
+              [attr.title]="
+                sort() === 'recent'
+                  ? 'Recent activity first. Click for manual order'
+                  : 'Manual order. Click for recent activity first'
+              "
+              (click)="sortToggled.emit()"
+            >
+              {{ sort() === 'recent' ? 'Recent' : 'Manual' }}
+            </button>
             <button
               type="button"
               class="btn btn-ghost btn-xs"
@@ -155,6 +187,7 @@ const CHIP_STATES = [
                   [class.state-needs]="chip.state === 'needs'"
                   [class.state-error]="chip.state === 'error'"
                   [class.state-running]="chip.state === 'running'"
+                  [class.state-background]="chip.state === 'background'"
                   [class.state-done]="chip.state === 'done'"
                   [class.state-idle]="chip.state === 'idle'"
                   [attr.aria-label]="
@@ -165,7 +198,7 @@ const CHIP_STATES = [
                   "
                   (click)="onStatusJump(chip.state)"
                 >
-                  <span class="h-2 w-2 rounded-full bg-current" aria-hidden="true" [class.state-needs]="chip.state === 'needs'" [class.state-error]="chip.state === 'error'" [class.state-running]="chip.state === 'running'" [class.state-done]="chip.state === 'done'" [class.state-idle]="chip.state === 'idle'"></span>
+                  <span class="h-2 w-2 rounded-full bg-current" aria-hidden="true" [class.state-needs]="chip.state === 'needs'" [class.state-error]="chip.state === 'error'" [class.state-running]="chip.state === 'running'" [class.state-background]="chip.state === 'background'" [class.state-done]="chip.state === 'done'" [class.state-idle]="chip.state === 'idle'"></span>
                   <span>{{ chip.label }} </span><span class="tabular-nums">{{ count(chip.state) }}</span>
                 </button>
               }
@@ -235,7 +268,8 @@ const CHIP_STATES = [
                       [holdText]="holdTabId() === tile.tabId" [state]="states().get(tile.tabId) ?? 'idle'"
                       [attentionItems]="needsFor(tile)" [submittingKeys]="submitting()" [blockedKeys]="blockedKeys()"
                       (attentionAction)="activate($event.item, $event.actionId, $event.reason)"
-                      (otherRequests)="openNotifications()" [canMoveUp]="!first" [canMoveDown]="!last"
+                      (otherRequests)="openNotifications()" [reorderable]="sort() === 'manual'"
+                      [canMoveUp]="!first" [canMoveDown]="!last"
                       [splitDisabledReason]="cardSplitReason(tile.tabId)"
                       (focusRequested)="onCardSelected($event)"
                       (railState)="railState.emit({ tabId: tile.tabId, state: $event })"
@@ -427,6 +461,8 @@ export class CanvasRailComponent {
   readonly states = input<ReadonlyMap<string, CompactRailState>>(new Map());
   readonly focusedTabId = input<string | null>(null);
   readonly density = input<CompactRailDensity>('comfortable');
+  /** In `recent` order the stored order is not shown, so cards offer no Move up / Move down. */
+  readonly sort = input<CanvasRailSort>('manual');
   readonly collapsed = input(false);
   /** The board forces the 56 px form for its width; the toggle cannot expand it. */
   readonly autoCollapsed = input(false);
@@ -442,6 +478,7 @@ export class CanvasRailComponent {
   readonly focusRequested = output<string>();
   readonly collapseToggled = output<void>();
   readonly densityToggled = output<void>();
+  readonly sortToggled = output<void>();
   readonly jumpTo = output<CompactRailState>();
   readonly newSession = output<HTMLElement>();
   readonly previousSessionsRequested = output<void>();
@@ -458,8 +495,11 @@ export class CanvasRailComponent {
   readonly chips = CHIP_STATES;
   readonly autoCollapseReason = AUTO_COLLAPSE_REASON;
   protected readonly HistoryIcon = History;
-  readonly orderedTiles = computed(() =>
-    [...this.tiles()].sort((a, b) => a.order - b.order),
+  readonly orderedTiles = computed(
+    () =>
+      sortRailTiles(this.tiles(), this.sort(), this.states(), (tabId) =>
+        this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.lastActivityAt),
+    { equal: sameTileOrder },
   );
   readonly grouped = computed(() => groupRailTiles(this.orderedTiles(), this.states()));
   readonly finishedExpanded = signal(false);

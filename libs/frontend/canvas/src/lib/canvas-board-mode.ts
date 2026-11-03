@@ -1,10 +1,13 @@
 export type CanvasBoardMode = 'rail';
 export type CanvasRailDensity = 'comfortable' | 'dense';
+/** `recent`: newest activity first within each group. `manual`: the stored tile order. */
+export type CanvasRailSort = 'recent' | 'manual';
 
 export interface CanvasBoardState {
   readonly mode: CanvasBoardMode;
   readonly railCollapsed: boolean;
   readonly railDensity: CanvasRailDensity;
+  readonly railSort: CanvasRailSort;
   readonly railScrollTop: number;
 }
 
@@ -12,6 +15,7 @@ export const DEFAULT_BOARD_STATE: CanvasBoardState = {
   mode: 'rail',
   railCollapsed: false,
   railDensity: 'comfortable',
+  railSort: 'recent',
   railScrollTop: 0,
 };
 

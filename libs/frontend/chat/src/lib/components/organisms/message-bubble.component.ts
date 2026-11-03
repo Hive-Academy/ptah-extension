@@ -47,7 +47,6 @@ import type {
 } from '@ptah-extension/shared';
 import { VSCodeService } from '@ptah-extension/core';
 import { ChatStore } from '../../services/chat.store';
-import type { SessionAgent } from '../../services/session-agents/session-agent-roster';
 import {
   splitTurnMessage,
   type TurnMessageSplit,
@@ -62,7 +61,6 @@ import { toUserMessageMarkdown } from '../../utils/user-message-markdown.utils';
 import { TurnDisclosureRowComponent } from '../molecules/turn/turn-disclosure-row.component';
 import { TurnActivityPanelComponent } from '../molecules/turn/turn-activity-panel.component';
 import { TurnLiveLineComponent } from '../molecules/turn/turn-live-line.component';
-import { TurnAgentChipsComponent } from '../molecules/turn/turn-agent-chips.component';
 
 /** The disclosure toggle of a turn, emitted for the transcript's per-turn flag. */
 export interface TurnLogToggle {
@@ -99,11 +97,11 @@ function turnHasActivityData(turn: TurnContext): boolean {
  * MessageBubbleComponent - one transcript message.
  *
  * Assistant messages render the clean turn (design-spec §3): disclosure row,
- * collapsible work log, answer, agent chips, action row (copy, report, `Show
+ * collapsible work log, answer, action row (copy, report, `Show
  * activity`), activity panel and live line. Turn-level rows sit on the turn's
- * first (disclosure) or last (chips, actions, panel, live line) assistant
+ * first (disclosure) or last (actions, panel, live line) assistant
  * message; the transcript supplies the turn facts, the per-turn log flag,
- * the live clock, the needs-you count and the turn's agents. Every log and
+ * the live clock and the needs-you count. Every log and
  * answer row renders through the unchanged `ptah-execution-node`.
  *
  * User messages keep today's right-aligned bubble inside
@@ -125,7 +123,6 @@ function turnHasActivityData(turn: TurnContext): boolean {
     TurnDisclosureRowComponent,
     TurnActivityPanelComponent,
     TurnLiveLineComponent,
-    TurnAgentChipsComponent,
     LucideAngularModule,
   ],
   templateUrl: './message-bubble.component.html',
@@ -213,9 +210,6 @@ export class MessageBubbleComponent {
   /** The session's needs-you aggregate, fed to the live turn only. */
   readonly needsYouCount = input<number>(0);
 
-  /** The roster entries of the agents this turn spawned, in dock order. */
-  readonly agents = input<readonly SessionAgent[]>([]);
-
   /**
    * Whether the parent tab's session is currently active in the SDK
    * (has a live `Query` handle). When false, the rewind button is
@@ -266,9 +260,6 @@ export class MessageBubbleComponent {
 
   /** The user opened or closed this turn's work log (disclosure row). */
   readonly logToggled = output<TurnLogToggle>();
-
-  /** An agent chip asked to open its lane; emits the `SessionAgent.key`. */
-  readonly laneRequested = output<string>();
 
   /** Local, per bubble: the activity panel is closed by default (§3.11). */
   protected readonly activityOpen = signal(false);
@@ -344,12 +335,6 @@ export class MessageBubbleComponent {
     this.viewMode() === 'compact' && this.turnLive()
       ? (this.split()?.peek ?? null)
       : null,
-  );
-
-  /** Chips: last message of the turn, once it stops streaming (§3.1). */
-  protected readonly showChips = computed(
-    () =>
-      this.isLastOfTurn() && this.agents().length > 0 && !this.isStreaming(),
   );
 
   /** Action row: last message of a settled turn (§3.6). */

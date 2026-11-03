@@ -223,6 +223,56 @@ describe('subtractRunBase', () => {
 });
 
 describe('SessionStatsOwnerService', () => {
+  it('sends an absolute run snapshot when accepted cumulative cost decreases', () => {
+    const contributions: unknown[] = [];
+    const owner = new SessionStatsOwnerService({ recordUsage: (value) => { contributions.push(value); } });
+    const { generation } = owner.startNew(SESSION);
+    owner.beginRun(SESSION, generation, 'run-reprice', null);
+    const first = run(2, [{ input: 10, output: 0, costUSD: 2,
+      pricing: { inputCostPerToken: 0.2, outputCostPerToken: 0 } }], { unreported: true });
+    const repriced = run(1, [{ input: 20, output: 0, costUSD: 1,
+      pricing: { inputCostPerToken: 0.05, outputCostPerToken: 0 } }], { unreported: true });
+    expect(owner.replaceRun(SESSION, generation, 'run-reprice', first).outcome).toBe('accepted');
+    expect(owner.replaceRun(SESSION, generation, 'run-reprice', repriced)).toMatchObject({
+      outcome: 'accepted', runCostDecreased: true, turnCost: null,
+    });
+    expect(contributions).toMatchObject([
+      { totalCostMicroUsd: 2_000_000 },
+      { runCostSnapshot: true, totalCostMicroUsd: 1_000_000,
+        models: [{ inputTokens: 10, knownCostMicroUsd: 1_000_000 }] },
+    ]);
+  });
+  it('attributes accepted usage to the effective provider', () => {
+    const contributions: unknown[] = [];
+    const owner = new SessionStatsOwnerService({ recordUsage: (value) => { contributions.push(value); } });
+    const { generation } = owner.startNew(SESSION);
+    owner.beginRun(SESSION, generation, 'run-provider', null);
+    owner.replaceRun(SESSION, generation, 'run-provider', {
+      ...run(1, [{ input: 10 }]), providerId: 'openrouter',
+    });
+    expect(contributions).toMatchObject([{ providerId: 'openrouter', totalCostMicroUsd: 1000000 }]);
+
+  });
+
+  it('does not capture an accepted zero-only result', () => {
+    const contributions: unknown[] = [];
+    const owner = new SessionStatsOwnerService({ recordUsage: (value) => { contributions.push(value); } });
+    const { generation } = owner.startNew(SESSION);
+    owner.beginRun(SESSION, generation, 'run-zero', null);
+    const zero = run(0, [{ input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }]);
+    expect(owner.replaceRun(SESSION, generation, 'run-zero', zero).outcome).toBe('accepted');
+    expect(contributions).toHaveLength(0);
+  });
+
+  it('keeps accepted results flowing when the usage sink fails', () => {
+    const owner = new SessionStatsOwnerService({ recordUsage: () => { throw new Error('disk unavailable'); } });
+    const { generation } = owner.startNew(SESSION);
+    owner.beginRun(SESSION, generation, 'run-sink-failure', null);
+    expect(owner.replaceRun(SESSION, generation, 'run-sink-failure', run(1, [{ input: 10 }])).outcome).toBe('accepted');
+    expect(owner.replaceRun(SESSION, generation, 'run-sink-failure', run(2, [{ input: 20 }])).outcome).toBe('accepted');
+    expect(owner.snapshot(SESSION)?.tokens.input).toBe(20);
+  });
+
   /** A new owner (brand-new session) with one registered run. */
   function fresh(runToken = 'run-1'): {
     owner: SessionStatsOwnerService;

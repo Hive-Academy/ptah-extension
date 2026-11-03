@@ -103,7 +103,6 @@ import {
   type SubagentExecutionEntry,
 } from '@ptah-extension/chat-streaming';
 import { SessionAgentRosterService } from '../../../services/session-agents/session-agent-roster.service';
-import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
 import { SingleChatSubagentViewComponent } from './single-chat-subagent-view.component';
 import {
   configureTranscriptTestBed,
@@ -1348,102 +1347,6 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
       .map((b) => b.componentInstance as TranscriptMessageBubbleStub);
     expect(bubbles.length).toBe(2);
     expect(bubbles.every((bubble) => bubble.agentTileMode === true)).toBe(true);
-  });
-
-  it('passes a top-level agent chip to its turn after agent children leave the parent tree', () => {
-    configure();
-    const agent: SessionAgent = {
-      key: 'sub:agent-1',
-      kind: 'subagent',
-      name: 'reviewer',
-      cliId: null,
-      agentType: 'reviewer',
-      status: 'running',
-      startedAt: null,
-      endedAt: null,
-      activity: null,
-      openRequestIds: [],
-    };
-    TestBed.overrideProvider(SessionAgentRosterService, {
-      useValue: { roster: () => [agent] },
-    });
-    const fixture = mountHost(SingleChatHost);
-    const assistant = fixture.debugElement
-      .queryAll(By.directive(TranscriptMessageBubbleStub))
-      .map((item) => item.componentInstance as TranscriptMessageBubbleStub)
-      .find((bubble) => bubble.message.role === 'assistant');
-    expect(assistant?.agents.map((item) => item.key)).toContain('sub:agent-1');
-  });
-
-  it('adds a nested agent chip from the store and opens its in-place view', () => {
-    configure();
-    const parent: SessionAgent = {
-      key: 'sub:agent-1',
-      kind: 'subagent',
-      name: 'reviewer',
-      cliId: null,
-      agentType: 'reviewer',
-      status: 'running',
-      startedAt: null,
-      endedAt: null,
-      activity: null,
-      openRequestIds: [],
-    };
-    const child: SessionAgent = {
-      ...parent,
-      key: 'sub:agent-2',
-      name: 'nested reviewer',
-    };
-    TestBed.overrideProvider(SessionAgentRosterService, {
-      useValue: { roster: () => [parent, child] },
-    });
-    const fixture = mountHost(SingleChatHost);
-    const assistant = () =>
-      fixture.debugElement
-        .queryAll(By.directive(TranscriptMessageBubbleStub))
-        .map((item) => item.componentInstance as TranscriptMessageBubbleStub)
-        .find((bubble) => bubble.message.role === 'assistant');
-    expect(assistant()?.agents.map((item) => item.key)).toEqual([
-      'sub:agent-1',
-    ]);
-
-    const nested = createExecutionNode({
-      id: 'nested-agent',
-      type: 'agent',
-      status: 'streaming',
-      toolCallId: 'agent-2',
-      agentType: 'reviewer',
-    });
-    nestedTrees.set(
-      new Map([
-        ['agent-1', [nested]],
-        [
-          'agent-2',
-          [
-            createExecutionNode({
-              id: 'nested-output',
-              type: 'text',
-              status: 'complete',
-              content: 'Nested output',
-            }),
-          ],
-        ],
-      ]),
-    );
-    executionEntries.set(new Map());
-    fixture.detectChanges();
-
-    expect(assistant()?.agents.map((item) => item.key)).toEqual([
-      'sub:agent-1',
-      'sub:agent-2',
-    ]);
-    assistant()?.laneRequested.emit('sub:agent-2');
-    fixture.detectChanges();
-    expect(transcriptOf(fixture).view()?.node().id).toBe('nested-agent');
-    expect(
-      fixture.nativeElement.querySelector('[data-testid="stored-agent-output"]')
-        ?.textContent,
-    ).toContain('Nested output');
   });
 
   it('keeps a top-level agent tile without an agent-start record and opens output arriving after parent completion', () => {

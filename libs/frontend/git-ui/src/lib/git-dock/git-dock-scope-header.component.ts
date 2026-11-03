@@ -88,8 +88,8 @@ const SOURCE_HINTS: Record<SessionWorkingRootSource, string> = {
         type="button"
         class="btn btn-ghost btn-xs shrink-0 gap-1 {{ focusRing }}"
         [attr.aria-pressed]="pinned()"
-        [attr.aria-label]="toggleLabel()"
-        [title]="toggleLabel()"
+        [attr.aria-label]="toggleTitle()"
+        [title]="toggleTitle()"
         [disabled]="!pinned() && scope().session === null"
         data-testid="git-dock-scope-pin"
         (click)="pinToggled.emit(!pinned())"
@@ -141,12 +141,28 @@ export class GitDockScopeHeaderComponent {
     return source === null ? null : SOURCE_HINTS[source];
   });
 
+  /** The scope label's tooltip: what the dock follows and which root it uses. */
   protected readonly title = computed(() => {
     const scope = this.scope();
-    return scope.unresolved ? UNRESOLVED_SCOPE_MESSAGE : (scope.root ?? '');
+    if (scope.unresolved) return UNRESOLVED_SCOPE_MESSAGE;
+    if (scope.root === null) return '';
+    const lead = this.pinned()
+      ? `Pinned to ${scope.session?.name ?? 'this session'}`
+      : 'Following the active session';
+    return `${lead} · ${scope.root}`;
   });
 
+  /** The toggle's visible short label. The tooltip explains it. */
   protected readonly toggleLabel = computed(() =>
     this.pinned() ? 'Follow active session' : 'Pin scope',
+  );
+
+  /** The toggle's tooltip and aria-label, in plain words. */
+  protected readonly toggleTitle = computed(() =>
+    this.pinned()
+      ? `Follow active session — the Git panel is pinned to ${
+          this.scope().session?.name ?? 'this session'
+        }. Click to follow the active chat tab again.`
+      : `Pin scope — keep the Git panel on this session's folder when you switch chat tabs. By default the panel follows the active session.`,
   );
 }

@@ -87,6 +87,35 @@ describe('subagentLaneStats', () => {
 });
 
 describe('cliLaneStats', () => {
+  it('estimates a live Codex lane with token totals but no reported cost', () => {
+    const stats = cliLaneStats(cli({
+      model: 'gpt-6-sol',
+      usageTotals: {
+        inputTokens: 900,
+        outputTokens: 100,
+        cacheReadTokens: 800,
+        totalTokens: 1_000,
+      },
+    }));
+    expect(stats.cost).toBeCloseTo(0.00136);
+    expect(stats.costPartial).toBe(false);
+  });
+
+  it('estimates a restored Codex lane from retained usage segments', () => {
+    const stats = cliLaneStats(cli({
+      model: 'gpt-6-sol',
+      restored: true,
+      usageTotals: null,
+      segments: [{
+        type: 'info', content: 'usage',
+        usage: { inputTokens: 900, outputTokens: 100, cacheReadTokens: 800 },
+      }],
+    }));
+    expect(stats.model).toBe('gpt-6-sol');
+    expect(stats.cost).toBeCloseTo(0.00136);
+    expect(stats.costPartial).toBe(true);
+  });
+
   it('uses structured totals as exact', () => {
     const stats = cliLaneStats(
       cli({

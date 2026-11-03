@@ -353,6 +353,15 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
     );
   }
 
+  if (refs.sessionUsageSink !== null) {
+    await withBudget(
+      'Session usage drain',
+      () => refs.sessionUsageSink?.flush() ?? Promise.resolve(),
+      2000,
+      'usage coverage will remain partial.',
+    );
+  }
+
   nonFatal('SQLite close', () => refs.sqliteConnection?.close());
   nonFatal('Voice worker dispose', deps.disposeVoiceWorker);
   nonFatal('CLI registry dispose', () => refs.cliRegistry?.disposeAll());
@@ -515,6 +524,7 @@ export function requiresDeferredDisposal(refs: BootRefs): boolean {
   return (
     hasElectronCodexBindings() ||
     refs.laneOutcomesDisposer !== null ||
+    refs.sessionUsageSink !== null ||
     refs.messagingGateway !== null ||
     refs.agentProcessManager !== null ||
     refs.chatSessions !== null ||

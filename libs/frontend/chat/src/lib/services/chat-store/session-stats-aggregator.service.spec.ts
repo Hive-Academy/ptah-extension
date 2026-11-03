@@ -1036,6 +1036,7 @@ describe('SessionStatsAggregatorService', () => {
       revision: 7,
       compactions: 0,
       autoHandoff: false,
+      closeSourceAfterAutoHandoff: false,
     };
 
     it('installs the budget with the snapshot of a turn result', () => {

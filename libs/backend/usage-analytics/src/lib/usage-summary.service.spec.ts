@@ -5,9 +5,109 @@ import { OpenCodeSource } from './sources/opencode.source';
 import { GrokSource } from './sources/grok.source';
 import { CliSessionSource } from './cli-session.source';
 import type { UsageSource, UsageContribution } from './usage-source.types';
+import { SessionStatsRepository } from '@ptah-extension/persistence-sqlite';
 
 describe('UsageAnalyticsService', () => {
   afterEach(() => jest.restoreAllMocks());
+
+  it('marks an empty ledger partial because historical sessions were not backfilled', async () => {
+    const repository = new SessionStatsRepository({ ready: async () => { throw new Error('unused'); } });
+    jest.spyOn(repository, 'getWorkspaceCoverage').mockResolvedValue(null);
+    jest.spyOn(repository, 'getWorkspaceUsageGroups').mockResolvedValue([]);
+    jest.spyOn(repository, 'getWorkspaceSessionCount').mockResolvedValue(0);
+    jest.spyOn(repository, 'getWorkspaceMessageCount').mockResolvedValue(0);
+    jest.spyOn(repository, 'getWorkspaceTopSessions').mockResolvedValue([]);
+    const empty = { contributions: [], status: { sourceId: 'external', status: 'complete' as const } };
+    jest.spyOn(CodexSource.prototype, 'read').mockResolvedValue(empty);
+    jest.spyOn(OpenCodeSource.prototype, 'read').mockResolvedValue(empty);
+    jest.spyOn(GrokSource.prototype, 'read').mockResolvedValue(empty);
+    jest.spyOn(CliSessionSource.prototype, 'read').mockResolvedValue(empty);
+    const service = new UsageAnalyticsService({ read: async () => empty }, { price: async () => ({ costUsd: null, cacheSavingsUsd: null, costSource: 'unpriced', priceSource: 'unavailable' }) }, { warn: jest.fn() }, repository);
+    const summary = await service.summarize({ range: 7 }, 'C:/workspace');
+    expect(summary.sources[0]).toMatchObject({ sourceId: 'claude-ledger', status: 'partial' });
+    expect(summary.sources[0].reason).toContain('not backfilled');
+  });
+
+  it('keeps SQL facts within the response cap and reports partial coverage', async () => {
+    const repository = new SessionStatsRepository({ ready: async () => { throw new Error('unused'); } });
+    jest.spyOn(repository, 'getWorkspaceCoverage').mockResolvedValue(null);
+    const day = new Date(Math.floor(Date.now() / 86_400_000) * 86_400_000).toISOString().slice(0, 10);
+    const row = { day, provider_id: 'openai', model_id: 'm', source: 'live', cost_authority: 'unpriced', input_tokens: 1, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, known_cost_micro_usd: null, has_unpriced: 1, session_count: 1 };
+    jest.spyOn(repository, 'getWorkspaceUsageGroups').mockResolvedValue(Array.from({ length: 100_001 }, (_, i) => ({ ...row, model_id: `m${i}` })));
+    jest.spyOn(repository, 'getWorkspaceSessionCount').mockResolvedValue(1);
+    jest.spyOn(repository, 'getWorkspaceMessageCount').mockResolvedValue(1);
+    jest.spyOn(repository, 'getWorkspaceTopSessions').mockResolvedValue([]);
+    const empty = { contributions: [], status: { sourceId: 'external', status: 'complete' as const } };
+    jest.spyOn(CodexSource.prototype, 'read').mockResolvedValue(empty);
+    jest.spyOn(OpenCodeSource.prototype, 'read').mockResolvedValue(empty);
+    jest.spyOn(GrokSource.prototype, 'read').mockResolvedValue(empty);
+    jest.spyOn(CliSessionSource.prototype, 'read').mockResolvedValue(empty);
+    const service = new UsageAnalyticsService({ read: async () => empty }, { price: async () => ({ costUsd: null, cacheSavingsUsd: null, costSource: 'unpriced', priceSource: 'unavailable' }) }, { warn: jest.fn() }, repository);
+    const summary = await service.summarize({ range: 7 }, 'C:/workspace');
+    expect(summary.facts).toHaveLength(100_000);
+    expect(summary.sources[0]).toMatchObject({ status: 'partial', reason: 'fact-limit' });
+  });
+
+  it('suppresses native Codex overlap only in the authorized workspace', async () => {
+    const repository = new SessionStatsRepository({ ready: async () => { throw new Error('unused'); } });
+    jest.spyOn(repository, 'getWorkspaceCoverage').mockResolvedValue(null);
+    jest.spyOn(repository, 'getWorkspaceUsageGroups').mockResolvedValue([]);
+    jest.spyOn(repository, 'getWorkspaceSessionCount').mockResolvedValue(0);
+    jest.spyOn(repository, 'getWorkspaceMessageCount').mockResolvedValue(0);
+    jest.spyOn(repository, 'getWorkspaceTopSessions').mockResolvedValue([]);
+    const today = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+    const base: UsageContribution = { key: 'a', sessionId: 'native-thread', timestampMs: today, providerId: 'codex', modelId: 'gpt', inputUncachedTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 1, sourceId: 'codex' };
+    jest.spyOn(CodexSource.prototype, 'read').mockResolvedValue({ contributions: [base, { ...base, key: 'b' }], status: { sourceId: 'codex', status: 'complete' } });
+    const empty = { contributions: [], status: { sourceId: 'external', status: 'complete' as const } };
+    jest.spyOn(OpenCodeSource.prototype, 'read').mockResolvedValue(empty);
+    jest.spyOn(GrokSource.prototype, 'read').mockResolvedValue(empty);
+    jest.spyOn(CliSessionSource.prototype, 'read').mockResolvedValue(empty);
+    const matches = jest.spyOn(repository, 'hasWorkspaceCodexRun').mockResolvedValue(true);
+    const service = new UsageAnalyticsService({ read: async () => empty }, { price: async () => ({ costUsd: null, cacheSavingsUsd: null, costSource: 'unpriced', priceSource: 'unavailable' }) }, { warn: jest.fn() }, repository);
+    const summary = await service.summarize({ range: 7 }, 'C:/workspace');
+    expect(summary.facts).toEqual([]);
+    expect(matches).toHaveBeenCalledTimes(1);
+    expect(matches.mock.calls[0][0]).toBeTruthy();
+    expect(matches.mock.calls[0][1]).toBe('native-thread');
+    matches.mockResolvedValue(false);
+    const other = await service.summarize({ range: 7 }, 'C:/other');
+    expect(other.facts).toHaveLength(1);
+    expect(other.facts[0].inputUncachedTokens).toBe(10);
+  });
+
+  it('projects SQL ledger days, provider pricing, null cost, and session rankings', async () => {
+    const today = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+    const yesterday = new Date(today - 1).toISOString().slice(0, 10);
+    const current = new Date(today).toISOString().slice(0, 10);
+    const repository = new SessionStatsRepository({ ready: async () => { throw new Error('unused'); } });
+    jest.spyOn(repository, 'getWorkspaceCoverage').mockResolvedValue({ first_captured_at_ms: today, last_captured_at_ms: today });
+    jest.spyOn(repository, 'getWorkspaceUsageGroups').mockResolvedValue([
+      { day: yesterday, provider_id: 'anthropic', model_id: 'claude', source: 'live', cost_authority: 'provider-reported', input_tokens: 3, output_tokens: 1, cache_read_tokens: 0, cache_write_tokens: 0, known_cost_micro_usd: 2_000_000, has_unpriced: 0, session_count: 1 },
+      { day: current, provider_id: 'openai', model_id: 'codex', source: 'live', cost_authority: 'unpriced', input_tokens: 4, output_tokens: 2, cache_read_tokens: 0, cache_write_tokens: 0, known_cost_micro_usd: null, has_unpriced: 1, session_count: 1 },
+    ]);
+    jest.spyOn(repository, 'getWorkspaceSessionCount').mockResolvedValue(2);
+    jest.spyOn(repository, 'getWorkspaceMessageCount').mockResolvedValue(3);
+    jest.spyOn(repository, 'getWorkspaceTopSessions').mockResolvedValue([
+      { session_id: 'session-a', title: 'Priced', provider_id: 'anthropic', model_id: 'claude', last_active_ms: today - 1, message_count: 2, known_cost_micro_usd: 2_000_000, has_unpriced: 0, input_tokens: 3, output_tokens: 1, cache_read_tokens: 0, cache_write_tokens: 0 },
+      { session_id: 'session-b', title: 'Unpriced', provider_id: 'openai', model_id: 'codex', last_active_ms: today, message_count: 1, known_cost_micro_usd: null, has_unpriced: 1, input_tokens: 4, output_tokens: 2, cache_read_tokens: 0, cache_write_tokens: 0 },
+    ]);
+    const empty = { contributions: [], status: { sourceId: 'external', status: 'complete' as const } };
+    jest.spyOn(CodexSource.prototype, 'read').mockResolvedValue(empty);
+    jest.spyOn(OpenCodeSource.prototype, 'read').mockResolvedValue(empty);
+    jest.spyOn(GrokSource.prototype, 'read').mockResolvedValue(empty);
+    jest.spyOn(CliSessionSource.prototype, 'read').mockResolvedValue(empty);
+    const service = new UsageAnalyticsService({ read: async () => { throw new Error('JSONL should not run'); } }, { price: async () => { throw new Error('not used'); } }, { warn: jest.fn() }, repository);
+    const summary = await service.summarize({ range: 7 }, 'C:/workspace');
+    expect(summary.facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ day: yesterday, providerId: 'anthropic', costUsd: 2 }),
+      expect.objectContaining({ day: current, providerId: 'openai', costUsd: null }),
+    ]));
+    expect(summary.sessionCount).toBe(2);
+    expect(summary.messageCount).toBe(3);
+    expect(summary.topSessions?.map((row) => row.sessionId)).toEqual(['session-a', 'session-b']);
+    expect(summary.sources[0]).toMatchObject({ sourceId: 'claude-ledger', status: 'partial' });
+    expect(summary.sources[0].reason).toContain(new Date(today).toISOString());
+  });
 
   it('ranks session-linked usage by priced cost and counts deduplicated activity', async () => {
     const today = Math.floor(Date.now() / 86_400_000) * 86_400_000;
@@ -103,3 +203,4 @@ describe('UsageAnalyticsService', () => {
     expect(summary.sources[2]).toMatchObject({ sourceId: 'opencode', status: 'unavailable', reason: 'time-budget' });
   });
 });
+

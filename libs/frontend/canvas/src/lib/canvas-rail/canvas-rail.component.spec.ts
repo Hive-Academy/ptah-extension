@@ -37,6 +37,7 @@ class CardStub {
   readonly otherRequests = output<void>();
   readonly focusRequested = output<string>(); readonly railState = output<CompactRailState>();
   readonly staleAction = output<string>(); readonly lanesRequested = output<string>();
+  readonly reorderable = input(true);
   readonly canMoveUp = input(false); readonly canMoveDown = input(false);
   readonly splitDisabledReason = input<string | null>(null);
   readonly openBesideRequested = output<string>(); readonly moveUpRequested = output<string>();
@@ -401,6 +402,40 @@ describe('CanvasRailComponent', () => {
     expect(ids()).toEqual(['d', 'b', 'c', 'a']);
     expect(stubs(fixture).map(card => [card.canMoveUp(), card.canMoveDown()]))
       .toEqual([[false, false], [false, true], [true, false], [false, false]]);
+  });
+  it('groups background work between Running and Waiting and offers its jump chip', () => {
+    const fixture = mount(['a', 'b', 'c'].map((id, order) => tile(id, order)));
+    fixture.componentRef.setInput('states', new Map<string, CompactRailState>([
+      ['a', 'idle'], ['b', 'background'], ['c', 'running'],
+    ])); fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect([...host.querySelectorAll('[data-rail-card]')].map(card => card.getAttribute('data-tab-id')))
+      .toEqual(['c', 'b', 'a']);
+    expect([...host.querySelectorAll('section')].map(section => section.getAttribute('aria-label')))
+      .toEqual(['Running', 'Background work', 'Waiting / Needs input / Error / Idle']);
+    const chip = [...host.querySelectorAll<HTMLButtonElement>('.rail-chips button')]
+      .find(button => button.textContent?.includes('Background'))!;
+    expect(chip.getAttribute('aria-label')).toBe('1 background, jump to the next session');
+    expect(chip.classList).toContain('state-background');
+    const jumps = jest.fn(); fixture.componentInstance.jumpTo.subscribe(jumps);
+    chip.click();
+    expect(jumps).toHaveBeenCalledWith('background');
+  });
+  it('shows the sort choice, emits its toggle and offers manual moves only in manual order', () => {
+    const fixture = mount([tile('a', 0), tile('b', 1)]);
+    const host = fixture.nativeElement as HTMLElement;
+    const toggle = () => host.querySelector<HTMLButtonElement>('[data-testid="rail-sort-toggle"]')!;
+    expect(toggle().textContent?.trim()).toBe('Manual');
+    expect(stubs(fixture).map(card => card.reorderable())).toEqual([true, true]);
+    fixture.componentRef.setInput('sort', 'recent'); fixture.detectChanges();
+    expect(toggle().textContent?.trim()).toBe('Recent');
+    expect(toggle().getAttribute('aria-label')).toBe('Sort: recent activity first. Switch to manual order');
+    expect(stubs(fixture).map(card => card.reorderable())).toEqual([false, false]);
+    const toggled = jest.fn(); fixture.componentInstance.sortToggled.subscribe(toggled);
+    toggle().click();
+    expect(toggled).toHaveBeenCalledTimes(1);
+    fixture.componentRef.setInput('collapsed', true); fixture.detectChanges();
+    expect(host.querySelector('[data-testid="rail-sort-toggle"]')).toBeNull();
   });
   it('offers five labeled jump actions and keeps Finished preference while mounted', () => {
     const fixture = mount(['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id, order) => tile(id, order)));

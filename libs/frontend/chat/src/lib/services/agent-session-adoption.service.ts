@@ -12,6 +12,7 @@ import {
 } from '@ptah-extension/chat-state';
 import type { TabState } from '@ptah-extension/chat-types';
 import { SessionLoaderService } from './chat-store/session-loader.service';
+import { AutoHandoffSourceCloserService } from './auto-handoff-source-closer.service';
 
 /**
  * A late-adopted agent tab whose history has not been loaded and that may be
@@ -151,6 +152,7 @@ export class AgentSessionAdoptionService {
   private readonly injector = inject(Injector);
 
   private readonly sessionLoader = inject(SessionLoaderService);
+  private readonly sourceCloser = inject(AutoHandoffSourceCloserService);
 
   private readonly settled = new Set<string>();
   /**
@@ -303,6 +305,12 @@ export class AgentSessionAdoptionService {
    * (`sessionHandoff:opened`, TASK_2026_655). Push-only: a handoff tab this
    * webview missed is reachable from the sidebar like any chat. Never throws.
    *
+   * When an AUTOMATIC hand-off's source must close after the continuation
+   * takes over (`sessionBudget.closeSourceAfterAutoHandoff`,
+   * TASK_2026_863), only a SUCCESSFUL adoption arms that close
+   * ({@link AutoHandoffSourceCloserService}): a hand-off tab that was already
+   * present or could not be adopted here leaves the source open.
+   *
    * The canvas tile takes focus exactly when the tab manager focuses the new
    * tab, which it does only when the source was the active tab.
    */
@@ -310,6 +318,7 @@ export class AgentSessionAdoptionService {
     try {
       const outcome = this.tabManager.adoptHandoffTab(descriptor);
       if (outcome !== 'adopted') return;
+      this.sourceCloser.onHandoffAdopted(descriptor);
       this.requestCanvasTile(
         descriptor.tabId,
         descriptor.label,
