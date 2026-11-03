@@ -433,12 +433,17 @@ describe('buildStatsLimitViewModel', () => {
   describe('F59 lane usage stays out of the session totals', () => {
     it('produces no session token or cost field', () => {
       const vm = buildStatsLimitViewModel(input({ laneRuns: [run()] }));
+      // Exact key list: a new session token or cost field must fail here.
       expect(Object.keys(vm).sort()).toEqual([
+        'inspectorRuns',
         'laneTiles',
         'lanesCount',
         'planTiles',
+        'providerLimits',
         'subtotal',
       ]);
+      expect(vm.inspectorRuns).toHaveLength(1);
+      expect(vm.providerLimits).toHaveLength(1);
     });
 
     it.each([

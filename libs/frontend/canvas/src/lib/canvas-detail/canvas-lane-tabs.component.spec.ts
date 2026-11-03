@@ -939,8 +939,9 @@ describe('CanvasLaneTabsComponent', () => {
       const labels = tabLabels(fixture.nativeElement);
       expect(labels).toHaveLength(5);
       expect(labels.some((label) => label.includes('Waiter'))).toBe(true);
-      expect(labels.some((label) => label.includes('Finished'))).toBe(true);
-      expect(labels.some((label) => label.includes('Extra'))).toBe(false);
+      expect(labels.some((label) => label.includes('Runner'))).toBe(true);
+      expect(labels.some((label) => label.includes('Extra'))).toBe(true);
+      expect(labels.some((label) => label.includes('Broken'))).toBe(false);
       const selected = jest.fn();
       fixture.componentInstance.laneSelected.subscribe(selected);
       fixture.nativeElement
@@ -962,7 +963,7 @@ describe('CanvasLaneTabsComponent', () => {
       fixture.detectChanges();
       const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
       expect(rows.map((row) => row.querySelector('.truncate')?.textContent?.trim())).toEqual([
-        'Waiter', 'Runner', 'Broken', 'Finished', 'Extra',
+        'Waiter', 'Runner', 'Finished', 'Extra', 'Broken',
       ]);
       expect(rows).toHaveLength(Number(trigger.getAttribute('aria-label')?.match(/^\d+/)?.[0]));
       expect(rows.some((row) => row.textContent?.includes('Orchestrator'))).toBe(false);

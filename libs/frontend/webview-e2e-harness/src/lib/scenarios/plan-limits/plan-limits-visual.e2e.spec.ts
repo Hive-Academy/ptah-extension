@@ -35,7 +35,6 @@ import { installRpcAutoResponder } from '../marketplace/marketplace.fixtures';
 import {
   CLAUDE_A,
   DASHBOARD_SNAPSHOT,
-  EXPECTED_LANE_TILES,
   LIVE_LANE_MESSAGES,
   LOCALE,
   NOW,
@@ -143,7 +142,14 @@ test.describe('plan limits > session inspector', () => {
           limits.locator(`ptah-plan-limit-tile[data-tile-id="plan:${CLAUDE_A.key}:${windowKey}"]`);
         await expect(planTile('five_hour')).toContainText('94%');
         await expect(stats).not.toContainText('5-hour');
-        await expect(limits.locator('ptah-lane-usage-tile')).toHaveCount(EXPECTED_LANE_TILES);
+        const providerRows = limits.locator('ptah-provider-lane-limit-tile');
+        const providerRow = (cli: string) =>
+          providerRows.locator(`[data-provider-id="provider:${cli}"]`);
+        await expect(providerRows).toHaveCount(4);
+        await expect(providerRow('codex')).toContainText('38%');
+        await expect(providerRow('opencode')).toContainText('Limits not tracked');
+        await expect(providerRow('copilot')).toContainText('Limits not tracked');
+        await expect(providerRow('ptah-cli')).toContainText('Multiple accounts');
         await capture(stats, shotPath('session-inspector', 'near', theme, width));
 
         // Push path: one planLimits:changed replaces the snapshot.
@@ -152,37 +158,33 @@ test.describe('plan limits > session inspector', () => {
         await capture(stats, shotPath('session-inspector', 'at-limit', theme, width));
         await capture(tile, shotPath('chat-tile', 'at-limit', theme, width));
 
-        // (b) Plan tiles, lane tiles, and subtotal in the inspector.
+        // (b) Session plan tiles and one limit row per CLI family.
         const planTiles = limits.locator('ptah-plan-limit-tile');
-        const laneTiles = limits.locator('ptah-lane-usage-tile');
-        await expect(laneTiles).toHaveCount(EXPECTED_LANE_TILES);
+        await expect(providerRows).toHaveCount(4);
         await expect(planTiles.first()).toBeVisible();
-        await expect(limits.locator('ptah-lane-subtotal-tile')).toBeVisible();
+        await providerRow('ptah-cli').getByRole('button', { name: 'More detail' }).click();
+        await expect(providerRow('ptah-cli')).toContainText('Resets');
+        const agents = inspector.locator('ptah-inspector-agents-section');
+        await expect(agents.locator('[data-testid="agents-lane-subtotal"]')).toBeVisible();
         await fitViewportHeight(page, limits, width);
         await capture(limits, shotPath('session-limits', 'all-tiles', theme, width));
 
-        // (c) One plan tile (the Opus window at its limit) and one lane tile
-        // (Codex review: a different owner with an estimated-limit note).
+        // (c) Open the Opus limit and inspect the Codex review run in AGENTS.
         const opusTile = limits.locator(
           `ptah-plan-limit-tile[data-tile-id="plan:${CLAUDE_A.key}:weekly_model:opus"]`,
         );
         await opusTile.locator('[data-testid="plan-limit-tile"]').click();
         await expect(opusTile.locator('[data-testid="plan-limit-panel"]')).toBeVisible();
 
-        const reviewTile = limits.locator(
-          'ptah-lane-usage-tile[data-tile-id="lane:codex:review"]',
-        );
-        await reviewTile.locator('[data-testid="lane-usage-tile"]').click();
-        const reviewPanel = reviewTile.locator('[data-testid="lane-usage-panel"]');
-        await expect(reviewPanel).toBeVisible();
-        await expect(
-          reviewPanel.locator('[data-testid="lane-subgroup"]').first(),
-        ).toHaveAttribute('data-owner-status', 'different');
+        const reviewRow = agents.locator('[data-agent-key]').filter({ hasText: 'Codex · review' });
+        await expect(reviewRow.locator('[data-testid="agent-row-tokens"]')).toContainText('10.1k');
+        await reviewRow.getByRole('button', { name: /Expand Codex.*review details/ }).click();
+        await expect(agents.locator('[data-testid="agent-run-detail"]')).toContainText('Different owner');
 
         await fitViewportHeight(page, limits, width);
         await capture(limits, shotPath('session-limits', 'tiles-open', theme, width));
         await capture(opusTile, shotPath('plan-tile', 'open-at-limit', theme, width));
-        await capture(reviewTile, shotPath('lane-tile', 'open-different-owner', theme, width));
+        await capture(agents, shotPath('lane-tile', 'open-different-owner', theme, width));
 
         // (d) A failed pull while the pushed snapshot is held. A run on a new
         // owner widens this surface's scope, so the store pulls once more.

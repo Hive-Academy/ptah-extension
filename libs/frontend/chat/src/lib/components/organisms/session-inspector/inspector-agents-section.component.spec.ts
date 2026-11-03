@@ -511,9 +511,8 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
         .querySelector('[data-testid="agent-row-model"]')
         ?.getAttribute('title'),
     ).toBe('Sub-agent · test-model');
-    expect(row.getAttribute('aria-label')).toContain(
-      'Model test-model. 2.4k tokens (In 1.2k · Out 300)',
-    );
+    expect(row.getAttribute('aria-label')).toContain('Model test-model.');
+    expect(row.getAttribute('aria-label')).toContain('2.4k tokens (In 1.2k · Out 300)');
     expect(
       row
         .querySelector('[data-testid="agent-row-tokens"]')
