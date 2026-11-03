@@ -125,6 +125,34 @@ describe('WelcomeVitalsStore', () => {
     expect(plan.load).not.toHaveBeenCalled();
   });
 
+  it('retries failed and incomplete plan limits on the shared clock without stacking loads', () => {
+    plan.snapshot.set(planSnapshot([]));
+    const store = create();
+    expect(plan.load).not.toHaveBeenCalled();
+
+    plan.loadError.set(true);
+    // A failed refresh keeps the real snapshot, so the ring is not an error.
+    expect(store.planRing()).not.toEqual(VITALS_ERROR);
+    // Only the failure placeholder (no host data) renders as an error.
+    plan.snapshot.set({ generatedAt: 0, owners: [], sessionOwners: {} });
+    expect(store.planRing()).toEqual(VITALS_ERROR);
+    plan.now.set(plan.now() + 30_000);
+    TestBed.flushEffects();
+    expect(plan.load).toHaveBeenCalledTimes(1);
+
+    plan.loading.set(true);
+    plan.now.set(plan.now() + 30_000);
+    TestBed.flushEffects();
+    expect(plan.load).toHaveBeenCalledTimes(1);
+
+    plan.loading.set(false);
+    plan.loadError.set(false);
+    plan.snapshot.set({ ...planSnapshot([]), discoveryIncomplete: true });
+    plan.now.set(plan.now() + 30_000);
+    TestBed.flushEffects();
+    expect(plan.load).toHaveBeenCalledTimes(2);
+  });
+
   it('passes the host counts through', () => {
     const store = create();
     clis.set(vitalsReady(3));

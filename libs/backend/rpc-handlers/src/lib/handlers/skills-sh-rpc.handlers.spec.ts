@@ -731,6 +731,17 @@ describe('SkillsShRpcHandlers — install scope (TASK_2026_853 D-3)', () => {
 });
 
 describe('SkillsShRpcHandlers — list and uninstall resolve the true scope', () => {
+  it('propagates an installed-skills scan failure instead of reporting zero skills', async () => {
+    const h = makeHarness();
+    const failure = new Error('scan failed');
+    h.sourceRoots.listInstalled.mockRejectedValueOnce(failure);
+
+    await expect(h.rpc.call('skillsSh:listInstalled', {})).rejects.toBe(failure);
+    expect(h.logger.error).toHaveBeenCalledWith(
+      'RPC: skillsSh:listInstalled failed', failure,
+    );
+  });
+
   it('lists the global roots plus THIS workspace', async () => {
     const h = makeHarness({ workspaceRoot: '/repo' });
 

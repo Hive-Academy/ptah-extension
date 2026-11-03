@@ -285,4 +285,59 @@ describe('CliDetectionService role stamp', () => {
       expect(row.roleChannel).toBe(mockAdapterFor(row.cli).roleChannel);
     }
   });
+
+  it('refresh() joins a current in-flight scan instead of starting a second one', async () => {
+    let releaseCodex: ((result: CliDetectionResult) => void) | undefined;
+    mockAdapterFor('codex').detect.mockImplementationOnce(
+      () => new Promise((resolve) => { releaseCodex = resolve; }),
+    );
+    const { service } = createService();
+    const first = service.detectAll();
+
+    const joined = service.refresh();
+    for (const [name] of CHANNELS) {
+      expect(mockAdapterFor(name).detect).toHaveBeenCalledTimes(1);
+    }
+
+    if (!releaseCodex) throw new Error('Codex detection did not start');
+    releaseCodex({ cli: 'codex', installed: true, messagingMode: 'queue' });
+    expect(await joined).toEqual(await first);
+
+    // The joined scan was current, so its result is cached.
+    await service.detectAll();
+    for (const [name] of CHANNELS) {
+      expect(mockAdapterFor(name).detect).toHaveBeenCalledTimes(1);
+    }
+    // With no scan in flight, refresh() re-detects.
+    await service.refresh();
+    for (const [name] of CHANNELS) {
+      expect(mockAdapterFor(name).detect).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it('does not join or cache a scan that started before invalidateCache()', async () => {
+    let releaseCodex: ((result: CliDetectionResult) => void) | undefined;
+    mockAdapterFor('codex').detect.mockImplementationOnce(
+      () => new Promise((resolve) => { releaseCodex = resolve; }),
+    );
+    const { service } = createService();
+    const stale = service.detectAll();
+
+    service.invalidateCache();
+    const fresh = service.refresh();
+    for (const [name] of CHANNELS) {
+      expect(mockAdapterFor(name).detect).toHaveBeenCalledTimes(2);
+    }
+
+    if (!releaseCodex) throw new Error('Codex detection did not start');
+    releaseCodex({ cli: 'codex', installed: true, messagingMode: 'queue' });
+    await stale;
+    await fresh;
+
+    // The fresh scan is cached; the stale one did not overwrite it.
+    await service.detectAll();
+    for (const [name] of CHANNELS) {
+      expect(mockAdapterFor(name).detect).toHaveBeenCalledTimes(2);
+    }
+  });
 });

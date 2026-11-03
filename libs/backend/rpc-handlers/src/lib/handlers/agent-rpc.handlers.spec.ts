@@ -240,6 +240,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
       getAdapter: jest.fn().mockReturnValue(undefined),
       invalidateCache: jest.fn(),
       detectAll: jest.fn().mockResolvedValue(options.detectedClis ?? []),
+      refresh: jest.fn().mockResolvedValue(options.detectedClis ?? []),
     } as unknown as CliDetectionService,
     registry as unknown as PtahCliRegistry,
     processManager as unknown as AgentProcessManager,

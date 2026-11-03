@@ -24,6 +24,7 @@ import {
   type SpendVitals,
 } from './usage-vitals.view';
 import type { VitalsLoad } from './vitals-load';
+import { VITALS_ERROR } from './vitals-load';
 
 /**
  * View model of the no-workspace welcome (`ptah-electron-welcome`). Provide it
@@ -70,9 +71,15 @@ export class WelcomeVitalsStore {
   );
 
   /** No session here: the first account with a known plan window. */
-  readonly planRing: Signal<VitalsLoad<PlanRingData>> = computed(() =>
-    toPlanRingLoad(this.planLimits.snapshot(), null, this.planLimits.now()),
-  );
+  readonly planRing: Signal<VitalsLoad<PlanRingData>> = computed(() => {
+    const snapshot = this.planLimits.snapshot();
+    // A failed load keeps a real snapshot; only the `generatedAt: 0`
+    // failure placeholder (no host data at all) renders as an error.
+    if (this.planLimits.loadError() && (snapshot?.generatedAt ?? 0) === 0) {
+      return VITALS_ERROR;
+    }
+    return toPlanRingLoad(snapshot, null, this.planLimits.now());
+  });
 
   /** Installed, enabled CLI agents (D18: the welcome "Agents" stat). */
   readonly cliCount: Signal<VitalsLoad<number>> = injectVitalsSource(
@@ -111,6 +118,18 @@ export class WelcomeVitalsStore {
       untracked(() => {
         if (this.recents().status === 'error')
           void this.recentWorkspaces.load();
+      });
+    });
+    effect(() => {
+      this.tick();
+      untracked(() => {
+        if (
+          !this.planLimits.loading() &&
+          (this.planLimits.loadError() ||
+            this.planLimits.snapshot()?.discoveryIncomplete === true)
+        ) {
+          void this.planLimits.load();
+        }
       });
     });
   }

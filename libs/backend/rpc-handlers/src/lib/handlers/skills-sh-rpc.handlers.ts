@@ -323,7 +323,7 @@ export class SkillsShRpcHandlers {
           'RPC: skillsSh:listInstalled failed',
           error instanceof Error ? error : new Error(String(error)),
         );
-        return { skills: [] };
+        throw error;
       }
     });
   }

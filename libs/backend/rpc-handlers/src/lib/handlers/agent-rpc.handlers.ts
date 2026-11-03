@@ -1255,8 +1255,7 @@ export class AgentRpcHandlers {
       async () => {
         try {
           this.logger.debug('RPC: agent:detectClis called');
-          this.cliDetection.invalidateCache();
-          const cliResults = await this.cliDetection.detectAll();
+          const cliResults = await this.cliDetection.refresh();
           const detectedClis = await this.mergePtahCliAgents(cliResults);
 
           this.logger.debug('RPC: agent:detectClis success', {
