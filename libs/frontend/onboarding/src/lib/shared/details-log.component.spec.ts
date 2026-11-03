@@ -112,8 +112,15 @@ describe('DetailsLogComponent', () => {
     expect(region.getAttribute('aria-label')).toBe('Session log');
     expect(region.tabIndex).toBe(0);
     expect(region.classList.contains('overflow-hidden')).toBe(true);
+    expect(el.classList.contains('h-full')).toBe(true);
     fixture.componentInstance.focus();
     expect(document.activeElement).toBe(region);
+  });
+
+  it('keeps the default disclosure host at its natural height', () => {
+    const el = render('analysis');
+    expect(el.querySelector('details')).not.toBeNull();
+    expect(el.classList.contains('h-full')).toBe(false);
   });
 
   it('releases the old pane embed before mounting the new tab', () => {
@@ -146,7 +153,6 @@ describe('DetailsLogComponent', () => {
     const el = render('tab', { tabId: null });
     fixture.componentRef.setInput('variant', 'pane');
     fixture.componentRef.setInput('composer', true);
-    fixture.componentRef.setInput('footerNote', '');
     fixture.detectChanges();
     const region = el.querySelector('[data-testid="details-log-body"]') as HTMLElement;
     expect(el.querySelector('.session-log-container')).not.toBeNull();
@@ -154,6 +160,13 @@ describe('DetailsLogComponent', () => {
     expect(region.nextElementSibling?.classList.contains('log-composer-slot')).toBe(true);
     expect(el.textContent).not.toContain('Read-only view.');
     expect(el.querySelector('[data-testid="details-log-unavailable"]')).not.toBeNull();
+  });
+
+  it('shows the default read-only footer in a pane without a composer', () => {
+    const el = render('tab', { tabId: null });
+    fixture.componentRef.setInput('variant', 'pane');
+    fixture.detectChanges();
+    expect(el.textContent).toContain('Read-only view.');
   });
 
   it('keeps the tab embed unmounted while collapsed and releases it on close', () => {

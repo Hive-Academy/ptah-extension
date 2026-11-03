@@ -43,7 +43,7 @@ export interface DetailsLogStreamCounts {
     LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block h-full' },
+  host: { class: 'block', '[class.h-full]': "variant() === 'pane'" },
   template: `
     @if (variant() === 'pane') {
       <section class="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-base-300 bg-base-200"
@@ -82,7 +82,7 @@ export interface DetailsLogStreamCounts {
             }
           }
         </div>
-        @if (footerNote()) {
+        @if (footerNote() && (!composer() || footerNote() !== 'Read-only view.')) {
           <div class="flex shrink-0 items-center gap-2 border-t border-base-300 px-4 py-2 text-xs text-base-content-muted">
             <lucide-angular [img]="icons.circleDashed" class="size-3.5" aria-hidden="true" />{{ footerNote() }}
           </div>

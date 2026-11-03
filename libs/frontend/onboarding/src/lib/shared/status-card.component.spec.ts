@@ -16,6 +16,16 @@ import { StatusCardComponent } from './status-card.component';
 class HostComponent {}
 
 describe('StatusCardComponent', () => {
+  it('marks the idle tone on the card', () => {
+    TestBed.configureTestingModule({ imports: [StatusCardComponent] });
+    const fixture = TestBed.createComponent(StatusCardComponent);
+    fixture.componentRef.setInput('tone', 'idle');
+    fixture.componentRef.setInput('label', 'Idle session');
+    fixture.detectChanges();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('section')?.getAttribute('data-tone')).toBe('idle');
+  });
+
   it('renders the tone, projected content, and one polite status without meta', () => {
     TestBed.configureTestingModule({ imports: [HostComponent] });
     const fixture = TestBed.createComponent(HostComponent);

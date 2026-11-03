@@ -37,7 +37,7 @@ export type StatusCardTone = 'run' | 'need' | 'err' | 'done' | 'idle';
     .status-card[data-tone='need'] { --status-ink: var(--state-ink-need); }
     .status-card[data-tone='err'] { --status-ink: var(--state-ink-err); }
     .status-card[data-tone='done'] { --status-ink: var(--state-ink-done); }
-    .status-card[data-tone='idle'] { --status-ink: var(--state-ink-idle); }
+    .status-card[data-tone='idle'] { --status-ink: var(--state-ink-idle, oklch(var(--bc))); }
     .status-icon { color: var(--status-ink); background: color-mix(in oklab, var(--status-ink) 14%, oklch(var(--b2))); border-color: color-mix(in oklab, var(--status-ink) 45%, oklch(var(--b3))); }
     .status-progress { background: var(--status-ink); }
   `],
